@@ -2833,7 +2833,10 @@ mod tests {
                             message: _
                         } if code == "codex_native_server_exited"
                     ),
-                    "unexpected native server exit should reach the terminal as an error, got {terminal_event:?}"
+                    "unexpected native server exit should reach the terminal as an error, got {terminal_event:?}; scenario={scenario}; server_marker={}; server_pid={server_pid}; tui_pid={tui_pid}; elapsed={:?}; status={}",
+                    dir.path().join("server-exited").exists(),
+                    std::time::Duration::from_secs(5).saturating_sub(deadline.saturating_duration_since(tokio::time::Instant::now())),
+                    state.sessions.lock().unwrap()[&id].info.status,
                 );
                 while state.sessions.lock().unwrap()[&id].info.status != "error"
                     && tokio::time::Instant::now() < deadline

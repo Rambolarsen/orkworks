@@ -32,7 +32,12 @@ impl Fixture {
             Arc::new(BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap()),
         );
         let root = dir.path().join("runtime");
-        let runtime = TaskmasterRuntime::open(root.clone());
+        let runtime = TaskmasterRuntime::open_fixture(root.clone());
+        runtime
+            .activate_knowledge(&crate::taskmaster::knowledge::test_support::fixture(
+                "valid-activation.json",
+            ))
+            .unwrap();
         let mut settings = TaskmasterSettings::default();
         settings.enabled = true;
         settings.selection = Some(
@@ -180,7 +185,7 @@ fn custom_action_rejects_changed_settings_and_another_runtime_root() {
     let fixture = Fixture::new();
     fixture.approve();
     let captured = fixture.capture();
-    let other = TaskmasterRuntime::open(fixture.dir.path().join("other-runtime"));
+    let other = TaskmasterRuntime::open_fixture(fixture.dir.path().join("other-runtime"));
     assert!(!other
         .with_current_custom_inference(&fixture.harnesses, &captured, || panic!("wrong root"))
         .unwrap());
@@ -191,7 +196,7 @@ fn custom_action_rejects_changed_settings_and_another_runtime_root() {
     let mut settings = snapshot.settings.clone();
     settings.selection.as_mut().unwrap().model = "changed-model".into();
     // A separate runtime view simulates a settings update from another request/process.
-    TaskmasterRuntime::open(fixture.dir.path().join("runtime"))
+    TaskmasterRuntime::open_fixture(fixture.dir.path().join("runtime"))
         .replace_settings(settings)
         .unwrap();
     assert!(!fixture
@@ -345,7 +350,7 @@ fn custom_capture_binds_workspace_overrides_and_rejects_later_disablement() {
         .get_mut(&workspace)
         .unwrap()
         .enabled = Some(false);
-    TaskmasterRuntime::open(fixture.dir.path().join("runtime"))
+    TaskmasterRuntime::open_fixture(fixture.dir.path().join("runtime"))
         .replace_settings(settings)
         .unwrap();
     assert!(!fixture

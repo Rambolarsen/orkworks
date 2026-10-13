@@ -13,6 +13,13 @@ cargo test --manifest-path crates/orkworksd/Cargo.toml
 cargo fmt --manifest-path crates/orkworksd/Cargo.toml --check
 ```
 
+The full Rust suite also requires Node from the repository `.nvmrc` and a frozen
+desktop dependency install (`pnpm --dir apps/desktop install --frozen-lockfile`).
+The signed knowledge route tests invoke the real Electron TypeScript transport and
+knowledge updater/cache against the authenticated sidecar router. `fs-ext` must
+use the host Node ABI: do not run the Electron native rebuild before these tests.
+CI's full Linux Rust jobs provision Node and install these dependencies first.
+
 The desktop package can also build the sidecar with `cd apps/desktop && pnpm build:rust`.
 
 ### Formatting footgun

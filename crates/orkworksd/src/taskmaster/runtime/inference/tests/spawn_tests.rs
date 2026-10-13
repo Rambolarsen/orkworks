@@ -163,3 +163,16 @@ fn custom_spawn_releases_trust_locks_while_process_runs() {
         ))
         .unwrap());
 }
+
+#[test]
+fn custom_spawn_rejects_same_generation_proof_corruption_before_child_start() {
+    let fixture = executable_fixture(false);
+    let captured = fixture.capture();
+    fs::write(fixture.runtime.knowledge_path(), b"broken").unwrap();
+    let error = fixture
+        .runtime
+        .invoke_custom_inference(&fixture.harnesses, &captured, "fixture context".into())
+        .unwrap_err();
+    assert_eq!(error.code, ProviderOperationErrorCode::StaleGeneration);
+    assert!(!fixture.dir.path().join("started").exists());
+}

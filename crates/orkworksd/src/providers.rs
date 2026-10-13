@@ -1447,6 +1447,35 @@ where
     }
 }
 
+// Use the native transport's actual process runner with a locally compiled marker executable.
+#[cfg(test)]
+pub(crate) fn run_native_process_for_test(
+    command: &mut Command,
+    prompt: &str,
+    gate: &mut ProviderDispatchGate<'_>,
+) -> Result<String, String> {
+    let result =
+        ProcessRunner.run_prepared_with_dispatch_gate("codex", command, prompt, 10, false, gate);
+    if result.success {
+        Ok(result.stdout)
+    } else {
+        Err(result.stderr)
+    }
+}
+
+// Exercise the production lazy-send polling seam with a real runtime guard.
+#[cfg(test)]
+pub(crate) fn poll_http_send_for_test<F>(
+    send_fut: std::pin::Pin<&mut F>,
+    cx: &mut std::task::Context<'_>,
+    gate: &mut ProviderDispatchGate<'_>,
+) -> std::task::Poll<Result<reqwest::Response, ()>>
+where
+    F: Future<Output = Result<reqwest::Response, reqwest::Error>> + ?Sized,
+{
+    poll_http_send_with_dispatch_gate(send_fut, cx, gate).map_err(|_| ())
+}
+
 async fn read_http_body_limited(mut response: reqwest::Response) -> Result<Vec<u8>, HttpReadError> {
     let mut body = Vec::new();
     while let Some(chunk) = response.chunk().await.map_err(HttpReadError::Request)? {
@@ -6142,11 +6171,27 @@ done
         definition.default_args = vec![
             "-c".into(),
             format!(
-                "printf '%s|%s|%s' \"$1\" \"$2\" \"$3\" > '{}' && printf '%s' '{{\"observedStatus\":\"working\",\"confidence\":0.9}}'",
+                "cat >/dev/null && printf '%s|%s|%s' \"$1\" \"$2\" \"$3\" > '{}' && printf '%s' '{{\"observedStatus\":\"working\",\"confidence\":0.9}}'",
                 capture_path.display()
             ),
             "provider".into(),
         ];
+        // Exceed the pipe buffer so this fixture must read its prompt instead of
+        // succeeding only when the writer happens to beat an early child exit.
+        let input_probe = ProcessRunner.run(
+            "fixture",
+            &definition.command,
+            &definition.default_args,
+            &"x".repeat(2 * 1024 * 1024),
+            5,
+            None,
+        );
+        assert!(
+            input_probe.success,
+            "provider fixture must drain stdin before exit: {}",
+            input_probe.stderr
+        );
+
         let mut manager = ProviderManager::for_tests_with_registry(
             vec![definition],
             ProviderSettingsPayload::default(),

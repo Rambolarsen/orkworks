@@ -47,7 +47,12 @@ impl Fixture {
             Arc::new(BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap()),
         ));
         let root = dir.path().join("runtime");
-        let runtime = TaskmasterRuntime::open(root.clone());
+        let runtime = TaskmasterRuntime::open_fixture(root.clone());
+        runtime
+            .activate_knowledge(&crate::taskmaster::knowledge::test_support::fixture(
+                "valid-activation.json",
+            ))
+            .unwrap();
         let mut settings = TaskmasterSettings::default();
         settings.enabled = true;
         settings.selection = Some(
@@ -271,7 +276,9 @@ fn manual_evaluation_discards_a_request_after_workspace_switch() {
 
     run_model_evaluation_with_context_and_workspace(
         fixture.state.clone(),
-        fixture.dir.path().join("runtime"),
+        Arc::new(TaskmasterRuntime::open_fixture(
+            fixture.dir.path().join("runtime"),
+        )),
         |_, _, _, _| panic!("repository context must not be collected for a stale workspace"),
         Some(requested_workspace),
         None,
@@ -294,7 +301,7 @@ fn scheduled_run_clears_queued_skip_and_records_context_failure() {
         .unwrap();
     run_model_evaluation_with_context_and_workspace(
         fixture.state.clone(),
-        root.clone(),
+        Arc::new(TaskmasterRuntime::open_fixture(root.clone())),
         |_, _, _, _| panic!("a stale manual request must not collect context"),
         Some(fixture.dir.path().join("different-workspace")),
         None,
@@ -322,7 +329,7 @@ fn scheduled_run_clears_queued_skip_and_records_context_failure() {
         .unwrap();
     run_model_evaluation_with_context_and_workspace(
         fixture.state.clone(),
-        root.clone(),
+        Arc::new(TaskmasterRuntime::open_fixture(root.clone())),
         |_, _, _, _| Err("context collection failed".into()),
         None,
         None,
@@ -437,10 +444,10 @@ fn native_manual_dispatch_rejects_changed_settings_knowledge_and_harness() {
             }
             "knowledge" => fixture
                 .runtime
-                .activate_knowledge(crate::taskmaster::runtime::KnowledgeBundle {
+                .activate_fixture_bundle(crate::taskmaster::runtime::KnowledgeBundle {
                     format_version: 1,
                     version: "changed".into(),
-                    sequence: 1,
+                    sequence: 2,
                     published_at: "2026-09-26T00:00:00Z".into(),
                     pages: Vec::new(),
                 })
@@ -514,7 +521,9 @@ fn manual_evaluation_rechecks_active_recommendations_at_its_admission_point() {
     let evidence_snapshot = fixture.snapshot.clone();
     run_model_evaluation_with_context_and_workspace(
         fixture.state.clone(),
-        fixture.dir.path().join("runtime"),
+        Arc::new(TaskmasterRuntime::open_fixture(
+            fixture.dir.path().join("runtime"),
+        )),
         move |_, _, _, _| {
             let fact = facts.iter().find(|fact| fact.path == "README.md").unwrap();
             let output = serde_json::json!({"enrichments":[],"proposals":[{
@@ -813,4 +822,432 @@ fn evaluation_identity_native_to_custom_change_invalidates_binding_reservation_a
         &mut new_snapshot,
         transport
     ));
+}
+
+#[test]
+fn same_generation_durable_corruption_blocks_all_native_and_custom_continuations() {
+    for native in [false, true] {
+        for corruption in ["missing", "malformed", "replaced"] {
+            let mut fixture = Fixture::new();
+            if native {
+                fixture.snapshot = codex_snapshot(&fixture);
+            }
+            let snapshot = &fixture.snapshot;
+            let generation = snapshot.generation;
+            let key = snapshot.cache_key("same bounded prompt").unwrap();
+            let path = fixture.runtime.knowledge_path();
+            match corruption {
+                "missing" => fs::remove_file(path).unwrap(),
+                "malformed" => fs::write(path, b"broken").unwrap(),
+                "replaced" => fs::write(
+                    path,
+                    crate::taskmaster::knowledge::test_support::fixture("sequence-zero.json"),
+                )
+                .unwrap(),
+                _ => unreachable!(),
+            }
+            assert_eq!(
+                fixture
+                    .runtime
+                    .evaluation_snapshot(fixture.dir.path())
+                    .unwrap()
+                    .generation,
+                generation
+            );
+            assert!(!fixture
+                .runtime
+                .reserve_snapshot(
+                    &fixture.state.harness_store,
+                    fixture.dir.path(),
+                    "2026-10-10T10:00:00Z",
+                    &key,
+                    snapshot
+                )
+                .unwrap());
+            assert!(!fixture
+                .runtime
+                .reserve_manual_snapshot(
+                    &fixture.state.harness_store,
+                    fixture.dir.path(),
+                    "2026-10-10T10:00:00Z",
+                    &key,
+                    snapshot
+                )
+                .unwrap());
+            assert!(!fixture
+                .runtime
+                .with_current_evaluation(
+                    &fixture.state.harness_store,
+                    fixture.dir.path(),
+                    snapshot,
+                    || panic!("corrupt proof accepted")
+                )
+                .unwrap());
+            assert!(!fixture
+                .runtime
+                .record_evaluation_success(
+                    &fixture.state.harness_store,
+                    fixture.dir.path(),
+                    snapshot,
+                    &key
+                )
+                .unwrap());
+            let selection = snapshot.settings.selection.as_ref().unwrap();
+            let token = crate::taskmaster::runtime::RollupEvaluationToken {
+                workspace_instance: fixture.instance,
+                generation,
+                provider: selection.provider.clone(),
+                model: selection.model.clone(),
+                prompt_version: ROLLUP_PROMPT_VERSION.into(),
+                family_snapshot_hash: "family".into(),
+            };
+            assert!(!fixture
+                .runtime
+                .with_current_rollup_evaluation(
+                    &fixture.state.harness_store,
+                    fixture.dir.path(),
+                    snapshot,
+                    &token,
+                    || panic!("corrupt rollup accepted")
+                )
+                .unwrap());
+            assert_eq!(fixture.apply(), 0);
+            assert_eq!(
+                fixture
+                    .runtime
+                    .status(Some(fixture.dir.path()))
+                    .remaining_evaluations,
+                8
+            );
+        }
+    }
+}
+
+#[test]
+fn full_proof_identity_survives_prompt_page_selection() {
+    let mut fixture = Fixture::new();
+    fixture.snapshot = codex_snapshot(&fixture);
+    let mut prompt = fixture.snapshot.clone();
+    prompt.knowledge.as_mut().unwrap().pages.clear();
+    assert_eq!(
+        prompt.knowledge_identity,
+        fixture.snapshot.knowledge_identity
+    );
+    assert!(fixture
+        .runtime
+        .with_current_evaluation(
+            &fixture.state.harness_store,
+            fixture.dir.path(),
+            &prompt,
+            || {}
+        )
+        .unwrap());
+    assert_eq!(
+        fixture.snapshot.cache_key("prompt").unwrap(),
+        prompt.cache_key("prompt").unwrap()
+    );
+}
+
+#[test]
+fn native_http_pending_poll_revalidates_signed_proof_before_each_poll() {
+    use std::task::{Context, Poll, Wake, Waker};
+    struct NoopWake;
+    impl Wake for NoopWake {
+        fn wake(self: Arc<Self>) {}
+    }
+    for change in ["corrupt", "configuration", "activation"] {
+        let fixture = Fixture::new();
+        let snapshot = codex_snapshot(&fixture);
+        let polls = std::cell::Cell::new(0);
+        let mut send = Box::pin(std::future::poll_fn(|_| {
+            polls.set(polls.get() + 1);
+            Poll::<Result<reqwest::Response, reqwest::Error>>::Pending
+        }));
+        let waker = Waker::from(Arc::new(NoopWake));
+        let mut context = Context::from_waker(&waker);
+        let mut gate = |start: &mut dyn FnMut() -> std::io::Result<()>| {
+            native_workspace_dispatch_gate(
+                &fixture.state,
+                &fixture.runtime,
+                &snapshot,
+                fixture.dir.path(),
+                fixture.instance,
+                true,
+                start,
+            )
+        };
+        assert!(matches!(
+            crate::providers::poll_http_send_for_test(send.as_mut(), &mut context, &mut gate),
+            Poll::Pending
+        ));
+        match change {
+            "corrupt" => fs::write(fixture.runtime.knowledge_path(), b"broken").unwrap(),
+            "configuration" => {
+                let mut settings = fixture.runtime.status(None).settings;
+                settings.enabled = false;
+                fs::write(
+                    fixture.runtime.root_path().join("settings.json"),
+                    serde_json::to_vec(&settings).unwrap(),
+                )
+                .unwrap();
+            }
+            "activation" => {
+                let mut bundle = crate::taskmaster::knowledge::test_support::bundle_value(
+                    "valid-activation.json",
+                );
+                bundle["sequence"] = serde_json::json!(2);
+                fixture
+                    .runtime
+                    .activate_knowledge(&crate::taskmaster::knowledge::test_support::activation(
+                        bundle, false,
+                    ))
+                    .unwrap();
+            }
+            _ => unreachable!(),
+        }
+        assert!(matches!(
+            crate::providers::poll_http_send_for_test(send.as_mut(), &mut context, &mut gate),
+            Poll::Ready(Err(()))
+        ));
+        assert_eq!(
+            polls.get(),
+            1,
+            "stale request must never be polled again for {change}"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn native_http_endpoint_requires_current_signed_proof_and_discards_post_dispatch_corruption()
+{
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    for mode in ["valid", "before", "after"] {
+        let mut fixture = Fixture::new();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let count = calls.clone();
+        let proof_path = fixture.runtime.knowledge_path();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let router = axum::Router::new().route("/api/generate", axum::routing::post(move || {
+            let count = count.clone(); let proof_path = proof_path.clone();
+            async move {
+                count.fetch_add(1, Ordering::SeqCst);
+                if mode == "after" { fs::write(proof_path, b"broken").unwrap(); }
+                axum::Json(serde_json::json!({"response":"{\"enrichments\":[],\"proposals\":[]}","done":true}))
+            }
+        }));
+        let server = tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        let mut settings = fixture.runtime.status(None).settings;
+        settings.selection = Some(
+            serde_json::from_value(
+                serde_json::json!({"provider":"ollama","model":"fixture","ollamaBaseUrl":url}),
+            )
+            .unwrap(),
+        );
+        fixture.runtime.replace_settings(settings).unwrap();
+        let mut snapshot = fixture
+            .runtime
+            .evaluation_snapshot(fixture.dir.path())
+            .unwrap();
+        let transport = super::super::provider_catalog::inspect(
+            &fixture.state.harness_store,
+            Some(&fixture.trust),
+        )
+        .unwrap()
+        .into_iter()
+        .find(|entry| entry.id == "ollama")
+        .unwrap()
+        .transport;
+        assert!(bind_evaluation_transport(
+            &fixture.runtime,
+            &fixture.state.harness_store,
+            fixture.dir.path(),
+            &mut snapshot,
+            transport
+        ));
+        fixture.snapshot = snapshot;
+        let (fixture, result) = tokio::task::spawn_blocking(move || {
+            let providers = crate::providers::ProviderManager::new();
+            let snapshot = &fixture.snapshot;
+            let selection = snapshot.settings.selection.as_ref().unwrap();
+            let mut first = true;
+            let mut gate = |start: &mut dyn FnMut() -> std::io::Result<()>| {
+                if first && mode == "before" {
+                    fs::write(fixture.runtime.knowledge_path(), b"broken").unwrap();
+                }
+                first = false;
+                native_workspace_dispatch_gate(
+                    &fixture.state,
+                    &fixture.runtime,
+                    snapshot,
+                    fixture.dir.path(),
+                    fixture.instance,
+                    true,
+                    start,
+                )
+            };
+            let result = providers.invoke_native_taskmaster_prompt_with_dispatch_gate(
+                snapshot.native_revision.as_ref().unwrap().profile,
+                &selection.model,
+                None,
+                selection.ollama_base_url.as_deref(),
+                "bounded fixture context".into(),
+                &mut gate,
+            );
+            (fixture, result)
+        })
+        .await
+        .unwrap();
+        if mode == "valid" {
+            assert!(result.is_ok(), "{result:?}");
+            assert_eq!(fixture.apply(), 1);
+        } else {
+            assert!(result.is_err());
+            assert_eq!(fixture.apply(), 0);
+            assert!(!fixture
+                .runtime
+                .record_evaluation_success(
+                    &fixture.state.harness_store,
+                    fixture.dir.path(),
+                    &fixture.snapshot,
+                    "stale HTTP output"
+                )
+                .unwrap());
+        }
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            if mode == "before" { 0 } else { 1 }
+        );
+        server.abort();
+    }
+}
+
+#[test]
+fn native_process_marker_requires_current_signed_proof_at_actual_spawn() {
+    let program_directory = tempfile::tempdir().unwrap();
+    let executable = crate::test_support::native_inference::compile(program_directory.path());
+    for mode in ["valid", "corrupt", "activation", "configuration"] {
+        let fixture = Fixture::new();
+        let snapshot = codex_snapshot(&fixture);
+        let marker = fixture.dir.path().join("native-started");
+        let response = fixture.dir.path().join("response");
+        fs::write(&response, "fixture output").unwrap();
+        let mut command = std::process::Command::new(&executable);
+        command
+            .args(["activation", "fixture"])
+            .arg(&marker)
+            .arg(&response)
+            .arg("success");
+        command
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        let mut gate = |start: &mut dyn FnMut() -> std::io::Result<()>| {
+            match mode {
+                "corrupt" => fs::write(fixture.runtime.knowledge_path(), b"broken").unwrap(),
+                "activation" => {
+                    let mut bundle = crate::taskmaster::knowledge::test_support::bundle_value(
+                        "valid-activation.json",
+                    );
+                    bundle["sequence"] = serde_json::json!(2);
+                    fixture
+                        .runtime
+                        .activate_knowledge(
+                            &crate::taskmaster::knowledge::test_support::activation(bundle, false),
+                        )
+                        .unwrap();
+                }
+                "configuration" => {
+                    let mut settings = fixture.runtime.status(None).settings;
+                    settings.enabled = false;
+                    fs::write(
+                        fixture.runtime.root_path().join("settings.json"),
+                        serde_json::to_vec(&settings).unwrap(),
+                    )
+                    .unwrap();
+                }
+                _ => {}
+            }
+            native_workspace_dispatch_gate(
+                &fixture.state,
+                &fixture.runtime,
+                &snapshot,
+                fixture.dir.path(),
+                fixture.instance,
+                true,
+                start,
+            )
+        };
+        let result = crate::providers::run_native_process_for_test(
+            &mut command,
+            "bounded context",
+            &mut gate,
+        );
+        assert_eq!(result.is_ok(), mode == "valid", "{mode}: {result:?}");
+        assert_eq!(marker.exists(), mode == "valid");
+        if mode == "valid" {
+            assert_eq!(fs::read_to_string(marker).unwrap(), "bounded context");
+        }
+    }
+}
+
+#[test]
+fn native_process_output_is_not_accepted_after_proof_corruption_during_invocation() {
+    let mut fixture = Fixture::new();
+    fixture.snapshot = codex_snapshot(&fixture);
+    let executable = crate::test_support::native_inference::compile(fixture.dir.path());
+    let marker = fixture.dir.path().join("native-started");
+    let response = fixture.dir.path().join("response");
+    fs::write(&response, "fixture output").unwrap();
+    let fixture = Arc::new(fixture);
+    let running = fixture.clone();
+    let child_marker = marker.clone();
+    let invocation = std::thread::spawn(move || {
+        let mut command = std::process::Command::new(executable);
+        command
+            .args(["activation", "fixture"])
+            .arg(&child_marker)
+            .arg(response)
+            .arg("wait");
+        command
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        let mut gate = |start: &mut dyn FnMut() -> std::io::Result<()>| {
+            native_workspace_dispatch_gate(
+                &running.state,
+                &running.runtime,
+                &running.snapshot,
+                running.dir.path(),
+                running.instance,
+                true,
+                start,
+            )
+        };
+        crate::providers::run_native_process_for_test(&mut command, "bounded context", &mut gate)
+    });
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !marker.exists() && !invocation.is_finished() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let started = marker.exists();
+    fs::write(fixture.runtime.knowledge_path(), b"broken").unwrap();
+    fs::write(marker.with_extension("release"), b"release").unwrap();
+    assert_eq!(invocation.join().unwrap().unwrap(), "fixture output");
+    assert!(
+        started,
+        "native marker child must run before proof corruption"
+    );
+    assert_eq!(fixture.apply(), 0);
+    assert!(!fixture
+        .runtime
+        .record_evaluation_success(
+            &fixture.state.harness_store,
+            fixture.dir.path(),
+            &fixture.snapshot,
+            "native output"
+        )
+        .unwrap());
 }

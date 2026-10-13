@@ -81,7 +81,7 @@ test("privileged transport rejects non-object success responses", async () => {
 test("privileged transport keeps per-resource byte limits and rejects invalid authority before fetch", async () => {
   let calls = 0;
   const fetcher = async () => { calls++; return new Response("{}"); };
-  for (const [resource, limit] of [["settings", 65536], ["knowledge", 2097152], ["inference", 8192], ["models", 65536]] as const) {
+  for (const [resource, limit] of [["settings", 65536], ["knowledge", 6291456], ["inference", 8192], ["models", 65536]] as const) {
     // JSON quotes consume two bytes; multibyte text must be counted as UTF-8.
     await taskmasterRequest(4321, "token", resource, "x".repeat(limit - 2), fetcher);
     const before = calls;
@@ -102,4 +102,34 @@ test("a degraded succeeded run surfaces its reason; a clean one shows no detail"
   assert.ok(degraded.includes("Rollups degraded (proposed_change_path)"));
   const clean = formatTaskmasterRunStatus({ workspacePath: "/w", activeAttempt: null, latestOutcome: { ...outcome, errorSummary: null } });
   assert.equal(clean, "Succeeded manual analysis · codex / m");
+});
+
+
+test("knowledge transport enforces the inclusive 6 MiB compact JSON boundary at a recording server", async () => {
+  const { createServer } = await import("node:http");
+  const records: { path: string | undefined; token: string | string[] | undefined; bytes: number }[] = [];
+  const server = createServer(async (request, response) => {
+    let bytes = 0;
+    for await (const chunk of request) bytes += Buffer.byteLength(chunk);
+    records.push({ path: request.url, token: request.headers["x-orkworks-open-plan-token"], bytes });
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end("{}");
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const limit = 6 * 1024 * 1024;
+    // Transport-only payloads: these compact records intentionally have no signed protocol meaning.
+    const exact = { padding: "x".repeat(limit - Buffer.byteLength(JSON.stringify({ padding: "" }))) };
+    const over = { padding: exact.padding + "x" };
+    assert.equal(Buffer.byteLength(JSON.stringify(exact)), limit);
+    assert.equal(Buffer.byteLength(JSON.stringify(over)), limit + 1);
+    await taskmasterRequest(address.port, "recording-authority", "knowledge", exact);
+    await assert.rejects(taskmasterRequest(address.port, "recording-authority", "knowledge", over), /request too large/);
+    assert.deepEqual(records, [{ path: "/settings/taskmaster/knowledge", token: "recording-authority", bytes: limit }]);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
 });

@@ -28,7 +28,7 @@ fn run_admitted_fixture_evaluation(
 ) {
     run_model_evaluation_with_context_and_workspace(
         state,
-        root,
+        Arc::new(TaskmasterRuntime::open_fixture(root)),
         crate::taskmaster::context::collect_repository_facts,
         workspace,
         lease,
@@ -99,7 +99,12 @@ impl Fixture {
             harness_path,
             Arc::new(BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap()),
         ));
-        let runtime = TaskmasterRuntime::open(root.clone());
+        let runtime = TaskmasterRuntime::open_fixture(root.clone());
+        runtime
+            .activate_knowledge(&crate::taskmaster::knowledge::test_support::fixture(
+                "valid-activation.json",
+            ))
+            .unwrap();
         let mut settings = TaskmasterSettings::default();
         settings.enabled = true;
         settings.selection = Some(
@@ -137,7 +142,7 @@ impl Fixture {
     }
 
     fn run(&self) {
-        let runtime = TaskmasterRuntime::open(self.root.clone());
+        let runtime = TaskmasterRuntime::open_fixture(self.root.clone());
         let workspace_path = self.dir.path().to_path_buf();
         let lease = runtime.try_analysis_lease().unwrap().unwrap();
         let _ = runtime.recover_workspace_run(&workspace_path, &lease);
@@ -185,7 +190,7 @@ impl Fixture {
     }
 
     fn remaining(&self) -> u32 {
-        TaskmasterRuntime::open(self.root.clone())
+        TaskmasterRuntime::open_fixture(self.root.clone())
             .status(Some(self.dir.path()))
             .remaining_evaluations
     }
@@ -208,7 +213,7 @@ fn activation_requires_approval_then_persists_grounded_custom_output() {
     assert_eq!(fixture.recommendations().len(), 1);
     assert_eq!(fixture.remaining(), 7);
     assert_eq!(
-        TaskmasterRuntime::open(fixture.root.clone())
+        TaskmasterRuntime::open_fixture(fixture.root.clone())
             .run_status(Some(fixture.dir.path()))
             .unwrap()
             .latest_outcome
@@ -242,7 +247,7 @@ fn custom_evaluation_failures_spend_one_reservation_without_recommendations() {
         assert!(fixture.marker.exists(), "{mode}: fixture must have run");
         assert_eq!(fixture.remaining(), 7, "{mode}");
         assert!(fixture.recommendations().is_empty(), "{mode}");
-        let runtime = TaskmasterRuntime::open(fixture.root.clone());
+        let runtime = TaskmasterRuntime::open_fixture(fixture.root.clone());
         let error = runtime
             .run_status(Some(fixture.dir.path()))
             .unwrap()
@@ -332,7 +337,7 @@ fn custom_evaluation_rechecks_readiness_before_context_and_reservation() {
                 .unwrap(),
             "unapproved" => {}
             "disabled" | "effort" | "unknown" => {
-                let runtime = TaskmasterRuntime::open(fixture.root.clone());
+                let runtime = TaskmasterRuntime::open_fixture(fixture.root.clone());
                 let mut settings = runtime.status(None).settings;
                 if change == "disabled" {
                     settings.enabled = false;
@@ -365,7 +370,7 @@ fn custom_evaluation_rechecks_readiness_before_context_and_reservation() {
         assert_eq!(fixture.remaining(), 8, "{change}");
         assert!(fixture.recommendations().is_empty(), "{change}");
         assert!(
-            TaskmasterRuntime::open(fixture.root.clone())
+            TaskmasterRuntime::open_fixture(fixture.root.clone())
                 .status(Some(fixture.dir.path()))
                 .last_error
                 .is_none(),
@@ -419,7 +424,7 @@ fn custom_evaluation_recovers_after_reapproval_or_reenable() {
     for change in ["reapprove", "reenable"] {
         let fixture = Fixture::new("success");
         fixture.approve();
-        let runtime = TaskmasterRuntime::open(fixture.root.clone());
+        let runtime = TaskmasterRuntime::open_fixture(fixture.root.clone());
         let settings = runtime.status(None).settings;
         if change == "reapprove" {
             fixture
@@ -459,7 +464,7 @@ fn run_native_knowledge_evaluation(
     use sha2::Digest;
 
     let mut fixture = Fixture::new("success");
-    let runtime = TaskmasterRuntime::open(fixture.root.clone());
+    let runtime = TaskmasterRuntime::open_fixture(fixture.root.clone());
     let mut settings = TaskmasterSettings::default();
     settings.enabled = !manual;
     settings.selection = Some(
@@ -490,10 +495,10 @@ fn run_native_knowledge_evaluation(
         related_ids: Vec::new(),
     });
     runtime
-        .activate_knowledge(KnowledgeBundle {
+        .activate_fixture_bundle(KnowledgeBundle {
             format_version: 1,
             version: "fixture".into(),
-            sequence: 1,
+            sequence: 2,
             published_at: "2026-10-03T00:00:00Z".into(),
             pages,
         })
@@ -613,7 +618,7 @@ fn legacy_knowledge_blocks_background_and_manual_dispatch() {
             for claimed_policy in [false, true] {
                 let mut fixture = Fixture::new("success");
                 fixture.approve();
-                let runtime = TaskmasterRuntime::open(fixture.root.clone());
+                let runtime = TaskmasterRuntime::open_fixture(fixture.root.clone());
                 let mut stored: serde_json::Value = serde_json::from_str(include_str!(
                     "../../../../../apps/desktop/resources/knowledge/starter.json"
                 ))
@@ -671,12 +676,10 @@ async fn legacy_knowledge_is_unavailable_before_queueing_analysis() {
     for manual in [false, true] {
         let fixture = Fixture::new("success");
         fixture.approve();
-        let runtime = TaskmasterRuntime::open(fixture.root.clone());
-        let starter = serde_json::from_str(include_str!(
-            "../../../../../apps/desktop/resources/knowledge/starter.json"
-        ))
-        .unwrap();
-        runtime.activate_knowledge(starter).unwrap();
+        let runtime = TaskmasterRuntime::open_fixture(fixture.root.clone());
+        let starter =
+            include_bytes!("../../../../../apps/desktop/resources/knowledge/starter.json");
+        assert!(runtime.activate_knowledge(starter).is_err());
         let result = schedule_model_evaluation_with_workspace(
             fixture.state.clone(),
             fixture.dir.path().to_path_buf(),
@@ -703,7 +706,7 @@ async fn legacy_knowledge_is_unavailable_before_queueing_analysis() {
 fn privacy_prerequisite_interrupts_an_already_queued_analysis() {
     let fixture = Fixture::new("success");
     fixture.approve();
-    let runtime = TaskmasterRuntime::open(fixture.root.clone());
+    let runtime = TaskmasterRuntime::open_fixture(fixture.root.clone());
     let workspace_path = fixture.dir.path().to_path_buf();
     let lease = runtime.try_analysis_lease().unwrap().unwrap();
     let id = runtime
@@ -742,7 +745,7 @@ async fn privacy_prerequisite_preserves_deferred_run_status_recovery() {
     for running in [false, true] {
         let fixture = Fixture::new("success");
         fixture.approve();
-        let runtime = TaskmasterRuntime::open(fixture.root.clone());
+        let runtime = TaskmasterRuntime::open_fixture(fixture.root.clone());
         let workspace = fixture.dir.path().to_path_buf();
         let other_instance_lease = runtime.try_analysis_lease().unwrap().unwrap();
         let id = runtime
@@ -803,4 +806,140 @@ async fn privacy_prerequisite_preserves_deferred_run_status_recovery() {
         assert!(fixture.recommendations().is_empty());
         assert!(runtime.try_analysis_lease().unwrap().is_some());
     }
+}
+
+#[test]
+fn invalid_or_missing_signed_proof_blocks_context_preparation_and_reservation() {
+    for provider in ["custom", "codex"] {
+        for manual in [false, true] {
+            for proof in ["missing", "corrupt", "wrong-key"] {
+                let fixture = Fixture::new("success");
+                fixture.approve();
+                let runtime = TaskmasterRuntime::open_fixture(fixture.root.clone());
+                let mut settings = runtime.status(None).settings;
+                settings.enabled = !manual;
+                settings.selection.as_mut().unwrap().provider = provider.into();
+                runtime.replace_settings(settings).unwrap();
+                let path = runtime.knowledge_path();
+                match proof {
+                    "missing" => fs::remove_file(path).unwrap(),
+                    "corrupt" => fs::write(path, b"broken").unwrap(),
+                    "wrong-key" => fs::write(
+                        path,
+                        crate::taskmaster::knowledge::test_support::fixture("wrong-key.json"),
+                    )
+                    .unwrap(),
+                    _ => unreachable!(),
+                }
+                let collected = AtomicUsize::new(0);
+                run_model_evaluation_with_context_and_workspace(
+                    fixture.state.clone(),
+                    Arc::new(runtime),
+                    |_, _, _, _| {
+                        collected.fetch_add(1, Ordering::SeqCst);
+                        Ok(vec![])
+                    },
+                    manual.then(|| fixture.dir.path().to_path_buf()),
+                    None,
+                    None,
+                );
+                assert_eq!(collected.load(Ordering::SeqCst), 0);
+                assert_eq!(fixture.fallback_calls.load(Ordering::SeqCst), 0);
+                assert!(!fixture.marker.exists());
+                assert_eq!(fixture.remaining(), 8);
+                assert!(fixture.recommendations().is_empty());
+            }
+        }
+    }
+}
+
+#[test]
+fn custom_evaluation_discards_output_after_same_generation_proof_corruption() {
+    let fixture = Fixture::new("wait");
+    fixture.approve();
+    let state = fixture.state.clone();
+    let root = fixture.root.clone();
+    let evaluation = std::thread::spawn(move || run_admitted_model_evaluation_at(state, root));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !fixture.marker.exists()
+        && !evaluation.is_finished()
+        && std::time::Instant::now() < deadline
+    {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let started = fixture.marker.exists();
+    let runtime = TaskmasterRuntime::open_fixture(fixture.root.clone());
+    let generation = runtime
+        .evaluation_snapshot(fixture.dir.path())
+        .unwrap()
+        .generation;
+    fs::write(runtime.knowledge_path(), b"broken").unwrap();
+    assert_eq!(
+        runtime
+            .evaluation_snapshot(fixture.dir.path())
+            .unwrap()
+            .generation,
+        generation
+    );
+    fs::write(fixture.marker.with_extension("release"), "release").unwrap();
+    evaluation.join().unwrap();
+    assert!(
+        started,
+        "fixture must reach the invocation before proof corruption"
+    );
+    assert_eq!(fixture.remaining(), 7);
+    assert!(
+        fixture.marker.with_extension("finished").exists(),
+        "child must finish producing valid output, not merely time out"
+    );
+    assert!(fixture.recommendations().is_empty());
+    fs::write(&fixture.marker, "not invoked again").unwrap();
+    fixture.run();
+    assert_eq!(
+        fs::read_to_string(&fixture.marker).unwrap(),
+        "not invoked again"
+    );
+    assert_eq!(fixture.remaining(), 7);
+}
+
+#[test]
+fn queued_fixture_run_is_interrupted_when_proof_is_lost_before_worker_entry() {
+    let fixture = Fixture::new("success");
+    fixture.approve();
+    let runtime = TaskmasterRuntime::open_fixture(fixture.root.clone());
+    let selection = runtime.status(None).settings.selection.unwrap();
+    let id = runtime
+        .queue_run(
+            fixture.dir.path(),
+            TaskmasterRunTrigger::Manual,
+            &selection.provider,
+            &selection.model,
+        )
+        .unwrap();
+    fs::remove_file(runtime.knowledge_path()).unwrap();
+    run_model_evaluation_with_context_and_workspace(
+        fixture.state.clone(),
+        Arc::new(runtime),
+        |_, _, _, _| panic!("lost proof must not collect context"),
+        None,
+        None,
+        Some(ScheduledRun {
+            id,
+            workspace_path: fixture.dir.path().to_path_buf(),
+            root: fixture.root.clone(),
+        }),
+    );
+    let status = TaskmasterRuntime::open_fixture(fixture.root.clone())
+        .run_status(Some(fixture.dir.path()))
+        .unwrap();
+    assert!(
+        status.active_attempt.is_none(),
+        "lost proof must not leave the run queued"
+    );
+    assert_eq!(
+        status.latest_outcome.unwrap().state,
+        TaskmasterRunOutcomeState::Interrupted
+    );
+    assert!(!fixture.marker.exists());
+    assert_eq!(fixture.remaining(), 8);
 }

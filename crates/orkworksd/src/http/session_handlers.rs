@@ -1110,8 +1110,6 @@ mod tests {
     use std::io::Write;
     use std::sync::Mutex;
 
-    static PLAN_TOKEN_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     async fn listed_sessions(state: Arc<AppState>) -> Vec<serde_json::Value> {
         let response = list_sessions(State(state)).await.into_response();
         assert_eq!(response.status(), axum::http::StatusCode::OK);
@@ -9298,7 +9296,7 @@ mod tests {
 
     #[tokio::test]
     async fn plan_content_requires_a_valid_plan_and_sidecar_token() {
-        let _token_lock = PLAN_TOKEN_TEST_LOCK.lock().unwrap();
+        let _token = crate::test_support::open_plan_token::set("test-token").await;
         let workspace = tempfile::tempdir().unwrap();
         std::fs::create_dir(workspace.path().join("docs")).unwrap();
         let plan = workspace.path().join("docs/plan.md");
@@ -9322,13 +9320,11 @@ mod tests {
             .metadata
             .write_session(&metadata);
 
-        std::env::set_var("ORKWORKS_OPEN_PLAN_TOKEN", "test-token");
         let mut headers = HeaderMap::new();
         headers.insert("x-orkworks-open-plan-token", "test-token".parse().unwrap());
         let response = get_session_plan_content(State(state), Path("plan-session".into()), headers)
             .await
             .into_response();
-        std::env::remove_var("ORKWORKS_OPEN_PLAN_TOKEN");
 
         assert_eq!(response.status(), axum::http::StatusCode::OK);
     }
@@ -9465,10 +9461,9 @@ mod tests {
 
     #[tokio::test]
     async fn plan_endpoints_reject_a_missing_sidecar_token() {
-        let _token_lock = PLAN_TOKEN_TEST_LOCK.lock().unwrap();
+        let _token = crate::test_support::open_plan_token::set("test-token").await;
         let workspace = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(workspace.path());
-        std::env::set_var("ORKWORKS_OPEN_PLAN_TOKEN", "test-token");
 
         let content = get_session_plan_content(
             State(state.clone()),
@@ -9481,7 +9476,6 @@ mod tests {
             request_session_plan_review(State(state), Path("missing".into()), HeaderMap::new())
                 .await
                 .into_response();
-        std::env::remove_var("ORKWORKS_OPEN_PLAN_TOKEN");
 
         assert_eq!(content.status(), axum::http::StatusCode::UNAUTHORIZED);
         assert_eq!(review.status(), axum::http::StatusCode::UNAUTHORIZED);
@@ -9489,7 +9483,7 @@ mod tests {
 
     #[tokio::test]
     async fn plan_review_submits_the_fixed_prompt_before_recording_the_event() {
-        let _token_lock = PLAN_TOKEN_TEST_LOCK.lock().unwrap();
+        let _token = crate::test_support::open_plan_token::set("test-token").await;
         let workspace = tempfile::tempdir().unwrap();
         std::fs::create_dir(workspace.path().join("specs")).unwrap();
         std::fs::write(workspace.path().join("specs/plan.md"), "# plan").unwrap();
@@ -9524,7 +9518,6 @@ mod tests {
             .unwrap()
             .insert("plan-session".into(), handle);
 
-        std::env::set_var("ORKWORKS_OPEN_PLAN_TOKEN", "test-token");
         let mut headers = HeaderMap::new();
         headers.insert("x-orkworks-open-plan-token", "test-token".parse().unwrap());
         let mut request = tokio::spawn(request_session_plan_review(
@@ -9541,7 +9534,6 @@ mod tests {
         assert_eq!(data, "Please review the plan or specification at specs/plan.md. Delegate this review to a subagent if you can; otherwise review it yourself. Check for missing requirements, risky assumptions, and unclear steps, then report the findings.\r");
         accepted.unwrap().send(Ok(())).unwrap();
         let response = request.await.unwrap().into_response();
-        std::env::remove_var("ORKWORKS_OPEN_PLAN_TOKEN");
 
         assert_eq!(response.status(), axum::http::StatusCode::NO_CONTENT);
         let events = state

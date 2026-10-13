@@ -72,6 +72,19 @@ jobs:
             rust:
               - 'crates/orkworksd/**'
               - 'rust-toolchain.toml'
+              - '.nvmrc'
+              - '.github/workflows/pr-ci.yml'
+              - 'apps/desktop/electron/knowledge*.ts'
+              - 'apps/desktop/electron/strictJson.ts'
+              - 'apps/desktop/electron/taskmasterSettings.ts'
+              - 'apps/desktop/tests/knowledge*.ts'
+              - 'apps/desktop/tests/taskmasterSettings.test.ts'
+              - 'apps/desktop/package.json'
+              - 'apps/desktop/pnpm-lock.yaml'
+              - 'apps/desktop/pnpm-workspace.yaml'
+              - 'apps/desktop/.npmrc'
+              - 'apps/desktop/scripts/setup-electron.mjs'
+              - 'tests/fixtures/taskmaster-knowledge/**'
             windows_inference:
               - 'crates/orkworksd/**'
               - 'rust-toolchain.toml'
@@ -130,9 +143,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "11"
+
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+
+      - name: Install Electron knowledge test dependencies for host Node
+        working-directory: apps/desktop
+        run: pnpm install --frozen-lockfile
 
       - uses: dtolnay/rust-toolchain@stable
 

@@ -364,7 +364,7 @@ fn schedule_model_evaluation_with_workspace(
         let _ = runtime.recover_workspace_run(&workspace_path, &lease);
         // Preserve deferred status recovery even while Brain admission is closed.
         // The shared lease proves no other instance owns this stale attempt.
-        if super::runtime::brain_knowledge_availability().is_err() {
+        if runtime.brain_knowledge_availability().is_err() {
             return ScheduleResult::Unavailable;
         }
         let status = runtime.status(Some(&workspace_path));
@@ -437,7 +437,7 @@ struct ScheduledRun {
 fn run_admitted_model_evaluation_at(state: Arc<AppState>, root: std::path::PathBuf) {
     run_model_evaluation_with_context_and_workspace(
         state,
-        root,
+        Arc::new(TaskmasterRuntime::open_fixture(root)),
         crate::taskmaster::context::collect_repository_facts,
         None,
         None,
@@ -452,10 +452,11 @@ fn run_model_evaluation_at_with_workspace(
     analysis_lease: Option<std::fs::File>,
     scheduled_run: Option<ScheduledRun>,
 ) {
-    if let Err(reason) = super::runtime::brain_knowledge_availability() {
+    let runtime = Arc::new(TaskmasterRuntime::open(root.clone()));
+    if let Err(reason) = runtime.brain_knowledge_availability() {
         if let Some(run) = scheduled_run {
             let mut guard = RunGuard {
-                runtime: Arc::new(TaskmasterRuntime::open(root)),
+                runtime: runtime.clone(),
                 workspace_path: run.workspace_path,
                 id: run.id,
                 completed: false,
@@ -466,7 +467,7 @@ fn run_model_evaluation_at_with_workspace(
     }
     run_model_evaluation_with_context_and_workspace(
         state,
-        root,
+        runtime,
         crate::taskmaster::context::collect_repository_facts,
         manual_workspace,
         analysis_lease,
@@ -486,12 +487,19 @@ fn run_admitted_model_evaluation_with_context(
         &str,
     ) -> Result<Vec<crate::taskmaster::RepositoryEvidence>, String>,
 ) {
-    run_model_evaluation_with_context_and_workspace(state, root, collect_facts, None, None, None);
+    run_model_evaluation_with_context_and_workspace(
+        state,
+        Arc::new(TaskmasterRuntime::open_fixture(root)),
+        collect_facts,
+        None,
+        None,
+        None,
+    );
 }
 
 fn run_model_evaluation_with_context_and_workspace(
     state: Arc<AppState>,
-    root: std::path::PathBuf,
+    runtime: Arc<TaskmasterRuntime>,
     collect_facts: impl FnOnce(
         &std::path::Path,
         crate::taskmaster::runtime::ContextLevel,
@@ -502,13 +510,19 @@ fn run_model_evaluation_with_context_and_workspace(
     analysis_lease: Option<std::fs::File>,
     scheduled_run: Option<ScheduledRun>,
 ) {
-    let runtime = Arc::new(TaskmasterRuntime::open(root.clone()));
+    let root = runtime.root_path().to_path_buf();
     let mut run_guard = scheduled_run.map(|run| RunGuard {
         runtime: runtime.clone(),
         workspace_path: run.workspace_path,
         id: run.id,
         completed: false,
     });
+    if let Err(reason) = runtime.brain_knowledge_availability() {
+        if let Some(guard) = run_guard.as_mut() {
+            guard.finish(TaskmasterRunOutcomeState::Interrupted, Some(reason));
+        }
+        return;
+    }
     let (workspace_path, workspace_instance, observations, recommendations) = {
         let workspace = state.workspace.lock().expect("workspace lock poisoned");
         let Some(workspace) = workspace.as_ref() else {
@@ -654,31 +668,31 @@ fn run_model_evaluation_with_context_and_workspace(
         }
     };
     let reservation = if manual_workspace.is_some() {
-        // Accept/fix-with-AI also takes the workspace lock before transitioning
-        // a recommendation to executing. Validate and reserve under that same
-        // lock so the manual run has one clear admission point: either the
-        // active recommendation wins, or this analysis reserves first.
-        let workspace = state.workspace.lock().expect("workspace lock poisoned");
-        let Some(current) = workspace.as_ref() else {
-            return;
-        };
-        if current.path != workspace_path
-            || current.workflow_observations.instance_id() != workspace_instance
-        {
-            return;
-        }
-        let Ok(current_recommendations) = current.recommendation_store.list() else {
-            return;
-        };
-        if crate::taskmaster::active_workflow_recommendation(&current_recommendations).is_some() {
-            return;
-        }
-        runtime.reserve_manual_snapshot(
+        runtime.reserve_manual_snapshot_with_admission(
             &state.harness_store,
             &workspace_path,
             &now,
             &cache_key,
             &snapshot,
+            |reserve| {
+                // Preserve harness → persistence/data → workspace order through the write.
+                let workspace = state.workspace.lock().expect("workspace lock poisoned");
+                let Some(current) = workspace.as_ref() else {
+                    return Ok(false);
+                };
+                if current.path != workspace_path
+                    || current.workflow_observations.instance_id() != workspace_instance
+                {
+                    return Ok(false);
+                }
+                let Ok(recommendations) = current.recommendation_store.list() else {
+                    return Ok(false);
+                };
+                if crate::taskmaster::active_workflow_recommendation(&recommendations).is_some() {
+                    return Ok(false);
+                }
+                reserve()
+            },
         )
     } else {
         runtime.reserve_snapshot(
@@ -1519,6 +1533,7 @@ mod tests {
                 context_level: ContextLevel::WorkflowContext,
                 ..TaskmasterSettings::default()
             },
+            knowledge_identity: None,
             knowledge: Some(KnowledgeBundle {
                 format_version: 1,
                 version: "v1".into(),
@@ -1528,7 +1543,27 @@ mod tests {
             }),
             generation: 0,
         };
-        let runtime = TaskmasterRuntime::open(directory.path().join("runtime"));
+        let runtime = TaskmasterRuntime::open_fixture(directory.path().join("runtime"));
+        let mut settings = snapshot.settings.clone();
+        settings.selection = Some(
+            serde_json::from_value(serde_json::json!({"provider":"codex","model":"fixture"}))
+                .unwrap(),
+        );
+        runtime.replace_settings(settings).unwrap();
+        if let Some(bundle) = snapshot.knowledge {
+            runtime.activate_fixture_bundle(bundle).unwrap();
+        } else {
+            runtime
+                .activate_knowledge(&crate::taskmaster::knowledge::test_support::fixture(
+                    "valid-activation.json",
+                ))
+                .unwrap();
+        }
+        let mut snapshot = runtime.evaluation_snapshot(directory.path()).unwrap();
+        snapshot.native_revision = Some(super::super::provider_catalog::NativeRevision {
+            document_revision: state.harness_store.snapshot().unwrap().document_revision,
+            profile: crate::providers::native_inference::NativeProfile::Codex,
+        });
         let facts = vec![RepositoryEvidence {
             path: "README.md".into(),
             sha256: "provided".into(),
@@ -1573,9 +1608,30 @@ mod tests {
             }),
             settings: TaskmasterSettings::default(),
             knowledge: None,
+            knowledge_identity: None,
             generation: 0,
         };
-        let runtime = TaskmasterRuntime::open(directory.path().join("runtime"));
+        let runtime = TaskmasterRuntime::open_fixture(directory.path().join("runtime"));
+        let mut settings = snapshot.settings.clone();
+        settings.selection = Some(
+            serde_json::from_value(serde_json::json!({"provider":"codex","model":"fixture"}))
+                .unwrap(),
+        );
+        runtime.replace_settings(settings).unwrap();
+        if let Some(bundle) = snapshot.knowledge {
+            runtime.activate_fixture_bundle(bundle).unwrap();
+        } else {
+            runtime
+                .activate_knowledge(&crate::taskmaster::knowledge::test_support::fixture(
+                    "valid-activation.json",
+                ))
+                .unwrap();
+        }
+        let mut snapshot = runtime.evaluation_snapshot(directory.path()).unwrap();
+        snapshot.native_revision = Some(super::super::provider_catalog::NativeRevision {
+            document_revision: state.harness_store.snapshot().unwrap().document_revision,
+            profile: crate::providers::native_inference::NativeProfile::Codex,
+        });
         let facts = vec![RepositoryEvidence {
             path: "README.md".into(),
             sha256: hex::encode(sha2::Sha256::digest(b"fact")),
@@ -1638,9 +1694,30 @@ mod tests {
             }),
             settings: TaskmasterSettings::default(),
             knowledge: None,
+            knowledge_identity: None,
             generation: 0,
         };
-        let runtime = TaskmasterRuntime::open(directory.path().join("runtime"));
+        let runtime = TaskmasterRuntime::open_fixture(directory.path().join("runtime"));
+        let mut settings = snapshot.settings.clone();
+        settings.selection = Some(
+            serde_json::from_value(serde_json::json!({"provider":"codex","model":"fixture"}))
+                .unwrap(),
+        );
+        runtime.replace_settings(settings).unwrap();
+        if let Some(bundle) = snapshot.knowledge {
+            runtime.activate_fixture_bundle(bundle).unwrap();
+        } else {
+            runtime
+                .activate_knowledge(&crate::taskmaster::knowledge::test_support::fixture(
+                    "valid-activation.json",
+                ))
+                .unwrap();
+        }
+        let mut snapshot = runtime.evaluation_snapshot(directory.path()).unwrap();
+        snapshot.native_revision = Some(super::super::provider_catalog::NativeRevision {
+            document_revision: state.harness_store.snapshot().unwrap().document_revision,
+            profile: crate::providers::native_inference::NativeProfile::Codex,
+        });
         let facts = crate::taskmaster::context::collect_repository_facts(
             directory.path(),
             ContextLevel::WorkflowContext,
@@ -1699,6 +1776,7 @@ mod tests {
             native_revision: None,
             settings: TaskmasterSettings::default(),
             generation: 0,
+            knowledge_identity: None,
             knowledge: Some(KnowledgeBundle {
                 format_version: 1,
                 version: "v1".into(),

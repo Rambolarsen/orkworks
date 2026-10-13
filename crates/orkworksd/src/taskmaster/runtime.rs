@@ -1,3 +1,4 @@
+use super::knowledge::{self, KnowledgeIdentity, VerifiedKnowledge};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -7,6 +8,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 mod inference;
+#[cfg(test)]
+mod knowledge_tests;
 
 // Runtime instances are intentionally cheap views over durable state. This
 // process-wide lock serializes the read-modify-write reservation path even
@@ -38,21 +41,20 @@ impl<'a> PersistenceGuard<'a> {
     }
 }
 
+#[cfg(test)]
 const MAX_PAGES: usize = 256;
+#[cfg(test)]
 const MAX_PAGE_BYTES: usize = 64 * 1024;
+#[cfg(test)]
 const MAX_BUNDLE_BYTES: usize = 2 * 1024 * 1024;
 const MAX_EXCLUDED_PATHS: usize = 64;
+#[cfg(test)]
 const MAX_PATH_BYTES: usize = 512;
 const MAX_DAILY_EVALUATIONS: u32 = 64;
 const MAX_INTERVAL_MINUTES: u32 = 24 * 60;
 
-/// Existing Brain analysis has no privacy-qualified signed activation path yet.
-/// Keep this prerequisite closed in every build until #529 supplies matching
-/// signed manifest/payload policy proof and a compliant starter. Neither a
-/// provider approval nor a caller-supplied unsigned bundle field enables it.
-pub(crate) fn brain_knowledge_availability() -> Result<(), &'static str> {
-    Err("Brain analysis is unavailable until verified reference knowledge meets the privacy requirements. Observation recommendations remain available.")
-}
+// Task 7 owns opening production admission after the reviewed starter/publication gate.
+const BRAIN_KNOWLEDGE_UNAVAILABLE: &str = "Brain analysis is unavailable until verified reference knowledge meets the privacy requirements. Observation recommendations remain available.";
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -274,6 +276,10 @@ struct EvaluationLedger {
 struct RuntimeData {
     settings: TaskmasterSettings,
     knowledge: Option<KnowledgeBundle>,
+    verified_knowledge: Option<VerifiedKnowledge>,
+    trusted_key_sha256: Option<String>,
+    #[cfg(test)]
+    test_key: Option<String>,
     ledger: EvaluationLedger,
     ledger_readable: bool,
 }
@@ -282,6 +288,7 @@ struct RuntimeData {
 pub(crate) struct EvaluationSnapshot {
     pub settings: TaskmasterSettings,
     pub knowledge: Option<KnowledgeBundle>,
+    pub knowledge_identity: Option<KnowledgeIdentity>,
     pub generation: u64,
     pub custom_inference: Option<inference::CapturedInference>,
     pub native_revision: Option<super::provider_catalog::NativeRevision>,
@@ -311,6 +318,7 @@ impl EvaluationSnapshot {
         let bytes = serde_json::to_vec(&(
             1_u8,
             &self.settings,
+            &self.knowledge_identity,
             self.generation,
             custom,
             &self.native_revision,
@@ -328,25 +336,93 @@ pub(crate) struct TaskmasterRuntime {
 
 impl TaskmasterRuntime {
     pub(crate) fn open(root: PathBuf) -> Self {
+        Self::open_inner(
+            root,
+            #[cfg(test)]
+            None,
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn open_with_test_key(root: PathBuf, key: &str) -> Self {
+        Self::open_inner(root, Some(key.to_owned()))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn open_fixture(root: PathBuf) -> Self {
+        Self::open_with_test_key(root, knowledge::test_support::TEST_PUBLIC_KEY)
+    }
+
+    fn open_inner(root: PathBuf, #[cfg(test)] test_key: Option<String>) -> Self {
         let _persistence = PERSISTENCE_LOCK
             .lock()
             .expect("taskmaster persistence lock poisoned");
         let file_lock = persistence_file_lock(&root);
         let settings = read_json(root.join("settings.json")).unwrap_or_default();
-        let knowledge = read_json(root.join("knowledge.json"))
-            .filter(|bundle: &KnowledgeBundle| validate_bundle(bundle).is_ok());
+        let trusted_key_sha256 = knowledge::trusted_key_sha256().ok();
+        #[cfg(test)]
+        let trusted_key_sha256 = test_key.as_deref().map_or(trusted_key_sha256, |key| {
+            knowledge::test_key_sha256(key).ok()
+        });
         let ledger = read_json(root.join("evaluations.json"));
         let ledger_readable =
             file_lock.is_ok() && (ledger.is_some() || !root.join("evaluations.json").exists());
+        let mut data = RuntimeData {
+            settings,
+            knowledge: None,
+            verified_knowledge: None,
+            trusted_key_sha256,
+            #[cfg(test)]
+            test_key,
+            ledger: ledger.unwrap_or_default(),
+            ledger_readable,
+        };
+        reload_knowledge(&root, &mut data);
         Self {
             root,
-            data: Mutex::new(RuntimeData {
-                settings,
-                knowledge,
-                ledger: ledger.unwrap_or_default(),
-                ledger_readable,
-            }),
+            data: Mutex::new(data),
         }
+    }
+
+    /// Re-read the bounded durable proof; memory alone never authorizes analysis.
+    pub(crate) fn brain_knowledge_availability(&self) -> Result<(), &'static str> {
+        let reason = BRAIN_KNOWLEDGE_UNAVAILABLE;
+        let _guard = PersistenceGuard::acquire(&self.root).map_err(|_| reason)?;
+        let mut data = self.data.lock().map_err(|_| reason)?;
+        reload_durable(&self.root, &mut data);
+        if !data.ledger_readable || data.verified_knowledge.is_none() {
+            return Err(reason);
+        }
+        #[cfg(test)]
+        if data.test_key.is_some() {
+            return Ok(());
+        }
+        // Task 7 owns the compliant production starter/publication admission gate.
+        Err(reason)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn knowledge_path(&self) -> PathBuf {
+        proof_path(&self.root, &self.data.lock().unwrap()).unwrap()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn activate_fixture_bundle(&self, bundle: KnowledgeBundle) -> Result<(), String> {
+        let mut value = serde_json::to_value(&bundle).unwrap();
+        value["publishedAt"] =
+            serde_json::json!(chrono::DateTime::parse_from_rfc3339(&bundle.published_at)
+                .unwrap()
+                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
+        value["privacyPolicyVersion"] = serde_json::json!(1);
+        value["capabilities"] = serde_json::json!([]);
+        if bundle.pages.is_empty() {
+            value["pages"] = serde_json::json!([{"id":"fixture.md","title":"Fixture","type":"concept","status":"active","content":"","sha256":hex::encode(Sha256::digest(b"")),"relatedIds":[]}]);
+        }
+        self.activate_knowledge(&knowledge::test_support::activation(value, false))
+    }
+
+    pub(crate) fn root_path(&self) -> &Path {
+        &self.root
     }
 
     pub(crate) fn status(&self, workspace: Option<&Path>) -> TaskmasterStatus {
@@ -592,31 +668,49 @@ impl TaskmasterRuntime {
         Ok(())
     }
 
-    pub(crate) fn activate_knowledge(&self, bundle: KnowledgeBundle) -> Result<(), String> {
-        let _persistence = PERSISTENCE_LOCK
+    pub(crate) fn activate_knowledge(&self, bytes: &[u8]) -> Result<(), String> {
+        let _guard = PersistenceGuard::acquire(&self.root)?;
+        let mut data = self
+            .data
             .lock()
-            .expect("taskmaster persistence lock poisoned");
-        let _file_lock = persistence_file_lock(&self.root)?;
-        validate_bundle(&bundle)?;
-        let mut data = self.data.lock().expect("taskmaster runtime lock poisoned");
+            .map_err(|_| "taskmaster runtime lock unavailable")?;
+        // Verify raw bytes, preserving duplicate-field and lexical validation.
+        let verified = verify_knowledge(&data, bytes)?;
         reload_durable(&self.root, &mut data);
         if !data.ledger_readable {
             return Err("Taskmaster evaluation ledger is unreadable".into());
         }
-        if data.knowledge.as_ref() == Some(&bundle) {
-            return Ok(());
+        if let Some(current) = &data.verified_knowledge {
+            if verified.identity() == current.identity() {
+                return Ok(());
+            }
+            if verified.identity().sequence < current.identity().sequence {
+                // Stable recoverable error consumed by Electron synchronization before its feed check.
+                return Err("knowledge bundle sequence is older than the active bundle".into());
+            }
+            if verified.identity().sequence == current.identity().sequence {
+                return Err("knowledge bundle sequence equivocation at the active sequence".into());
+            }
         }
-        if data
-            .knowledge
-            .as_ref()
-            .is_some_and(|current| bundle.sequence < current.sequence)
-        {
-            return Err("knowledge bundle sequence is older than the active bundle".into());
-        }
-        data.ledger.generation = data.ledger.generation.saturating_add(1);
+        data.ledger.generation = data
+            .ledger
+            .generation
+            .checked_add(1)
+            .ok_or("Taskmaster generation exhausted")?;
+        data.ledger.workspace_cache_keys.clear();
+        // Invalidate old work first. A crash here may discard work, never accept stale work.
         write_json(&self.root.join("evaluations.json"), &data.ledger)?;
-        write_json(&self.root.join("knowledge.json"), &bundle)?;
-        data.knowledge = Some(bundle);
+        let path = proof_path(&self.root, &data).ok_or("trusted knowledge key unavailable")?;
+        write_proof(&path, verified.activation_bytes())?;
+        reload_knowledge(&self.root, &mut data);
+        if data
+            .verified_knowledge
+            .as_ref()
+            .map(VerifiedKnowledge::identity)
+            != Some(verified.identity())
+        {
+            return Err("knowledge activation could not be confirmed".into());
+        }
         Ok(())
     }
 
@@ -624,6 +718,7 @@ impl TaskmasterRuntime {
     /// call consumes its reservation, so process restarts cannot reset usage
     /// accounting; manual reservations bypass the daily limit and never
     /// increment the shared counter.
+    #[cfg(test)]
     pub(crate) fn reserve_current(
         &self,
         workspace: &Path,
@@ -634,6 +729,7 @@ impl TaskmasterRuntime {
         self.reserve_current_with_policy(workspace, now, cache_key, generation, false)
     }
 
+    #[cfg(test)]
     pub(crate) fn reserve_current_manual(
         &self,
         workspace: &Path,
@@ -644,6 +740,7 @@ impl TaskmasterRuntime {
         self.reserve_current_with_policy(workspace, now, cache_key, generation, true)
     }
 
+    #[cfg(test)]
     fn reserve_current_with_policy(
         &self,
         workspace: &Path,
@@ -747,7 +844,9 @@ impl TaskmasterRuntime {
         allow_disabled: bool,
     ) -> Option<EvaluationSnapshot> {
         let workspace = canonical_workspace_key(workspace)?;
-        let data = self.data.lock().expect("taskmaster runtime lock poisoned");
+        let _guard = PersistenceGuard::acquire(&self.root).ok()?;
+        let mut data = self.data.lock().expect("taskmaster runtime lock poisoned");
+        reload_durable(&self.root, &mut data);
         if !data.ledger_readable {
             return None;
         }
@@ -756,6 +855,10 @@ impl TaskmasterRuntime {
             EvaluationSnapshot {
                 settings,
                 knowledge: data.knowledge.clone(),
+                knowledge_identity: data
+                    .verified_knowledge
+                    .as_ref()
+                    .map(|proof| proof.identity().clone()),
                 generation: data.ledger.generation,
                 custom_inference: None,
                 native_revision: None,
@@ -763,6 +866,7 @@ impl TaskmasterRuntime {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn record_error(
         &self,
         generation: u64,
@@ -800,6 +904,7 @@ impl TaskmasterRuntime {
     }
 
     /// Holds the configuration lock through applying output, closing the check/write race.
+    #[cfg(test)]
     pub(crate) fn with_current_generation(
         &self,
         generation: u64,
@@ -809,34 +914,6 @@ impl TaskmasterRuntime {
         let mut data = self.data.lock().expect("taskmaster runtime lock poisoned");
         reload_durable(&self.root, &mut data);
         if !data.ledger_readable || data.ledger.generation != generation {
-            return Ok(false);
-        }
-        apply();
-        Ok(true)
-    }
-
-    pub(super) fn with_current_generation_and_selection(
-        &self,
-        workspace: &Path,
-        generation: u64,
-        provider: &str,
-        model: &str,
-        apply: impl FnOnce(),
-    ) -> Result<bool, String> {
-        let _guard = PersistenceGuard::acquire(&self.root)?;
-        let mut data = self.data.lock().expect("taskmaster runtime lock poisoned");
-        reload_durable(&self.root, &mut data);
-        let Some(workspace) = canonical_workspace_key(workspace) else {
-            return Ok(false);
-        };
-        let Some(selection) = effective_settings(&data.settings, &workspace).selection else {
-            return Ok(false);
-        };
-        if !data.ledger_readable
-            || data.ledger.generation != generation
-            || selection.provider != provider
-            || selection.model != model
-        {
             return Ok(false);
         }
         apply();
@@ -863,11 +940,7 @@ impl TaskmasterRuntime {
         {
             return Ok(false);
         }
-        if snapshot.custom_inference.is_some() {
-            self.with_current_evaluation(harnesses, workspace, snapshot, apply)
-        } else {
-            self.with_current_native_rollup_evaluation(harnesses, workspace, snapshot, token, apply)
-        }
+        self.with_current_evaluation(harnesses, workspace, snapshot, apply)
     }
 }
 
@@ -887,6 +960,7 @@ pub(crate) fn taskmaster_global_dir() -> Option<PathBuf> {
     dirs::home_dir().map(|home| home.join(".orkworks").join("taskmaster"))
 }
 
+#[cfg(test)]
 pub(crate) fn validate_bundle(bundle: &KnowledgeBundle) -> Result<(), String> {
     if bundle.format_version != 1
         || bundle.version.trim().is_empty()
@@ -1135,6 +1209,7 @@ fn bounded_run_error_summary(error: &str) -> String {
     }
     bounded
 }
+#[cfg(test)]
 fn valid_relative_markdown_path(path: &str) -> bool {
     !path.is_empty()
         && path.len() <= MAX_PATH_BYTES
@@ -1158,12 +1233,70 @@ fn reload_durable(root: &Path, data: &mut RuntimeData) {
     if let Some(ledger) = ledger {
         data.ledger = ledger;
     }
-    if let Some(knowledge) = read_json(root.join("knowledge.json"))
-        .filter(|bundle: &KnowledgeBundle| validate_bundle(bundle).is_ok())
-    {
-        data.knowledge = Some(knowledge);
-    }
+    reload_knowledge(root, data);
 }
+fn proof_path(root: &Path, data: &RuntimeData) -> Option<PathBuf> {
+    Some(
+        root.join("knowledge")
+            .join(data.trusted_key_sha256.as_ref()?)
+            .join("activation.json"),
+    )
+}
+
+fn verify_knowledge(data: &RuntimeData, bytes: &[u8]) -> Result<VerifiedKnowledge, String> {
+    #[cfg(test)]
+    if let Some(key) = &data.test_key {
+        return knowledge::verify_activation_with_key(bytes, key);
+    }
+    let _ = data;
+    knowledge::verify_activation(bytes)
+}
+
+fn reload_knowledge(root: &Path, data: &mut RuntimeData) {
+    use std::io::Read;
+    // Bound allocation as well as parsing, including files enlarged after metadata inspection.
+    data.verified_knowledge = proof_path(root, data).and_then(|path| {
+        let mut bytes = Vec::new();
+        fs::File::open(path)
+            .ok()?
+            .take((knowledge::MAX_ACTIVATION_BYTES + 1) as u64)
+            .read_to_end(&mut bytes)
+            .ok()?;
+        verify_knowledge(data, &bytes).ok()
+    });
+    data.knowledge = data.verified_knowledge.as_ref().and_then(|proof| {
+        // Prompt DTO is a projection; the full signed hierarchy/provenance stays in the proof.
+        serde_json::from_slice::<KnowledgeBundle>(&serde_json::to_vec(proof.bundle()).ok()?).ok()
+    });
+}
+
+fn proof_matches(data: &RuntimeData, identity: Option<&KnowledgeIdentity>) -> bool {
+    identity.is_some()
+        && data
+            .verified_knowledge
+            .as_ref()
+            .map(VerifiedKnowledge::identity)
+            == identity
+}
+
+fn write_proof(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+    let parent = path.parent().ok_or("knowledge path has no parent")?;
+    fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    let mut temporary =
+        tempfile::NamedTempFile::new_in(parent).map_err(|error| error.to_string())?;
+    temporary
+        .write_all(bytes)
+        .map_err(|error| error.to_string())?;
+    temporary
+        .as_file()
+        .sync_all()
+        .map_err(|error| error.to_string())?;
+    let temporary = temporary.into_temp_path();
+    crate::harness::integration::atomic_replace(&temporary, path, path.exists())
+        .map_err(|error| error.to_string())
+}
+
 pub(super) fn persistence_file_lock(root: &Path) -> Result<std::fs::File, String> {
     fs::create_dir_all(root).map_err(|error| error.to_string())?;
     let file = OpenOptions::new()
@@ -1176,20 +1309,27 @@ pub(super) fn persistence_file_lock(root: &Path) -> Result<std::fs::File, String
     Ok(file)
 }
 fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
-    fs::create_dir_all(path.parent().ok_or("settings path has no parent")?)
-        .map_err(|error| error.to_string())?;
-    let temporary = path.with_extension("tmp");
-    fs::write(
-        &temporary,
-        serde_json::to_vec(value).map_err(|error| error.to_string())?,
+    write_proof(
+        path,
+        &serde_json::to_vec(value).map_err(|error| error.to_string())?,
     )
-    .map_err(|error| error.to_string())?;
-    fs::rename(temporary, path).map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unsigned_knowledge_cannot_be_activated() {
+        let dir = tempfile::tempdir().unwrap();
+        let runtime = TaskmasterRuntime::open(dir.path().to_path_buf());
+        let starter = include_bytes!("../../../../apps/desktop/resources/knowledge/starter.json");
+        assert!(
+            runtime.activate_knowledge(starter).is_err(),
+            "unsigned starter must not establish server proof"
+        );
+        assert!(!dir.path().join("knowledge.json").exists());
+    }
 
     #[test]
     fn settings_default_to_a_safe_unconfigured_runtime() {

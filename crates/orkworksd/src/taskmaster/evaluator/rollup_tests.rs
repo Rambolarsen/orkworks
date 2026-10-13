@@ -22,6 +22,7 @@ fn evaluation_snapshot() -> EvaluationSnapshot {
             ..TaskmasterSettings::default()
         },
         knowledge: None,
+        knowledge_identity: None,
         generation: 1,
         custom_inference: None,
         native_revision: None,
@@ -170,7 +171,12 @@ fn seeded_state(
         store.put(recommendation).unwrap();
     }
     drop(workspace);
-    let runtime = TaskmasterRuntime::open(directory.path().join("runtime"));
+    let runtime = TaskmasterRuntime::open_fixture(directory.path().join("runtime"));
+    runtime
+        .activate_knowledge(&crate::taskmaster::knowledge::test_support::fixture(
+            "valid-activation.json",
+        ))
+        .unwrap();
     runtime
         .replace_settings(evaluation_snapshot().settings)
         .unwrap();
@@ -854,7 +860,7 @@ fn stale_rollup_section_prevents_combined_legacy_application() {
 fn valid_combined_response_applies_legacy_enrichment_and_rollup() {
     let directory = tempfile::tempdir().unwrap();
     let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b"]);
-    let mut snapshot = evaluation_snapshot();
+    let mut snapshot = bound_snapshot(&state, &runtime, directory.path());
     snapshot.native_revision = Some(crate::taskmaster::provider_catalog::NativeRevision {
         document_revision: state.harness_store.snapshot().unwrap().document_revision,
         profile: crate::providers::native_inference::NativeProfile::Codex,
@@ -862,7 +868,7 @@ fn valid_combined_response_applies_legacy_enrichment_and_rollup() {
     snapshot.knowledge = Some(KnowledgeBundle {
         format_version: 1,
         version: "v1".into(),
-        sequence: 1,
+        sequence: 2,
         published_at: "2026-09-13T00:00:00Z".into(),
         pages: vec![KnowledgePage {
             id: "page.md".into(),
@@ -870,10 +876,14 @@ fn valid_combined_response_applies_legacy_enrichment_and_rollup() {
             page_type: "concept".into(),
             status: "active".into(),
             content: "Grounded context".into(),
-            sha256: "page-sha".into(),
+            sha256: hex::encode(sha2::Sha256::digest(b"Grounded context")),
             related_ids: vec![],
         }],
     });
+    runtime
+        .activate_fixture_bundle(snapshot.knowledge.take().unwrap())
+        .unwrap();
+    let snapshot = bound_snapshot(&state, &runtime, directory.path());
     let response = serde_json::json!({
         "enrichments": [{"dedupeKey": "exact:a", "knowledgePageIds": ["page.md"]}],
         "proposals": [],

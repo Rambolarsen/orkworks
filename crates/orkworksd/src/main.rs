@@ -343,7 +343,9 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
         .route("/taskmaster/run-status", get(get_taskmaster_run_status))
         .route(
             "/settings/taskmaster/knowledge",
-            post(post_taskmaster_knowledge),
+            post(post_taskmaster_knowledge).layer(axum::extract::DefaultBodyLimit::max(
+                taskmaster::knowledge::MAX_ACTIVATION_BYTES,
+            )),
         )
         .route(
             "/settings/taskmaster/inference",
@@ -464,6 +466,7 @@ fn session_metadata_serializes_connectivity_terminal_outcome_and_last_activity()
 #[cfg(test)]
 pub(crate) mod test_support {
     pub(crate) mod native_inference;
+    pub(crate) mod open_plan_token;
     use super::*;
 
     /// A minimal `improve_workflow` recommendation whose evidence cites the

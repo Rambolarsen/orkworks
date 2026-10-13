@@ -1,9 +1,8 @@
 //! Custom inference identity and serialized action guard; transport activation is separate.
 
 use super::{
-    canonical_workspace_key, effective_settings, reload_durable, validate_selection,
-    EvaluationSnapshot, PersistenceGuard, RollupEvaluationToken, TaskmasterRuntime,
-    TaskmasterSettings,
+    canonical_workspace_key, effective_settings, proof_matches, reload_durable, validate_selection,
+    EvaluationSnapshot, PersistenceGuard, TaskmasterRuntime, TaskmasterSettings,
 };
 use crate::harness::{
     inference::InferenceCapability,
@@ -22,6 +21,7 @@ pub(crate) struct CapturedInference {
     workspace: String,
     runtime_generation: u64,
     settings: TaskmasterSettings,
+    knowledge_identity: Option<super::KnowledgeIdentity>,
     adapter: AdapterIdentity,
     capability: InferenceCapability,
     trust_generation: u64,
@@ -29,7 +29,8 @@ pub(crate) struct CapturedInference {
 
 impl CapturedInference {
     fn matches_snapshot(&self, workspace: &Path, snapshot: &EvaluationSnapshot) -> bool {
-        self.runtime_generation == snapshot.generation
+        self.knowledge_identity == snapshot.knowledge_identity
+            && self.runtime_generation == snapshot.generation
             && self.settings == snapshot.settings
             && canonical_workspace_key(workspace).as_ref() == Some(&self.workspace)
     }
@@ -68,6 +69,16 @@ impl TaskmasterRuntime {
         snapshot: &EvaluationSnapshot,
         apply: impl FnOnce(),
     ) -> Result<bool, String> {
+        self.with_current_native_data(harnesses, workspace, snapshot, |_| apply())
+    }
+
+    fn with_current_native_data(
+        &self,
+        harnesses: &HarnessStore,
+        workspace: &Path,
+        snapshot: &EvaluationSnapshot,
+        apply: impl FnOnce(&mut super::RuntimeData),
+    ) -> Result<bool, String> {
         let Some(revision) = &snapshot.native_revision else {
             return Ok(false);
         };
@@ -92,62 +103,14 @@ impl TaskmasterRuntime {
                 if !data.ledger_readable
                     || data.ledger.generation != snapshot.generation
                     || effective_settings(&data.settings, &workspace_key) != snapshot.settings
-                    || data.knowledge != snapshot.knowledge
+                    || !proof_matches(&data, snapshot.knowledge_identity.as_ref())
                 {
                     return Ok(false);
                 }
-                apply();
+                apply(&mut data);
                 Ok(true)
             })
             .map_err(|_| "native inference configuration unavailable".to_string())?
-    }
-
-    pub(super) fn with_current_native_rollup_evaluation(
-        &self,
-        harnesses: &HarnessStore,
-        workspace: &Path,
-        snapshot: &EvaluationSnapshot,
-        token: &RollupEvaluationToken,
-        apply: impl FnOnce(),
-    ) -> Result<bool, String> {
-        let Some(revision) = &snapshot.native_revision else {
-            return Ok(false);
-        };
-        harnesses
-            .with_locked_snapshot(|current| {
-                if current.document_revision != revision.document_revision {
-                    return Ok(false);
-                }
-                self.with_current_generation_and_selection(
-                    workspace,
-                    snapshot.generation,
-                    &token.provider,
-                    &token.model,
-                    apply,
-                )
-            })
-            .map_err(|_| "inference harness configuration unavailable".to_string())?
-    }
-
-    /// Retain the inspected native document revision through each mutation.
-    /// Unbound snapshots carry no authority, even if a custom identity was lost.
-    fn with_native_revision<T>(
-        &self,
-        harnesses: &HarnessStore,
-        snapshot: &EvaluationSnapshot,
-        apply: impl FnOnce() -> Result<T, String>,
-    ) -> Result<Option<T>, String> {
-        let Some(revision) = &snapshot.native_revision else {
-            return Ok(None);
-        };
-        harnesses
-            .with_locked_snapshot(|current| {
-                if current.document_revision != revision.document_revision {
-                    return Ok(None);
-                }
-                apply().map(Some)
-            })
-            .map_err(|_| "inference harness configuration unavailable".to_string())?
     }
 
     /// Preserve custom authority through final commit, including its binding to
@@ -166,10 +129,7 @@ impl TaskmasterRuntime {
             }
             self.with_current_custom_inference(harnesses, captured, apply)
         } else {
-            self.with_native_revision(harnesses, snapshot, || {
-                self.with_current_generation(snapshot.generation, apply)
-            })
-            .map(|result| result.unwrap_or(false))
+            self.with_current_native_evaluation(harnesses, workspace, snapshot, apply)
         }
     }
 
@@ -191,10 +151,8 @@ impl TaskmasterRuntime {
             })?;
             saved
         } else {
-            self.with_native_revision(harnesses, snapshot, || {
-                self.record_error(snapshot.generation, error)
-            })
-            .map(|result| result.unwrap_or(false))
+            let _ = error;
+            self.with_current_native_evaluation(harnesses, workspace, snapshot, || {})
         }
     }
 
@@ -223,18 +181,7 @@ impl TaskmasterRuntime {
             }
             self.with_current_custom_data(harnesses, captured, save)?;
         } else {
-            self.with_native_revision(harnesses, snapshot, || {
-                let _guard = PersistenceGuard::acquire(&self.root)?;
-                let mut data = self
-                    .data
-                    .lock()
-                    .map_err(|_| "taskmaster runtime lock unavailable")?;
-                reload_durable(&self.root, &mut data);
-                if data.ledger_readable && data.ledger.generation == snapshot.generation {
-                    save(&mut data);
-                }
-                Ok(())
-            })?;
+            self.with_current_native_data(harnesses, workspace, snapshot, save)?;
         }
         saved
     }
@@ -250,9 +197,18 @@ impl TaskmasterRuntime {
         cache_key: &str,
         snapshot: &EvaluationSnapshot,
     ) -> Result<bool, String> {
-        self.reserve_snapshot_with_interval(harnesses, workspace, now, cache_key, snapshot, false)
+        self.reserve_snapshot_with_interval(
+            harnesses,
+            workspace,
+            now,
+            cache_key,
+            snapshot,
+            false,
+            |reserve| reserve(),
+        )
     }
 
+    #[cfg(test)]
     pub(crate) fn reserve_manual_snapshot(
         &self,
         harnesses: &HarnessStore,
@@ -261,7 +217,30 @@ impl TaskmasterRuntime {
         cache_key: &str,
         snapshot: &EvaluationSnapshot,
     ) -> Result<bool, String> {
-        self.reserve_snapshot_with_interval(harnesses, workspace, now, cache_key, snapshot, true)
+        self.reserve_snapshot_with_interval(
+            harnesses,
+            workspace,
+            now,
+            cache_key,
+            snapshot,
+            true,
+            |reserve| reserve(),
+        )
+    }
+
+    /// Enter workspace admission only after harness/persistence/data locks.
+    pub(crate) fn reserve_manual_snapshot_with_admission(
+        &self,
+        harnesses: &HarnessStore,
+        workspace: &Path,
+        now: &str,
+        cache_key: &str,
+        snapshot: &EvaluationSnapshot,
+        admit: impl FnOnce(&mut dyn FnMut() -> Result<bool, String>) -> Result<bool, String>,
+    ) -> Result<bool, String> {
+        self.reserve_snapshot_with_interval(
+            harnesses, workspace, now, cache_key, snapshot, true, admit,
+        )
     }
 
     fn reserve_snapshot_with_interval(
@@ -272,6 +251,7 @@ impl TaskmasterRuntime {
         cache_key: &str,
         snapshot: &EvaluationSnapshot,
         manual: bool,
+        admit: impl FnOnce(&mut dyn FnMut() -> Result<bool, String>) -> Result<bool, String>,
     ) -> Result<bool, String> {
         if let Some(captured) = &snapshot.custom_inference {
             if !captured.matches_snapshot(workspace, snapshot) {
@@ -279,32 +259,37 @@ impl TaskmasterRuntime {
             }
             let mut reserved = Ok(false);
             self.with_current_custom_data(harnesses, captured, |data| {
-                reserved = self.reserve_loaded(
-                    data,
-                    workspace,
-                    now,
-                    Some(cache_key),
-                    Some(snapshot.generation),
-                    manual,
-                    manual,
-                    manual,
-                );
-            })?;
-            reserved
-        } else {
-            self.with_native_revision(harnesses, snapshot, || {
-                if manual {
-                    self.reserve_current_manual(
+                reserved = admit(&mut || {
+                    self.reserve_loaded(
+                        data,
                         workspace,
                         now,
                         Some(cache_key),
                         Some(snapshot.generation),
+                        manual,
+                        manual,
+                        manual,
                     )
-                } else {
-                    self.reserve_current(workspace, now, Some(cache_key), Some(snapshot.generation))
-                }
-            })
-            .map(|result| result.unwrap_or(false))
+                });
+            })?;
+            reserved
+        } else {
+            let mut reserved = Ok(false);
+            self.with_current_native_data(harnesses, workspace, snapshot, |data| {
+                reserved = admit(&mut || {
+                    self.reserve_loaded(
+                        data,
+                        workspace,
+                        now,
+                        Some(cache_key),
+                        Some(snapshot.generation),
+                        manual,
+                        manual,
+                        manual,
+                    )
+                });
+            })?;
+            reserved
         }
     }
 
@@ -335,6 +320,15 @@ impl TaskmasterRuntime {
             code: ProviderOperationErrorCode::StaleGeneration,
             message: "custom inference authorization or configuration changed".into(),
         };
+        if !self
+            .with_current_custom_inference(harnesses, captured, || {})
+            .map_err(|_| ProviderOperationError {
+                code: ProviderOperationErrorCode::VerificationRequired,
+                message: "custom inference authorization could not be verified".into(),
+            })?
+        {
+            return Err(stale());
+        }
         let selection = captured.settings.selection.as_ref().ok_or_else(stale)?;
         let prepared = custom_inference::prepare(
             &captured.capability,
@@ -434,6 +428,7 @@ impl TaskmasterRuntime {
                     .map_err(|_| "taskmaster runtime lock unavailable")?;
                 reload_durable(&self.root, &mut data);
                 if !data.ledger_readable
+                    || !proof_matches(&data, evaluation.knowledge_identity.as_ref())
                     || data.ledger.generation != evaluation.generation
                     || (!allow_disabled && !evaluation.settings.enabled)
                     || effective_settings(&data.settings, &workspace) != evaluation.settings
@@ -445,6 +440,7 @@ impl TaskmasterRuntime {
                     workspace,
                     runtime_generation: evaluation.generation,
                     settings: evaluation.settings.clone(),
+                    knowledge_identity: evaluation.knowledge_identity.clone(),
                     adapter,
                     capability,
                     trust_generation: trust.revision.generation,
@@ -496,6 +492,7 @@ impl TaskmasterRuntime {
                     .map_err(|_| "taskmaster runtime lock unavailable")?;
                 reload_durable(&self.root, &mut data);
                 if !data.ledger_readable
+                    || !proof_matches(&data, captured.knowledge_identity.as_ref())
                     || data.ledger.generation != captured.runtime_generation
                     || effective_settings(&data.settings, &captured.workspace) != captured.settings
                 {
