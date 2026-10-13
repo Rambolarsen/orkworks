@@ -322,7 +322,7 @@ commands, if desired, require explicit settings scope approval.
 
 | Existing command identity | Proposed meaning |
 | --- | --- |
-| New session | Existing ordinary creation dialog |
+| New session | Transient central composer; also shown for empty workspaces |
 | Sessions | Reveal/focus Sessions; hide only when already focused; narrow page closes to exact invoker on repeated command |
 | Detail | Toggle current-subject Details; never expose unrelated inspection beside Terminal |
 | Terminal | Show/focus the exact selected Terminal/history; repeating keeps it visible rather than hiding the sole central surface |
@@ -610,3 +610,15 @@ evidence remains required before a release containing this change and is tracked
 in [#836](https://github.com/Rambolarsen/orkworks/issues/836). Automated fixtures
 are partial evidence and do not mark those walkthroughs complete. See
 [ADR 0082](../../adr/0082-react-grid-desktop-shell.md) for the scoped delivery exception.
+
+## Ordinary session creation refinement (#845)
+
+The user-approved creation view occupies the main content pane, retaining the
+Sessions sidebar at widths where it is available. A large initial prompt comes
+before coding tool and model controls. Cancel returns to the previous content;
+selecting a session or explicitly navigating to Terminal exits creation. Start
+keeps the draft while pending or after failure and opens the new terminal after
+success. Empty workspaces initially show the composer, without launching work.
+Workspace changes discard the draft and invalidate pending availability checks.
+The composer is transient presentation, not a persisted navigation destination
+or new creation authority. Existing terminal runtimes keep draining output.

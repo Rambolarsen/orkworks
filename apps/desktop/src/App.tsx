@@ -83,7 +83,14 @@ function App() {
   const [harnesses, setHarnesses] = useState<HarnessConfigEntry[]>([]);
   const [harnessDocumentRevision, setHarnessDocumentRevision] = useState<string | null>(null);
   const [activeHarnessIds, setActiveHarnessIds] = useState<string[]>([]);
-  const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);
+  const [newSessionOpen, setNewSessionOpen] = useState(false);
+  const [emptyComposerDismissed, setEmptyComposerDismissed] = useState(false);
+  const composerIntent = useRef(0);
+  const cancelNewSession = useCallback(() => {
+    composerIntent.current += 1;
+    setNewSessionOpen(false);
+    setEmptyComposerDismissed(true);
+  }, []);
   const backendRetryGuardRef = useRef(createBackendRetryGuard());
   const workspaceLifecycleRef = useRef({ generation: 0, readyGeneration: null as number | null });
   const initialWorkspaceSnapshotRef = useRef<{
@@ -135,6 +142,9 @@ function App() {
       generation,
       readyGeneration: event.state === "ready" ? generation : workspaceLifecycleRef.current.readyGeneration,
     };
+    cancelNewSession();
+    setEmptyComposerDismissed(false);
+    setProviderRuntime(null);
     dispatchShellNavigation({ type: "workspace-generation-changed", generation });
     if (event.state === "ready") {
       setIsSwitchingWorkspace(false);
@@ -371,30 +381,41 @@ function App() {
 
   const handleCreateSession = useCallback(async () => {
     if (!workspaceSessionController.isAdmissionEnabled()) return;
-    try {
-      const baseUrl = await window.orkworks.getBackendUrl();
-      const runtime = await getProviders(baseUrl);
-      setProviderRuntime(runtime);
-    } catch {
-      // dialog still opens; provider states just won't show
-    }
-    setNewSessionDialogOpen(true);
-  }, [workspaceSessionController]);
+    composerIntent.current += 1;
+    setNewSessionOpen(true);
+    requestShellCommand("new-session");
+  }, [workspaceSessionController, requestShellCommand]);
+
+  const showNewSession = sessionAdmissionEnabled && !isSwitchingWorkspace && !!workspace &&
+    (newSessionOpen || (sessions.length === 0 && !emptyComposerDismissed));
+
+  useEffect(() => {
+    if (!showNewSession) return;
+    let cancelled = false;
+    setProviderRuntime(null);
+    void window.orkworks.getBackendUrl().then(getProviders).then(runtime => {
+      if (!cancelled) setProviderRuntime(runtime);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [showNewSession, shellNavigation.workspaceGeneration]);
 
   const handleConfirmNewSession = useCallback(async (opts: CreateSessionOptions) => {
-    setNewSessionDialogOpen(false);
+    const intent = composerIntent.current;
     try {
-      await workspaceSessionController.createSession(opts);
+      const created = await workspaceSessionController.createSession(opts, () => intent === composerIntent.current);
+      if (!created || intent !== composerIntent.current) return;
+      cancelNewSession();
       requestShellCommand("terminal");
     } catch {
       pushToast("error", "Couldn't start a new session.");
     }
-  }, [workspaceSessionController, requestShellCommand]);
+  }, [workspaceSessionController, requestShellCommand, cancelNewSession]);
 
   const [fixRecommendation, setFixRecommendation] = useState<WorkflowRecommendation | null>(null);
 
   const handleSelectSession = useCallback((id: string) => {
     if (!workspaceSessionController.selectSession(id)) return;
+    cancelNewSession();
     dispatchShellNavigation({
       type: "session-selected",
       sessionId: id,
@@ -734,6 +755,11 @@ function App() {
         onOpenRecommendation={handleOpenRecommendation}
         onFixWithAi={handleFixWithAi}
         onRunCleanup={handleRunCleanup}
+        newSessionContent={showNewSession ? <NewSessionDialog
+          key={shellNavigation.workspaceGeneration}
+          harnesses={filteredHarnesses} providerRuntime={providerRuntime}
+          onConfirm={handleConfirmNewSession} onCancel={() => requestShellCommand("cancel-new-session")} /> : null}
+        onCancelNewSession={cancelNewSession}
         onCreateSession={handleCreateSession}
         onKillSession={handleKillSession}
         onForgetSession={handleForgetSession}
@@ -759,14 +785,6 @@ function App() {
             </button>
           </section>
         </div>
-      )}
-      {newSessionDialogOpen && (
-        <NewSessionDialog
-          harnesses={filteredHarnesses}
-          providerRuntime={providerRuntime}
-          onConfirm={handleConfirmNewSession}
-          onCancel={() => setNewSessionDialogOpen(false)}
-        />
       )}
       {fixRecommendation && (
         <FixWithAiDialog

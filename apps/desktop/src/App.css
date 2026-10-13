@@ -2897,3 +2897,25 @@ html, body, #root {
   background: var(--surface-1);
   border-bottom: 1px solid var(--border-default);
 }
+
+/* Ordinary session creation is part of the central pane. */
+.new-session-composer {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  padding: clamp(20px, 5vw, 64px);
+}
+.new-session-composer-card { width: 100%; max-width: 720px; margin: auto; }
+.new-session-composer .new-session-header { padding: 0 0 24px; }
+.new-session-composer .new-session-body { padding: 0; gap: 20px; }
+.new-session-composer .new-session-textarea { min-height: 180px; resize: vertical; }
+.new-session-composer .new-session-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.new-session-composer .new-session-row { min-width: 0; flex-direction: column; align-items: stretch; gap: 8px; }
+.new-session-composer .new-session-label { width: auto; }
+.new-session-composer :is(.new-session-input, .new-session-select, .new-session-textarea) { min-width: 0; width: 100%; box-sizing: border-box; padding: 10px 12px; }
+.shell-main[hidden], .shell-composer-region[hidden] { display: none; }
+.new-session-composer .new-session-footer { padding: 24px 0 0; border: 0; }
+@media (max-width: 600px) {
+  .new-session-composer .new-session-controls { grid-template-columns: 1fr; }
+}

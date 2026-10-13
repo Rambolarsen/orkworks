@@ -15,7 +15,7 @@ import RegionSeparator from "./RegionSeparator";
 import { disposeAllTerminals } from "../terminalStore";
 
 export type ShellDestination = "details" | "capacity" | "recommendations";
-export type ShellCommand = "sessions" | "terminal" | "reset-layout" | ShellDestination;
+export type ShellCommand = "sessions" | "terminal" | "new-session" | "cancel-new-session" | "reset-layout" | ShellDestination;
 export interface ShellCommandRequest { command: ShellCommand; sequence: number; reveal?: boolean }
 
 export function shouldShowRecommendationsPanel(session: Pick<SessionInfo, "harnessId" | "harness"> | null | undefined): boolean {
@@ -50,6 +50,8 @@ interface Props {
   onOpenRecommendation: (id: string) => void;
   onFixWithAi: (recommendation: WorkflowRecommendation) => void;
   onRunCleanup: (recommendation: WorkflowRecommendation) => void;
+  newSessionContent?: ReactNode;
+  onCancelNewSession?: () => void;
   onCreateSession: () => void;
   onKillSession: (id: string) => void;
   onForgetSession: (id: string) => void;
@@ -69,6 +71,7 @@ export default function ApplicationShell(props: Props) {
   const invokerRef = useRef<HTMLElement | null>(null);
   const invokerSelectorRef = useRef<string | null>(null);
   const navigationIntent = useRef(0);
+  const creationReturn = useRef<{ inspector: ShellDestination | null; sessionsPage: boolean } | null>(null);
   const workspaceGenerationRef = useRef(props.workspaceGeneration);
   workspaceGenerationRef.current = props.workspaceGeneration;
   const focusIntent = useRef<"page" | "return" | "terminal" | "sessions" | null>(null);
@@ -79,7 +82,8 @@ export default function ApplicationShell(props: Props) {
   const compact = layout.mode === "compact";
   const showSessionsPage = compact && sessionsPage;
   const temporaryUtility = !showSessionsPage && layout.inspectorPage && props.inspector !== null;
-  const showTerminal = !showSessionsPage && !temporaryUtility;
+  const showComposer = !!props.newSessionContent && !showSessionsPage && !temporaryUtility;
+  const showTerminal = !showSessionsPage && !temporaryUtility && !showComposer;
   const showSessions = showSessionsPage || layout.sessionsVisible;
   const showInspector = !showSessionsPage && layout.inspectorWidth > 0 && props.inspector !== null;
   const session = props.sessions.find(s => s.id === props.activeSessionId) ?? null;
@@ -126,7 +130,24 @@ export default function ApplicationShell(props: Props) {
         props.onInspect(null);
         requestFocus("terminal");
       });
+    } else if (command === "new-session") {
+      if (!creationReturn.current) {
+        creationReturn.current = { inspector: props.inspector, sessionsPage };
+        invokerRef.current = rootRef.current?.querySelector<HTMLElement>("[data-shell-create]") ?? null;
+        invokerSelectorRef.current = "[data-shell-create]";
+      }
+      setSessionsPage(false);
+      props.onInspect(null);
+    } else if (command === "cancel-new-session") {
+      const target = creationReturn.current;
+      creationReturn.current = null;
+      props.onCancelNewSession?.();
+      setSessionsPage(target?.sessionsPage ?? false);
+      props.onInspect(target?.inspector ?? null);
+      requestFocus(target?.sessionsPage ? "sessions" : "return");
     } else if (command === "terminal") {
+      creationReturn.current = null;
+      props.onCancelNewSession?.();
       setSessionsPage(false);
       props.onInspect(null);
       requestFocus("terminal");
@@ -162,6 +183,7 @@ export default function ApplicationShell(props: Props) {
 
   useEffect(() => {
     setSessionsPage(false);
+    creationReturn.current = null;
     invokerRef.current = null;
     invokerSelectorRef.current = null;
   }, [props.workspaceGeneration]);
@@ -228,7 +250,7 @@ export default function ApplicationShell(props: Props) {
     {(props.inspector === "capacity" || props.inspector === "recommendations") &&
       <span className="shell-utility-scope">Workspace: {props.workspace?.path ?? "No workspace"}
         {props.inspector === "capacity" ? " · All coding tools" : ""}</span>}
-    <button type="button" data-shell-return onClick={closePage}>{temporary ? "Back to Terminal" : "Close inspector"}</button>
+    <button type="button" data-shell-return onClick={closePage}>{temporary ? (props.newSessionContent ? "Back to New session" : "Back to Terminal") : "Close inspector"}</button>
   </header>;
   const columns = [
     ...(layout.sessionsVisible ? [`${layout.sessionsWidth}px`, "6px"] : []),
@@ -262,14 +284,17 @@ export default function ApplicationShell(props: Props) {
         </header>
         <SessionListPanel workspace={props.workspace} sessions={props.sessions} activeSessionId={props.activeSessionId}
           unreadIds={props.unreadIds} acknowledgedIds={props.acknowledgedIds} harnesses={props.harnesses}
-          onSelectSession={props.onSelectSession}
+          onSelectSession={id => {
+            creationReturn.current = null;
+            props.onSelectSession(id);
+          }}
           onKillSession={props.onKillSession} onForgetSession={props.onForgetSession}
           onFocusTerminal={() => runCommand("terminal")} onOpenWorkspace={props.onOpenWorkspace} />
         <footer className="shell-sidebar-footer">{settingsAndStatus}</footer>
       </section>}
       {layout.sessionsVisible && <RegionSeparator label="Sessions" minimum={200} maximum={layout.sessionsMaximum} value={layout.sessionsWidth}
         onChange={value => props.onPreferencesChange({ ...props.preferences, sessionsWidth: value })} />}
-      {!showSessionsPage && <main className="shell-main">
+      {(!showSessionsPage || !!props.newSessionContent) && <main className="shell-main" hidden={showSessionsPage}>
         <nav className="shell-toolbar" aria-label="Content navigation">
           <button type="button" data-shell-command="sessions" aria-label="Sessions" title="Sessions" aria-expanded={showSessions} onClick={() => runCommand("sessions", false, true)}><PanelLeft size={17} aria-hidden="true" /></button>
           {!showSessions && <details key={props.workspaceGeneration} className="shell-navigation-menu" onClick={event => {
@@ -286,12 +311,13 @@ export default function ApplicationShell(props: Props) {
             <summary>Workspace<ChevronDown size={14} aria-hidden="true" /></summary>
             <div className="shell-navigation-popover">{workspaceNavigation}<footer className="shell-sidebar-footer">{settingsAndStatus}</footer></div>
           </details>}
-          <div className="shell-context"><h1 data-shell-terminal-focus tabIndex={-1}>{session?.label || "Terminal"}</h1><span className="shell-context-scope">{session?.harness || "No session selected"}</span></div>
-          {canResume && <button type="button" className="shell-resume-button" data-shell-resume
+          <div className="shell-context"><h1 data-shell-terminal-focus tabIndex={-1}>{showComposer ? "New agent session" : session?.label || "Terminal"}</h1><span className="shell-context-scope">{showComposer ? "Start a session in this workspace" : session?.harness || "No session selected"}</span></div>
+          {!showComposer && canResume && <button type="button" className="shell-resume-button" data-shell-resume
             onClick={() => session?.resumeStrategy === "exact" ? props.onResumeSession(session.id) : runCommand("details", true)}><Play size={15} aria-hidden="true" />Resume session</button>}
           {!showTerminal && <button type="button" data-shell-command="terminal" onClick={() => runCommand("terminal")}>Terminal</button>}
           <button type="button" data-shell-command="details" aria-expanded={props.inspector === "details"} onClick={() => runCommand("details")}><PanelRight size={15} aria-hidden="true" />Details</button>
         </nav>
+        {props.newSessionContent && <section hidden={!showComposer} className="shell-region shell-region--central shell-composer-region" aria-label="New agent session" data-shell-region="new-session">{props.newSessionContent}</section>}
         {showTerminal && <section className="shell-region shell-region--central" aria-label="Terminal" data-shell-region="terminal">
           <TerminalPanel key={`${session?.id ?? "none"}-${props.resumeTick}`} backendStatus={props.backendStatus} session={session}
             onBackendUnavailable={props.onBackendUnavailable} onRetryBackend={props.onRetryBackend} />
