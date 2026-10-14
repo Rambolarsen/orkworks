@@ -26,7 +26,55 @@ if (process.versions.electron) {
       await fresh();
       const scenario = process.env.ORKWORKS_SHELL_SCENARIO;
       const click = async command => evaluate('(()=>{const b=document.querySelector("[data-shell-command=' + command + ']");b.focus();b.click()})()');
-      if (scenario === 'app-review-create-persistence') {
+      if (scenario === 'app-review-cancel-workspace') {
+        await waitFor('fixture.runtime()?.terminal.element?.isConnected');
+        await click('review');
+        await waitFor('document.querySelector(".review-plan-content")');
+        await click('sessions');
+        await waitFor('document.querySelector(".shell-navigation-menu summary")');
+        const openPicker = async () => {
+          await evaluate('document.querySelector(".shell-navigation-menu summary").click()');
+          await waitFor('document.querySelector(".titlebar-switch-button")');
+          await evaluate('document.querySelector(".titlebar-switch-button").click()');
+          await waitFor('document.querySelector(".workspace-history-other-folder")');
+        };
+        await openPicker();
+        await evaluate('document.querySelector(".workspace-history-other-folder").click()');
+        await waitFor('!!fixture.cancelWorkspacePicker && document.querySelector("[data-shell-command=review]").disabled');
+        assert.equal(await evaluate('document.querySelector(".review-plan-content")?.textContent'),'Current plan','pending picker preserves the validated snapshot');
+        assert.equal(await evaluate('document.querySelector("[data-review-refresh]").disabled'),true);
+        assert.equal(await evaluate('document.querySelector("[data-review-request]").disabled'),true);
+        await evaluate('fixture.cancelWorkspacePicker(null)');
+        await waitFor('!document.querySelector("[data-shell-command=review]").disabled');
+        assert.equal(await evaluate('document.querySelector(".review-plan-content")?.textContent'),'Current plan','cancelled picker preserves Review');
+        await openPicker();
+        await evaluate('document.querySelector(".workspace-history-row-open:not(:disabled)").click()');
+        await waitFor('!!fixture.rejectRememberedWorkspace && document.querySelector("[data-shell-command=review]").disabled');
+        await evaluate('fixture.rejectRememberedWorkspace(new Error("Workspace is unavailable"))');
+        await waitFor('!document.querySelector("[data-shell-command=review]").disabled');
+        assert.equal(await evaluate('document.querySelector(".review-plan-content")?.textContent'),'Current plan','prevalidation failure preserves Review');
+        assert.deepEqual(await evaluate('fixture.reads'),['created'],'aborted attempts do not reload the plan');
+        assert.deepEqual(await evaluate('fixture.navigation'),['review'],'aborted attempts do not alter navigation recency');
+        await evaluate('fixture.unreadable=true;document.querySelector("[data-review-refresh]").click()');
+        await waitFor('document.querySelector(".empty-state-action")?.textContent==="Retry"');
+        await openPicker();
+        await evaluate('fixture.cancelWorkspacePicker=null;document.querySelector(".workspace-history-other-folder").click()');
+        await waitFor('!!fixture.cancelWorkspacePicker && document.querySelector("[data-shell-command=review]").disabled');
+        assert.equal(await evaluate('!!document.querySelector(".empty-state-action:not(:disabled)")'),false,'Retry cannot read the old workspace during a switch attempt');
+        await evaluate('fixture.cancelWorkspacePicker(null)');
+        await waitFor('!document.querySelector("[data-shell-command=review]").disabled');
+        await evaluate('fixture.unreadable=false;fixture.deferRead=true;document.querySelector(".empty-state-action").click()');
+        await waitFor('!!fixture.resolveRead');
+        await evaluate('fixture.lifecycle({state:"opening"})');
+        await evaluate('fixture.lifecycle({state:"ready",workspace:{path:"/tmp/new",workspaceIdentity:"/tmp/new",lastActiveSessionId:"created",activeHarnessIds:["generic-shell"]},historyDiagnostic:null})');
+        await waitFor('document.querySelector("[data-shell-region=terminal]") && !document.querySelector("[data-shell-command=review]").disabled');
+        await evaluate('fixture.resolveRead("# Old workspace plan")');
+        await evaluate('new Promise(resolve=>setTimeout(resolve,50))');
+        assert.equal(await evaluate('!!document.querySelector(".review-plan-content")'),false,'actual workspace change rejects the old read even with a reused session ID');
+        assert.equal(await evaluate('fixture.prompts'),0);
+        assert.deepEqual(await evaluate('fixture.errors'),[]);
+        return;
+      } else if (scenario === 'app-review-create-persistence') {
         await waitFor('fixture.runtime()?.terminal.element?.isConnected');
         await click('review');
         await waitFor('document.querySelector(".review-plan-content")');
@@ -908,7 +956,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
@@ -965,6 +1013,8 @@ if (process.versions.electron) {
               onBackendLifecycle:callback=>{fixture.lifecycle=callback;queueMicrotask(()=>callback({state:'ready',workspace:{path:'/tmp/test',workspaceIdentity:'/tmp/test',lastActiveSessionId:${JSON.stringify(scenario)}.startsWith('app-review')?'created':null,activeHarnessIds:['generic-shell']},historyDiagnostic:null}));return ()=>{}},
               onUpdateStatus:()=>()=>{},onMenuCommand:callback=>{fixture.menu=callback;return ()=>{}},
               getInitialWorkspace:async()=>({workspace:null,historyDiagnostic:null}),
+              openWorkspace:async()=>new Promise(resolve=>{fixture.cancelWorkspacePicker=resolve}),
+              openRememberedWorkspace:async()=>new Promise((resolve,reject)=>{fixture.rejectRememberedWorkspace=reject}),
               getSettings:async()=>({debug:{showSessionIds:false,rendererHealthLogMs:0}}),
               getProviderModels:async()=>({models:[]}),getWorkspaceNavigation:async()=>{if(${JSON.stringify(scenario)}==='app-review-pending-navigation-recovery'&&fixture.navigationReads++){return new Promise((resolve,reject)=>{fixture.resolveNewNavigation=resolve;fixture.rejectNewNavigation=reject})}if(${JSON.stringify(scenario)}==='app-review-delayed-navigation-recovery'&&!fixture.navigationReads++){return new Promise((resolve,reject)=>{fixture.resolveOldNavigation=resolve;fixture.rejectOldNavigation=reject})}if(${JSON.stringify(scenario)}==='app-review-stale-restore')await new Promise(resolve=>fixture.resolveNavigation=resolve);return {lastCentralSurface:fixture.savedSurface,revision:0,diagnostic:fixture.navigationDiagnostic}},
               completeWorkspaceNavigation:async surface=>{fixture.navigation.push(surface);if(${JSON.stringify(scenario)}==='app-review-create-persistence')fixture.savedSurface=surface;return {ok:true}},

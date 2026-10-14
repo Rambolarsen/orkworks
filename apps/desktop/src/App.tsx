@@ -350,7 +350,8 @@ function App() {
       && (!(persist || shellNavigationRef.current.centralSurface.kind !== "review")
         || navigationIntent.current === reviewLoadIntent.current);
   const review = useSessionReview(activeSessionId, shellNavigation.workspaceGeneration,
-    backendStatus === "connected" && !isSwitchingWorkspace && !!activeSession?.hasOpenablePlan,
+    // A picker attempt can be cancelled without changing the workspace generation.
+    backendStatus === "connected" && !!activeSession?.hasOpenablePlan,
     (document, persist) => {
       if (!acceptReviewResult(document.generation, persist)) return false;
       dispatchShellNavigation({ type: "review-opened", sessionId: document.sessionId,
@@ -888,7 +889,7 @@ function App() {
         onRequestPlanReview={requestIndependentReview}
         onCloseReview={closeReview}
         reviewContent={activeSessionId ? <ReviewPanel key={`${shellNavigation.workspaceGeneration}-${activeSessionId}`}
-          sessionId={activeSessionId} content={review.document?.content ?? null} loading={review.loading}
+          sessionId={activeSessionId} content={review.document?.content ?? null} loading={review.loading || isSwitchingWorkspace}
           error={review.error} changed={review.changed} canRequest={sessionAdmissionEnabled && activeSession?.lifecycle === "alive"}
           onRefresh={refreshReview} onRequest={requestIndependentReview} /> : null}
         workspaceGeneration={shellNavigation.workspaceGeneration}

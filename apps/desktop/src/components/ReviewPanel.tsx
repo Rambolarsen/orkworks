@@ -63,7 +63,7 @@ function ReviewPanel({ sessionId, content, loading, error, changed, canRequest, 
       {requestError && <span role="alert">{requestError}</span>}
     </div>
     {changed && !loading && !error && <p className="review-change-notice" role="status">Plan changed. Showing refreshed content.</p>}
-    {error ? <EmptyState message="This plan is no longer available." action={{ label: "Retry", onClick: onRefresh }} />
+    {error ? <EmptyState message="This plan is no longer available." action={loading ? undefined : { label: "Retry", onClick: onRefresh }} />
       : content === null ? <EmptyState message="Loading plan…" /> : (
     <div className="review-plan-content">
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{normalizeMarkdownLinkDestinations(content)}</ReactMarkdown>
