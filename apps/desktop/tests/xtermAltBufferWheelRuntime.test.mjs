@@ -103,7 +103,8 @@ if (process.versions.electron) {
   const { join } = await import('node:path');
   const { build } = await import('esbuild');
 
-  test('xterm forwards fractional wheel input in alternate-buffer modes', async () => {
+  // Temporary bounded CI experiment: sample cold starts before choosing a fix.
+  for (let attempt = 0; attempt < 20; attempt++) test('xterm native wheel cold start ' + attempt, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-xterm-wheel-'));
