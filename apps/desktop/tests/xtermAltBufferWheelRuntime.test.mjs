@@ -217,7 +217,8 @@ if (process.versions.electron) {
       const electron = require('electron');
       const env = { ...process.env, ORKWORKS_XTERM_WHEEL_FIXTURE: fixture };
       delete env.ELECTRON_RUN_AS_NODE;
-      const args = [fileURLToPath(import.meta.url)];
+      // Parallel Electron fixtures must not share Chromium's session/GPU cache.
+      const args = ['--user-data-dir=' + join(directory, 'profile'), fileURLToPath(import.meta.url)];
       if (process.platform === 'linux') args.unshift('--no-sandbox');
       const headlessLinux = process.platform === 'linux' && !env.DISPLAY;
       if (headlessLinux) args.unshift('-a', electron);
