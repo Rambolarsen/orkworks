@@ -4,8 +4,14 @@ import { fileURLToPath } from 'node:url';
 if (process.versions.electron) {
   const { app, BrowserWindow } = await import('electron');
   app.disableHardwareAcceleration();
+  const gpuExits = [];
+  app.on('child-process-gone', (_event, details) => {
+    if (details.type === 'GPU') gpuExits.push({ reason: details.reason, exitCode: details.exitCode });
+  });
   app.whenReady().then(async () => {
     const win = new BrowserWindow({ show: true, width: 500, height: 300 });
+    let readyToShow = false;
+    win.once('ready-to-show', () => { readyToShow = true; });
     try {
       await win.loadFile(process.env.ORKWORKS_XTERM_WHEEL_FIXTURE);
       const evaluate = (source) => win.webContents.executeJavaScript(source);
@@ -60,7 +66,16 @@ if (process.versions.electron) {
           win.webContents.sendInputEvent({ type: 'mouseWheel', ...point, deltaY: 1, deltaX: 0 });
           await new Promise(resolve => setTimeout(resolve, 2));
         }
-        await waitFor('wheelFixture.nativeCount() > 0');
+        try {
+          await waitFor('wheelFixture.nativeCount() > 0');
+        } catch (error) {
+          console.error('Native wheel delivery state:', JSON.stringify({
+            tracking, point, readyToShow, focused: win.isFocused(),
+            contentsFocused: win.webContents.isFocused(), gpuExits,
+            renderer: await evaluate('wheelFixture.nativeDiagnostics()'),
+          }));
+          throw error;
+        }
         await new Promise(resolve => setTimeout(resolve, 100));
         const native = await evaluate('wheelFixture.nativeResult()');
         assert.ok(native.count <= 5, `native pixel burst emitted ${native.count} commands`);
@@ -105,9 +120,17 @@ if (process.versions.electron) {
           const write = data => new Promise(resolve => terminal.write(data, resolve));
           let timestamp = 0;
           let trusted = false;
+          let pageWheelCount = 0;
+          let terminalWheelCount = 0;
+          let lastTargetInTerminal = false;
+          document.addEventListener('wheel', event => {
+            if (!event.isTrusted) return;
+            pageWheelCount++;
+            lastTargetInTerminal = terminal.element.contains(event.target);
+          }, { capture: true });
           let pixelMode = false;
           terminal.element.addEventListener('wheel', event => {
-            if (event.isTrusted) { trusted = true; pixelMode = event.deltaMode === 0; }
+            if (event.isTrusted) { terminalWheelCount++; trusted = true; pixelMode = event.deltaMode === 0; }
           }, { capture: true });
           const wheel = (deltaY, extra = {}) => {
             const element = terminal.element;
@@ -162,8 +185,16 @@ if (process.versions.electron) {
               terminal.reset();
               await write('\\x1b[?1049h' + (mouseTracking ? '\\x1b[?1000h\\x1b[?1006h' : ''));
               outputs.length = 0; trusted = false; pixelMode = false;
+              pageWheelCount = 0; terminalWheelCount = 0; lastTargetInTerminal = false;
               const rect = terminal.element.getBoundingClientRect();
               return { x: Math.round(rect.left + 30), y: Math.round(rect.top + 30) };
+            },
+            nativeDiagnostics() {
+              const rect = terminal.element.getBoundingClientRect();
+              return { pageWheelCount, terminalWheelCount, lastTargetInTerminal,
+                trusted, pixelMode, outputs: outputs.length, active: terminal.buffer.active.type,
+                focused: document.hasFocus(), visibility: document.visibilityState,
+                terminalRect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height } };
             },
             nativeCount() { return outputs.length; },
             nativeResult() { return { count: outputs.length, trusted, pixelMode }; },
