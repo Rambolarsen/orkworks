@@ -1,6 +1,6 @@
 import orkworksIcon from "../build/icon-dark.svg?no-inline";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import ApplicationShell, { shouldShowRecommendationsPanel, type ShellCommand, type ShellCommandRequest, type ShellDestination } from "./components/ApplicationShell";
+import ApplicationShell, { type ShellCommand, type ShellCommandRequest, type ShellDestination } from "./components/ApplicationShell";
 import ShellPreferencesNotice from "./components/ShellPreferencesNotice";
 import { useShellPreferences } from "./useShellPreferences";
 import NewSessionDialog from "./components/NewSessionDialog";
@@ -56,6 +56,7 @@ function App() {
     setShellCommandRequest(previous => ({ command, sequence: (previous?.sequence ?? 0) + 1, reveal }));
   }, []);
   const [sessionAdmissionEnabled, setSessionAdmissionEnabled] = useState(false);
+  const [sessionsSourceStatus, setSessionsSourceStatus] = useState<"loading" | "ready" | "unavailable">("loading");
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [shellNavigation, dispatchShellNavigation] = useReducer(
     reduceShellNavigation,
@@ -105,6 +106,7 @@ function App() {
         setWorkspaceState(info);
         setActiveHarnessIds(info?.activeHarnessIds ?? []);
       },
+      onSessionSourceStatus: setSessionsSourceStatus,
       onSessions: (next) => setSessions([...next]),
       onActiveSession: (sessionId, { deliberate } = {}) => {
         const generation = workspaceLifecycleRef.current.generation;
@@ -550,10 +552,9 @@ function App() {
   const [focusedRecommendationId, setFocusedRecommendationId] = useState<string | null>(null);
 
   const handleOpenRecommendation = useCallback((id: string) => {
-    if (!shouldShowRecommendationsPanel(sessions.find(session => session.id === activeSessionId))) return;
     setFocusedRecommendationId(id);
     requestShellCommand("recommendations", true);
-  }, [activeSessionId, sessions, requestShellCommand]);
+  }, [requestShellCommand]);
 
   const handleInspect = useCallback((destination: ShellDestination | null) => {
     if (destination) inspectSubject(destination);
@@ -643,7 +644,7 @@ function App() {
     else if (action === "reset-layout") requestShellCommand("reset-layout");
     else if (action === "focus" && panelId) {
       const destination = panelId === "detail" ? "details" : panelId;
-      if (["sessions", "terminal", "details", "capacity", "recommendations"].includes(destination)) {
+      if (["sessions", "terminal", "details", "capacity", "recommendations", "actions", "next-action"].includes(destination)) {
         requestShellCommand(destination as ShellCommand);
         if (destination === "terminal") void window.orkworks.completeWorkspaceNavigation("terminal").catch(() => {});
       }
@@ -731,11 +732,12 @@ function App() {
         isSwitchingWorkspace={isSwitchingWorkspace}
         debugSettings={settings?.debug ?? { showSessionIds: false, rendererHealthLogMs: 0 }}
         sessions={sessions}
+        sessionsSourceStatus={sessionsSourceStatus}
         activeSessionId={activeSessionId}
         preferences={shellPreferences}
         onPreferencesChange={changeShellPreferences}
         onResetPreferences={resetShellPreferences}
-        inspector={shellNavigation.inspector === "actions" ? null : shellNavigation.inspector}
+        inspector={shellNavigation.inspector}
         onInspect={handleInspect}
         commandRequest={shellCommandRequest}
         workspaceGeneration={shellNavigation.workspaceGeneration}
