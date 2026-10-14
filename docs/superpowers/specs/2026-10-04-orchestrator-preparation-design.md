@@ -40,11 +40,11 @@ This document does not authorize runtime implementation or claim adapter support
 
 ### Established source facts and unresolved eligibility
 
-| Source at branch head `7edbe56e` | Established fact | Consequence for this proposal |
+| Source checked at `7d7e3d0b87b6388202da9a568cfaf6d4791d0525` | Established fact | Consequence for this proposal |
 | --- | --- | --- |
 | `crates/orkworksd/src/taskmaster/coordinator.rs:1` | Data-only coordinator records, no runtime authority | New run/grant records need a reviewed runtime plan |
 | `crates/orkworksd/src/taskmaster/coordinator_store.rs:1` | Durable records, no runtime authority | Persisting a plan does not authorize a child |
-| `crates/orkworksd/src/session_application.rs:4856`, `:4966`, `:5029` | Resume workflow retains the OrkWorks session ID and creates a new runtime | Same visible parent can resume; new runtime needs fresh authority |
+| `crates/orkworksd/src/session_application.rs:5114`, `:5353`, `:5370` | Resume workflow retains the OrkWorks session ID and creates a new runtime | Same visible parent can resume; new runtime needs fresh authority |
 | Historical September launch baseline | Completion revoked one plan-bound parent bearer | Replaced by the run/grant scope accepted in PR #747; detailed lifecycle contract review remains open |
 | Capability evidence register | Exact role/delivery combinations remain unverified | No eligible automated parent is claimed yet |
 
@@ -748,6 +748,84 @@ live coding-tool probes were run while drafting this document.
 | New parent bootstrap bytes/skills/settings | Fence old run, UI-authorized new run with reviewed bootstrap; never active configuration mutation or approval transfer |
 | Final execution complete with child PTYs live | End run authority; preserve normal child controls/artifacts |
 | Oversized record / exhausted history / forgotten-run replay | Reject before persistence/launch; preserve existing records and fences |
+
+## Review handoff — 2026-10-14
+
+**Disposition: ready for written owner review; runtime planning remains blocked.**
+This handoff reconciles the specification deliverable with [#742](https://github.com/Rambolarsen/orkworks/issues/742).
+It does not record owner acceptance, adapter eligibility, or implementation-plan
+approval. The accepted scope/ADR alignment in PR #747 is already delivered;
+it is not a remaining prerequisite to redo.
+
+### Acceptance coverage
+
+The following entries identify written requirements, not implemented behavior
+or exercised adapter evidence. Owner acceptance of the detailed contract remains
+pending even where the requirement is specified.
+
+| #742 requirement | Contract and acceptance evidence |
+| --- | --- |
+| Assessment inputs, skip criteria and material unknowns | [Assessment and skip decisions](#assessment-and-skip-decisions); clear-task and missing-answer cases in [Example workflows](#example-workflows) |
+| Bounded questions, independent decomposition and assignment ownership | [Research question and task contracts](#research-question-and-task-contracts), [Bounds](#bounds-and-record-behavior); result-consuming questions require a dependency/later batch |
+| Research approval, separate execution approval and report bindings | [Research approval and result collection](#research-approval-and-result-collection), [Same-parent transition](#same-parent-research-to-execution-transition); a report/summary cannot create launch authority |
+| Multi-plan identity, revocation/renewal and sidecar-generation fencing | [Planning authority and capability lifecycle](#planning-authority-and-capability-lifecycle), [Exact encodings](#exact-wire-counters-and-generation-identities); fresh runtime authority never revives an old grant |
+| Batches, parent-only delegation, one attempt, quiescent reuse, manual integration and run-wide capacity | [Research contracts](#research-question-and-task-contracts), [Same-parent transition](#same-parent-research-to-execution-transition); completed research PTYs still consume capacity, no cross-plan code/worktree transfer |
+| Cancellation, missing/conflicting research, corrections, rejection, scope change and restart/resume | [State and transition table](#state-and-transition-table), [Revision, cancellation and recovery](#revision-cancellation-and-recovery); retained blockers, stage continuation and clarification survive interruption |
+| Explicit lifecycle table and three requested examples | [State and transition table](#state-and-transition-table), [Example workflows](#example-workflows) |
+| Short summary beside the execution proposal, supporting evidence in child details | [Same-parent transition](#same-parent-research-to-execution-transition); bounded summary binds exact report/review references and leaves sources in research-agent details |
+| Version/content-bound graph-planning skill, independent correctness/completeness review and one artifact owner | [Research contracts](#research-question-and-task-contracts), [Role composition](2026-10-04-agent-role-configuration-design.md#role-templates-and-mandatory-skills); missing/conflicting mandatory content blocks eligibility |
+| Automatic collection/synthesis/proposal without an inter-stage resume action | [Same-parent transition](#same-parent-research-to-execution-transition), [Automatic event delivery](#automatic-event-delivery); stopped model loops remain unavailable rather than inferred live |
+| Run planning bearer survives research; each exact plan has a separate launch grant | [Transport and grants](#transport-and-grants); research completion revokes its grant, final completion/cancellation revokes all authority |
+| Immutable parent/plan binding, live-child accounting and exact continuation/resume | [Logical records](#logical-records-and-immutable-parent-configuration), [Same-parent transition](#same-parent-research-to-execution-transition), [State table](#state-and-transition-table); the written contract is specified, while adapter continuation/resume evidence remains unverified under #740 |
+
+### Review evidence and current source seams
+
+PR [#768](https://github.com/Rambolarsen/orkworks/pull/768) merged the clarification,
+event-delivery and recovery/resume refinements. Its final independent consistency
+review and [Codex review of `bce040e376`](https://github.com/Rambolarsen/orkworks/pull/768#issuecomment-6169348761)
+reported no remaining actionable finding after the three lifecycle corrections.
+That evidence covers the reviewed changes; it is not owner acceptance of the
+whole proposed contract. This handoff reuses it rather than claiming a fresh
+review of unchanged requirements.
+
+Source inspection at `7d7e3d0b87b6388202da9a568cfaf6d4791d0525` confirms the
+[coordinator records](https://github.com/Rambolarsen/orkworks/blob/7d7e3d0b87b6388202da9a568cfaf6d4791d0525/crates/orkworksd/src/taskmaster/coordinator.rs)
+and [coordinator store](https://github.com/Rambolarsen/orkworks/blob/7d7e3d0b87b6388202da9a568cfaf6d4791d0525/crates/orkworksd/src/taskmaster/coordinator_store.rs)
+remain explicitly data-only/persistence-only. They do not provide run authority.
+The [session application](https://github.com/Rambolarsen/orkworks/blob/7d7e3d0b87b6388202da9a568cfaf6d4791d0525/crates/orkworksd/src/session_application.rs)
+retains the session ID through `resume_session_workflow` and calls
+`start_session_runtime` for the resumed runtime; `create_session_workflow` remains
+the ordinary creation seam. These are existing integration seams, not verified
+orchestration, role-restriction or model-loop continuation implementations.
+
+### Remaining gates and exact next actions
+
+| Gate / owner | Current disposition | Evidence required to advance |
+| --- | --- | --- |
+| Detailed contract acceptance / project owner, #742 with #741 | Written requirements mapped; owner acceptance pending | Record acceptance or concrete changes to this lifecycle and #741's immutable bootstrap/plan/input bindings, including identity, capacity, correction, recovery and numeric bounds |
+| Role and continuation eligibility / #740 | No eligible launch slice; all six Copilot profiles remain no-go, as do the six statically assessed Claude Code profiles on the sampled platform | Reviewed version/platform/profile-specific instruction/skill delivery and effective restriction evidence; separately establish same-parent event continuation, gap handling and exact resume, or retain explicit no-go reasons |
+| Scoped runtime handoff / #610 consumers | Not executable; no runtime launch plan is authorized | After contract acceptance and an eligible initial slice, prepare PR-sized plans with exact records/routes/migrations, Electron-main/preload interfaces, renderer projections and adapter fixtures; obtain approval before code |
+
+The [#741 handoff](2026-10-04-agent-role-configuration-design.md)
+explicitly says not to create a runtime launch plan while the reviewed evidence
+yields no eligible profile. The [#740 register](../../validation/agent-role-capabilities.md#decision)
+records that no-go; draft probe work and static source/help inspection do not
+promote it. This specification task does not authorize live model probes or
+remove their separate evidence/resource gates.
+
+The existing [#610 unit boundaries](../plans/2026-09-26-taskmaster-orchestrated-child-sessions.md#runtime-planning-boundaries)
+identify the future consumers. #742 supplies the preparation records and bounds
+for persistence, the run/grant/resume contract for authority, the clarification/
+report/event contracts for continuation, and the summary/blocker/approval
+projections for desktop. Those boundaries are not an executable implementation
+plan and do not authorize work on an otherwise gated unit.
+
+Keep #742 open for owner acceptance and the remaining scoped handoff. Updating
+its definition checkboxes means the written requirements have evidence here;
+it must not mark capability verification, runtime implementation or execution
+approval complete. If #740 retains no-go, record that blocker explicitly and
+leave runtime planning closed rather than inventing a fallback or unsupported
+launch plan.
 
 ## Execution plan and implementation gate
 
