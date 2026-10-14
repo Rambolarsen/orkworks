@@ -183,10 +183,11 @@ export function reduceShellNavigation(
         !event.sessionId ||
         !event.artifactId ||
         event.sessionId !== state.activeSessionId ||
-        state.centralSurface.kind !== "terminal"
+        (state.centralSurface.kind !== "terminal" && state.centralSurface.sessionId !== event.sessionId)
       ) {
         return state;
       }
+      const refreshing = state.centralSurface.kind === "review";
       const focusTarget: FocusTarget = {
         kind: "review",
         sessionId: event.sessionId,
@@ -195,15 +196,15 @@ export function reduceShellNavigation(
       return {
         ...state,
         centralSurface: { kind: "review", sessionId: event.sessionId, artifactId: event.artifactId },
-        inspector: null,
-        inspectedSubject: null,
-        focusTarget,
-        returnTarget: {
+        inspector: refreshing ? state.inspector : null,
+        inspectedSubject: refreshing ? state.inspectedSubject : null,
+        focusTarget: refreshing ? state.focusTarget : focusTarget,
+        returnTarget: state.returnTarget ?? {
           surface: "terminal",
           sessionId: event.sessionId,
           focusTarget: { kind: "terminal", sessionId: event.sessionId },
         },
-        inspectorReturnFocus: null,
+        inspectorReturnFocus: refreshing ? state.inspectorReturnFocus : null,
         visibleFallbackReason: null,
       };
     }

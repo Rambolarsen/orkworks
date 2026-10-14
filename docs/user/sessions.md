@@ -104,11 +104,31 @@ page, `Ctrl+Alt+Y` / `Ctrl+Alt+E` line by line, and `Ctrl+Alt+U` /
 
 ## Read a plan
 
-The source shell currently defers the Review destination and its plan-opening
-controls to [issue #780](https://github.com/Rambolarsen/orkworks/issues/780).
-Plan metadata remains available to the session; use your coding tool to read it
-until the destination is implemented. Published installers may have the earlier
-Review tab.
+In current source builds, select a session with an associated readable plan or
+specification, then choose **Review** in the content header or View menu, or
+**Review plan** in Details. The document replaces the terminal in the main work
+area. **Back to Terminal** returns to the same session's terminal or saved
+history, including in narrow windows. Escape also returns when focus is in the
+Review document or its navigation controls. Focus returns to the opening
+control when it is still available, or to the terminal when Review was restored
+or opened from terminal input through the View menu. Cancelling workspace
+selection or failing to open a remembered path preserves the current plan;
+Review actions pause while a workspace selection is pending.
+
+Use **Refresh plan** to read the current document again. If it has moved or is
+unreadable, Review clears the old content and offers Retry, including when the
+first read fails. If a saved Review cannot be revalidated when opening a
+workspace, OrkWorks stays on Terminal and explains why. Opening, refreshing,
+closing or restoring Review sends no prompt. For a live session, the separate
+**Request independent review** button explicitly asks its coding tool to review
+the plan, delegating when supported.
+
+If saved navigation cannot be read, the shell explains the problem and offers
+**Rebuild navigation…** for a corrupt or unsupported record. Rebuilding requires
+native confirmation; cancelling keeps the saved record intact.
+
+Published installers may still use the earlier Review tab; these instructions
+describe current source behavior.
 
 ## When a signal looks wrong
 
