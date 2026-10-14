@@ -38,6 +38,7 @@ export interface WorkspaceSessionControllerOptions {
   pollDelayMs?: number;
   initialAdmissionEnabled?: boolean;
   onWorkspace?: (workspace: WorkspaceInfo | null) => void;
+  onSessionSourceStatus?: (status: "loading" | "ready" | "unavailable") => void;
   onSessions?: (sessions: readonly SessionInfo[]) => void;
   onActiveSession?: (id: string | null, cause?: { deliberate?: boolean }) => void;
   onError?: (error: ControllerError) => void;
@@ -131,9 +132,12 @@ export function createWorkspaceSessionController(
       const [next, nextLastResortAt] = mergeSessionsById(sessions, list, lastResortAt, new Date());
       lastResortAt = nextLastResortAt;
       publishSessions(next);
+      options.onSessionSourceStatus?.("ready");
       reportedErrors.clear();
       return next;
     } catch {
+      if (isCurrent(token) && (allowDuringTransition || isCurrentAdmission(admissionToken))
+        && (epoch === undefined || epoch === pollingEpoch)) options.onSessionSourceStatus?.("unavailable");
       return null;
     }
   }
@@ -164,6 +168,7 @@ export function createWorkspaceSessionController(
     admissionGeneration += 1;
     foregroundGeneration += 1;
     if (!enabled) {
+      options.onSessionSourceStatus?.("unavailable");
       pollingEpoch += 1;
       stopPolling?.();
       stopPolling = null;
@@ -180,6 +185,7 @@ export function createWorkspaceSessionController(
       activeSessionId = null;
       options.onActiveSession?.(null);
       publishSessions([]);
+      options.onSessionSourceStatus?.("loading");
       const refreshed = await refreshSessions(undefined, true);
       if (!refreshed || !isCurrent(token)) return;
       const restored = info.lastActiveSessionId;
@@ -200,6 +206,7 @@ export function createWorkspaceSessionController(
     activeSessionId = null;
     options.onActiveSession?.(null);
     publishSessions([]);
+    options.onSessionSourceStatus?.("loading");
     options.onWorkspace?.(workspace);
     if (!workspace || !isCurrent(token)) return;
 

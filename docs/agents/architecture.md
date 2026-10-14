@@ -729,8 +729,22 @@ the library choice in [ADR 0078](../adr/0078-fixed-desktop-shell-and-central-nav
 Pointer and keyboard separators resize bounded regions. At medium widths a
 utility replaces the central content; compact widths show one page at a time.
 Navigation preserves selected-session identity and restores focus to the invoker
-when a temporary page closes. Review (#780), Actions (#805), and gated Workflow
-navigation are separate delivery slices; no Review control is exposed yet.
+when a temporary page closes. Review (#780) and gated Workflow navigation
+remain separate delivery slices; no Review control is exposed yet.
+
+Actions (#805) uses the same inspector or temporary page. It groups canonical
+live session attention before the existing ordered workspace recommendations,
+with source labels and separate required-session-attention and recommendation
+counts in the central toolbar even when Sessions and the inspector are hidden.
+Remembered attention stays historical; capped sessions remain in Capacity.
+The current API has no live Done/Stale values, so Actions does not infer them
+from ended history or inactivity. Session polling reports availability, and a
+workspace/generation-fenced recommendation poll labels partial, loading and
+unavailable data instead of inventing zero counts. Show next action focuses the
+first current row without selection, unread acknowledgement or execution.
+Inspection survives responsive host changes; changed/removed subjects lose
+current details and show an unavailable explanation. Open terminal/history and
+Open recommendation are separately labeled explicit navigation commands.
 
 `TerminalPanel` hosts the active live PTY through `CenterPanel` and xterm.js.
 The renderer terminal registry keeps that runtime and its WebSocket draining

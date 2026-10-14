@@ -425,3 +425,21 @@ test("leaving creation keeps the created session in history without changing the
   assert.deepEqual(snapshots, [["created"]]);
   controller.dispose();
 });
+
+
+test("session source availability follows successful polls, failures, and admission loss", async () => {
+  const statuses: string[] = [];
+  let fail = false;
+  const controller = createWorkspaceSessionController({
+    deps: deps({listSessions: async () => { if (fail) throw new Error("offline"); return []; }}),
+    onSessionSourceStatus: status => statuses.push(status),
+  });
+  await controller.refreshSessions();
+  fail = true;
+  await controller.refreshSessions();
+  fail = false;
+  await controller.refreshSessions();
+  controller.setAdmissionEnabled(false);
+  assert.deepEqual(statuses, ["ready", "unavailable", "ready", "unavailable"]);
+  controller.dispose();
+});
