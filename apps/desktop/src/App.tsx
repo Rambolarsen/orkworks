@@ -535,10 +535,11 @@ function App() {
       if (!created || intent !== composerIntent.current) return;
       cancelNewSession();
       requestShellCommand("terminal");
+      void saveNavigation("terminal");
     } catch {
       pushToast("error", "Couldn't start a new session.");
     }
-  }, [workspaceSessionController, requestShellCommand, cancelNewSession]);
+  }, [workspaceSessionController, requestShellCommand, cancelNewSession, saveNavigation]);
 
   const [fixRecommendation, setFixRecommendation] = useState<WorkflowRecommendation | null>(null);
 
