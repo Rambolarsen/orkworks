@@ -11,9 +11,12 @@ if (process.versions.electron) {
   app.whenReady().then(async () => {
     const win = new BrowserWindow({ show: true, width: 500, height: 300 });
     let readyToShow = false;
-    win.once('ready-to-show', () => { readyToShow = true; });
+    const firstPaint = new Promise(resolve => {
+      win.once('ready-to-show', () => { readyToShow = true; resolve(); });
+    });
     try {
       await win.loadFile(process.env.ORKWORKS_XTERM_WHEEL_FIXTURE);
+      await firstPaint;
       const evaluate = (source) => win.webContents.executeJavaScript(source);
       const waitFor = async (source) => {
         const deadline = Date.now() + 5000;
@@ -103,7 +106,7 @@ if (process.versions.electron) {
   const { join } = await import('node:path');
   const { build } = await import('esbuild');
 
-  // Temporary bounded CI experiment: sample cold starts before choosing a fix.
+  // Temporary bounded CI experiment.
   for (let attempt = 0; attempt < 20; attempt++) test('xterm native wheel cold start ' + attempt, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
