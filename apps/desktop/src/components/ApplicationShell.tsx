@@ -12,11 +12,14 @@ import SessionDetailPanel from "./SessionDetailPanel";
 import TerminalPanel from "./TerminalPanel";
 import CapacityPanel from "./CapacityPanel";
 import RecommendationsPanel from "./RecommendationsPanel";
+import ActionsOverview from "./ActionsOverview";
+import { buildActionsOverview, type ActionRow, type ActionsSourceStatus } from "../actionsOverview";
+import { useActionsRecommendations } from "../useActionsRecommendations";
 import RegionSeparator from "./RegionSeparator";
 import { disposeAllTerminals } from "../terminalStore";
 
-export type ShellDestination = "details" | "capacity" | "recommendations";
-export type ShellCommand = "sessions" | "terminal" | "new-session" | "cancel-new-session" | "reset-layout" | "review" | ShellDestination;
+export type ShellDestination = "details" | "capacity" | "recommendations" | "actions";
+export type ShellCommand = "sessions" | "terminal" | "new-session" | "cancel-new-session" | "reset-layout" | "review" | "next-action" | ShellDestination;
 export interface ShellCommandRequest { command: ShellCommand; sequence: number; reveal?: boolean }
 
 export function shouldShowRecommendationsPanel(session: Pick<SessionInfo, "harnessId" | "harness"> | null | undefined): boolean {
@@ -40,6 +43,7 @@ interface Props {
   isSwitchingWorkspace: boolean;
   debugSettings: DebugSettings;
   sessions: SessionInfo[];
+  sessionsSourceStatus?: ActionsSourceStatus;
   activeSessionId: string | null;
   visibleSubjectId: string | null;
   canFixWithAi: boolean;
@@ -73,7 +77,7 @@ interface Props {
   onRetryBackend: () => void;
 }
 
-const TITLES = { details: "Details", capacity: "Capacity", recommendations: "Recommendations" };
+const TITLES = { actions: "Actions", details: "Details", capacity: "Capacity", recommendations: "Recommendations" };
 
 export default function ApplicationShell(props: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -88,6 +92,13 @@ export default function ApplicationShell(props: Props) {
   const [width, setWidth] = useState(() => window.innerWidth);
   const [sessionsPage, setSessionsPage] = useState(false);
   const [focusTick, setFocusTick] = useState(0);
+  const [actionFocusRequest, setActionFocusRequest] = useState<{ scope: string; sequence: number }>({ scope: "", sequence: 0 });
+  const [actionInspection, setActionInspection] = useState<{ scope: string; row: ActionRow | null }>({ scope: "", row: null });
+  const actionsScope = `${props.workspace?.workspaceIdentity || props.workspace?.path || ""}:${props.workspaceGeneration}`;
+  const sourcesReady = !!props.workspace && !props.isSwitchingWorkspace && props.backendStatus === "connected";
+  const recommendations = useActionsRecommendations(actionsScope, sourcesReady && props.taskmasterReady);
+  const actionsModel = buildActionsOverview(sourcesReady ? props.sessions : [], sourcesReady ? props.sessionsSourceStatus ?? "loading" : "unavailable",
+    recommendations.items, recommendations.status);
   const layout = computeShellLayout(width, props.preferences, props.inspector !== null);
   const compact = layout.mode === "compact";
   const showSessionsPage = compact && sessionsPage;
@@ -143,6 +154,13 @@ export default function ApplicationShell(props: Props) {
   const runCommand = (command: ShellCommand, reveal = false, toggleSessions = false) => {
     props.onNavigate?.();
     const intent = ++navigationIntent.current;
+    if (command === "next-action") {
+      if (!props.inspector && !sessionsPage) captureInvoker(command);
+      setSessionsPage(false);
+      props.onInspect("actions");
+      setActionFocusRequest(old => ({ scope: actionsScope, sequence: old.sequence + 1 }));
+      return;
+    }
     if (command === "reset-layout") {
       const generation = props.workspaceGeneration;
       void props.onResetPreferences().then(completed => {
@@ -200,7 +218,7 @@ export default function ApplicationShell(props: Props) {
         requestFocus("sessions");
       }
     } else {
-      if (command === "recommendations" && !shouldShowRecommendationsPanel(session)) return;
+      if (command === "recommendations" && !reveal && !shouldShowRecommendationsPanel(session)) return;
       if (props.inspector === command && !reveal) { closePage(); return; }
       // Preserve the original invoker when changing utilities inside a temporary page.
       if (!props.inspector && !sessionsPage) captureInvoker(command);
@@ -284,6 +302,17 @@ export default function ApplicationShell(props: Props) {
       onOpenSettings={() => props.onOpenSettings("providers")} onOpenRecommendation={props.onOpenRecommendation}
       showDebugMetadata={props.debugSettings.showSessionIds} />;
     if (props.inspector === "capacity") return <CapacityPanel />;
+    if (props.inspector === "actions") return <ActionsOverview key={actionsScope} model={actionsModel} focusRequest={actionFocusRequest.scope === actionsScope ? actionFocusRequest.sequence : 0}
+      inspected={actionInspection.scope === actionsScope ? actionInspection.row : null}
+      onInspectAction={row => setActionInspection({ scope: actionsScope, row })}
+      onFocusHandled={() => setActionFocusRequest(old => ({ ...old, scope: "" }))}
+      onOpenSession={id => {
+        if (!sourcesReady || (props.sessionsSourceStatus !== "ready" && props.sessionsSourceStatus !== "partial") || !props.sessions.some(s => s.id === id)) return;
+        props.onSelectSession(id);
+        props.onInspect(null);
+        setSessionsPage(false);
+        requestFocus("terminal");
+      }} onOpenRecommendation={props.onOpenRecommendation} />;
     return <RecommendationsPanel hasWorkspace={!!props.workspace && !props.isSwitchingWorkspace}
       taskmasterReady={props.taskmasterReady} canFixWithAi={props.canFixWithAi && session?.lifecycle === "alive"}
       onSelectSession={props.onSelectSession} onFixWithAi={props.onFixWithAi} onRunCleanup={props.onRunCleanup}
@@ -291,7 +320,7 @@ export default function ApplicationShell(props: Props) {
   };
   const utilityHeader = (temporary: boolean) => <header className="shell-region-header">
     <h2 data-shell-page-heading tabIndex={-1}>{props.inspector ? TITLES[props.inspector] : "Details"}</h2>
-    {(props.inspector === "capacity" || props.inspector === "recommendations") &&
+    {(props.inspector === "capacity" || props.inspector === "recommendations" || props.inspector === "actions") &&
       <span className="shell-utility-scope">Workspace: {props.workspace?.path ?? "No workspace"}
         {props.inspector === "capacity" ? " · All coding tools" : ""}</span>}
     <button type="button" data-shell-return onClick={closePage}>{temporary ? (props.newSessionContent ? "Back to New session" : (reviewing ? "Back to Review" : "Back to Terminal")) : "Close inspector"}</button>
@@ -303,6 +332,7 @@ export default function ApplicationShell(props: Props) {
   const workspaceNavigation = <>
     <div className="shell-workspace">{props.workspaceControl}</div>
     <nav className="shell-sidebar-navigation" aria-label="Workspace navigation">
+      {showSessionsPage && <p className="shell-actions-counts" data-actions-counts>{actionsModel.sessionCountLabel} · {actionsModel.recommendationCountLabel}</p>}
       {props.workspace && <button type="button" data-shell-create onClick={props.onCreateSession}><Plus size={16} aria-hidden="true" />New session</button>}
       {shouldShowRecommendationsPanel(session) && <button type="button" data-shell-command="recommendations" aria-expanded={props.inspector === "recommendations"} onClick={() => runCommand("recommendations")}><Lightbulb size={16} aria-hidden="true" />Recommendations</button>}
       <button type="button" data-shell-command="capacity" aria-expanded={props.inspector === "capacity"} onClick={() => runCommand("capacity")}><Gauge size={16} aria-hidden="true" />Capacity</button>
@@ -365,6 +395,11 @@ export default function ApplicationShell(props: Props) {
             aria-pressed={reviewing} disabled={props.reviewLoading || props.backendStatus !== "connected" || props.isSwitchingWorkspace}
             onClick={() => runCommand("review")}>{props.reviewLoading ? "Opening Review…" : "Review"}</button>}
           {(!showTerminal || props.reviewLoading) && <button type="button" data-shell-command="terminal" onClick={() => runCommand("terminal")}>Terminal</button>}
+          <div className="shell-actions-controls">
+            <button type="button" data-shell-command="actions" aria-expanded={props.inspector === "actions"} onClick={() => runCommand("actions")}>Actions</button>
+            <button type="button" data-shell-command="next-action" onClick={() => runCommand("next-action")}>Show next action</button>
+            <span data-actions-counts>{actionsModel.sessionCountLabel} · {actionsModel.recommendationCountLabel}</span>
+          </div>
           <button type="button" data-shell-command="details" aria-expanded={props.inspector === "details"} onClick={() => runCommand("details")}><PanelRight size={15} aria-hidden="true" />Details</button>
         </nav>
         {props.newSessionContent && <section hidden={!showComposer} className="shell-region shell-region--central shell-composer-region" aria-label="New agent session" data-shell-region="new-session">{props.newSessionContent}</section>}

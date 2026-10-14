@@ -2925,3 +2925,17 @@ html, body, #root {
 .review-actions button:disabled { opacity: 0.5; cursor: default; }
 .review-change-notice { padding: 8px 12px; font-size: var(--text-sm); color: var(--text-muted); }
 [data-shell-review-heading] { min-width: 0; overflow-wrap: anywhere; }
+
+/* Actions keeps each source count visible independently of the sidebar. */
+.shell-actions-controls { display:flex; flex-wrap:wrap; align-items:center; gap:6px; min-width:0; }
+.shell-actions-controls [data-actions-counts] { font-size:11px; color:var(--text-secondary); overflow-wrap:anywhere; }
+.actions-overview { overflow:auto; min-height:0; padding:12px; font-size:13px; }
+.actions-overview h3 { margin:14px 0 6px; font-size:13px; }
+.actions-row { display:flex; flex-direction:column; align-items:stretch; gap:4px; margin:6px 0; }
+.actions-row button { text-align:left; white-space:normal; overflow-wrap:anywhere; }
+.actions-row span { font-size:11px; color:var(--text-secondary); }
+.actions-overview [data-actions-detail] { border-top:1px solid var(--border-default); margin-top:12px; overflow-wrap:anywhere; }
+.actions-overview button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+
+.actions-overview button { border:1px solid var(--border-default); background:var(--surface-2); color:var(--text-primary); padding:8px; border-radius:var(--radius-sm); cursor:pointer; font:inherit; }
+.actions-overview button[aria-pressed="true"] { border-color:var(--accent); }

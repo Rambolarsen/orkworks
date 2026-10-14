@@ -36,6 +36,21 @@ folder or repository fallbacks open Details so you can read which conversation
 will resume before choosing. Resume support varies by coding tool. Published
 installers may still place resume actions inside Details.
 
+## Find the next thing to inspect
+
+In current source builds, **Actions** shows session attention followed by
+workspace recommendations. It opens beside the terminal in a wide window and
+as a temporary page in a narrower window. Session attention and recommendation
+counts stay separate; loading, partial and unavailable information is labeled.
+Capacity remains its own destination.
+
+**Show next action** reveals and focuses the first current item. Inspecting it
+keeps your selected session and unread attention unchanged. Choose **Open
+terminal/history** to switch sessions or **Open recommendation** to use the
+existing recommendation controls. Close Actions to return to the previous
+central view. Changed or missing items require a new inspection before their
+details become current. Published installers may not include this overview yet.
+
 ## Saved shell layout
 
 Current source builds use a fixed arrangement of Sessions, Terminal and an
@@ -96,7 +111,9 @@ area. **Back to Terminal** returns to the same session's terminal or saved
 history, including in narrow windows. Escape also returns when focus is in the
 Review document or its navigation controls. Focus returns to the opening
 control when it is still available, or to the terminal when Review was restored
-or opened from terminal input through the View menu.
+or opened from terminal input through the View menu. Cancelling workspace
+selection or failing to open a remembered path preserves the current plan;
+Review actions pause while a workspace selection is pending.
 
 Use **Refresh plan** to read the current document again. If it has moved or is
 unreadable, Review clears the old content and offers Retry, including when the

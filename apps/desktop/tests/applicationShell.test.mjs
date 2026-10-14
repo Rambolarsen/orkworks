@@ -542,7 +542,96 @@ if (process.versions.electron) {
         return;
       } else if (scenario !== 'baseline') {
         await waitFor('fixture.runtime()?.terminal.element?.isConnected');
-        if (scenario === 'resume-session') {
+        if (scenario === 'actions-sources') {
+          await waitFor('document.querySelector("[data-actions-counts]")?.textContent.includes("Recommendations: 2")');
+          await click('actions');
+          await waitFor('document.querySelector(".actions-overview")');
+          assert.deepEqual(await evaluate('Array.from(document.querySelectorAll("[data-action-key]")).map(el=>el.dataset.actionKey)'),['session:coding','session:other','recommendation:r2','recommendation:r1']);
+          await evaluate('fixture.setSessionSourceStatus("unavailable")');
+          await waitFor('document.querySelector("[data-actions-counts]").textContent.includes("Session attention: unavailable")');
+          await click('next-action');
+          await waitFor('document.activeElement.dataset.actionKey === "recommendation:r2"');
+          await evaluate('document.querySelector("[data-actions-detail] button").click()');
+          assert.deepEqual(await evaluate('fixture.openedRecommendations'),['r2']);
+          await evaluate('fixture.setSessionState({harnessId:"generic-shell",harness:"generic-shell"});fixture.command("recommendations",true)');
+          await waitFor('document.querySelector("[data-shell-region=inspector] h2").textContent==="Recommendations"');
+          await click('actions');
+
+          await evaluate('fixture.partial=true;fixture.setBackendStatus("unreachable")');
+          await waitFor('document.querySelector("[data-actions-counts]").textContent.includes("Recommendations: unavailable")');
+          await evaluate('fixture.setBackendStatus("connected")');
+          await waitFor('document.querySelector("[data-actions-counts]").textContent.includes("Recommendations: 2 known (partial)")');
+          await click('next-action');
+          await waitFor('document.activeElement.dataset.actionKey === "recommendation:r2"');
+          assert.equal(await evaluate('document.querySelector("[data-actions-detail] h3")?.textContent'),'r2','known partial-source items remain inspectable');
+          await evaluate('fixture.pauseRecommendations=true;fixture.setBackendStatus("unreachable")');
+          await waitFor('document.querySelector("[data-actions-counts]").textContent.includes("Recommendations: unavailable")');
+          await evaluate('fixture.setBackendStatus("connected")');
+          await waitFor('fixture.pendingRecommendations.length===1');
+          await evaluate('fixture.advanceWorkspace()');
+          await waitFor('fixture.pendingRecommendations.length===2');
+          await evaluate('fixture.pendingRecommendations[0]({recommendations:[fixture.recommendation("old")],diagnostics:[]})');
+          await evaluate('new Promise(resolve=>requestAnimationFrame(resolve))');
+          assert.equal(await evaluate('Array.from(document.querySelectorAll("[data-action-key]")).some(el=>el.dataset.actionKey==="recommendation:old")'),false);
+          await evaluate('fixture.pendingRecommendations[1]({recommendations:[fixture.recommendation("new")],diagnostics:[]})');
+          await waitFor('document.querySelector("[data-actions-counts]").textContent.includes("Recommendations: 1")');
+          assert.equal(await evaluate('fixture.selections'),0);
+          assert.equal(await evaluate('fixture.input.length'),0);
+          assert.deepEqual(await evaluate('fixture.errors'),[]);
+        } else if (scenario === 'actions') {
+          await waitFor('document.querySelector("[data-actions-counts]")?.textContent.includes("Session attention: 1")');
+          const attentionBefore = await evaluate('document.querySelectorAll(".session-row--unread.session-row--loud").length');
+          assert.equal(attentionBefore,1);
+          await click('next-action');
+          await waitFor('document.activeElement.dataset.actionKey === "session:other"');
+          assert.equal(await evaluate('fixture.selections'),0);
+          assert.equal(await evaluate('fixture.input.length'),0);
+          assert.equal(await evaluate('fixture.activeSessionId'),'coding');
+          assert.equal(await evaluate('document.querySelectorAll(".session-row--unread.session-row--loud").length'),attentionBefore,'inspection preserves unread and unacknowledged attention');
+          assert.equal(await evaluate('fixture.prompts'),0);
+          assert.match(await evaluate('document.querySelector(".actions-overview").textContent'),/Needs You/);
+          if (process.env.ORKWORKS_CAPTURE_ACTIONS) {
+            const {writeFileSync}=await import('node:fs');
+            writeFileSync(process.env.ORKWORKS_CAPTURE_ACTIONS+'-wide.png',(await win.webContents.capturePage()).toPNG());
+          }
+          await evaluate('document.querySelector("[data-shell-return]").click()');
+          await waitFor('document.activeElement.dataset.shellCommand === "next-action"');
+          await click('sessions');
+          await waitFor('!document.querySelector("[data-shell-region=sessions]")');
+          assert.match(await evaluate('document.querySelector("[data-actions-counts]").textContent'),/Session attention: 1/);
+          await win.setContentSize(640,700);
+          await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
+          await click('next-action');
+          await waitFor('document.activeElement.dataset.actionKey === "session:other"');
+          assert.equal(await evaluate('!!document.querySelector("[data-shell-region=utility]")'),true);
+          if (process.env.ORKWORKS_CAPTURE_ACTIONS) {
+            const {writeFileSync}=await import('node:fs');
+            writeFileSync(process.env.ORKWORKS_CAPTURE_ACTIONS+'-compact.png',(await win.webContents.capturePage()).toPNG());
+          }
+          await evaluate('document.querySelector("[data-action-key=\\"session:coding\\"]").click()');
+          await waitFor('document.querySelector("[data-actions-detail] h3")?.textContent=== "coding"');
+          await win.setContentSize(1280,700);
+          await waitFor('document.querySelector("[data-shell-region=inspector]")');
+          assert.equal(await evaluate('document.querySelector("[data-actions-detail] h3")?.textContent'), 'coding', 'responsive host changes retain the inspected identity');
+          await evaluate('fixture.setSessionState({attention:"working"})');
+          await waitFor('!document.querySelector("[data-actions-detail]")');
+          assert.equal(await evaluate('fixture.selections'),0);
+          assert.match(await evaluate('document.querySelector(".actions-overview").textContent'),/unavailable or changed/);
+          await evaluate('fixture.setSessionState({})');
+          await evaluate('new Promise(resolve=>requestAnimationFrame(resolve))');
+          assert.equal(await evaluate('!!document.querySelector("[data-actions-detail]")'),false,'stale inspection cannot reactivate when its revision returns');
+          await evaluate('document.querySelector("[data-action-key=\\"session:coding\\"]").click()');
+          await waitFor('document.querySelector("[data-actions-detail]")');
+          await evaluate('fixture.setEmpty(true)');
+          await waitFor('!document.querySelector("[data-actions-detail]")');
+          assert.match(await evaluate('document.querySelector(".actions-overview").textContent'),/coding.*unavailable or changed/);
+          await evaluate('fixture.setEmpty(false);fixture.advanceWorkspace()');
+          await waitFor('!document.querySelector("[data-actions-detail]")');
+          await evaluate('document.querySelector("[data-shell-return]").click()');
+          await waitFor('document.querySelector("[data-shell-region=terminal]")');
+          await waitFor('document.activeElement.hasAttribute("data-shell-terminal-focus") || document.activeElement.classList.contains("xterm-helper-textarea")');
+          assert.deepEqual(await evaluate('fixture.errors'),[]);
+        } else if (scenario === 'resume-session') {
           assert.equal(await evaluate('!!document.querySelector("[data-shell-resume]")'),false,'live sessions have no resume action');
           await evaluate('fixture.setSessionState({lifecycle:"dead",status:"ended",memoryState:"resumable",resumeStrategy:"exact"})');
           await waitFor('document.querySelector("[data-shell-resume]")');
@@ -956,7 +1045,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
@@ -1040,28 +1129,38 @@ if (process.versions.electron) {
               throw new Error('Unexpected fixture request '+path);
             };
           }
+          if (${JSON.stringify(scenario)}==='actions-sources') {
+            fixture.openedRecommendations=[];fixture.pendingRecommendations=[];
+            fixture.recommendation=id=>({id,title:id,summary:'Summary '+id,status:'proposed',updatedAt:'2026-10-14',rollupMemberIds:[]});
+            window.fetch=async url=>{
+              if(new URL(url).pathname!=='/taskmaster/recommendations')throw new Error('Unexpected Actions request');
+              const body=fixture.pauseRecommendations ? await new Promise(resolve=>fixture.pendingRecommendations.push(resolve)) : {recommendations:[fixture.recommendation('r2'),fixture.recommendation('r1')],diagnostics:fixture.partial?[{code:'partial',message:'missing source'}]:[]};
+              return {ok:true,json:async()=>body};
+            };
+          }
           function Preferences() {const prefs=useShellPreferences();return <ShellPreferencesNotice {...prefs} onCommand={command=>{fixture.noticeCommands.push(command);void prefs.reset()}}/>;}
           function PreferencesHarness() {const [generation,setGeneration]=useState(0);fixture.remountPreferences=()=>setGeneration(n=>n+1);return <Preferences key={generation}/>;}
           function Harness() {
             const [sessionState,setSessionState]=useState({});fixture.setSessionState=setSessionState;fixture.resumed??=[];
+            const [sessionsSourceStatus,setSessionSourceStatus]=useState('ready');fixture.setSessionSourceStatus=setSessionSourceStatus;
             const [inspector,setInspector]=useState(null);
             const [creating,setCreating]=useState(false);fixture.setCreating=setCreating;
             const [empty,setEmpty]=useState(false);fixture.setEmpty=setEmpty;
             const [generation,setGeneration]=useState(0);fixture.workspaceGeneration=generation;fixture.advanceWorkspace=()=>setGeneration(n=>n+1);
             const [backendStatus,setBackendStatus]=useState('connected');
             const [commandRequest,setCommandRequest]=useState(null);
-            fixture.command=command=>setCommandRequest(old=>({command,sequence:(old?.sequence||0)+1}));
+            fixture.command=(command,reveal=false)=>setCommandRequest(old=>({command,reveal,sequence:(old?.sequence||0)+1}));
             fixture.setBackendStatus=setBackendStatus;
             const [activeSessionId,setActiveSessionId]=useState('coding');
             fixture.activeSessionId=activeSessionId;
             fixture.select=setActiveSessionId;
             const [preferences,setPreferences]=useState({sessionsWidth:240,inspectorWidth:320,sessionsVisible:true,density:'low'});
-            return <ApplicationShell sessions={empty ? [] : ((${JSON.stringify(scenario)}==='sidebar-controls'?['coding','other',...Array.from({length:80},(_,i)=>'history-'+i)]:['coding','other']).map((id,i)=>({id,name:id,cwd:'/tmp/test',harnessId:'codex',harness:'codex',lifecycle:'alive',status:'running',...sessionState,label:id,createdAt:'2026-10-10T10:00:00Z',lastActivityAt:i?'2026-10-10T09:00:00Z':'2026-10-10T10:00:00Z'})))}
+            return <ApplicationShell sessions={empty ? [] : ((${JSON.stringify(scenario)}==='sidebar-controls'?['coding','other',...Array.from({length:80},(_,i)=>'history-'+i)]:['coding','other']).map((id,i)=>({id,name:id,cwd:'/tmp/test',harnessId:'codex',harness:'codex',lifecycle:'alive',status:'running',attention:(${JSON.stringify(scenario)}==='actions' && id==='other'?'needs_you':'idle'),...sessionState,label:id,createdAt:'2026-10-10T10:00:00Z',lastActivityAt:i?'2026-10-10T09:00:00Z':'2026-10-10T10:00:00Z'})))}
               workspace={{path:'/tmp/test'}} workspaceControl={<div className="shell-workspace-control"><span className="titlebar-text">test</span><WorkspaceHistoryDropdown triggerLabel="⇄" triggerClassName="titlebar-switch-button" triggerAriaLabel="Switch workspace" currentWorkspacePath="/tmp/test" isSwitching={false} onOpenPath={()=>{fixture.workspaceOpens++;setGeneration(n=>n+1)}} onOpenOtherFolder={()=>{}} onError={()=>{}}/></div>} onOpenSettings={()=>fixture.settingsOpened++} onCreateSession={()=>{fixture.sessionsCreated++;if(${JSON.stringify(scenario)}==='new-session'){setCreating(true);fixture.command('new-session')}}} activeSessionId={activeSessionId} workspaceGeneration={generation}
               newSessionContent={creating ? <NewSessionDialog key={generation} harnesses={[]} providerRuntime={null} onConfirm={async opts=>{fixture.submitted=opts;fixture.finishCreate=new Promise(resolve=>fixture.resolveCreate=resolve);await fixture.finishCreate;setCreating(false);fixture.command("terminal")}} onCancel={()=>fixture.command("cancel-new-session")}/> : null}
-              onCancelNewSession={()=>setCreating(false)} backendStatus={backendStatus} harnesses={[]} debugSettings={{showSessionIds:false}}
+              onCancelNewSession={()=>setCreating(false)} backendStatus={backendStatus} sessionsSourceStatus={sessionsSourceStatus} taskmasterReady={${JSON.stringify(scenario)}==='actions-sources'} onOpenRecommendation={id=>fixture.openedRecommendations.push(id)} onFixWithAi={()=>fixture.prompts++} onRunCleanup={()=>fixture.prompts++} harnesses={[]} debugSettings={{showSessionIds:false}}
               commandRequest={commandRequest} preferences={preferences} onPreferencesChange={setPreferences} onResetPreferences={()=>new Promise(resolve=>{fixture.finishReset=resolve})}
-              inspector={inspector} onInspect={setInspector} unreadIds={new Set()} acknowledgedIds={new Set()}
+              inspector={inspector} onInspect={setInspector} unreadIds={new Set(${JSON.stringify(scenario)}==='actions'?['other']:[])} acknowledgedIds={new Set()}
               onResumeSession={id=>fixture.resumed.push(id)} onSelectSession={id=>{fixture.selections++;setActiveSessionId(id)}} onFocusTerminal={()=>fixture.runtime()?.terminal.focus()} onBackendUnavailable={()=>{}} />;
           }
           createRoot(document.getElementById('root')).render(${JSON.stringify(scenario)}.startsWith('preferences-')?<PreferencesHarness/>:${JSON.stringify(scenario)}.startsWith('app-')?<App/>:<Harness/>);
