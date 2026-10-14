@@ -41,11 +41,12 @@ interface SessionDetailPanelProps {
   onApplyDebugAttention: (id: string, attention: SessionAttention, message?: string) => void;
   onOpenSettings: () => void;
   onReviewPlan?: () => void;
+  onRequestPlanReview?: (sessionId: string) => Promise<void>;
   onOpenRecommendation?: (id: string) => void;
   showDebugMetadata: boolean;
 }
 
-function SessionDetailPanel({ sessions, visibleSessionId, harnesses, onResumeSession, onApplyDebugAttention, onOpenSettings, showDebugMetadata, onReviewPlan, onOpenRecommendation }: SessionDetailPanelProps) {
+function SessionDetailPanel({ sessions, visibleSessionId, harnesses, onResumeSession, onApplyDebugAttention, onOpenSettings, showDebugMetadata, onReviewPlan, onRequestPlanReview, onOpenRecommendation }: SessionDetailPanelProps) {
   const [debugAttention, setDebugAttention] = useState<SessionAttention>("working");
   const [debugMessage, setDebugMessage] = useState("");
   const pendingReviews = useRef(new Set<string>());
@@ -206,7 +207,7 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, onResumeSes
                     if (pendingReviews.current.has(active.id)) return;
                     pendingReviews.current.add(active.id);
                     setReviewingSessionId(active.id);
-                    void window.orkworks.requestPlanReview(active.id)
+                    void (onRequestPlanReview ?? ((id: string) => window.orkworks.requestPlanReview(id)))(active.id)
                       .catch((error: unknown) => pushToast("error", error instanceof Error ? error.message : "Couldn't request review."))
                       .finally(() => {
                         pendingReviews.current.delete(active.id);

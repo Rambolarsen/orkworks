@@ -30,6 +30,7 @@ interface Props {
   reviewLoading?: boolean;
   reviewError?: boolean;
   onOpenReview?: () => void;
+  onRequestPlanReview?: (sessionId: string) => Promise<void>;
   onNavigate?: () => void;
   onCloseReview?: () => void;
   backendStatus: string;
@@ -83,7 +84,7 @@ export default function ApplicationShell(props: Props) {
   const creationReturn = useRef<{ inspector: ShellDestination | null; sessionsPage: boolean } | null>(null);
   const workspaceGenerationRef = useRef(props.workspaceGeneration);
   workspaceGenerationRef.current = props.workspaceGeneration;
-  const focusIntent = useRef<"page" | "return" | "terminal" | "sessions" | null>(null);
+  const focusIntent = useRef<"page" | "return" | "review-return" | "terminal" | "sessions" | null>(null);
   const [width, setWidth] = useState(() => window.innerWidth);
   const [sessionsPage, setSessionsPage] = useState(false);
   const [focusTick, setFocusTick] = useState(0);
@@ -134,10 +135,10 @@ export default function ApplicationShell(props: Props) {
   };
   const closeReviewPage = () => {
     invokerRef.current = reviewInvoker.current?.element ?? null;
-    invokerSelectorRef.current = reviewInvoker.current?.selector ?? "[data-shell-command=review]";
+    invokerSelectorRef.current = reviewInvoker.current?.selector ?? null;
     reviewInvoker.current = null;
     props.onCloseReview?.();
-    requestFocus("return");
+    requestFocus("review-return");
   };
   const runCommand = (command: ShellCommand, reveal = false, toggleSessions = false) => {
     props.onNavigate?.();
@@ -156,6 +157,7 @@ export default function ApplicationShell(props: Props) {
         captureInvoker(command);
         reviewInvoker.current = { element: invokerRef.current, selector: invokerSelectorRef.current };
       }
+      creationReturn.current = null;
       setSessionsPage(false);
       props.onCancelNewSession?.();
       props.onInspect(null);
@@ -238,13 +240,13 @@ export default function ApplicationShell(props: Props) {
       : invokerSelectorRef.current ? root.querySelector<HTMLElement>(invokerSelectorRef.current) : null;
     const closedDisclosure = returnTarget?.closest("details:not([open])");
     if (closedDisclosure) returnTarget = closedDisclosure.querySelector<HTMLElement>("summary");
-    if (intent === "return" && returnTarget?.getClientRects().length) {
+    if ((intent === "return" || intent === "review-return") && returnTarget?.getClientRects().length) {
       returnTarget.focus({ preventScroll: true });
       invokerRef.current = null;
       invokerSelectorRef.current = null;
     } else if (intent === "sessions") {
       (document.getElementById("sessions-list") ?? root.querySelector<HTMLElement>("[data-shell-sessions-heading]"))?.focus({ preventScroll: true });
-    } else if (intent === "terminal") {
+    } else if (intent === "terminal" || intent === "review-return") {
       root.querySelector<HTMLElement>("[data-shell-terminal-focus]")?.focus({ preventScroll: true });
       props.onFocusTerminal();
     } else {
@@ -277,7 +279,7 @@ export default function ApplicationShell(props: Props) {
   const renderUtility = () => {
     if (props.inspector === "details") return <SessionDetailPanel sessions={props.sessions}
       visibleSessionId={props.visibleSubjectId} harnesses={props.harnesses}
-      onReviewPlan={() => runCommand("review")}
+      onReviewPlan={() => runCommand("review")} onRequestPlanReview={props.onRequestPlanReview}
       onResumeSession={props.onResumeSession} onApplyDebugAttention={props.onApplyDebugAttention}
       onOpenSettings={() => props.onOpenSettings("providers")} onOpenRecommendation={props.onOpenRecommendation}
       showDebugMetadata={props.debugSettings.showSessionIds} />;

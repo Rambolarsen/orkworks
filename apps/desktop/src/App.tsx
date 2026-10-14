@@ -59,6 +59,7 @@ function App() {
   const restorationIntent = useRef(0);
   const restorationInProgress = useRef(false);
   const reviewLoadIntent = useRef(0);
+  const reviewRequests = useRef(new Map<string, Promise<void>>());
   const navigationRebuildPending = useRef(false);
   const navigationReadSequence = useRef(0);
   const requestShellCommand = useCallback((command: ShellCommand, reveal = false) => {
@@ -333,6 +334,17 @@ function App() {
     }
   };
 
+  const requestIndependentReview = useCallback((sessionId: string) => {
+    const key = `${workspaceLifecycleRef.current.generation}:${sessionId}`;
+    const pending = reviewRequests.current.get(key);
+    if (pending) return pending;
+    const request = window.orkworks.requestPlanReview(sessionId);
+    reviewRequests.current.set(key, request);
+    const settled = () => { reviewRequests.current.delete(key); };
+    void request.then(settled, settled);
+    return request;
+  }, []);
+
   const acceptReviewResult = (generation: number, persist: boolean) =>
     workspaceLifecycleRef.current.generation === generation
       && (!(persist || shellNavigationRef.current.centralSurface.kind !== "review")
@@ -362,10 +374,11 @@ function App() {
     void review.load(false);
   }, [review.load]);
   const closeReview = useCallback(() => {
+    const wasReview = shellNavigationRef.current.centralSurface.kind === "review";
     ++navigationIntent.current;
     review.close();
     dispatchShellNavigation({ type: "review-closed", generation: workspaceLifecycleRef.current.generation });
-    void saveNavigation("terminal");
+    if (wasReview) void saveNavigation("terminal");
   }, [review.close, saveNavigation]);
   useEffect(() => {
     if (shellNavigation.centralSurface.kind === "review" && !activeSession?.hasOpenablePlan) {
@@ -871,11 +884,12 @@ function App() {
           if (review.loading && !review.error && shellNavigation.centralSurface.kind === "terminal") review.close();
         }}
         onOpenReview={openReview}
+        onRequestPlanReview={requestIndependentReview}
         onCloseReview={closeReview}
         reviewContent={activeSessionId ? <ReviewPanel key={`${shellNavigation.workspaceGeneration}-${activeSessionId}`}
           sessionId={activeSessionId} content={review.document?.content ?? null} loading={review.loading}
           error={review.error} changed={review.changed} canRequest={sessionAdmissionEnabled && activeSession?.lifecycle === "alive"}
-          onRefresh={refreshReview} /> : null}
+          onRefresh={refreshReview} onRequest={requestIndependentReview} /> : null}
         workspaceGeneration={shellNavigation.workspaceGeneration}
         visibleSubjectId={shellNavigation.inspectedSubject && shellNavigation.inspectedSubject.kind !== "workspace"
           ? shellNavigation.inspectedSubject.sessionId

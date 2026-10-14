@@ -731,13 +731,15 @@ utility replaces the central content; compact widths show one page at a time.
 Navigation preserves selected-session identity and restores focus to the invoker
 when a temporary page closes. Review opens from the selected session's Details,
 the content header or the View menu, with an explicit return to that session's
-Terminal/history. Validated document bytes remain in renderer memory with a
-content digest and workspace/session binding; refresh replaces that snapshot and
+Terminal/history. Return restores an available document invoker, otherwise
+terminal focus. Review and Details share one in-flight independent-review request
+per session and workspace generation. Validated document bytes remain in renderer
+memory with a content digest and workspace/session binding; refresh replaces that snapshot and
 clears stale content on failure. Opening, refreshing, closing and restoring Review
 never submit a prompt; only Request independent review does. Saved Review
 presentation is revalidated through Electron before restoration. Refresh/Retry
-leave navigation recency unchanged. Unreadable navigation memory surfaces a
-diagnostic and the existing Electron-confirmed rebuild path; cancelled recovery
+and no-op Terminal commands leave navigation recency unchanged. Unreadable
+navigation memory surfaces a diagnostic and the existing Electron-confirmed rebuild path; cancelled recovery
 preserves the record. Actions (#805)
 and gated Workflow navigation remain separate delivery slices.
 

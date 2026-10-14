@@ -94,7 +94,9 @@ specification, then choose **Review** in the content header or View menu, or
 **Review plan** in Details. The document replaces the terminal in the main work
 area. **Back to Terminal** returns to the same session's terminal or saved
 history, including in narrow windows. Escape also returns when focus is in the
-Review document or its navigation controls.
+Review document or its navigation controls. Focus returns to the opening
+control when it is still available, or to the terminal when Review was restored
+or opened from terminal input through the View menu.
 
 Use **Refresh plan** to read the current document again. If it has moved or is
 unreadable, Review clears the old content and offers Retry, including when the

@@ -38,9 +38,10 @@ interface ReviewPanelProps {
   changed: boolean;
   canRequest: boolean;
   onRefresh: () => void;
+  onRequest: (sessionId: string) => Promise<void>;
 }
 
-function ReviewPanel({ sessionId, content, loading, error, changed, canRequest, onRefresh }: ReviewPanelProps) {
+function ReviewPanel({ sessionId, content, loading, error, changed, canRequest, onRefresh, onRequest }: ReviewPanelProps) {
   const [requesting, setRequesting] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
   const pending = useRef(false);
@@ -49,7 +50,7 @@ function ReviewPanel({ sessionId, content, loading, error, changed, canRequest, 
     pending.current = true;
     setRequesting(true);
     setRequestError(null);
-    void window.orkworks.requestPlanReview(sessionId).catch(() => {
+    void onRequest(sessionId).catch(() => {
       setRequestError("Couldn't request independent review. Try again.");
     }).finally(() => { pending.current = false; setRequesting(false); });
   };
