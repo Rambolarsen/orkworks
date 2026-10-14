@@ -16,6 +16,7 @@ if (process.versions.electron) {
     });
     try {
       await win.loadFile(process.env.ORKWORKS_XTERM_WHEEL_FIXTURE);
+      // DOM/script readiness precedes Chromium's native input routing surface.
       await firstPaint;
       const evaluate = (source) => win.webContents.executeJavaScript(source);
       const waitFor = async (source) => {
@@ -106,8 +107,7 @@ if (process.versions.electron) {
   const { join } = await import('node:path');
   const { build } = await import('esbuild');
 
-  // Temporary bounded CI experiment.
-  for (let attempt = 0; attempt < 20; attempt++) test('xterm native wheel cold start ' + attempt, async () => {
+  test('xterm forwards fractional wheel input in alternate-buffer modes', async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-xterm-wheel-'));
