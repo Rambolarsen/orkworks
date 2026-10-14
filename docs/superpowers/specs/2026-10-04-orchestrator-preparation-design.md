@@ -290,7 +290,7 @@ Version 1 uses the configuration contract's ID/digest/canonicalization rules.
 | Record | Required binding |
 | --- | --- |
 | `OrchestrationRunDefinition` | `schemaVersion`, `runId`, workspace/parent identity, `repositoryBindingDigest`, `sourceWorktreeBindingDigest`, UI-authorized goal and `goalDigest`, sidecar-assigned `admissionEpoch`/`runSequence`, `bootstrapConfigurationDigest`, `maxParallelChildren`, `runDefinitionDigest` |
-| `OrchestrationRunState` | Run version, closed lifecycle state, input revision/digest, ordered plan references, current plan, current parent runtime generation; mutable evidence separate from the definition |
+| `OrchestrationRunState` | Run version, closed lifecycle state, input revision/digest, ordered plan references, current plan, current parent runtime generation, durable blockers, independent `stageContinueRequired` gate, and pending clarification identity/version; mutable evidence separate from the definition |
 | `PreparationRevision` | Run ID, strictly increasing revision, decision, exact question/answer/report/review references and digests, input manifest digest; immutable once referenced by a plan |
 | `ParentPlanBinding` | Run/parent/plan/revision identities, run definition, bootstrap configuration, repository binding and source-worktree binding digests, preparation revision/input digest; included in the exact approved plan definition |
 | `PlanExecutionGrant` | Server-held grant ID, run/parent/runtime/sidecar generation, exact approved plan revision and definition digest, UI approval ID, grant state (`active`, `paused`, `revoked`); never a child-held credential |
@@ -338,10 +338,11 @@ skill selected for a later plan as loaded in an already-running parent.
    coordination state, waiting for run events, and explicit result reports for
    already-launched exact assignments. It cannot approve a plan, change bootstrap
    scope, create ordinary sessions, launch grandchildren or control other runs.
-   In `paused` with `pauseReason=stage_cancelled`, it permits only reads, event
+   While `stageContinueRequired` is set, it permits only reads, event
    waits and result reports for already-launched exact assignments. The sidecar
    rejects clarification or proposal mutations until the version-bound,
-   Electron-main-authorized continue transition moves the run to `assessing`.
+   Electron-main-authorized continue transition clears that gate. Runtime
+   resume alone cannot clear it or restore proposal/clarification mutations.
 4. Electron-authorized approval of an exact plan creates a fresh server-held
    `PlanExecutionGrant`. A launch presents the run bearer plus exact run/plan/
    revision/task identities. The sidecar checks the matching current grant and
@@ -431,7 +432,7 @@ never returns a terminal run to `paused` or restores its authority.
 | --- | --- | --- | --- |
 | UI-authorized creation | `assessing` | Assess supplied inputs | Reviewed bootstrap/goal/run cap |
 | Assessment finds material unknown | `awaiting_clarification` | Present question, retain independent approved work | Explicit answer |
-| Current material answers received | `assessing` | Incorporate answers; decide research need | None beyond those answers |
+| Current material answers received | `assessing` when the runtime is active and no retained blocker or stage-continue gate remains; otherwise retain the paused/gated state | Record the answer; incorporate it and decide research need only when planning is allowed | None beyond those answers; recovery/continue authority remains separate |
 | Research needed | `awaiting_research_approval` | Prepare bounded research proposal | Exact research revision approval |
 | Clear task skips research | `awaiting_execution_approval` | Prepare execution proposal | Exact execution revision approval |
 | Research approval accepted | `researching` | Request eligible declared researchers/reviewers | Existing approved revision |
@@ -445,10 +446,12 @@ never returns a terminal run to `paused` or restores its authority.
 | Proposal rejected | Same approval-wait state | Show rejection; stop repeated unchanged proposals | Changed proposal needs fresh exact approval |
 | Recovery inputs/allocation resolved and recovery proposal prepared | `awaiting_research_approval` or `awaiting_execution_approval` | Bind the proposal to a new input revision; keep launches closed | Exact recovery revision approval |
 | Exact recovery revision approved | `researching` or `executing`, matching its declared stage | Create a fresh grant; launch only not-yet-reserved declared tasks | Exact approval and any worktree-quiescence acknowledgement |
-| Stage plan cancelled | `paused` with `pauseReason=stage_cancelled` | Revoke the stage grant; retain the live parent's run bearer for reads, event waits and existing result reports; reject clarification/proposal mutations | Electron-main-authorized, version-bound continue decision before preparing the next proposal |
-| Paused stage continued | `assessing` | Resume planning only; reassess retained inputs/results and prepare a new proposal when ready | Electron-main-authorized, version-bound continue decision; no launch until its exact plan revision is approved |
+| Stage plan cancelled | `paused` with `pauseReason=stage_cancelled` and `stageContinueRequired=true` | Revoke the stage grant; retain the live parent's run bearer for reads, event waits and existing result reports; reject clarification/proposal mutations | Electron-main-authorized, version-bound continue decision before preparing the next proposal |
+| Paused stage continued | `blocked` if a retained blocker remains, otherwise `awaiting_clarification` if a current request is unanswered, otherwise `assessing` | Clear only `stageContinueRequired`; preserve blockers and clarification records; reassess and prepare a new proposal only when those gates permit | Electron-main-authorized, version-bound continue decision; no launch until its exact plan revision is approved |
 | Parent ends / workspace or sidecar changes | `paused` with `pauseReason=parent_ended`, `workspace_changed`, or `sidecar_replaced` | Revoke bearer/grants; reconcile durable records; preserve run and child state | Exact-identity UI resume in the bound workspace |
-| Resumed parent has an unresolved/interrupted allocation | `blocked` | Restore planning only; preserve the reservation and allocation evidence; do not launch or collect as settled | Explicit allocation resolution, then any required recovery proposal approval |
+| Resumed parent still requires stage continuation | `paused` with `pauseReason=stage_cancelled` | Issue fresh runtime-bound authority for reads, event waits and existing result reports only; retain all blockers and pending clarification | Separate Electron-main-authorized, version-bound continue decision after exact-identity resume; no cancelled plan reapproval |
+| Resumed parent has a retained failure/blocker/conflict or unresolved/interrupted allocation, with no stage-continue gate | `blocked` | Restore bounded recovery planning and result collection; preserve blocker and reservation evidence; do not treat interrupted allocation as settled | Resolve the retained blocker/allocation and approve an exact recovery revision before launches |
+| Resumed parent has a current unanswered clarification, with no stage-continue gate or retained blocker | `awaiting_clarification` | Restore the same pending request identity/version and preparation binding; no duplicate question or replacement version on resume | Explicit UI answer to that current request; dependent plan approval remains blocked |
 | Resumed parent has a previously approved plan with unreserved tasks and its input digest is current | `awaiting_resume_approval` | Restore planning only; retain the stage as the resume target; do not launch | Fresh approval of the exact current plan revision |
 | Resumed parent has a previously approved plan with unreserved tasks but its input digest is stale | `assessing` | Keep unused tasks paused; prepare a revised definition against current inputs; do not launch | Exact approval of the revised plan before launches |
 | Resumed parent has a live plan but no unreserved task to launch | Its retained `researching` or `executing` coordination state | Restore report/outcome collection with a fresh run bearer and no plan grant | No new approval for collection; any future plan needs its own approval |
@@ -463,9 +466,15 @@ fencing atomically. Recovery revisions preserve prior task attempts and
 reservations; a retry is a newly declared task identity in the newly approved
 revision, never a second launch of a reserved task. Stage continuation does not
 restore the cancelled plan grant. Parent/runtime resume never revives an old
-bearer or grant. Reconcile unresolved/interrupted allocations before selecting
-any other resume path. `awaiting_resume_approval` has no launch authority until
-the current input digest is revalidated and fresh approval creates a new
+bearer or grant. Choose resume paths in this order: retain a pending stage-continue
+gate; otherwise retain any failure/blocker/conflict or unresolved/interrupted
+allocation; otherwise restore a current unanswered clarification; only then
+classify approved plans, pending proposals or between-plan preparation. All
+lower-priority evidence remains durable and visible while a higher-priority gate
+is active. A current plan input digest is not evidence that a blocker was resolved.
+Resume and same-plan reapproval cannot bypass the exact recovery revision required
+for a retained failure/blocker/conflict. `awaiting_resume_approval` has no launch
+authority until the current input digest is revalidated and fresh approval creates a new
 server-held grant. If it is stale, unused tasks remain paused until a revised
 definition is approved. A pending, never-approved proposal
 returns to its existing approval-wait state only if its input digest is still
@@ -474,13 +483,30 @@ and `cancelled` runs remain absorbing.
 
 Persist `pauseReason` as exactly `stage_cancelled`, `parent_ended`,
 `workspace_changed`, or `sidecar_replaced`, plus the prior coordination state
-and current plan/input digests needed to choose the resume path. A
-`stage_cancelled` pause retains the live parent's run bearer but has no plan
-grant; proposal and clarification mutations remain fenced until explicit
-continue. The other pause reasons revoke the run bearer and require exact-identity
-UI resume before issuing a new one. A resume target records whether the parent
-returns to research/execution coordination, a pending approval proposal, or
-between-plan preparation; it never itself grants a launch.
+and current plan/input digests needed to choose the resume path. Persist
+`stageContinueRequired` independently of `pauseReason`: it starts false, stage
+cancellation sets it, and only a successful version-bound UI continue after any
+required exact-identity runtime resume clears it. Parent exit,
+workspace change, sidecar replacement and repeated interruption may replace the
+runtime pause reason but cannot erase that gate, retained blockers, or a pending
+clarification's identity/version and preparation binding. Preserve the logical
+resume target across repeated pauses rather than replacing it with `paused`.
+
+A `stage_cancelled` pause retains the live parent's run bearer but has no plan
+grant. Other pause reasons revoke the bearer and require exact-identity UI resume
+before issuing a fresh one. If `stageContinueRequired` remains set, resume restores
+the stage-cancelled pause with reads, event waits and existing result reports only;
+proposal and clarification mutations stay fenced until a separate explicit
+continue. Continue never restores the cancelled plan grant and cannot clear a
+blocker or answer a question. Recovery still requires its exact revised approval.
+
+A resumed pending clarification is the same current request, not a new request
+or preparation revision. An explicit authorized answer received while paused is
+retained and revalidated normally; do not restore an already answered request or
+let its answer clear a blocker or stage-continue gate. A resume target records
+whether the parent returns to clarification, research/execution coordination,
+a pending approval proposal, or between-plan preparation; it never itself grants
+a launch.
 
 `awaiting_execution_approval` can display capacity held by older children.
 Approval does not remove that wait. `complete` does not mean all PTYs ended,
@@ -709,7 +735,12 @@ live coding-tool probes were run while drafting this document.
 | Stale clarification answer or stage-continue decision | Reject against the current run/request version; do not mutate state or emit a success event |
 | Event wait cursor has fallen behind the bounded ring | Return `refresh_required` and the current run version; parent reads an authorized snapshot and resumes from its cursor |
 | Recovery revision approved after a task failure | Return to the declared stage with a fresh grant; preserve prior reservations and never relaunch the failed task identity |
-| Stage cancelled, then explicitly continued | Return to `assessing` with planning only; a new exact plan approval is still required |
+| Stage cancelled, then explicitly continued | Clear only the continue gate; retain `blocked` or `awaiting_clarification` when applicable, otherwise return to `assessing`; no cancelled grant is restored |
+| Stage cancelled, then parent ends / sidecar restarts / workspace changes, including repeated interruptions | Revoke runtime authority but preserve `stageContinueRequired`; exact-identity resume restores a gated pause, and a separate version-bound continue is still required |
+| Failed task/conflict, then parent ends with current plan inputs and unreserved tasks | Resume stays `blocked`; a current digest and same-plan reapproval cannot replace blocker resolution and exact recovery revision approval |
+| Parent ends while awaiting a material answer, with no higher-priority gate | Resume restores `awaiting_clarification` with the same current request identity/version; no duplicate question or preparation revision |
+| Clarification pending alongside a blocker or stage cancellation | Preserve all gates across interruptions; answer/continue/resume clears only its own condition; dependent proposals and launches remain fenced |
+| Explicit clarification answer received while runtime-paused | Retain the authorized answer and input revision; resume does not resurrect the answered request or clear other gates |
 | Parent ends with unreserved tasks in an approved plan | If inputs are current, exact-identity resume enters `awaiting_resume_approval`; if stale, it enters `assessing` to prepare a revised definition; neither path launches before approval |
 | Parent ends after a task reservation but before allocation is settled | Exact-identity resume enters `blocked` for explicit allocation resolution before any recovery approval or further launch |
 | Parent ends after all tasks are reserved and allocations are settled | Exact-identity resume may collect outcomes with planning authority but no grant; already-reserved tasks are never relaunched |
