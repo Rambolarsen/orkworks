@@ -500,6 +500,15 @@ identity. See [ADR 0069](../adr/0069-codex-session-id-hook-report-mailbox.md).
 
 `POST /sessions` now accepts `{ harnessId, model, initialPrompt }`. The renderer's inline New agent session composer labels harness choices as coding tools, can fall back to the default shell session if harness metadata is temporarily unavailable, and still sends the selected harness config id so session rows and remembered-session resume behavior remain compatible. The response returns as soon as the `"creating"` metadata record is persisted, before the harness has actually spawned — the PTY spawn runs as a detached background task, mirroring how `POST /sessions/:id/resume` and daemon-restart reconciliation already leave a session observable in `"creating"`. A spawn failure surfaces asynchronously as `status: "error"`, observed via the existing `GET /sessions` poll, rather than as a synchronous error response (issue #302).
 
+For a new Codex or OpenCode session with an initial prompt, the runtime waits
+for the TUI to enable bracketed paste (`ESC[?2004h`) and for 200ms of startup
+output quiet before writing the prompt as one bracketed paste. It sends Enter
+separately, 200ms after the paste write completes, ahead of later queued input.
+This avoids cooked PTY newline conversion, startup input loss, and Codex's
+paste-burst Enter suppression. Stop and child exit still cancel pending delivery.
+A 10-second bound falls back to plain prompt-plus-Enter for command overrides
+that never enable paste mode; other harnesses retain plain input delivery.
+
 `electron/workspaceMemory.ts` persists the last workspace path and recent workspace directories to the Electron user data directory, enabling workspace restore on relaunch. The sidecar persists workspace-scoped state to `~/.orkworks/workspaces/<path-hash>/workspace.json`; Aider's versioned notification-command preference is separately stored at `integrations/aider.json`, so no repository Aider configuration is edited.
 
 ## Metadata protocol
