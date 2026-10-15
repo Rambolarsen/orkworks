@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { PanelLeft, PanelRight, Plus, ChevronDown, Play, Gauge, Lightbulb, Settings, Pin, PinOff } from "lucide-react";
+import { PanelLeft, PanelRight, Plus, ChevronDown, Play, Gauge, Lightbulb, Settings, Pin, PinOff, X } from "lucide-react";
 import type { CentralSurface } from "../shellNavigation";
 import type { SessionAttention, SessionInfo, WorkflowRecommendation, WorkspaceInfo } from "../api";
 import type { HarnessConfig } from "../harnessTypes";
@@ -328,7 +328,10 @@ export default function ApplicationShell(props: Props) {
       {props.preferences.inspectorPinned ? <PinOff size={15} aria-hidden="true" /> : <Pin size={15} aria-hidden="true" />}
       {props.preferences.inspectorPinned ? "Unpin inspector" : "Pin inspector"}
     </button>}
-    <button type="button" data-shell-return onClick={closePage}>{temporary ? (props.newSessionContent ? "Back to New session" : (reviewing ? "Back to Review" : "Back to Terminal")) : "Close inspector"}</button>
+    <button type="button" data-shell-return onClick={closePage}
+      aria-label={temporary ? undefined : "Close inspector"} title={temporary ? undefined : "Close inspector"}>
+      {temporary ? (props.newSessionContent ? "Back to New session" : (reviewing ? "Back to Review" : "Back to Terminal")) : <X size={16} aria-hidden="true" />}
+    </button>
   </header>;
   const columns = [
     ...(layout.sessionsVisible ? [`${layout.sessionsWidth}px`, "6px"] : []),
