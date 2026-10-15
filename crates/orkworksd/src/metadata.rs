@@ -1939,71 +1939,100 @@ impl MetadataStore {
         activate_work_hook: bool,
     ) -> AttentionMergeResult {
         use session_transactions::{SessionTransactionError, WriteScope};
-        let result = self.mutate_session_optional(id, WriteScope::ATTENTION, |meta| {
-            let existing = meta.provenance.attention_source_or(&meta.metadata_source);
-            if !source_priority::can_overwrite(
-                source,
-                existing,
-                meta.provenance.attention_age_secs(),
-            ) {
-                return Ok(false);
-            }
-            meta.observed_status = Some(status.to_string());
-            if meta.lifecycle == "alive" {
-                meta.attention = canonical_attention(Some(status));
-            }
-            if let Some(msg) = message {
-                meta.summary = Some(msg.to_string());
-                meta.provenance.summary_source = Some(source.to_string());
-                meta.provenance.summary_confidence = Some(confidence);
-                meta.provenance.summary_observed_at = Some(timestamp.to_string());
-            }
-            let preserve_user_selection = source != "user"
-                && meta
-                    .plan_path
-                    .as_ref()
-                    .is_some_and(|reference| reference.source == PlanSource::UserSelected);
-            match plan_path {
-                PlanPathUpdate::Unchanged => {}
-                PlanPathUpdate::Clear if !preserve_user_selection => meta.plan_path = None,
-                PlanPathUpdate::Set(path) if !preserve_user_selection => {
-                    meta.plan_path = Some(PlanReference {
-                        worktree_root: None,
-                        relative_path: path.clone(),
-                        source: PlanSource::HookReported,
-                    });
+        let event_type = match plan_path {
+            PlanPathUpdate::Clear => "session.plan_path_cleared",
+            PlanPathUpdate::Set(_) => "session.plan_path_set",
+            PlanPathUpdate::Unchanged => "session.attention_reported",
+        };
+        let mut checkpoint_written = false;
+        let result = self.mutate_session_optional_before_replace(
+            id,
+            WriteScope::ATTENTION,
+            |meta| {
+                let existing = meta.provenance.attention_source_or(&meta.metadata_source);
+                if !source_priority::can_overwrite(
+                    source,
+                    existing,
+                    meta.provenance.attention_age_secs(),
+                ) {
+                    return Ok(false);
                 }
-                PlanPathUpdate::Clear | PlanPathUpdate::Set(_) => {}
-            }
-            meta.last_activity = timestamp.to_string();
-            meta.provenance.attention_source = Some(
-                if source == "codex_hook" {
-                    "agent"
-                } else {
-                    source
+                meta.observed_status = Some(status.to_string());
+                if meta.lifecycle == "alive" {
+                    meta.attention = canonical_attention(Some(status));
                 }
-                .to_string(),
-            );
-            meta.provenance.attention_confidence = Some(confidence);
-            meta.provenance.attention_origin = Some(
-                match source {
-                    "codex_hook" => "harness_hook",
-                    "agent" => "direct_agent",
-                    "user" => "user",
-                    "peon" => "peon",
-                    "debug" => "debug",
-                    "process" => "process",
-                    _ => "backend_inference",
+                if let Some(msg) = message {
+                    meta.summary = Some(msg.to_string());
+                    meta.provenance.summary_source = Some(source.to_string());
+                    meta.provenance.summary_confidence = Some(confidence);
+                    meta.provenance.summary_observed_at = Some(timestamp.to_string());
                 }
-                .to_string(),
-            );
-            if activate_work_hook {
-                meta.needs_user_input = None;
-                meta.detected_question = None;
-                meta.suggested_options = None;
-            }
-            Ok(true)
-        });
+                let preserve_user_selection = source != "user"
+                    && meta
+                        .plan_path
+                        .as_ref()
+                        .is_some_and(|reference| reference.source == PlanSource::UserSelected);
+                match plan_path {
+                    PlanPathUpdate::Unchanged => {}
+                    PlanPathUpdate::Clear if !preserve_user_selection => meta.plan_path = None,
+                    PlanPathUpdate::Set(path) if !preserve_user_selection => {
+                        meta.plan_path = Some(PlanReference {
+                            worktree_root: None,
+                            relative_path: path.clone(),
+                            source: PlanSource::HookReported,
+                        });
+                    }
+                    PlanPathUpdate::Clear | PlanPathUpdate::Set(_) => {}
+                }
+                meta.last_activity = timestamp.to_string();
+                meta.provenance.attention_source = Some(
+                    if source == "codex_hook" {
+                        "agent"
+                    } else {
+                        source
+                    }
+                    .to_string(),
+                );
+                meta.provenance.attention_confidence = Some(confidence);
+                meta.provenance.attention_origin = Some(
+                    match source {
+                        "codex_hook" => "harness_hook",
+                        "agent" => "direct_agent",
+                        "user" => "user",
+                        "peon" => "peon",
+                        "debug" => "debug",
+                        "process" => "process",
+                        _ => "backend_inference",
+                    }
+                    .to_string(),
+                );
+                if activate_work_hook {
+                    meta.needs_user_input = None;
+                    meta.detected_question = None;
+                    meta.suggested_options = None;
+                }
+                Ok(true)
+            },
+            |meta| {
+                if let Some(checkpoint) = self.summary_checkpoint(id, message) {
+                    self.try_append_event(
+                        id,
+                        &Event {
+                            event_type: event_type.into(),
+                            timestamp: timestamp.to_string(),
+                            status: meta.status.clone(),
+                            observed_status: Some(status.to_string()),
+                            confidence: Some(confidence),
+                            summary: Some(checkpoint),
+                            source: Some(source.to_string()),
+                            recommendation_id: None,
+                        },
+                    )?;
+                    checkpoint_written = true;
+                }
+                Ok(())
+            },
+        );
         let meta = match result {
             Ok(Some(record)) => record.metadata,
             Ok(None) => return AttentionMergeResult::Ignored,
@@ -2018,32 +2047,20 @@ impl MetadataStore {
             }
         };
 
-        let checkpoint = self.summary_checkpoint(id, message);
-        let checkpoint_source = checkpoint.as_ref().map(|_| source.to_string());
-
-        let event = Event {
-            event_type: match plan_path {
-                PlanPathUpdate::Clear => "session.plan_path_cleared",
-                PlanPathUpdate::Set(_) => "session.plan_path_set",
-                PlanPathUpdate::Unchanged => "session.attention_reported",
-            }
-            .into(),
-            timestamp: timestamp.to_string(),
-            status: meta.status.clone(),
-            observed_status: Some(status.to_string()),
-            confidence: Some(confidence),
-            summary: checkpoint,
-            source: checkpoint_source,
-            recommendation_id: None,
-        };
-        if event.summary.is_some() {
-            if let Err(error) = self.try_append_event(id, &event) {
-                warn!("failed to persist attention checkpoint for {id}: {error}");
-                // Metadata is already committed. A blind rollback could erase
-                // a later API write, so the attention signal remains accepted.
-            }
-        } else {
-            self.append_event(id, &event);
+        if !checkpoint_written {
+            self.append_event(
+                id,
+                &Event {
+                    event_type: event_type.into(),
+                    timestamp: timestamp.to_string(),
+                    status: meta.status.clone(),
+                    observed_status: Some(status.to_string()),
+                    confidence: Some(confidence),
+                    summary: None,
+                    source: None,
+                    recommendation_id: None,
+                },
+            );
         }
 
         AttentionMergeResult::Accepted
@@ -2181,6 +2198,22 @@ impl MetadataStore {
         policy: PeonAttentionPolicy<'_>,
     ) -> std::io::Result<PeonMergeOutcome> {
         self.merge_peon_inference_inner(id, inf, timestamp, provider, history_summary, policy)
+            .map(|(outcome, _)| outcome)
+    }
+
+    /// Returns whether the committed inference accepted the attention scope.
+    /// The flag remains true for an identical attention write, which still
+    /// revokes the prior attention owner; timestamps cannot express that.
+    pub fn merge_peon_inference_with_history_policy_scoped(
+        &self,
+        id: &str,
+        inf: &crate::peon::PeonInference,
+        timestamp: &str,
+        provider: Option<&crate::providers::ProviderObservation>,
+        history_summary: Option<&str>,
+        policy: PeonAttentionPolicy<'_>,
+    ) -> std::io::Result<(PeonMergeOutcome, bool)> {
+        self.merge_peon_inference_inner(id, inf, timestamp, provider, history_summary, policy)
     }
 
     #[cfg(test)]
@@ -2199,6 +2232,7 @@ impl MetadataStore {
             inf.summary.as_deref(),
             PeonAttentionPolicy::Infer,
         )
+        .map(|(outcome, _)| outcome)
     }
 
     fn merge_peon_inference_inner(
@@ -2209,7 +2243,7 @@ impl MetadataStore {
         provider: Option<&crate::providers::ProviderObservation>,
         history_summary: Option<&str>,
         policy: PeonAttentionPolicy<'_>,
-    ) -> std::io::Result<PeonMergeOutcome> {
+    ) -> std::io::Result<(PeonMergeOutcome, bool)> {
         let peon_harness_session_report =
             inf.harness_session_id
                 .as_ref()
@@ -2219,19 +2253,39 @@ impl MetadataStore {
                     confidence: inf.confidence.min(0.50),
                 });
         let mut permanent_hold = false;
+        let mut attention_written = false;
         let result = self.mutate_session_decided(id, |meta| {
             let work_allowed = source_priority::can_overwrite(
                 "peon",
                 &meta.metadata_source,
                 meta.provenance.work_age_secs(),
             );
-            let mut attention_allowed = !matches!(policy, PeonAttentionPolicy::PreserveHook { .. })
+            let protected_hook_matches = match policy {
+                PeonAttentionPolicy::PreserveHook {
+                    status,
+                    confidence,
+                    source,
+                } => {
+                    let source = if source == "codex_hook" {
+                        "agent"
+                    } else {
+                        source
+                    };
+                    meta.observed_status.as_deref() == Some(status)
+                        && meta.attention_source() == source
+                        && meta.attention_confidence() == confidence
+                        && matches!(meta.attention_origin(), "harness_hook" | "native_codex")
+                }
+                _ => false,
+            };
+            let infer_attention = !matches!(policy, PeonAttentionPolicy::NonPrompt);
+            let mut attention_allowed = !protected_hook_matches
                 && source_priority::can_overwrite(
                     "peon",
                     meta.attention_source(),
                     meta.attention_age_secs(),
                 );
-            if matches!(policy, PeonAttentionPolicy::Infer)
+            if infer_attention
                 && inf.observed_status.as_deref() == Some("working")
                 && crate::peon::is_terminal_observed_status(meta.observed_status.as_deref())
             {
@@ -2316,10 +2370,9 @@ impl MetadataStore {
 
             if attention_allowed {
                 match policy {
-                    PeonAttentionPolicy::PreserveHook { .. } => {
-                        unreachable!("preserved hook cannot authorize Peon attention")
-                    }
-                    PeonAttentionPolicy::Infer | PeonAttentionPolicy::NonPrompt => {
+                    PeonAttentionPolicy::Infer
+                    | PeonAttentionPolicy::NonPrompt
+                    | PeonAttentionPolicy::PreserveHook { .. } => {
                         if !matches!(policy, PeonAttentionPolicy::NonPrompt)
                             || (inf.observed_status.as_deref() != Some("waiting_for_input")
                                 && !(inf.observed_status.as_deref() == Some("working")
@@ -2344,11 +2397,11 @@ impl MetadataStore {
                 // it must not be clobbered here (ADR 0029).
                 meta.next_action = inf.next_action.clone().or(meta.next_action.take());
             }
-            if attention_allowed && matches!(policy, PeonAttentionPolicy::Infer) {
+            if attention_allowed && infer_attention {
                 meta.needs_user_input = inf.needs_user_input.or(meta.needs_user_input);
             }
             // Normalize: treat empty-string question as absent (LLM may emit "" instead of null).
-            if attention_allowed && matches!(policy, PeonAttentionPolicy::Infer) {
+            if attention_allowed && infer_attention {
                 let incoming_q = inf
                     .detected_question
                     .as_deref()
@@ -2440,6 +2493,7 @@ impl MetadataStore {
                 }
             }
 
+            attention_written = attention_allowed;
             Ok(Some(session_transactions::WriteScope {
                 attention: attention_allowed,
                 work: work_allowed,
@@ -2447,11 +2501,16 @@ impl MetadataStore {
         });
         let meta = match result {
             Ok(Some(record)) => record.metadata,
-            Ok(None) => return Ok(PeonMergeOutcome::SkippedHigherPriority { permanent_hold }),
+            Ok(None) => {
+                return Ok((
+                    PeonMergeOutcome::SkippedHigherPriority { permanent_hold },
+                    false,
+                ))
+            }
             Err(session_transactions::SessionTransactionError::Io(error))
                 if error.kind() == std::io::ErrorKind::NotFound =>
             {
-                return Ok(PeonMergeOutcome::Applied)
+                return Ok((PeonMergeOutcome::Applied, false))
             }
             Err(error) => return Err(std::io::Error::other(error)),
         };
@@ -2480,7 +2539,7 @@ impl MetadataStore {
         if let Some(report) = peon_harness_session_report {
             let _ = self.merge_harness_session_report(id, &report, timestamp);
         }
-        Ok(PeonMergeOutcome::Applied)
+        Ok((PeonMergeOutcome::Applied, attention_written))
     }
 
     fn terminal_output_path(&self, id: &str) -> PathBuf {
@@ -5532,15 +5591,119 @@ mod tests {
         let mut inf = peon_inference("working");
         inf.next_action = Some("inspect logs".into());
         let result = store
-            .merge_peon_inference_with_history("peon-independent-scopes", &inf, "now", None, None)
+            .merge_peon_inference_with_history_policy_scoped(
+                "peon-independent-scopes",
+                &inf,
+                "now",
+                None,
+                None,
+                PeonAttentionPolicy::Infer,
+            )
             .unwrap();
-        assert_eq!(result, PeonMergeOutcome::Applied);
+        assert_eq!(result, (PeonMergeOutcome::Applied, false));
         let actual = store.read_session("peon-independent-scopes").unwrap();
         assert_eq!(actual.observed_status.as_deref(), Some("waiting_for_input"));
         assert_eq!(actual.attention.as_deref(), Some("needs_you"));
         assert_eq!(actual.next_action.as_deref(), Some("inspect logs"));
         assert_eq!(actual.provenance.attention_source.as_deref(), Some("agent"));
         assert_eq!(actual.metadata_source, "peon");
+    }
+
+    #[test]
+    fn stale_hook_policy_cannot_protect_a_different_persisted_tuple() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let mut meta = test_metadata("stale-hook-policy");
+        meta.observed_status = Some("blocked".into());
+        meta.attention = Some("blocked".into());
+        meta.provenance.attention_source = Some("peon".into());
+        meta.provenance.attention_confidence = Some(0.5);
+        meta.provenance.attention_origin = Some("peon".into());
+        store.write_session(&meta);
+        let outcome = store
+            .merge_peon_inference_with_history_policy_scoped(
+                "stale-hook-policy",
+                &peon_inference("idle"),
+                "later",
+                None,
+                None,
+                PeonAttentionPolicy::PreserveHook {
+                    status: "waiting_for_input",
+                    confidence: 1.0,
+                    source: "agent",
+                },
+            )
+            .unwrap();
+        assert_eq!(outcome, (PeonMergeOutcome::Applied, true));
+        assert_eq!(
+            store
+                .read_session("stale-hook-policy")
+                .unwrap()
+                .observed_status
+                .as_deref(),
+            Some("idle")
+        );
+    }
+
+    #[test]
+    fn matching_hook_policy_protects_only_hook_owned_attention() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let id = "matching-hook-policy";
+        let mut meta = test_metadata(id);
+        meta.metadata_source = "peon".into();
+        meta.observed_status = Some("waiting_for_input".into());
+        meta.attention = Some("needs_you".into());
+        meta.provenance.attention_source = Some("agent".into());
+        meta.provenance.attention_confidence = Some(1.0);
+        meta.provenance.attention_origin = Some("harness_hook".into());
+        meta.provenance.attention_updated_at =
+            Some((chrono::Utc::now() - chrono::Duration::seconds(60)).to_rfc3339());
+        store.write_session(&meta);
+        let policy = PeonAttentionPolicy::PreserveHook {
+            status: "waiting_for_input",
+            confidence: 1.0,
+            source: "agent",
+        };
+
+        assert_eq!(
+            store
+                .merge_peon_inference_with_history_policy_scoped(
+                    id,
+                    &peon_inference("idle"),
+                    "later",
+                    None,
+                    None,
+                    policy,
+                )
+                .unwrap(),
+            (PeonMergeOutcome::Applied, false)
+        );
+        assert_eq!(
+            store.read_session(id).unwrap().observed_status.as_deref(),
+            Some("waiting_for_input")
+        );
+
+        let mut meta = store.read_session(id).unwrap();
+        meta.provenance.attention_origin = Some("agent_reported".into());
+        store.write_session(&meta);
+        assert_eq!(
+            store
+                .merge_peon_inference_with_history_policy_scoped(
+                    id,
+                    &peon_inference("idle"),
+                    "later",
+                    None,
+                    None,
+                    policy,
+                )
+                .unwrap(),
+            (PeonMergeOutcome::Applied, true)
+        );
+        assert_eq!(
+            store.read_session(id).unwrap().observed_status.as_deref(),
+            Some("idle")
+        );
     }
 
     #[test]
@@ -6413,10 +6576,15 @@ mod tests {
     }
 
     #[test]
-    fn attention_checkpoint_append_failure_keeps_committed_signal() {
+    fn attention_checkpoint_append_failure_does_not_commit_signal_or_revision() {
         let dir = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(dir.path());
-        store.write_session(&test_metadata("att-event-fail"));
+        let prior_owner = store
+            .try_write_session_owned(&test_metadata("att-event-fail"))
+            .unwrap()
+            .unwrap();
+        let session_path = store.sessions_dir().join("att-event-fail.json");
+        let before = std::fs::read(&session_path).unwrap();
         std::fs::write(store.events_dir(), "not a directory").unwrap();
 
         let result = store.merge_agent_attention_signal(
@@ -6428,11 +6596,17 @@ mod tests {
             1.0,
         );
 
-        assert_eq!(result, AttentionMergeResult::Accepted);
+        assert_eq!(result, AttentionMergeResult::PersistFailed);
+        assert_eq!(std::fs::read(&session_path).unwrap(), before);
         let meta = store.read_session("att-event-fail").unwrap();
-        assert_eq!(meta.observed_status.as_deref(), Some("waiting_for_input"));
+        assert_eq!(meta.observed_status, None);
         assert_eq!(meta.metadata_source, "process");
-        assert_eq!(meta.summary.as_deref(), Some("checkpoint not persisted"));
+        assert_eq!(meta.summary, None);
+        assert!(store.session_writes.lock().unwrap()["att-event-fail"].owns(&prior_owner.write));
+        assert!(!store
+            .sessions_dir()
+            .join("att-event-fail.json.tmp")
+            .exists());
     }
 
     #[test]

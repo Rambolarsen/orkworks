@@ -2,7 +2,7 @@
 //! Legacy snapshot writers remain unconditional; they still advance the revision.
 //! This module does not enable native clearing or coordinate external file writes.
 
-use super::{normalize_session_metadata, write_atomic, MetadataStore, SessionMetadata};
+use super::{normalize_session_metadata, tmp_write_path, MetadataStore, SessionMetadata};
 use serde::{Deserialize, Serialize};
 use std::{fs, io};
 
@@ -195,6 +195,35 @@ impl MetadataStore {
         })
     }
 
+    /// Stage the record, run a required side effect under the same session
+    /// lane, then publish. A side-effect failure leaves the original record,
+    /// revision, clocks, and attention ownership intact.
+    pub(crate) fn mutate_session_optional_before_replace(
+        &self,
+        id: &str,
+        scope: WriteScope,
+        mutate: impl FnOnce(&mut SessionMetadata) -> io::Result<bool>,
+        before_replace: impl FnOnce(&SessionMetadata) -> io::Result<()>,
+    ) -> Result<Option<RevisionedSession>, SessionTransactionError> {
+        self.with_session_write_lock(id, || {
+            let mut record = self
+                .try_read_revisioned_session(id)?
+                .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "session record missing"))?;
+            if !mutate(&mut record.metadata)? {
+                return Ok(None);
+            }
+            let next_revision = record.revision.next()?;
+            self.commit_session_record_with_revision_before_replace(
+                id,
+                &mut record,
+                scope,
+                next_revision,
+                before_replace,
+            )?;
+            Ok(Some(record))
+        })
+    }
+
     /// Internal arbitration can decide which provenance scopes were actually
     /// accepted after it reads the latest record inside the writer lane.
     pub(crate) fn mutate_session_decided(
@@ -260,6 +289,23 @@ impl MetadataStore {
         scope: WriteScope,
         next_revision: MetadataRevision,
     ) -> io::Result<()> {
+        self.commit_session_record_with_revision_before_replace(
+            id,
+            record,
+            scope,
+            next_revision,
+            |_| Ok(()),
+        )
+    }
+
+    fn commit_session_record_with_revision_before_replace(
+        &self,
+        id: &str,
+        record: &mut RevisionedSession,
+        scope: WriteScope,
+        next_revision: MetadataRevision,
+        before_replace: impl FnOnce(&SessionMetadata) -> io::Result<()>,
+    ) -> io::Result<()> {
         if record.metadata.id != id {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -277,7 +323,15 @@ impl MetadataStore {
         let json = serde_json::to_string_pretty(record)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
         let path = self.sessions_dir().join(format!("{id}.json"));
-        write_atomic(&path, &json)?;
+        let staged = tmp_write_path(&path);
+        fs::write(&staged, json)?;
+        if let Err(error) = before_replace(&record.metadata) {
+            if let Err(cleanup_error) = fs::remove_file(&staged) {
+                tracing::warn!(%cleanup_error, session_id = %id, "failed to clean rejected metadata stage");
+            }
+            return Err(error);
+        }
+        fs::rename(&staged, &path)?;
         if scope.attention {
             self.accept_session_write(id);
         }

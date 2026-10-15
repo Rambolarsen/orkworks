@@ -865,18 +865,26 @@ fn mark_committed_input_working(
         && handle.info.suggested_options.is_none()
         && handle.pending_work_signal.is_none();
     // A hook-reported prompt normally defers to the hook for the working
-    // transition. Codex is the exception: approving a PermissionRequest is a
-    // bare printable keystroke, and Codex does not emit a new
-    // `UserPromptSubmit` event after that approval. Treat that exact
-    // Codex-sourced prompt as resumed work while preserving the hook deferral
-    // for every other active hook.
-    let permission_owned = handle
+    // transition. A validated permission prompt can be answered with one key.
+    let codex_permission_owned = handle
         .runtime
         .native_approval
         .as_ref()
         .is_some_and(|tracker| {
             tracker.protects_permission_wait(&handle.runtime.attention_owner, &handle.info)
         });
+    let harness_permission_owned = matches!(
+        handle.runtime.active_prompt_kind,
+        Some(crate::runtime::session_runtime::RuntimePromptKind::Permission)
+    ) && matches!(
+        handle
+            .info
+            .harness_id
+            .as_deref()
+            .or(handle.info.harness.as_deref()),
+        Some("claude-code" | "copilot")
+    ) && crate::runtime::prompt_authority::registry().is_active(id);
+    let permission_owned = codex_permission_owned || harness_permission_owned;
     let attention_source = handle
         .info
         .provenance
@@ -905,6 +913,10 @@ fn mark_committed_input_working(
     let commit_working = !already_working
         && committed_input
         && attention_source != Some("user")
+        && !matches!(
+            handle.runtime.active_prompt_kind,
+            Some(crate::runtime::session_runtime::RuntimePromptKind::Elicitation)
+        )
         && (!handle.active_work_hook
             || permission_owned
             || (line_completed && matches!(attention_source, Some("process" | "peon"))));
@@ -970,6 +982,8 @@ fn mark_committed_input_working(
         return;
     }
     let ws = ws_guard.as_ref().expect("workspace checked above");
+    let live_observed_status = handle.info.observed_status.clone();
+    let live_attention = handle.info.attention.clone();
     let persisted = ws.metadata.mutate_session_optional(
         id,
         crate::metadata::session_transactions::WriteScope::ATTENTION,
@@ -977,12 +991,22 @@ fn mark_committed_input_working(
             if meta.lifecycle != "alive" || meta.attention_source() == "user" {
                 return Ok(false);
             }
-            let matching_permission = permission_owned
+            let matching_codex_permission = codex_permission_owned
                 && meta.observed_status.as_deref() == Some("waiting_for_input")
                 && meta.attention.as_deref() == Some("needs_you")
                 && meta.attention_source() == "agent"
                 && matches!(meta.attention_origin(), "native_codex" | "harness_hook");
-            if !matching_permission
+            let matching_harness_permission = harness_permission_owned
+                && meta.observed_status.as_deref() == Some("waiting_for_input")
+                && meta.attention.as_deref() == Some("needs_you")
+                && meta.attention_source() == "process"
+                && meta.attention_origin() == "process";
+            let matching_input_wait = meta.observed_status == live_observed_status
+                && meta.attention == live_attention
+                && matches!(meta.observed_status.as_deref(), Some("waiting_for_input"));
+            if !matching_codex_permission
+                && !matching_harness_permission
+                && !matching_input_wait
                 && !crate::metadata::source_priority::can_overwrite(
                     "process",
                     meta.attention_source(),
@@ -2241,6 +2265,72 @@ mod tests {
             .read_session(session_id)
             .unwrap();
         assert_eq!(meta.attention.as_deref(), Some("needs_you"));
+    }
+
+    #[test]
+    fn committed_input_does_not_clear_a_different_persisted_agent_wait() {
+        let session_id = "input-different-persisted-wait";
+        let (state, _dir) = prompted_session_state(session_id);
+        {
+            let ws = state.workspace.lock().unwrap();
+            let store = &ws.as_ref().unwrap().metadata;
+            let mut meta = store.read_session(session_id).unwrap();
+            meta.observed_status = Some("blocked".into());
+            meta.attention = Some("blocked".into());
+            meta.provenance.attention_source = Some("agent".into());
+            meta.provenance.attention_origin = Some("harness_hook".into());
+            store.write_session(&meta);
+        }
+
+        record_terminal_input(&state, session_id, "yes\r");
+
+        let info = state.sessions.lock().unwrap()[session_id].info.clone();
+        assert_eq!(info.observed_status.as_deref(), Some("waiting_for_input"));
+        let meta = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(session_id)
+            .unwrap();
+        assert_eq!(meta.observed_status.as_deref(), Some("blocked"));
+    }
+
+    #[test]
+    fn committed_line_does_not_clear_an_unrelated_elicitation() {
+        let session_id = "input-unrelated-elicitation";
+        let (state, _dir) = prompted_session_state(session_id);
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .get_mut(session_id)
+            .unwrap()
+            .runtime
+            .active_prompt_kind =
+            Some(crate::runtime::session_runtime::RuntimePromptKind::Elicitation);
+
+        record_terminal_input(&state, session_id, "yes\r");
+
+        assert_eq!(
+            state.sessions.lock().unwrap()[session_id]
+                .info
+                .observed_status
+                .as_deref(),
+            Some("waiting_for_input")
+        );
+        let meta = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(session_id)
+            .unwrap();
+        assert_eq!(meta.observed_status.as_deref(), Some("waiting_for_input"));
     }
 
     #[test]

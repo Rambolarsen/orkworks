@@ -4212,7 +4212,12 @@ mod tests {
             let ws_guard = state.workspace.lock().unwrap();
             if let Some(ref ws) = *ws_guard {
                 ws.metadata.write_session(&metadata::SessionMetadata {
-                    provenance: Default::default(),
+                    provenance: metadata::MetadataProvenance {
+                        attention_source: Some("process".into()),
+                        attention_confidence: Some(1.0),
+                        attention_origin: Some("process".into()),
+                        ..Default::default()
+                    },
                     id: session_id.clone(),
                     label: "Test".into(),
                     label_source: metadata::LabelSource::Legacy,
@@ -4288,7 +4293,8 @@ mod tests {
         if let Some(ref ws) = *ws_guard {
             if let Some(meta) = ws.metadata.read_session(&session_id) {
                 assert_eq!(meta.observed_status.as_deref(), Some("idle"));
-                assert_eq!(meta.metadata_source, "process");
+                assert_eq!(meta.metadata_source, "peon");
+                assert_eq!(meta.provenance.attention_source.as_deref(), Some("process"));
             } else {
                 panic!("session metadata not found");
             }
