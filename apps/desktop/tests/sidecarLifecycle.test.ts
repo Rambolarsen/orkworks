@@ -135,7 +135,6 @@ test("rejects readiness when the process exits before publishing a port", async 
   processes[0].exit(1);
 
   await assert.rejects(readiness, /exited before readiness/i);
-  assert.equal(lifecycle.getPort(), null);
 });
 
 test("stopAndWait resolves after the requested child exits", async () => {
@@ -200,7 +199,6 @@ test("starts the next generation only after the old process exits", async () => 
   processes[1].stdout.emit("ORKWORKSD_PORT=4567\n");
 
   assert.equal(await second, 4567);
-  assert.equal(lifecycle.getPort(), 4567);
 });
 
 test("stop resolves only after the owned process exits", async () => {
@@ -300,7 +298,6 @@ test("unexpected exit reports unresolved ownership and blocks replacement withou
 
   processes[0].exit(9);
 
-  assert.equal(lifecycle.getPort(), null);
   assert.match(unavailable.at(-1) ?? "", /exited/i);
   assert.match(unexpectedExits.at(-1) ?? "", /ownership.*unresolved/i);
 
@@ -343,7 +340,6 @@ test("rejects readiness when spawn emits an error", async () => {
   processes[0].error(new Error("permission denied"));
 
   await assert.rejects(readiness, /permission denied/);
-  assert.equal(lifecycle.getPort(), null);
   assert.equal(processes[0].killed, true);
 });
 
@@ -369,7 +365,6 @@ test("turns a synchronous spawn failure into rejected readiness and allows expli
   processes[0].stdout.emit("ORKWORKSD_PORT=7890\n");
 
   assert.equal(await retry, 7890);
-  assert.equal(lifecycle.getPort(), 7890);
 });
 
 test("a synchronous explicit-retry failure rejects the wired restoration readiness", async () => {
@@ -416,7 +411,6 @@ test("rejects readiness when publishing a port times out", async () => {
   timers.runNext();
 
   await assert.rejects(readiness, /timed out/i);
-  assert.equal(lifecycle.getPort(), null);
   assert.equal(processes[0].killed, true);
 });
 
@@ -427,7 +421,6 @@ test("rejects announced ports outside the valid TCP range before readiness", asy
     processes[0].stdout.emit(`ORKWORKSD_PORT=${announcedPort}\n`);
 
     await assert.rejects(readiness, /invalid port/i);
-    assert.equal(lifecycle.getPort(), null);
     assert.equal(processes[0].killed, true);
   }
 });

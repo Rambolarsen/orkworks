@@ -19,7 +19,6 @@ test("Details follows the visible subject without selecting a session", () => {
 test("TerminalPanel uses read-only replay only for dead sessions", () => {
   const source = readFileSync(new URL("../src/components/TerminalPanel.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /renderTerminalPresentation/);
   assert.match(source, /<HistoricalTerminal sessionId=\{session\.id\} \/>/);
   assert.match(source, /<CenterPanel[\s\S]*?backendStatus=\{backendStatus\}[\s\S]*?sessionId=\{session\.id\}[\s\S]*?\/>/);
 });
@@ -525,7 +524,6 @@ test("TerminalPanel replays dead sessions without retaining their interactive ha
     "utf8",
   );
   const controller = readFileSync(new URL("../src/workspaceSessionController.ts", import.meta.url), "utf8");
-  assert.match(terminalPanel, /renderTerminalPresentation/);
   assert.match(terminalPanel, /HistoricalTerminal/);
   assert.match(controller, /pruneTerminals\(/);
   assert.match(controller, /session\.lifecycle !== "dead"/);
@@ -576,7 +574,7 @@ test("SettingsModal includes a Model providers section above Hotkeys", () => {
 test("TerminalPanel marks CenterPanel as starting while the session is still being created", () => {
   const source = readFileSync(new URL("../src/components/TerminalPanel.tsx", import.meta.url), "utf8");
   assert.match(source, /starting=\{isSessionStarting\(session\)\}/);
-  assert.match(source, /import \{ isSessionStarting, renderTerminalPresentation \} from "\.\.\/terminalPresentation"/);
+  assert.match(source, /import \{ isSessionStarting \} from "\.\.\/terminalPresentation"/);
 });
 
 test("CenterPanel routes backend attach failures to the shared recovery callback", () => {

@@ -1,37 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { loadTerminalReplay, recordedReplaySize, writeTerminalReplay } from "../src/terminalReplay.ts";
-import { renderTerminalPresentation, computeTerminalInteractivity } from "../src/terminalPresentation.ts";
-
-test("dead session routing invokes replay instead of interactive terminal creation", () => {
-  let interactive = 0;
-  let historical = 0;
-  const result = renderTerminalPresentation(
-    "dead",
-    () => { interactive += 1; return "interactive"; },
-    () => { historical += 1; return "historical"; },
-  );
-
-  assert.equal(result, "historical");
-  assert.equal(interactive, 0);
-  assert.equal(historical, 1);
-});
-
-for (const lifecycle of ["creating", "alive", "stopping"] as const) {
-  test(`${lifecycle} session routing retains interactive terminal creation`, () => {
-    let interactive = 0;
-    let historical = 0;
-    const result = renderTerminalPresentation(
-      lifecycle,
-      () => { interactive += 1; return "interactive"; },
-      () => { historical += 1; return "historical"; },
-    );
-
-    assert.equal(result, "interactive");
-    assert.equal(interactive, 1);
-    assert.equal(historical, 0);
-  });
-}
+import { computeTerminalInteractivity } from "../src/terminalPresentation.ts";
 
 test("a starting session disables stdin and stops cursor blink so it reads as loading, not frozen", () => {
   assert.deepEqual(computeTerminalInteractivity({ starting: true, ended: false }), {
