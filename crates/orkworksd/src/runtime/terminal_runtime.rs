@@ -1084,6 +1084,7 @@ fn final_snapshot_from_inference(
     inference.and_then(|inf| {
         let value = inf.observed_status.clone()?;
         Some(metadata::ObservedStatusSnapshotMetadata {
+            attention_origin: None,
             value: Some(value),
             source: "peon".into(),
             confidence: Some(inf.confidence),
@@ -1103,6 +1104,7 @@ fn fallback_final_snapshot(
                 meta.observed_status
                     .clone()
                     .map(|value| metadata::ObservedStatusSnapshotMetadata {
+                        attention_origin: None,
                         value: Some(value),
                         source: meta.metadata_source.clone(),
                         confidence: Some(meta.metadata_confidence),
@@ -3837,6 +3839,7 @@ mod tests {
             let ws_guard = state.workspace.lock().unwrap();
             let ws = ws_guard.as_ref().unwrap();
             ws.metadata.write_session(&metadata::SessionMetadata {
+                provenance: Default::default(),
                 id: session_id.clone(),
                 label: "Test".into(),
                 label_source: metadata::LabelSource::Legacy,
@@ -3987,6 +3990,7 @@ mod tests {
             let ws_guard = state.workspace.lock().unwrap();
             let ws = ws_guard.as_ref().unwrap();
             ws.metadata.write_session(&metadata::SessionMetadata {
+                provenance: Default::default(),
                 id: session_id.clone(),
                 label: "Test".into(),
                 label_source: metadata::LabelSource::Legacy,
@@ -4007,6 +4011,7 @@ mod tests {
                 pending_terminal_status: Some("killed".into()),
                 observed_status: None,
                 ending_observed_status_snapshot: Some(metadata::ObservedStatusSnapshotMetadata {
+                    attention_origin: None,
                     value: Some("blocked".into()),
                     source: "peon".into(),
                     confidence: Some(0.6),
@@ -4054,6 +4059,7 @@ mod tests {
             &session_id,
             generation,
             metadata::ObservedStatusSnapshotMetadata {
+                attention_origin: None,
                 value: Some("done".into()),
                 source: "peon".into(),
                 confidence: Some(0.91),
@@ -4205,6 +4211,7 @@ mod tests {
             let ws_guard = state.workspace.lock().unwrap();
             let ws = ws_guard.as_ref().unwrap();
             ws.metadata.write_session(&metadata::SessionMetadata {
+                provenance: Default::default(),
                 id: session_id.clone(),
                 label: "Test".into(),
                 label_source: metadata::LabelSource::Legacy,
@@ -4225,6 +4232,7 @@ mod tests {
                 pending_terminal_status: Some("ended".into()),
                 observed_status: None,
                 ending_observed_status_snapshot: Some(metadata::ObservedStatusSnapshotMetadata {
+                    attention_origin: None,
                     value: Some("blocked".into()),
                     source: "peon".into(),
                     confidence: Some(0.75),
@@ -4434,6 +4442,7 @@ mod tests {
             let ws_guard = state.workspace.lock().unwrap();
             let ws = ws_guard.as_ref().unwrap();
             ws.metadata.write_session(&metadata::SessionMetadata {
+                provenance: Default::default(),
                 id: session_id.clone(),
                 label: "Test".into(),
                 label_from_initial_prompt: false,

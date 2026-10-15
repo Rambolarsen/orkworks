@@ -2233,6 +2233,7 @@ impl SessionApplication {
                             meta.pending_terminal_status = Some(status.clone());
                             meta.ending_observed_status_snapshot =
                                 Some(metadata::ObservedStatusSnapshotMetadata {
+                                    attention_origin: None,
                                     value: meta.observed_status.clone(),
                                     source: meta.metadata_source.clone(),
                                     confidence: Some(meta.metadata_confidence),
@@ -5221,6 +5222,7 @@ async fn resume_session_workflow(
 
     let (kill_tx, _kill_rx) = tokio::sync::watch::channel(false);
     let info = SessionInfo {
+        provenance: Default::default(),
         id: id.clone(),
         label: meta.label.clone(),
         harness_id: (!meta.harness.is_empty()).then(|| meta.harness.clone()),
@@ -5631,6 +5633,7 @@ async fn create_session_workflow(
     let git_ctx = scan_git(PathBuf::from(&cwd)).await?;
     let now = iso_now();
     let mut info = SessionInfo {
+        provenance: Default::default(),
         id: id.clone(),
         label: crate::session_types::placeholder_label(&id),
         harness_id: resolved_launch.session_harness_id.clone(),
@@ -5770,6 +5773,7 @@ async fn create_session_workflow(
     {
         if let Some(ref ws) = *creation_workspace {
             ws.metadata.write_session(&metadata::SessionMetadata {
+                provenance: Default::default(),
                 id: id.clone(),
                 label: info.label.clone(),
                 label_source: if initial_prompt_label.is_some() {
@@ -8077,6 +8081,7 @@ mod tests {
         state.sessions.lock().unwrap().insert(id.into(), handle);
 
         let snapshot = metadata::ObservedStatusSnapshotMetadata {
+            attention_origin: None,
             value: Some("blocked".into()),
             source: "peon".into(),
             confidence: Some(0.91),

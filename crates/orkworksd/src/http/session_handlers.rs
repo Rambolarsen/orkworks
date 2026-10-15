@@ -1551,6 +1551,7 @@ mod tests {
     fn orphan_test_metadata(id: &str, workspace: &std::path::Path) -> metadata::SessionMetadata {
         let workspace = workspace.display().to_string();
         metadata::SessionMetadata {
+            provenance: Default::default(),
             id: id.into(),
             label: "Test".into(),
             label_source: metadata::LabelSource::Legacy,
@@ -2595,6 +2596,7 @@ mod tests {
                 .unwrap()
                 .metadata
                 .write_session(&metadata::SessionMetadata {
+                    provenance: Default::default(),
                     id: "known".into(),
                     label: "Known".into(),
                     label_source: metadata::LabelSource::Legacy,
@@ -3019,6 +3021,7 @@ mod tests {
                 .unwrap()
                 .metadata
                 .write_session(&metadata::SessionMetadata {
+                    provenance: Default::default(),
                     id: session_id.clone(),
                     label: "Known".into(),
                     label_source: metadata::LabelSource::Legacy,
@@ -4236,6 +4239,7 @@ mod tests {
                 .unwrap()
                 .metadata
                 .write_session(&metadata::SessionMetadata {
+                    provenance: Default::default(),
                     id: session_id.clone(),
                     label: "Resume Attached".into(),
                     label_source: metadata::LabelSource::Legacy,
@@ -4349,6 +4353,7 @@ mod tests {
                 .unwrap()
                 .metadata
                 .write_session(&metadata::SessionMetadata {
+                    provenance: Default::default(),
                     id: session_id.clone(),
                     label: "Resume Detached Live".into(),
                     label_source: metadata::LabelSource::Legacy,
@@ -5350,6 +5355,7 @@ mod tests {
                 .unwrap()
                 .metadata
                 .write_session(&metadata::SessionMetadata {
+                    provenance: Default::default(),
                     id: "attention-known".into(),
                     label: "Known".into(),
                     label_source: metadata::LabelSource::Legacy,
@@ -7523,6 +7529,7 @@ mod tests {
             let ws = state.workspace.lock().unwrap();
             let ws = ws.as_ref().unwrap();
             ws.metadata.write_session(&metadata::SessionMetadata {
+                provenance: Default::default(),
                 id: session_id.clone(),
                 label: "Killed".into(),
                 label_source: metadata::LabelSource::Legacy,
@@ -7544,6 +7551,7 @@ mod tests {
                 observed_status: None,
                 ending_observed_status_snapshot: None,
                 final_observed_status_snapshot: Some(metadata::ObservedStatusSnapshotMetadata {
+                    attention_origin: None,
                     value: None,
                     source: "recovery".into(),
                     confidence: None,
@@ -7796,6 +7804,7 @@ mod tests {
                 .unwrap()
                 .metadata
                 .write_session(&metadata::SessionMetadata {
+                    provenance: Default::default(),
                     id: session_id.clone(),
                     label: "Delete Ending".into(),
                     label_source: metadata::LabelSource::Legacy,
@@ -8890,6 +8899,7 @@ mod tests {
             let ws = state.workspace.lock().unwrap();
             let ws = ws.as_ref().unwrap();
             ws.metadata.write_session(&metadata::SessionMetadata {
+                provenance: Default::default(),
                 id: "remembered-derived".into(),
                 label: "Remembered Derived".into(),
                 label_source: metadata::LabelSource::Legacy,
@@ -8911,6 +8921,7 @@ mod tests {
                 observed_status: None,
                 ending_observed_status_snapshot: None,
                 final_observed_status_snapshot: Some(metadata::ObservedStatusSnapshotMetadata {
+                    attention_origin: None,
                     value: None,
                     source: "recovery".into(),
                     confidence: None,

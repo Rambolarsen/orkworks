@@ -1,4 +1,7 @@
+pub(crate) mod agent_patch;
+pub(crate) mod provenance;
 pub(crate) mod session_transactions;
+pub(crate) use provenance::MetadataProvenance;
 
 use crate::harness::{ResumeMemory, ResumeState, ResumeStrategy};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -324,6 +327,12 @@ fn is_false(value: &bool) -> bool {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ObservedStatusSnapshotMetadata {
+    #[serde(
+        rename = "attentionOrigin",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub attention_origin: Option<String>,
     pub value: Option<String>,
     pub source: String,
     pub confidence: Option<f64>,
@@ -360,6 +369,8 @@ impl ResumeOption {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionMetadata {
+    #[serde(flatten, default)]
+    pub provenance: MetadataProvenance,
     pub id: String,
     pub label: String,
     #[serde(rename = "labelSource", default)]
@@ -704,6 +715,7 @@ fn snapshot_from_legacy_observed_status(
     meta.observed_status
         .as_ref()
         .map(|status| ObservedStatusSnapshotMetadata {
+            attention_origin: None,
             value: Some(status.clone()),
             source: if meta.metadata_source.is_empty() {
                 "recovery".into()
@@ -720,6 +732,7 @@ pub(crate) fn canonical_null_snapshot(
     observed_at: Option<String>,
 ) -> ObservedStatusSnapshotMetadata {
     ObservedStatusSnapshotMetadata {
+        attention_origin: None,
         value: None,
         source: source.into(),
         confidence: None,
@@ -835,6 +848,7 @@ pub fn derive_resume_options(
 #[cfg(test)]
 pub(crate) fn assert_session_metadata_serializes_connectivity_terminal_outcome_and_last_activity() {
     let meta = SessionMetadata {
+        provenance: Default::default(),
         id: "s1".into(),
         label: "Test".into(),
         label_source: LabelSource::Legacy,
@@ -2812,6 +2826,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(dir.path());
         let meta = SessionMetadata {
+            provenance: Default::default(),
             id: "test-1".into(),
             label: "Test".into(),
             label_source: LabelSource::Legacy,
@@ -3452,6 +3467,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(dir.path());
         store.write_session(&SessionMetadata {
+            provenance: Default::default(),
             id: "rename-test".into(),
             label: "Session abc12345".into(),
             label_source: LabelSource::Legacy,
@@ -3606,6 +3622,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(dir.path());
         store.write_session(&SessionMetadata {
+            provenance: Default::default(),
             id: "test-peon-observer".into(),
             label: "Test".into(),
             label_source: LabelSource::Legacy,
@@ -4281,8 +4298,72 @@ mod tests {
         assert!(!path.exists());
     }
 
+    #[test]
+    fn split_metadata_provenance_survives_round_trip_independently_of_work_source() {
+        let mut value = serde_json::to_value(test_metadata("provenance-roundtrip")).unwrap();
+        value["metadataSource"] = serde_json::json!("peon");
+        value["attentionSource"] = serde_json::json!("agent");
+        value["attentionConfidence"] = serde_json::json!(1.0);
+        value["attentionOrigin"] = serde_json::json!("direct_agent");
+        value["attentionUpdatedAt"] = serde_json::json!("2026-10-15T11:00:00Z");
+        value["workMetadataUpdatedAt"] = serde_json::json!("2026-10-15T10:00:00Z");
+        value["summarySource"] = serde_json::json!("agent");
+        value["summaryConfidence"] = serde_json::json!(1.0);
+        value["summaryObservedAt"] = serde_json::json!("2026-10-15T10:30:00Z");
+        let decoded: SessionMetadata = serde_json::from_value(value.clone()).unwrap();
+        let encoded = serde_json::to_value(decoded).unwrap();
+        for field in [
+            "attentionSource",
+            "attentionConfidence",
+            "attentionOrigin",
+            "attentionUpdatedAt",
+            "workMetadataUpdatedAt",
+            "summarySource",
+            "summaryConfidence",
+            "summaryObservedAt",
+        ] {
+            assert_eq!(encoded.get(field), value.get(field), "{field}");
+        }
+        assert_eq!(encoded["metadataSource"], "peon");
+    }
+
+    #[test]
+    fn work_only_transaction_preserves_attention_owner_and_revision() {
+        use session_transactions::WriteScope;
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let meta = test_metadata("work-only-owner");
+        let owner = store.try_write_session_owned(&meta).unwrap().unwrap();
+        let record = store
+            .try_read_revisioned_session(&meta.id)
+            .unwrap()
+            .unwrap();
+        store
+            .try_update_session_scoped(
+                &meta.id,
+                &record.revision,
+                WriteScope {
+                    attention: false,
+                    work: true,
+                },
+                |current| {
+                    current.task = "New work metadata".into();
+                    Ok(())
+                },
+            )
+            .unwrap();
+        let mut cleared = store.read_session(&meta.id).unwrap();
+        cleared.attention = Some("working".into());
+        assert!(store.try_write_session_if_owned(&cleared, &owner).unwrap());
+        assert_eq!(
+            store.read_session(&meta.id).unwrap().task,
+            "New work metadata"
+        );
+    }
+
     fn test_metadata(id: &str) -> SessionMetadata {
         SessionMetadata {
+            provenance: Default::default(),
             id: id.into(),
             label: "Test".into(),
             label_source: LabelSource::Legacy,

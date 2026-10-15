@@ -3477,6 +3477,7 @@ mod tests {
             let ws = state.workspace.lock().unwrap();
             if let Some(ref ws) = *ws {
                 ws.metadata.write_session(&metadata::SessionMetadata {
+                    provenance: Default::default(),
                     id: session_id.clone(),
                     label: "Test".into(),
                     label_source: metadata::LabelSource::Legacy,
@@ -4043,6 +4044,7 @@ mod tests {
             let ws_guard = state.workspace.lock().unwrap();
             if let Some(ref ws) = *ws_guard {
                 ws.metadata.write_session(&metadata::SessionMetadata {
+                    provenance: Default::default(),
                     id: session_id.clone(),
                     label: "Test".into(),
                     label_source: metadata::LabelSource::Legacy,
@@ -4210,6 +4212,7 @@ mod tests {
             let ws_guard = state.workspace.lock().unwrap();
             if let Some(ref ws) = *ws_guard {
                 ws.metadata.write_session(&metadata::SessionMetadata {
+                    provenance: Default::default(),
                     id: session_id.clone(),
                     label: "Test".into(),
                     label_source: metadata::LabelSource::Legacy,
@@ -4395,6 +4398,7 @@ mod tests {
             let ws_guard = state.workspace.lock().unwrap();
             if let Some(ref ws) = *ws_guard {
                 ws.metadata.write_session(&metadata::SessionMetadata {
+                    provenance: Default::default(),
                     id: session_id.clone(),
                     label: "Test".into(),
                     label_source: metadata::LabelSource::Legacy,
@@ -4565,6 +4569,7 @@ mod tests {
             let ws_guard = state.workspace.lock().unwrap();
             if let Some(ref ws) = *ws_guard {
                 ws.metadata.write_session(&metadata::SessionMetadata {
+                    provenance: Default::default(),
                     id: session_id.clone(),
                     label: "Test".into(),
                     label_source: metadata::LabelSource::Legacy,
@@ -4733,6 +4738,7 @@ mod tests {
             let ws_guard = state.workspace.lock().unwrap();
             if let Some(ref ws) = *ws_guard {
                 ws.metadata.write_session(&metadata::SessionMetadata {
+                    provenance: Default::default(),
                     id: session_id.clone(),
                     label: "Test".into(),
                     label_source: metadata::LabelSource::Legacy,
@@ -4911,6 +4917,7 @@ mod tests {
             let ws_guard = state.workspace.lock().unwrap();
             if let Some(ref ws) = *ws_guard {
                 ws.metadata.write_session(&metadata::SessionMetadata {
+                    provenance: Default::default(),
                     id: session_id.clone(),
                     label: "Test".into(),
                     label_source: metadata::LabelSource::Legacy,
@@ -5098,6 +5105,7 @@ mod tests {
             let ws_guard = state.workspace.lock().unwrap();
             if let Some(ref ws) = *ws_guard {
                 ws.metadata.write_session(&metadata::SessionMetadata {
+                    provenance: Default::default(),
                     id: session_id.clone(),
                     label: "Test".into(),
                     label_source: metadata::LabelSource::Legacy,

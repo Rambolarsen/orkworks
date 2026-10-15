@@ -711,6 +711,7 @@ pub(crate) mod test_support {
         let created_at = created_at.into();
 
         SessionInfo {
+            provenance: Default::default(),
             id: id.into(),
             label: label.into(),
             harness_id: None,
@@ -776,6 +777,7 @@ pub(crate) mod test_support {
         last_activity: impl Into<String>,
     ) -> metadata::SessionMetadata {
         metadata::SessionMetadata {
+            provenance: Default::default(),
             id: id.into(),
             label: label.into(),
             label_source: metadata::LabelSource::Legacy,
@@ -797,6 +799,7 @@ pub(crate) mod test_support {
             observed_status: None,
             ending_observed_status_snapshot: None,
             final_observed_status_snapshot: Some(metadata::ObservedStatusSnapshotMetadata {
+                attention_origin: None,
                 value: None,
                 source: "recovery".into(),
                 confidence: None,

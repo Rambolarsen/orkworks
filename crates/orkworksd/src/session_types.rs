@@ -48,6 +48,8 @@ impl PeonDiagnostics {
 
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct SessionInfo {
+    #[serde(flatten)]
+    pub(crate) provenance: metadata::MetadataProvenance,
     pub(crate) id: String,
     pub(crate) label: String,
     #[serde(rename = "harnessId", skip_serializing_if = "Option::is_none")]
@@ -172,6 +174,7 @@ impl SessionInfo {
     /// constructor's behavior, which had no fallback at all (issue #399).
     pub(crate) fn baseline_from_metadata(meta: &metadata::SessionMetadata) -> SessionInfo {
         SessionInfo {
+            provenance: Default::default(),
             id: meta.id.clone(),
             label: meta.label.clone(),
             harness_id: None,
@@ -261,6 +264,7 @@ mod tests {
     ) -> SessionInfo {
         let created_at = created_at.into();
         SessionInfo {
+            provenance: Default::default(),
             id: id.into(),
             label: label.into(),
             harness_id: None,

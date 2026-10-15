@@ -230,6 +230,7 @@ pub(crate) fn project_session_info(
         .unwrap_or_default();
 
     SessionInfo {
+        provenance: Default::default(),
         id: info.id,
         label: meta.map(|m| m.label.clone()).unwrap_or(info.label),
         harness_id: meta
@@ -448,6 +449,7 @@ mod tests {
         let status = status.into();
         let created_at = created_at.into();
         SessionInfo {
+            provenance: Default::default(),
             id: id.into(),
             label: label.into(),
             harness_id: None,
@@ -570,6 +572,7 @@ mod tests {
             "2026-06-28T09:00:00Z",
         );
         let meta = metadata::SessionMetadata {
+            provenance: Default::default(),
             id: "stale-handle".into(),
             label: "Stale Handle".into(),
             label_source: metadata::LabelSource::Legacy,
@@ -591,6 +594,7 @@ mod tests {
             observed_status: None,
             ending_observed_status_snapshot: None,
             final_observed_status_snapshot: Some(metadata::ObservedStatusSnapshotMetadata {
+                attention_origin: None,
                 value: None,
                 source: "recovery".into(),
                 confidence: None,
@@ -706,6 +710,7 @@ mod tests {
             "2026-06-28T09:00:00Z",
         );
         let meta = metadata::SessionMetadata {
+            provenance: Default::default(),
             id: "merge-derived".into(),
             label: "Merge Derived".into(),
             label_source: metadata::LabelSource::Legacy,
@@ -727,6 +732,7 @@ mod tests {
             observed_status: None,
             ending_observed_status_snapshot: None,
             final_observed_status_snapshot: Some(metadata::ObservedStatusSnapshotMetadata {
+                attention_origin: None,
                 value: None,
                 source: "recovery".into(),
                 confidence: None,
@@ -1206,6 +1212,7 @@ mod tests {
             "2026-06-28T09:05:00Z",
         );
         meta.final_observed_status_snapshot = Some(metadata::ObservedStatusSnapshotMetadata {
+            attention_origin: None,
             value: Some("done".into()),
             source: "peon".into(),
             confidence: Some(0.9),
