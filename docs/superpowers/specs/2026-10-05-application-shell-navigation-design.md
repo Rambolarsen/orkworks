@@ -622,3 +622,12 @@ success. Empty workspaces initially show the composer, without launching work.
 Workspace changes discard the draft and invalidate pending availability checks.
 The composer is transient presentation, not a persisted navigation destination
 or new creation authority. Existing terminal runtimes keep draining output.
+
+## Inspector refinement — approved 2026-10-15
+
+[ADR 0083](../../adr/0083-inspector-overlay-and-pin.md) supersedes this design’s
+wide inspector placement and blanket floating/docking prohibition only for the
+fixed right inspector. Default to a subtly translucent overlay, with a persisted
+pin toggle for an opaque region reserving central layout space. Keep the narrow
+temporary-page fallback. Escape inside either inspector mode or its temporary
+page closes it and restores focus, respecting nested dialogs.

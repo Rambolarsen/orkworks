@@ -680,8 +680,15 @@ The first useful MVP should include:
   drafts are workspace-scoped presentation state and never restored as actions.
 - central context shows Terminal, the reusable Review surface, or Workflow when
   a validated and separately gated orchestration projection is available
-- no user-arranged panels, drag-and-drop docking, floating panels, or tab-based
-  navigation; users resize fixed regions and navigate through explicit controls
+- no user-arranged panels, drag-and-drop docking, movable floating panels, or
+  tab-based navigation; users resize fixed regions and navigate through explicit
+  controls. The fixed right inspector overlays the central view by default with
+  a subtly translucent background and fully opaque text/controls. Pinning makes
+  it opaque and reserves layout width; unpinning restores the overlay. Persist
+  the pin preference across restarts (default unpinned), preserving legacy
+  layout records. Retain the temporary inspector page below 1180 CSS px. Escape
+  within the inspector/page closes it and restores its invoker in either mode;
+  Escape outside it does not dismiss it, and nested dialogs own their Escape.
 - details follow the visible subject; Actions, Capacity, and Recommendations
   are available through the optional inspector or a labeled compact page
 - Electron launches Rust backend sidecar

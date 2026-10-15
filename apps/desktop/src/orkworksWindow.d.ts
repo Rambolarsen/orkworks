@@ -78,7 +78,7 @@ export type AcceptRecommendationOptions = {
 };
 
 export type LastCentralSurface = "terminal" | "review";
-export type ShellPreferences = { sessionsWidth: number; inspectorWidth: number; sessionsVisible: boolean; density: "low" | "high" };
+export type ShellPreferences = { sessionsWidth: number; inspectorWidth: number; sessionsVisible: boolean; inspectorPinned?: boolean; density: "low" | "high" };
 export type ShellMemoryDiagnostic = "corrupt_record" | "unsupported_version" | "lock_timeout" | "write_failed" | "restore_failed" | "stale_revision" | "stale_workspace" | "invalid_input";
 export type ShellMemoryResult = { ok: true } | { ok: false; diagnostic: ShellMemoryDiagnostic };
 export type ShellMemoryRebuildResult = ShellMemoryResult | { ok: false; diagnostic: "user_cancelled" };

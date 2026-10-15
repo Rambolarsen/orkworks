@@ -8,7 +8,7 @@ status: stable
 
 # React and CSS Grid desktop shell
 
-- Status: accepted
+- Status: accepted; inspector presentation partially superseded by [ADR 0083](0083-inspector-overlay-and-pin.md)
 - Deciders: user
 - Date: 2026-10-10
 

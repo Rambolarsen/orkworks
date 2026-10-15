@@ -542,7 +542,46 @@ if (process.versions.electron) {
         return;
       } else if (scenario !== 'baseline') {
         await waitFor('fixture.runtime()?.terminal.element?.isConnected');
-        if (scenario === 'actions-sources') {
+        if (scenario === 'inspector-overlay') {
+          const mainWidth = await evaluate('document.querySelector(".shell-main").getBoundingClientRect().width');
+          await click('details');
+          await waitFor('document.querySelector("[data-shell-region=inspector]")');
+          assert.equal(await evaluate('document.querySelector(".shell-main").getBoundingClientRect().width'), mainWidth, 'overlay must not shrink central view');
+          assert.equal(await evaluate('document.querySelector("[data-shell-region=inspector]").getBoundingClientRect().right'), await evaluate('document.querySelector(".shell-main").getBoundingClientRect().right'));
+          assert.match(await evaluate('getComputedStyle(document.querySelector("[data-shell-region=inspector]")).backgroundColor'), /0\.96/);
+          await evaluate('document.querySelector("[data-shell-region=inspector] h2").focus();document.activeElement.addEventListener("keydown",event=>event.preventDefault(),{once:true});document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true,cancelable:true}))');
+          assert.equal(await evaluate('!!document.querySelector("[data-shell-region=inspector]")'),true,'handled Escape belongs to nested control');
+          await evaluate('document.querySelector(".shell-inspector-host [role=separator]").dispatchEvent(new KeyboardEvent("keydown",{key:"End",bubbles:true}))');
+          await waitFor('document.querySelector(".shell-inspector-host [role=separator]").getAttribute("aria-valuenow")==="420"');
+          assert.equal(await evaluate('document.querySelector(".shell-main").getBoundingClientRect().width'),mainWidth,'overlay resizing preserves central width');
+          if (process.env.ORKWORKS_CAPTURE_INSPECTOR) {
+            const {writeFileSync}=await import('node:fs');
+            writeFileSync(process.env.ORKWORKS_CAPTURE_INSPECTOR+'-overlay.png',(await win.webContents.capturePage()).toPNG());
+          }
+          await evaluate('document.querySelector("[data-shell-command=details]").focus();document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
+          assert.equal(await evaluate('!!document.querySelector("[data-shell-region=inspector]")'),true,'Escape outside inspector preserves it');
+          await evaluate('document.querySelector("[data-shell-pin]").click()');
+          await waitFor('document.querySelector("[data-shell-pin]").getAttribute("aria-pressed")==="true"');
+          assert.ok(await evaluate('document.querySelector(".shell-main").getBoundingClientRect().width') < mainWidth);
+          assert.equal(await evaluate('getComputedStyle(document.querySelector("[data-shell-region=inspector]")).backgroundColor'), await evaluate('getComputedStyle(document.querySelector("[data-shell-region=sessions]")).backgroundColor'));
+          if (process.env.ORKWORKS_CAPTURE_INSPECTOR) {
+            const {writeFileSync}=await import('node:fs');
+            writeFileSync(process.env.ORKWORKS_CAPTURE_INSPECTOR+'-pinned.png',(await win.webContents.capturePage()).toPNG());
+          }
+          await evaluate('document.querySelector("[data-shell-pin]").focus();document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
+          await waitFor('!document.querySelector("[data-shell-region=inspector]")');
+          assert.equal(await evaluate('document.activeElement.dataset.shellCommand'),'details');
+          await click('details');
+          await waitFor('document.querySelector("[data-shell-pin]")');
+          assert.equal(await evaluate('document.querySelector("[data-shell-pin]").getAttribute("aria-pressed")'),'true');
+          await evaluate('document.querySelector("[data-shell-pin]").click()');
+          await waitFor('document.querySelector("[data-shell-pin]").getAttribute("aria-pressed")==="false"');
+          assert.equal(await evaluate('document.querySelector(".shell-main").getBoundingClientRect().width'),mainWidth);
+          await evaluate('document.querySelector("[data-shell-page-heading]").focus();document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
+          await waitFor('!document.querySelector("[data-shell-region=inspector]")');
+          assert.equal(await evaluate('document.activeElement.dataset.shellCommand'),'details');
+          assert.equal(await evaluate('fixture.input.length'),0);
+        } else if (scenario === 'actions-sources') {
           await waitFor('document.querySelector("[data-actions-counts]")?.textContent.includes("Recommendations: 2")');
           await click('actions');
           await waitFor('document.querySelector(".actions-overview")');
@@ -1045,7 +1084,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['inspector-overlay','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));

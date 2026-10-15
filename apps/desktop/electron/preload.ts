@@ -67,7 +67,7 @@ type TaskmasterAcceptOptions = {
 };
 
 type LastCentralSurface = "terminal" | "review";
-type ShellPreferences = { sessionsWidth: number; inspectorWidth: number; sessionsVisible: boolean; density: "low" | "high" };
+type ShellPreferences = { sessionsWidth: number; inspectorWidth: number; sessionsVisible: boolean; inspectorPinned?: boolean; density: "low" | "high" };
 type ShellMemoryDiagnostic = "corrupt_record" | "unsupported_version" | "lock_timeout" | "write_failed" | "restore_failed" | "stale_revision" | "stale_workspace" | "invalid_input";
 type ShellMemoryResult = { ok: true } | { ok: false; diagnostic: ShellMemoryDiagnostic };
 type ShellMemoryRebuildResult = ShellMemoryResult | { ok: false; diagnostic: "user_cancelled" };

@@ -2471,11 +2471,15 @@ html, body, #root {
 .shell-context { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .shell-context h1 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--text-primary); }
 .shell-context-scope { font-size: var(--text-xs); color: var(--text-muted); }
-.shell-grid { display: grid; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.shell-grid { position: relative; display: grid; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
 .shell-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .shell-main > .shell-region { flex: 1; }
 .shell-region { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: var(--surface-0); }
 .shell-region--sessions, .shell-region--inspector { background: var(--surface-1); }
+.shell-inspector-host { display: contents; }
+.shell-inspector-host--overlay { position: absolute; inset-block: 0; right: 0; z-index: 4; display: flex; box-shadow: var(--shadow-modal); }
+.shell-inspector-host--overlay > .shell-region-separator { flex: 0 0 6px; }
+.shell-inspector-host--overlay > .shell-region--inspector { flex: 1; background: color-mix(in srgb, var(--surface-1) 96%, transparent); }
 .shell-region-header { display: flex; flex-wrap: wrap; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: var(--space-2); min-height: 38px; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border-subtle); }
 .shell-sidebar-top { flex: 0 0 auto; padding: var(--space-3) var(--space-2); border-bottom: 1px solid var(--border-subtle); }
 .shell-workspace { position: relative; padding: var(--space-1) var(--space-1) var(--space-3); }
