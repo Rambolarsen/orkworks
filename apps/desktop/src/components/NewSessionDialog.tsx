@@ -174,7 +174,7 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
   }, [confirmBusy, detectedHarnessIds, draft.harnessId, draft.model, initialPrompt, onConfirm, selectable]);
 
   function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.nativeEvent.isComposing) {
+    if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && !e.nativeEvent.isComposing) {
       if (canStartNewSession(selectable, draft.harnessId, detectedHarnessIds)) {
         e.preventDefault();
         handleConfirm();
