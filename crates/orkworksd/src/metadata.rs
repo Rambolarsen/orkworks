@@ -1,3 +1,5 @@
+pub(crate) mod session_transactions;
+
 use crate::harness::{ResumeMemory, ResumeState, ResumeStrategy};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::{HashMap, VecDeque};
@@ -1333,16 +1335,22 @@ impl MetadataStore {
     ) -> std::io::Result<Option<SessionWriteToken>> {
         self.with_session_write_lock(&meta.id, || {
             self.write_session_file(meta)?;
-            let mut revisions = self.session_writes.lock().unwrap();
-            Ok(revisions
-                .entry(meta.id.clone())
-                .or_default()
-                .accepted_write()
-                .map(|write| SessionWriteToken {
-                    session: meta.id.clone(),
-                    write,
-                }))
+            Ok(self.accept_session_write(&meta.id))
         })
+    }
+
+    // Called after successful replacement while the per-session lock is held.
+    fn accept_session_write(&self, id: &str) -> Option<SessionWriteToken> {
+        self.session_writes
+            .lock()
+            .unwrap()
+            .entry(id.to_owned())
+            .or_default()
+            .accepted_write()
+            .map(|write| SessionWriteToken {
+                session: id.to_owned(),
+                write,
+            })
     }
 
     /// Serializes the ownership check and replacement with cooperating writers
@@ -1374,8 +1382,7 @@ impl MetadataStore {
                 return Ok(false);
             }
             let path = self.sessions_dir().join(format!("{}.json", meta.id));
-            let json = serde_json::to_string_pretty(meta)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+            let json = self.prepare_session_replacement(meta)?;
             let tmp = tmp_write_path(&path);
             fs::write(&tmp, json)?;
             // Recheck the monotonic observation deadline after serialization
@@ -1385,12 +1392,7 @@ impl MetadataStore {
                 return Ok(false);
             }
             fs::rename(tmp, path)?;
-            self.session_writes
-                .lock()
-                .unwrap()
-                .get_mut(&meta.id)
-                .expect("owner cannot change while its session write lock is held")
-                .accepted_write();
+            self.accept_session_write(&meta.id);
             Ok(true)
         })
     }
@@ -1399,8 +1401,7 @@ impl MetadataStore {
         let dir = self.sessions_dir();
         fs::create_dir_all(&dir)?;
         let path = dir.join(format!("{}.json", meta.id));
-        let json = serde_json::to_string_pretty(meta)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        let json = self.prepare_session_replacement(meta)?;
         write_atomic(&path, &json)
     }
 
@@ -3966,6 +3967,318 @@ mod tests {
             Some(["yes".to_string(), "no".to_string()].as_slice()),
             "options for the same question must be retained when re-poll omits them"
         );
+    }
+
+    #[test]
+    fn session_replacements_advance_durable_revision_even_for_identical_snapshots() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let meta = test_metadata("revisioned");
+        let path = store.sessions_dir().join("revisioned.json");
+        let revision = || {
+            let json: serde_json::Value =
+                serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+            json.get("metadataRevision").cloned()
+        };
+        store.try_write_session(&meta).unwrap();
+        assert_eq!(revision(), Some(serde_json::json!("1")));
+        let owner = store.try_write_session_owned(&meta).unwrap().unwrap();
+        assert_eq!(revision(), Some(serde_json::json!("2")));
+        assert!(store.try_write_session_if_owned(&meta, &owner).unwrap());
+        assert_eq!(revision(), Some(serde_json::json!("3")));
+        assert!(!store.try_write_session_if_owned(&meta, &owner).unwrap());
+        assert_eq!(revision(), Some(serde_json::json!("3")));
+        // A new store must continue the durable revision rather than restart it.
+        MetadataStore::new(dir.path())
+            .try_write_session(&meta)
+            .unwrap();
+        assert_eq!(revision(), Some(serde_json::json!("4")));
+    }
+
+    #[test]
+    fn malformed_or_exhausted_revision_cannot_be_replaced_or_revoke_ownership() {
+        for bad in [
+            serde_json::json!("18446744073709551615"),
+            serde_json::json!("bad"),
+            serde_json::json!(3),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let store = MetadataStore::new(dir.path());
+            let meta = test_metadata("revision-error");
+            let owner = store.try_write_session_owned(&meta).unwrap().unwrap();
+            let path = store.sessions_dir().join("revision-error.json");
+            let mut json = serde_json::to_value(&meta).unwrap();
+            json["metadataRevision"] = bad;
+            fs::write(&path, serde_json::to_vec(&json).unwrap()).unwrap();
+            let before = fs::read(&path).unwrap();
+            assert!(store.try_write_session(&meta).is_err());
+            assert_eq!(fs::read(&path).unwrap(), before);
+            // Restore a readable non-exhausted record without a sidecar write;
+            // the rejected write must not have invalidated the prior token.
+            json["metadataRevision"] = serde_json::json!("1");
+            fs::write(&path, serde_json::to_vec(&json).unwrap()).unwrap();
+            assert!(store.try_write_session_if_owned(&meta, &owner).unwrap());
+        }
+    }
+
+    #[test]
+    fn revisioned_read_preserves_legacy_bytes_and_reports_errors_without_quarantine() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let meta = test_metadata("legacy-revision");
+        fs::create_dir_all(store.sessions_dir()).unwrap();
+        let path = store.sessions_dir().join("legacy-revision.json");
+        let legacy = serde_json::to_vec(&meta).unwrap();
+        fs::write(&path, &legacy).unwrap();
+        for _ in 0..2 {
+            let record = store
+                .try_read_revisioned_session(&meta.id)
+                .unwrap()
+                .unwrap();
+            assert_eq!(String::from(record.revision), "0");
+            assert_eq!(fs::read(&path).unwrap(), legacy);
+        }
+        assert!(store
+            .try_read_revisioned_session("missing")
+            .unwrap()
+            .is_none());
+        for bad in [b"{invalid".as_slice(), b"{}".as_slice()] {
+            fs::write(&path, bad).unwrap();
+            assert!(store.try_read_revisioned_session(&meta.id).is_err());
+            assert_eq!(fs::read(&path).unwrap(), bad);
+            assert!(!corrupt_session_path(&path).exists());
+        }
+        let mut wrong = meta.clone();
+        wrong.id = "someone-else".into();
+        fs::write(&path, serde_json::to_vec(&wrong).unwrap()).unwrap();
+        assert!(store.try_read_revisioned_session(&meta.id).is_err());
+    }
+
+    #[test]
+    fn revision_checked_update_conflicts_without_invoking_stale_mutation() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let meta = test_metadata("revision-conflict");
+        store.try_write_session(&meta).unwrap();
+        let snapshot = store
+            .try_read_revisioned_session(&meta.id)
+            .unwrap()
+            .unwrap();
+        let accepted = store
+            .try_update_session(&meta.id, &snapshot.revision, |current| {
+                current.task = "New work".into();
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(String::from(accepted.revision), "2");
+        let path = store.sessions_dir().join("revision-conflict.json");
+        let before = fs::read(&path).unwrap();
+        let stale = store.try_update_session(&meta.id, &snapshot.revision, |_| {
+            panic!("a stale writer must never run its mutation");
+        });
+        assert!(matches!(
+            stale,
+            Err(session_transactions::SessionTransactionError::Conflict)
+        ));
+        assert_eq!(fs::read(&path).unwrap(), before);
+        assert_eq!(store.read_session(&meta.id).unwrap().task, "New work");
+    }
+
+    #[test]
+    fn rejected_transaction_does_not_advance_revision_or_revoke_native_owner() {
+        for change_identity in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let store = MetadataStore::new(dir.path());
+            let meta = test_metadata("rejected-transaction");
+            let owner = store.try_write_session_owned(&meta).unwrap().unwrap();
+            let record = store
+                .try_read_revisioned_session(&meta.id)
+                .unwrap()
+                .unwrap();
+            let path = store.sessions_dir().join("rejected-transaction.json");
+            let before = fs::read(&path).unwrap();
+            let outcome = store.try_update_session(&meta.id, &record.revision, |current| {
+                current.task = "Must not persist".into();
+                if change_identity {
+                    current.id = "wrong-target".into();
+                    Ok(())
+                } else {
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "invalid patch",
+                    ))
+                }
+            });
+            assert!(outcome.is_err());
+            assert_eq!(fs::read(&path).unwrap(), before);
+            assert!(!store.sessions_dir().join("wrong-target.json").exists());
+            assert!(store.try_write_session_if_owned(&meta, &owner).unwrap());
+        }
+    }
+
+    #[test]
+    fn identical_revision_checked_write_revokes_owned_clear() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let mut meta = test_metadata("transaction-writer-first");
+        meta.attention = Some("needs_you".into());
+        let owner = store.try_write_session_owned(&meta).unwrap().unwrap();
+        let before = store
+            .try_read_revisioned_session(&meta.id)
+            .unwrap()
+            .unwrap();
+        let written = store
+            .try_update_session(&meta.id, &before.revision, |_| Ok(()))
+            .unwrap();
+        assert_eq!(String::from(written.revision), "2");
+        meta.attention = Some("working".into());
+        assert!(!store.try_write_session_if_owned(&meta, &owner).unwrap());
+        assert_eq!(
+            store.read_session(&meta.id).unwrap().attention.as_deref(),
+            Some("needs_you")
+        );
+    }
+
+    #[test]
+    fn owned_clear_holds_final_check_and_replace_against_a_stale_transaction() {
+        use std::sync::{mpsc, Arc};
+        use std::time::Duration;
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(MetadataStore::new(dir.path()));
+        let mut meta = test_metadata("transaction-clear-first");
+        meta.attention = Some("needs_you".into());
+        let owner = store.try_write_session_owned(&meta).unwrap().unwrap();
+        let before = store
+            .try_read_revisioned_session(&meta.id)
+            .unwrap()
+            .unwrap();
+        let (at_final_check_tx, at_final_check_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let clear_store = store.clone();
+        let clear = std::thread::spawn(move || {
+            meta.attention = Some("working".into());
+            clear_store.try_write_session_if_owned_when(&meta, &owner, || {
+                at_final_check_tx.send(()).unwrap();
+                release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                true
+            })
+        });
+        at_final_check_rx
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap();
+        let writer_store = store.clone();
+        let (attempt_tx, attempt_rx) = mpsc::channel();
+        let writer = std::thread::spawn(move || {
+            attempt_tx.send(()).unwrap();
+            writer_store.try_update_session(
+                "transaction-clear-first",
+                &before.revision,
+                |current| {
+                    current.attention = Some("needs_you".into());
+                    Ok(())
+                },
+            )
+        });
+        attempt_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        // Inspect the actual shared lane while the clear is at its final check.
+        // No time-based sleep or inference from a writer's scheduling is needed.
+        let lane = store.session_write_lock("transaction-clear-first");
+        assert!(lane.try_lock().is_err());
+        release_tx.send(()).unwrap();
+        assert!(clear.join().unwrap().unwrap());
+        assert!(matches!(
+            writer.join().unwrap(),
+            Err(session_transactions::SessionTransactionError::Conflict)
+        ));
+        let after = store
+            .try_read_revisioned_session("transaction-clear-first")
+            .unwrap()
+            .unwrap();
+        assert_eq!(after.metadata.attention.as_deref(), Some("working"));
+        assert_eq!(String::from(after.revision.clone()), "2");
+        // A reread/reapply is ordered after the clear and may commit normally.
+        let final_record = store
+            .try_update_session("transaction-clear-first", &after.revision, |current| {
+                current.task = "After clear".into();
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(final_record.metadata.attention.as_deref(), Some("working"));
+        assert_eq!(String::from(final_record.revision), "3");
+    }
+
+    #[test]
+    fn transaction_staging_failure_preserves_revision_and_owned_clear() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let meta = test_metadata("transaction-io-error");
+        let owner = store.try_write_session_owned(&meta).unwrap().unwrap();
+        let snapshot = store
+            .try_read_revisioned_session(&meta.id)
+            .unwrap()
+            .unwrap();
+        let path = store.sessions_dir().join("transaction-io-error.json");
+        let before = fs::read(&path).unwrap();
+        let staging_path = tmp_write_path(&path);
+        fs::create_dir(&staging_path).unwrap();
+        let result = store.try_update_session(&meta.id, &snapshot.revision, |current| {
+            current.task = "Must not publish".into();
+            Ok(())
+        });
+        assert!(matches!(
+            result,
+            Err(session_transactions::SessionTransactionError::Io(_))
+        ));
+        assert_eq!(fs::read(&path).unwrap(), before);
+        fs::remove_dir(&staging_path).unwrap();
+        assert!(store.try_write_session_if_owned(&meta, &owner).unwrap());
+        assert_eq!(store.read_session(&meta.id).unwrap().task, meta.task);
+    }
+
+    #[test]
+    fn invalid_revisioned_records_never_invoke_a_transaction_mutation() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let meta = test_metadata("invalid-transaction");
+        store.try_write_session(&meta).unwrap();
+        let revision = store
+            .try_read_revisioned_session(&meta.id)
+            .unwrap()
+            .unwrap()
+            .revision;
+        let path = store.sessions_dir().join("invalid-transaction.json");
+        for bytes in [b"{bad".to_vec(), {
+            let mut value = serde_json::to_value(&meta).unwrap();
+            value["metadataRevision"] = serde_json::json!("18446744073709551615");
+            serde_json::to_vec(&value).unwrap()
+        }] {
+            fs::write(&path, &bytes).unwrap();
+            let expected = if bytes.starts_with(b"{bad") {
+                revision.clone()
+            } else {
+                store
+                    .try_read_revisioned_session(&meta.id)
+                    .unwrap()
+                    .unwrap()
+                    .revision
+            };
+            let result = store.try_update_session(&meta.id, &expected, |_| {
+                panic!("malformed or exhausted records must fail before mutation");
+            });
+            assert!(matches!(
+                result,
+                Err(session_transactions::SessionTransactionError::Io(_))
+            ));
+            assert_eq!(fs::read(&path).unwrap(), bytes);
+        }
+        fs::remove_file(&path).unwrap();
+        let result = store.try_update_session(&meta.id, &revision, |_| {
+            panic!("a missing record must never be created by a transaction");
+        });
+        assert!(
+            matches!(result, Err(session_transactions::SessionTransactionError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound)
+        );
+        assert!(!path.exists());
     }
 
     fn test_metadata(id: &str) -> SessionMetadata {
