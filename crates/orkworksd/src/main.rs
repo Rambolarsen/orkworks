@@ -438,6 +438,7 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
         .route("/harnesses/:id", put(update_harness).delete(delete_harness))
         .route("/sessions/:id/terminal", get(session_terminal_handler))
         .route("/sessions/:id/terminal-output", get(get_terminal_output))
+        .merge(http::session_metadata_handlers::routes())
         .route("/sessions/:id/summary-log", get(get_summary_log))
         .route(
             "/sessions/:id/workflow-observations",

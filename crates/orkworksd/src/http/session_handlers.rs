@@ -5478,7 +5478,12 @@ mod tests {
             updated.observed_status.as_deref(),
             Some("waiting_for_input")
         );
-        assert_eq!(updated.metadata_source, "agent");
+        assert_eq!(updated.metadata_source, "process");
+        assert_eq!(
+            updated.provenance.attention_source.as_deref(),
+            Some("agent")
+        );
+        assert_eq!(updated.provenance.attention_confidence, Some(1.0));
     }
 
     #[tokio::test]
@@ -5775,7 +5780,8 @@ mod tests {
             .metadata
             .read_session(id)
             .unwrap();
-        assert_eq!(stored.metadata_source, "agent");
+        assert_eq!(stored.metadata_source, "process");
+        assert_eq!(stored.provenance.attention_source.as_deref(), Some("agent"));
         assert_eq!(stored.observed_status.as_deref(), Some("idle"));
     }
 
@@ -6351,8 +6357,13 @@ mod tests {
             .unwrap();
         assert_eq!(updated.observed_status.as_deref(), Some("blocked"));
         assert_eq!(updated.attention.as_deref(), Some("blocked"));
-        assert_eq!(updated.metadata_source, "debug");
-        assert_eq!(updated.metadata_confidence, 0.0);
+        assert_eq!(updated.metadata_source, "process");
+        assert_eq!(updated.metadata_confidence, 1.0);
+        assert_eq!(
+            updated.provenance.attention_source.as_deref(),
+            Some("debug")
+        );
+        assert_eq!(updated.provenance.attention_confidence, Some(0.0));
     }
 
     #[tokio::test]
@@ -6487,7 +6498,11 @@ mod tests {
                 .metadata
                 .read_session("debug-reclaim")
                 .unwrap();
-            assert_eq!(injected.metadata_source, "debug");
+            assert_eq!(injected.metadata_source, "process");
+            assert_eq!(
+                injected.provenance.attention_source.as_deref(),
+                Some("debug")
+            );
         }
 
         // Any real attention source is unconditionally accepted over "debug",
@@ -6517,7 +6532,11 @@ mod tests {
             .metadata
             .read_session("debug-reclaim")
             .unwrap();
-        assert_eq!(reclaimed.metadata_source, "agent");
+        assert_eq!(reclaimed.metadata_source, "process");
+        assert_eq!(
+            reclaimed.provenance.attention_source.as_deref(),
+            Some("agent")
+        );
         assert_eq!(reclaimed.observed_status.as_deref(), Some("blocked"));
     }
 

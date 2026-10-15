@@ -342,7 +342,7 @@ impl SessionProjection {
                 if merged.lifecycle == "alive" && merged.at_usage_limit == Some(true) {
                     merged.attention = Some("capped".into());
                 }
-                let preserve_debug_hint = merged.metadata_source.as_deref() == Some("debug")
+                let preserve_debug_hint = merged.attention_source() == Some("debug")
                     && merged.lifecycle == "alive"
                     && merged.attention.as_deref() == Some("capped");
                 let detected_reset_hint = observation.as_ref().and_then(|o| o.reset_hint.clone());
