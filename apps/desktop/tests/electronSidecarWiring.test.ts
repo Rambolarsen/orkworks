@@ -351,7 +351,7 @@ test("debug attention aborts its fetch when the backend generation changes", () 
   assert.ok(handlerStart >= 0 && handlerEnd > handlerStart, "debug attention handler not found");
   const handler = mainSource.slice(handlerStart, handlerEnd);
   assert.match(handler, /withReadyBackendGeneration\(async \(port, token, signal\)/);
-  assert.match(handler, /signal: AbortSignal\.any\(\[signal, AbortSignal\.timeout\(15_000\)\]\)/);
+  assert.match(handler, /timeoutMs: 15_000/);
 });
 
 test("cleanup accepts may omit the session id at the IPC boundary", () => {
@@ -373,7 +373,7 @@ test("Taskmaster mutations abort their fetch when the backend generation changes
   assert.ok(helperStart >= 0 && helperEnd > helperStart, "Taskmaster mutation helper not found");
   const helper = mainSource.slice(helperStart, helperEnd);
   assert.match(helper, /payload: unknown,\s*signal: AbortSignal/);
-  assert.match(helper, /signal: AbortSignal\.any\(\[signal, AbortSignal\.timeout\(15_000\)\]\)/);
+  assert.match(helper, /timeoutMs: 15_000/);
 
   for (const handlerName of [
     "dismiss-taskmaster-recommendation",

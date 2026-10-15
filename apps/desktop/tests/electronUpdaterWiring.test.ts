@@ -531,7 +531,7 @@ test("resubscribing one renderer replaces its existing main-process subscription
 });
 
 test("main queries current sessions and routes update recovery through the workspace coordinator", () => {
-  assert.match(main, /await restoration\.getReadiness\(\)[\s\S]*listSessions\(baseUrl\)/);
+  assert.match(main, /await restoration\.getReadiness\(\)[\s\S]*listSessions\(port\)/);
   assert.match(main, /lifecycle === "alive"/);
   assert.match(main, /workspaceSwitchCoordinator\.runUpdate\(/);
   assert.match(main, /sidecarLifecycle\.start\(restartCwd\)/);
