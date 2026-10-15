@@ -97,6 +97,12 @@ owned-listener handoff/identity contract, including reconnects. Controlled
 test-only fake fixtures are not installed proof. No new upstream readiness,
 port-zero, socket-inheritance or RPC behavior is approved by this audit.
 
+A [2026-10-15 listener-identity proposal](2026-10-15-codex-listener-ownership-design.md)
+records local connected-stream proof feasibility and a missing native-client
+identity contract. A sidecar relay alone was rejected because a surviving TUI
+can reconnect after relay-owner crash. It awaits owner security-design review;
+the startup sequence above remains gated and is not authorized for rollout.
+
 Native eligibility requires both bounded feature probes and an explicit,
 reviewed compatibility record for the actual configured executable's exact
 Codex version, host OS/architecture, and expected app-server protocol/status shape.

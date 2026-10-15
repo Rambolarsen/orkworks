@@ -203,3 +203,4 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Privacy-qualified Taskmaster knowledge implementation](2026-10-10-taskmaster-knowledge-distribution.md) — Deliver issue 529 through a reviewed Brain publisher, independently verified activation, and packaged offline/live evidence.
 - [Taskmaster runtime implementation contract](taskmaster-runtime-contract.md) — Implementation plan: Taskmaster runtime implementation contract.
 - [Taskmaster runtime implementation report](taskmaster-runtime-report.md) — Implementation plan: Taskmaster runtime implementation report.
+- [Codex connected-listener ownership implementation](2026-10-15-codex-listener-ownership.md) — Separate dormant macOS proof from blocked native-client identity integration.

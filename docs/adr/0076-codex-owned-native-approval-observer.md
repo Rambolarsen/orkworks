@@ -151,3 +151,21 @@ eligible session; if any supported producer still uses it, native clearing
 stays disabled. This amendment does not enable production clearing; producer
 migration, behavioral tests, #690 signal verification, and the independent
 #763 listener gate remain required.
+
+## Amendment — 2026-10-15 listener identity investigation
+
+The authenticated owned-server decision stands. The [listener ownership
+proposal](../superpowers/specs/2026-10-15-codex-listener-ownership-design.md)
+records a locally feasible macOS connected-socket proof and the missing
+native-client contract. A retained sidecar relay was rejected: after sidecar
+crash, a surviving TUI can reconnect to a replacement listener and disclose
+the capability. The audited TUI retries connections for up to 120 seconds.
+Observer-side proof alone cannot qualify the native TUI's connection.
+
+This amendment records a **proposal awaiting owner security-design approval**.
+The local proof is ready for review; full startup remains blocked on an exact
+upstream native-client contract that checks immutable process/birth identity
+before every bearer upgrade. No such flag/API is assumed to exist. The
+[implementation plan](../superpowers/plans/2026-10-15-codex-listener-ownership.md)
+separates dormant local work from blocked integration. All production gates
+remain unchanged.
