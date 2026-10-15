@@ -3030,7 +3030,6 @@ impl SessionApplication {
         else {
             return false;
         };
-        let preserve_user_tuple = metadata.attention_source() == "user";
         let mut sessions = self.state.sessions.lock().unwrap();
         let Some(handle) = sessions.get_mut(id).filter(|handle| {
             handle.info.lifecycle == "alive" && handle.info.lifecycle_phase == "active"
@@ -3047,23 +3046,30 @@ impl SessionApplication {
         if !authority.native_id_matches(id, &harness_id, &generation, native_id) {
             return false;
         }
-        match workspace.metadata.merge_prompt_authority_wait(id) {
-            metadata::AttentionMergeResult::Accepted => {}
-            metadata::AttentionMergeResult::Ignored => return true,
-            metadata::AttentionMergeResult::NotFound
-            | metadata::AttentionMergeResult::PersistFailed => return false,
-        }
+        let committed = match workspace.metadata.merge_prompt_authority_wait_record(id) {
+            Ok(record) => record,
+            Err(metadata::AttentionMergeResult::Ignored) => return true,
+            Err(_) => return false,
+        };
         if !authority.activate(id, &harness_id, &generation, native_id) {
             return false;
         }
         handle.pending_work_signal = None;
-        if !preserve_user_tuple {
+        if let Some(committed) = committed {
             handle.runtime.attention_owner.accepted_write();
             handle.info.observed_status = Some("waiting_for_input".into());
             handle.info.attention = Some("needs_you".into());
             handle.info.needs_user_input = None;
             handle.info.detected_question = None;
             handle.info.suggested_options = None;
+            handle.info.provenance.attention_source =
+                committed.metadata.provenance.attention_source;
+            handle.info.provenance.attention_confidence =
+                committed.metadata.provenance.attention_confidence;
+            handle.info.provenance.attention_origin =
+                committed.metadata.provenance.attention_origin;
+            handle.info.provenance.attention_updated_at =
+                committed.metadata.provenance.attention_updated_at;
             handle.runtime.active_prompt_kind = Some(
                 crate::runtime::session_runtime::RuntimePromptKind::from_notification_type(
                     &queued.notification_type,
@@ -4641,7 +4647,6 @@ impl SessionApplication {
             .resume
             .as_ref()
             .and_then(|resume| resume.harness_session_id.as_deref());
-        let preserve_user_tuple = metadata.attention_source() == "user";
         let mut sessions = self.state.sessions.lock().unwrap();
         let handle = sessions
             .get_mut(id)
@@ -4699,25 +4704,33 @@ impl SessionApplication {
         {
             return Err(SessionError::EmptyBadRequest);
         }
-        match workspace.metadata.merge_prompt_authority_wait(id) {
-            metadata::AttentionMergeResult::Accepted => {}
-            metadata::AttentionMergeResult::NotFound => return Err(SessionError::NotFound),
-            metadata::AttentionMergeResult::PersistFailed => {
+        let committed = match workspace.metadata.merge_prompt_authority_wait_record(id) {
+            Ok(record) => record,
+            Err(metadata::AttentionMergeResult::NotFound) => return Err(SessionError::NotFound),
+            Err(metadata::AttentionMergeResult::PersistFailed) => {
                 return Err(SessionError::Internal("application operation failed"));
             }
-            metadata::AttentionMergeResult::Ignored => return Err(SessionError::EmptyBadRequest),
-        }
+            Err(_) => return Err(SessionError::EmptyBadRequest),
+        };
         if !authority.activate(id, harness_id, generation, native_session_id) {
             return Err(SessionError::EmptyBadRequest);
         }
         handle.pending_work_signal = None;
-        if !preserve_user_tuple {
+        if let Some(committed) = committed {
             handle.runtime.attention_owner.accepted_write();
             handle.info.observed_status = Some("waiting_for_input".into());
             handle.info.attention = Some("needs_you".into());
             handle.info.needs_user_input = None;
             handle.info.detected_question = None;
             handle.info.suggested_options = None;
+            handle.info.provenance.attention_source =
+                committed.metadata.provenance.attention_source;
+            handle.info.provenance.attention_confidence =
+                committed.metadata.provenance.attention_confidence;
+            handle.info.provenance.attention_origin =
+                committed.metadata.provenance.attention_origin;
+            handle.info.provenance.attention_updated_at =
+                committed.metadata.provenance.attention_updated_at;
             handle.runtime.active_prompt_kind = Some(
                 crate::runtime::session_runtime::RuntimePromptKind::from_notification_type(
                     notification_type.expect("validated prompt notification type"),
@@ -16562,6 +16575,272 @@ mod tests {
         assert!(saved.attention.is_none());
         authority.remove(id);
         crate::runtime::terminal_runtime::clear_workflow_report_token(id);
+    }
+
+    fn prompt_wait_provenance_survives_peon(queued: bool) {
+        for (source, confidence) in [
+            ("peon", 0.8),
+            ("agent", 0.7),
+            ("process", 0.4),
+            ("user", 0.9),
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let state = crate::test_support::test_app_state_with_workspace(root.path());
+            let id = format!("prompt-provenance-{queued}-{source}");
+            let mut metadata = crate::test_support::test_session_metadata(
+                &id,
+                "Prompt provenance",
+                root.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            );
+            metadata.harness = "claude-code".into();
+            metadata.lifecycle = "alive".into();
+            metadata.lifecycle_phase = "active".into();
+            metadata.metadata_source = "agent".into();
+            metadata.metadata_confidence = 0.6;
+            metadata.provenance.attention_source = Some(source.into());
+            metadata.provenance.attention_confidence = Some(confidence);
+            metadata.provenance.attention_origin = Some("direct_agent".into());
+            metadata.provenance.attention_updated_at = Some("2026-10-03T11:59:00Z".into());
+            metadata.observed_status = Some("working".into());
+            metadata.attention = Some("working".into());
+            if source == "user" {
+                metadata.needs_user_input = Some(true);
+                metadata.detected_question = Some("Keep the user override?".into());
+                metadata.suggested_options = Some(vec!["Yes".into()]);
+            }
+            metadata.resume = Some(harness::ResumeMemory {
+                state: harness::ResumeState::Available,
+                preferred_strategy: harness::ResumeStrategy::Exact,
+                harness_session_id: Some("native-session".into()),
+                latest_fallback: false,
+                last_seen_at: Some("now".into()),
+            });
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .write_session(&metadata);
+            let mut handle = attention_test_handle(&id, root.path());
+            handle.info.harness = Some("claude-code".into());
+            handle.info.harness_id = Some("claude-code".into());
+            handle.info.lifecycle = "alive".into();
+            handle.info.lifecycle_phase = "active".into();
+            handle.info.metadata_source = Some(metadata.metadata_source.clone());
+            handle.info.metadata_confidence = Some(metadata.metadata_confidence);
+            handle.info.provenance = metadata.provenance.clone();
+            handle.info.observed_status = metadata.observed_status.clone();
+            handle.info.attention = metadata.attention.clone();
+            handle.info.needs_user_input = metadata.needs_user_input;
+            handle.info.detected_question = metadata.detected_question.clone();
+            handle.info.suggested_options = metadata.suggested_options.clone();
+            handle.info.resume = metadata.resume.clone();
+            state.sessions.lock().unwrap().insert(id.clone(), handle);
+            let authority = crate::runtime::prompt_authority::registry();
+            authority.issue_with_native_id(
+                &id,
+                "claude-code",
+                "generation",
+                Some(if queued {
+                    "old-native"
+                } else {
+                    "native-session"
+                }),
+            );
+            crate::runtime::terminal_runtime::set_workflow_report_token(&id, "token".into());
+            let application = SessionApplication::new(state.clone());
+            let sessions_dir = state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .sessions_dir();
+            let path = sessions_dir.join(format!("{id}.json"));
+            let failed_write_path = sessions_dir.join(format!("{id}.json.tmp"));
+            let before_bytes = std::fs::read(&path).unwrap();
+            let assert_failed_write = || {
+                assert!(!authority.is_active(&id));
+                assert_eq!(std::fs::read(&path).unwrap(), before_bytes);
+                let sessions = state.sessions.lock().unwrap();
+                let handle = sessions.get(&id).unwrap();
+                assert_eq!(handle.info.observed_status, metadata.observed_status);
+                assert_eq!(
+                    handle.info.provenance.attention_source,
+                    metadata.provenance.attention_source
+                );
+                assert_eq!(
+                    handle.info.provenance.attention_confidence,
+                    metadata.provenance.attention_confidence
+                );
+                assert!(handle.runtime.active_prompt_kind.is_none());
+            };
+            if !queued && source != "user" {
+                std::fs::create_dir(&failed_write_path).unwrap();
+                assert_eq!(
+                    application.report_prompt_attention(
+                        &id,
+                        "claude_hook",
+                        Some("Notification"),
+                        Some("permission_prompt"),
+                        "native-session",
+                        "waiting_for_input",
+                        Some("generation"),
+                        Some("2026-10-03T12:00:00.000000Z"),
+                        None,
+                        Some("token"),
+                    ),
+                    Err(SessionError::Internal("application operation failed"))
+                );
+                assert_failed_write();
+                std::fs::remove_dir(&failed_write_path).unwrap();
+            }
+            if queued {
+                assert!(authority.reserve_reset(&id, "claude-code", "/clear"));
+                assert_eq!(
+                    authority.register_native_id(
+                        &id,
+                        "claude-code",
+                        "generation",
+                        "native-session",
+                        true,
+                        None
+                    ),
+                    crate::runtime::prompt_authority::BindResult::Held
+                );
+            }
+            let result = application.report_prompt_attention(
+                &id,
+                "claude_hook",
+                Some("Notification"),
+                Some("permission_prompt"),
+                "native-session",
+                "waiting_for_input",
+                Some("generation"),
+                Some("2026-10-03T12:00:00.000000Z"),
+                None,
+                Some("token"),
+            );
+            if queued {
+                assert_eq!(result, Err(SessionError::Accepted));
+                assert!(authority.acknowledge_reset(&id).is_some());
+                let commit = authority.complete_reset(&id).unwrap();
+                let wait = commit.queued_prompt_wait.unwrap();
+                if source != "user" {
+                    std::fs::create_dir(&failed_write_path).unwrap();
+                    assert!(!application.apply_queued_prompt_wait(&id, &wait, None));
+                    assert_failed_write();
+                    std::fs::remove_dir(&failed_write_path).unwrap();
+                }
+                assert!(application.apply_queued_prompt_wait(&id, &wait, None));
+                authority.finish_queued_prompt_wait(&id, wait.receipt_sequence);
+            } else {
+                assert_eq!(result, Ok(()));
+            }
+            let saved = state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(&id)
+                .unwrap();
+            let inference = peon::PeonInference {
+                observed_status: Some("blocked".into()),
+                phase: None,
+                summary: None,
+                next_action: None,
+                needs_user_input: Some(true),
+                detected_question: None,
+                suggested_options: None,
+                blocker_description: None,
+                failed_command: None,
+                failed_test: None,
+                capacity_hints: None,
+                confidence: 0.8,
+                detected_harness: None,
+                detected_model: None,
+                harness_session_id: None,
+                workflow_observations: Vec::new(),
+            };
+            application.persist_peon_observation_for_test(
+                &id,
+                Some(&inference),
+                None,
+                None,
+                "later",
+            );
+            let after = state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(&id)
+                .unwrap();
+            assert_eq!(
+                after.observed_status, saved.observed_status,
+                "queued={queued}, source={source}"
+            );
+            assert_eq!(after.attention, saved.attention);
+            assert_eq!(after.needs_user_input, saved.needs_user_input);
+            assert_eq!(after.detected_question, saved.detected_question);
+            assert_eq!(after.suggested_options, saved.suggested_options);
+            assert_eq!(
+                after.provenance.attention_source,
+                saved.provenance.attention_source
+            );
+            assert_eq!(
+                after.observed_status.as_deref(),
+                Some(if source == "user" {
+                    "working"
+                } else {
+                    "waiting_for_input"
+                })
+            );
+            {
+                let sessions = state.sessions.lock().unwrap();
+                let info = &sessions.get(&id).unwrap().info;
+                assert_eq!(
+                    info.provenance.attention_source,
+                    saved.provenance.attention_source
+                );
+                assert_eq!(
+                    info.provenance.attention_confidence,
+                    saved.provenance.attention_confidence
+                );
+                assert_eq!(
+                    info.provenance.attention_origin,
+                    saved.provenance.attention_origin
+                );
+                assert_eq!(
+                    info.provenance.attention_updated_at,
+                    saved.provenance.attention_updated_at
+                );
+                assert_eq!(info.metadata_source.as_deref(), Some("agent"));
+                assert_eq!(info.metadata_confidence, Some(0.6));
+            }
+            crate::runtime::terminal_runtime::clear_workflow_report_token(&id);
+            authority.remove(&id);
+        }
+    }
+
+    #[test]
+    fn direct_authenticated_prompt_wait_preserves_committed_provenance_through_peon() {
+        prompt_wait_provenance_survives_peon(false);
+    }
+
+    #[test]
+    fn queued_authenticated_prompt_wait_preserves_committed_provenance_through_peon() {
+        prompt_wait_provenance_survives_peon(true);
     }
 
     #[test]

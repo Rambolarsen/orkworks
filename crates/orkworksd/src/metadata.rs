@@ -2069,7 +2069,20 @@ impl MetadataStore {
     /// Applies the initial Claude/Copilot prompt wait without changing
     /// descriptive metadata, summaries, workflow evidence, or activity time.
     /// A user-owned attention tuple remains authoritative as a whole.
+    #[cfg(test)]
     pub fn merge_prompt_authority_wait(&self, id: &str) -> AttentionMergeResult {
+        match self.merge_prompt_authority_wait_record(id) {
+            Ok(_) => AttentionMergeResult::Accepted,
+            Err(result) => result,
+        }
+    }
+
+    /// Return the committed record for live publication; None preserves a
+    /// user-owned tuple without advancing its ownership or provenance clock.
+    pub(crate) fn merge_prompt_authority_wait_record(
+        &self,
+        id: &str,
+    ) -> Result<Option<session_transactions::RevisionedSession>, AttentionMergeResult> {
         match self.mutate_session_optional(
             id,
             session_transactions::WriteScope::ATTENTION,
@@ -2090,13 +2103,13 @@ impl MetadataStore {
                 Ok(true)
             },
         ) {
-            Ok(_) => AttentionMergeResult::Accepted,
+            Ok(record) => Ok(record),
             Err(session_transactions::SessionTransactionError::Io(error))
                 if error.kind() == std::io::ErrorKind::NotFound =>
             {
-                AttentionMergeResult::NotFound
+                Err(AttentionMergeResult::NotFound)
             }
-            Err(_) => AttentionMergeResult::PersistFailed,
+            Err(_) => Err(AttentionMergeResult::PersistFailed),
         }
     }
 

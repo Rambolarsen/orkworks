@@ -342,12 +342,32 @@ mod tests {
         body: Option<Value>,
         token: &str,
     ) -> (StatusCode, Value) {
+        request_notifying(state, id, method, body, token, None).await
+    }
+
+    async fn request_notifying(
+        state: Arc<AppState>,
+        id: &str,
+        method: &str,
+        body: Option<Value>,
+        token: &str,
+        entered: Option<std::sync::mpsc::Sender<()>>,
+    ) -> (StatusCode, Value) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let server = tokio::spawn(async move {
-            axum::serve(listener, routes().with_state(state))
-                .await
-                .unwrap();
+            let router = routes().with_state(state).layer(axum::middleware::from_fn(
+                move |request: axum::extract::Request, next: axum::middleware::Next| {
+                    let entered = entered.clone();
+                    async move {
+                        if let Some(entered) = entered {
+                            entered.send(()).unwrap();
+                        }
+                        next.run(request).await
+                    }
+                },
+            ));
+            axum::serve(listener, router).await.unwrap();
         });
         let client = reqwest::Client::new();
         let (session_id, query) = id.split_once('?').unwrap_or((id, ""));
@@ -372,6 +392,301 @@ mod tests {
         let json = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
         server.abort();
         (status, json)
+    }
+
+    fn install_native_owned_wait(
+        state: &Arc<AppState>,
+        id: &str,
+    ) -> (
+        crate::metadata::SessionMetadata,
+        crate::metadata::SessionWriteToken,
+        crate::runtime::observed_status::AttentionWriteToken,
+    ) {
+        let workspace = state.workspace.lock().unwrap();
+        let store = &workspace.as_ref().unwrap().metadata;
+        let mut meta = store.read_session(id).unwrap();
+        meta.observed_status = Some("waiting_for_input".into());
+        meta.attention = Some("needs_you".into());
+        meta.needs_user_input = Some(true);
+        meta.detected_question = None;
+        meta.suggested_options = None;
+        meta.provenance.attention_source = Some("agent".into());
+        meta.provenance.attention_origin = Some("native_codex".into());
+        meta.provenance.attention_confidence = Some(1.0);
+        // A complete API-valid tuple lets the identical-write case prove
+        // revocation using the real retained-store native ownership token.
+        // This fixture exercises the clear transaction, not reducer activation.
+        let durable_owner = store.try_write_session_owned(&meta).unwrap().unwrap();
+        let mut sessions = state.sessions.lock().unwrap();
+        let handle = sessions.get_mut(id).unwrap();
+        publish_attention(handle, &meta);
+        let live_owner = handle.runtime.attention_owner.snapshot().unwrap();
+        (meta, durable_owner, live_owner)
+    }
+
+    fn publish_attention(
+        handle: &mut crate::SessionHandle,
+        meta: &crate::metadata::SessionMetadata,
+    ) {
+        handle.runtime.attention_owner.accepted_write();
+        handle.info.observed_status = meta.observed_status.clone();
+        handle.info.attention = meta.attention.clone();
+        handle.info.needs_user_input = meta.needs_user_input;
+        handle.info.detected_question = meta.detected_question.clone();
+        handle.info.suggested_options = meta.suggested_options.clone();
+        handle.info.provenance.attention_source = meta.provenance.attention_source.clone();
+        handle.info.provenance.attention_confidence = meta.provenance.attention_confidence;
+        handle.info.provenance.attention_origin = meta.provenance.attention_origin.clone();
+        handle.info.provenance.attention_updated_at = meta.provenance.attention_updated_at.clone();
+    }
+
+    // Exercise the real native clear transaction with the application's actual
+    // workspace → sessions lock order and committed live publication. Native
+    // production activation remains disabled; no reducer/gate is bypassed there.
+    fn clear_native_wait(
+        state: &Arc<AppState>,
+        mut native: crate::metadata::SessionMetadata,
+        owner: &crate::metadata::SessionWriteToken,
+        ready: impl FnOnce() -> bool,
+    ) -> bool {
+        let workspace = state.workspace.lock().unwrap();
+        let store = &workspace.as_ref().unwrap().metadata;
+        let mut sessions = state.sessions.lock().unwrap();
+        native.observed_status = Some("working".into());
+        native.attention = Some("working".into());
+        native.needs_user_input = None;
+        let committed = store
+            .try_write_session_if_owned_when(&native, owner, ready)
+            .unwrap();
+        if committed {
+            let saved = store
+                .try_read_revisioned_session(&native.id)
+                .unwrap()
+                .unwrap();
+            publish_attention(sessions.get_mut(&native.id).unwrap(), &saved.metadata);
+        }
+        committed
+    }
+
+    fn attention_patch(revision: &Value, identical: bool) -> Value {
+        json!({"metadataRevision":revision,"patch":{"attentionState":{
+            "observedStatus": if identical { "waiting_for_input" } else { "blocked" },
+            "needsUserInput":true,
+            "detectedQuestion":null,"suggestedOptions":null}}})
+    }
+
+    fn assert_current_attention(state: &Arc<AppState>, id: &str, status: &str, origin: &str) {
+        let workspace = state.workspace.lock().unwrap();
+        let saved = workspace
+            .as_ref()
+            .unwrap()
+            .metadata
+            .try_read_revisioned_session(id)
+            .unwrap()
+            .unwrap();
+        let sessions = state.sessions.lock().unwrap();
+        let info = &sessions.get(id).unwrap().info;
+        assert_eq!(saved.metadata.observed_status.as_deref(), Some(status));
+        assert_eq!(
+            saved.metadata.provenance.attention_source.as_deref(),
+            Some("agent")
+        );
+        assert_eq!(
+            saved.metadata.provenance.attention_origin.as_deref(),
+            Some(origin)
+        );
+        assert_eq!(info.observed_status, saved.metadata.observed_status);
+        assert_eq!(info.attention, saved.metadata.attention);
+        assert_eq!(info.needs_user_input, saved.metadata.needs_user_input);
+        assert_eq!(info.detected_question, saved.metadata.detected_question);
+        assert_eq!(info.suggested_options, saved.metadata.suggested_options);
+        assert_eq!(
+            info.provenance.attention_source,
+            saved.metadata.provenance.attention_source
+        );
+        assert_eq!(
+            info.provenance.attention_origin,
+            saved.metadata.provenance.attention_origin
+        );
+        assert_eq!(
+            info.provenance.attention_confidence,
+            saved.metadata.provenance.attention_confidence
+        );
+        assert_eq!(
+            info.provenance.attention_updated_at,
+            saved.metadata.provenance.attention_updated_at
+        );
+        drop(sessions);
+        drop(workspace);
+        let projected = crate::session_projection::SessionProjection::new(state.clone())
+            .list()
+            .unwrap();
+        let projected = projected.iter().find(|info| info.id == id).unwrap();
+        assert_eq!(projected.observed_status, saved.metadata.observed_status);
+        assert_eq!(projected.attention, saved.metadata.attention);
+        assert_eq!(projected.needs_user_input, saved.metadata.needs_user_input);
+        assert_eq!(
+            projected.detected_question,
+            saved.metadata.detected_question
+        );
+        assert_eq!(
+            projected.suggested_options,
+            saved.metadata.suggested_options
+        );
+        assert_eq!(
+            projected.provenance.attention_source,
+            saved.metadata.provenance.attention_source
+        );
+        assert_eq!(
+            projected.provenance.attention_origin,
+            saved.metadata.provenance.attention_origin
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn authenticated_patch_waits_for_native_clear_then_conflicts_and_retries() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+        let (state, id, _dir) = fixture().await;
+        let (native, owner, _) = install_native_owned_wait(&state, &id);
+        let (status, before) = request(state.clone(), &id, "GET", None, "secret").await;
+        assert_eq!(status, StatusCode::OK);
+        let body = attention_patch(&before["metadataRevision"], false);
+        let (at_final_tx, at_final_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let clear_state = state.clone();
+        let clear = std::thread::spawn(move || {
+            clear_native_wait(&clear_state, native, &owner, || {
+                at_final_tx.send(()).unwrap();
+                release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                true
+            })
+        });
+        at_final_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let writer_state = state.clone();
+        let writer_id = id.clone();
+        let writer = tokio::spawn(async move {
+            request_notifying(
+                writer_state,
+                &writer_id,
+                "PATCH",
+                Some(body),
+                "secret",
+                Some(entered_tx),
+            )
+            .await
+        });
+        entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        // Request has entered the registered router, while native clear holds
+        // the application locks and store lane after its final check. The PATCH
+        // cannot reach authentication/commit or finish before clear is released.
+        assert!(state.workspace.try_lock().is_err());
+        assert!(state.sessions.try_lock().is_err());
+        assert!(!writer.is_finished());
+        release_tx.send(()).unwrap();
+        assert!(clear.join().unwrap());
+        assert_eq!(writer.await.unwrap().0, StatusCode::CONFLICT);
+        assert_current_attention(&state, &id, "working", "native_codex");
+        let (status, cleared) = request(state.clone(), &id, "GET", None, "secret").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(cleared["observedStatus"], "working");
+        assert_ne!(cleared["metadataRevision"], before["metadataRevision"]);
+        let (status, updated) = request(
+            state.clone(),
+            &id,
+            "PATCH",
+            Some(attention_patch(&cleared["metadataRevision"], false)),
+            "secret",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_ne!(updated["metadataRevision"], cleared["metadataRevision"]);
+        assert_current_attention(&state, &id, "blocked", "direct_agent");
+        clear_workflow_report_token(&id);
+    }
+
+    #[tokio::test]
+    async fn authenticated_attention_patch_first_revokes_old_native_clear_even_when_identical() {
+        for identical in [false, true] {
+            let (state, id, _dir) = fixture().await;
+            let (native, owner, live_owner) = install_native_owned_wait(&state, &id);
+            let (status, before) = request(state.clone(), &id, "GET", None, "secret").await;
+            assert_eq!(status, StatusCode::OK);
+            let (status, updated) = request(
+                state.clone(),
+                &id,
+                "PATCH",
+                Some(attention_patch(&before["metadataRevision"], identical)),
+                "secret",
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK);
+            {
+                let sessions = state.sessions.lock().unwrap();
+                let handle = sessions.get(&id).unwrap();
+                assert!(!handle.runtime.attention_owner.owns(&live_owner));
+            }
+            assert!(!clear_native_wait(&state, native, &owner, || panic!(
+                "revoked owner must fail before the final check"
+            )));
+            let (status, after) = request(state.clone(), &id, "GET", None, "secret").await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(after["metadataRevision"], updated["metadataRevision"]);
+            assert_current_attention(
+                &state,
+                &id,
+                if identical {
+                    "waiting_for_input"
+                } else {
+                    "blocked"
+                },
+                "direct_agent",
+            );
+            clear_workflow_report_token(&id);
+        }
+    }
+
+    #[tokio::test]
+    async fn authenticated_work_patch_preserves_native_clear_owner_and_latest_work() {
+        let (state, id, _dir) = fixture().await;
+        let (native, owner, live_owner) = install_native_owned_wait(&state, &id);
+        let (status, before) = request(state.clone(), &id, "GET", None, "secret").await;
+        assert_eq!(status, StatusCode::OK);
+        let body = json!({"metadataRevision":before["metadataRevision"],"patch":{"agentMetadata":{"workFields":{
+            "task":"Latest API work","nextAction":"Review patch","workPhase":"implementation",
+            "blockerDescription":null,"failedCommand":null,"failedTest":null}}}});
+        assert_eq!(
+            request(state.clone(), &id, "PATCH", Some(body), "secret")
+                .await
+                .0,
+            StatusCode::OK
+        );
+        {
+            let sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get(&id).unwrap();
+            assert!(handle.runtime.attention_owner.owns(&live_owner));
+        }
+        assert!(clear_native_wait(&state, native, &owner, || true));
+        assert_current_attention(&state, &id, "working", "native_codex");
+        let (status, after) = request(state.clone(), &id, "GET", None, "secret").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(after["task"], "Latest API work");
+        assert_eq!(after["nextAction"], "Review patch");
+        assert_eq!(after["metadataSource"], "agent");
+        assert_eq!(
+            state
+                .sessions
+                .lock()
+                .unwrap()
+                .get(&id)
+                .unwrap()
+                .info
+                .next_action
+                .as_deref(),
+            Some("Review patch")
+        );
+        clear_workflow_report_token(&id);
     }
 
     #[tokio::test]
