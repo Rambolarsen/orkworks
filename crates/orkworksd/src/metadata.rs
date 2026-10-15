@@ -2083,6 +2083,23 @@ impl MetadataStore {
         &self,
         id: &str,
     ) -> Result<Option<session_transactions::RevisionedSession>, AttentionMergeResult> {
+        self.merge_prompt_authority_status_record(id, "waiting_for_input")
+    }
+
+    /// The authenticated Copilot submission clears attention only. Preserve
+    /// user ownership and all independent work/summary/evidence fields.
+    pub(crate) fn merge_prompt_authority_work_record(
+        &self,
+        id: &str,
+    ) -> Result<Option<session_transactions::RevisionedSession>, AttentionMergeResult> {
+        self.merge_prompt_authority_status_record(id, "working")
+    }
+
+    fn merge_prompt_authority_status_record(
+        &self,
+        id: &str,
+        status: &str,
+    ) -> Result<Option<session_transactions::RevisionedSession>, AttentionMergeResult> {
         match self.mutate_session_optional(
             id,
             session_transactions::WriteScope::ATTENTION,
@@ -2090,9 +2107,9 @@ impl MetadataStore {
                 if meta.attention_source() == "user" {
                     return Ok(false);
                 }
-                meta.observed_status = Some("waiting_for_input".into());
+                meta.observed_status = Some(status.into());
                 if meta.lifecycle == "alive" {
-                    meta.attention = Some("needs_you".into());
+                    meta.attention = canonical_attention(Some(status));
                 }
                 meta.needs_user_input = None;
                 meta.detected_question = None;

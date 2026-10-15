@@ -364,6 +364,44 @@ PY
 
 printf 'Codex hook reporter diagnostic tests passed.\n'
 
+# Synthetic Copilot camelCase fixtures, matching the immutable primary contract
+# recorded in docs/agents/harness-integration-contracts.md. They are transport
+# checks, not live CLI/version qualification. Never forward prompt contents.
+copilot_bodies="$temp_dir/copilot-turn-bodies.jsonl"
+printf '%s' '{"sessionId":"copilot-session-secret","timestamp":1788264000000,"prompt":"private-prompt","cwd":"/copilot/cwd"}' |
+  TEST_HTTP_STATUS=200 TEST_CURL_BODIES_FILE="$copilot_bodies" run_reporter userPromptSubmitted copilot
+python3 - "$copilot_bodies" <<'PY'
+import json, pathlib, sys
+bodies = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text().splitlines()]
+assert len(bodies) == 2, bodies
+assert bodies[0]['harnessSessionId'] == 'copilot-session-secret'
+assert bodies[1] == {
+    'status': 'working', 'source': 'copilot_hook', 'event': 'userPromptSubmitted',
+    'harnessSessionId': 'copilot-session-secret', 'promptHookGeneration': 'generation-secret',
+    'observedAt': '2026-09-01T12:00:00.000000Z', 'cwd': '/copilot/cwd',
+}, bodies[1]
+assert 'private-prompt' not in json.dumps(bodies)
+PY
+# Failed identity registration aborts attention; invalid source timestamps and
+# unapproved completion/tool events never generate a working/idle transition.
+for event in userPromptSubmitted agentStop postToolUse; do
+  printf '%s' '{"sessionId":"copilot-session-secret","timestamp":1788264000000}' |
+    TEST_HTTP_STATUS=403 TEST_CURL_BODIES_FILE="$copilot_bodies" run_reporter "$event" copilot
+done
+for timestamp in null true '"2026-09-01T12:00:00Z"' '"1788264000000"'; do
+  printf '{"sessionId":"copilot-session-secret","timestamp":%s}' "$timestamp" |
+    TEST_HTTP_STATUS=200 TEST_CURL_BODIES_FILE="$copilot_bodies" run_reporter userPromptSubmitted copilot
+done
+for kind in agent_idle agent_completed shell_completed shell_detached_completed unknown; do
+  printf '{"sessionId":"copilot-session-secret","timestamp":1788264000000,"notification_type":"%s"}' "$kind" |
+    TEST_HTTP_STATUS=200 TEST_CURL_BODIES_FILE="$copilot_bodies" run_reporter notification copilot
+done
+python3 - "$copilot_bodies" <<'PY'
+import json, pathlib, sys
+bodies = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text().splitlines()]
+assert sum('status' in body for body in bodies) == 1, bodies
+PY
+
 # Native approval transport keeps scalar evidence private; legacy attention is
 # the fallback whenever the owned marker/proof or atomic publish is absent.
 mkdir -p "$temp_dir/native-mailbox"

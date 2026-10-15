@@ -230,7 +230,7 @@ print(json.dumps(capture, separators=(",", ":")))
   *:copilot)
     copilot_fields="$(
       printf '%s' "$payload" |
-        python3 -c 'import datetime,json,sys; data=json.load(sys.stdin); event=sys.argv[1]; safe=lambda value: value if isinstance(value,str) and not any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in value) else ""; source=safe(data.get("source")) if event == "sessionStart" else ""; notification=safe(data.get("notification_type")) if event == "notification" else ""; timestamp=data.get("timestamp") if event == "notification" else ""; start_ts=data.get("timestamp") if event == "sessionStart" else ""; session_id=safe(data.get("sessionId")).strip();
+        python3 -c 'import datetime,json,sys; data=json.load(sys.stdin); event=sys.argv[1]; safe=lambda value: value if isinstance(value,str) and not any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in value) else ""; source=safe(data.get("source")) if event == "sessionStart" else ""; notification=safe(data.get("notification_type")) if event == "notification" else ""; timestamp=data.get("timestamp") if event in ("notification","userPromptSubmitted") else ""; start_ts=data.get("timestamp") if event == "sessionStart" else ""; session_id=safe(data.get("sessionId")).strip();
 def iso(value):
  if isinstance(value,(int,float)) and not isinstance(value,bool): return datetime.datetime.fromtimestamp(value/1000,datetime.timezone.utc).isoformat(timespec="microseconds").replace("+00:00","Z")
  return ""
@@ -409,10 +409,10 @@ elif { [ "$session_source" = "claude_hook" ] || [ "$session_source" = "copilot_h
   fi
 fi
 
-# Prompt waits are the only Claude/Copilot attention mapping in this shared
-# reporter. Their native identity registration above must succeed first; turn
-# event mappings remain owned by the follow-up harness-specific issues.
+# Register native identity before reporting a prompt or Copilot submission.
+# The sidecar keeps submissions inert until prompt authority has activated.
 prompt_notification_allowed="no"
+prompt_status="waiting_for_input"
 if [ "$session_source" = "claude_hook" ] && [ "$event" = "Notification" ]; then
   case "$prompt_notification_type" in
     permission_prompt|elicitation_dialog|elicitation_url_dialog) prompt_notification_allowed="yes" ;;
@@ -421,12 +421,16 @@ elif [ "$session_source" = "copilot_hook" ] && [ "$event" = "notification" ]; th
   case "$prompt_notification_type" in
     permission_prompt|elicitation_dialog) prompt_notification_allowed="yes" ;;
   esac
+elif [ "$session_source" = "copilot_hook" ] && [ "$event" = "userPromptSubmitted" ] && [ -n "$prompt_observed_at" ]; then
+  prompt_notification_allowed="yes"
+  prompt_status="working"
 fi
 if [ "$native_registration_accepted" = "yes" ] && [ "$prompt_notification_allowed" = "yes" ]; then
-  attention_payload="$(python3 -c 'import json,sys; d={"status":"waiting_for_input","source":sys.argv[1],"event":sys.argv[2],"notificationType":sys.argv[3],"harnessSessionId":sys.argv[5],"promptHookGeneration":sys.argv[4]};
+  attention_payload="$(python3 -c 'import json,sys; d={"status":sys.argv[8],"source":sys.argv[1],"event":sys.argv[2],"harnessSessionId":sys.argv[5],"promptHookGeneration":sys.argv[4]};
+if sys.argv[3]: d["notificationType"]=sys.argv[3]
 if sys.argv[1] == "copilot_hook" and sys.argv[6]: d["observedAt"]=sys.argv[6]
 if sys.argv[7]: d["cwd"]=sys.argv[7]
-print(json.dumps(d,separators=(",",":")))' "$session_source" "$event" "$prompt_notification_type" "$ORKWORKS_PROMPT_HOOK_GENERATION" "$harness_session_id" "$prompt_observed_at" "$reported_cwd")"
+print(json.dumps(d,separators=(",",":")))' "$session_source" "$event" "$prompt_notification_type" "$ORKWORKS_PROMPT_HOOK_GENERATION" "$harness_session_id" "$prompt_observed_at" "$reported_cwd" "$prompt_status")"
   attention_curl_config="header = \"Authorization: Bearer $ORKWORKS_REPORT_TOKEN\"\nheader = \"Content-Type: application/json\"\n"
   attention_curl_exit=0
   attention_http_status=$(printf '%b' "$attention_curl_config" |

@@ -102,7 +102,8 @@ struct PromptAttentionReportRequest {
     status: String,
     source: String,
     event: String,
-    notification_type: String,
+    #[serde(default)]
+    notification_type: Option<String>,
     harness_session_id: String,
     prompt_hook_generation: String,
     #[serde(default)]
@@ -464,7 +465,7 @@ pub(crate) async fn report_attention_route(
                 &id,
                 &request.source,
                 Some(&request.event),
-                Some(&request.notification_type),
+                request.notification_type.as_deref(),
                 &request.harness_session_id,
                 &request.status,
                 Some(&request.prompt_hook_generation),
@@ -1081,6 +1082,8 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    include!("copilot_attention_tests.rs");
 
     #[test]
     fn unchanged_codex_reports_retry_only_automatic_labels_not_already_from_codex() {

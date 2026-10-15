@@ -4615,11 +4615,15 @@ impl SessionApplication {
             ("copilot", Some("permission_prompt" | "elicitation_dialog")) => true,
             _ => false,
         };
+        let submitted_prompt = harness_id == "copilot"
+            && event == Some("userPromptSubmitted")
+            && status == "working"
+            && notification_type.is_none();
+        let prompt_wait =
+            event == Some(event_name) && status == "waiting_for_input" && notification_allowed;
         let generation = generation.ok_or(SessionError::EmptyBadRequest)?;
         let token = token.ok_or(SessionError::EmptyBadRequest)?;
-        if event != Some(event_name)
-            || status != "waiting_for_input"
-            || !notification_allowed
+        if (!prompt_wait && !submitted_prompt)
             || native_session_id.is_empty()
             || !crate::runtime::terminal_runtime::verify_workflow_report_token(id, token)
         {
@@ -4683,17 +4687,19 @@ impl SessionApplication {
         if !authority.generation_matches(id, harness_id, generation) {
             return Err(SessionError::EmptyBadRequest);
         }
-        if authority.queue_prompt_wait(
-            id,
-            harness_id,
-            generation,
-            native_session_id,
-            notification_type.expect("validated prompt notification type"),
-            observed_at,
-            receipt_sequence,
-            handle.runtime.committed_input_sequence,
-            cwd,
-        ) {
+        if prompt_wait
+            && authority.queue_prompt_wait(
+                id,
+                harness_id,
+                generation,
+                native_session_id,
+                notification_type.expect("validated prompt notification type"),
+                observed_at,
+                receipt_sequence,
+                handle.runtime.committed_input_sequence,
+                cwd,
+            )
+        {
             return Err(SessionError::Accepted);
         }
         if authority.identity_reset_pending(id) {
@@ -4704,7 +4710,16 @@ impl SessionApplication {
         {
             return Err(SessionError::EmptyBadRequest);
         }
-        let committed = match workspace.metadata.merge_prompt_authority_wait_record(id) {
+        // A turn event cannot establish prompt authority or suppress Peon's
+        // fallback through an attention write before the first real prompt.
+        if submitted_prompt && !authority.is_active(id) {
+            return Ok(());
+        }
+        let committed = match if submitted_prompt {
+            workspace.metadata.merge_prompt_authority_work_record(id)
+        } else {
+            workspace.metadata.merge_prompt_authority_wait_record(id)
+        } {
             Ok(record) => record,
             Err(metadata::AttentionMergeResult::NotFound) => return Err(SessionError::NotFound),
             Err(metadata::AttentionMergeResult::PersistFailed) => {
@@ -4712,14 +4727,14 @@ impl SessionApplication {
             }
             Err(_) => return Err(SessionError::EmptyBadRequest),
         };
-        if !authority.activate(id, harness_id, generation, native_session_id) {
+        if prompt_wait && !authority.activate(id, harness_id, generation, native_session_id) {
             return Err(SessionError::EmptyBadRequest);
         }
         handle.pending_work_signal = None;
         if let Some(committed) = committed {
             handle.runtime.attention_owner.accepted_write();
-            handle.info.observed_status = Some("waiting_for_input".into());
-            handle.info.attention = Some("needs_you".into());
+            handle.info.observed_status = committed.metadata.observed_status;
+            handle.info.attention = committed.metadata.attention;
             handle.info.needs_user_input = None;
             handle.info.detected_question = None;
             handle.info.suggested_options = None;
@@ -4731,11 +4746,15 @@ impl SessionApplication {
                 committed.metadata.provenance.attention_origin;
             handle.info.provenance.attention_updated_at =
                 committed.metadata.provenance.attention_updated_at;
-            handle.runtime.active_prompt_kind = Some(
-                crate::runtime::session_runtime::RuntimePromptKind::from_notification_type(
-                    notification_type.expect("validated prompt notification type"),
-                ),
-            );
+            handle.runtime.active_prompt_kind = if submitted_prompt {
+                None
+            } else {
+                Some(
+                    crate::runtime::session_runtime::RuntimePromptKind::from_notification_type(
+                        notification_type.expect("validated prompt notification type"),
+                    ),
+                )
+            };
         }
         if let Some(observed_at) = observed_at {
             handle.runtime.last_hook_attention_at = Some(observed_at);
