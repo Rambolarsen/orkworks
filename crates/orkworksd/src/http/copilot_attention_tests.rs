@@ -193,6 +193,29 @@ mod copilot_attention {
     }
 
     #[tokio::test]
+    async fn copilot_pre_activation_submission_fences_delayed_prompt_without_attention_write() {
+        let fixture = Fixture::new();
+        let before = serde_json::to_value(fixture.saved()).unwrap();
+        assert_eq!(
+            fixture
+                .send(fixture.report("userPromptSubmitted", None, 2))
+                .await,
+            StatusCode::OK
+        );
+        assert_eq!(
+            fixture
+                .send(fixture.report("notification", Some("permission_prompt"), 1))
+                .await,
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(serde_json::to_value(fixture.saved()).unwrap(), before);
+        assert!(!crate::runtime::prompt_authority::registry().is_active(&fixture.id));
+        // A later prompt may still activate authority normally.
+        fixture.prompt("permission_prompt", 3).await;
+        assert!(crate::runtime::prompt_authority::registry().is_active(&fixture.id));
+    }
+
+    #[tokio::test]
     async fn copilot_turn_reports_require_valid_timestamp_identity_and_generation() {
         let fixture = Fixture::new();
         fixture.prompt("permission_prompt", 0).await;

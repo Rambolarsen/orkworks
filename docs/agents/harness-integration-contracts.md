@@ -201,6 +201,8 @@ invocation ID to correlate with the prompt. `agentStop` fires before the agent
 is necessarily done because a configured hook can block it and force
 continuation, so it does not write idle or clear a wait. Before activation,
 `userPromptSubmitted` does not write attention.
+An authenticated submission before activation still advances the hook-event
+ordering fence, so a delayed older prompt cannot activate a superseded wait.
 The source adapter installs `notification`, `sessionStart`, and
 `userPromptSubmitted`; existing installations need explicit reconciliation in
 Settings to add the submission hook. Both reporter platforms register the

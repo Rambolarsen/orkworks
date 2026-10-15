@@ -4713,6 +4713,10 @@ impl SessionApplication {
         // A turn event cannot establish prompt authority or suppress Peon's
         // fallback through an attention write before the first real prompt.
         if submitted_prompt && !authority.is_active(id) {
+            // Still retain the authenticated event order: asynchronous older
+            // prompt notifications must not activate a superseded wait.
+            handle.runtime.last_hook_attention_at = observed_at;
+            handle.runtime.last_hook_attention_sequence = Some(receipt_sequence);
             return Ok(());
         }
         let committed = match if submitted_prompt {
