@@ -63,8 +63,14 @@ releases ownership; time alone cannot evict a live writer. Under the lock,
 mutations reread history, reject revision overflow, flush a bounded temporary
 record, atomically replace the target, and verify it by read-back. Corrupt input
 is preserved and history-write failures do not roll back a ready workspace.
-`pnpm build:native` rebuilds this addon for Electron before dev/build/dist;
-after those commands, `pnpm rebuild fs-ext` restores the host Node ABI for tests.
+`pnpm build:native` runs the native dependency installer and verifies this addon
+in the installed Electron runtime before dev/build/dist. A failed load forces a
+targeted rebuild against the installed Electron version and a second load check;
+a stale rebuild marker alone cannot establish ABI compatibility. After those
+commands, `pnpm rebuild fs-ext` restores the host Node ABI for tests. The separate
+`pnpm test:native` regression exercises host-built addon reuse with a stale
+Electron marker, actual advisory locking, and repeated startup; it restores the
+host ABI before the ordinary Node tests and must not run concurrently with them.
 
 Automatic recovery is bounded: one recovery sequence makes at most three
 sidecar launches in total (the initial launch plus two automatic retries), with

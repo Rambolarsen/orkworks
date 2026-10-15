@@ -32,6 +32,9 @@ pnpm package:release
 # Build the Rust sidecar through the desktop package
 pnpm build:rust
 
+# Native ABI repair regression (run separately; restores host Node ABI)
+pnpm test:native
+
 # Type-check and test
 npx tsc --noEmit
 node --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs

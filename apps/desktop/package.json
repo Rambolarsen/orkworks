@@ -13,7 +13,8 @@
     "postinstall": "node scripts/setup-electron.mjs",
     "dev": "pnpm build:rust && pnpm build:native && tsc -p tsconfig.node.json && node scripts/build-preload.mjs && node scripts/dev.mjs",
     "build": "pnpm build:native && tsc -p tsconfig.node.json && node scripts/build-preload.mjs && vite build",
-    "build:native": "electron-builder install-app-deps",
+    "test:native": "node --test tests/nativeBuild.integration.mjs",
+    "build:native": "electron-builder install-app-deps && node scripts/build-native.mjs",
     "build:rust": "cargo build --manifest-path ../../crates/orkworksd/Cargo.toml",
     "build:rust:release": "cargo build --release --manifest-path ../../crates/orkworksd/Cargo.toml",
     "package:release": "node scripts/package-release.mjs",
@@ -42,6 +43,7 @@
     "fsevents": true
   },
   "devDependencies": {
+    "@electron/rebuild": "4.0.4",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
