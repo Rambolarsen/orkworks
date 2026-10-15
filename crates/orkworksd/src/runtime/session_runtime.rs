@@ -1492,6 +1492,14 @@ async fn stop_native_startup(native: &mut Option<super::codex_native::OwnedNativ
     *native = None;
 }
 
+fn initial_prompt_command(prompt: &str) -> RuntimeCommand {
+    RuntimeCommand::Input {
+        // Match terminal Enter; LF can insert a newline in coding-tool editors.
+        data: format!("{prompt}\r"),
+        accepted: None,
+    }
+}
+
 pub(crate) async fn start_session_runtime(
     state: Arc<AppState>,
     id: String,
@@ -1952,10 +1960,7 @@ async fn start_session_runtime_inner(
         let mut child_exit: Option<Result<(), String>> = None;
 
         if let Some(prompt) = initial_prompt {
-            pending_commands.push_front(RuntimeCommand::Input {
-                data: format!("{prompt}\n"),
-                accepted: None,
-            });
+            pending_commands.push_front(initial_prompt_command(&prompt));
         }
 
         loop {
@@ -2473,6 +2478,19 @@ mod tests {
     use std::sync::atomic::AtomicU16;
     use std::sync::{Arc, Mutex, RwLock};
     use std::time::Duration;
+
+    #[test]
+    fn initial_prompt_uses_enter_to_submit_and_preserves_embedded_newlines() {
+        for (prompt, expected) in [
+            ("fix the bug", "fix the bug\r"),
+            ("first line\nsecond line", "first line\nsecond line\r"),
+        ] {
+            let RuntimeCommand::Input { data, .. } = initial_prompt_command(prompt) else {
+                panic!("initial prompt must be terminal input");
+            };
+            assert_eq!(data.as_bytes(), expected.as_bytes());
+        }
+    }
 
     fn acknowledge_resize_as_startup(
         state: Arc<AppState>,
