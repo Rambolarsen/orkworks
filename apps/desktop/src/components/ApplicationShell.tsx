@@ -324,9 +324,10 @@ export default function ApplicationShell(props: Props) {
       <span className="shell-utility-scope">Workspace: {props.workspace?.path ?? "No workspace"}
         {props.inspector === "capacity" ? " · All coding tools" : ""}</span>}
     {!temporary && <button type="button" data-shell-pin aria-pressed={!!props.preferences.inspectorPinned}
+      aria-label={props.preferences.inspectorPinned ? "Unpin inspector" : "Pin inspector"}
+      title={props.preferences.inspectorPinned ? "Unpin inspector" : "Pin inspector"}
       onClick={() => props.onPreferencesChange({ ...props.preferences, inspectorPinned: !props.preferences.inspectorPinned })}>
       {props.preferences.inspectorPinned ? <PinOff size={15} aria-hidden="true" /> : <Pin size={15} aria-hidden="true" />}
-      {props.preferences.inspectorPinned ? "Unpin inspector" : "Pin inspector"}
     </button>}
     <button type="button" data-shell-return onClick={closePage}
       aria-label={temporary ? undefined : "Close inspector"} title={temporary ? undefined : "Close inspector"}>
