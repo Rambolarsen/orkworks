@@ -96,6 +96,14 @@ export interface SessionInfo {
   peonDiagnostics?: PeonDiagnostics | null;
   metadataSource?: string;
   metadataConfidence?: number;
+  attentionSource?: string;
+  attentionConfidence?: number;
+  attentionOrigin?: string;
+  attentionUpdatedAt?: string;
+  workMetadataUpdatedAt?: string;
+  summarySource?: string;
+  summaryConfidence?: number;
+  summaryObservedAt?: string;
   repoRoot?: string;
   branch?: string;
   dirty?: boolean;

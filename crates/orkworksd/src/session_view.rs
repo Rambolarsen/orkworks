@@ -182,15 +182,15 @@ pub(crate) fn merge_live_session_info(
     )
 }
 
-/// Single owner of `SessionInfo`'s field-precedence policy ("meta wins
-/// unless empty", "live wins for status", "attention derived only when
-/// alive"), shared by the live-session path (`merge_live_session_info`,
+/// Single owner of `SessionInfo`'s field-precedence policy (canonical
+/// metadata owns the complete attention tuple, live wins for process status,
+/// and attention is visible only while alive), shared by the live-session path (`merge_live_session_info`,
 /// `is_live` computed from the live handle) and the remembered-session path
 /// (`session_projection::remembered_session_info`, which has no live handle
 /// and always passes `is_live: false`). `info` supplies every field a live
 /// handle can override; a remembered caller passes a baseline built purely
-/// from `meta` ([`SessionInfo::baseline_from_metadata`]) so every `.or(info.X)`
-/// fallback below is a deliberate no-op instead of a second, independently
+/// from `meta` ([`SessionInfo::baseline_from_metadata`]) so live fallbacks
+/// below are deliberate no-ops instead of a second, independently
 /// maintained set of precedence rules (issue #399).
 pub(crate) fn project_session_info(
     info: SessionInfo,
@@ -220,17 +220,47 @@ pub(crate) fn project_session_info(
     let attention = if lifecycle == "alive" && info.at_usage_limit == Some(true) {
         Some("capped".into())
     } else if lifecycle == "alive" {
-        meta.and_then(|m| m.attention.clone()).or(info.attention)
+        meta.map(|m| m.attention.clone()).unwrap_or(info.attention)
     } else {
         None
     };
+
+    let mut provenance = meta
+        .map(|m| m.provenance.clone())
+        .unwrap_or(info.provenance);
+    let attention_snapshot = meta.and_then(|m| match m.lifecycle_phase.as_str() {
+        "ending" => m
+            .ending_observed_status_snapshot
+            .as_ref()
+            .or(m.final_observed_status_snapshot.as_ref()),
+        "ended" => m
+            .final_observed_status_snapshot
+            .as_ref()
+            .or(m.ending_observed_status_snapshot.as_ref()),
+        _ => None,
+    });
+    if let Some(snapshot) = attention_snapshot {
+        provenance.attention_source = Some(if snapshot.source == "codex_hook" {
+            "agent".into()
+        } else {
+            snapshot.source.clone()
+        });
+        provenance.attention_confidence = snapshot.confidence;
+        provenance.attention_origin = Some(
+            snapshot
+                .attention_origin
+                .clone()
+                .unwrap_or_else(|| "legacy_unknown".into()),
+        );
+        provenance.attention_updated_at = snapshot.observed_at.clone();
+    }
 
     let (resume_exact, resume_latest_cwd, resume_latest_repo) = harness
         .map(ResolvedHarness::resume_flags)
         .unwrap_or_default();
 
     SessionInfo {
-        provenance: Default::default(),
+        provenance,
         id: info.id,
         label: meta.map(|m| m.label.clone()).unwrap_or(info.label),
         harness_id: meta
@@ -285,30 +315,30 @@ pub(crate) fn project_session_info(
             })
             .or(info.final_observed_status),
         observed_status: meta
-            .and_then(|m| m.observed_status.clone())
-            .or(info.observed_status),
-        summary: meta.and_then(|m| m.summary.clone()).or(info.summary),
+            .map(|m| m.observed_status.clone())
+            .unwrap_or(info.observed_status),
+        summary: meta.map(|m| m.summary.clone()).unwrap_or(info.summary),
         next_action: meta
-            .and_then(|m| m.next_action.clone())
-            .or(info.next_action),
+            .map(|m| m.next_action.clone())
+            .unwrap_or(info.next_action),
         needs_user_input: meta
-            .and_then(|m| m.needs_user_input)
-            .or(info.needs_user_input),
+            .map(|m| m.needs_user_input)
+            .unwrap_or(info.needs_user_input),
         detected_question: meta
-            .and_then(|m| m.detected_question.clone())
-            .or(info.detected_question),
+            .map(|m| m.detected_question.clone())
+            .unwrap_or(info.detected_question),
         suggested_options: meta
-            .and_then(|m| m.suggested_options.clone())
-            .or(info.suggested_options),
+            .map(|m| m.suggested_options.clone())
+            .unwrap_or(info.suggested_options),
         blocker_description: meta
-            .and_then(|m| m.blocker_description.clone())
-            .or(info.blocker_description),
+            .map(|m| m.blocker_description.clone())
+            .unwrap_or(info.blocker_description),
         failed_command: meta
-            .and_then(|m| m.failed_command.clone())
-            .or(info.failed_command),
+            .map(|m| m.failed_command.clone())
+            .unwrap_or(info.failed_command),
         failed_test: meta
-            .and_then(|m| m.failed_test.clone())
-            .or(info.failed_test),
+            .map(|m| m.failed_test.clone())
+            .unwrap_or(info.failed_test),
         capacity_hints: meta
             .and_then(|m| m.capacity_hints.clone())
             .or(info.capacity_hints),
@@ -1228,5 +1258,140 @@ mod tests {
         );
 
         assert_eq!(merged.final_observed_status.as_deref(), Some("done"));
+    }
+
+    #[test]
+    fn canonical_attention_clear_does_not_resurrect_cached_live_tuple() {
+        let mut live = test_session_info("clear", "Clear", "/tmp", "running", "now");
+        live.attention = Some("needs_you".into());
+        live.observed_status = Some("waiting_for_input".into());
+        live.needs_user_input = Some(true);
+        live.detected_question = Some("Proceed?".into());
+        live.suggested_options = Some(vec!["yes".into()]);
+        live.summary = Some("Old summary".into());
+        live.next_action = Some("Old action".into());
+        live.blocker_description = Some("Old blocker".into());
+        live.failed_command = Some("old command".into());
+        live.failed_test = Some("old test".into());
+        let mut meta = crate::test_support::test_session_metadata(
+            "clear", "Clear", "/tmp", "running", "now", "now",
+        );
+        meta.lifecycle = "alive".into();
+        meta.lifecycle_phase = "active".into();
+        meta.final_observed_status_snapshot = None;
+        meta.provenance.attention_source = Some("unknown".into());
+        meta.provenance.attention_confidence = Some(0.0);
+        meta.provenance.attention_origin = Some("direct_agent".into());
+        let merged = merge_live_session_info(live, Some(&meta), None, None, &Default::default());
+        assert_eq!(merged.attention, None);
+        assert_eq!(merged.observed_status, None);
+        assert_eq!(merged.needs_user_input, None);
+        assert_eq!(merged.detected_question, None);
+        assert_eq!(merged.suggested_options, None);
+        assert_eq!(merged.summary, None);
+        assert_eq!(merged.next_action, None);
+        assert_eq!(merged.blocker_description, None);
+        assert_eq!(merged.failed_command, None);
+        assert_eq!(merged.failed_test, None);
+        assert_eq!(
+            merged.provenance.attention_source.as_deref(),
+            Some("unknown")
+        );
+    }
+
+    #[test]
+    fn attention_and_work_provenance_remain_independent_in_live_and_final_views() {
+        let live = test_session_info("split", "Split", "/tmp", "running", "now");
+        let mut meta = crate::test_support::test_session_metadata(
+            "split", "Split", "/tmp", "running", "now", "now",
+        );
+        meta.lifecycle = "alive".into();
+        meta.lifecycle_phase = "active".into();
+        meta.final_observed_status_snapshot = None;
+        meta.metadata_source = "peon".into();
+        meta.metadata_confidence = 0.55;
+        meta.provenance.attention_source = Some("agent".into());
+        meta.provenance.attention_confidence = Some(1.0);
+        meta.provenance.attention_origin = Some("direct_agent".into());
+        meta.provenance.summary_source = Some("user".into());
+        let current =
+            merge_live_session_info(live.clone(), Some(&meta), None, None, &Default::default());
+        assert_eq!(current.metadata_source.as_deref(), Some("peon"));
+        assert_eq!(
+            current.provenance.attention_source.as_deref(),
+            Some("agent")
+        );
+        assert_eq!(current.provenance.attention_confidence, Some(1.0));
+        assert_eq!(current.provenance.summary_source.as_deref(), Some("user"));
+
+        meta.lifecycle = "dead".into();
+        meta.lifecycle_phase = "ended".into();
+        meta.final_observed_status_snapshot = Some(metadata::ObservedStatusSnapshotMetadata {
+            value: Some("done".into()),
+            source: "peon".into(),
+            confidence: Some(0.8),
+            attention_origin: Some("peon".into()),
+            observed_at: Some("later".into()),
+        });
+        let final_view =
+            merge_live_session_info(live, Some(&meta), None, None, &Default::default());
+        assert_eq!(
+            final_view.provenance.attention_source.as_deref(),
+            Some("peon")
+        );
+        assert_eq!(final_view.provenance.attention_confidence, Some(0.8));
+        assert_eq!(
+            final_view.provenance.attention_origin.as_deref(),
+            Some("peon")
+        );
+
+        meta.lifecycle = "stopping".into();
+        meta.lifecycle_phase = "ending".into();
+        meta.final_observed_status_snapshot = None;
+        meta.ending_observed_status_snapshot = Some(metadata::ObservedStatusSnapshotMetadata {
+            value: Some("waiting_for_input".into()),
+            source: "agent".into(),
+            confidence: Some(1.0),
+            attention_origin: Some("direct_agent".into()),
+            observed_at: Some("ending".into()),
+        });
+        let ending_view = merge_live_session_info(
+            test_session_info("split", "Split", "/tmp", "running", "now"),
+            Some(&meta),
+            None,
+            None,
+            &Default::default(),
+        );
+        assert_eq!(
+            ending_view.provenance.attention_source.as_deref(),
+            Some("agent")
+        );
+        assert_eq!(ending_view.provenance.attention_confidence, Some(1.0));
+        assert_eq!(
+            ending_view.provenance.attention_origin.as_deref(),
+            Some("direct_agent")
+        );
+    }
+
+    #[test]
+    fn old_final_snapshot_normalizes_codex_hook_and_marks_unknown_origin() {
+        let live = test_session_info("old", "Old", "/tmp", "ended", "now");
+        let mut meta =
+            crate::test_support::test_session_metadata("old", "Old", "/tmp", "ended", "now", "now");
+        meta.lifecycle = "dead".into();
+        meta.lifecycle_phase = "ended".into();
+        meta.final_observed_status_snapshot = Some(metadata::ObservedStatusSnapshotMetadata {
+            value: Some("done".into()),
+            source: "codex_hook".into(),
+            confidence: Some(0.9),
+            attention_origin: None,
+            observed_at: Some("before".into()),
+        });
+        let view = merge_live_session_info(live, Some(&meta), None, None, &Default::default());
+        assert_eq!(view.provenance.attention_source.as_deref(), Some("agent"));
+        assert_eq!(
+            view.provenance.attention_origin.as_deref(),
+            Some("legacy_unknown")
+        );
     }
 }

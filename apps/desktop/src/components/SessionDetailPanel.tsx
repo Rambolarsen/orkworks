@@ -119,7 +119,8 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, onResumeSes
 
   const attn = sessionAttentionStatus(active);
   const tone = attentionTone(attn);
-  const sourceTag = active.metadataSource;
+  const sourceTag = active.attentionSource ?? active.metadataSource;
+  const sourceConfidence = active.attentionSource === undefined ? active.metadataConfidence : active.attentionConfidence;
   const providerContext = sessionProviderContext(active);
   const voice = nativeVoicePresentation(sessionCodingTool(active), harnesses);
   const folder = active.cwd.split("/").pop() || active.cwd;
@@ -136,7 +137,7 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, onResumeSes
   if (sourceTag) {
     provenanceItems.push(
       <SourceBadge key="source" source={sourceTag}>
-        {sourceWithConfidence(sourceTag, active.metadataConfidence)}
+        {sourceWithConfidence(sourceTag, sourceConfidence)}
       </SourceBadge>,
     );
   }

@@ -1057,16 +1057,20 @@ fn project_live_peon_diagnostics(state: &AppState, info: &mut SessionInfo) {
 pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || {
         let projection = SessionProjection::new(state.clone());
-        let mut infos = projection.list();
+        let mut infos = projection.list()?;
         for info in &mut infos {
             project_live_peon_diagnostics(&state, info);
         }
-        infos
+        Ok::<_, std::io::Error>(infos)
     })
     .await;
 
     match result {
-        Ok(infos) => Json(infos).into_response(),
+        Ok(Ok(infos)) => Json(infos).into_response(),
+        Ok(Err(error)) => {
+            tracing::error!(error = %error, "session projection failed");
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
         Err(error) => {
             tracing::error!(error = %error, "session projection task failed");
             axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response()
@@ -1293,6 +1297,18 @@ mod tests {
         duplicate_metadata.summary = Some("durable summary".into());
         duplicate_metadata.metadata_source = "agent".into();
         duplicate_metadata.metadata_confidence = 0.9;
+        duplicate_metadata.provenance.attention_source = Some("peon".into());
+        duplicate_metadata.provenance.attention_confidence = Some(0.7);
+        duplicate_metadata.provenance.attention_origin = Some("backend_inference".into());
+        duplicate_metadata.provenance.summary_source = Some("user".into());
+        duplicate_metadata.final_observed_status_snapshot =
+            Some(metadata::ObservedStatusSnapshotMetadata {
+                value: Some("done".into()),
+                source: "peon".into(),
+                confidence: Some(0.7),
+                attention_origin: Some("backend_inference".into()),
+                observed_at: Some("durable-activity".into()),
+            });
         let mut remembered_one = test_session_metadata(
             "remembered-one",
             "Remembered one",
@@ -1359,6 +1375,10 @@ mod tests {
         assert_eq!(duplicate["summary"], "durable summary");
         assert_eq!(duplicate["metadataSource"], "agent");
         assert_eq!(duplicate["metadataConfidence"], 0.9);
+        assert_eq!(duplicate["attentionSource"], "peon");
+        assert_eq!(duplicate["attentionConfidence"], 0.7);
+        assert_eq!(duplicate["attentionOrigin"], "backend_inference");
+        assert_eq!(duplicate["summarySource"], "user");
 
         let live_ids = [duplicate_id, "live-only"];
         let first_remembered = sessions
@@ -1380,7 +1400,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn list_sessions_omits_missing_or_corrupt_metadata_without_hiding_live_records() {
+    async fn list_sessions_distinguishes_missing_metadata_from_corrupt_records() {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
         state.sessions.lock().unwrap().insert(
@@ -1401,15 +1421,33 @@ mod tests {
             b"not valid json",
         )
         .unwrap();
+        let response = list_sessions(State(state.clone())).await.into_response();
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR
+        );
+        assert!(
+            metadata_dir.join("remembered-corrupt.json").exists(),
+            "projection must not quarantine corrupt records"
+        );
         std::fs::write(
             metadata_dir.join("live-without-metadata.json"),
             b"not valid json",
         )
         .unwrap();
 
-        let sessions = listed_sessions(state).await;
-        assert_eq!(sessions.len(), 1, "corrupt remembered records are omitted");
-        assert_eq!(sessions[0]["id"], "live-without-metadata");
+        let response = list_sessions(State(state)).await.into_response();
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR
+        );
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert!(
+            body.is_empty(),
+            "projection errors must not publish a stale list"
+        );
     }
 
     #[tokio::test]
@@ -1505,7 +1543,7 @@ mod tests {
             .insert("projected-capacity".into(), live);
         *state.workspace.lock().unwrap() = None;
 
-        let infos = SessionProjection::new(state.clone()).list();
+        let infos = SessionProjection::new(state.clone()).list().unwrap();
 
         assert_eq!(infos.len(), 1);
         assert_eq!(infos[0].at_usage_limit, Some(true));

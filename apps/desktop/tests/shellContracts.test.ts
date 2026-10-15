@@ -135,6 +135,12 @@ test("SessionDetailPanel groups content into situation/actions/facts/provenance 
   assert.match(source, /sourceWithConfidence/);
 });
 
+test("SessionDetailPanel badges attention authority independently from work metadata", () => {
+  const source = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
+  assert.match(source, /active\.attentionSource\s*\?\?\s*active\.metadataSource/);
+  assert.match(source, /active\.attentionSource\s*===\s*undefined\s*\?\s*active\.metadataConfidence\s*:\s*active\.attentionConfidence/);
+});
+
 test("SessionDetailPanel surfaces provider timeout recovery outside debug metadata", () => {
   const source = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
 

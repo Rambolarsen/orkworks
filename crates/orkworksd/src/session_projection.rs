@@ -8,6 +8,7 @@ use crate::session_view::{
 };
 use crate::AppState;
 use std::collections::{HashMap, HashSet};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -111,7 +112,7 @@ impl SessionProjection {
         Self { state }
     }
 
-    fn snapshot(&self) -> ProjectionSnapshot {
+    fn snapshot(&self) -> io::Result<ProjectionSnapshot> {
         let registry = self
             .state
             .harness_catalog
@@ -140,22 +141,18 @@ impl SessionProjection {
         let metadata = workspace
             .as_ref()
             .map(|snapshot| metadata::MetadataStore::new(&snapshot.metadata_root));
-        let metadata_map = metadata
-            .as_ref()
-            .map(|store| {
-                live_sessions
-                    .iter()
-                    .filter_map(|info| {
-                        store
-                            .read_session(&info.id)
-                            .map(|meta| (info.id.clone(), meta))
-                    })
-                    .collect::<HashMap<_, _>>()
-            })
-            .unwrap_or_default();
+        let mut metadata_map = HashMap::new();
+        if let Some(store) = metadata.as_ref() {
+            for info in &live_sessions {
+                if let Some(record) = store.try_read_revisioned_session(&info.id)? {
+                    metadata_map.insert(info.id.clone(), record.metadata);
+                }
+            }
+        }
         let remembered_sessions = metadata
             .as_ref()
-            .map(metadata::MetadataStore::read_all_sessions)
+            .map(read_remembered_sessions)
+            .transpose()?
             .unwrap_or_default();
         let mut codex_native_session_ids = live_sessions
             .iter()
@@ -226,20 +223,20 @@ impl SessionProjection {
             ));
         }
 
-        ProjectionSnapshot {
+        Ok(ProjectionSnapshot {
             infos,
             workspace_identity: workspace.as_ref().map(|snapshot| snapshot.identity.clone()),
             metadata_root: workspace
                 .as_ref()
                 .map(|snapshot| snapshot.metadata_root.clone()),
-        }
+        })
     }
 
-    pub(crate) fn list(&self) -> Vec<SessionInfo> {
+    pub(crate) fn list(&self) -> io::Result<Vec<SessionInfo>> {
         let lock_state = self.state.clone();
         let _projection_lock = lock_state.projection_lock.lock().unwrap();
-        let infos = self.project_capacity(self.snapshot());
-        self.enrich_workspace(infos)
+        let infos = self.project_capacity(self.snapshot()?)?;
+        Ok(self.enrich_workspace(infos))
     }
 
     pub(crate) fn enrich_workspace(&self, mut infos: Vec<SessionInfo>) -> Vec<SessionInfo> {
@@ -272,7 +269,7 @@ impl SessionProjection {
         infos
     }
 
-    fn project_capacity(&self, snapshot: ProjectionSnapshot) -> Vec<SessionInfo> {
+    fn project_capacity(&self, snapshot: ProjectionSnapshot) -> io::Result<Vec<SessionInfo>> {
         let registry = self
             .state
             .harness_catalog
@@ -280,7 +277,7 @@ impl SessionProjection {
             .expect("harness catalog lock poisoned")
             .clone();
         let workspace_identity = snapshot.workspace_identity;
-        let metadata_root = snapshot.metadata_root;
+        let _metadata_root = snapshot.metadata_root;
         let projected_infos = snapshot.infos;
         let live_sessions: Vec<_> = {
             let sessions = self.state.sessions.lock().unwrap();
@@ -304,23 +301,14 @@ impl SessionProjection {
                     (info.id.clone(), (*generation, capacity.clone()))
                 })
                 .collect();
-        let capacity_metadata = metadata_root
-            .as_ref()
-            .map(|root| metadata::MetadataStore::new(root));
-        let durable_harnesses: HashMap<String, String> = capacity_metadata
-            .as_ref()
-            .map(|metadata| {
-                live_sessions
-                    .iter()
-                    .filter_map(|(info, _, _, _, _)| {
-                        metadata
-                            .read_session(&info.id)
-                            .filter(|session| !session.harness.is_empty())
-                            .map(|session| (info.id.clone(), session.harness))
-                    })
-                    .collect()
+        let durable_harnesses: HashMap<String, String> = projected_infos
+            .iter()
+            .filter_map(|info| {
+                info.harness_id
+                    .as_ref()
+                    .map(|harness| (info.id.clone(), harness.clone()))
             })
-            .unwrap_or_default();
+            .collect();
 
         // Per-session scoped-recheck decisions from `CapacityState::observe`,
         // kept for the write-back stage: the *latch* write-back uses the
@@ -434,7 +422,7 @@ impl SessionProjection {
             .as_ref()
             .map(|workspace| workspace.metadata.root_path());
         if current_workspace_identity != workspace_identity {
-            return Vec::new();
+            return Ok(Vec::new());
         }
         let mut sessions = self.state.sessions.lock().unwrap();
         let mut write_back_snapshot_ids = HashSet::new();
@@ -507,8 +495,41 @@ impl SessionProjection {
                 handle.info.capacity_check_pending = new_value;
             }
         }
-        infos
+        Ok(infos)
     }
+}
+
+/// Scan remembered records without the legacy read path's quarantine and
+/// skip-on-error behavior. A missing directory is a fresh workspace; a file
+/// listed by the directory must remain readable and valid for this response.
+fn read_remembered_sessions(
+    store: &metadata::MetadataStore,
+) -> io::Result<Vec<metadata::SessionMetadata>> {
+    let entries = match std::fs::read_dir(store.sessions_dir()) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error),
+    };
+    let mut sessions = Vec::new();
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
+            continue;
+        }
+        let id = path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidData, "invalid session filename")
+            })?;
+        let record = store.try_read_revisioned_session(id)?.ok_or_else(|| {
+            io::Error::new(io::ErrorKind::NotFound, "listed session record disappeared")
+        })?;
+        sessions.push(record.metadata);
+    }
+    sessions.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+    Ok(sessions)
 }
 
 pub(crate) fn enrich_sessions_with_git_context<F>(
