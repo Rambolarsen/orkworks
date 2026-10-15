@@ -67,7 +67,7 @@ fn perform(
         .lock()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let workspace = workspace_guard.as_ref().ok_or(StatusCode::UNAUTHORIZED)?;
-    let sessions_guard = state
+    let mut sessions_guard = state
         .sessions
         .lock()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -108,8 +108,10 @@ fn perform(
     {
         return Err(StatusCode::UNAUTHORIZED);
     }
-    let value = match operation {
-        ParsedOperation::Read => serde_json::to_value(record),
+    match operation {
+        ParsedOperation::Read => {
+            serde_json::to_value(record).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+        }
         ParsedOperation::Patch {
             envelope,
             validate_only,
@@ -123,16 +125,65 @@ fn perform(
                     validated: true,
                     metadata_revision: revision,
                 })
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
             } else {
+                let scope = envelope.patch.scope();
+                let updates_summary = envelope.patch.updates_summary();
                 let updated = workspace
                     .metadata
                     .apply_agent_patch(id, &envelope.metadata_revision, &envelope.patch)
                     .map_err(status_for_patch_error)?;
-                serde_json::to_value(updated)
+                let value = serde_json::to_value(&updated)
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                let handle = sessions_guard
+                    .get_mut(id)
+                    .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+                handle.info.last_activity_at = Some(updated.metadata.last_activity.clone());
+                if scope.attention {
+                    handle.runtime.attention_owner.accepted_write();
+                    handle.info.observed_status = updated.metadata.observed_status.clone();
+                    handle.info.attention = updated.metadata.attention.clone();
+                    handle.info.needs_user_input = updated.metadata.needs_user_input;
+                    handle.info.detected_question = updated.metadata.detected_question.clone();
+                    handle.info.suggested_options = updated.metadata.suggested_options.clone();
+                    handle.info.provenance.attention_source =
+                        updated.metadata.provenance.attention_source.clone();
+                    handle.info.provenance.attention_confidence =
+                        updated.metadata.provenance.attention_confidence;
+                    handle.info.provenance.attention_origin =
+                        updated.metadata.provenance.attention_origin.clone();
+                    handle.info.provenance.attention_updated_at =
+                        updated.metadata.provenance.attention_updated_at.clone();
+                    if let Some(tracker) = handle.runtime.native_approval.as_mut() {
+                        tracker.invalidate();
+                    }
+                    handle.pending_work_signal = None;
+                    handle.runtime.active_prompt_kind = None;
+                }
+                if scope.work {
+                    handle.info.work_phase = updated.metadata.work_phase.clone();
+                    handle.info.next_action = updated.metadata.next_action.clone();
+                    handle.info.blocker_description = updated.metadata.blocker_description.clone();
+                    handle.info.failed_command = updated.metadata.failed_command.clone();
+                    handle.info.failed_test = updated.metadata.failed_test.clone();
+                    handle.info.metadata_source = Some(updated.metadata.metadata_source.clone());
+                    handle.info.metadata_confidence = Some(updated.metadata.metadata_confidence);
+                    handle.info.provenance.work_metadata_updated_at =
+                        updated.metadata.provenance.work_metadata_updated_at.clone();
+                }
+                if updates_summary {
+                    handle.info.summary = updated.metadata.summary.clone();
+                    handle.info.provenance.summary_source =
+                        updated.metadata.provenance.summary_source.clone();
+                    handle.info.provenance.summary_confidence =
+                        updated.metadata.provenance.summary_confidence;
+                    handle.info.provenance.summary_observed_at =
+                        updated.metadata.provenance.summary_observed_at.clone();
+                }
+                Ok(value)
             }
         }
-    };
-    value.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+    }
 }
 
 enum ParsedOperation {
@@ -251,6 +302,37 @@ mod tests {
         drop(ws);
         set_workflow_report_token(&id, "secret".into());
         (state, id, dir)
+    }
+
+    fn install_hook_owned_wait(state: &Arc<AppState>, id: &str) {
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let store = &workspace.as_ref().unwrap().metadata;
+            let mut meta = store.read_session(id).unwrap();
+            meta.observed_status = Some("waiting_for_input".into());
+            meta.attention = Some("needs_you".into());
+            meta.needs_user_input = Some(true);
+            meta.provenance.attention_source = Some("agent".into());
+            meta.provenance.attention_origin = Some("harness_hook".into());
+            store.write_session(&meta);
+        }
+        let mut sessions = state.sessions.lock().unwrap();
+        let handle = sessions.get_mut(id).unwrap();
+        handle.info.observed_status = Some("waiting_for_input".into());
+        handle.info.attention = Some("needs_you".into());
+        handle.info.needs_user_input = Some(true);
+        handle.info.provenance.attention_source = Some("agent".into());
+        handle.info.provenance.attention_origin = Some("harness_hook".into());
+        handle.runtime.attention_owner.accepted_write();
+        let mut tracker = crate::runtime::codex_approval_application::NativeApprovalState::new(1);
+        tracker.record_validated_permission(&handle.runtime.attention_owner);
+        handle.runtime.native_approval = Some(tracker);
+        assert!(handle
+            .runtime
+            .native_approval
+            .as_ref()
+            .unwrap()
+            .protects_permission_wait(&handle.runtime.attention_owner, &handle.info));
     }
 
     async fn request(
@@ -437,6 +519,120 @@ mod tests {
             "patch":{"agentMetadata":{"summary":"x".repeat(9_000)}}});
         let (status, _) = request(state.clone(), &id, "PATCH", Some(body), "secret").await;
         assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+        clear_workflow_report_token(&id);
+    }
+
+    #[tokio::test]
+    async fn accepted_attention_patch_revokes_hook_wait_and_publishes_live_tuple() {
+        let (state, id, _dir) = fixture().await;
+        install_hook_owned_wait(&state, &id);
+        let previous_owner = state
+            .sessions
+            .lock()
+            .unwrap()
+            .get(&id)
+            .unwrap()
+            .runtime
+            .attention_owner
+            .snapshot()
+            .unwrap();
+        let (_, before) = request(state.clone(), &id, "GET", None, "secret").await;
+        let body = json!({"metadataRevision":before["metadataRevision"],"patch":{"attentionState":{
+            "observedStatus":"working","needsUserInput":false,"detectedQuestion":null,"suggestedOptions":[]}}});
+        let (status, after) = request(state.clone(), &id, "PATCH", Some(body), "secret").await;
+        assert_eq!(status, StatusCode::OK);
+        let sessions = state.sessions.lock().unwrap();
+        let handle = sessions.get(&id).unwrap();
+        assert_eq!(handle.info.observed_status.as_deref(), Some("working"));
+        assert_eq!(handle.info.attention.as_deref(), Some("working"));
+        assert_eq!(
+            handle.info.provenance.attention_origin.as_deref(),
+            Some("direct_agent")
+        );
+        assert_eq!(
+            handle.info.provenance.attention_updated_at.as_deref(),
+            after["attentionUpdatedAt"].as_str()
+        );
+        assert!(!handle.runtime.attention_owner.owns(&previous_owner));
+        assert!(!handle
+            .runtime
+            .native_approval
+            .as_ref()
+            .unwrap()
+            .protects_permission_wait(&handle.runtime.attention_owner, &handle.info));
+        drop(sessions);
+        clear_workflow_report_token(&id);
+    }
+
+    #[tokio::test]
+    async fn work_only_patch_preserves_hook_wait_owner() {
+        let (state, id, _dir) = fixture().await;
+        install_hook_owned_wait(&state, &id);
+        let previous_owner = state
+            .sessions
+            .lock()
+            .unwrap()
+            .get(&id)
+            .unwrap()
+            .runtime
+            .attention_owner
+            .snapshot()
+            .unwrap();
+        let (_, before) = request(state.clone(), &id, "GET", None, "secret").await;
+        let body = json!({"metadataRevision":before["metadataRevision"],"patch":{"agentMetadata":{"workFields":{
+            "task":"Implement route","nextAction":"Run tests","workPhase":"implementation",
+            "blockerDescription":null,"failedCommand":null,"failedTest":null}}}});
+        let (status, _) = request(state.clone(), &id, "PATCH", Some(body), "secret").await;
+        assert_eq!(status, StatusCode::OK);
+        let sessions = state.sessions.lock().unwrap();
+        let handle = sessions.get(&id).unwrap();
+        assert!(handle.runtime.attention_owner.owns(&previous_owner));
+        assert!(handle
+            .runtime
+            .native_approval
+            .as_ref()
+            .unwrap()
+            .protects_permission_wait(&handle.runtime.attention_owner, &handle.info));
+        assert_eq!(
+            handle.info.observed_status.as_deref(),
+            Some("waiting_for_input")
+        );
+        drop(sessions);
+        clear_workflow_report_token(&id);
+    }
+
+    #[tokio::test]
+    async fn failed_attention_patch_leaves_live_wait_unchanged() {
+        let (state, id, _dir) = fixture().await;
+        install_hook_owned_wait(&state, &id);
+        let previous_owner = state
+            .sessions
+            .lock()
+            .unwrap()
+            .get(&id)
+            .unwrap()
+            .runtime
+            .attention_owner
+            .snapshot()
+            .unwrap();
+        let body = json!({"metadataRevision":"0","patch":{"attentionState":{
+            "observedStatus":"working","needsUserInput":false,"detectedQuestion":null,"suggestedOptions":[]}}});
+        let (status, _) = request(state.clone(), &id, "PATCH", Some(body), "secret").await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        let sessions = state.sessions.lock().unwrap();
+        let handle = sessions.get(&id).unwrap();
+        assert!(handle.runtime.attention_owner.owns(&previous_owner));
+        assert!(handle
+            .runtime
+            .native_approval
+            .as_ref()
+            .unwrap()
+            .protects_permission_wait(&handle.runtime.attention_owner, &handle.info));
+        assert_eq!(
+            handle.info.observed_status.as_deref(),
+            Some("waiting_for_input")
+        );
+        drop(sessions);
         clear_workflow_report_token(&id);
     }
 }

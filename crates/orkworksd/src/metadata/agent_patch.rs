@@ -271,6 +271,12 @@ impl AgentPatch {
         }
     }
 
+    pub(crate) fn updates_summary(&self) -> bool {
+        self.agent_metadata
+            .as_ref()
+            .is_some_and(|agent| !matches!(agent.summary, FieldUpdate::Omitted))
+    }
+
     fn validate_current(
         &self,
         meta: &SessionMetadata,
