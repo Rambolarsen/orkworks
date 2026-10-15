@@ -135,10 +135,6 @@ export interface ProviderModelsResponse {
   models: string[];
 }
 
-export interface ProviderLabelsResponse {
-  labels: Record<string, string>;
-}
-
 export interface OllamaVerificationResponse {
   ok: boolean;
   normalizedBaseUrl: string;

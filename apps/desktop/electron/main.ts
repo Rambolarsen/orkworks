@@ -15,9 +15,9 @@ import { createShellLayoutMemory } from "./shellLayoutMemory";
 import { confirmShellMemoryRebuild } from "./shellMemoryRebuild";
 import { createWorkspaceNavigationMemory, forgetRememberedWorkspaceWithNavigation, type LastCentralSurface } from "./workspaceNavigationMemory";
 import type { AppSettings } from "./settingsMemory";
-import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, loadSettingsForStartup, normalizeDebugSettings, normalizeProviderSettings, normalizeRetention, providerDefinitionsForStoredSettings, readSettings, settingsWithHotkeys, settingsWithPeonSelection, validateHotkeys, writeSettings } from "./settingsMemory";
+import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, loadSettingsForStartup, normalizeDebugSettings, normalizeProviderSettings, normalizeRetention, readSettings, settingsWithHotkeys, settingsWithPeonSelection, validateHotkeys, writeSettings } from "./settingsMemory";
 import { providerSettingsSyncError, pushProviderSettings } from "./providerSettingsSync";
-import type { PeonAppliedState, PeonProviderVerificationResponse, PeonSelection, ProviderApplyStatus, ProviderDefinition, ProviderId, ProviderModelOption, ProviderSettings } from "./providerTypes";
+import type { PeonAppliedState, PeonProviderVerificationResponse, PeonSelection, ProviderApplyStatus, ProviderDefinition, ProviderId, ProviderModelOption } from "./providerTypes";
 import { createPeonSelectionTransaction, normalizePeonSelectionInput, peonErrorFromBody, type PeonSelectionTransaction } from "./peonSelectionTransaction";
 import { buildMenuTemplate } from "./menuTemplate";
 import { getSessionPlanContent, requestSessionPlanReview, selectTerminalPlan } from "./planOpener";
@@ -43,8 +43,6 @@ import {
   type GroupedIntegrationStatusResult,
   type IntegrationKey,
   type IntegrationRevisionExpectation,
-  type IntegrationStatus,
-  type IntegrationStatusResult,
   type PlannedIntegrationMutation,
 } from "./activeHarnessIntegration";
 
@@ -78,7 +76,6 @@ let menuPanelItems: Record<string, Electron.MenuItem> = {};
 let currentSettings: AppSettings | null = null;
 let providerModels: Map<string, string[]> = new Map();
 const peonModelCatalogCache = new Map<string, { models: ProviderModelOption[]; observedAt: string }>();
-let providerLabels: Record<string, string> = {};
 let hotkeyCaptureActive = false;
 let openPlanToken = "";
 let settingsWriteQueue: Promise<void> = Promise.resolve();
@@ -1505,51 +1502,6 @@ app.whenReady().then(async () => {
     return { ok: true, settings: rendererSettings(nextSettings) };
   });
 
-  ipcMain.handle("save-provider-settings", async (_event, providers: ProviderSettings) => {
-    let previousOllamaBaseUrl: string | undefined;
-    const nextSettings = await enqueueSettingsWrite(() => {
-      const baseSettings = readSettings(app.getPath("userData"));
-      previousOllamaBaseUrl = baseSettings.providers.ollamaBaseUrl;
-      const nextSettings: AppSettings = {
-        ...baseSettings,
-        version: 1,
-        providers: normalizeProviderSettings({
-          ...providers,
-          revision: Math.max(baseSettings.providers.revision + 1, providers.revision),
-        }, providerDefinitionsForStoredSettings(providers)),
-      };
-      writeSettings(app.getPath("userData"), nextSettings);
-      currentSettings = nextSettings;
-      return nextSettings;
-    });
-
-    const port = await restoration.getReadiness();
-    const providerApplyStatus = await pushProviderSettings(`http://127.0.0.1:${port}`, nextSettings.providers);
-
-    if (previousOllamaBaseUrl !== nextSettings.providers.ollamaBaseUrl) {
-      providerModels.delete(providerModelCacheKey("ollama", previousOllamaBaseUrl));
-      providerModels.delete(providerModelCacheKey("ollama", nextSettings.providers.ollamaBaseUrl));
-    }
-
-    return { ok: true, settings: rendererSettings(nextSettings), providerApplyStatus };
-  });
-
-  ipcMain.handle("verify-ollama", async (_event, baseUrl: string) => {
-    const port = await restoration.getReadiness();
-    const response = await fetch(`http://127.0.0.1:${port}/settings/providers/ollama/verify`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ baseUrl }),
-    });
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: "Couldn't verify Ollama." }));
-      throw new Error(error.error ?? "Couldn't verify Ollama.");
-    }
-
-    return await response.json();
-  });
-
   // peonSelectionMatchesAppliedState is enforced by peonSelectionTransaction.
   ipcMain.handle("verify-peon-provider", async (_event, provider: unknown, ollamaBaseUrl: unknown) => {
     if (typeof provider !== "string" || !provider.trim()) throw new Error("Invalid Peon provider.");
@@ -1613,28 +1565,6 @@ app.whenReady().then(async () => {
     return { models: [] };
   });
 
-  ipcMain.handle("get-provider-labels", async () => {
-    if (Object.keys(providerLabels).length > 0) {
-      return { labels: { ...providerLabels } };
-    }
-    try {
-      const port = await restoration.getReadiness();
-      const resp = await fetch(`http://127.0.0.1:${port}/providers`);
-      if (resp.ok) {
-        const data = await resp.json() as { providers: Array<{ id: string; label: string }> };
-        const labels: Record<string, string> = {};
-        for (const entry of data.providers) {
-          labels[entry.id] = entry.label;
-        }
-        providerLabels = labels;
-        return { labels: { ...labels } };
-      }
-    } catch {
-      // Fall through to empty
-    }
-    return { labels: {} };
-  });
-
   ipcMain.handle("get-plan-content", async (_event, sessionId: unknown) => {
     if (typeof sessionId !== "string" || !sessionId) throw new Error("Invalid session ID.");
     return withReadyBackendGeneration((port, token, signal) =>
@@ -1661,34 +1591,25 @@ app.whenReady().then(async () => {
   const STALE_WORKSPACE_FALLBACK_MESSAGE =
     "The workspace changed before this integration request could run. Reload the current workspace and retry.";
 
-  async function callIntegrationRoute(
-    harnessId: unknown,
-    action: "status" | "install" | "uninstall",
-  ): Promise<{ ok: true; status: unknown } | { ok: false; error: string }> {
+  async function getHarnessIntegrationStatus(harnessId: unknown): Promise<{ ok: true; status: unknown } | { ok: false; error: string }> {
     if (typeof harnessId !== "string" || !harnessId) throw new Error("Invalid harness ID.");
-    // Same inner guard as persistActiveHarnesses: restoration.getReadiness()
-    // may resolve to a different sidecar than the one this call started
-    // against if the workspace switched mid-await. Fail closed rather than
-    // sending the request to — for install/uninstall, mutating hook files
-    // in — the wrong workspace. The save orchestrator independently
-    // re-checks staleness after this resolves and reports stale_workspace,
-    // so this failure result is superseded there either way.
+    // Readiness may resolve to a different sidecar after a workspace switch.
+    // Keep status results bound to the workspace and generation that requested them.
     const guard = { workspacePath, generation: backendGeneration, activeHarnessRevision };
     try {
       const port = await restoration.getReadiness();
       if (isStale(guard, { workspacePath, generation: backendGeneration, activeHarnessRevision })) {
         return { ok: false, error: STALE_WORKSPACE_FALLBACK_MESSAGE };
       }
-      const method = action === "status" ? "GET" : "POST";
       const resp = await fetch(
-        `http://127.0.0.1:${port}/workspace/integrations/${encodeURIComponent(harnessId)}/${action}`,
-        { method },
+        `http://127.0.0.1:${port}/workspace/integrations/${encodeURIComponent(harnessId)}/status`,
+        { method: "GET" },
       );
       if (resp.ok) {
         return { ok: true, status: await resp.json() };
       }
       const body = await resp.json().catch(() => ({ error: undefined }));
-      return { ok: false, error: (body as { error?: string }).error ?? `Couldn't ${integrationActionLabels[action]}.` };
+      return { ok: false, error: (body as { error?: string }).error ?? "Couldn't check the integration status." };
     } catch {
       return { ok: false, error: "Couldn't reach the OrkWorks sidecar." };
     }
@@ -1737,14 +1658,6 @@ app.whenReady().then(async () => {
     }
   }
 
-  function toIntegrationStatusResult(
-    response: Awaited<ReturnType<typeof callIntegrationRoute>>,
-  ): IntegrationStatusResult {
-    return response.ok
-      ? { ok: true, status: response.status as IntegrationStatus }
-      : { ok: false, error: response.error };
-  }
-
   function toGroupedIntegrationStatusResult(
     response: Awaited<ReturnType<typeof callGroupedIntegrationRoute>>,
   ): GroupedIntegrationStatusResult {
@@ -1754,7 +1667,7 @@ app.whenReady().then(async () => {
   }
 
   ipcMain.handle("get-harness-integration-status", async (_event, harnessId: unknown) =>
-    callIntegrationRoute(harnessId, "status"));
+    getHarnessIntegrationStatus(harnessId));
 
   ipcMain.handle(
     "get-grouped-harness-integration-status",

@@ -42,7 +42,6 @@ test("Peon bridge keeps Apply separate from durable Save and exposes applied ide
     'ipcMain.handle("save-hotkeys"',
     'ipcMain.handle("save-retention"',
     'ipcMain.handle("save-debug-settings"',
-    'ipcMain.handle("save-provider-settings"',
   ]) {
     const start = mainSource.indexOf(route);
     const end = mainSource.indexOf("ipcMain.handle(", start + route.length);
@@ -209,11 +208,9 @@ test("compatibility model discovery uses sidecar discovery without the transacti
   assert.doesNotMatch(discoveryRoute, /settings\/peon\/provider\/verify/);
 });
 
-test("provider model cache is keyed and invalidated by the Ollama base URL", () => {
+test("provider model cache is keyed by the Ollama base URL", () => {
   assert.match(mainSource, /providerModelCacheKey/);
   assert.match(mainSource, /providerModelCacheKey\(providerId, ollamaBaseUrl\)/);
-  assert.match(mainSource, /previousOllamaBaseUrl/);
-  assert.match(mainSource, /providerModels\.delete\(providerModelCacheKey\("ollama", previousOllamaBaseUrl\)\)/);
 });
 
 test("Peon selection input resolves one persisted custom Ollama URL", () => {

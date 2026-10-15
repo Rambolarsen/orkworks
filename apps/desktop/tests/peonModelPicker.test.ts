@@ -77,7 +77,6 @@ test("SettingsModal renders verify affordance and status region for Ollama", () 
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
   assert.match(source, /verifyPeonProvider/);
   assert.match(source, /role="status"/);
-  assert.match(source, /window\.orkworks\.verifyOllama/);
 });
 
 test("SettingsModal shows a spinner and elapsed time while verifying", () => {
