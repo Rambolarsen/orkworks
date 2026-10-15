@@ -717,6 +717,10 @@ case " $* " in
   if [ "${FIXTURE_TUI_EXIT-}" = yes ]; then exit 0; fi
   if [ "${FIXTURE_TUI_EXIT_ON_SERVER-}" = yes ]; then
    while [ ! -e "$FIXTURE_DIR/server-exited" ]; do sleep 0.005; done
+   # The shell trap writes its marker before exiting. Wait for actual process
+   # termination so the TUI cannot race ahead of the supposed server failure.
+   fixture_owner_pid=$(cat "$FIXTURE_DIR/pid")
+   while kill -0 "$fixture_owner_pid" 2>/dev/null; do sleep 0.005; done
    exit 0
   fi
   while :; do sleep 1; done

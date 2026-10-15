@@ -69,8 +69,28 @@ pub(crate) fn apply_live_attention_fields(
     if let Some(message) = message {
         info.summary = Some(message.to_string());
     }
-    info.metadata_source = Some(source.to_string());
-    info.metadata_confidence = Some(confidence);
+    info.provenance.attention_source = Some(
+        if source == "codex_hook" {
+            "agent"
+        } else {
+            source
+        }
+        .to_string(),
+    );
+    info.provenance.attention_confidence = Some(confidence);
+    info.provenance.attention_origin = Some(
+        match source {
+            "codex_hook" => "harness_hook",
+            "agent" => "direct_agent",
+            "user" => "user",
+            "peon" => "peon",
+            "process" => "process",
+            "debug" => "debug",
+            _ => "backend_inference",
+        }
+        .to_string(),
+    );
+    info.provenance.attention_updated_at = Some(crate::workspace_runtime::iso_now());
 }
 
 /// A transition the sidecar observes about itself, rather than a hook/debug
@@ -107,11 +127,22 @@ pub(crate) fn apply_process_transition_to_handle(
     owner: &mut AttentionOwner,
     fields: &ProcessTransitionFields,
 ) {
+    if info
+        .provenance
+        .attention_source
+        .as_deref()
+        .or(info.metadata_source.as_deref())
+        == Some("user")
+    {
+        return;
+    }
     owner.accepted_write();
     info.observed_status = Some(fields.observed_status.to_string());
     info.attention = Some(fields.observed_status.to_string());
-    info.metadata_source = Some("process".to_string());
-    info.metadata_confidence = Some(1.0);
+    info.provenance.attention_source = Some("process".into());
+    info.provenance.attention_confidence = Some(1.0);
+    info.provenance.attention_origin = Some("process".into());
+    info.provenance.attention_updated_at = Some(crate::workspace_runtime::iso_now());
     if fields.clear_question_fields {
         info.needs_user_input = None;
         info.detected_question = None;
@@ -125,8 +156,9 @@ pub(crate) fn apply_process_transition_to_meta(
 ) {
     meta.observed_status = Some(fields.observed_status.to_string());
     meta.attention = Some(fields.observed_status.to_string());
-    meta.metadata_source = "process".to_string();
-    meta.metadata_confidence = 1.0;
+    meta.provenance.attention_source = Some("process".into());
+    meta.provenance.attention_confidence = Some(1.0);
+    meta.provenance.attention_origin = Some("process".into());
     if fields.clear_question_fields {
         meta.needs_user_input = None;
         meta.detected_question = None;
@@ -185,8 +217,8 @@ mod tests {
         assert_eq!(info.observed_status.as_deref(), Some("waiting_for_input"));
         assert_eq!(info.attention.as_deref(), Some("needs_you"));
         assert_eq!(info.summary.as_deref(), Some("hi"));
-        assert_eq!(info.metadata_source.as_deref(), Some("agent"));
-        assert_eq!(info.metadata_confidence, Some(1.0));
+        assert_eq!(info.provenance.attention_source.as_deref(), Some("agent"));
+        assert_eq!(info.provenance.attention_confidence, Some(1.0));
     }
 
     #[test]
@@ -244,8 +276,8 @@ mod tests {
         apply_process_transition_to_handle(&mut info, &mut AttentionOwner::default(), &fields);
         assert_eq!(info.observed_status.as_deref(), Some("working"));
         assert_eq!(info.attention.as_deref(), Some("working"));
-        assert_eq!(info.metadata_source.as_deref(), Some("process"));
-        assert_eq!(info.metadata_confidence, Some(1.0));
+        assert_eq!(info.provenance.attention_source.as_deref(), Some("process"));
+        assert_eq!(info.provenance.attention_confidence, Some(1.0));
         assert_eq!(info.needs_user_input, None);
         assert_eq!(info.detected_question, None);
         assert_eq!(info.suggested_options, None);
@@ -278,8 +310,21 @@ mod tests {
         apply_process_transition_to_meta(&mut meta, &fields);
         assert_eq!(meta.observed_status.as_deref(), Some("working"));
         assert_eq!(meta.attention.as_deref(), Some("working"));
-        assert_eq!(meta.metadata_source, "process");
-        assert_eq!(meta.metadata_confidence, 1.0);
+        assert_eq!(meta.provenance.attention_source.as_deref(), Some("process"));
+        assert_eq!(meta.provenance.attention_confidence, Some(1.0));
         assert_eq!(meta.needs_user_input, None);
+    }
+
+    #[test]
+    fn user_attention_is_not_replaced_by_process_mirror() {
+        let mut info = bare_info("alive");
+        info.provenance.attention_source = Some("user".into());
+        info.observed_status = Some("blocked".into());
+        let mut owner = AttentionOwner::default();
+        let token = owner.snapshot().unwrap();
+        let fields = process_transition_fields(ProcessTransition::CommittedWorking);
+        apply_process_transition_to_handle(&mut info, &mut owner, &fields);
+        assert_eq!(info.observed_status.as_deref(), Some("blocked"));
+        assert!(owner.owns(&token));
     }
 }

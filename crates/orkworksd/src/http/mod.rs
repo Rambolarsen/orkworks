@@ -14,3 +14,5 @@ pub(crate) mod workflow_observation_handlers;
 pub(crate) struct ErrorResponse {
     pub(crate) error: String,
 }
+
+pub(crate) mod session_metadata_handlers;

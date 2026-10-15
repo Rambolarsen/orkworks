@@ -47,6 +47,7 @@ pub(crate) struct NativeApprovalState {
     // boundaries fence queued old events. Never infer this from caller trust.
     fenced_hook_at: Option<chrono::DateTime<chrono::Utc>>,
     ownership: Option<(AttentionWriteToken, SessionWriteToken)>,
+    validated_permission: Option<AttentionWriteToken>,
     live_revision: Option<AttentionWriteToken>,
     committed_input_sequence: u64,
 }
@@ -73,6 +74,7 @@ impl NativeApprovalState {
             last_private_attention_at: None,
             fenced_hook_at: None,
             ownership: None,
+            validated_permission: None,
             live_revision: None,
             committed_input_sequence: 0,
         }
@@ -129,7 +131,39 @@ impl NativeApprovalState {
         self.hook_revision = self.hook_revision.and_then(|r| r.checked_add(1));
         self.reducer.invalidate(self.fence);
         self.ownership = None;
+        self.validated_permission = None;
         self.live_revision = None;
+    }
+
+    pub(crate) fn protects_permission_wait(
+        &self,
+        owner: &super::observed_status::AttentionOwner,
+        info: &crate::session_types::SessionInfo,
+    ) -> bool {
+        if info.observed_status.as_deref() != Some("waiting_for_input")
+            || info.attention.as_deref() != Some("needs_you")
+            || info.provenance.attention_source.as_deref() != Some("agent")
+        {
+            return false;
+        }
+        match info.provenance.attention_origin.as_deref() {
+            Some("native_codex") => self
+                .ownership
+                .as_ref()
+                .is_some_and(|(live, _)| owner.owns(live)),
+            Some("harness_hook") => self
+                .validated_permission
+                .as_ref()
+                .is_some_and(|live| owner.owns(live)),
+            _ => false,
+        }
+    }
+
+    pub(crate) fn record_validated_permission(
+        &mut self,
+        owner: &super::observed_status::AttentionOwner,
+    ) {
+        self.validated_permission = owner.snapshot();
     }
 
     fn sync(&mut self, handle: &SessionHandle, meta: &crate::metadata::SessionMetadata) {
@@ -156,8 +190,14 @@ impl NativeApprovalState {
             self.invalidate();
         }
         self.live_revision = handle.runtime.attention_owner.snapshot();
-        if meta.metadata_source == "user"
-            || handle.info.metadata_source.as_deref() == Some("user")
+        if meta.attention_source() == "user"
+            || handle
+                .info
+                .provenance
+                .attention_source
+                .as_deref()
+                .or(handle.info.metadata_source.as_deref())
+                == Some("user")
             || meta.needs_user_input == Some(true)
             || meta.detected_question.is_some()
             || handle.info.needs_user_input == Some(true)
@@ -308,33 +348,53 @@ pub(crate) fn report_hook(
         }
         let activation = report.event == HookEvent::PermissionRequest && !handle.active_work_hook;
         if (activation || boundary)
-            && meta.metadata_source != "user"
-            && handle.info.metadata_source.as_deref() != Some("user")
+            && meta.attention_source() != "user"
+            && handle
+                .info
+                .provenance
+                .attention_source
+                .as_deref()
+                .or(handle.info.metadata_source.as_deref())
+                != Some("user")
         {
-            meta.observed_status = match report.event {
-                HookEvent::Stop => Some("idle".into()),
-                HookEvent::UserPromptSubmit => Some("working".into()),
-                _ => None,
-            };
-            meta.attention = meta.observed_status.clone();
-            meta.needs_user_input = None;
-            meta.detected_question = None;
-            meta.suggested_options = None;
-            meta.metadata_source = "codex_hook".into();
-            meta.metadata_confidence = 1.0;
-            meta.last_activity = crate::workspace_runtime::iso_now();
-            if workspace.metadata.try_write_session(&meta).is_err() {
-                return HookReportOutcome::Retry;
+            let updated = workspace.metadata.mutate_session_optional(
+                id,
+                crate::metadata::session_transactions::WriteScope::ATTENTION,
+                |latest| {
+                    if latest.attention_source() == "user" {
+                        return Ok(false);
+                    }
+                    latest.observed_status = match report.event {
+                        HookEvent::Stop => Some("idle".into()),
+                        HookEvent::UserPromptSubmit => Some("working".into()),
+                        _ => None,
+                    };
+                    latest.attention = latest.observed_status.clone();
+                    latest.needs_user_input = None;
+                    latest.detected_question = None;
+                    latest.suggested_options = None;
+                    latest.provenance.attention_source = Some("agent".into());
+                    latest.provenance.attention_confidence = Some(1.0);
+                    latest.provenance.attention_origin = Some("harness_hook".into());
+                    latest.last_activity = crate::workspace_runtime::iso_now();
+                    Ok(true)
+                },
+            );
+            match updated {
+                Ok(Some(record)) => {
+                    meta = record.metadata;
+                    handle.runtime.attention_owner.accepted_write();
+                    handle.info.observed_status = meta.observed_status.clone();
+                    handle.info.attention = meta.attention.clone();
+                    handle.info.needs_user_input = None;
+                    handle.info.detected_question = None;
+                    handle.info.suggested_options = None;
+                    handle.info.provenance = meta.provenance.clone();
+                    handle.pending_work_signal = None;
+                }
+                Ok(None) => {}
+                Err(_) => return HookReportOutcome::Retry,
             }
-            handle.runtime.attention_owner.accepted_write();
-            handle.info.observed_status = meta.observed_status.clone();
-            handle.info.attention = meta.attention.clone();
-            handle.info.needs_user_input = None;
-            handle.info.detected_question = None;
-            handle.info.suggested_options = None;
-            handle.info.metadata_source = Some("codex_hook".into());
-            handle.info.metadata_confidence = Some(1.0);
-            handle.pending_work_signal = None;
         }
         if activation || boundary {
             handle.active_work_hook = true;
@@ -353,6 +413,9 @@ pub(crate) fn report_hook(
                 None => tracker.hook_revision = None,
             }
             tracker.invalidate();
+        }
+        if report.event != HookEvent::PermissionRequest {
+            tracker.validated_permission = None;
         }
         if tracker.turn.is_none() || boundary {
             tracker.turn.clone_from(&report.turn_id);
@@ -384,19 +447,38 @@ pub(crate) fn report_hook(
         {
             // Checked-counter exhaustion permanently removes correlation
             // authority; ordinary conservative permission reporting still works.
-            if meta.metadata_source != "user"
-                && handle.info.metadata_source.as_deref() != Some("user")
+            if meta.attention_source() != "user"
+                && handle
+                    .info
+                    .provenance
+                    .attention_source
+                    .as_deref()
+                    .or(handle.info.metadata_source.as_deref())
+                    != Some("user")
                 && meta.needs_user_input != Some(true)
                 && meta.detected_question.is_none()
                 && handle.info.needs_user_input != Some(true)
                 && handle.info.detected_question.is_none()
             {
-                meta.observed_status = Some("waiting_for_input".into());
-                meta.attention = Some("needs_you".into());
-                meta.metadata_source = "codex_hook".into();
-                meta.metadata_confidence = 1.0;
-                if workspace.metadata.try_write_session(&meta).is_err() {
-                    return HookReportOutcome::Retry;
+                let updated = workspace.metadata.mutate_session_optional(
+                    id,
+                    crate::metadata::session_transactions::WriteScope::ATTENTION,
+                    |latest| {
+                        if latest.attention_source() == "user" {
+                            return Ok(false);
+                        }
+                        latest.observed_status = Some("waiting_for_input".into());
+                        latest.attention = Some("needs_you".into());
+                        latest.provenance.attention_source = Some("agent".into());
+                        latest.provenance.attention_confidence = Some(1.0);
+                        latest.provenance.attention_origin = Some("harness_hook".into());
+                        Ok(true)
+                    },
+                );
+                match updated {
+                    Ok(Some(record)) => meta = record.metadata,
+                    Ok(None) => return HookReportOutcome::Accepted,
+                    Err(_) => return HookReportOutcome::Retry,
                 }
                 apply_live_attention_fields(
                     &mut handle.info,
@@ -406,6 +488,8 @@ pub(crate) fn report_hook(
                     "codex_hook",
                     1.0,
                 );
+                handle.info.provenance = meta.provenance.clone();
+                tracker.record_validated_permission(&handle.runtime.attention_owner);
             }
             tracker.ownership = None;
             tracker.live_revision = handle.runtime.attention_owner.snapshot();
@@ -433,6 +517,12 @@ pub(crate) fn report_hook(
             );
         }
         tracker.live_revision = handle.runtime.attention_owner.snapshot();
+        if report.event == HookEvent::PermissionRequest
+            && handle.info.provenance.attention_origin.as_deref() == Some("harness_hook")
+            && handle.info.observed_status.as_deref() == Some("waiting_for_input")
+        {
+            tracker.record_validated_permission(&handle.runtime.attention_owner);
+        }
         HookReportOutcome::Accepted
     })();
     #[cfg(test)]
@@ -691,8 +781,14 @@ fn apply_effect_inner(
         return reject(tracker);
     };
     if meta.lifecycle != "alive"
-        || meta.metadata_source == "user"
-        || handle.info.metadata_source.as_deref() == Some("user")
+        || meta.attention_source() == "user"
+        || handle
+            .info
+            .provenance
+            .attention_source
+            .as_deref()
+            .or(handle.info.metadata_source.as_deref())
+            == Some("user")
         || meta.needs_user_input == Some(true)
         || meta.detected_question.is_some()
         || meta.suggested_options.is_some()
@@ -711,23 +807,41 @@ fn apply_effect_inner(
             }
             meta.observed_status = Some("waiting_for_input".into());
             meta.attention = Some("needs_you".into());
-            meta.metadata_source = "codex_hook".into();
-            meta.metadata_confidence = 1.0;
-            meta.last_activity = crate::workspace_runtime::iso_now();
-            let durable = match store.try_write_session_owned(&meta) {
+            let durable = match store.try_mutate_session_owned(&handle.info.id, |latest| {
+                if latest.lifecycle != "alive"
+                    || latest.attention_source() == "user"
+                    || latest.attention.as_deref() == Some("needs_you")
+                    || latest.needs_user_input == Some(true)
+                    || latest.detected_question.is_some()
+                    || latest.suggested_options.is_some()
+                {
+                    return Ok(false);
+                }
+                latest.observed_status = Some("waiting_for_input".into());
+                latest.attention = Some("needs_you".into());
+                latest.provenance.attention_source = Some("agent".into());
+                latest.provenance.attention_confidence = Some(1.0);
+                latest.provenance.attention_origin = Some("native_codex".into());
+                latest.last_activity = crate::workspace_runtime::iso_now();
+                Ok(true)
+            }) {
                 Ok(token) => token,
                 Err(_) => return ApplyOutcome::PersistFailed,
+            };
+            let Some(durable) = durable else {
+                return reject(tracker);
             };
             apply_live_attention_fields(
                 &mut handle.info,
                 &mut handle.runtime.attention_owner,
                 "waiting_for_input",
                 None,
-                "codex_hook",
+                "agent",
                 1.0,
             );
+            handle.info.provenance.attention_origin = Some("native_codex".into());
             let live = handle.runtime.attention_owner.snapshot();
-            tracker.ownership = live.zip(durable);
+            tracker.ownership = live.map(|live| (live, durable));
             tracker.reducer.acknowledge_show(effect);
             ApplyOutcome::Applied
         }
@@ -748,12 +862,14 @@ fn apply_effect_inner(
                 || meta.needs_user_input.is_some()
                 || handle.info.observed_status.as_deref() != Some("waiting_for_input")
                 || handle.info.attention.as_deref() != Some("needs_you")
-                || handle.info.metadata_source.as_deref() != Some("codex_hook")
-                || handle.info.metadata_confidence != Some(1.0)
+                || handle.info.provenance.attention_source.as_deref() != Some("agent")
+                || handle.info.provenance.attention_origin.as_deref() != Some("native_codex")
+                || handle.info.provenance.attention_confidence != Some(1.0)
                 || meta.observed_status.as_deref() != Some("waiting_for_input")
                 || meta.attention.as_deref() != Some("needs_you")
-                || meta.metadata_source != "codex_hook"
-                || meta.metadata_confidence != 1.0
+                || meta.attention_source() != "agent"
+                || meta.attention_origin() != "native_codex"
+                || meta.attention_confidence() != 1.0
             {
                 return reject(tracker);
             }
@@ -772,9 +888,10 @@ fn apply_effect_inner(
                 &mut handle.runtime.attention_owner,
                 "working",
                 None,
-                "codex_hook",
+                "agent",
                 1.0,
             );
+            handle.info.provenance.attention_origin = Some("native_codex".into());
             tracker.reducer.acknowledge_clear(effect);
             tracker.ownership = None;
             ApplyOutcome::Applied
@@ -2194,6 +2311,8 @@ mod tests {
             let mut meta = store.read_session(&id).unwrap();
             meta.harness_session_id_source = Some("codex_hook".into());
             meta.metadata_source = "user".into();
+            meta.provenance.attention_source = Some("user".into());
+            meta.provenance.attention_origin = Some("user".into());
             store.write_session(&meta);
         }
         assert_eq!(
@@ -2222,6 +2341,7 @@ mod tests {
             ApplyOutcome::Applied
         );
         assert_eq!(handle.info.attention.as_deref(), Some("needs_you"));
+        assert!(tracker.protects_permission_wait(&handle.runtime.attention_owner, &handle.info,));
         let next = at + Duration::from_millis(100);
         let clear = tracker
             .reducer
@@ -2231,6 +2351,7 @@ mod tests {
             ApplyOutcome::Applied
         );
         assert_eq!(handle.info.attention.as_deref(), Some("working"));
+        assert!(!tracker.protects_permission_wait(&handle.runtime.attention_owner, &handle.info,));
         assert!(tracker
             .reducer
             .observe(NativeStatus::Active, true, next, next)

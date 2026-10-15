@@ -457,7 +457,7 @@ update time, and serializes the full
 read/check/modify/write transaction with native clears against the single
 session record. This changes the current write contract for eligible sessions.
 The approval covers the written contract only; it does not authorize runtime
-changes under #761. Implementation, producer migration, behavioral race tests,
+changes under #761. Producer migration, installed behavioral verification,
 and the separate #690/#763 gates remain required, so production clearing stays
 disabled. [#788](https://github.com/Rambolarsen/orkworks/issues/788) owns the
 transactional API/writer boundary and behavioral tests; dependent [#789](https://github.com/Rambolarsen/orkworks/issues/789)
@@ -502,7 +502,7 @@ identity. See [ADR 0069](../adr/0069-codex-session-id-hook-report-mailbox.md).
 
 `GET/POST /workspace/integrations/:harness_id/{status,install,uninstall}` back both the explicit per-tool Settings affordance and Electron main's combined Tools Save orchestration. The renderer never calls those mutation routes directly for the combined save path: it invokes `saveActiveHarnessesWithIntegrations(ids)`, and Electron main performs the ordered `PUT /workspace/active-harnesses` plus per-tool status/install/uninstall sequence. The retired Gemini handler remains available to read and preserve existing owned settings, but Gemini is no longer offered as a coding tool for new sessions. Antigravity CLI has no compiled signal or integration binding. Installation writes an idempotent, ownership-marked artifact into the tool's own workspace-local config (e.g. `.claude/settings.local.json`, never `settings.json`) and never runs at session spawn; see [ADR 0026](../adr/0026-resolved-harness-capability-registry.md). OpenCode is the first integration whose owned artifact is a whole file rather than a JSON fragment merged into a shared document — `.opencode/plugins/orkworks-session-reporter.js` reports the native OpenCode session ID via a `session.created` plugin hook (issue #110) plus attention events mapped per the evidence register (issue #104) — so its ownership check compares the file's bytes directly instead of a JSON marker field. The shared reporter script (`report-harness-event.sh`/`.ps1`) is copied to `~/.orkworks/hook-scripts/` on install, so installed commands remain stable across app updates and AppImage mount changes. For the `claude-code` marker specifically, it also extracts `cwd` from Claude Code's hook JSON payload (alongside the `session_id` it already captures) and forwards it on the same attention POST — see [ADR 0032](../adr/0032-harness-reported-cwd-via-hook-payload.md).
 
-`POST /sessions/:id/debug-injection` accepts `{attention, message?}` from the dev-only Details-panel picker (gated behind `showDebugMetadata`) and writes through the same merge path as `report_attention`, tagged `metadataSource: "debug"`, `metadataConfidence: 0.0`. Both merges gate through the shared `source_priority::can_overwrite` ladder (see [ADR 0005](../adr/0005-metadata-source-priority.md)): a `debug`-sourced write is ignored if the session currently carries `user`- or `agent`-sourced metadata (the live-signal tiers), and is otherwise accepted — including over `process`/`peon` state, which is what keeps debug injection usable on live sessions; any subsequent real signal reclaims the session on its next update. Rejects with 400 if the session's `lifecycle` isn't `alive`. `capped` injections route a non-empty `message` to the in-memory `usageLimitResetHint` handle field rather than the persisted `summary`, matching how the `Capped · <hint>` badge reads it; omitting `message` leaves any existing hint untouched.
+`POST /sessions/:id/debug-injection` accepts `{attention, message?}` from the dev-only Details-panel picker (gated behind `showDebugMetadata`) and writes through the same merge path as `report_attention`, tagged `attentionSource: "debug"`, `attentionConfidence: 0.0`. Both merges gate through the shared `source_priority::can_overwrite` ladder (see [ADR 0005](../adr/0005-metadata-source-priority.md)): a `debug`-sourced write is ignored if the session currently carries `user`- or `agent`-sourced metadata (the live-signal tiers), and is otherwise accepted — including over `process`/`peon` state, which is what keeps debug injection usable on live sessions; any subsequent real signal reclaims the session on its next update. Rejects with 400 if the session's `lifecycle` isn't `alive`. `capped` injections route a non-empty `message` to the in-memory `usageLimitResetHint` handle field rather than the persisted `summary`, matching how the `Capped · <hint>` badge reads it; omitting `message` leaves any existing hint untouched.
 
 `POST /sessions` now accepts `{ harnessId, model, initialPrompt }`. The renderer's inline New agent session composer labels harness choices as coding tools, can fall back to the default shell session if harness metadata is temporarily unavailable, and still sends the selected harness config id so session rows and remembered-session resume behavior remain compatible. The response returns as soon as the `"creating"` metadata record is persisted, before the harness has actually spawned — the PTY spawn runs as a detached background task, mirroring how `POST /sessions/:id/resume` and daemon-restart reconciliation already leave a session observable in `"creating"`. A spawn failure surfaces asynchronously as `status: "error"`, observed via the existing `GET /sessions` poll, rather than as a synchronous error response (issue #302).
 
@@ -530,18 +530,33 @@ prompt-plus-Enter. Other harnesses retain plain input delivery.
 
 ## Metadata protocol
 
-The storage prerequisite for the versioned agent API lives in
-`metadata/session_transactions.rs`: checked, durable revisions are stored in the
-canonical session JSON, and revision-checked mutations hold the retained store's
-per-session lock across read/check/modify/replace. Legacy reads are revision zero
-without a write. Existing unconditional snapshot replacements advance revisions
-but still require caller migration to protect their entire read/modify/write
-sequence. Separate reader stores share no write locks or native ownership.
-The API/provenance migration in [#788](https://github.com/Rambolarsen/orkworks/issues/788)
-and producer migration in [#789](https://github.com/Rambolarsen/orkworks/issues/789)
-remain pending, and all native approval rollout gates remain closed.
+The versioned agent API uses `metadata/session_transactions.rs`: checked, durable
+revisions are stored in the canonical session JSON, and scoped mutations hold the
+retained store's per-session lock across read/check/modify/replace. Internal
+sidecar writers mutate the latest record in that lane. Legacy reads hydrate
+provenance and age without a write. Separate reader stores share no write locks
+or native ownership. Projection I/O and parsing failures return an explicit error.
 
-- `~/.orkworks/workspaces/<hash>/sessions/<id>.json` — session state. (design, not yet implemented — see issue #313) Gains a current-summary snapshot (`summary`, `summarySource`, `summaryConfidence`, `summaryObservedAt`, all four updated or cleared together — ADR 0042)
+`GET /sessions/:id/metadata` returns the canonical record and opaque
+`metadataRevision`. `PATCH /sessions/:id/metadata` accepts
+`{metadataRevision, patch:{attentionState?, agentMetadata?}}` using the live
+session report bearer token. Attention and work fields are complete snapshots;
+summary and relative plan path are independent scopes. The sidecar owns provenance,
+timestamps, and plan resolution. Stale revisions, losing source checks, and
+agent changes to user-selected plans return conflict; invalid fields return 400.
+`?validateOnly=true` performs the same authentication, revision, schema, and path
+checks without a write or source mutation.
+
+Attention provenance and age are independent of work metadata. Every accepted
+attention write revokes prior native ownership; work/summary/plan-only writes
+preserve it. Peon arbitrates attention and work independently, retaining the
+strict greater-than-15-second agent freshness boundary. Live native-owned and
+validated Codex permission waits remain protected while their runtime ownership
+is current. Session details attribute the attention tuple to its own source.
+Producer migration in [#789](https://github.com/Rambolarsen/orkworks/issues/789)
+remains pending, and all native approval rollout gates remain closed.
+
+- `~/.orkworks/workspaces/<hash>/sessions/<id>.json` — session state, including the current-summary snapshot (`summary`, `summarySource`, `summaryConfidence`, `summaryObservedAt`, all four updated or cleared together by the metadata API — ADR 0042). Broader summary handoff work remains tracked in #313
 - `~/.orkworks/workspaces/<hash>/events/<id>.ndjson` — append-only event log with durable, exact consecutive-deduplicated summary checkpoints and accepted provenance
 - `~/.orkworks/workspaces/<hash>/events/<id>.terminal` — recent raw terminal replay, bounded on append to the newest 1,000 lines and 1 MiB; existing oversized dormant files remain unchanged until their next append
 - `~/.orkworks/workspaces/<hash>/events/<id>.terminal-size` — the PTY's `cols`x`rows`, used to render dead-session terminal replay at its recorded size instead of the current panel width. Written authoritatively at the moment a session reaches a terminal status (`killed`/`ended`/`error`), and best-effort after a successful live resize when the requested grid differs from the known durable grid. This also persists an initial grid when a successful same-size resize occurs before that grid is durable, so a daemon restart mid-session can leave a usable last-known size for orphan reconciliation (`metadata::reconcile_orphaned_session`), which has no in-memory runtime handle to read a size from and never reaches the terminal-status transition itself. Still absent for sessions that ended before this file existed and for sessions that never lived long enough to make a grid durable before an untimely daemon restart — both cases fall back to fit-to-container replay, which can misrender recorded output that used absolute-column cursor addressing computed for a different width than the container happens to fit to.

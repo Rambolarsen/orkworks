@@ -709,8 +709,9 @@ async fn diagnostic_fake_owned_runtime_disconnect_input_and_drain_cleanup() {
         let mut meta = store.read_session(&id).unwrap();
         meta.attention = Some("needs_you".into());
         meta.observed_status = Some("waiting_for_input".into());
-        meta.metadata_source = "codex_hook".into();
-        meta.metadata_confidence = 1.0;
+        meta.provenance.attention_source = Some("agent".into());
+        meta.provenance.attention_confidence = Some(1.0);
+        meta.provenance.attention_origin = Some("harness_hook".into());
         store.write_session(&meta);
         let mut sessions = state.sessions.lock().unwrap();
         let handle = sessions.get_mut(&id).unwrap();
@@ -723,6 +724,12 @@ async fn diagnostic_fake_owned_runtime_disconnect_input_and_drain_cleanup() {
             "codex_hook",
             1.0,
         );
+        handle
+            .runtime
+            .native_approval
+            .as_mut()
+            .unwrap()
+            .record_validated_permission(&handle.runtime.attention_owner);
     }
     let (_master, slave) = terminal_pair();
     let before = attributes(slave.as_raw_fd());

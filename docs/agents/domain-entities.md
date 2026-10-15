@@ -108,11 +108,26 @@ owning store's per-session lock through read, mutation, and replacement. It
 rejects stale revisions and identity changes and distinguishes missing or
 malformed records from revision conflicts. Callers must use the workspace's
 retained store; separately constructed readers do not share its process-local
-locks or attention ownership. Legacy read/modify/write callers still need
-migration to this operation under [#788](https://github.com/Rambolarsen/orkworks/issues/788).
-The authenticated API, split attention provenance, and producer migration are
-pending; these storage primitives do not enable native clearing or coordinate
-external JSON replacements. See the [approved metadata design](../superpowers/specs/2026-10-08-codex-native-attention-layer-design.md).
+locks or attention ownership. Internal sidecar writers use scoped mutations of
+the latest record; attention writes invalidate native ownership even when their
+values are identical, while descriptive work, summary, and plan writes preserve it.
+
+Attention has separate `attentionSource`, `attentionConfidence`, `attentionOrigin`,
+and `attentionUpdatedAt` fields. `metadataSource` and `metadataConfidence` describe
+work metadata, whose freshness uses `workMetadataUpdatedAt`. Legacy reads hydrate
+both scopes from the old fields and file modification time without rewriting the
+record; unknown age preserves authority. Ending snapshots retain attention
+provenance. Summary snapshots atomically set or clear `summary`, `summarySource`,
+`summaryConfidence`, and `summaryObservedAt`. Agent-reported plan references use
+the sidecar-assigned `agent_reported` source and cannot replace a `user_selected`
+reference.
+
+Authenticated live-session metadata GET/PATCH operations expose the revision and
+strict field-scoped updates. Validation-only PATCH does not mutate the record or
+ownership. Producer migration remains pending under
+[#789](https://github.com/Rambolarsen/orkworks/issues/789); these operations do not
+enable native clearing or coordinate external JSON replacements. See the
+[approved metadata design](../superpowers/specs/2026-10-08-codex-native-attention-layer-design.md).
 
 ## Mapping to the API/UI layer
 

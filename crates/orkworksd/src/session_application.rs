@@ -1,3 +1,4 @@
+use crate::metadata::session_transactions::{SessionTransactionError, WriteScope};
 use crate::plan_handoff::{
     normalize_reported_plan_path, resolve_openable_plan_reference, resolve_printed_plan_path,
     resolve_printed_plan_path_with_home,
@@ -20,6 +21,24 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
+
+fn metadata_transaction_error(error: SessionTransactionError) -> SessionError {
+    match error {
+        SessionTransactionError::Conflict => SessionError::Conflict,
+        SessionTransactionError::Io(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            SessionError::NotFound
+        }
+        SessionTransactionError::Io(error)
+            if error.kind() == std::io::ErrorKind::PermissionDenied =>
+        {
+            SessionError::Conflict
+        }
+        SessionTransactionError::Io(error) if error.kind() == std::io::ErrorKind::InvalidInput => {
+            SessionError::EmptyBadRequest
+        }
+        SessionTransactionError::Io(_) => SessionError::Internal("application operation failed"),
+    }
+}
 
 static PENDING_RECOMMENDATION_DELIVERIES: OnceLock<Mutex<HashSet<(PathBuf, String)>>> =
     OnceLock::new();
@@ -403,21 +422,29 @@ fn persist_peon_input_label_metadata(
     let Some(workspace) = workspace else {
         return (!from_initial_prompt).then_some(false);
     };
-    let Some(mut meta) = workspace.metadata.read_session(session_id) else {
-        return (!from_initial_prompt).then_some(false);
-    };
-    if (from_initial_prompt && !meta.label_from_initial_prompt) || !meta.label_source.accepts_peon()
-    {
-        return None;
+    match workspace
+        .metadata
+        .mutate_session_optional(session_id, WriteScope::NONE, |meta| {
+            if (from_initial_prompt && !meta.label_from_initial_prompt)
+                || !meta.label_source.accepts_peon()
+            {
+                return Ok(false);
+            }
+            meta.label = label.to_string();
+            meta.label_source = if from_initial_prompt {
+                metadata::LabelSource::InitialPrompt
+            } else {
+                metadata::LabelSource::Peon
+            };
+            Ok(true)
+        }) {
+        Ok(Some(_)) => Some(true),
+        Ok(None) => None,
+        Err(SessionTransactionError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+            (!from_initial_prompt).then_some(false)
+        }
+        Err(_) => None,
     }
-    meta.label = label.to_string();
-    meta.label_source = if from_initial_prompt {
-        metadata::LabelSource::InitialPrompt
-    } else {
-        metadata::LabelSource::Peon
-    };
-    workspace.metadata.write_session(&meta);
-    Some(true)
 }
 
 impl SessionApplication {
@@ -1510,7 +1537,7 @@ impl SessionApplication {
                 let user_owned = workspace
                     .metadata
                     .read_session(session_id)
-                    .is_some_and(|metadata| metadata.metadata_source == "user");
+                    .is_some_and(|metadata| metadata.attention_source() == "user");
                 if user_owned
                     || matches!(
                         workspace.metadata.clear_prompt_authority_tuple(session_id),
@@ -1545,11 +1572,11 @@ impl SessionApplication {
             {
                 match (
                     handle.info.observed_status.as_deref(),
-                    handle.info.metadata_source.as_deref(),
+                    handle.info.attention_source(),
                 ) {
                     (Some(status), Some(source)) => metadata::PeonAttentionPolicy::PreserveHook {
                         status,
-                        confidence: handle.info.metadata_confidence.unwrap_or(1.0),
+                        confidence: handle.info.attention_confidence().unwrap_or(1.0),
                         source,
                     },
                     _ => metadata::PeonAttentionPolicy::NonPrompt,
@@ -1565,30 +1592,30 @@ impl SessionApplication {
                     Some("codex") | Some("opencode")
                 ) =>
             {
-                let expected_source = if handle.info.harness_id.as_deref() == Some("opencode")
-                    || handle.info.harness.as_deref() == Some("opencode")
+                if handle
+                    .runtime
+                    .native_approval
+                    .as_ref()
+                    .is_some_and(|tracker| {
+                        tracker
+                            .protects_permission_wait(&handle.runtime.attention_owner, &handle.info)
+                    })
                 {
-                    "agent"
-                } else {
-                    "codex_hook"
-                };
-                match (
-                    handle.info.observed_status.as_deref(),
-                    handle.info.metadata_source.as_deref(),
-                ) {
-                    (Some(status), Some(source))
-                        if handle.active_work_hook
-                            && handle.info.lifecycle == "alive"
-                            && handle.info.lifecycle_phase == "active"
-                            && (source == expected_source || source == "process") =>
-                    {
-                        metadata::PeonAttentionPolicy::PreserveHook {
-                            status,
-                            confidence: handle.info.metadata_confidence.unwrap_or(1.0),
-                            source,
+                    match (
+                        handle.info.observed_status.as_deref(),
+                        handle.info.attention_source(),
+                    ) {
+                        (Some(status), Some(source)) => {
+                            metadata::PeonAttentionPolicy::PreserveHook {
+                                status,
+                                confidence: handle.info.attention_confidence().unwrap_or(1.0),
+                                source,
+                            }
                         }
+                        _ => metadata::PeonAttentionPolicy::NonPrompt,
                     }
-                    _ => metadata::PeonAttentionPolicy::NonPrompt,
+                } else {
+                    metadata::PeonAttentionPolicy::NonPrompt
                 }
             }
             None if workspace
@@ -1637,31 +1664,34 @@ impl SessionApplication {
             inference
         });
         let inference = guarded_inference.as_ref().unwrap_or(inference);
-        let merge_result = workspace.metadata.merge_peon_inference_with_history_policy(
-            session_id,
-            inference,
-            timestamp,
-            provider_observation,
-            history_summary,
-            attention_policy,
-        );
+        let merge_result = workspace
+            .metadata
+            .merge_peon_inference_with_history_policy_scoped(
+                session_id,
+                inference,
+                timestamp,
+                provider_observation,
+                history_summary,
+                attention_policy,
+            );
 
         match merge_result {
-            Ok(metadata::PeonMergeOutcome::Applied) => {
-                if matches!(attention_policy, metadata::PeonAttentionPolicy::NonPrompt) {
-                    if let (Some(handle), Some(stored)) = (
-                        sessions_guard.get_mut(session_id),
-                        workspace.metadata.read_session(session_id),
-                    ) {
+            Ok((metadata::PeonMergeOutcome::Applied, attention_written)) => {
+                if let (Some(handle), Some(stored)) = (
+                    sessions_guard.get_mut(session_id),
+                    workspace.metadata.read_session(session_id),
+                ) {
+                    if attention_written {
                         handle.runtime.attention_owner.accepted_write();
-                        handle.info.observed_status = stored.observed_status;
-                        handle.info.attention = stored.attention;
-                        handle.info.needs_user_input = stored.needs_user_input;
-                        handle.info.detected_question = stored.detected_question;
-                        handle.info.suggested_options = stored.suggested_options;
-                        handle.info.metadata_source = Some(stored.metadata_source);
-                        handle.info.metadata_confidence = Some(stored.metadata_confidence);
                     }
+                    handle.info.observed_status = stored.observed_status;
+                    handle.info.attention = stored.attention;
+                    handle.info.needs_user_input = stored.needs_user_input;
+                    handle.info.detected_question = stored.detected_question;
+                    handle.info.suggested_options = stored.suggested_options;
+                    handle.info.provenance = stored.provenance;
+                    handle.info.metadata_source = Some(stored.metadata_source);
+                    handle.info.metadata_confidence = Some(stored.metadata_confidence);
                 }
                 PeonInferencePersistenceResult {
                     inference_persisted: true,
@@ -1671,7 +1701,7 @@ impl SessionApplication {
                     workspace_path,
                 }
             }
-            Ok(metadata::PeonMergeOutcome::SkippedHigherPriority { permanent_hold }) => {
+            Ok((metadata::PeonMergeOutcome::SkippedHigherPriority { permanent_hold }, _)) => {
                 tracing::debug!(session_id, "peon: skipping, higher-priority source exists");
                 PeonInferencePersistenceResult {
                     inference_persisted: false,
@@ -2023,22 +2053,26 @@ impl SessionApplication {
         let mut seeded_label = false;
         let workspace_guard = self.state.workspace.lock().unwrap();
         if let Some(workspace) = workspace_guard.as_ref() {
-            if let Some(mut metadata) = workspace.metadata.read_session(id) {
-                if label_worthy
-                    && (is_placeholder_label(&metadata.label, id)
-                        || metadata.label_from_initial_prompt)
-                    && metadata.label_source.accepts_peon()
-                {
-                    metadata.label = label_line.to_string();
-                    metadata.label_source = metadata::LabelSource::TerminalInput;
-                    metadata.label_from_initial_prompt = false;
-                    seeded_label = true;
-                }
-                metadata.last_user_input = Some(label_line.to_string());
-                workspace.metadata.write_session(&metadata);
+            let saved = workspace
+                .metadata
+                .mutate_session(id, WriteScope::NONE, |metadata| {
+                    if label_worthy
+                        && (is_placeholder_label(&metadata.label, id)
+                            || metadata.label_from_initial_prompt)
+                        && metadata.label_source.accepts_peon()
+                    {
+                        metadata.label = label_line.to_string();
+                        metadata.label_source = metadata::LabelSource::TerminalInput;
+                        metadata.label_from_initial_prompt = false;
+                        seeded_label = true;
+                    }
+                    metadata.last_user_input = Some(label_line.to_string());
+                    Ok(())
+                });
+            if saved.is_err() {
+                seeded_label = false;
             }
         }
-
         if seeded_label {
             if let Some(handle) = self.state.sessions.lock().unwrap().get_mut(id) {
                 handle.info.label = label_line.to_string();
@@ -2163,7 +2197,6 @@ impl SessionApplication {
             loop {
                 let ws_guard = state.workspace.lock().unwrap();
                 if let Some(ref ws) = *ws_guard {
-                    if let Some(mut meta) = ws.metadata.read_session(&id) {
                         // A transition detached while waiting for the workspace
                         // lock must not overwrite a live handle that has since
                         // entered its terminal lifecycle. Persisted `ended` alone
@@ -2203,6 +2236,8 @@ impl SessionApplication {
                                 handle.map(|handle| handle.info.lifecycle_phase.clone())
                             }
                         };
+                    let stored = ws.metadata.mutate_session_optional(
+                        &id, if is_terminal { WriteScope::ATTENTION } else { WriteScope::NONE }, |meta| {
                         if (is_terminal
                             && already_ending
                             && matches!(meta.lifecycle_phase.as_str(), "ending" | "ended"))
@@ -2220,9 +2255,8 @@ impl SessionApplication {
                             || (handle_decision.is_none()
                                 && matches!(meta.lifecycle_phase.as_str(), "ending" | "ended"))
                         {
-                            return false;
+                            return Ok(false);
                         }
-                        applied = true;
                         if is_terminal {
                             meta.status = "running".to_string();
                             meta.lifecycle_phase = "ending".to_string();
@@ -2233,9 +2267,10 @@ impl SessionApplication {
                             meta.pending_terminal_status = Some(status.clone());
                             meta.ending_observed_status_snapshot =
                                 Some(metadata::ObservedStatusSnapshotMetadata {
+                                    attention_origin: Some(meta.attention_origin().to_string()),
                                     value: meta.observed_status.clone(),
-                                    source: meta.metadata_source.clone(),
-                                    confidence: Some(meta.metadata_confidence),
+                                    source: meta.attention_source().to_string(),
+                                    confidence: Some(meta.attention_confidence()),
                                     observed_at: Some(now.clone()),
                                 });
                         } else {
@@ -2264,7 +2299,18 @@ impl SessionApplication {
                         if session_resume.1.is_some() {
                             meta.resumed_from = session_resume.1;
                         }
-                        ws.metadata.write_session(&meta);
+                        Ok(true)
+                    });
+                    match stored {
+                        Ok(Some(_)) => applied = true,
+                        Ok(None) => return false,
+                        Err(error) => {
+                            tracing::warn!(session_id = %id, %error, "failed to persist lifecycle transition");
+                            // The owned process already changed lifecycle. Preserve
+                            // its live transition so terminal finalization still runs;
+                            // no durable event or successful metadata write is claimed.
+                            return handle_decision.unwrap_or(false);
+                        }
                     }
                     if applied {
                         ws.metadata.append_event(
@@ -2367,13 +2413,15 @@ impl SessionApplication {
         let Some(ws) = ws_guard.as_ref() else {
             return;
         };
-        let Some(mut meta) = ws.metadata.read_session(id) else {
-            return;
-        };
-        if should_persist_output_recency(meta.last_output_at.as_deref(), &timestamp) {
-            meta.last_output_at = Some(timestamp);
-            ws.metadata.write_session(&meta);
-        }
+        let _ = ws
+            .metadata
+            .mutate_session_optional(id, WriteScope::NONE, |meta| {
+                if !should_persist_output_recency(meta.last_output_at.as_deref(), &timestamp) {
+                    return Ok(false);
+                }
+                meta.last_output_at = Some(timestamp);
+                Ok(true)
+            });
     }
 
     /// Appends one already-parsed terminal-output batch under the workspace
@@ -2489,18 +2537,25 @@ impl SessionApplication {
             return;
         };
         let mut sessions = self.state.sessions.lock().unwrap();
-        let Some(mut meta) = ws.metadata.read_session(id) else {
-            return;
-        };
-        if !matches!(meta.observed_status.as_deref(), None | Some("working")) {
-            return;
-        }
         let fields = crate::runtime::observed_status::process_transition_fields(
             crate::runtime::observed_status::ProcessTransition::IdleTimeout,
         );
-        crate::runtime::observed_status::apply_process_transition_to_meta(&mut meta, &fields);
-        if ws.metadata.try_write_session(&meta).is_err() {
-            tracing::warn!(session_id = %id, "failed to persist idle timeout transition");
+        let result = ws
+            .metadata
+            .mutate_session_optional(id, WriteScope::ATTENTION, |meta| {
+                if !matches!(meta.observed_status.as_deref(), None | Some("working"))
+                    || !metadata::source_priority::can_overwrite(
+                        "process",
+                        meta.attention_source(),
+                        meta.attention_age_secs(),
+                    )
+                {
+                    return Ok(false);
+                }
+                crate::runtime::observed_status::apply_process_transition_to_meta(meta, &fields);
+                Ok(true)
+            });
+        if !matches!(result, Ok(Some(_))) {
             return;
         }
         if let Some(handle) = sessions.get_mut(id) {
@@ -2552,11 +2607,16 @@ impl SessionApplication {
         {
             let ws_guard = self.state.workspace.lock().unwrap();
             if let Some(ref ws) = *ws_guard {
-                if let Some(mut meta) = ws.metadata.read_session(id) {
+                if let Err(error) = ws.metadata.mutate_session(id, WriteScope::NONE, |meta| {
                     meta.label = placeholder.clone();
                     meta.label_source = metadata::LabelSource::Placeholder;
                     meta.label_from_initial_prompt = false;
-                    ws.metadata.write_session(&meta);
+                    Ok(())
+                }) {
+                    if !matches!(error, SessionTransactionError::Io(ref error) if error.kind() == std::io::ErrorKind::NotFound)
+                    {
+                        return false;
+                    }
                 }
             }
         }
@@ -2775,7 +2835,7 @@ impl SessionApplication {
             .unwrap()
             .as_ref()
             .and_then(|workspace| workspace.metadata.read_session(id))
-            .is_some_and(|metadata| metadata.metadata_source == "user");
+            .is_some_and(|metadata| metadata.attention_source() == "user");
         if let Some(handle) = self.state.sessions.lock().unwrap().get_mut(id) {
             if !preserve_user_tuple {
                 handle.runtime.prompt_tuple_clear_pending = true;
@@ -2925,7 +2985,7 @@ impl SessionApplication {
         let user_owned = workspace
             .metadata
             .read_session(id)
-            .is_some_and(|metadata| metadata.metadata_source == "user");
+            .is_some_and(|metadata| metadata.attention_source() == "user");
         if !user_owned
             && !matches!(
                 workspace.metadata.clear_prompt_authority_tuple(id),
@@ -2957,7 +3017,7 @@ impl SessionApplication {
         let Some(metadata) = workspace.metadata.read_session(id) else {
             return false;
         };
-        let harness_id = metadata.harness;
+        let harness_id = metadata.harness.clone();
         let Some((_, generation)) =
             crate::runtime::prompt_authority::registry().generation_for_launch(id)
         else {
@@ -2970,7 +3030,6 @@ impl SessionApplication {
         else {
             return false;
         };
-        let preserve_user_tuple = metadata.metadata_source == "user";
         let mut sessions = self.state.sessions.lock().unwrap();
         let Some(handle) = sessions.get_mut(id).filter(|handle| {
             handle.info.lifecycle == "alive" && handle.info.lifecycle_phase == "active"
@@ -2987,23 +3046,30 @@ impl SessionApplication {
         if !authority.native_id_matches(id, &harness_id, &generation, native_id) {
             return false;
         }
-        match workspace.metadata.merge_prompt_authority_wait(id) {
-            metadata::AttentionMergeResult::Accepted => {}
-            metadata::AttentionMergeResult::Ignored => return true,
-            metadata::AttentionMergeResult::NotFound
-            | metadata::AttentionMergeResult::PersistFailed => return false,
-        }
+        let committed = match workspace.metadata.merge_prompt_authority_wait_record(id) {
+            Ok(record) => record,
+            Err(metadata::AttentionMergeResult::Ignored) => return true,
+            Err(_) => return false,
+        };
         if !authority.activate(id, &harness_id, &generation, native_id) {
             return false;
         }
         handle.pending_work_signal = None;
-        if !preserve_user_tuple {
+        if let Some(committed) = committed {
             handle.runtime.attention_owner.accepted_write();
             handle.info.observed_status = Some("waiting_for_input".into());
             handle.info.attention = Some("needs_you".into());
             handle.info.needs_user_input = None;
             handle.info.detected_question = None;
             handle.info.suggested_options = None;
+            handle.info.provenance.attention_source =
+                committed.metadata.provenance.attention_source;
+            handle.info.provenance.attention_confidence =
+                committed.metadata.provenance.attention_confidence;
+            handle.info.provenance.attention_origin =
+                committed.metadata.provenance.attention_origin;
+            handle.info.provenance.attention_updated_at =
+                committed.metadata.provenance.attention_updated_at;
             handle.runtime.active_prompt_kind = Some(
                 crate::runtime::session_runtime::RuntimePromptKind::from_notification_type(
                     &queued.notification_type,
@@ -3108,7 +3174,7 @@ impl SessionApplication {
             let preserve_user_tuple = workspace
                 .metadata
                 .read_session(&session_id)
-                .is_some_and(|metadata| metadata.metadata_source == "user");
+                .is_some_and(|metadata| metadata.attention_source() == "user");
             crate::runtime::prompt_authority::registry().revoke(&session_id, &generation);
             if active && !preserve_user_tuple {
                 let clear_result = workspace.metadata.clear_prompt_authority_tuple(&session_id);
@@ -3149,7 +3215,7 @@ impl SessionApplication {
         if workspace
             .metadata
             .read_session(id)
-            .is_some_and(|metadata| metadata.metadata_source == "user")
+            .is_some_and(|metadata| metadata.attention_source() == "user")
         {
             return Ok(());
         }
@@ -3164,7 +3230,7 @@ impl SessionApplication {
         if workspace
             .metadata
             .read_session(id)
-            .is_some_and(|metadata| metadata.metadata_source != "user")
+            .is_some_and(|metadata| metadata.attention_source() != "user")
         {
             if let Some(handle) = self.state.sessions.lock().unwrap().get_mut(id) {
                 handle.runtime.attention_owner.accepted_write();
@@ -3173,6 +3239,9 @@ impl SessionApplication {
                 handle.info.needs_user_input = None;
                 handle.info.detected_question = None;
                 handle.info.suggested_options = None;
+                if let Some(stored) = workspace.metadata.read_session(id) {
+                    handle.info.provenance = stored.provenance;
+                }
                 handle.runtime.active_prompt_kind = None;
             }
         }
@@ -3348,21 +3417,6 @@ impl SessionApplication {
                 let Some(ws) = ws_guard.as_ref() else {
                     return false;
                 };
-                let Some(mut meta) = ws.metadata.read_session(id) else {
-                    return false;
-                };
-                if meta.harness != "codex"
-                    || meta.lifecycle_phase != "active"
-                    || !meta.label_source.is_automatic()
-                    || meta
-                        .resume
-                        .as_ref()
-                        .and_then(|resume| resume.harness_session_id.as_deref())
-                        != Some(native_session_id)
-                {
-                    return false;
-                }
-
                 let mut sessions = self.state.sessions.lock().unwrap();
                 let Some(handle) = sessions.get_mut(id) else {
                     return false;
@@ -3374,10 +3428,26 @@ impl SessionApplication {
                     return false;
                 }
 
-                meta.label = label.clone();
-                meta.label_source = metadata::LabelSource::Codex;
-                meta.label_from_initial_prompt = false;
-                if ws.metadata.try_write_session(&meta).is_err() {
+                let saved = ws
+                    .metadata
+                    .mutate_session_optional(id, WriteScope::NONE, |meta| {
+                        if meta.harness != "codex"
+                            || meta.lifecycle_phase != "active"
+                            || !meta.label_source.is_automatic()
+                            || meta
+                                .resume
+                                .as_ref()
+                                .and_then(|resume| resume.harness_session_id.as_deref())
+                                != Some(native_session_id)
+                        {
+                            return Ok(false);
+                        }
+                        meta.label = label.clone();
+                        meta.label_source = metadata::LabelSource::Codex;
+                        meta.label_from_initial_prompt = false;
+                        Ok(true)
+                    });
+                if !matches!(saved, Ok(Some(_))) {
                     return false;
                 }
                 handle.info.label = label;
@@ -3420,40 +3490,57 @@ impl SessionApplication {
         {
             let ws_guard = self.state.workspace.lock().unwrap();
             if let Some(ref ws) = *ws_guard {
-                if let Some(mut meta) = ws.metadata.read_session(id) {
-                    if meta.lifecycle_phase == "ended" {
-                        return false;
+                let result =
+                    ws.metadata
+                        .mutate_session_optional(id, WriteScope::ATTENTION, |meta| {
+                            if meta.lifecycle_phase == "ended" {
+                                return Ok(false);
+                            }
+                            let pending = meta
+                                .pending_terminal_status
+                                .clone()
+                                .unwrap_or_else(|| fallback_terminal_status.into());
+                            meta.status = pending.clone();
+                            meta.lifecycle_phase = "ended".into();
+                            meta.lifecycle = "dead".into();
+                            meta.attention = None;
+                            meta.connectivity = connectivity_for_status(&pending).to_string();
+                            meta.terminal_outcome = terminal_outcome_for_status(&pending);
+                            meta.pending_terminal_status = None;
+                            meta.ending_observed_status_snapshot = None;
+                            meta.final_observed_status_snapshot = Some(final_snapshot.clone());
+                            meta.observed_status = None;
+                            meta.last_activity = now.clone();
+                            Ok(true)
+                        });
+                match result {
+                    Ok(Some(record)) => {
+                        let pending = record.metadata.status;
+                        ws.metadata.append_event(
+                            id,
+                            &metadata::Event {
+                                event_type: "session.status".into(),
+                                timestamp: now.clone(),
+                                status: pending.clone(),
+                                observed_status: final_snapshot.value.clone(),
+                                confidence: final_snapshot.confidence,
+                                summary: None,
+                                source: None,
+                                recommendation_id: None,
+                            },
+                        );
+                        final_status = Some(pending);
                     }
-                    let pending = meta
-                        .pending_terminal_status
-                        .clone()
-                        .unwrap_or_else(|| fallback_terminal_status.into());
-                    meta.status = pending.clone();
-                    meta.lifecycle_phase = "ended".into();
-                    meta.lifecycle = "dead".into();
-                    meta.attention = None;
-                    meta.connectivity = connectivity_for_status(&pending).to_string();
-                    meta.terminal_outcome = terminal_outcome_for_status(&pending);
-                    meta.pending_terminal_status = None;
-                    meta.ending_observed_status_snapshot = None;
-                    meta.final_observed_status_snapshot = Some(final_snapshot.clone());
-                    meta.observed_status = None;
-                    meta.last_activity = now.clone();
-                    ws.metadata.write_session(&meta);
-                    ws.metadata.append_event(
-                        id,
-                        &metadata::Event {
-                            event_type: "session.status".into(),
-                            timestamp: now.clone(),
-                            status: pending.clone(),
-                            observed_status: final_snapshot.value.clone(),
-                            confidence: final_snapshot.confidence,
-                            summary: None,
-                            source: None,
-                            recommendation_id: None,
-                        },
-                    );
-                    final_status = Some(pending);
+                    Ok(None) => return false,
+                    Err(SessionTransactionError::Io(error))
+                        if error.kind() == std::io::ErrorKind::NotFound =>
+                    {
+                        // A physical runtime may have no persisted record (for
+                        // example diagnostic fixtures). Absence cannot keep a
+                        // known-ended process alive in the runtime mirror.
+                        final_status = Some(fallback_terminal_status.into());
+                    }
+                    Err(_) => return false,
                 }
             }
         }
@@ -3641,9 +3728,17 @@ impl SessionApplication {
                 if (session.status == "running" || session.status == "creating")
                     && !live_ids.contains(&session.id)
                 {
-                    workspace
-                        .metadata
-                        .write_session(&metadata::reconcile_orphaned_session(session, &now));
+                    let _ = workspace.metadata.mutate_session_optional(
+                        &session.id,
+                        WriteScope::ATTENTION,
+                        |current| {
+                            if !matches!(current.status.as_str(), "running" | "creating") {
+                                return Ok(false);
+                            }
+                            *current = metadata::reconcile_orphaned_session(current.clone(), &now);
+                            Ok(true)
+                        },
+                    );
                 }
             }
             let protected_deliveries =
@@ -3953,6 +4048,11 @@ impl SessionApplication {
                     &signal.source,
                     signal.confidence,
                 );
+                if let Some(stored) = workspace.metadata.read_session(&signal.session_id) {
+                    handle.info.provenance = stored.provenance;
+                    handle.info.metadata_source = Some(stored.metadata_source);
+                    handle.info.metadata_confidence = Some(stored.metadata_confidence);
+                }
                 if signal.update_hook_timestamp {
                     if let Some(observed_at) = signal.observed_at {
                         handle.runtime.last_hook_attention_at = Some(observed_at);
@@ -4051,34 +4151,38 @@ impl SessionApplication {
     ) -> Result<(), SessionError> {
         let workspace_guard = self.state.workspace.lock().unwrap();
         let workspace = workspace_guard.as_ref().ok_or(SessionError::Conflict)?;
-        let mut metadata = workspace
+        let result = workspace
             .metadata
-            .read_session(id)
-            .ok_or(SessionError::NotFound)?;
-        if metadata.lifecycle != "alive" {
-            return Err(SessionError::Conflict);
-        }
-        if metadata
-            .plan_path
-            .as_ref()
-            .is_some_and(|reference| reference.source == metadata::PlanSource::UserSelected)
-        {
+            .mutate_session_optional(id, WriteScope::NONE, |metadata| {
+                if metadata.lifecycle != "alive" {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        "session not active",
+                    ));
+                }
+                if metadata
+                    .plan_path
+                    .as_ref()
+                    .is_some_and(|reference| reference.source == metadata::PlanSource::UserSelected)
+                {
+                    return Ok(false);
+                }
+                let relative = normalize_reported_plan_path(&workspace.path, reported_path)
+                    .map_err(|_| {
+                        std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid plan path")
+                    })?;
+                metadata.plan_path = Some(metadata::PlanReference {
+                    worktree_root: Some(workspace.path.to_string_lossy().into_owned()),
+                    relative_path: relative,
+                    source: metadata::PlanSource::HookReported,
+                });
+                Ok(true)
+            })
+            .map_err(metadata_transaction_error)?;
+        let Some(record) = result else {
             return Ok(());
-        }
-        let relative = normalize_reported_plan_path(&workspace.path, reported_path)
-            .map_err(|_| SessionError::EmptyBadRequest)?;
-        metadata.plan_path = Some(metadata::PlanReference {
-            worktree_root: Some(workspace.path.to_string_lossy().into_owned()),
-            relative_path: relative,
-            source: metadata::PlanSource::HookReported,
-        });
-        workspace
-            .metadata
-            .try_write_session(&metadata)
-            .map_err(|error| {
-                tracing::error!(error = %error, session = %id, "plan path session write failed");
-                SessionError::Internal("application operation failed")
-            })?;
+        };
+        let metadata = record.metadata;
         workspace.metadata.append_event(
             id,
             &metadata::Event {
@@ -4114,49 +4218,93 @@ impl SessionApplication {
         let Some(workspace) = workspace_guard.as_ref() else {
             return false;
         };
-        let Some(mut metadata) = workspace.metadata.read_session(session_id) else {
-            return false;
-        };
-        if metadata.plan_path.is_some()
-            || workspace
+        matches!(
+            workspace
                 .metadata
-                .plan_path_is_explicitly_cleared(session_id)
-        {
-            return false;
-        }
-        let Ok((worktree_root, relative_path)) =
-            resolve_printed_plan_path_with_home(Path::new(&metadata.cwd), printed_path, home_dir)
-        else {
-            return false;
-        };
-        metadata.plan_path = Some(metadata::PlanReference {
-            worktree_root: Some(worktree_root.to_string_lossy().into_owned()),
-            relative_path,
-            source: metadata::PlanSource::TerminalFallback,
-        });
-        workspace.metadata.write_session(&metadata);
-        true
+                .mutate_session_optional(session_id, WriteScope::NONE, |metadata| {
+                    if metadata.plan_path.is_some()
+                        || workspace
+                            .metadata
+                            .plan_path_is_explicitly_cleared(session_id)
+                    {
+                        return Ok(false);
+                    }
+                    let Ok((worktree_root, relative_path)) = resolve_printed_plan_path_with_home(
+                        Path::new(&metadata.cwd),
+                        printed_path,
+                        home_dir,
+                    ) else {
+                        return Ok(false);
+                    };
+                    metadata.plan_path = Some(metadata::PlanReference {
+                        worktree_root: Some(worktree_root.to_string_lossy().into_owned()),
+                        relative_path,
+                        source: metadata::PlanSource::TerminalFallback,
+                    });
+                    Ok(true)
+                }),
+            Ok(Some(_))
+        )
     }
 
-    /// Persists a process-owned status transition after the runtime has
-    /// promoted its live session handle. The sessions lock is intentionally
-    /// not acquired here; runtime callers release it before this workspace
-    /// metadata write.
+    /// Commits a runtime-observed process transition before publishing its live
+    /// attention mirror. A generation fence rejects output from a replaced run.
     pub(crate) fn persist_process_transition(
         &self,
         session_id: &str,
+        expected_generation: Option<u64>,
         transition: crate::runtime::observed_status::ProcessTransition,
     ) -> bool {
         let workspace_guard = self.state.workspace.lock().unwrap();
-        let Some(workspace) = workspace_guard.as_ref() else {
+        let mut sessions = self.state.sessions.lock().unwrap();
+        if expected_generation.is_some_and(|generation| {
+            !sessions.get(session_id).is_some_and(|handle| {
+                handle.runtime.run_generation() == generation
+                    && handle.info.lifecycle == "alive"
+                    && !handle.active_work_hook
+                    && handle.info.attention_source() != Some("user")
+            })
+        }) {
             return false;
-        };
-        let Some(mut metadata) = workspace.metadata.read_session(session_id) else {
-            return false;
-        };
+        }
         let fields = crate::runtime::observed_status::process_transition_fields(transition);
-        crate::runtime::observed_status::apply_process_transition_to_meta(&mut metadata, &fields);
-        workspace.metadata.write_session(&metadata);
+        let committed = if let Some(workspace) = workspace_guard.as_ref() {
+            match workspace.metadata.mutate_session_optional(
+                session_id,
+                WriteScope::ATTENTION,
+                |metadata| {
+                    if !metadata::source_priority::can_overwrite(
+                        "process",
+                        metadata.attention_source(),
+                        metadata.attention_age_secs(),
+                    ) {
+                        return Ok(false);
+                    }
+                    crate::runtime::observed_status::apply_process_transition_to_meta(
+                        metadata, &fields,
+                    );
+                    Ok(true)
+                },
+            ) {
+                Ok(Some(record)) => Some(record.metadata),
+                _ => return false,
+            }
+        } else if expected_generation.is_some() {
+            None
+        } else {
+            return false;
+        };
+        if let Some(handle) = sessions.get_mut(session_id) {
+            crate::runtime::observed_status::apply_process_transition_to_handle(
+                &mut handle.info,
+                &mut handle.runtime.attention_owner,
+                &fields,
+            );
+            if let Some(metadata) = committed {
+                handle.info.provenance = metadata.provenance;
+            }
+            handle.pending_work_signal = None;
+        }
         true
     }
 
@@ -4499,7 +4647,6 @@ impl SessionApplication {
             .resume
             .as_ref()
             .and_then(|resume| resume.harness_session_id.as_deref());
-        let preserve_user_tuple = metadata.metadata_source == "user";
         let mut sessions = self.state.sessions.lock().unwrap();
         let handle = sessions
             .get_mut(id)
@@ -4557,25 +4704,33 @@ impl SessionApplication {
         {
             return Err(SessionError::EmptyBadRequest);
         }
-        match workspace.metadata.merge_prompt_authority_wait(id) {
-            metadata::AttentionMergeResult::Accepted => {}
-            metadata::AttentionMergeResult::NotFound => return Err(SessionError::NotFound),
-            metadata::AttentionMergeResult::PersistFailed => {
+        let committed = match workspace.metadata.merge_prompt_authority_wait_record(id) {
+            Ok(record) => record,
+            Err(metadata::AttentionMergeResult::NotFound) => return Err(SessionError::NotFound),
+            Err(metadata::AttentionMergeResult::PersistFailed) => {
                 return Err(SessionError::Internal("application operation failed"));
             }
-            metadata::AttentionMergeResult::Ignored => return Err(SessionError::EmptyBadRequest),
-        }
+            Err(_) => return Err(SessionError::EmptyBadRequest),
+        };
         if !authority.activate(id, harness_id, generation, native_session_id) {
             return Err(SessionError::EmptyBadRequest);
         }
         handle.pending_work_signal = None;
-        if !preserve_user_tuple {
+        if let Some(committed) = committed {
             handle.runtime.attention_owner.accepted_write();
             handle.info.observed_status = Some("waiting_for_input".into());
             handle.info.attention = Some("needs_you".into());
             handle.info.needs_user_input = None;
             handle.info.detected_question = None;
             handle.info.suggested_options = None;
+            handle.info.provenance.attention_source =
+                committed.metadata.provenance.attention_source;
+            handle.info.provenance.attention_confidence =
+                committed.metadata.provenance.attention_confidence;
+            handle.info.provenance.attention_origin =
+                committed.metadata.provenance.attention_origin;
+            handle.info.provenance.attention_updated_at =
+                committed.metadata.provenance.attention_updated_at;
             handle.runtime.active_prompt_kind = Some(
                 crate::runtime::session_runtime::RuntimePromptKind::from_notification_type(
                     notification_type.expect("validated prompt notification type"),
@@ -4671,28 +4826,44 @@ impl SessionApplication {
         tokio::task::spawn_blocking(move || {
             let workspace = state.workspace.lock().unwrap();
             let workspace = workspace.as_ref().ok_or(SessionError::Conflict)?;
-            let mut meta = workspace.metadata.read_session(&id).ok_or(SessionError::NotFound)?;
-            let (worktree_root, relative_path) = resolve_printed_plan_path(
-                std::path::Path::new(&meta.cwd),
-                &printed_path,
-            ).map_err(|error| {
-                tracing::warn!(session_id = %id, printed_path = %printed_path, %error, "select_terminal_plan: plan path resolution failed");
-                SessionError::Conflict
-            })?;
-            meta.plan_path = Some(metadata::PlanReference {
-                worktree_root: Some(worktree_root.to_string_lossy().into_owned()),
-                relative_path,
-                source: metadata::PlanSource::UserSelected,
-            });
-            workspace.metadata.try_write_session(&meta)
-                .map_err(|_| SessionError::Internal("application operation failed"))?;
-            workspace.metadata.append_event(&id, &metadata::Event {
-                event_type: "session.plan_selected_by_user".into(), timestamp: iso_now(),
-                status: meta.status, observed_status: meta.observed_status,
-                confidence: Some(1.0), summary: None, source: Some("user".into()), recommendation_id: None,
-            });
+            let record = workspace
+                .metadata
+                .mutate_session(&id, WriteScope::NONE, |meta| {
+                    let (worktree_root, relative_path) =
+                        resolve_printed_plan_path(Path::new(&meta.cwd), &printed_path).map_err(
+                            |_| {
+                                std::io::Error::new(
+                                    std::io::ErrorKind::PermissionDenied,
+                                    "plan path resolution failed",
+                                )
+                            },
+                        )?;
+                    meta.plan_path = Some(metadata::PlanReference {
+                        worktree_root: Some(worktree_root.to_string_lossy().into_owned()),
+                        relative_path,
+                        source: metadata::PlanSource::UserSelected,
+                    });
+                    Ok(())
+                })
+                .map_err(metadata_transaction_error)?;
+            let meta = record.metadata;
+            workspace.metadata.append_event(
+                &id,
+                &metadata::Event {
+                    event_type: "session.plan_selected_by_user".into(),
+                    timestamp: iso_now(),
+                    status: meta.status,
+                    observed_status: meta.observed_status,
+                    confidence: Some(1.0),
+                    summary: None,
+                    source: Some("user".into()),
+                    recommendation_id: None,
+                },
+            );
             Ok(())
-        }).await.map_err(|_| SessionError::Internal("application operation failed"))??;
+        })
+        .await
+        .map_err(|_| SessionError::Internal("application operation failed"))??;
         Ok(())
     }
 
@@ -4810,7 +4981,7 @@ impl SessionApplication {
                     let preserve_user_tuple = workspace
                         .metadata
                         .read_session(session_id)
-                        .is_some_and(|metadata| metadata.metadata_source == "user");
+                        .is_some_and(|metadata| metadata.attention_source() == "user");
                     crate::runtime::prompt_authority::registry().revoke(session_id, &generation);
                     if active && !preserve_user_tuple {
                         let clear_result =
@@ -5067,7 +5238,39 @@ impl Drop for ResumeAdmission {
         if !still_owns_persisted_rollback {
             return;
         }
-        ws.metadata.write_session(&rollback.metadata);
+        if ws
+            .metadata
+            .mutate_session(&self.id, WriteScope::ATTENTION, |current| {
+                let saved = &rollback.metadata;
+                current.status = saved.status.clone();
+                current.lifecycle_phase = saved.lifecycle_phase.clone();
+                current.lifecycle = saved.lifecycle.clone();
+                current.connectivity = saved.connectivity.clone();
+                current.terminal_outcome = saved.terminal_outcome.clone();
+                current.pending_terminal_status = saved.pending_terminal_status.clone();
+                current.ending_observed_status_snapshot =
+                    saved.ending_observed_status_snapshot.clone();
+                current.final_observed_status_snapshot =
+                    saved.final_observed_status_snapshot.clone();
+                current.resume = saved.resume.clone();
+                current.resume_options = saved.resume_options.clone();
+                current.resumed_from = saved.resumed_from.clone();
+                if current.attention_source() != "user" {
+                    current.attention = saved.attention.clone();
+                    current.observed_status = saved.observed_status.clone();
+                    current.needs_user_input = saved.needs_user_input;
+                    current.detected_question = saved.detected_question.clone();
+                    current.suggested_options = saved.suggested_options.clone();
+                    current.provenance.attention_source = saved.provenance.attention_source.clone();
+                    current.provenance.attention_confidence = saved.provenance.attention_confidence;
+                    current.provenance.attention_origin = Some("legacy_unknown".into());
+                }
+                Ok(())
+            })
+            .is_err()
+        {
+            return;
+        }
         match rollback.terminal_size {
             Some((cols, rows)) => ws.metadata.write_terminal_size(&self.id, cols, rows),
             None => ws.metadata.clear_terminal_size(&self.id),
@@ -5221,6 +5424,7 @@ async fn resume_session_workflow(
 
     let (kill_tx, _kill_rx) = tokio::sync::watch::channel(false);
     let info = SessionInfo {
+        provenance: Default::default(),
         id: id.clone(),
         label: meta.label.clone(),
         harness_id: (!meta.harness.is_empty()).then(|| meta.harness.clone()),
@@ -5329,22 +5533,27 @@ async fn resume_session_workflow(
             // would replay the new run's output against a stale grid. Clearing
             // falls back to documented fit-to-container replay for that case.
             ws.metadata.clear_terminal_size(&id);
-            if let Some(mut stored_meta) = ws.metadata.read_session(&id) {
-                stored_meta.status = "creating".to_string();
-                stored_meta.lifecycle_phase = "creating".to_string();
-                stored_meta.lifecycle = "creating".to_string();
-                stored_meta.attention = None;
-                stored_meta.pending_terminal_status = None;
-                stored_meta.ending_observed_status_snapshot = None;
-                stored_meta.final_observed_status_snapshot = None;
-                stored_meta.observed_status = None;
-                stored_meta.connectivity = connectivity_for_status("creating").to_string();
-                stored_meta.terminal_outcome = None;
-                stored_meta.last_activity = now.clone();
-                stored_meta.resume = meta.resume.clone();
-                stored_meta.resume_options = meta.resume_options.clone();
-                stored_meta.resumed_from = meta.resumed_from.clone();
-                ws.metadata.write_session(&stored_meta);
+            let stored = ws
+                .metadata
+                .mutate_session(&id, WriteScope::ATTENTION, |stored_meta| {
+                    stored_meta.status = "creating".to_string();
+                    stored_meta.lifecycle_phase = "creating".to_string();
+                    stored_meta.lifecycle = "creating".to_string();
+                    stored_meta.attention = None;
+                    stored_meta.pending_terminal_status = None;
+                    stored_meta.ending_observed_status_snapshot = None;
+                    stored_meta.final_observed_status_snapshot = None;
+                    stored_meta.observed_status = None;
+                    stored_meta.connectivity = connectivity_for_status("creating").to_string();
+                    stored_meta.terminal_outcome = None;
+                    stored_meta.last_activity = now.clone();
+                    stored_meta.resume = meta.resume.clone();
+                    stored_meta.resume_options = meta.resume_options.clone();
+                    stored_meta.resumed_from = meta.resumed_from.clone();
+                    Ok(())
+                });
+            if stored.is_err() {
+                return Err(SessionError::Internal("resume metadata write failed"));
             }
         }
     }
@@ -5631,6 +5840,7 @@ async fn create_session_workflow(
     let git_ctx = scan_git(PathBuf::from(&cwd)).await?;
     let now = iso_now();
     let mut info = SessionInfo {
+        provenance: Default::default(),
         id: id.clone(),
         label: crate::session_types::placeholder_label(&id),
         harness_id: resolved_launch.session_harness_id.clone(),
@@ -5770,6 +5980,7 @@ async fn create_session_workflow(
     {
         if let Some(ref ws) = *creation_workspace {
             ws.metadata.write_session(&metadata::SessionMetadata {
+                provenance: Default::default(),
                 id: id.clone(),
                 label: info.label.clone(),
                 label_source: if initial_prompt_label.is_some() {
@@ -6124,6 +6335,7 @@ mod tests {
             .unwrap();
         let listed = crate::session_projection::SessionProjection::new(state.clone())
             .list()
+            .unwrap()
             .into_iter()
             .find(|info| info.id == created.id)
             .unwrap();
@@ -7000,7 +7212,8 @@ mod tests {
             .metadata
             .read_session(id)
             .unwrap();
-        assert_eq!(stored.metadata_source, "agent");
+        assert_eq!(stored.attention_source(), "agent");
+        assert_eq!(stored.metadata_source, "process");
         assert_eq!(stored.observed_status.as_deref(), Some("waiting_for_input"));
         assert!(stored.needs_user_input.is_none());
         assert!(stored.detected_question.is_none());
@@ -7496,7 +7709,8 @@ mod tests {
             .read_session(id)
             .unwrap();
         assert_eq!(stored.observed_status.as_deref(), Some("working"));
-        assert_eq!(stored.metadata_source, "agent");
+        assert_eq!(stored.attention_source(), "agent");
+        assert_eq!(stored.metadata_source, "process");
         assert_eq!(
             state.sessions.lock().unwrap()[id]
                 .info
@@ -8077,6 +8291,7 @@ mod tests {
         state.sessions.lock().unwrap().insert(id.into(), handle);
 
         let snapshot = metadata::ObservedStatusSnapshotMetadata {
+            attention_origin: None,
             value: Some("blocked".into()),
             source: "peon".into(),
             confidence: Some(0.91),
@@ -9131,7 +9346,7 @@ mod tests {
         session.needs_user_input = Some(true);
         session.detected_question = Some("continue?".into());
         session.suggested_options = Some(vec!["yes".into()]);
-        session.metadata_source = "agent".into();
+        session.metadata_source = "process".into();
         session.metadata_confidence = 0.7;
         state
             .workspace
@@ -9145,6 +9360,7 @@ mod tests {
         assert!(
             SessionApplication::new(state.clone()).persist_process_transition(
                 id,
+                None,
                 crate::runtime::observed_status::ProcessTransition::CommittedWorking,
             )
         );
@@ -9161,7 +9377,7 @@ mod tests {
         assert_eq!(stored.observed_status.as_deref(), Some("working"));
         assert_eq!(stored.attention.as_deref(), Some("working"));
         assert_eq!(stored.metadata_source, "process");
-        assert_eq!(stored.metadata_confidence, 1.0);
+        assert_eq!(stored.attention_confidence(), 1.0);
         assert!(stored.needs_user_input.is_none());
         assert!(stored.detected_question.is_none());
         assert!(stored.suggested_options.is_none());
@@ -9174,9 +9390,9 @@ mod tests {
         let application = SessionApplication::new(state.clone());
         let transition = crate::runtime::observed_status::ProcessTransition::CommittedWorking;
 
-        assert!(!application.persist_process_transition("missing", transition));
+        assert!(!application.persist_process_transition("missing", None, transition));
         *state.workspace.lock().unwrap() = None;
-        assert!(!application.persist_process_transition("missing", transition));
+        assert!(!application.persist_process_transition("missing", None, transition));
     }
 
     #[test]
@@ -10201,7 +10417,7 @@ mod tests {
         let live = sessions.get(id).unwrap();
         assert!(live.pending_work_signal.is_some());
         assert!(live.runtime.last_hook_attention_at.is_none());
-        assert_eq!(live.info.metadata_source.as_deref(), Some("debug"));
+        assert_eq!(live.info.attention_source(), Some("debug"));
     }
 
     #[test]
@@ -11383,8 +11599,8 @@ mod tests {
             persisted.observed_status.as_deref(),
             Some("waiting_for_input")
         );
-        assert_eq!(persisted.metadata_source, "debug");
-        assert_eq!(persisted.metadata_confidence, 0.0);
+        assert_eq!(persisted.attention_source(), "debug");
+        assert_eq!(persisted.attention_confidence(), 0.0);
         assert_eq!(
             state.sessions.lock().unwrap()[id]
                 .info
@@ -11395,6 +11611,106 @@ mod tests {
         assert_eq!(
             state.sessions.lock().unwrap()[id].info.summary.as_deref(),
             Some("Answer required")
+        );
+    }
+
+    #[tokio::test]
+    async fn ending_snapshot_uses_attention_provenance_instead_of_work_provenance() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "split-ending-snapshot";
+        let mut meta = crate::test_support::test_session_metadata(
+            id,
+            "Session",
+            &root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        meta.lifecycle = "alive".into();
+        meta.lifecycle_phase = "active".into();
+        meta.observed_status = Some("waiting_for_input".into());
+        meta.metadata_source = "peon".into();
+        meta.metadata_confidence = 0.6;
+        meta.provenance.attention_source = Some("agent".into());
+        meta.provenance.attention_confidence = Some(1.0);
+        meta.provenance.attention_origin = Some("native_codex".into());
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(id.into(), attention_test_handle(id, root.path()));
+        assert!(
+            SessionApplication::new(state.clone())
+                .transition_session_status(id, None, "ended")
+                .await
+        );
+        let meta = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        let snapshot = meta.ending_observed_status_snapshot.unwrap();
+        assert_eq!(snapshot.source, "agent");
+        assert_eq!(snapshot.confidence, Some(1.0));
+        assert_eq!(snapshot.attention_origin.as_deref(), Some("native_codex"));
+    }
+
+    #[test]
+    fn failed_topic_write_does_not_promote_the_live_label() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "failed-topic-write";
+        let placeholder = crate::session_types::placeholder_label(id);
+        let mut meta = crate::test_support::test_session_metadata(
+            id,
+            &placeholder,
+            &root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        meta.label_source = metadata::LabelSource::Placeholder;
+        let ws_guard = state.workspace.lock().unwrap();
+        let store = &ws_guard.as_ref().unwrap().metadata;
+        store.write_session(&meta);
+        std::fs::create_dir(store.sessions_dir().join(format!("{id}.json.tmp"))).unwrap();
+        drop(ws_guard);
+        let mut handle = attention_test_handle(id, root.path());
+        handle.info.label = placeholder.clone();
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+        assert!(
+            !SessionApplication::new(state.clone()).record_user_input_topic(
+                id,
+                "A new topic",
+                true
+            )
+        );
+        assert_eq!(state.sessions.lock().unwrap()[id].info.label, placeholder);
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap()
+                .label,
+            placeholder
         );
     }
 
@@ -14499,8 +14815,9 @@ mod tests {
             .unwrap();
         assert_eq!(stored.observed_status.as_deref(), Some("working"));
         assert_eq!(stored.attention.as_deref(), Some("working"));
-        assert_eq!(stored.metadata_source, "codex_hook");
-        assert_eq!(stored.metadata_confidence, 0.99);
+        assert_eq!(stored.attention_source(), "peon");
+        assert_eq!(stored.metadata_source, "peon");
+        assert_eq!(stored.attention_confidence(), 0.8);
         assert_eq!(
             stored.summary.as_deref(),
             Some("Still editing the requested change")
@@ -14613,7 +14930,8 @@ mod tests {
                 .unwrap();
             assert_eq!(stored.observed_status.as_deref(), Some("waiting_for_input"));
             assert_eq!(stored.attention.as_deref(), Some("needs_you"));
-            assert_eq!(stored.metadata_source, source);
+            assert_eq!(stored.attention_source(), source);
+            assert_eq!(stored.metadata_source, "peon");
             assert_eq!(
                 stored.summary.as_deref(),
                 Some("Still waiting for permission")
@@ -14816,6 +15134,7 @@ mod tests {
                 assert_eq!(stored.summary.as_deref(), Some("New summary"), "{harness}");
                 let projected = crate::session_projection::SessionProjection::new(state.clone())
                     .list()
+                    .unwrap()
                     .into_iter()
                     .find(|session| session.id == id)
                     .unwrap();
@@ -14931,8 +15250,9 @@ mod tests {
                 .unwrap();
             assert_eq!(stored.observed_status.as_deref(), Some(status));
             assert_eq!(stored.attention.as_deref(), Some(attention));
-            assert_eq!(stored.metadata_source, "agent");
-            assert_eq!(stored.metadata_confidence, 0.97);
+            assert_eq!(stored.attention_source(), "peon");
+            assert_eq!(stored.metadata_source, "peon");
+            assert_eq!(stored.attention_confidence(), 0.8);
             assert_eq!(stored.summary.as_deref(), Some("New summary"));
             assert_eq!(
                 stored.blocker_description.as_deref(),
@@ -15141,7 +15461,10 @@ mod tests {
         metadata.attention = Some("needs_you".into());
         metadata.needs_user_input = Some(true);
         metadata.detected_question = Some("Approve?".into());
-        metadata.metadata_source = "codex_hook".into();
+        metadata.metadata_source = "peon".into();
+        metadata.provenance.attention_source = Some("agent".into());
+        metadata.provenance.attention_confidence = Some(1.0);
+        metadata.provenance.attention_origin = Some("harness_hook".into());
         metadata.metadata_confidence = 1.0;
         state
             .workspace
@@ -15164,6 +15487,12 @@ mod tests {
         handle.info.detected_question = Some("Approve?".into());
         handle.info.metadata_source = Some("codex_hook".into());
         handle.info.metadata_confidence = Some(1.0);
+        handle.info.provenance = metadata.provenance.clone();
+        let mut tracker = crate::runtime::codex_approval_application::NativeApprovalState::new(
+            handle.runtime.run_generation(),
+        );
+        tracker.record_validated_permission(&handle.runtime.attention_owner);
+        handle.runtime.native_approval = Some(tracker);
         state.sessions.lock().unwrap().insert(id.into(), handle);
 
         crate::runtime::terminal_runtime::record_terminal_input(&state, id, "y\r");
@@ -15178,7 +15507,8 @@ mod tests {
             .read_session(id)
             .unwrap();
         assert_eq!(after_input.observed_status.as_deref(), Some("working"));
-        assert_eq!(after_input.metadata_source, "process");
+        assert_eq!(after_input.attention_source(), "process");
+        assert_eq!(after_input.metadata_source, "peon");
 
         let inference = crate::peon::PeonInference {
             observed_status: Some("waiting_for_input".into()),
@@ -15219,8 +15549,8 @@ mod tests {
             .unwrap();
         assert_eq!(stored.observed_status.as_deref(), Some("working"));
         assert_eq!(stored.attention.as_deref(), Some("working"));
-        assert_eq!(stored.metadata_source, "process");
-        assert_eq!(stored.metadata_confidence, 1.0);
+        assert_eq!(stored.metadata_source, "peon");
+        assert_eq!(stored.attention_confidence(), 0.8);
         assert_eq!(
             stored.blocker_description.as_deref(),
             Some("Prompt-like terminal output")
@@ -16245,6 +16575,272 @@ mod tests {
         assert!(saved.attention.is_none());
         authority.remove(id);
         crate::runtime::terminal_runtime::clear_workflow_report_token(id);
+    }
+
+    fn prompt_wait_provenance_survives_peon(queued: bool) {
+        for (source, confidence) in [
+            ("peon", 0.8),
+            ("agent", 0.7),
+            ("process", 0.4),
+            ("user", 0.9),
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let state = crate::test_support::test_app_state_with_workspace(root.path());
+            let id = format!("prompt-provenance-{queued}-{source}");
+            let mut metadata = crate::test_support::test_session_metadata(
+                &id,
+                "Prompt provenance",
+                root.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            );
+            metadata.harness = "claude-code".into();
+            metadata.lifecycle = "alive".into();
+            metadata.lifecycle_phase = "active".into();
+            metadata.metadata_source = "agent".into();
+            metadata.metadata_confidence = 0.6;
+            metadata.provenance.attention_source = Some(source.into());
+            metadata.provenance.attention_confidence = Some(confidence);
+            metadata.provenance.attention_origin = Some("direct_agent".into());
+            metadata.provenance.attention_updated_at = Some("2026-10-03T11:59:00Z".into());
+            metadata.observed_status = Some("working".into());
+            metadata.attention = Some("working".into());
+            if source == "user" {
+                metadata.needs_user_input = Some(true);
+                metadata.detected_question = Some("Keep the user override?".into());
+                metadata.suggested_options = Some(vec!["Yes".into()]);
+            }
+            metadata.resume = Some(harness::ResumeMemory {
+                state: harness::ResumeState::Available,
+                preferred_strategy: harness::ResumeStrategy::Exact,
+                harness_session_id: Some("native-session".into()),
+                latest_fallback: false,
+                last_seen_at: Some("now".into()),
+            });
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .write_session(&metadata);
+            let mut handle = attention_test_handle(&id, root.path());
+            handle.info.harness = Some("claude-code".into());
+            handle.info.harness_id = Some("claude-code".into());
+            handle.info.lifecycle = "alive".into();
+            handle.info.lifecycle_phase = "active".into();
+            handle.info.metadata_source = Some(metadata.metadata_source.clone());
+            handle.info.metadata_confidence = Some(metadata.metadata_confidence);
+            handle.info.provenance = metadata.provenance.clone();
+            handle.info.observed_status = metadata.observed_status.clone();
+            handle.info.attention = metadata.attention.clone();
+            handle.info.needs_user_input = metadata.needs_user_input;
+            handle.info.detected_question = metadata.detected_question.clone();
+            handle.info.suggested_options = metadata.suggested_options.clone();
+            handle.info.resume = metadata.resume.clone();
+            state.sessions.lock().unwrap().insert(id.clone(), handle);
+            let authority = crate::runtime::prompt_authority::registry();
+            authority.issue_with_native_id(
+                &id,
+                "claude-code",
+                "generation",
+                Some(if queued {
+                    "old-native"
+                } else {
+                    "native-session"
+                }),
+            );
+            crate::runtime::terminal_runtime::set_workflow_report_token(&id, "token".into());
+            let application = SessionApplication::new(state.clone());
+            let sessions_dir = state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .sessions_dir();
+            let path = sessions_dir.join(format!("{id}.json"));
+            let failed_write_path = sessions_dir.join(format!("{id}.json.tmp"));
+            let before_bytes = std::fs::read(&path).unwrap();
+            let assert_failed_write = || {
+                assert!(!authority.is_active(&id));
+                assert_eq!(std::fs::read(&path).unwrap(), before_bytes);
+                let sessions = state.sessions.lock().unwrap();
+                let handle = sessions.get(&id).unwrap();
+                assert_eq!(handle.info.observed_status, metadata.observed_status);
+                assert_eq!(
+                    handle.info.provenance.attention_source,
+                    metadata.provenance.attention_source
+                );
+                assert_eq!(
+                    handle.info.provenance.attention_confidence,
+                    metadata.provenance.attention_confidence
+                );
+                assert!(handle.runtime.active_prompt_kind.is_none());
+            };
+            if !queued && source != "user" {
+                std::fs::create_dir(&failed_write_path).unwrap();
+                assert_eq!(
+                    application.report_prompt_attention(
+                        &id,
+                        "claude_hook",
+                        Some("Notification"),
+                        Some("permission_prompt"),
+                        "native-session",
+                        "waiting_for_input",
+                        Some("generation"),
+                        Some("2026-10-03T12:00:00.000000Z"),
+                        None,
+                        Some("token"),
+                    ),
+                    Err(SessionError::Internal("application operation failed"))
+                );
+                assert_failed_write();
+                std::fs::remove_dir(&failed_write_path).unwrap();
+            }
+            if queued {
+                assert!(authority.reserve_reset(&id, "claude-code", "/clear"));
+                assert_eq!(
+                    authority.register_native_id(
+                        &id,
+                        "claude-code",
+                        "generation",
+                        "native-session",
+                        true,
+                        None
+                    ),
+                    crate::runtime::prompt_authority::BindResult::Held
+                );
+            }
+            let result = application.report_prompt_attention(
+                &id,
+                "claude_hook",
+                Some("Notification"),
+                Some("permission_prompt"),
+                "native-session",
+                "waiting_for_input",
+                Some("generation"),
+                Some("2026-10-03T12:00:00.000000Z"),
+                None,
+                Some("token"),
+            );
+            if queued {
+                assert_eq!(result, Err(SessionError::Accepted));
+                assert!(authority.acknowledge_reset(&id).is_some());
+                let commit = authority.complete_reset(&id).unwrap();
+                let wait = commit.queued_prompt_wait.unwrap();
+                if source != "user" {
+                    std::fs::create_dir(&failed_write_path).unwrap();
+                    assert!(!application.apply_queued_prompt_wait(&id, &wait, None));
+                    assert_failed_write();
+                    std::fs::remove_dir(&failed_write_path).unwrap();
+                }
+                assert!(application.apply_queued_prompt_wait(&id, &wait, None));
+                authority.finish_queued_prompt_wait(&id, wait.receipt_sequence);
+            } else {
+                assert_eq!(result, Ok(()));
+            }
+            let saved = state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(&id)
+                .unwrap();
+            let inference = peon::PeonInference {
+                observed_status: Some("blocked".into()),
+                phase: None,
+                summary: None,
+                next_action: None,
+                needs_user_input: Some(true),
+                detected_question: None,
+                suggested_options: None,
+                blocker_description: None,
+                failed_command: None,
+                failed_test: None,
+                capacity_hints: None,
+                confidence: 0.8,
+                detected_harness: None,
+                detected_model: None,
+                harness_session_id: None,
+                workflow_observations: Vec::new(),
+            };
+            application.persist_peon_observation_for_test(
+                &id,
+                Some(&inference),
+                None,
+                None,
+                "later",
+            );
+            let after = state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(&id)
+                .unwrap();
+            assert_eq!(
+                after.observed_status, saved.observed_status,
+                "queued={queued}, source={source}"
+            );
+            assert_eq!(after.attention, saved.attention);
+            assert_eq!(after.needs_user_input, saved.needs_user_input);
+            assert_eq!(after.detected_question, saved.detected_question);
+            assert_eq!(after.suggested_options, saved.suggested_options);
+            assert_eq!(
+                after.provenance.attention_source,
+                saved.provenance.attention_source
+            );
+            assert_eq!(
+                after.observed_status.as_deref(),
+                Some(if source == "user" {
+                    "working"
+                } else {
+                    "waiting_for_input"
+                })
+            );
+            {
+                let sessions = state.sessions.lock().unwrap();
+                let info = &sessions.get(&id).unwrap().info;
+                assert_eq!(
+                    info.provenance.attention_source,
+                    saved.provenance.attention_source
+                );
+                assert_eq!(
+                    info.provenance.attention_confidence,
+                    saved.provenance.attention_confidence
+                );
+                assert_eq!(
+                    info.provenance.attention_origin,
+                    saved.provenance.attention_origin
+                );
+                assert_eq!(
+                    info.provenance.attention_updated_at,
+                    saved.provenance.attention_updated_at
+                );
+                assert_eq!(info.metadata_source.as_deref(), Some("agent"));
+                assert_eq!(info.metadata_confidence, Some(0.6));
+            }
+            crate::runtime::terminal_runtime::clear_workflow_report_token(&id);
+            authority.remove(&id);
+        }
+    }
+
+    #[test]
+    fn direct_authenticated_prompt_wait_preserves_committed_provenance_through_peon() {
+        prompt_wait_provenance_survives_peon(false);
+    }
+
+    #[test]
+    fn queued_authenticated_prompt_wait_preserves_committed_provenance_through_peon() {
+        prompt_wait_provenance_survives_peon(true);
     }
 
     #[test]

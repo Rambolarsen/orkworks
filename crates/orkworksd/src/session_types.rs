@@ -48,6 +48,8 @@ impl PeonDiagnostics {
 
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct SessionInfo {
+    #[serde(flatten)]
+    pub(crate) provenance: metadata::MetadataProvenance,
     pub(crate) id: String,
     pub(crate) label: String,
     #[serde(rename = "harnessId", skip_serializing_if = "Option::is_none")]
@@ -157,6 +159,37 @@ pub(crate) struct SessionInfo {
 }
 
 impl SessionInfo {
+    /// Attention authority is independent of descriptive work metadata. The
+    /// fallback covers records produced before split provenance was stored.
+    pub(crate) fn attention_source(&self) -> Option<&str> {
+        self.provenance
+            .attention_source
+            .as_deref()
+            .or(self.metadata_source.as_deref())
+            .map(|source| {
+                if source == "codex_hook" {
+                    "agent"
+                } else {
+                    source
+                }
+            })
+    }
+
+    pub(crate) fn attention_confidence(&self) -> Option<f64> {
+        if self.provenance.attention_source.is_some() {
+            self.provenance.attention_confidence
+        } else {
+            self.metadata_confidence
+        }
+    }
+
+    pub(crate) fn attention_origin(&self) -> Option<&str> {
+        self.provenance
+            .attention_origin
+            .as_deref()
+            .or_else(|| self.attention_source().map(|_| "legacy_unknown"))
+    }
+
     /// Builds the placeholder `SessionInfo` a remembered (no live handle)
     /// session projects from, for `session_view::project_session_info`.
     ///
@@ -172,6 +205,7 @@ impl SessionInfo {
     /// constructor's behavior, which had no fallback at all (issue #399).
     pub(crate) fn baseline_from_metadata(meta: &metadata::SessionMetadata) -> SessionInfo {
         SessionInfo {
+            provenance: Default::default(),
             id: meta.id.clone(),
             label: meta.label.clone(),
             harness_id: None,
@@ -252,6 +286,26 @@ pub(crate) enum MemoryState {
 mod tests {
     use super::*;
 
+    #[test]
+    fn attention_accessors_use_split_provenance_and_normalize_legacy_hook_source() {
+        let mut info = test_session_info("id", "Label", "/tmp", "running", "now");
+        info.metadata_source = Some("codex_hook".into());
+        info.metadata_confidence = Some(0.6);
+        assert_eq!(info.attention_source(), Some("agent"));
+        assert_eq!(info.attention_confidence(), Some(0.6));
+        assert_eq!(info.attention_origin(), Some("legacy_unknown"));
+
+        info.provenance.attention_source = Some("peon".into());
+        info.provenance.attention_confidence = Some(0.9);
+        info.provenance.attention_origin = Some("peon".into());
+        assert_eq!(info.attention_source(), Some("peon"));
+        assert_eq!(info.attention_confidence(), Some(0.9));
+        assert_eq!(info.attention_origin(), Some("peon"));
+
+        info.provenance.attention_confidence = None;
+        assert_eq!(info.attention_confidence(), None);
+    }
+
     fn test_session_info(
         id: impl Into<String>,
         label: impl Into<String>,
@@ -261,6 +315,7 @@ mod tests {
     ) -> SessionInfo {
         let created_at = created_at.into();
         SessionInfo {
+            provenance: Default::default(),
             id: id.into(),
             label: label.into(),
             harness_id: None,

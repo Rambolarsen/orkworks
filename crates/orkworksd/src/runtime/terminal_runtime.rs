@@ -717,7 +717,7 @@ fn record_terminal_input_impl(
             state,
             id,
             output_boundary,
-            line_completed,
+            line_completed || matches!(data, "\r" | "\n" | "\r\n"),
             buf_grew,
             contains_mouse_button_event(data),
         );
@@ -858,28 +858,54 @@ fn mark_committed_input_working(
     }
     let already_working = handle.info.observed_status.as_deref() == Some("working")
         && handle.info.attention.as_deref() == Some("working")
-        && handle.info.metadata_source.as_deref() == Some("process")
-        && handle.info.metadata_confidence == Some(1.0)
+        && handle.info.provenance.attention_source.as_deref() == Some("process")
+        && handle.info.provenance.attention_confidence == Some(1.0)
         && handle.info.needs_user_input.is_none()
         && handle.info.detected_question.is_none()
         && handle.info.suggested_options.is_none()
         && handle.pending_work_signal.is_none();
     // A hook-reported prompt normally defers to the hook for the working
-    // transition. Codex is the exception: approving a PermissionRequest is a
-    // bare printable keystroke, and Codex does not emit a new
-    // `UserPromptSubmit` event after that approval. Treat that exact
-    // Codex-sourced prompt as resumed work while preserving the hook deferral
-    // for every other active hook.
+    // transition. A validated permission prompt can be answered with one key.
+    let codex_permission_owned = handle
+        .runtime
+        .native_approval
+        .as_ref()
+        .is_some_and(|tracker| {
+            tracker.protects_permission_wait(&handle.runtime.attention_owner, &handle.info)
+        });
+    let validated_harness_prompt = matches!(
+        handle
+            .info
+            .harness_id
+            .as_deref()
+            .or(handle.info.harness.as_deref()),
+        Some("claude-code" | "copilot")
+    ) && crate::runtime::prompt_authority::registry().is_active(id);
+    let harness_permission_owned = matches!(
+        handle.runtime.active_prompt_kind,
+        Some(crate::runtime::session_runtime::RuntimePromptKind::Permission)
+    ) && validated_harness_prompt;
+    let is_elicitation = matches!(
+        handle.runtime.active_prompt_kind,
+        Some(crate::runtime::session_runtime::RuntimePromptKind::Elicitation)
+    );
+    let permission_owned = codex_permission_owned || harness_permission_owned;
+    let attention_source = handle
+        .info
+        .provenance
+        .attention_source
+        .as_deref()
+        .or(handle.info.metadata_source.as_deref());
     let single_key_policy = match handle.runtime.active_prompt_kind {
-        Some(crate::runtime::session_runtime::RuntimePromptKind::Permission) => true,
+        Some(crate::runtime::session_runtime::RuntimePromptKind::Permission) => permission_owned,
         Some(crate::runtime::session_runtime::RuntimePromptKind::Elicitation) => false,
-        None => matches!(
-            (
-                handle.active_work_hook,
-                handle.info.metadata_source.as_deref(),
-            ),
-            (false, Some("agent")) | (true, Some("codex_hook"))
-        ),
+        None => {
+            permission_owned
+                || matches!(
+                    (handle.active_work_hook, attention_source,),
+                    (false, Some("agent" | "process"))
+                )
+        }
     };
     let single_key_qualifies = printable_keystroke
         && handle.info.attention.as_deref() == Some("needs_you")
@@ -887,9 +913,19 @@ fn mark_committed_input_working(
     let codex_mouse_click_qualifies = mouse_button_event
         && handle.active_work_hook
         && handle.info.attention.as_deref() == Some("needs_you")
-        && handle.info.metadata_source.as_deref() == Some("codex_hook");
+        && permission_owned;
     let committed_input = line_completed || single_key_qualifies || codex_mouse_click_qualifies;
-    let commit_working = !already_working && committed_input;
+    let commit_working = !already_working
+        && committed_input
+        && attention_source != Some("user")
+        && (!is_elicitation || (line_completed && validated_harness_prompt))
+        && (!handle.active_work_hook
+            || permission_owned
+            || (line_completed
+                && (matches!(
+                    attention_source,
+                    None | Some("unknown" | "debug" | "backend_inference" | "process" | "peon")
+                ) || (is_elicitation && validated_harness_prompt))));
     let Some(next_generation) = handle.runtime.input_generation.checked_add(1) else {
         tracing::warn!(session_id = %id, "input generation overflow");
         return;
@@ -952,15 +988,70 @@ fn mark_committed_input_working(
         return;
     }
     let ws = ws_guard.as_ref().expect("workspace checked above");
-    let Some(mut meta) = ws.metadata.read_session(id) else {
-        return;
+    let live_observed_status = handle.info.observed_status.clone();
+    let live_attention = handle.info.attention.clone();
+    let persisted = ws.metadata.mutate_session_optional(
+        id,
+        crate::metadata::session_transactions::WriteScope::ATTENTION,
+        |meta| {
+            if meta.lifecycle != "alive" || meta.attention_source() == "user" {
+                return Ok(false);
+            }
+            let matching_codex_permission = codex_permission_owned
+                && meta.observed_status.as_deref() == Some("waiting_for_input")
+                && meta.attention.as_deref() == Some("needs_you")
+                && meta.attention_source() == "agent"
+                && matches!(meta.attention_origin(), "native_codex" | "harness_hook");
+            let matching_harness_permission = harness_permission_owned
+                && meta.observed_status.as_deref() == Some("waiting_for_input")
+                && meta.attention.as_deref() == Some("needs_you")
+                && meta.attention_source() == "process"
+                && meta.attention_origin() == "process";
+            let matching_input_wait = !is_elicitation
+                && (!handle.active_work_hook
+                    || matches!(
+                        meta.attention_source(),
+                        "unknown" | "debug" | "backend_inference" | "process" | "peon"
+                    ))
+                && meta.observed_status == live_observed_status
+                && meta.attention == live_attention
+                && matches!(meta.observed_status.as_deref(), Some("waiting_for_input"));
+            if !matching_codex_permission
+                && !matching_harness_permission
+                && !matching_input_wait
+                && !crate::metadata::source_priority::can_overwrite(
+                    "process",
+                    meta.attention_source(),
+                    meta.attention_age_secs(),
+                )
+            {
+                return Ok(false);
+            }
+            crate::runtime::observed_status::apply_process_transition_to_meta(meta, &fields);
+            Ok(true)
+        },
+    );
+    let attention_committed = match persisted {
+        Ok(Some(_)) => true,
+        Ok(None) => false,
+        Err(error) => {
+            tracing::warn!(session_id = %id, %error, "failed to persist input attention transition");
+            false
+        }
     };
-    if meta.lifecycle != "alive" {
-        return;
-    }
-    crate::runtime::observed_status::apply_process_transition_to_meta(&mut meta, &fields);
-    if ws.metadata.try_write_session(&meta).is_err() {
-        tracing::warn!(session_id = %id, "failed to persist input attention transition");
+    if !attention_committed {
+        handle.runtime.input_generation = next_generation;
+        handle.runtime.accepted_input_at = Some(accepted_at);
+        handle.runtime.min_peon_output_revision =
+            output_boundary.unwrap_or(handle.runtime.peon_output_revision);
+        drop(sessions);
+        drop(ws_guard);
+        state
+            .peon
+            .last_output
+            .write()
+            .unwrap()
+            .insert(id.to_string(), tokio::time::Instant::now());
         return;
     }
     crate::runtime::observed_status::apply_process_transition_to_handle(
@@ -968,6 +1059,9 @@ fn mark_committed_input_working(
         &mut handle.runtime.attention_owner,
         &fields,
     );
+    if let Some(tracker) = handle.runtime.native_approval.as_mut() {
+        tracker.invalidate();
+    }
     handle.pending_work_signal = None;
     handle.runtime.input_generation = next_generation;
     handle.runtime.accepted_input_at = Some(accepted_at);
@@ -1084,6 +1178,7 @@ fn final_snapshot_from_inference(
     inference.and_then(|inf| {
         let value = inf.observed_status.clone()?;
         Some(metadata::ObservedStatusSnapshotMetadata {
+            attention_origin: None,
             value: Some(value),
             source: "peon".into(),
             confidence: Some(inf.confidence),
@@ -1103,9 +1198,10 @@ fn fallback_final_snapshot(
                 meta.observed_status
                     .clone()
                     .map(|value| metadata::ObservedStatusSnapshotMetadata {
+                        attention_origin: Some(meta.attention_origin().to_string()),
                         value: Some(value),
-                        source: meta.metadata_source.clone(),
-                        confidence: Some(meta.metadata_confidence),
+                        source: meta.attention_source().to_string(),
+                        confidence: Some(meta.attention_confidence()),
                         observed_at: Some(observed_at.to_string()),
                     })
             } else {
@@ -1689,6 +1785,9 @@ mod tests {
         info.observed_status = Some("waiting_for_input".into());
         info.metadata_source = Some("agent".into());
         info.metadata_confidence = Some(1.0);
+        info.provenance.attention_source = Some("process".into());
+        info.provenance.attention_confidence = Some(1.0);
+        info.provenance.attention_origin = Some("process".into());
         info.needs_user_input = Some(true);
         info.detected_question = Some("Proceed?".into());
         info.suggested_options = Some(vec!["yes".into(), "no".into()]);
@@ -1728,6 +1827,9 @@ mod tests {
         meta.observed_status = Some("waiting_for_input".into());
         meta.metadata_source = "agent".into();
         meta.metadata_confidence = 1.0;
+        meta.provenance.attention_source = Some("process".into());
+        meta.provenance.attention_confidence = Some(1.0);
+        meta.provenance.attention_origin = Some("process".into());
         meta.needs_user_input = Some(true);
         meta.detected_question = Some("Proceed?".into());
         meta.suggested_options = Some(vec!["yes".into(), "no".into()]);
@@ -1747,8 +1849,8 @@ mod tests {
         let info = state.sessions.lock().unwrap()[session_id].info.clone();
         assert_eq!(info.attention.as_deref(), Some("working"));
         assert_eq!(info.observed_status.as_deref(), Some("working"));
-        assert_eq!(info.metadata_source.as_deref(), Some("process"));
-        assert_eq!(info.metadata_confidence, Some(1.0));
+        assert_eq!(info.provenance.attention_source.as_deref(), Some("process"));
+        assert_eq!(info.provenance.attention_confidence, Some(1.0));
         assert_eq!(info.needs_user_input, None);
         assert_eq!(info.detected_question, None);
         assert_eq!(info.suggested_options, None);
@@ -1764,11 +1866,40 @@ mod tests {
             .unwrap();
         assert_eq!(meta.attention.as_deref(), Some("working"));
         assert_eq!(meta.observed_status.as_deref(), Some("working"));
-        assert_eq!(meta.metadata_source, "process");
-        assert_eq!(meta.metadata_confidence, 1.0);
+        assert_eq!(meta.provenance.attention_source.as_deref(), Some("process"));
+        assert_eq!(meta.provenance.attention_confidence, Some(1.0));
         assert_eq!(meta.needs_user_input, None);
         assert_eq!(meta.detected_question, None);
         assert_eq!(meta.suggested_options, None);
+    }
+
+    fn bind_validated_codex_permission(state: &Arc<crate::AppState>, session_id: &str) {
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.active_work_hook = true;
+            handle.info.provenance.attention_source = Some("agent".into());
+            handle.info.provenance.attention_confidence = Some(1.0);
+            handle.info.provenance.attention_origin = Some("harness_hook".into());
+            handle.info.needs_user_input = None;
+            handle.info.detected_question = None;
+            handle.info.suggested_options = None;
+            let mut tracker = crate::runtime::codex_approval_application::NativeApprovalState::new(
+                handle.runtime.run_generation(),
+            );
+            tracker.record_validated_permission(&handle.runtime.attention_owner);
+            handle.runtime.native_approval = Some(tracker);
+        }
+        let ws = state.workspace.lock().unwrap();
+        let store = &ws.as_ref().unwrap().metadata;
+        let mut meta = store.read_session(session_id).unwrap();
+        meta.provenance.attention_source = Some("agent".into());
+        meta.provenance.attention_confidence = Some(1.0);
+        meta.provenance.attention_origin = Some("harness_hook".into());
+        meta.needs_user_input = None;
+        meta.detected_question = None;
+        meta.suggested_options = None;
+        store.write_session(&meta);
     }
 
     #[test]
@@ -1933,7 +2064,8 @@ mod tests {
              matching the Enter-terminated path — no PTY output confirmation needed"
         );
         assert_eq!(info.observed_status.as_deref(), Some("working"));
-        assert_eq!(info.metadata_source.as_deref(), Some("process"));
+        assert_eq!(info.metadata_source.as_deref(), Some("agent"));
+        assert_eq!(info.provenance.attention_source.as_deref(), Some("process"));
     }
 
     #[test]
@@ -2066,23 +2198,7 @@ mod tests {
     fn codex_permission_approval_keystroke_clears_hook_prompt_to_working() {
         let session_id = "codex-permission-approval";
         let (state, _dir) = prompted_session_state(session_id);
-        {
-            let mut sessions = state.sessions.lock().unwrap();
-            let handle = sessions.get_mut(session_id).unwrap();
-            handle.info.metadata_source = Some("codex_hook".into());
-            handle.active_work_hook = true;
-        }
-        {
-            let ws = state.workspace.lock().unwrap();
-            let mut meta = ws
-                .as_ref()
-                .unwrap()
-                .metadata
-                .read_session(session_id)
-                .unwrap();
-            meta.metadata_source = "codex_hook".into();
-            ws.as_ref().unwrap().metadata.write_session(&meta);
-        }
+        bind_validated_codex_permission(&state, session_id);
 
         assert_eq!(record_terminal_input(&state, session_id, "y"), None);
 
@@ -2093,23 +2209,7 @@ mod tests {
     fn codex_permission_mouse_click_clears_hook_prompt_to_working() {
         let session_id = "codex-permission-mouse-click";
         let (state, _dir) = prompted_session_state(session_id);
-        {
-            let mut sessions = state.sessions.lock().unwrap();
-            let handle = sessions.get_mut(session_id).unwrap();
-            handle.info.metadata_source = Some("codex_hook".into());
-            handle.active_work_hook = true;
-        }
-        {
-            let ws = state.workspace.lock().unwrap();
-            let mut meta = ws
-                .as_ref()
-                .unwrap()
-                .metadata
-                .read_session(session_id)
-                .unwrap();
-            meta.metadata_source = "codex_hook".into();
-            ws.as_ref().unwrap().metadata.write_session(&meta);
-        }
+        bind_validated_codex_permission(&state, session_id);
 
         assert_eq!(
             record_terminal_input(&state, session_id, "\x1b[<0;10;5M"),
@@ -2138,16 +2238,15 @@ mod tests {
     }
 
     #[test]
-    fn committed_line_overrides_user_source_and_active_work_hook() {
-        // A completed line is definitive submission evidence regardless of
-        // harness capability or the prompt's prior metadata source — Enter
-        // always wins.
+    fn committed_line_preserves_user_attention_override() {
         let session_id = "committed-line-overrides";
         let (state, _dir) = prompted_session_state(session_id);
         {
             let mut sessions = state.sessions.lock().unwrap();
             let handle = sessions.get_mut(session_id).unwrap();
             handle.info.metadata_source = Some("user".into());
+            handle.info.provenance.attention_source = Some("user".into());
+            handle.info.provenance.attention_origin = Some("user".into());
             handle.active_work_hook = true;
         }
         {
@@ -2159,12 +2258,174 @@ mod tests {
                 .read_session(session_id)
                 .unwrap();
             meta.metadata_source = "user".into();
+            meta.provenance.attention_source = Some("user".into());
+            meta.provenance.attention_origin = Some("user".into());
             ws.as_ref().unwrap().metadata.write_session(&meta);
         }
 
         assert_eq!(record_terminal_input(&state, session_id, "1\r"), Some(()));
 
-        assert_prompt_is_cleared_as_working(&state, session_id);
+        let info = state.sessions.lock().unwrap()[session_id].info.clone();
+        assert_eq!(info.attention.as_deref(), Some("needs_you"));
+        let meta = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(session_id)
+            .unwrap();
+        assert_eq!(meta.attention.as_deref(), Some("needs_you"));
+    }
+
+    #[test]
+    fn committed_input_does_not_clear_a_different_persisted_agent_wait() {
+        let session_id = "input-different-persisted-wait";
+        let (state, _dir) = prompted_session_state(session_id);
+        {
+            let ws = state.workspace.lock().unwrap();
+            let store = &ws.as_ref().unwrap().metadata;
+            let mut meta = store.read_session(session_id).unwrap();
+            meta.observed_status = Some("blocked".into());
+            meta.attention = Some("blocked".into());
+            meta.provenance.attention_source = Some("agent".into());
+            meta.provenance.attention_origin = Some("harness_hook".into());
+            store.write_session(&meta);
+        }
+
+        record_terminal_input(&state, session_id, "yes\r");
+
+        let info = state.sessions.lock().unwrap()[session_id].info.clone();
+        assert_eq!(info.observed_status.as_deref(), Some("waiting_for_input"));
+        let meta = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(session_id)
+            .unwrap();
+        assert_eq!(meta.observed_status.as_deref(), Some("blocked"));
+    }
+
+    #[test]
+    fn committed_line_does_not_clear_an_unrelated_elicitation() {
+        let session_id = "input-unrelated-elicitation";
+        let (state, _dir) = prompted_session_state(session_id);
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .get_mut(session_id)
+            .unwrap()
+            .runtime
+            .active_prompt_kind =
+            Some(crate::runtime::session_runtime::RuntimePromptKind::Elicitation);
+
+        record_terminal_input(&state, session_id, "yes\r");
+
+        assert_eq!(
+            state.sessions.lock().unwrap()[session_id]
+                .info
+                .observed_status
+                .as_deref(),
+            Some("waiting_for_input")
+        );
+        let meta = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(session_id)
+            .unwrap();
+        assert_eq!(meta.observed_status.as_deref(), Some("waiting_for_input"));
+    }
+
+    #[test]
+    fn validated_harness_elicitation_needs_submitted_input_and_process_authority() {
+        for (harness, source, expected) in [
+            ("claude-code", "process", "working"),
+            ("copilot", "process", "working"),
+            ("claude-code", "agent", "waiting_for_input"),
+            ("copilot", "agent", "waiting_for_input"),
+        ] {
+            let session_id = format!("elicitation-{harness}-{source}");
+            let (state, _dir) = prompted_session_state(&session_id);
+            {
+                let mut sessions = state.sessions.lock().unwrap();
+                let handle = sessions.get_mut(&session_id).unwrap();
+                handle.info.harness = Some(harness.into());
+                handle.info.harness_id = Some(harness.into());
+                handle.info.provenance.attention_source = Some(source.into());
+                handle.runtime.active_prompt_kind =
+                    Some(crate::runtime::session_runtime::RuntimePromptKind::Elicitation);
+                handle.active_work_hook = true;
+            }
+            {
+                let ws = state.workspace.lock().unwrap();
+                let store = &ws.as_ref().unwrap().metadata;
+                let mut meta = store.read_session(&session_id).unwrap();
+                meta.provenance.attention_source = Some(source.into());
+                meta.provenance.attention_origin = Some(if source == "agent" {
+                    "harness_hook".into()
+                } else {
+                    "process".into()
+                });
+                store.write_session(&meta);
+            }
+            let authority = crate::runtime::prompt_authority::registry();
+            authority.issue(&session_id, harness, "generation");
+            assert_eq!(
+                authority.register_native_id(
+                    &session_id,
+                    harness,
+                    "generation",
+                    "native-id",
+                    false,
+                    None,
+                ),
+                crate::runtime::prompt_authority::BindResult::Bound
+            );
+            assert!(authority.activate(&session_id, harness, "generation", "native-id"));
+
+            record_terminal_input(&state, &session_id, "x");
+            assert_eq!(
+                state.sessions.lock().unwrap()[&session_id]
+                    .info
+                    .observed_status
+                    .as_deref(),
+                Some("waiting_for_input"),
+                "bare key must not clear {harness} {source} elicitation"
+            );
+            record_terminal_input(&state, &session_id, "\r");
+            assert_eq!(
+                state.sessions.lock().unwrap()[&session_id]
+                    .info
+                    .observed_status
+                    .as_deref(),
+                Some(expected),
+                "submitted input at {harness} {source} elicitation"
+            );
+            assert_eq!(
+                state
+                    .workspace
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .metadata
+                    .read_session(&session_id)
+                    .unwrap()
+                    .observed_status
+                    .as_deref(),
+                Some(expected),
+            );
+            authority.remove(&session_id);
+        }
     }
 
     #[test]
@@ -2179,6 +2440,8 @@ mod tests {
             let mut sessions = state.sessions.lock().unwrap();
             let handle = sessions.get_mut(session_id).unwrap();
             handle.info.metadata_source = Some("peon".into());
+            handle.info.provenance.attention_source = Some("peon".into());
+            handle.info.provenance.attention_origin = Some("peon".into());
         }
         {
             let ws = state.workspace.lock().unwrap();
@@ -2189,6 +2452,8 @@ mod tests {
                 .read_session(session_id)
                 .unwrap();
             meta.metadata_source = "peon".into();
+            meta.provenance.attention_source = Some("peon".into());
+            meta.provenance.attention_origin = Some("peon".into());
             ws.as_ref().unwrap().metadata.write_session(&meta);
         }
 
@@ -3837,6 +4102,7 @@ mod tests {
             let ws_guard = state.workspace.lock().unwrap();
             let ws = ws_guard.as_ref().unwrap();
             ws.metadata.write_session(&metadata::SessionMetadata {
+                provenance: Default::default(),
                 id: session_id.clone(),
                 label: "Test".into(),
                 label_source: metadata::LabelSource::Legacy,
@@ -3987,6 +4253,7 @@ mod tests {
             let ws_guard = state.workspace.lock().unwrap();
             let ws = ws_guard.as_ref().unwrap();
             ws.metadata.write_session(&metadata::SessionMetadata {
+                provenance: Default::default(),
                 id: session_id.clone(),
                 label: "Test".into(),
                 label_source: metadata::LabelSource::Legacy,
@@ -4007,6 +4274,7 @@ mod tests {
                 pending_terminal_status: Some("killed".into()),
                 observed_status: None,
                 ending_observed_status_snapshot: Some(metadata::ObservedStatusSnapshotMetadata {
+                    attention_origin: None,
                     value: Some("blocked".into()),
                     source: "peon".into(),
                     confidence: Some(0.6),
@@ -4054,6 +4322,7 @@ mod tests {
             &session_id,
             generation,
             metadata::ObservedStatusSnapshotMetadata {
+                attention_origin: None,
                 value: Some("done".into()),
                 source: "peon".into(),
                 confidence: Some(0.91),
@@ -4205,6 +4474,7 @@ mod tests {
             let ws_guard = state.workspace.lock().unwrap();
             let ws = ws_guard.as_ref().unwrap();
             ws.metadata.write_session(&metadata::SessionMetadata {
+                provenance: Default::default(),
                 id: session_id.clone(),
                 label: "Test".into(),
                 label_source: metadata::LabelSource::Legacy,
@@ -4225,6 +4495,7 @@ mod tests {
                 pending_terminal_status: Some("ended".into()),
                 observed_status: None,
                 ending_observed_status_snapshot: Some(metadata::ObservedStatusSnapshotMetadata {
+                    attention_origin: None,
                     value: Some("blocked".into()),
                     source: "peon".into(),
                     confidence: Some(0.75),
@@ -4434,6 +4705,7 @@ mod tests {
             let ws_guard = state.workspace.lock().unwrap();
             let ws = ws_guard.as_ref().unwrap();
             ws.metadata.write_session(&metadata::SessionMetadata {
+                provenance: Default::default(),
                 id: session_id.clone(),
                 label: "Test".into(),
                 label_from_initial_prompt: false,

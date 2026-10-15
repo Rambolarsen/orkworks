@@ -206,3 +206,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Codex connected-listener ownership implementation](2026-10-15-codex-listener-ownership.md) — Separate dormant macOS proof from blocked native-client identity integration.
 
 - [Revisioned session metadata transactions](2026-10-15-session-metadata-transactions.md) — Storage prerequisite for coordinated Codex attention writes.
+
+- [Coordinated session metadata API and provenance](2026-10-15-session-metadata-api.md) — Remaining #788 sidecar contract.

@@ -1,6 +1,4 @@
-use crate::runtime::observed_status::{
-    apply_process_transition_to_handle, process_transition_fields, ProcessTransition,
-};
+use crate::runtime::observed_status::ProcessTransition;
 #[cfg(windows)]
 use crate::runtime::terminal_runtime::resolve_windows_program;
 use crate::runtime::terminal_runtime::{
@@ -1700,13 +1698,13 @@ fn complete_initial_editor_prompt(
             startup_grace_ends_at,
         ) {
             handle.pending_work_signal = None;
-            let fields = process_transition_fields(ProcessTransition::CommittedWorking);
-            apply_process_transition_to_handle(
-                &mut handle.info,
-                &mut handle.runtime.attention_owner,
-                &fields,
-            );
-            return true;
+            drop(sessions);
+            return crate::session_application::SessionApplication::new(state.clone())
+                .persist_process_transition(
+                    id,
+                    Some(generation),
+                    ProcessTransition::CommittedWorking,
+                );
         }
         let mut signal = initial.work_signal.take().unwrap_or_else(|| {
             arm_pending_work_signal(&initial.prompt, now, std::time::Duration::ZERO)
@@ -2333,16 +2331,10 @@ async fn start_session_runtime_inner(
                             if initial_editor.as_ref().is_some_and(|initial| !initial.pending()) {
                                 let initial = initial_editor.take().expect("completed initial prompt");
                                 if !kill_requested && !*kill_rx.borrow() && child_exit.is_none() {
-                                    if complete_initial_editor_prompt(
+                                    complete_initial_editor_prompt(
                                         &driver_state, &driver_id, run_generation, initial,
                                         tokio::time::Instant::now(), startup_grace_ends_at,
-                                    ) {
-                                        crate::session_application::SessionApplication::new(
-                                            driver_state.clone(),
-                                        ).persist_process_transition(
-                                            &driver_id, ProcessTransition::CommittedWorking,
-                                        );
-                                    }
+                                    );
                                 }
                             }
                         }
@@ -2529,27 +2521,6 @@ async fn start_session_runtime_inner(
                                         handle.active_work_hook,
                                         startup_grace_ends_at,
                                     ) {
-                                        // Use the shared `ProcessTransition::CommittedWorking`
-                                        // fields so promotion clears stale prompt fields
-                                        // (`needs_user_input` / `detected_question` /
-                                        // `suggested_options`) and sets `metadata_source`
-                                        // + `metadata_confidence` on the live handle to
-                                        // match the persisted record, identical to the
-                                        // Enter-terminated `mark_committed_input_working`
-                                        // path. The pre-fix site manually set only
-                                        // `observed_status`/`attention`, leaving the live
-                                        // handle's `metadata_source = "agent"` and the
-                                        // answered prompt's question fields intact —
-                                        // surfaced once #273 hooked the single-key path
-                                        // onto this output-gated promotion.
-                                        let fields = process_transition_fields(
-                                            ProcessTransition::CommittedWorking,
-                                        );
-                                        apply_process_transition_to_handle(
-                                            &mut handle.info,
-                    &mut handle.runtime.attention_owner,
-                                            &fields,
-                                        );
                                         promoted_working = true;
                                     }
                                     let cursor = handle.runtime.replay.push(data.clone());
@@ -2599,6 +2570,7 @@ async fn start_session_runtime_inner(
                                 )
                                 .persist_process_transition(
                                     &driver_id,
+                                    Some(run_generation),
                                     ProcessTransition::CommittedWorking,
                                 );
                             }
@@ -2966,6 +2938,45 @@ mod tests {
                 .next_command(now + Duration::from_secs(12), false)
                 .is_none());
         }
+    }
+
+    #[test]
+    fn initial_response_does_not_promote_live_attention_when_metadata_write_fails() {
+        let root = tempfile::tempdir().unwrap();
+        let id = "initial-response-persist-failure";
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let source = test_state_with_runtime_session(id);
+        let handle = source.sessions.lock().unwrap().remove(id).unwrap();
+        let generation = handle.runtime.run_generation();
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+        let metadata = crate::test_support::test_session_metadata(
+            id,
+            "Initial response",
+            root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let store = &workspace.as_ref().unwrap().metadata;
+            store.write_session(&metadata);
+            std::fs::create_dir(store.sessions_dir().join(format!("{id}.json.tmp"))).unwrap();
+        }
+        let before = state.sessions.lock().unwrap()[id].info.attention.clone();
+        let now = tokio::time::Instant::now();
+        let mut initial = InitialEditorPrompt::new("hello".into(), now, now);
+        initial.submission_accepted = true;
+        initial.qualifying_work_output = true;
+        assert!(!complete_initial_editor_prompt(
+            &state,
+            id,
+            generation,
+            initial,
+            now,
+            now - Duration::from_secs(1)
+        ));
+        assert_eq!(state.sessions.lock().unwrap()[id].info.attention, before);
     }
 
     #[test]
@@ -4699,8 +4710,8 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
             "a single committed keystroke must commit working immediately, with no PTY output wait"
         );
         assert_eq!(handle.info.observed_status.as_deref(), Some("working"));
-        assert_eq!(handle.info.metadata_source.as_deref(), Some("process"));
-        assert_eq!(handle.info.metadata_confidence, Some(1.0));
+        assert_eq!(handle.info.attention_source(), Some("process"));
+        assert_eq!(handle.info.attention_confidence(), Some(1.0));
         assert_eq!(
             handle.info.needs_user_input, None,
             "the answered prompt's question fields must clear on commit"
@@ -4737,6 +4748,7 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
             let mut sessions = state.sessions.lock().unwrap();
             let handle = sessions.get_mut(session_id).unwrap();
             handle.info.attention = Some("needs_you".into());
+            handle.info.observed_status = Some("waiting_for_input".into());
             handle.info.metadata_source = Some("agent".into());
             handle.info.lifecycle = "alive".into();
         }
@@ -4755,6 +4767,7 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
             meta.connectivity = "online".into();
             meta.terminal_outcome = None;
             meta.attention = Some("needs_you".into());
+            meta.observed_status = Some("waiting_for_input".into());
             meta.metadata_source = "agent".into();
             ws.as_ref().unwrap().metadata.write_session(&meta);
         }
@@ -4871,8 +4884,9 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
             "persisted attention must reflect the immediate transition"
         );
         assert_eq!(
-            meta.metadata_source, "process",
-            "committed input sets metadata_source=process before output"
+            meta.attention_source(),
+            "process",
+            "committed input sets attention source before output"
         );
         drop(ws);
 
