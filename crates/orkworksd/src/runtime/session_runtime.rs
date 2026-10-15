@@ -1500,6 +1500,226 @@ fn initial_prompt_command(prompt: &str) -> RuntimeCommand {
     }
 }
 
+// Codex and OpenCode enable bracketed paste after configuring terminal input.
+// Sending before that can lose input or turn CR into LF in the cooked PTY.
+// Keep the initial paste and its Enter ahead of subsequently queued commands.
+const INITIAL_EDITOR_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+const INITIAL_EDITOR_SETTLE: std::time::Duration = std::time::Duration::from_millis(200);
+
+struct InitialEditorPrompt {
+    prompt: String,
+    phase: InitialEditorPromptPhase,
+    marker: [u8; 8],
+    paste_enabled: bool,
+    timeout: tokio::time::Instant,
+    submitted: Option<tokio::sync::oneshot::Receiver<Result<(), ()>>>,
+    paste_result: Option<tokio::sync::oneshot::Receiver<Result<(), ()>>>,
+    submission_accepted: bool,
+    work_signal: Option<PendingWorkSignal>,
+    qualifying_work_output: bool,
+    work_utf8: Vec<u8>,
+    startup_grace_ends_at: tokio::time::Instant,
+}
+
+enum InitialEditorPromptPhase {
+    Waiting(tokio::time::Instant),
+    WritingPaste,
+    Submit(tokio::time::Instant),
+    Complete,
+}
+
+impl InitialEditorPrompt {
+    fn new(
+        prompt: String,
+        now: tokio::time::Instant,
+        startup_grace_ends_at: tokio::time::Instant,
+    ) -> Self {
+        let timeout = now + INITIAL_EDITOR_TIMEOUT;
+        Self {
+            prompt,
+            phase: InitialEditorPromptPhase::Waiting(timeout),
+            marker: [0; 8],
+            paste_enabled: false,
+            timeout,
+            submitted: None,
+            paste_result: None,
+            submission_accepted: false,
+            work_signal: None,
+            qualifying_work_output: false,
+            work_utf8: Vec::new(),
+            startup_grace_ends_at,
+        }
+    }
+
+    fn observe_output(&mut self, data: &[u8], now: tokio::time::Instant) {
+        if matches!(self.phase, InitialEditorPromptPhase::Complete) {
+            // The child can answer before the writer completion wins select.
+            // Retain only echo-filtered work evidence, not terminal output;
+            // acceptance decides whether this evidence may affect metadata.
+            let output = decode_output_chunk(&mut self.work_utf8, data);
+            if let Some(signal) = &mut self.work_signal {
+                // No activity window expires while acceptance is outstanding.
+                // The externally visible finite window starts on acceptance.
+                signal.expires_at = now + WORK_SIGNAL_WINDOW;
+            }
+            self.qualifying_work_output |=
+                consume_pending_work_signal(&mut self.work_signal, &output, now);
+            return;
+        }
+        if !matches!(self.phase, InitialEditorPromptPhase::Waiting(_)) {
+            return;
+        }
+        for byte in data {
+            self.marker.rotate_left(1);
+            self.marker[7] = *byte;
+            if &self.marker == b"\x1b[?2004h" {
+                self.paste_enabled = true;
+            } else if &self.marker == b"\x1b[?2004l" {
+                self.paste_enabled = false;
+            }
+        }
+        self.phase = InitialEditorPromptPhase::Waiting(if self.paste_enabled {
+            (now + INITIAL_EDITOR_SETTLE).min(self.timeout)
+        } else {
+            self.timeout
+        });
+    }
+
+    fn deadline(&self) -> Option<tokio::time::Instant> {
+        match self.phase {
+            InitialEditorPromptPhase::Waiting(at) | InitialEditorPromptPhase::Submit(at) => {
+                Some(at)
+            }
+            _ => None,
+        }
+    }
+
+    fn pending(&self) -> bool {
+        !matches!(self.phase, InitialEditorPromptPhase::Complete)
+    }
+
+    fn next_command(
+        &mut self,
+        now: tokio::time::Instant,
+        output_pending: bool,
+    ) -> Option<RuntimeCommand> {
+        // Recheck the reader queue after a timer or unrelated branch wakes
+        // us. Already queued output must reset quiet-time readiness first.
+        // The hard startup bound still applies under continuous output.
+        if output_pending && now < self.timeout {
+            return None;
+        }
+        if now < self.deadline()? {
+            return None;
+        }
+        let data = match self.phase {
+            InitialEditorPromptPhase::Waiting(_) if self.paste_enabled => {
+                self.phase = InitialEditorPromptPhase::WritingPaste;
+                format!("\x1b[200~{}\x1b[201~", self.prompt)
+            }
+            InitialEditorPromptPhase::Waiting(_) => {
+                // Preserve plain-input compatibility for overrides/wrappers
+                // that never enable paste mode; never leave startup blocked.
+                self.phase = InitialEditorPromptPhase::Complete;
+                format!("{}\r", self.prompt)
+            }
+            InitialEditorPromptPhase::Submit(_) => {
+                self.phase = InitialEditorPromptPhase::Complete;
+                "\r".into()
+            }
+            _ => return None,
+        };
+        let accepted = if matches!(self.phase, InitialEditorPromptPhase::Complete) {
+            let (accepted, submitted) = tokio::sync::oneshot::channel();
+            self.submitted = Some(submitted);
+            if !self.prompt.is_empty() {
+                self.work_signal = Some(arm_pending_work_signal(
+                    &self.prompt,
+                    now,
+                    std::time::Duration::ZERO,
+                ));
+                align_banner_grace_with_startup(&mut self.work_signal, self.startup_grace_ends_at);
+            }
+            Some(accepted)
+        } else {
+            let (accepted, result) = tokio::sync::oneshot::channel();
+            self.paste_result = Some(result);
+            Some(accepted)
+        };
+        Some(RuntimeCommand::Input { data, accepted })
+    }
+
+    fn write_completed(&mut self, now: tokio::time::Instant) -> bool {
+        if matches!(self.phase, InitialEditorPromptPhase::WritingPaste) {
+            let pasted = self
+                .paste_result
+                .take()
+                .is_some_and(|mut result| matches!(result.try_recv(), Ok(Ok(()))));
+            if !pasted {
+                // A partial paste must never be followed by automatic Enter.
+                self.phase = InitialEditorPromptPhase::Complete;
+                return false;
+            }
+            // Start the gap after the write actually returns, including a
+            // blocked/partial write. Let the editor finish processing paste
+            // before Enter (Codex's burst suppression lasts 120ms).
+            self.phase = InitialEditorPromptPhase::Submit(now + INITIAL_EDITOR_SETTLE);
+        }
+        if matches!(self.phase, InitialEditorPromptPhase::Complete) {
+            self.submission_accepted = self
+                .submitted
+                .take()
+                .is_some_and(|mut submitted| matches!(submitted.try_recv(), Ok(Ok(()))));
+            return self.submission_accepted;
+        }
+        true
+    }
+}
+
+fn complete_initial_editor_prompt(
+    state: &Arc<AppState>,
+    id: &str,
+    generation: u64,
+    mut initial: InitialEditorPrompt,
+    now: tokio::time::Instant,
+    startup_grace_ends_at: tokio::time::Instant,
+) -> bool {
+    if !initial.submission_accepted || initial.prompt.is_empty() {
+        return false;
+    }
+    let mut sessions = state.sessions.lock().unwrap();
+    if let Some(handle) = sessions.get_mut(id).filter(|handle| {
+        handle.runtime.run_generation() == generation
+            && handle.info.lifecycle == "alive"
+            && !handle.active_work_hook
+    }) {
+        if should_infer_working(
+            &handle.info.lifecycle,
+            initial.qualifying_work_output,
+            handle.active_work_hook,
+            startup_grace_ends_at,
+        ) {
+            handle.pending_work_signal = None;
+            let fields = process_transition_fields(ProcessTransition::CommittedWorking);
+            apply_process_transition_to_handle(
+                &mut handle.info,
+                &mut handle.runtime.attention_owner,
+                &fields,
+            );
+            return true;
+        }
+        let mut signal = initial.work_signal.take().unwrap_or_else(|| {
+            arm_pending_work_signal(&initial.prompt, now, std::time::Duration::ZERO)
+        });
+        // Preserve any echo already consumed, but give output after actual
+        // acceptance a full window even when the native write was slow.
+        signal.expires_at = now + WORK_SIGNAL_WINDOW;
+        signal.banner_grace_ends_at = startup_grace_ends_at;
+        handle.pending_work_signal = Some(signal);
+    }
+    false
+}
+
 pub(crate) async fn start_session_runtime(
     state: Arc<AppState>,
     id: String,
@@ -1541,7 +1761,7 @@ async fn start_session_runtime_inner(
         Vec<(String, String)>,
     )>,
 ) -> Result<(), String> {
-    let (run_generation, is_codex_session) = state
+    let (run_generation, is_codex_session, has_initial_editor) = state
         .sessions
         .lock()
         .unwrap()
@@ -1551,6 +1771,14 @@ async fn start_session_runtime_inner(
                 handle.runtime.run_generation(),
                 handle.info.harness.as_deref() == Some("codex")
                     || handle.info.harness_id.as_deref() == Some("codex"),
+                matches!(
+                    handle
+                        .info
+                        .harness_id
+                        .as_deref()
+                        .or(handle.info.harness.as_deref()),
+                    Some("codex" | "opencode")
+                ),
             )
         })
         .ok_or_else(|| "session runtime handle is not installed".to_string())?;
@@ -1942,6 +2170,7 @@ async fn start_session_runtime_inner(
         let mut native_observer = native_observer;
         let mut native_failure_handled = false;
         let mut native_server_failed = false;
+        let mut initial_prompt_failed = false;
         let codex_hook_report_relay = codex_hook_report_relay;
         let report_token_for_driver = report_token.clone();
         let mut codex_report_interval =
@@ -1959,8 +2188,28 @@ async fn start_session_runtime_inner(
         let mut reader_drain_deadline = None;
         let mut child_exit: Option<Result<(), String>> = None;
 
+        let mut initial_editor = None;
         if let Some(prompt) = initial_prompt {
-            pending_commands.push_front(initial_prompt_command(&prompt));
+            if has_initial_editor {
+                // Startup output is not evidence of submitted work. Arm a
+                // fresh signal only after the final Enter is accepted.
+                if let Some(handle) = driver_state
+                    .sessions
+                    .lock()
+                    .unwrap()
+                    .get_mut(&driver_id)
+                    .filter(|handle| handle.runtime.run_generation() == run_generation)
+                {
+                    handle.pending_work_signal = None;
+                }
+                initial_editor = Some(InitialEditorPrompt::new(
+                    prompt,
+                    tokio::time::Instant::now(),
+                    startup_grace_ends_at,
+                ));
+            } else {
+                pending_commands.push_front(initial_prompt_command(&prompt));
+            }
         }
 
         loop {
@@ -1986,7 +2235,24 @@ async fn start_session_runtime_inner(
                     write.cancel();
                 }
             } else if pending_write.is_none() && child_exit.is_none() {
-                if let Some(command) = pending_commands.pop_front() {
+                let command = if let Some(initial) =
+                    initial_editor.as_mut().filter(|initial| initial.pending())
+                {
+                    // Resize/kill are control operations, not prompt text.
+                    // They must remain responsive even if earlier input is
+                    // waiting for the editor to become ready.
+                    if let Some(index) = pending_commands
+                        .iter()
+                        .position(|command| !matches!(command, RuntimeCommand::Input { .. }))
+                    {
+                        pending_commands.remove(index)
+                    } else {
+                        initial.next_command(tokio::time::Instant::now(), !driver_rx.is_empty())
+                    }
+                } else {
+                    pending_commands.pop_front()
+                };
+                if let Some(command) = command {
                     match command {
                         RuntimeCommand::Input { data, accepted } => {
                             pending_write = Some(PendingPtyWrite::start(
@@ -2033,7 +2299,14 @@ async fn start_session_runtime_inner(
                     }
                 }
             }
+            let initial_deadline = initial_editor
+                .as_ref()
+                .filter(|initial| {
+                    driver_rx.is_empty() || tokio::time::Instant::now() >= initial.timeout
+                })
+                .and_then(InitialEditorPrompt::deadline);
             tokio::select! {
+                _ = tokio::time::sleep_until(initial_deadline.unwrap_or_else(tokio::time::Instant::now)), if initial_deadline.is_some() && pending_write.is_none() && !kill_requested && child_exit.is_none() => {}
                 _ = async { native_observer.as_mut().expect("native owner").failed.changed().await }, if native_observer.is_some() && !native_failure_handled => {
                     native_failure_handled = true;
                     native_server_failed = matches!(
@@ -2046,7 +2319,33 @@ async fn start_session_runtime_inner(
                 result = async { (&mut pending_write.as_mut().expect("pending write").task).await }, if pending_write.is_some() => {
                     pending_write = None;
                     match result {
-                        Ok(returned_writer) => writer = Some(returned_writer),
+                        Ok(returned_writer) => {
+                            writer = Some(returned_writer);
+                            if let Some(initial) = &mut initial_editor {
+                                if !initial.write_completed(tokio::time::Instant::now())
+                                    && !kill_requested && !*kill_rx.borrow() && child_exit.is_none()
+                                {
+                                    initial_prompt_failed = true;
+                                    kill_requested = true;
+                                    let _ = driver_killer.lock().unwrap().kill();
+                                }
+                            }
+                            if initial_editor.as_ref().is_some_and(|initial| !initial.pending()) {
+                                let initial = initial_editor.take().expect("completed initial prompt");
+                                if !kill_requested && !*kill_rx.borrow() && child_exit.is_none() {
+                                    if complete_initial_editor_prompt(
+                                        &driver_state, &driver_id, run_generation, initial,
+                                        tokio::time::Instant::now(), startup_grace_ends_at,
+                                    ) {
+                                        crate::session_application::SessionApplication::new(
+                                            driver_state.clone(),
+                                        ).persist_process_transition(
+                                            &driver_id, ProcessTransition::CommittedWorking,
+                                        );
+                                    }
+                                }
+                            }
+                        }
                         Err(error) => {
                             if child_exit.is_none() {
                                 tracing::warn!(session_id = %driver_id, %error, "PTY writer task failed");
@@ -2153,7 +2452,7 @@ async fn start_session_runtime_inner(
                     reader_drain_finished = true;
                     reader_drain_deadline = None;
                 }
-                Some(command) = control_rx.recv(), if pending_write.is_none() && pending_commands.is_empty() && !kill_requested && child_exit.is_none() => {
+                Some(command) = control_rx.recv(), if pending_write.is_none() && (pending_commands.is_empty() || (initial_editor.as_ref().is_some_and(InitialEditorPrompt::pending) && pending_commands.len() < CONTROL_CHANNEL_CAPACITY)) && !kill_requested && child_exit.is_none() => {
                     pending_commands.push_back(command);
                 }
                 Some(event) = driver_rx.recv(), if should_receive_driver_events(
@@ -2163,6 +2462,9 @@ async fn start_session_runtime_inner(
                 ) => {
                     match event {
                         DriverEvent::Output(data) => {
+                            if let Some(initial) = &mut initial_editor {
+                                initial.observe_output(&data, tokio::time::Instant::now());
+                            }
                             persist_buffer.extend_from_slice(&data);
                             let text = decode_output_chunk(&mut pending_utf8, &data);
                             let stripped = peon::strip_ansi(&text);
@@ -2405,7 +2707,7 @@ async fn start_session_runtime_inner(
                 }
 
                 let is_error = exit.is_err();
-                let status = if is_error || native_server_failed {
+                let status = if is_error || native_server_failed || initial_prompt_failed {
                     "error"
                 } else if kill_requested {
                     "killed"
@@ -2417,6 +2719,12 @@ async fn start_session_runtime_inner(
                     break;
                 }
                 match exit {
+                    Ok(()) if initial_prompt_failed => {
+                        let _ = driver_output_tx.send(RuntimeEvent::Error {
+                            code: "initial_prompt_delivery_failed".into(),
+                            message: "Could not deliver the initial prompt to the terminal".into(),
+                        });
+                    }
                     Ok(()) if native_server_failed => {
                         let _ = driver_output_tx.send(RuntimeEvent::Error {
                             code: "codex_native_server_exited".into(),
@@ -2489,6 +2797,385 @@ mod tests {
                 panic!("initial prompt must be terminal input");
             };
             assert_eq!(data.as_bytes(), expected.as_bytes());
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn initial_prompt_waits_for_editor_and_precedes_queued_input() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = "initial-prompt-ready";
+        let state = test_state_with_runtime_session(id);
+        let (runtime, control_rx) = SessionRuntime::live(24, 80);
+        let output = runtime.output_tx.clone();
+        let mut events = output.subscribe();
+        let (kill_tx, kill_rx) = tokio::sync::watch::channel(false);
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(id).unwrap();
+            handle.info.harness_id = Some("opencode".into());
+            handle.pending_work_signal = Some(arm_pending_work_signal(
+                "first\nsecond",
+                tokio::time::Instant::now() - Duration::from_secs(11),
+                Duration::ZERO,
+            ));
+            handle.runtime = runtime;
+            handle.kill_tx = kill_tx;
+        }
+        // Model a TUI which starts in cooked mode, then enables raw paste input.
+        // Fragment the readiness escape to exercise PTY chunk boundaries.
+        let expected = b"\x1b[200~first\nsecond\x1b[201~\rnext\r";
+        let script = format!(
+            "sleep 0.5; stty raw -echo; printf '\\033[?20'; printf '04h'; printf 'DELIVERED:'; dd bs=1 count={} 2>/dev/null | od -An -tx1",
+            expected.len()
+        );
+        start_session_runtime(
+            state.clone(),
+            id.into(),
+            harness::CommandSpec {
+                program: "/bin/sh".into(),
+                args: vec!["-c".into(), script],
+                cwd: dir.path().to_string_lossy().into_owned(),
+            },
+            Some("first\nsecond".into()),
+            control_rx,
+            output,
+            kill_rx,
+            PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+        )
+        .await
+        .unwrap();
+        send_runtime_command(
+            &state,
+            id,
+            RuntimeCommand::Input {
+                data: "next\r".into(),
+                accepted: None,
+            },
+        )
+        .await
+        .unwrap();
+        let resized = tokio::time::timeout(
+            Duration::from_millis(300),
+            apply_runtime_size_without_waiting_for_persistence(&state, id, 33, 99),
+        )
+        .await;
+        if resized.is_err() {
+            let _ = send_runtime_command(&state, id, RuntimeCommand::Kill).await;
+        }
+        assert_eq!(
+            resized,
+            Ok(Ok(())),
+            "resize must bypass initial and queued input while the editor starts"
+        );
+        assert_eq!(state.sessions.lock().unwrap()[id].runtime.last_cols, 99);
+        let mut transcript = Vec::new();
+        let completed = tokio::time::timeout(Duration::from_secs(3), async {
+            while let Ok(event) = events.recv().await {
+                match event {
+                    RuntimeEvent::Output { chunk, .. } => transcript.extend(chunk),
+                    RuntimeEvent::Ended { .. } => break,
+                    _ => {}
+                }
+            }
+        })
+        .await;
+        let _ = send_runtime_command(&state, id, RuntimeCommand::Kill).await;
+        assert!(
+            completed.is_ok(),
+            "initial prompt was lost or not submitted: {}",
+            String::from_utf8_lossy(&transcript)
+        );
+        let text = String::from_utf8_lossy(&transcript);
+        let delivered = text
+            .split("DELIVERED:")
+            .nth(1)
+            .expect("fixture reached editor");
+        let hex: String = delivered.split_whitespace().collect();
+        assert_eq!(
+            hex,
+            "1b5b3230307e66697273740a7365636f6e641b5b3230317e0d6e6578740d"
+        );
+        let sessions = state.sessions.lock().unwrap();
+        let signal = sessions[id]
+            .pending_work_signal
+            .as_ref()
+            .expect("submission must replace an expired startup work signal");
+        assert!(signal.expires_at > tokio::time::Instant::now() + Duration::from_secs(8));
+    }
+
+    #[test]
+    fn initial_editor_paste_has_separate_enter_after_write_and_no_retry() {
+        let now = tokio::time::Instant::now();
+        let mut initial = InitialEditorPrompt::new("hello".into(), now, now);
+        assert!(initial.next_command(now, false).is_none());
+        initial.observe_output(b"banner\x1b[?20", now);
+        assert!(initial
+            .next_command(now + Duration::from_secs(1), false)
+            .is_none());
+        initial.observe_output(b"04h", now + Duration::from_secs(1));
+        let paste_at = now + Duration::from_millis(1201);
+        let Some(RuntimeCommand::Input { data, accepted }) = initial.next_command(paste_at, false)
+        else {
+            panic!("editor must receive the paste");
+        };
+        assert_eq!(data, "\x1b[200~hello\x1b[201~");
+        // A slow writer must not consume the submission gap.
+        let written_at = now + Duration::from_secs(2);
+        assert!(initial.next_command(written_at, false).is_none());
+        accepted.unwrap().send(Ok(())).unwrap();
+        assert!(initial.write_completed(written_at));
+        assert!(initial
+            .next_command(written_at + Duration::from_millis(120), false)
+            .is_none());
+        let Some(RuntimeCommand::Input { data, .. }) =
+            initial.next_command(written_at + Duration::from_millis(201), false)
+        else {
+            panic!("editor must receive Enter after paste processing");
+        };
+        assert_eq!(data, "\r");
+        assert!(!initial.pending());
+        initial.observe_output(b"\x1b[?2004h", now + Duration::from_secs(3));
+        assert!(initial
+            .next_command(now + Duration::from_secs(20), false)
+            .is_none());
+    }
+
+    #[test]
+    fn initial_editor_falls_back_once_if_paste_mode_is_disabled_or_absent() {
+        for output in [b"banner".as_slice(), b"\x1b[?2004h\x1b[?2004l".as_slice()] {
+            let now = tokio::time::Instant::now();
+            let mut initial = InitialEditorPrompt::new("hello".into(), now, now);
+            initial.observe_output(output, now);
+            assert!(initial
+                .next_command(now + Duration::from_secs(9), false)
+                .is_none());
+            let Some(RuntimeCommand::Input { data, .. }) =
+                initial.next_command(now + Duration::from_secs(11), false)
+            else {
+                panic!("plain terminal override must not be blocked forever");
+            };
+            assert_eq!(data, "hello\r");
+            assert!(!initial.pending());
+            assert!(initial
+                .next_command(now + Duration::from_secs(12), false)
+                .is_none());
+        }
+    }
+
+    #[test]
+    fn initial_response_before_write_acknowledgement_is_retained_until_acceptance() {
+        for (prompt, response, accepted, should_promote, delay) in [
+            (
+                "hello",
+                b"Thinking...".as_slice(),
+                Ok(()),
+                true,
+                Duration::from_millis(1),
+            ),
+            (
+                "hello",
+                b"Thinking...".as_slice(),
+                Err(()),
+                false,
+                Duration::from_millis(1),
+            ),
+            (
+                "hello",
+                b"hello".as_slice(),
+                Ok(()),
+                false,
+                Duration::from_millis(1),
+            ),
+            (
+                "hello",
+                b"Thinking...".as_slice(),
+                Ok(()),
+                true,
+                Duration::from_secs(11),
+            ),
+            (
+                "",
+                b"Thinking...".as_slice(),
+                Ok(()),
+                false,
+                Duration::from_millis(1),
+            ),
+        ] {
+            let id = "early-initial-response";
+            let state = test_state_with_runtime_session(id);
+            let generation = state.sessions.lock().unwrap()[id].runtime.run_generation();
+            let now = tokio::time::Instant::now();
+            let mut initial = InitialEditorPrompt::new(
+                prompt.into(),
+                now - Duration::from_secs(20),
+                now - Duration::from_secs(1),
+            );
+            let Some(RuntimeCommand::Input {
+                accepted: Some(acknowledge),
+                ..
+            }) = initial.next_command(now, false)
+            else {
+                panic!("fallback submission must expose its write result");
+            };
+            // Deterministically model the output select branch winning first.
+            initial.observe_output(response, now + delay);
+            assert_ne!(
+                state.sessions.lock().unwrap()[id]
+                    .info
+                    .observed_status
+                    .as_deref(),
+                Some("working")
+            );
+            acknowledge.send(accepted).unwrap();
+            assert_eq!(
+                initial.write_completed(now + delay + Duration::from_millis(1)),
+                accepted.is_ok()
+            );
+            let promoted = complete_initial_editor_prompt(
+                &state,
+                id,
+                generation,
+                initial,
+                now + delay + Duration::from_millis(1),
+                now - Duration::from_secs(1),
+            );
+            assert_eq!(
+                promoted, should_promote,
+                "early non-echo response evidence must be applied only after successful submission"
+            );
+            if prompt.is_empty() {
+                assert!(state.sessions.lock().unwrap()[id]
+                    .pending_work_signal
+                    .is_none());
+            }
+            assert_eq!(
+                state.sessions.lock().unwrap()[id]
+                    .info
+                    .observed_status
+                    .as_deref()
+                    == Some("working"),
+                should_promote
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn initial_partial_paste_write_failure_cannot_send_enter_or_arm_work() {
+        struct PartialFailure(Arc<Mutex<Vec<u8>>>);
+        impl Write for PartialFailure {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                let mut delivered = self.0.lock().unwrap();
+                if delivered.is_empty() {
+                    delivered.push(bytes[0]);
+                    Ok(1)
+                } else {
+                    Err(std::io::ErrorKind::BrokenPipe.into())
+                }
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let now = tokio::time::Instant::now();
+        let mut initial = InitialEditorPrompt::new("hello".into(), now, now);
+        initial.observe_output(b"\x1b[?2004h", now);
+        let Some(RuntimeCommand::Input { data, accepted }) =
+            initial.next_command(now + Duration::from_millis(201), false)
+        else {
+            panic!("ready editor must receive paste");
+        };
+        assert!(
+            accepted.is_some(),
+            "paste delivery must have a result before Enter can be sent"
+        );
+        let delivered = Arc::new(Mutex::new(Vec::new()));
+        let mut write = PendingPtyWrite::start(
+            Box::new(PartialFailure(delivered.clone())),
+            data,
+            accepted,
+            tokio::sync::watch::channel(false).1,
+        );
+        (&mut write.task).await.unwrap();
+        assert!(!initial.write_completed(now + Duration::from_millis(202)));
+        assert!(initial
+            .next_command(now + Duration::from_secs(1), false)
+            .is_none());
+        assert!(!initial.pending());
+        assert!(initial.submitted.is_none());
+        assert_eq!(*delivered.lock().unwrap(), b"\x1b");
+    }
+
+    #[test]
+    fn initial_settle_deadline_waits_for_queued_output_before_dispatch() {
+        let now = tokio::time::Instant::now();
+        let mut initial = InitialEditorPrompt::new("hello".into(), now, now);
+        initial.observe_output(b"\x1b[?2004h", now);
+        assert!(initial.next_command(now + Duration::from_millis(201), true).is_none(), "queued startup output must be observed before the expired settle timer can dispatch paste");
+        initial.observe_output(b"still rendering", now + Duration::from_millis(201));
+        assert!(initial
+            .next_command(now + Duration::from_millis(300), false)
+            .is_none());
+        assert!(initial
+            .next_command(now + Duration::from_millis(402), false)
+            .is_some());
+        let mut fallback = InitialEditorPrompt::new("hello".into(), now, now);
+        assert!(
+            fallback
+                .next_command(now + Duration::from_secs(11), true)
+                .is_some(),
+            "continuous output must not defeat the hard fallback bound"
+        );
+    }
+
+    #[test]
+    fn initial_final_write_rejection_is_a_delivery_failure_in_both_modes() {
+        for paste_mode in [false, true] {
+            let now = tokio::time::Instant::now();
+            let mut initial = InitialEditorPrompt::new("hello".into(), now, now);
+            if paste_mode {
+                initial.observe_output(b"\x1b[?2004h", now);
+                let Some(RuntimeCommand::Input {
+                    accepted: Some(accepted),
+                    ..
+                }) = initial.next_command(now + Duration::from_millis(201), false)
+                else {
+                    panic!("paste command");
+                };
+                accepted.send(Ok(())).unwrap();
+                assert!(initial.write_completed(now + Duration::from_millis(202)));
+            }
+            let Some(RuntimeCommand::Input {
+                accepted: Some(accepted),
+                ..
+            }) = initial.next_command(now + Duration::from_secs(11), false)
+            else {
+                panic!("final submission command");
+            };
+            accepted.send(Err(())).unwrap();
+            assert!(
+                !initial.write_completed(now + Duration::from_secs(12)),
+                "rejected Enter/fallback must reach the driver's fatal delivery path"
+            );
+            let id = "failed-final-submission";
+            let state = test_state_with_runtime_session(id);
+            let generation = state.sessions.lock().unwrap()[id].runtime.run_generation();
+            assert!(!complete_initial_editor_prompt(
+                &state,
+                id,
+                generation,
+                initial,
+                now + Duration::from_secs(12),
+                now
+            ));
+            assert!(state.sessions.lock().unwrap()[id]
+                .pending_work_signal
+                .is_none());
         }
     }
 
