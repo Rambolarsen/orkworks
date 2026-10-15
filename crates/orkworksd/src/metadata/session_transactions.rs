@@ -32,7 +32,7 @@ impl From<MetadataRevision> for String {
 }
 
 impl MetadataRevision {
-    fn next(&self) -> io::Result<Self> {
+    pub(super) fn next(&self) -> io::Result<Self> {
         self.0.checked_add(1).map(Self).ok_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidData, "metadata revision exhausted")
         })
@@ -113,7 +113,7 @@ impl MetadataStore {
         id: &str,
     ) -> io::Result<Option<RevisionedSession>> {
         let path = self.sessions_dir().join(format!("{id}.json"));
-        let bytes = match fs::read(path) {
+        let bytes = match fs::read(&path) {
             Ok(bytes) => bytes,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error),
@@ -127,6 +127,13 @@ impl MetadataStore {
             ));
         }
         record.metadata = normalize_session_metadata(record.metadata);
+        record.metadata.provenance.hydrate_legacy(
+            &record.metadata.metadata_source,
+            record.metadata.metadata_confidence,
+            fs::metadata(&path)
+                .ok()
+                .and_then(|stamp| stamp.modified().ok()),
+        );
         Ok(Some(record))
     }
 
@@ -168,6 +175,45 @@ impl MetadataStore {
         self.update_session_locked(id, None, scope, mutate)
     }
 
+    /// Conditional internal mutation. A false decision is a true no-op:
+    /// revision, scope clocks, durable ownership, and bytes stay untouched.
+    pub(crate) fn mutate_session_optional(
+        &self,
+        id: &str,
+        scope: WriteScope,
+        mutate: impl FnOnce(&mut SessionMetadata) -> io::Result<bool>,
+    ) -> Result<Option<RevisionedSession>, SessionTransactionError> {
+        self.with_session_write_lock(id, || {
+            let mut record = self
+                .try_read_revisioned_session(id)?
+                .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "session record missing"))?;
+            if !mutate(&mut record.metadata)? {
+                return Ok(None);
+            }
+            self.commit_session_record(id, &mut record, scope)?;
+            Ok(Some(record))
+        })
+    }
+
+    /// Internal arbitration can decide which provenance scopes were actually
+    /// accepted after it reads the latest record inside the writer lane.
+    pub(crate) fn mutate_session_decided(
+        &self,
+        id: &str,
+        mutate: impl FnOnce(&mut SessionMetadata) -> io::Result<Option<WriteScope>>,
+    ) -> Result<Option<RevisionedSession>, SessionTransactionError> {
+        self.with_session_write_lock(id, || {
+            let mut record = self
+                .try_read_revisioned_session(id)?
+                .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "session record missing"))?;
+            let Some(scope) = mutate(&mut record.metadata)? else {
+                return Ok(None);
+            };
+            self.commit_session_record(id, &mut record, scope)?;
+            Ok(Some(record))
+        })
+    }
+
     fn update_session_locked(
         &self,
         id: &str,
@@ -192,23 +238,50 @@ impl MetadataStore {
                 )
                 .into());
             }
-            let now = crate::workspace_runtime::iso_now();
-            if scope.attention {
-                record.metadata.provenance.attention_updated_at = Some(now.clone());
-            }
-            if scope.work {
-                record.metadata.provenance.work_metadata_updated_at = Some(now);
-            }
-            record.revision = next_revision;
-            let json = serde_json::to_string_pretty(&record)
-                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-            let path = self.sessions_dir().join(format!("{id}.json"));
-            write_atomic(&path, &json)?;
-            if scope.attention {
-                self.accept_session_write(id);
-            }
+            self.commit_session_record_with_revision(id, &mut record, scope, next_revision)?;
             Ok(record)
         })
+    }
+
+    fn commit_session_record(
+        &self,
+        id: &str,
+        record: &mut RevisionedSession,
+        scope: WriteScope,
+    ) -> io::Result<()> {
+        let next_revision = record.revision.next()?;
+        self.commit_session_record_with_revision(id, record, scope, next_revision)
+    }
+
+    fn commit_session_record_with_revision(
+        &self,
+        id: &str,
+        record: &mut RevisionedSession,
+        scope: WriteScope,
+        next_revision: MetadataRevision,
+    ) -> io::Result<()> {
+        if record.metadata.id != id {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "session identity changed",
+            ));
+        }
+        let now = crate::workspace_runtime::iso_now();
+        if scope.attention {
+            record.metadata.provenance.attention_updated_at = Some(now.clone());
+        }
+        if scope.work {
+            record.metadata.provenance.work_metadata_updated_at = Some(now);
+        }
+        record.revision = next_revision;
+        let json = serde_json::to_string_pretty(record)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        let path = self.sessions_dir().join(format!("{id}.json"));
+        write_atomic(&path, &json)?;
+        if scope.attention {
+            self.accept_session_write(id);
+        }
+        Ok(())
     }
 
     // Called only while the session's write lock is held, including native
@@ -224,5 +297,104 @@ impl MetadataStore {
             revision,
         })
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn work_only_update_preserves_attention_ownership_and_time() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let mut meta = crate::test_support::test_session_metadata(
+            "scope",
+            "Session",
+            "/workspace",
+            "running",
+            "now",
+            "now",
+        );
+        meta.provenance.attention_source = Some("agent".into());
+        meta.provenance.attention_updated_at = Some("2020-01-01T00:00:00Z".into());
+        let owner = store.try_write_session_owned(&meta).unwrap().unwrap();
+        store
+            .mutate_session("scope", WriteScope::WORK, |record| {
+                record.task = "new task".into();
+                Ok(())
+            })
+            .unwrap();
+        let current = store.try_read_revisioned_session("scope").unwrap().unwrap();
+        assert_eq!(
+            current.metadata.provenance.attention_updated_at.as_deref(),
+            Some("2020-01-01T00:00:00Z")
+        );
+        assert!(store.session_writes.lock().unwrap()["scope"].owns(&owner.write));
+        assert!(current
+            .metadata
+            .provenance
+            .work_metadata_updated_at
+            .is_some());
+    }
+
+    #[test]
+    fn legacy_codex_hook_read_hydrates_unknown_origin_without_rewrite() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let mut meta = crate::test_support::test_session_metadata(
+            "legacy",
+            "Session",
+            "/workspace",
+            "running",
+            "now",
+            "now",
+        );
+        meta.metadata_source = "codex_hook".into();
+        meta.provenance = Default::default();
+        store.try_write_session(&meta).unwrap();
+        let path = store.sessions_dir().join("legacy.json");
+        let before = fs::read(&path).unwrap();
+        let read = store
+            .try_read_revisioned_session("legacy")
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            read.metadata.provenance.attention_source.as_deref(),
+            Some("agent")
+        );
+        assert_eq!(
+            read.metadata.provenance.attention_origin.as_deref(),
+            Some("legacy_unknown")
+        );
+        assert!(read.metadata.provenance.attention_updated_at.is_some());
+        assert!(read.metadata.provenance.work_metadata_updated_at.is_some());
+        assert_eq!(fs::read(&path).unwrap(), before);
+    }
+
+    #[test]
+    fn ignored_scoped_mutation_is_byte_and_owner_preserving() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let meta = crate::test_support::test_session_metadata(
+            "ignored",
+            "Session",
+            "/workspace",
+            "running",
+            "now",
+            "now",
+        );
+        let owner = store.try_write_session_owned(&meta).unwrap().unwrap();
+        let path = store.sessions_dir().join("ignored.json");
+        let before = fs::read(&path).unwrap();
+        let result = store
+            .mutate_session_optional("ignored", WriteScope::ATTENTION, |record| {
+                record.observed_status = Some("ignored".into());
+                Ok(false)
+            })
+            .unwrap();
+        assert!(result.is_none());
+        assert_eq!(fs::read(&path).unwrap(), before);
+        assert!(store.session_writes.lock().unwrap()["ignored"].owns(&owner.write));
     }
 }
