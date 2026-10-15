@@ -17,12 +17,13 @@ import { createWorkspaceNavigationMemory, forgetRememberedWorkspaceWithNavigatio
 import type { AppSettings } from "./settingsMemory";
 import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, loadSettingsForStartup, normalizeDebugSettings, normalizeProviderSettings, normalizeRetention, readSettings, settingsWithHotkeys, settingsWithPeonSelection, validateHotkeys, writeSettings } from "./settingsMemory";
 import { providerSettingsSyncError, pushProviderSettings } from "./providerSettingsSync";
-import type { PeonAppliedState, PeonProviderVerificationResponse, PeonSelection, ProviderApplyStatus, ProviderDefinition, ProviderId, ProviderModelOption } from "./providerTypes";
-import { createPeonSelectionTransaction, normalizePeonSelectionInput, peonErrorFromBody, type PeonSelectionTransaction } from "./peonSelectionTransaction";
+import type { PeonAppliedState, PeonProviderVerificationResponse, ProviderApplyStatus, ProviderDefinition, ProviderId, ProviderModelOption } from "./providerTypes";
+import { createPeonSelectionTransaction, normalizePeonSelectionInput, type PeonSelectionTransaction } from "./peonSelectionTransaction";
 import { buildMenuTemplate } from "./menuTemplate";
 import { getSessionPlanContent, requestSessionPlanReview, selectTerminalPlan } from "./planOpener";
 import { configureExternalLinks, openExternalLink } from "./externalLinks";
 import { createSidecarLifecycle, type SidecarLifecycle, type SidecarProcess, type SidecarState } from "./sidecarLifecycle";
+import { sidecarSend, sidecarUrl, parseErrorBody, parsePeonError, errorFromBody } from "./sidecarClient";
 import { channelForVersion, createUpdateService, type UpdateCandidate, type UpdateEngine, type UpdateEngineEvent, type UpdateService } from "./updateService";
 import { createBackendRestorationCoordinator, WorkspaceRestorationFailure, type BackendRestorationCoordinator } from "./backendRestoration";
 import { buildWorkspaceRestoreRequest, parseWorkspaceRestoreResponse } from "./workspaceRestore";
@@ -86,8 +87,17 @@ type ElectronUpdateInfo = UpdateInfo & {
   downloadedFile?: string;
 };
 
-async function listSessions(baseUrl: string): Promise<Array<{ lifecycle?: string }>> {
-  const response = await fetch(`${baseUrl}/sessions`);
+async function discoverProviderModels(port: number, providerId: string, ollamaBaseUrl?: string): Promise<string[]> {
+  const response = await sidecarSend(port, `settings/providers/${encodeURIComponent(providerId)}/models`, {
+    method: "POST",
+    jsonBody: ollamaBaseUrl ? { baseUrl: ollamaBaseUrl } : {},
+  });
+  if (!response.ok) throw new Error("model discovery failed");
+  return (await response.json() as { models: string[] }).models;
+}
+
+async function listSessions(port: number): Promise<Array<{ lifecycle?: string }>> {
+  const response = await sidecarSend(port, "sessions");
   if (!response.ok) throw new Error(`list sessions failed: ${response.status}`);
   const sessions: unknown = await response.json();
   if (!Array.isArray(sessions)) throw new Error("list sessions failed: malformed response");
@@ -664,18 +674,16 @@ app.whenReady().then(async () => {
     payload: unknown,
     signal: AbortSignal,
   ): Promise<unknown> {
-    const response = await fetch(`http://127.0.0.1:${port}/${resource}`, {
+    const response = await sidecarSend(port, resource, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-orkworks-open-plan-token": token },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
+      jsonBody: payload,
+      token,
+      signal,
+      timeoutMs: 15_000,
     });
     const body: unknown = await response.json().catch(() => ({}));
     if (!response.ok) {
-      const message = body && typeof body === "object" && typeof (body as { error?: unknown }).error === "string"
-        ? (body as { error: string }).error
-        : `Taskmaster request failed (${response.status})`;
-      throw new Error(message);
+      throw new Error(errorFromBody(body, `Taskmaster request failed (${response.status})`));
     }
     return body;
   }
@@ -821,10 +829,9 @@ app.whenReady().then(async () => {
     if (!workspacePath) return null;
 
     const displayPath = workspaceDisplayPath ?? workspacePath;
-    const response = await fetch(`http://127.0.0.1:${port}/workspace`, {
+    const response = await sidecarSend(port, "workspace", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(buildWorkspaceRestoreRequest(displayPath, workspacePath)),
+      jsonBody: buildWorkspaceRestoreRequest(displayPath, workspacePath),
       signal,
     });
     const restoreResult = await parseWorkspaceRestoreResponse(response);
@@ -859,10 +866,9 @@ app.whenReady().then(async () => {
   async function applyRetentionSettings(port: number, signal: AbortSignal): Promise<void> {
     const retention = currentSettings?.retention ?? DEFAULT_RETENTION;
     try {
-      const response = await fetch(`http://127.0.0.1:${port}/settings/retention`, {
+      const response = await sidecarSend(port, "settings/retention", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(retention),
+        jsonBody: retention,
         signal,
       });
       signal.throwIfAborted();
@@ -873,11 +879,6 @@ app.whenReady().then(async () => {
       signal.throwIfAborted();
       console.warn(`[main] failed to restore retention settings: ${error instanceof Error ? error.message : "unknown error"}`);
     }
-  }
-
-  async function parsePeonError(response: Response, fallback: string): Promise<Error> {
-    const body = await response.json().catch(() => ({ error: undefined })) as unknown;
-    return peonErrorFromBody(body, fallback);
   }
 
   async function persistActiveHarnesses(
@@ -898,10 +899,9 @@ app.whenReady().then(async () => {
       // stale_workspace, so this result is discarded either way.
       return { ok: true, activeHarnessRevision: expectedActiveHarnessRevision };
     }
-    const response = await fetch(`http://127.0.0.1:${port}/workspace/active-harnesses`, {
+    const response = await sidecarSend(port, "workspace/active-harnesses", {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ activeHarnessIds: ids, expectedActiveHarnessRevision }),
+      jsonBody: { activeHarnessIds: ids, expectedActiveHarnessRevision },
     });
     if (response.ok) {
       const body = await response.json() as { activeHarnessRevision?: unknown };
@@ -941,7 +941,7 @@ app.whenReady().then(async () => {
 
   async function fetchHarnessesForSave(): Promise<{ documentRevision: string | null; harnesses: ElectronHarnessConfig[] }> {
     const port = await restoration.getReadiness();
-    const response = await fetch(`http://127.0.0.1:${port}/harnesses`);
+    const response = await sidecarSend(port, "harnesses");
     if (!response.ok) throw new Error(await parseErrorBody(response, "Couldn't load coding tool definitions."));
     const data = await response.json() as {
       documentRevision?: unknown;
@@ -980,7 +980,7 @@ app.whenReady().then(async () => {
   async function syncSavedProviderSettings(port: number, signal: AbortSignal): Promise<void> {
     return enqueueSettingsWrite(async () => {
       const settings = currentSettings ?? readSettings(app.getPath("userData"));
-      const providerResponse = await fetch(`http://127.0.0.1:${port}/providers`, { signal });
+      const providerResponse = await sidecarSend(port, "providers", { signal });
       if (!providerResponse.ok) throw new Error(`provider catalog sync failed: ${providerResponse.status}`);
       const providerBody = await providerResponse.json() as {
         providers?: unknown;
@@ -1011,7 +1011,7 @@ app.whenReady().then(async () => {
       }
       const abortableFetch: typeof fetch = (input, init) => fetch(input, { ...init, signal });
       const result = await pushProviderSettings(
-        `http://127.0.0.1:${port}`,
+        sidecarUrl(port),
         normalizedProviders,
         abortableFetch,
       );
@@ -1057,22 +1057,15 @@ app.whenReady().then(async () => {
   const peonTransaction: PeonSelectionTransaction = createPeonSelectionTransaction({
     discover: async (provider, ollamaBaseUrl) => {
       const port = await restoration.getReadiness();
-      const response = await fetch(`http://127.0.0.1:${port}/settings/providers/${encodeURIComponent(provider)}/models`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(ollamaBaseUrl ? { baseUrl: ollamaBaseUrl } : {}),
-      });
-      if (!response.ok) throw new Error("model discovery failed");
-      return (await response.json() as { models: string[] }).models;
+      return discoverProviderModels(port, provider, ollamaBaseUrl);
     },
     verify: async ({ provider, ollamaBaseUrl, generation, readyPort, signal }) => {
       const port = readyPort ?? await restoration.getReadiness();
       const body: { provider: string; generation: number; ollamaBaseUrl?: string } = { provider, generation };
       if (provider === "ollama") body.ollamaBaseUrl = ollamaBaseUrl ?? persistedOllamaBaseUrl();
-      const response = await fetch(`http://127.0.0.1:${port}/settings/peon/provider/verify`, {
+      const response = await sidecarSend(port, "settings/peon/provider/verify", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        jsonBody: body,
         signal,
       });
       if (!response.ok) throw await parsePeonError(response, "Couldn't verify the Peon provider.");
@@ -1089,10 +1082,9 @@ app.whenReady().then(async () => {
     },
     apply: async ({ selection, generation, readyPort, signal, skipTest }) => {
       const port = readyPort ?? await restoration.getReadiness();
-      const response = await fetch(`http://127.0.0.1:${port}/settings/peon/test-and-apply`, {
+      const response = await sidecarSend(port, "settings/peon/test-and-apply", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(skipTest ? { selection, generation, skipTest } : { selection, generation }),
+        jsonBody: skipTest ? { selection, generation, skipTest } : { selection, generation },
         signal,
       });
       if (!response.ok) throw await parsePeonError(response, "Couldn't apply the Peon provider.");
@@ -1100,7 +1092,7 @@ app.whenReady().then(async () => {
     },
     getApplied: async (signal) => {
       const port = await restoration.getReadiness();
-      const response = await fetch(`http://127.0.0.1:${port}/settings/peon/applied`, { signal });
+      const response = await sidecarSend(port, "settings/peon/applied", { signal });
       if (!response.ok) throw await parsePeonError(response, "Couldn't read the applied Peon provider.");
       return await response.json();
     },
@@ -1324,11 +1316,12 @@ app.whenReady().then(async () => {
     const normalizedAttention = normalizeDebugAttention(attention);
     if (message !== undefined && typeof message !== "string") throw new Error("Invalid debug attention message.");
     await withReadyBackendGeneration(async (port, token, signal) => {
-      const response = await fetch(`http://127.0.0.1:${port}/sessions/${encodeURIComponent(id)}/debug-injection`, {
+      const response = await sidecarSend(port, `sessions/${encodeURIComponent(id)}/debug-injection`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-orkworks-open-plan-token": token },
-        body: JSON.stringify({ attention: normalizedAttention, message }),
-        signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
+        jsonBody: { attention: normalizedAttention, message },
+        token,
+        signal,
+        timeoutMs: 15_000,
       });
       if (!response.ok) throw new Error(`apply debug attention failed: ${response.status}`);
     });
@@ -1469,10 +1462,9 @@ app.whenReady().then(async () => {
     };
     try {
       const port = await restoration.getReadiness();
-      const response = await fetch(`http://127.0.0.1:${port}/settings/retention`, {
+      const response = await sidecarSend(port, "settings/retention", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(nextSettings.retention),
+        jsonBody: nextSettings.retention,
       });
       retentionApplyStatus = {
         appliedRevision: null,
@@ -1550,13 +1542,7 @@ app.whenReady().then(async () => {
     }
     try {
       const port = await restoration.getReadiness();
-      const response = await fetch(`http://127.0.0.1:${port}/settings/providers/${encodeURIComponent(providerId)}/models`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(ollamaBaseUrl ? { baseUrl: ollamaBaseUrl } : {}),
-      });
-      if (!response.ok) throw new Error("model discovery failed");
-      const models = (await response.json() as { models: string[] }).models;
+      const models = await discoverProviderModels(port, providerId, ollamaBaseUrl);
       providerModels.set(cacheKey, models);
       return { models };
     } catch {
@@ -1568,17 +1554,17 @@ app.whenReady().then(async () => {
   ipcMain.handle("get-plan-content", async (_event, sessionId: unknown) => {
     if (typeof sessionId !== "string" || !sessionId) throw new Error("Invalid session ID.");
     return withReadyBackendGeneration((port, token, signal) =>
-      getSessionPlanContent(`http://127.0.0.1:${port}`, sessionId, token, fetch, signal));
+      getSessionPlanContent(sidecarUrl(port), sessionId, token, fetch, signal));
   });
   ipcMain.handle("request-plan-review", async (_event, sessionId: unknown) => {
     if (typeof sessionId !== "string" || !sessionId) throw new Error("Invalid session ID.");
     await withReadyBackendGeneration((port, token, signal) =>
-      requestSessionPlanReview(`http://127.0.0.1:${port}`, sessionId, token, fetch, signal));
+      requestSessionPlanReview(sidecarUrl(port), sessionId, token, fetch, signal));
   });
   ipcMain.handle("select-terminal-plan", async (_event, sessionId: unknown, printedPath: unknown) => {
     if (typeof sessionId !== "string" || !sessionId || typeof printedPath !== "string" || !printedPath) throw new Error("Invalid plan selection.");
     await withReadyBackendGeneration((port, token, signal) =>
-      selectTerminalPlan(`http://127.0.0.1:${port}`, sessionId, printedPath, token, fetch, signal));
+      selectTerminalPlan(sidecarUrl(port), sessionId, printedPath, token, fetch, signal));
   });
 
   const integrationActionLabels: Record<"status" | "install" | "repair" | "uninstall", string> = {
@@ -1601,15 +1587,15 @@ app.whenReady().then(async () => {
       if (isStale(guard, { workspacePath, generation: backendGeneration, activeHarnessRevision })) {
         return { ok: false, error: STALE_WORKSPACE_FALLBACK_MESSAGE };
       }
-      const resp = await fetch(
-        `http://127.0.0.1:${port}/workspace/integrations/${encodeURIComponent(harnessId)}/status`,
-        { method: "GET" },
+      const resp = await sidecarSend(
+        port,
+        `workspace/integrations/${encodeURIComponent(harnessId)}/status`,
       );
       if (resp.ok) {
         return { ok: true, status: await resp.json() };
       }
       const body = await resp.json().catch(() => ({ error: undefined }));
-      return { ok: false, error: (body as { error?: string }).error ?? "Couldn't check the integration status." };
+      return { ok: false, error: errorFromBody(body, "Couldn't check the integration status.") };
     } catch {
       return { ok: false, error: "Couldn't reach the OrkWorks sidecar." };
     }
@@ -1631,15 +1617,10 @@ app.whenReady().then(async () => {
         return { ok: false, error: STALE_WORKSPACE_FALLBACK_MESSAGE, code: "workspace_changed" };
       }
       const mutation = action !== "status";
-      const resp = await fetch(
-        `http://127.0.0.1:${port}/workspace/integrations/${encodeURIComponent(key.adapterId)}/${encodeURIComponent(key.targetId)}/${action}`,
-        mutation
-          ? {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(expected),
-          }
-          : { method: "GET" },
+      const resp = await sidecarSend(
+        port,
+        `workspace/integrations/${encodeURIComponent(key.adapterId)}/${encodeURIComponent(key.targetId)}/${action}`,
+        mutation ? { method: "POST", jsonBody: expected } : {},
       );
       if (resp.ok) {
         return { ok: true, group: await resp.json() as GroupedIntegrationStatus };
@@ -1767,11 +1748,6 @@ app.whenReady().then(async () => {
     },
   );
 
-  async function parseErrorBody(resp: Response, fallback: string): Promise<string> {
-    const body = await resp.json().catch(() => ({ error: undefined }));
-    return (body as { error?: string }).error ?? fallback;
-  }
-
   function editableCustomDefinition(harness: ElectronHarnessConfig): Record<string, unknown> {
     const {
       origin: _origin,
@@ -1813,16 +1789,15 @@ app.whenReady().then(async () => {
       if (definition && typeof definition.launch === "object" && definition.launch !== null) {
         (definition.launch as { command?: string }).command = commandPath.trim();
       }
-      const resp = await fetch(`http://127.0.0.1:${port}/harnesses/${encodeURIComponent(harnessId)}`, {
+      const resp = await sidecarSend(port, `harnesses/${encodeURIComponent(harnessId)}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        jsonBody: {
           kind: isCustom ? "CustomReplace" : "BuiltinPatch",
           ...(isCustom
             ? { definition }
             : { patch: { launch: { command: commandPath.trim() } } }),
           expectedRevision: snapshot.documentRevision,
-        }),
+        },
       });
       if (resp.ok) {
         const updated = effectiveHarnessFromMutationResponse(await resp.json());
@@ -1848,10 +1823,9 @@ app.whenReady().then(async () => {
       if (harness.origin === "custom") {
         return { ok: false, error: "Custom harness commands are edited in the configuration JSON." };
       }
-      const resp = await fetch(`http://127.0.0.1:${port}/harnesses/${encodeURIComponent(harnessId)}`, {
+      const resp = await sidecarSend(port, `harnesses/${encodeURIComponent(harnessId)}`, {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ expectedRevision: snapshot.documentRevision }),
+        jsonBody: { expectedRevision: snapshot.documentRevision },
       });
       if (resp.ok) {
         return { ok: true };
@@ -1958,8 +1932,7 @@ app.whenReady().then(async () => {
       now: () => new Date().toISOString(),
       querySessions: async () => {
         const port = await restoration.getReadiness();
-        const baseUrl = `http://127.0.0.1:${port}`;
-        const sessions = await listSessions(baseUrl);
+        const sessions = await listSessions(port);
         return sessions.filter((session) => session.lifecycle === "alive");
       },
       verifyCandidate: adapter.verifyCandidate,

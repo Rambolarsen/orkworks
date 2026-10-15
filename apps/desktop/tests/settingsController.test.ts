@@ -10,6 +10,7 @@ import {
 } from "../electron/peonSelectionTransaction.ts";
 
 const mainSource = readFileSync(new URL("../electron/main.ts", import.meta.url), "utf8");
+const sidecarClientSource = readFileSync(new URL("../electron/sidecarClient.ts", import.meta.url), "utf8");
 const preloadSource = readFileSync(new URL("../electron/preload.ts", import.meta.url), "utf8");
 const rendererTypes = readFileSync(new URL("../src/orkworksWindow.d.ts", import.meta.url), "utf8");
 const settingsControllerSource = readFileSync(new URL("../src/settingsController.ts", import.meta.url), "utf8");
@@ -36,7 +37,8 @@ test("Peon bridge keeps Apply separate from durable Save and exposes applied ide
   assert.match(rendererTypes, /testAndApplyPeonProvider:/);
   assert.match(rendererTypes, /getAppliedPeonProvider:/);
   assert.match(rendererTypes, /savePeonSelection:/);
-  assert.ok((mainSource.match(/async function parsePeonError/g)?.length ?? 0) >= 1);
+  assert.match(mainSource, /parsePeonError/);
+  assert.match(sidecarClientSource, /export async function parsePeonError/);
 
   for (const route of [
     'ipcMain.handle("save-hotkeys"',
@@ -203,9 +205,10 @@ test("compatibility model discovery uses sidecar discovery without the transacti
   const discoveryStart = mainSource.indexOf('ipcMain.handle("get-provider-models"');
   assert.notEqual(discoveryStart, -1);
   const discoveryRoute = mainSource.slice(discoveryStart);
-  assert.match(discoveryRoute, /settings\/providers\/\$\{encodeURIComponent\(providerId\)\}\/models/);
+  assert.match(discoveryRoute, /discoverProviderModels\(port, providerId, ollamaBaseUrl\)/);
   assert.doesNotMatch(discoveryRoute, /peonTransaction\.discover\(/);
   assert.doesNotMatch(discoveryRoute, /settings\/peon\/provider\/verify/);
+  assert.match(mainSource, /settings\/providers\/\$\{encodeURIComponent\(providerId\)\}\/models/);
 });
 
 test("provider model cache is keyed by the Ollama base URL", () => {
