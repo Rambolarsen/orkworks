@@ -29,7 +29,7 @@ import { buildWorkspaceRestoreRequest, parseWorkspaceRestoreResponse } from "./w
 import { workspaceHistoryPath } from "./workspaceRestore";
 import type { BackendLifecycleEvent, BackendLifecycleWorkspace, BackendRetryResult, InitialWorkspaceSnapshot, WorkspaceHistoryDiagnostic } from "./backendLifecycleEvent";
 import { createWorkspaceSwitchCoordinator, WorkspaceSwitchError, type WorkspaceSwitchCoordinator, type WorkspaceSwitchEvent } from "./workspaceSwitchCoordinator";
-import { sanitizeBackendLifecycleFailure } from "./backendLifecycleFailure";
+import { BACKEND_UNAVAILABLE_MESSAGE } from "./backendLifecycleFailure";
 import { rendererConsoleDiagnostic, rendererConsoleLevel, rendererOrigin, sanitizeRendererDiagnosticMessage } from "./rendererDiagnostic";
 import { recoveryDocumentUrl } from "./rendererRecoveryDocument";
 import { createRecoveryDocumentGuard, isSupersededNavigation } from "./rendererRecoveryState";
@@ -1119,7 +1119,7 @@ app.whenReady().then(async () => {
     onFailure: (error) => {
       logBackendLifecycleFailure("restoration", error);
       if (workspaceSwitchCoordinator?.getState() === "opening") return;
-      lastBackendFailure = sanitizeBackendLifecycleFailure(error);
+      lastBackendFailure = BACKEND_UNAVAILABLE_MESSAGE;
       publishBackendLifecycle({ state: "failed", message: lastBackendFailure });
     },
     onStepFailure: (step, error) => {
@@ -1158,7 +1158,7 @@ app.whenReady().then(async () => {
       },
       onUnavailable: (message) => {
         logBackendLifecycleFailure("sidecar", message);
-        lastBackendFailure = sanitizeBackendLifecycleFailure(message);
+        lastBackendFailure = BACKEND_UNAVAILABLE_MESSAGE;
         // A failed generation is reported to the coordinator; recovery stays
         // explicit through retry-backend so replacement remains serialized.
         restoration.fail(new Error(lastBackendFailure));
@@ -1167,7 +1167,7 @@ app.whenReady().then(async () => {
         cancelPersistedPeonSelectionRestore();
         cancelGenerationBoundRequests();
         backendGeneration += 1;
-        const failureMessage = sanitizeBackendLifecycleFailure(message);
+        const failureMessage = BACKEND_UNAVAILABLE_MESSAGE;
         lastBackendFailure = failureMessage;
         restoration.cancel(new Error(failureMessage));
         workspaceSwitchCoordinator?.markUnresolved({

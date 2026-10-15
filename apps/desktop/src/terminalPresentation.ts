@@ -1,12 +1,4 @@
-import type { SessionInfo, SessionLifecycle } from "./api";
-
-export function renderTerminalPresentation<T>(
-  lifecycle: SessionLifecycle | undefined,
-  interactive: () => T,
-  historical: () => T,
-): T {
-  return lifecycle === "dead" ? historical() : interactive();
-}
+import type { SessionInfo } from "./api";
 
 /** The interval between a session being created and the harness actually spawning (issue #302). */
 export function isSessionStarting(session: Pick<SessionInfo, "status">): boolean {

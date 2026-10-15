@@ -105,9 +105,9 @@ test("persisted Peon restoration is cancelled and admitted by the current ready 
 });
 
 test("Electron main logs raw lifecycle failures but publishes only stable copy", () => {
-  assert.match(mainSource, /sanitizeBackendLifecycleFailure/);
+  assert.match(mainSource, /BACKEND_UNAVAILABLE_MESSAGE/);
   assert.match(mainSource, /console\.error\(/);
-  assert.match(mainSource, /lastBackendFailure = sanitizeBackendLifecycleFailure/);
+  assert.match(mainSource, /lastBackendFailure = BACKEND_UNAVAILABLE_MESSAGE/);
   assert.doesNotMatch(mainSource, /publishBackendLifecycle\(\{ state: "failed", message: error\.message \}\)/);
 });
 

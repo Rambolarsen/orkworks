@@ -25,7 +25,6 @@ export interface SidecarLifecycle {
   stop(): Promise<void>;
   stopAndWait(timeoutMs: number): Promise<void>;
   retry(): Promise<number>;
-  getPort(): number | null;
   dispose(): void;
 }
 
@@ -74,7 +73,6 @@ const MAX_READINESS_OUTPUT_LENGTH = 64 * 1024;
 export function createSidecarLifecycle(options: SidecarLifecycleOptions): SidecarLifecycle {
   let generation = 0;
   let current: Generation | null = null;
-  let port: number | null = null;
   let lastCwd: string | null = null;
   let disposed = false;
   let stoppingGeneration: Generation | null = null;
@@ -131,7 +129,6 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
       return previous.cleanup;
     }
 
-    port = null;
     clearTimer(previous.readinessTimer);
     if (!previous.ready && !previous.failed) {
       previous.failed = true;
@@ -155,7 +152,6 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
     if (!isCurrent(candidate) || candidate.failed) return;
 
     candidate.failed = true;
-    port = null;
     clearTimer(candidate.readinessTimer);
     setState("failed");
     options.callbacks.onUnavailable(error.message);
@@ -167,7 +163,6 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
     if (!isCurrent(candidate) || candidate.failed || candidate.ready) return;
 
     candidate.ready = true;
-    port = nextPort;
     clearTimer(candidate.readinessTimer);
     setState("ready");
     candidate.resolve(nextPort);
@@ -220,7 +215,6 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
       stopping: false,
     };
     current = candidate;
-    port = null;
 
     try {
       candidate.process = options.spawn(cwd);
@@ -314,10 +308,6 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
         return launch(lastCwd);
       }
       return cleanup.then(() => launch(lastCwd!));
-    },
-
-    getPort(): number | null {
-      return port;
     },
 
     dispose(): void {
