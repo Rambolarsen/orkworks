@@ -581,6 +581,19 @@ if (process.versions.electron) {
           await waitFor('!document.querySelector("[data-shell-region=inspector]")');
           assert.equal(await evaluate('document.activeElement.dataset.shellCommand'),'details');
           assert.equal(await evaluate('fixture.input.length'),0);
+          await click('recommendations');
+          await waitFor('document.querySelector(".recommendations-panel")');
+          assert.equal(await evaluate('getComputedStyle(document.querySelector(".recommendations-panel")).backgroundColor'),'rgba(0, 0, 0, 0)','Recommendations must not cover the translucent parent');
+          await evaluate('document.querySelector(".shell-inspector-host [role=separator]").focus();document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
+          await waitFor('!document.querySelector("[data-shell-region=inspector]")');
+          assert.equal(await evaluate('document.activeElement.dataset.shellCommand'),'recommendations');
+          await click('details');
+          await waitFor('document.querySelector("[data-shell-pin]")');
+          await evaluate('document.querySelector("[data-shell-pin]").click()');
+          await waitFor('document.querySelector("[data-shell-pin]").getAttribute("aria-pressed")==="true"');
+          await evaluate('document.querySelector(".shell-inspector-host [role=separator]").focus();document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
+          await waitFor('!document.querySelector("[data-shell-region=inspector]")');
+          assert.equal(await evaluate('document.activeElement.dataset.shellCommand'),'details');
         } else if (scenario === 'actions-sources') {
           await waitFor('document.querySelector("[data-actions-counts]")?.textContent.includes("Recommendations: 2")');
           await click('actions');
@@ -1213,7 +1226,7 @@ if (process.versions.electron) {
           builder.onLoad({filter:/.*/,namespace:'no-gpu'},()=>({contents:'export class WebglAddon { constructor(){throw new Error("GPU unavailable in headless fixture")} }',loader:'js'}));
           // Panel bodies connect to the backend/PTY; retain real React shell and terminal ownership.
           builder.onResolve({ filter: /^\.\/(SessionDetailPanel|CapacityPanel|RecommendationsPanel)$/ },
-            args => scenario.startsWith('app-review') && args.path === './SessionDetailPanel' ? undefined : ({ path: args.path, namespace: 'empty-panel' }));
+            args => (scenario.startsWith('app-review') && args.path === './SessionDetailPanel') || (scenario === 'inspector-overlay' && args.path === './RecommendationsPanel') ? undefined : ({ path: args.path, namespace: 'empty-panel' }));
           builder.onLoad({ filter: /.*/, namespace: 'empty-panel' },
             () => ({ contents: 'export default function Panel(){return null}', loader: 'tsx', resolveDir: root }));
 

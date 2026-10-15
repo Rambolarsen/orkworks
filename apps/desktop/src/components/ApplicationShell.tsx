@@ -352,7 +352,7 @@ export default function ApplicationShell(props: Props) {
       if (event.defaultPrevented || event.key !== "Escape") return;
       const target = event.target as Element;
       if (target.closest("[role=dialog]")) return;
-      if (target.closest("[data-shell-region=inspector], [data-shell-region=utility]")) {
+      if (target.closest(".shell-inspector-host, [data-shell-region=utility]")) {
         event.preventDefault(); event.stopPropagation(); closePage(); return;
       }
       if (!showSessionsPage && !showReview) return;
