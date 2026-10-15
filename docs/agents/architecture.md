@@ -509,7 +509,11 @@ paste-burst Enter suppression. Resize and kill controls bypass waiting prompt
 input. Hookless activity tracking is armed after accepted submission, so a
 slow startup cannot exhaust its work-signal window before delivery. A response
 that arrives before write acknowledgement retains its echo-filtered activity
-evidence until acceptance; terminal output itself continues normally. Stop and
+evidence until acceptance; terminal output itself continues normally. This
+retains the existing two-second post-spawn banner grace for hookless activity
+inference: a response completed entirely during that grace can leave attention
+idle. The separate status-inference policy follow-up is tracked in
+[issue #884](https://github.com/Rambolarsen/orkworks/issues/884). Stop and
 child exit still cancel pending delivery. Failed initial-prompt writes stop the runtime with an error; a failed paste
 never sends the automatic Enter. Queued output is processed before a quiet-time
 deadline can dispatch input. Both readiness and quiet waiting have a hard
