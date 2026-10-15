@@ -742,8 +742,15 @@ if (process.versions.electron) {
           await waitFor('document.querySelector("[data-shell-region=terminal]")');
           await evaluate('document.querySelector("[data-shell-create]").click()');
           await waitFor('document.querySelector("[data-shell-region=new-session]")');
-          await evaluate('document.querySelector(".new-session-confirm").click()');
+          await waitFor('document.activeElement.id==="nsd-prompt"');
+          await evaluate(`(()=>{const prompt=document.querySelector('#nsd-prompt');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(prompt,'Keyboard task');prompt.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+          for (const modifiers of [{shiftKey:true},{ctrlKey:true},{metaKey:true},{altKey:true},{isComposing:true}]) {
+            assert.equal(await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true,cancelable:true,...${JSON.stringify(modifiers)}}))`),true,'modified or composing Enter keeps its default behavior');
+            assert.equal(await evaluate('!!fixture.submitted'),false,'modified or composing Enter does not start a session');
+          }
+          assert.equal(await evaluate('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true,cancelable:true}))'),false,'Enter submits instead of inserting a newline');
           await waitFor('fixture.submitted');
+          assert.equal(await evaluate('fixture.submitted.initialPrompt'),'Keyboard task');
           assert.equal(await evaluate('document.querySelector(".new-session-confirm").disabled'),true,'pending creation cannot be submitted twice');
           await evaluate('fixture.resolveCreate()');
           await waitFor('document.querySelector("[data-shell-region=terminal]")');
