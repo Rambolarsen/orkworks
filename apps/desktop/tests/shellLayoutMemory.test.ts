@@ -511,3 +511,23 @@ test("malformed UTF-8 read-back still restores the prior bounded record", async 
     assert.deepEqual(readFileSync(target), prior);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
+
+
+test("pin preference survives reload and old records remain readable", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "ork-shell-pin-"));
+  try {
+    const memory = createShellLayoutMemory(directory);
+    const initial = memory.read();
+    assert.equal((await memory.save({ ...initial.preferences, inspectorPinned: true })).ok, true);
+    assert.equal(createShellLayoutMemory(directory).read().preferences.inspectorPinned, true);
+    assert.equal((await memory.reset()).ok, true);
+    assert.equal(createShellLayoutMemory(directory).read().preferences.inspectorPinned ?? false, false);
+    const record = JSON.parse(readFileSync(shellLayoutMemoryPath(directory), "utf8"));
+    delete record.payload.inspectorPinned;
+    writeFileSync(shellLayoutMemoryPath(directory), JSON.stringify(record));
+    const legacy = createShellLayoutMemory(directory).read();
+    assert.equal(legacy.diagnostic, null);
+    assert.equal(legacy.preferences.inspectorPinned ?? false, false);
+    assert.equal((await createShellLayoutMemory(directory).save({ ...legacy.preferences, inspectorPinned: "yes" })).ok, false);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});

@@ -73,8 +73,10 @@ restoring a surface, or opening an inspector does not select or acknowledge a
 session.
 
 Do not propose, plan, or build tiled, split, stacked, or picture-in-picture
-terminal views. Do not add app-panel drag-and-drop, floating, docking, tab
-reordering, or tab-based shell navigation. Fixed region resizing remains
+terminal views. Do not add app-panel drag-and-drop, movable floating panels,
+arbitrary docking, tab reordering, or tab-based shell navigation. The fixed
+right inspector may overlay the central view with a translucent background or
+reserve space at full opacity when pinned, per [ADR 0083](../adr/0083-inspector-overlay-and-pin.md). Fixed region resizing remains
 available. Navigation restore is presentation state only and never resumes a
 session, run, or action.
 

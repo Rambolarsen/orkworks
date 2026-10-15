@@ -8,7 +8,7 @@ import fsExt from "fs-ext";
 export type ShellMemoryDiagnostic = "corrupt_record" | "unsupported_version" | "lock_timeout" | "write_failed" | "restore_failed" | "stale_revision" | "stale_workspace" | "invalid_input";
 export type ShellMemoryResult = { ok: true } | { ok: false; diagnostic: ShellMemoryDiagnostic };
 export type ShellDensity = "low" | "high";
-export type ShellPreferences = { sessionsWidth: number; inspectorWidth: number; sessionsVisible: boolean; density: ShellDensity };
+export type ShellPreferences = { sessionsWidth: number; inspectorWidth: number; sessionsVisible: boolean; inspectorPinned?: boolean; density: ShellDensity };
 export const defaultShellPreferences: ShellPreferences = { sessionsWidth: 240, inspectorWidth: 320, sessionsVisible: true, density: "low" };
 export type ShellLayoutSnapshot = { preferences: ShellPreferences; revision: number; diagnostic: ShellMemoryDiagnostic | null };
 
@@ -49,7 +49,9 @@ function exactKeys(value: unknown, keys: string[]): value is Record<string, unkn
 }
 
 export function validShellPreferences(value: unknown): value is ShellPreferences {
-  if (!exactKeys(value, ["sessionsWidth", "inspectorWidth", "sessionsVisible", "density"])) return false;
+  if (!exactKeys(value, ["sessionsWidth", "inspectorWidth", "sessionsVisible", "density"])
+    && !exactKeys(value, ["sessionsWidth", "inspectorWidth", "sessionsVisible", "density", "inspectorPinned"])) return false;
+  if ("inspectorPinned" in value && typeof value.inspectorPinned !== "boolean") return false;
   return typeof value.sessionsWidth === "number" && Number.isFinite(value.sessionsWidth)
     && value.sessionsWidth >= 200 && value.sessionsWidth <= 320
     && typeof value.inspectorWidth === "number" && Number.isFinite(value.inspectorWidth)

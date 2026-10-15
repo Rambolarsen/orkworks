@@ -39,7 +39,7 @@ installers may still place resume actions inside Details.
 ## Find the next thing to inspect
 
 In current source builds, **Actions** shows session attention followed by
-workspace recommendations. It opens beside the terminal in a wide window and
+workspace recommendations. It opens in the right inspector in a wide window and
 as a temporary page in a narrower window. Session attention and recommendation
 counts stay separate; loading, partial and unavailable information is labeled.
 Capacity remains its own destination.
@@ -57,6 +57,14 @@ Current source builds use a fixed arrangement of Sessions, Terminal and an
 optional inspector. An upgrade notice explains that the earlier saved panel
 arrangement is retained. Dismiss the notice to acknowledge it; the legacy
 arrangement is not deleted.
+
+The right inspector overlays the main view with a subtly translucent background
+by default. Choose **Pin inspector** to make it opaque and reserve space beside
+the main view; **Unpin inspector** restores the overlay. The pin preference is
+saved across restarts, and Reset Layout returns it to unpinned. With keyboard
+focus inside the inspector, **Escape** closes it and restores focus to the
+control that opened it. Narrow windows keep the temporary inspector page.
+This describes current source builds; published installers may differ.
 
 If saved layout preferences cannot be read, the shell uses defaults and offers
 **Reset Layout…**. Its native confirmation dialog asks before rebuilding those

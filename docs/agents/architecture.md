@@ -341,7 +341,11 @@ Leaving `sandbox` unset on `webPreferences` means Electron runs `preload.ts` und
 The fixed shell uses Electron-owned `shell-layout.json` and
 `workspace-navigation.json` records through `electron/shellLayoutMemory.ts`
 and `electron/workspaceNavigationMemory.ts`. The layout record stores only
-validated Sessions/inspector widths, Sessions visibility and density. The
+validated Sessions/inspector widths, Sessions visibility, density, and an optional
+inspector pin preference (missing means unpinned). The fixed right inspector
+overlies central content with a subtly translucent background until pinned;
+pinning reserves width and uses an opaque background. Narrow windows retain
+the temporary page. See [ADR 0083](../adr/0083-inspector-overlay-and-pin.md). The
 workspace record stores only the last central Terminal or Review surface for
 each retained canonical workspace key; Electron derives that key and its
 workspace generation from the ready sidecar lifecycle. Both records use the

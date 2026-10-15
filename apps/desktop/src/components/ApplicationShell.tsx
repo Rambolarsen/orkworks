@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { PanelLeft, PanelRight, Plus, ChevronDown, Play, Gauge, Lightbulb, Settings } from "lucide-react";
+import { PanelLeft, PanelRight, Plus, ChevronDown, Play, Gauge, Lightbulb, Settings, Pin, PinOff } from "lucide-react";
 import type { CentralSurface } from "../shellNavigation";
 import type { SessionAttention, SessionInfo, WorkflowRecommendation, WorkspaceInfo } from "../api";
 import type { HarnessConfig } from "../harnessTypes";
@@ -323,11 +323,16 @@ export default function ApplicationShell(props: Props) {
     {(props.inspector === "capacity" || props.inspector === "recommendations" || props.inspector === "actions") &&
       <span className="shell-utility-scope">Workspace: {props.workspace?.path ?? "No workspace"}
         {props.inspector === "capacity" ? " · All coding tools" : ""}</span>}
+    {!temporary && <button type="button" data-shell-pin aria-pressed={!!props.preferences.inspectorPinned}
+      onClick={() => props.onPreferencesChange({ ...props.preferences, inspectorPinned: !props.preferences.inspectorPinned })}>
+      {props.preferences.inspectorPinned ? <PinOff size={15} aria-hidden="true" /> : <Pin size={15} aria-hidden="true" />}
+      {props.preferences.inspectorPinned ? "Unpin inspector" : "Pin inspector"}
+    </button>}
     <button type="button" data-shell-return onClick={closePage}>{temporary ? (props.newSessionContent ? "Back to New session" : (reviewing ? "Back to Review" : "Back to Terminal")) : "Close inspector"}</button>
   </header>;
   const columns = [
     ...(layout.sessionsVisible ? [`${layout.sessionsWidth}px`, "6px"] : []),
-    "minmax(0, 1fr)", ...(showInspector ? ["6px", `${layout.inspectorWidth}px`] : []),
+    "minmax(0, 1fr)", ...(showInspector && !layout.inspectorOverlay ? ["6px", `${layout.inspectorWidth}px`] : []),
   ];
   const workspaceNavigation = <>
     <div className="shell-workspace">{props.workspaceControl}</div>
@@ -344,7 +349,13 @@ export default function ApplicationShell(props: Props) {
   </>;
   return <div ref={rootRef} className="shell-layout" data-mode={layout.mode} data-density={props.preferences.density}
     onKeyDown={event => {
-      if (event.key !== "Escape" || (!showSessionsPage && !temporaryUtility && !showReview)) return;
+      if (event.defaultPrevented || event.key !== "Escape") return;
+      const target = event.target as Element;
+      if (target.closest("[role=dialog]")) return;
+      if (target.closest(".shell-inspector-host, [data-shell-region=utility]")) {
+        event.preventDefault(); event.stopPropagation(); closePage(); return;
+      }
+      if (!showSessionsPage && !showReview) return;
       // This handler owns document/temporary-page return, never terminal input or modal Escape.
       if ((event.target as Element).closest("[role=dialog], [data-shell-region=terminal], .shell-navigation-menu")) return;
       if ((event.target as Element).closest(".workspace-history-dropdown")?.querySelector(".workspace-history-panel")) return;
@@ -418,11 +429,12 @@ export default function ApplicationShell(props: Props) {
           {utilityHeader(true)}{renderUtility()}
         </section>}
       </main>}
-      {showInspector && <><RegionSeparator label="Inspector" direction={-1} minimum={280} maximum={layout.inspectorMaximum} value={layout.inspectorWidth}
+      {showInspector && <div className={layout.inspectorOverlay ? "shell-inspector-host shell-inspector-host--overlay" : "shell-inspector-host"}
+        style={layout.inspectorOverlay ? { width: layout.inspectorWidth + 6 } : undefined}><RegionSeparator label="Inspector" direction={-1} minimum={280} maximum={layout.inspectorMaximum} value={layout.inspectorWidth}
         onChange={value => props.onPreferencesChange({ ...props.preferences, inspectorWidth: value })} />
         <aside className="shell-region shell-region--inspector" aria-label="Contextual inspector" data-shell-region="inspector">
           {utilityHeader(false)}{renderUtility()}
-        </aside></>}
+        </aside></div>}
     </div>
   </div>;
 }
