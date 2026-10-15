@@ -160,3 +160,4 @@ Dated design records; these do not establish current product behavior.
 - [Taskmaster recommendation audit (bulk review/cleanup) — design](2026-10-08-taskmaster-recommendation-audit-design.md) — Design history: Taskmaster recommendation audit (bulk review/cleanup) — design.
 - [Harness integration application module](2026-10-10-harness-integration-application-design.md) — Move existing harness-integration orchestration behind a typed Rust application interface while preserving transport and runtime behavior.
 - [Privacy-qualified Taskmaster knowledge distribution](2026-10-10-taskmaster-knowledge-distribution-design.md) — Reviewed Brain export, signed offline and feed knowledge, and verified Taskmaster admission for issue 529.
+- [Hierarchy projection mapping and review fixtures](2026-10-15-hierarchy-projection-mapping.md) — Proposed exact source joins, summary freshness, open consumer decisions and synthetic fixtures for #746.

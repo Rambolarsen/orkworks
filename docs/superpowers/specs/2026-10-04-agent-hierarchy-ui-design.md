@@ -39,6 +39,15 @@ semantics and interaction fixtures below. The synthetic drawings illustrate
 work paths; use the accepted shell for current header/sidebar placement and
 responsive behavior rather than copying their older shell controls.
 
+## Projection mapping handoff: 2026-10-15
+
+The [projection mapping and review fixtures](2026-10-15-hierarchy-projection-mapping.md)
+map the current #741/#742/#743/#744 identities to these UI inputs, distinguish
+child evidence from the still-unspecified root evidence binding, and propose
+producer-owned summary revision transitions with synthetic mismatch/correction
+cases. This is a written consumer proposal; upstream mapping agreement and
+owner acceptance remain pending. It adds no runtime API or eligibility.
+
 ## Scope and status
 
 Specify workflow nodes, evidence, action discovery and renderer projection
@@ -719,9 +728,9 @@ scoped comparison focuses on the hierarchy overview.
 ## Execution handoff and implementation gate
 
 Current deliverables: this proposed specification, two provisional
-central-overview SVG concepts,
-contract-case matrix and review questions. Keep #746 open until the reviewed
-projection agreement and scoped execution handoff are complete. Do not close
+central-overview SVG concepts, contract-case matrix, review questions and the
+[projection mapping handoff](2026-10-15-hierarchy-projection-mapping.md). Keep #746
+open until the reviewed projection agreement and scoped execution handoff are complete. Do not close
 #610 or #740–#745 through this documentation PR.
 
 ### Remaining gates after reconciliation
