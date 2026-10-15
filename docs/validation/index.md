@@ -15,3 +15,5 @@ Capability research, validation results, and evidence fixtures.
 - [Copilot 1.0.90 selective-capture research](copilot-selective-capture-research.md) — Validation evidence and context: Copilot 1.0.90 selective-capture research.
 - [Master-session runner native confinement gate](master-session-runner-confinement.md) — Validation evidence and context: Master-session runner native confinement gate.
 - [Independent workspace instance validation plan](multi-workspace.md) — Validation evidence and context: Independent workspace instance validation plan.
+
+- [Fixed shell native validation](shell-native-validation.md) — Partial macOS walkthrough evidence and remaining release gates.
