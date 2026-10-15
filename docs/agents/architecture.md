@@ -510,10 +510,11 @@ input. Hookless activity tracking is armed after accepted submission, so a
 slow startup cannot exhaust its work-signal window before delivery. A response
 that arrives before write acknowledgement retains its echo-filtered activity
 evidence until acceptance; terminal output itself continues normally. Stop and
-child exit still cancel pending delivery. Failed paste delivery stops the
-runtime with an error and never sends the automatic Enter.
-A 10-second bound falls back to plain prompt-plus-Enter for command overrides
-that never enable paste mode; other harnesses retain plain input delivery.
+child exit still cancel pending delivery. Failed initial-prompt writes stop the runtime with an error; a failed paste
+never sends the automatic Enter. Queued output is processed before a quiet-time
+deadline can dispatch input. Both readiness and quiet waiting have a hard
+10-second bound; overrides that never enable paste mode then use plain
+prompt-plus-Enter. Other harnesses retain plain input delivery.
 
 `electron/workspaceMemory.ts` persists the last workspace path and recent workspace directories to the Electron user data directory, enabling workspace restore on relaunch. The sidecar persists workspace-scoped state to `~/.orkworks/workspaces/<path-hash>/workspace.json`; Aider's versioned notification-command preference is separately stored at `integrations/aider.json`, so no repository Aider configuration is edited.
 
