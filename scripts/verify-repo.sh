@@ -63,6 +63,8 @@ run_step 'OpenCode reporter tests' \
   run_in_directory "$repo_root" node --test crates/orkworksd/scripts/opencode-session-reporter.test.mjs
 run_step 'Desktop type-check' \
   run_in_directory "$repo_root/apps/desktop" pnpm exec tsc --noEmit
+run_step 'Native Electron ABI repair' \
+  run_in_directory "$repo_root/apps/desktop" pnpm test:native
 run_step 'Desktop tests' run_desktop_tests
 run_step 'Desktop build' run_desktop_build
 run_step 'Docs build' run_docs_build

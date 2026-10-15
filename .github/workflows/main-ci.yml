@@ -52,6 +52,10 @@ jobs:
         working-directory: apps/desktop
         run: npx tsc --noEmit
 
+      - name: Verify native Electron ABI repair
+        working-directory: apps/desktop
+        run: pnpm test:native
+
       - name: Run desktop tests
         working-directory: apps/desktop
         run: node --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs

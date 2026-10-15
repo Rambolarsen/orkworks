@@ -17,6 +17,7 @@ expected_steps=(
   'Rust tests'
   'OpenCode reporter tests'
   'Desktop type-check'
+  'Native Electron ABI repair'
   'Desktop tests'
   'Desktop build'
   'Docs build'
