@@ -9,9 +9,10 @@ use super::{
 use crate::harness::integration::{IntegrationActivation, IntegrationCoverage, IntegrationError};
 
 const MARKER: &str = "orkworks:harness-integration:v2:copilot";
-const EVENTS: [(&str, &str); 2] = [
+const EVENTS: [(&str, &str); 3] = [
     ("notification", "notification"),
     ("sessionStart", "sessionStart"),
+    ("userPromptSubmitted", "userPromptSubmitted"),
 ];
 
 pub(crate) static HANDLER: JsonHookHandler = JsonHookHandler::new(

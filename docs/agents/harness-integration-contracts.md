@@ -201,6 +201,16 @@ invocation ID to correlate with the prompt. `agentStop` fires before the agent
 is necessarily done because a configured hook can block it and force
 continuation, so it does not write idle or clear a wait. Before activation,
 `userPromptSubmitted` does not write attention.
+An authenticated submission before activation still advances the hook-event
+ordering fence, so a delayed older prompt cannot activate a superseded wait.
+The source adapter installs `notification`, `sessionStart`, and
+`userPromptSubmitted`; existing installations need explicit reconciliation in
+Settings to add the submission hook. Both reporter platforms register the
+native identity before sending a submission's `working` report, carrying its
+numeric millisecond timestamp as UTC with six fractional digits and omitting
+prompt text. Copilot submission transport fixtures are synthetic matches to
+the immutable Hooks reference above; they do not extend live or version
+qualification. Coverage remains **feature-probed, limited**.
 Background `agent_idle`, `agent_completed`, and shell-completion notifications
 do not mean the root session needs the user. The first two describe background
 subagents, and `agentStop` is not final when another hook forces continuation;
@@ -210,7 +220,12 @@ event or session end. Reliable root-idle reporting remains a separate
 signal-design gap. Copilot event timestamps order
 hook reports against one another and committed terminal input; older reports
 must be rejected, but raw uncommitted typing must not advance the input time
-used by this stale-report check. In both harnesses, a missing or inactive
+used by this stale-report check. Copilot rejects an event timestamp equal to the committed-input
+boundary as well as older timestamps: millisecond source precision cannot
+prove that an equal-time event followed the input. This conservative rule can
+miss a genuine prompt in that millisecond. Equal timestamps between accepted
+hook reports use sidecar receive order; invalid or missing timestamps cannot
+update attention. In both harnesses, a missing or inactive
 integration before the first prompt-notification report preserves Peon prompt
 fallback; explicit disable, uninstall, or reconciliation-detected
 notification-hook drift after

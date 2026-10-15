@@ -892,6 +892,33 @@ mod tests {
         assert!(trace.contains("sessionStartSource"), "{trace}");
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn report_harness_event_posts_copilot_submitted_prompt_after_registration() {
+        let trace = run_report_harness_event_sh_trace_with_args(
+            "orkworks:harness-integration:v2:copilot",
+            r#"{"sessionId":"copilot-native-1","timestamp":1790899200000,"prompt":"private prompt"}"#,
+            &["--event", "userPromptSubmitted"],
+        );
+        let registration = trace.find("/harness-session").unwrap();
+        let attention = trace
+            .find("/attention")
+            .expect("submitted prompt reports working");
+        assert!(registration < attention, "{trace}");
+        assert!(trace.contains(r#""status":"working""#), "{trace}");
+        assert!(
+            trace.contains(r#""observedAt":"2026-10-02T00:00:00.000000Z""#),
+            "{trace}"
+        );
+        assert!(
+            trace
+                .lines()
+                .filter(|line| line.starts_with("curl "))
+                .all(|line| !line.contains("private prompt")),
+            "{trace}"
+        );
+    }
+
     #[test]
     fn report_harness_event_forwards_session_id_without_shifting_when_cwd_is_absent() {
         // Regression test: the cwd/session_id extraction is a single
@@ -2435,6 +2462,18 @@ function Invoke-RestMethod {
             .as_str()
             .unwrap()
             .contains("-Event 'sessionStart'"));
+
+        let turn = &document["hooks"]["userPromptSubmitted"][0];
+        assert!(turn["bash"]
+            .as_str()
+            .unwrap()
+            .contains("--event 'userPromptSubmitted'"));
+        assert!(turn["powershell"]
+            .as_str()
+            .unwrap()
+            .contains("-Event 'userPromptSubmitted'"));
+        assert!(document["hooks"].get("agentStop").is_none());
+        assert!(document["hooks"].get("postToolUse").is_none());
 
         fs::write(&target, r#"{"version":2,"unrelated":{"keep":true}}"#).unwrap();
         let before = fs::read_to_string(&target).unwrap();

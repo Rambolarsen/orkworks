@@ -81,6 +81,13 @@ You**; a status you set yourself can also show **Needs You**. Peon still
 supplies summaries but does not infer **Needs You** from chat text for those
 tools.
 
+In current source builds, the GitHub Copilot CLI integration recognizes
+permission and clarification prompts. Once it has reported a prompt, submitting
+your next prompt clears **Needs You** and shows working. Background-agent
+completion does not clear a prompt or establish that the main session is idle.
+Update an existing Copilot integration through Settings to add the submission
+hook; published installers may have earlier behavior.
+
 Use a signal such as waiting for input as a reason to inspect the session.
 An inferred summary can be wrong; it is not proof that tests passed or work
 is complete. Integration coverage varies by coding tool.

@@ -221,6 +221,8 @@ if ($Marker -clike "*:claude-code") {
             }
             if ($Event -eq "notification" -and $data.notification_type -is [string]) {
                 $promptNotificationType = [string]$data.notification_type
+            }
+            if ($Event -in @("notification", "userPromptSubmitted")) {
                 if ($data.timestamp -is [ValueType] -and $data.timestamp -isnot [bool] -and $data.timestamp -isnot [DateTime]) {
                     try { $promptObservedAt = [DateTimeOffset]::FromUnixTimeMilliseconds([long]$data.timestamp).UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.ffffffZ") } catch {}
                 }
@@ -383,23 +385,29 @@ if (-not $codexCaptureOnly -and $sessionId -and $port -and $harnessSessionId -an
     $harnessSessionPostKind = if (-not $harnessSessionId) { "skipped_no_harness_session_id" } else { "skipped_missing_authority_environment" }
 }
 
-# The shared prompt mapping only opens Needs You for reviewed prompt
-# notifications. Registration above must have succeeded for this invocation.
+# Registration must succeed before prompt or Copilot submission reports.
+# The sidecar keeps submissions inert until prompt authority has activated.
 $promptNotificationAllowed = $false
+$promptStatus = "waiting_for_input"
 if ($sessionSource -eq "claude_hook" -and $Event -eq "Notification" -and $promptNotificationType -in @("permission_prompt", "elicitation_dialog", "elicitation_url_dialog")) {
     $promptNotificationAllowed = $true
 } elseif ($sessionSource -eq "copilot_hook" -and $Event -eq "notification" -and $promptNotificationType -in @("permission_prompt", "elicitation_dialog")) {
     $promptNotificationAllowed = $true
+} elseif ($sessionSource -eq "copilot_hook" -and $Event -eq "userPromptSubmitted" -and $promptObservedAt) {
+    $promptNotificationAllowed = $true
+    $promptStatus = "working"
 }
 if ($nativeRegistrationAccepted -and $promptNotificationAllowed -and $sessionId -and $port) {
     try {
         $attention = @{
-            status = "waiting_for_input"
+            status = $promptStatus
             source = $sessionSource
             event = $Event
-            notificationType = $promptNotificationType
             harnessSessionId = $harnessSessionId
             promptHookGeneration = $env:ORKWORKS_PROMPT_HOOK_GENERATION
+        }
+        if ($promptNotificationType) {
+            $attention["notificationType"] = $promptNotificationType
         }
         if ($sessionSource -eq "copilot_hook" -and $promptObservedAt) {
             $attention["observedAt"] = $promptObservedAt
