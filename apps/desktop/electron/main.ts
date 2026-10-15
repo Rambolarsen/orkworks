@@ -17,8 +17,8 @@ import { createWorkspaceNavigationMemory, forgetRememberedWorkspaceWithNavigatio
 import type { AppSettings } from "./settingsMemory";
 import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, loadSettingsForStartup, normalizeDebugSettings, normalizeProviderSettings, normalizeRetention, readSettings, settingsWithHotkeys, settingsWithPeonSelection, validateHotkeys, writeSettings } from "./settingsMemory";
 import { providerSettingsSyncError, pushProviderSettings } from "./providerSettingsSync";
-import type { PeonAppliedState, PeonProviderVerificationResponse, PeonSelection, ProviderApplyStatus, ProviderDefinition, ProviderId, ProviderModelOption } from "./providerTypes";
-import { createPeonSelectionTransaction, normalizePeonSelectionInput, peonErrorFromBody, type PeonSelectionTransaction } from "./peonSelectionTransaction";
+import type { PeonAppliedState, PeonProviderVerificationResponse, ProviderApplyStatus, ProviderDefinition, ProviderId, ProviderModelOption } from "./providerTypes";
+import { createPeonSelectionTransaction, normalizePeonSelectionInput, type PeonSelectionTransaction } from "./peonSelectionTransaction";
 import { buildMenuTemplate } from "./menuTemplate";
 import { getSessionPlanContent, requestSessionPlanReview, selectTerminalPlan } from "./planOpener";
 import { configureExternalLinks, openExternalLink } from "./externalLinks";

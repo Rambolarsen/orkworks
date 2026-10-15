@@ -1,9 +1,10 @@
-export type SidecarFetchImpl = (input: string, init?: RequestInit) => Promise<Response>;
-
 import { peonErrorFromBody } from "./peonSelectionTransaction.ts";
 
+export type SidecarFetchImpl = (input: string, init?: RequestInit) => Promise<Response>;
+
 export function sidecarUrl(port: number, path?: string): string {
-  return `http://127.0.0.1:${port}${path ? `/${path}` : ""}`;
+  const suffix = path ? "/" + path : "";
+  return `http://127.0.0.1:${port}${suffix}`;
 }
 
 export type SidecarSendOptions = {
@@ -15,7 +16,7 @@ export type SidecarSendOptions = {
   fetchImpl?: SidecarFetchImpl;
 };
 
-function errorFromBody(body: unknown, fallback: string): string {
+export function errorFromBody(body: unknown, fallback: string): string {
   return body && typeof body === "object" && typeof (body as { error?: unknown }).error === "string"
     ? (body as { error: string }).error
     : fallback;
@@ -31,16 +32,16 @@ export async function parsePeonError(response: Response, fallback: string): Prom
   return peonErrorFromBody(body, fallback);
 }
 
-export { errorFromBody };
-
 export function sidecarSend(port: number, path: string, options: SidecarSendOptions = {}): Promise<Response> {
   const { method, jsonBody, token, signal, timeoutMs, fetchImpl = fetch } = options;
+  let composedSignal = signal;
+  if (timeoutMs !== undefined) {
+    const timeoutSignal = AbortSignal.timeout(timeoutMs);
+    composedSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+  }
   const headers: Record<string, string> = {};
   if (jsonBody !== undefined) headers["Content-Type"] = "application/json";
   if (token !== undefined) headers["x-orkworks-open-plan-token"] = token;
-  const composedSignal = signal && timeoutMs
-    ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)])
-    : signal ?? (timeoutMs ? AbortSignal.timeout(timeoutMs) : null);
   return fetchImpl(sidecarUrl(port, path), {
     ...(method ? { method } : {}),
     ...(jsonBody !== undefined ? { body: JSON.stringify(jsonBody) } : {}),
