@@ -633,9 +633,6 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
     setPeonError(null);
     setPeonVerification(null);
     try {
-      // window.orkworks.verifyOllama remains the direct Ollama-only bridge;
-      // the provider-first Settings flow routes all verification through the
-      // same Peon verification state machine.
       const result = await window.orkworks.verifyPeonProvider(selection.provider, selection.provider === "ollama" ? selection.ollamaBaseUrl : undefined);
       if (requestGeneration !== peonVerificationGeneration.current) return;
       setPeonVerification(result);
