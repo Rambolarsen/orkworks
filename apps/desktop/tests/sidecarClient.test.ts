@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   errorFromBody,
   parseErrorBody,
+  parsePeonError,
   sidecarSend,
   sidecarUrl,
   type SidecarFetchImpl,
@@ -114,6 +115,18 @@ test("parseErrorBody prefers the sidecar error field", async () => {
 test("parseErrorBody falls back when the body is unreadable", async () => {
   const response = new Response("not json", { status: 503 });
   assert.equal(await parseErrorBody(response, "Managed Service unreachable"), "Managed Service unreachable");
+});
+
+test("parsePeonError resolves the sidecar error body into a thrown error", async () => {
+  const response = new Response(JSON.stringify({ error: "Generation mismatch." }), { status: 409 });
+  const error = await parsePeonError(response, "Couldn't verify the Peon provider.");
+  assert.equal(error.message, "Generation mismatch.");
+});
+
+test("parsePeonError falls back to the managed message for an unreadable body", async () => {
+  const response = new Response("not json", { status: 503 });
+  const error = await parsePeonError(response, "Couldn't verify the Peon provider.");
+  assert.equal(error.message, "Couldn't verify the Peon provider.");
 });
 
 test("errorFromBody reads a pre-parsed error body", () => {
