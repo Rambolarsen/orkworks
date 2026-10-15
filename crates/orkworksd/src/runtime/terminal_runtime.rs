@@ -873,10 +873,7 @@ fn mark_committed_input_working(
         .is_some_and(|tracker| {
             tracker.protects_permission_wait(&handle.runtime.attention_owner, &handle.info)
         });
-    let harness_permission_owned = matches!(
-        handle.runtime.active_prompt_kind,
-        Some(crate::runtime::session_runtime::RuntimePromptKind::Permission)
-    ) && matches!(
+    let validated_harness_prompt = matches!(
         handle
             .info
             .harness_id
@@ -884,6 +881,14 @@ fn mark_committed_input_working(
             .or(handle.info.harness.as_deref()),
         Some("claude-code" | "copilot")
     ) && crate::runtime::prompt_authority::registry().is_active(id);
+    let harness_permission_owned = matches!(
+        handle.runtime.active_prompt_kind,
+        Some(crate::runtime::session_runtime::RuntimePromptKind::Permission)
+    ) && validated_harness_prompt;
+    let is_elicitation = matches!(
+        handle.runtime.active_prompt_kind,
+        Some(crate::runtime::session_runtime::RuntimePromptKind::Elicitation)
+    );
     let permission_owned = codex_permission_owned || harness_permission_owned;
     let attention_source = handle
         .info
@@ -913,13 +918,14 @@ fn mark_committed_input_working(
     let commit_working = !already_working
         && committed_input
         && attention_source != Some("user")
-        && !matches!(
-            handle.runtime.active_prompt_kind,
-            Some(crate::runtime::session_runtime::RuntimePromptKind::Elicitation)
-        )
+        && (!is_elicitation || (line_completed && validated_harness_prompt))
         && (!handle.active_work_hook
             || permission_owned
-            || (line_completed && matches!(attention_source, Some("process" | "peon"))));
+            || (line_completed
+                && (matches!(
+                    attention_source,
+                    None | Some("unknown" | "debug" | "backend_inference" | "process" | "peon")
+                ) || (is_elicitation && validated_harness_prompt))));
     let Some(next_generation) = handle.runtime.input_generation.checked_add(1) else {
         tracing::warn!(session_id = %id, "input generation overflow");
         return;
@@ -1001,7 +1007,13 @@ fn mark_committed_input_working(
                 && meta.attention.as_deref() == Some("needs_you")
                 && meta.attention_source() == "process"
                 && meta.attention_origin() == "process";
-            let matching_input_wait = meta.observed_status == live_observed_status
+            let matching_input_wait = !is_elicitation
+                && (!handle.active_work_hook
+                    || matches!(
+                        meta.attention_source(),
+                        "unknown" | "debug" | "backend_inference" | "process" | "peon"
+                    ))
+                && meta.observed_status == live_observed_status
                 && meta.attention == live_attention
                 && matches!(meta.observed_status.as_deref(), Some("waiting_for_input"));
             if !matching_codex_permission
@@ -2331,6 +2343,89 @@ mod tests {
             .read_session(session_id)
             .unwrap();
         assert_eq!(meta.observed_status.as_deref(), Some("waiting_for_input"));
+    }
+
+    #[test]
+    fn validated_harness_elicitation_needs_submitted_input_and_process_authority() {
+        for (harness, source, expected) in [
+            ("claude-code", "process", "working"),
+            ("copilot", "process", "working"),
+            ("claude-code", "agent", "waiting_for_input"),
+            ("copilot", "agent", "waiting_for_input"),
+        ] {
+            let session_id = format!("elicitation-{harness}-{source}");
+            let (state, _dir) = prompted_session_state(&session_id);
+            {
+                let mut sessions = state.sessions.lock().unwrap();
+                let handle = sessions.get_mut(&session_id).unwrap();
+                handle.info.harness = Some(harness.into());
+                handle.info.harness_id = Some(harness.into());
+                handle.info.provenance.attention_source = Some(source.into());
+                handle.runtime.active_prompt_kind =
+                    Some(crate::runtime::session_runtime::RuntimePromptKind::Elicitation);
+                handle.active_work_hook = true;
+            }
+            {
+                let ws = state.workspace.lock().unwrap();
+                let store = &ws.as_ref().unwrap().metadata;
+                let mut meta = store.read_session(&session_id).unwrap();
+                meta.provenance.attention_source = Some(source.into());
+                meta.provenance.attention_origin = Some(if source == "agent" {
+                    "harness_hook".into()
+                } else {
+                    "process".into()
+                });
+                store.write_session(&meta);
+            }
+            let authority = crate::runtime::prompt_authority::registry();
+            authority.issue(&session_id, harness, "generation");
+            assert_eq!(
+                authority.register_native_id(
+                    &session_id,
+                    harness,
+                    "generation",
+                    "native-id",
+                    false,
+                    None,
+                ),
+                crate::runtime::prompt_authority::BindResult::Bound
+            );
+            assert!(authority.activate(&session_id, harness, "generation", "native-id"));
+
+            record_terminal_input(&state, &session_id, "x");
+            assert_eq!(
+                state.sessions.lock().unwrap()[&session_id]
+                    .info
+                    .observed_status
+                    .as_deref(),
+                Some("waiting_for_input"),
+                "bare key must not clear {harness} {source} elicitation"
+            );
+            record_terminal_input(&state, &session_id, "\r");
+            assert_eq!(
+                state.sessions.lock().unwrap()[&session_id]
+                    .info
+                    .observed_status
+                    .as_deref(),
+                Some(expected),
+                "submitted input at {harness} {source} elicitation"
+            );
+            assert_eq!(
+                state
+                    .workspace
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .metadata
+                    .read_session(&session_id)
+                    .unwrap()
+                    .observed_status
+                    .as_deref(),
+                Some(expected),
+            );
+            authority.remove(&session_id);
+        }
     }
 
     #[test]

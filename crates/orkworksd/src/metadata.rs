@@ -2271,10 +2271,15 @@ impl MetadataStore {
                     } else {
                         source
                     };
+                    let origin = meta.attention_origin();
+                    let validated_origin = matches!(origin, "harness_hook" | "native_codex")
+                        || (origin == "legacy_unknown"
+                            && matches!(source, "claude_hook" | "copilot_hook"))
+                        || (origin == "process" && source == "process");
                     meta.observed_status.as_deref() == Some(status)
                         && meta.attention_source() == source
                         && meta.attention_confidence() == confidence
-                        && matches!(meta.attention_origin(), "harness_hook" | "native_codex")
+                        && validated_origin
                 }
                 _ => false,
             };
@@ -5704,6 +5709,44 @@ mod tests {
             store.read_session(id).unwrap().observed_status.as_deref(),
             Some("idle")
         );
+    }
+
+    #[test]
+    fn active_legacy_claude_and_copilot_prompt_policy_preserves_attention() {
+        for source in ["claude_hook", "copilot_hook"] {
+            let dir = tempfile::tempdir().unwrap();
+            let store = MetadataStore::new(dir.path());
+            let id = format!("legacy-active-{source}");
+            let mut meta = test_metadata(&id);
+            meta.metadata_source = source.into();
+            meta.metadata_confidence = 0.98;
+            meta.observed_status = Some("waiting_for_input".into());
+            meta.attention = Some("needs_you".into());
+            store.write_session(&meta);
+
+            let (outcome, attention_written) = store
+                .merge_peon_inference_with_history_policy_scoped(
+                    &id,
+                    &peon_inference("blocked"),
+                    "later",
+                    None,
+                    Some("Peon summary"),
+                    PeonAttentionPolicy::PreserveHook {
+                        status: "waiting_for_input",
+                        confidence: 0.98,
+                        source,
+                    },
+                )
+                .unwrap();
+            assert_eq!(outcome, PeonMergeOutcome::Applied);
+            assert!(
+                !attention_written,
+                "active {source} wait must retain attention"
+            );
+            let stored = store.read_session(&id).unwrap();
+            assert_eq!(stored.observed_status.as_deref(), Some("waiting_for_input"));
+            assert_eq!(stored.summary.as_deref(), Some("Peon summary"));
+        }
     }
 
     #[test]
