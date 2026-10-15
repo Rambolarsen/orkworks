@@ -456,6 +456,8 @@ mod tests {
     use super::*;
     use crate::test_support::test_session_metadata;
     use serde_json::json;
+    use std::sync::{mpsc, Arc};
+    use std::time::Duration;
 
     fn live_meta(id: &str, workspace: &str) -> SessionMetadata {
         let mut meta = test_session_metadata(id, "test", workspace, "running", "before", "before");
@@ -470,6 +472,166 @@ mod tests {
 
     fn parse(value: serde_json::Value) -> Result<AgentPatchEnvelope, serde_json::Error> {
         serde_json::from_value(value)
+    }
+
+    fn owned_native_wait(
+        store: &MetadataStore,
+        id: &str,
+    ) -> (SessionMetadata, super::super::SessionWriteToken) {
+        let mut meta = live_meta(id, "/tmp");
+        meta.observed_status = Some("waiting_for_input".into());
+        meta.attention = Some("needs_you".into());
+        meta.needs_user_input = Some(true);
+        meta.detected_question = Some("Native prompt".into());
+        meta.suggested_options = Some(vec!["Continue".into()]);
+        meta.provenance.attention_source = Some("agent".into());
+        meta.provenance.attention_origin = Some("native_codex".into());
+        meta.provenance.attention_confidence = Some(1.0);
+        let owner = store.try_write_session_owned(&meta).unwrap().unwrap();
+        (meta, owner)
+    }
+
+    fn native_clear(mut meta: SessionMetadata) -> SessionMetadata {
+        meta.observed_status = Some("working".into());
+        meta.attention = Some("working".into());
+        meta.needs_user_input = Some(false);
+        meta.detected_question = None;
+        meta.suggested_options = Some(vec![]);
+        meta
+    }
+
+    fn attention_patch() -> AgentPatch {
+        parse(json!({"metadataRevision":"0","patch":{"attentionState":{
+            "observedStatus":"blocked","needsUserInput":true,
+            "detectedQuestion":"Agent prompt","suggestedOptions":[]}}}))
+        .unwrap()
+        .patch
+    }
+
+    fn work_patch() -> AgentPatch {
+        parse(
+            json!({"metadataRevision":"0","patch":{"agentMetadata":{"workFields":{
+            "task":"Latest API work","nextAction":"Review patch","workPhase":"implementation",
+            "blockerDescription":null,"failedCommand":null,"failedTest":null}}}}),
+        )
+        .unwrap()
+        .patch
+    }
+
+    #[test]
+    fn native_clear_first_rejects_stale_agent_patch_then_accepts_reread() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(MetadataStore::new(dir.path()));
+        let id = "agent-patch-native-clear-first";
+        let (native, owner) = owned_native_wait(&store, id);
+        let before = store.try_read_revisioned_session(id).unwrap().unwrap();
+        let (at_final_check_tx, at_final_check_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let clear_store = Arc::clone(&store);
+        let clear = std::thread::spawn(move || {
+            clear_store.try_write_session_if_owned_when(&native_clear(native), &owner, || {
+                at_final_check_tx.send(()).unwrap();
+                release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                true
+            })
+        });
+        at_final_check_rx
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap();
+        let (attempt_tx, attempt_rx) = mpsc::channel();
+        let writer_store = Arc::clone(&store);
+        let patch = attention_patch();
+        let writer = std::thread::spawn(move || {
+            attempt_tx.send(()).unwrap();
+            writer_store.apply_agent_patch(id, &before.revision, &patch)
+        });
+        attempt_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let lane = store.session_write_lock(id);
+        assert!(lane.try_lock().is_err());
+        release_tx.send(()).unwrap();
+        assert!(clear.join().unwrap().unwrap());
+        assert!(matches!(
+            writer.join().unwrap(),
+            Err(AgentPatchError::Conflict)
+        ));
+
+        let after_clear = store.try_read_revisioned_session(id).unwrap().unwrap();
+        assert_eq!(
+            after_clear.metadata.observed_status.as_deref(),
+            Some("working")
+        );
+        assert_eq!(after_clear.metadata.detected_question, None);
+        assert_eq!(
+            after_clear.metadata.provenance.attention_origin.as_deref(),
+            Some("native_codex")
+        );
+        let retried = store
+            .apply_agent_patch(id, &after_clear.revision, &attention_patch())
+            .unwrap();
+        assert_eq!(retried.metadata.observed_status.as_deref(), Some("blocked"));
+        assert_eq!(
+            retried.metadata.detected_question.as_deref(),
+            Some("Agent prompt")
+        );
+        assert_eq!(
+            retried.metadata.provenance.attention_origin.as_deref(),
+            Some("direct_agent")
+        );
+    }
+
+    #[test]
+    fn attention_patch_first_invalidates_old_native_clear_owner() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let id = "agent-patch-before-native-clear";
+        let (native, owner) = owned_native_wait(&store, id);
+        let before = store.try_read_revisioned_session(id).unwrap().unwrap();
+        let patched = store
+            .apply_agent_patch(id, &before.revision, &attention_patch())
+            .unwrap();
+        assert!(!store
+            .try_write_session_if_owned(&native_clear(native), &owner)
+            .unwrap());
+        let current = store.try_read_revisioned_session(id).unwrap().unwrap();
+        assert_eq!(current.revision, patched.revision);
+        assert_eq!(current.metadata.observed_status.as_deref(), Some("blocked"));
+        assert_eq!(
+            current.metadata.detected_question.as_deref(),
+            Some("Agent prompt")
+        );
+        assert_eq!(
+            current.metadata.provenance.attention_origin.as_deref(),
+            Some("direct_agent")
+        );
+    }
+
+    #[test]
+    fn work_patch_first_keeps_native_clear_owner_and_latest_work() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let id = "agent-work-before-native-clear";
+        let (native, owner) = owned_native_wait(&store, id);
+        let before = store.try_read_revisioned_session(id).unwrap().unwrap();
+        let patched = store
+            .apply_agent_patch(id, &before.revision, &work_patch())
+            .unwrap();
+        assert_eq!(patched.metadata.task, "Latest API work");
+        assert!(store
+            .try_write_session_if_owned(&native_clear(native), &owner)
+            .unwrap());
+        let current = store.try_read_revisioned_session(id).unwrap().unwrap();
+        assert_eq!(current.metadata.observed_status.as_deref(), Some("working"));
+        assert_eq!(current.metadata.detected_question, None);
+        assert_eq!(current.metadata.task, "Latest API work");
+        assert_eq!(
+            current.metadata.next_action.as_deref(),
+            Some("Review patch")
+        );
+        assert_eq!(current.metadata.metadata_source, "agent");
+        assert_eq!(
+            current.metadata.provenance.attention_origin.as_deref(),
+            Some("native_codex")
+        );
     }
 
     #[test]
