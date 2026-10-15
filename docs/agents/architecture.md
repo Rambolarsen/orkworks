@@ -507,8 +507,11 @@ separately, 200ms after the paste write completes, ahead of later queued input.
 This avoids cooked PTY newline conversion, startup input loss, and Codex's
 paste-burst Enter suppression. Resize and kill controls bypass waiting prompt
 input. Hookless activity tracking is armed after accepted submission, so a
-slow startup cannot exhaust its work-signal window before delivery. Stop and
-child exit still cancel pending delivery.
+slow startup cannot exhaust its work-signal window before delivery. A response
+that arrives before write acknowledgement retains its echo-filtered activity
+evidence until acceptance; terminal output itself continues normally. Stop and
+child exit still cancel pending delivery. Failed paste delivery stops the
+runtime with an error and never sends the automatic Enter.
 A 10-second bound falls back to plain prompt-plus-Enter for command overrides
 that never enable paste mode; other harnesses retain plain input delivery.
 
