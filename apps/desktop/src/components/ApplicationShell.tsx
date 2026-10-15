@@ -432,7 +432,7 @@ export default function ApplicationShell(props: Props) {
       {showInspector && <div className={layout.inspectorOverlay ? "shell-inspector-host shell-inspector-host--overlay" : "shell-inspector-host"}
         style={layout.inspectorOverlay ? { width: layout.inspectorWidth + 6 } : undefined}><RegionSeparator label="Inspector" direction={-1} minimum={280} maximum={layout.inspectorMaximum} value={layout.inspectorWidth}
         onChange={value => props.onPreferencesChange({ ...props.preferences, inspectorWidth: value })} />
-        <aside className="shell-region shell-region--inspector" aria-label="Contextual inspector" data-shell-region="inspector">
+        <aside className="shell-region shell-region--inspector" aria-label="Contextual inspector" data-shell-region="inspector" tabIndex={-1}>
           {utilityHeader(false)}{renderUtility()}
         </aside></div>}
     </div>

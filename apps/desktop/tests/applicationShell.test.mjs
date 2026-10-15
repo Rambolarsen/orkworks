@@ -549,6 +549,18 @@ if (process.versions.electron) {
           assert.equal(await evaluate('document.querySelector(".shell-main").getBoundingClientRect().width'), mainWidth, 'overlay must not shrink central view');
           assert.equal(await evaluate('document.querySelector("[data-shell-region=inspector]").getBoundingClientRect().right'), await evaluate('document.querySelector(".shell-main").getBoundingClientRect().right'));
           assert.match(await evaluate('getComputedStyle(document.querySelector("[data-shell-region=inspector]")).backgroundColor'), /0\.96/);
+          // A real click on non-interactive inspector content must keep Escape in its region.
+          const panelPoint = await evaluate('(()=>{const r=document.querySelector("[data-shell-region=inspector]").getBoundingClientRect();return {x:Math.round(r.left+40),y:Math.round(r.bottom-40)}})()');
+          win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...panelPoint});
+          win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,...panelPoint});
+          await evaluate('new Promise(resolve=>requestAnimationFrame(resolve))');
+          assert.equal(await evaluate('!!document.activeElement.closest("[data-shell-region=inspector]")'),true,'clicking inspector content retains focus in the inspector');
+          win.webContents.sendInputEvent({type:'keyDown',keyCode:'Escape'});
+          win.webContents.sendInputEvent({type:'keyUp',keyCode:'Escape'});
+          await waitFor('!document.querySelector("[data-shell-region=inspector]")');
+          assert.equal(await evaluate('document.activeElement.dataset.shellCommand'),'details');
+          await click('details');
+          await waitFor('document.querySelector("[data-shell-region=inspector]")');
           await evaluate('document.querySelector("[data-shell-region=inspector] h2").focus();document.activeElement.addEventListener("keydown",event=>event.preventDefault(),{once:true});document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true,cancelable:true}))');
           assert.equal(await evaluate('!!document.querySelector("[data-shell-region=inspector]")'),true,'handled Escape belongs to nested control');
           await evaluate('document.querySelector(".shell-inspector-host [role=separator]").dispatchEvent(new KeyboardEvent("keydown",{key:"End",bubbles:true}))');
