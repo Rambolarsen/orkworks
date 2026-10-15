@@ -1512,6 +1512,7 @@ struct InitialEditorPrompt {
     marker: [u8; 8],
     paste_enabled: bool,
     timeout: tokio::time::Instant,
+    submitted: Option<tokio::sync::oneshot::Receiver<Result<(), ()>>>,
 }
 
 enum InitialEditorPromptPhase {
@@ -1530,6 +1531,7 @@ impl InitialEditorPrompt {
             marker: [0; 8],
             paste_enabled: false,
             timeout,
+            submitted: None,
         }
     }
 
@@ -1579,7 +1581,7 @@ impl InitialEditorPrompt {
                 // Preserve plain-input compatibility for overrides/wrappers
                 // that never enable paste mode; never leave startup blocked.
                 self.phase = InitialEditorPromptPhase::Complete;
-                return Some(initial_prompt_command(&self.prompt));
+                format!("{}\r", self.prompt)
             }
             InitialEditorPromptPhase::Submit(_) => {
                 self.phase = InitialEditorPromptPhase::Complete;
@@ -1587,10 +1589,14 @@ impl InitialEditorPrompt {
             }
             _ => return None,
         };
-        Some(RuntimeCommand::Input {
-            data,
-            accepted: None,
-        })
+        let accepted = if matches!(self.phase, InitialEditorPromptPhase::Complete) {
+            let (accepted, submitted) = tokio::sync::oneshot::channel();
+            self.submitted = Some(submitted);
+            Some(accepted)
+        } else {
+            None
+        };
+        Some(RuntimeCommand::Input { data, accepted })
     }
 
     fn write_completed(&mut self, now: tokio::time::Instant) {
@@ -2073,6 +2079,17 @@ async fn start_session_runtime_inner(
         let mut initial_editor = None;
         if let Some(prompt) = initial_prompt {
             if has_initial_editor {
+                // Startup output is not evidence of submitted work. Arm a
+                // fresh signal only after the final Enter is accepted.
+                if let Some(handle) = driver_state
+                    .sessions
+                    .lock()
+                    .unwrap()
+                    .get_mut(&driver_id)
+                    .filter(|handle| handle.runtime.run_generation() == run_generation)
+                {
+                    handle.pending_work_signal = None;
+                }
                 initial_editor = Some(InitialEditorPrompt::new(
                     prompt,
                     tokio::time::Instant::now(),
@@ -2108,7 +2125,17 @@ async fn start_session_runtime_inner(
                 let command = if let Some(initial) =
                     initial_editor.as_mut().filter(|initial| initial.pending())
                 {
-                    initial.next_command(tokio::time::Instant::now())
+                    // Resize/kill are control operations, not prompt text.
+                    // They must remain responsive even if earlier input is
+                    // waiting for the editor to become ready.
+                    if let Some(index) = pending_commands
+                        .iter()
+                        .position(|command| !matches!(command, RuntimeCommand::Input { .. }))
+                    {
+                        pending_commands.remove(index)
+                    } else {
+                        initial.next_command(tokio::time::Instant::now())
+                    }
                 } else {
                     pending_commands.pop_front()
                 };
@@ -2180,6 +2207,30 @@ async fn start_session_runtime_inner(
                             writer = Some(returned_writer);
                             if let Some(initial) = &mut initial_editor {
                                 initial.write_completed(tokio::time::Instant::now());
+                            }
+                            if initial_editor.as_ref().is_some_and(|initial| !initial.pending()) {
+                                let mut initial = initial_editor.take().expect("completed initial prompt");
+                                let submitted = initial.submitted.as_mut().is_some_and(|submitted| {
+                                    matches!(submitted.try_recv(), Ok(Ok(())))
+                                });
+                                if submitted && !kill_requested && !*kill_rx.borrow() && child_exit.is_none() {
+                                    let mut sessions = driver_state.sessions.lock().unwrap();
+                                    if let Some(handle) = sessions.get_mut(&driver_id).filter(|handle| {
+                                        handle.runtime.run_generation() == run_generation
+                                            && handle.info.lifecycle == "alive"
+                                            && !handle.active_work_hook
+                                    }) {
+                                        handle.pending_work_signal = Some(arm_pending_work_signal(
+                                            &initial.prompt,
+                                            tokio::time::Instant::now(),
+                                            std::time::Duration::ZERO,
+                                        ));
+                                        align_banner_grace_with_startup(
+                                            &mut handle.pending_work_signal,
+                                            startup_grace_ends_at,
+                                        );
+                                    }
+                                }
                             }
                         }
                         Err(error) => {
@@ -2288,7 +2339,7 @@ async fn start_session_runtime_inner(
                     reader_drain_finished = true;
                     reader_drain_deadline = None;
                 }
-                Some(command) = control_rx.recv(), if pending_write.is_none() && pending_commands.is_empty() && !kill_requested && child_exit.is_none() => {
+                Some(command) = control_rx.recv(), if pending_write.is_none() && (pending_commands.is_empty() || (initial_editor.as_ref().is_some_and(InitialEditorPrompt::pending) && pending_commands.len() < CONTROL_CHANNEL_CAPACITY)) && !kill_requested && child_exit.is_none() => {
                     pending_commands.push_back(command);
                 }
                 Some(event) = driver_rx.recv(), if should_receive_driver_events(
@@ -2644,6 +2695,11 @@ mod tests {
             let mut sessions = state.sessions.lock().unwrap();
             let handle = sessions.get_mut(id).unwrap();
             handle.info.harness_id = Some("opencode".into());
+            handle.pending_work_signal = Some(arm_pending_work_signal(
+                "first\nsecond",
+                tokio::time::Instant::now() - Duration::from_secs(11),
+                Duration::ZERO,
+            ));
             handle.runtime = runtime;
             handle.kill_tx = kill_tx;
         }
@@ -2651,7 +2707,7 @@ mod tests {
         // Fragment the readiness escape to exercise PTY chunk boundaries.
         let expected = b"\x1b[200~first\nsecond\x1b[201~\rnext\r";
         let script = format!(
-            "sleep 0.1; stty raw -echo; printf '\\033[?20'; printf '04h'; printf 'DELIVERED:'; dd bs=1 count={} 2>/dev/null | od -An -tx1",
+            "sleep 0.5; stty raw -echo; printf '\\033[?20'; printf '04h'; printf 'DELIVERED:'; dd bs=1 count={} 2>/dev/null | od -An -tx1",
             expected.len()
         );
         start_session_runtime(
@@ -2685,6 +2741,20 @@ mod tests {
         )
         .await
         .unwrap();
+        let resized = tokio::time::timeout(
+            Duration::from_millis(300),
+            apply_runtime_size_without_waiting_for_persistence(&state, id, 33, 99),
+        )
+        .await;
+        if resized.is_err() {
+            let _ = send_runtime_command(&state, id, RuntimeCommand::Kill).await;
+        }
+        assert_eq!(
+            resized,
+            Ok(Ok(())),
+            "resize must bypass initial and queued input while the editor starts"
+        );
+        assert_eq!(state.sessions.lock().unwrap()[id].runtime.last_cols, 99);
         let mut transcript = Vec::new();
         let completed = tokio::time::timeout(Duration::from_secs(3), async {
             while let Ok(event) = events.recv().await {
@@ -2712,6 +2782,12 @@ mod tests {
             hex,
             "1b5b3230307e66697273740a7365636f6e641b5b3230317e0d6e6578740d"
         );
+        let sessions = state.sessions.lock().unwrap();
+        let signal = sessions[id]
+            .pending_work_signal
+            .as_ref()
+            .expect("submission must replace an expired startup work signal");
+        assert!(signal.expires_at > tokio::time::Instant::now() + Duration::from_secs(8));
     }
 
     #[test]
