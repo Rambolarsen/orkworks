@@ -504,6 +504,17 @@ identity. See [ADR 0069](../adr/0069-codex-session-id-hook-report-mailbox.md).
 
 ## Metadata protocol
 
+The storage prerequisite for the versioned agent API lives in
+`metadata/session_transactions.rs`: checked, durable revisions are stored in the
+canonical session JSON, and revision-checked mutations hold the retained store's
+per-session lock across read/check/modify/replace. Legacy reads are revision zero
+without a write. Existing unconditional snapshot replacements advance revisions
+but still require caller migration to protect their entire read/modify/write
+sequence. Separate reader stores share no write locks or native ownership.
+The API/provenance migration in [#788](https://github.com/Rambolarsen/orkworks/issues/788)
+and producer migration in [#789](https://github.com/Rambolarsen/orkworks/issues/789)
+remain pending, and all native approval rollout gates remain closed.
+
 - `~/.orkworks/workspaces/<hash>/sessions/<id>.json` — session state. (design, not yet implemented — see issue #313) Gains a current-summary snapshot (`summary`, `summarySource`, `summaryConfidence`, `summaryObservedAt`, all four updated or cleared together — ADR 0042)
 - `~/.orkworks/workspaces/<hash>/events/<id>.ndjson` — append-only event log with durable, exact consecutive-deduplicated summary checkpoints and accepted provenance
 - `~/.orkworks/workspaces/<hash>/events/<id>.terminal` — recent raw terminal replay, bounded on append to the newest 1,000 lines and 1 MiB; existing oversized dormant files remain unchanged until their next append

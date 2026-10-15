@@ -204,3 +204,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Taskmaster runtime implementation contract](taskmaster-runtime-contract.md) — Implementation plan: Taskmaster runtime implementation contract.
 - [Taskmaster runtime implementation report](taskmaster-runtime-report.md) — Implementation plan: Taskmaster runtime implementation report.
 - [Codex connected-listener ownership implementation](2026-10-15-codex-listener-ownership.md) — Separate dormant macOS proof from blocked native-client identity integration.
+
+- [Revisioned session metadata transactions](2026-10-15-session-metadata-transactions.md) — Storage prerequisite for coordinated Codex attention writes.

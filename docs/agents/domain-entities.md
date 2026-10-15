@@ -93,6 +93,27 @@ This means:
 
 Where provider/model identity cannot be determined, code should preserve `None`/empty rather than invent values.
 
+## Session metadata revisions
+
+Sidecar session replacements persist an opaque string `metadataRevision` in the
+canonical session JSON. Storage reads that request a revision return legacy
+records at `"0"` without rewriting them. Successful replacements advance the
+checked counter, including identical writes and owned native replacements;
+failed writes and rejected transactions do not advance it. `SessionMetadata`
+remains the legacy field model; the storage `RevisionedSession` envelope owns
+revision serialization so snapshot callers cannot select the next revision.
+
+`MetadataStore::try_update_session` checks an expected revision and holds the
+owning store's per-session lock through read, mutation, and replacement. It
+rejects stale revisions and identity changes and distinguishes missing or
+malformed records from revision conflicts. Callers must use the workspace's
+retained store; separately constructed readers do not share its process-local
+locks or attention ownership. Legacy read/modify/write callers still need
+migration to this operation under [#788](https://github.com/Rambolarsen/orkworks/issues/788).
+The authenticated API, split attention provenance, and producer migration are
+pending; these storage primitives do not enable native clearing or coordinate
+external JSON replacements. See the [approved metadata design](../superpowers/specs/2026-10-08-codex-native-attention-layer-design.md).
+
 ## Mapping to the API/UI layer
 
 ```text
