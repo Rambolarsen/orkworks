@@ -11,8 +11,10 @@ status: draft
 Outcome: advance [#763](https://github.com/Rambolarsen/orkworks/issues/763)'s
 listener-identity prerequisite for the [Needs You fix](https://github.com/Rambolarsen/orkworks/issues/690).
 Spec: [listener ownership design](../specs/2026-10-15-codex-listener-ownership-design.md).
-Status: **local proof ready for owner review; full integration blocked on a
-native-client identity contract**. No runtime code has changed.
+Status: **local proof approved by the owner on 2026-10-16 and implemented under
+[#897](https://github.com/Rambolarsen/orkworks/issues/897); full integration remains
+blocked on a native-client identity contract**. The helper is dormant and does
+not remove production gates.
 
 ## Constraints and compatibility
 
@@ -26,7 +28,7 @@ daemon, readiness-as-identity, or inherited-socket assumption is introduced.
 
 ## Deliverables and dependencies
 
-- [ ] **Dormant connected-stream proof, after owner design approval.** Add
+- [x] **Dormant connected-stream proof, approved 2026-10-16.** Add
   `crates/orkworksd/src/runtime/codex_native/listener_identity.rs`, registered
   by `codex_native.rs`. It consumes the retained owned-child identity and the
   already-connected stream's reversed four-tuple, returning proved ownership
@@ -89,12 +91,62 @@ Assessment incomplete; scores do not grant approval. Disposition:
 Review caught the relay-owner crash gap by tracing the actual upstream TUI
 reconnect implementation. Do not execute the blocked integration steps.
 
-Documentation handoff checks: OKF validation, 20 OKF tests, docs build and diff
+Original documentation-only handoff checks: OKF validation, 20 OKF tests, docs build and diff
 whitespace checks passed. The build reported circular/large-chunk warnings in
 unchanged VitePress bundling. The doc-drift hook suggested README review because
 an ADR changed; no edit is needed because this draft changes no public feature,
 milestone, or availability claim. The worktree hook reported foreign stale or
 merged worktrees; they were left untouched. Its initial merged-branch notice
 for this fresh branch preceded any commit and was the common-base condition,
-not a merged PR. No Rust source changed, so Rust/full-repo code validation was
-not run for this documentation-only handoff.
+not a merged PR. At that handoff, no Rust source changed, so Rust/full-repo code validation was
+not run.
+
+## Local proof implementation evidence
+
+The private Rust module retains the connected stream and borrows the unreaped
+owned leader; a small SDK-compiled C adapter decodes socket structures without
+hand-copied private ABI layouts. Kernel queries run on the blocking pool with
+bounded inventory, deadlines and cooperative cancellation. The guard rechecks
+leader liveness before exposing that same stream. No production caller,
+compatibility entry, installed diagnostic, native TUI or metadata-clear gate is
+changed. This cannot establish immutable TUI identity after sidecar death.
+
+Initial behavioral regressions failed before implementation: an accepting
+competitor received fixture bytes, an exited leader retained access, and invalid
+inventories were accepted. They pass with the proof. Additional coverage checks
+inventory growth, ambiguity, denied/partial/oversized replies, deadline and
+cancellation, plus the actual SDK decoder's state/protocol/size/port checks.
+The focused macOS arm64 CI workflow discovers the expected live-child and SDK
+tests before running them; Linux/Windows builds keep the native proof unavailable.
+Full repository verification and exact-head medium review follow before merge.
+
+Local close-out: full `scripts/verify-repo.sh` passed, including the supported
+macOS proof and SDK decoder, all Rust tests, desktop type/build/tests, docs build,
+and diff/doc/worktree checks. The exact CI discovery and test commands also
+passed locally. The read-only medium review found no required changes, including
+its follow-up on replacement/ambiguity/unsupported tests and native CI routing.
+Docs warnings need no public-guide/root-rule edit because this dormant helper
+adds no available feature, and the private build dependency changes no universal
+agent rule. A foreign merged worktree warning was left to its owner.
+
+## Review cycle 1 of 3
+
+Current-head Codex review identified the accepted-descriptor visibility race:
+TCP connect can finish before the child accepts and acquires a connected FD.
+A deterministic regression first failed because a complete zero-match snapshot
+returned unavailable immediately. The scanner now retries those snapshots with
+a bounded five-millisecond pause, within the existing three-attempt and shared
+deadline limits. Ambiguous results still fail immediately. The regression also
+requires a permanently absent descriptor to stop after exactly three snapshots.
+The custom review's desktop IPC finding was a reverse comparison of intervening
+main changes from #899, not part of this PR; the GitHub PR file inventory and
+prospective merge result confirm those changes are retained without a delta.
+
+Cycle 1 validation: all ten proof tests pass. The first full rerun encountered
+the existing readiness-cancellation PID/reaper race tracked in
+[#901](https://github.com/Rambolarsen/orkworks/issues/901); the fully qualified
+case passed in isolation, then one complete retry of `verify-repo.sh` passed
+with 1,995 Rust tests (five ignored), the SDK/reporter/producer suites,
+1,322 desktop tests (one skipped), and build/docs/close-out checks. No readiness
+or reaper production path was changed. Scoped medium review found no required
+changes in the visibility fix.

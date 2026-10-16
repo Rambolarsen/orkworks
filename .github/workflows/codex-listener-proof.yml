@@ -1,0 +1,54 @@
+name: Codex listener proof
+
+"on":
+  pull_request:
+    branches: [main]
+    paths:
+      - 'crates/orkworksd/**'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/codex-listener-proof.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'crates/orkworksd/**'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/codex-listener-proof.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos-listener-proof:
+    name: macOS arm64 listener proof
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/orkworksd
+      - name: Record native host and SDK
+        run: |
+          uname -m
+          sw_vers
+          xcrun --show-sdk-version
+          rustc -vV
+      - name: Require supported-platform proof tests
+        run: |
+          listed="$(cargo test --locked --manifest-path crates/orkworksd/Cargo.toml --bin orkworksd listener_identity -- --list)"
+          for test in \
+            runtime::codex_native::launch::listener_identity_tests::connected_child_is_proved_but_accepting_competitor_receives_zero_bytes \
+            runtime::codex_native::launch::listener_identity_tests::retained_stream_survives_listener_rebind_but_replacement_stream_is_rejected \
+            runtime::codex_native::launch::listener_identity_tests::exited_owned_leader_cannot_reuse_a_proved_stream; do
+            printf '%s\n' "$listed" | grep -Fqx "$test: test" || exit 1
+          done
+          cargo test --locked --manifest-path crates/orkworksd/Cargo.toml --test listener_identity_sdk -- --list | grep -Fqx 'sdk_adapter_rejects_partial_denied_wrong_state_and_malformed_socket_replies: test'
+      - name: Test connected-stream ownership and failure fences
+        run: cargo test --locked --manifest-path crates/orkworksd/Cargo.toml listener_identity
+      - name: Test SDK socket decoder
+        run: cargo test --locked --manifest-path crates/orkworksd/Cargo.toml --test listener_identity_sdk

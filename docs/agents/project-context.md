@@ -31,7 +31,7 @@ commands and validation, read [`apps/desktop/AGENTS.md`](https://github.com/Ramb
 
 ## CI routing
 
-GitHub Actions has seven distinct workflow classes:
+GitHub Actions has eight distinct workflow classes:
 
 - `.github/workflows/release.yml` preserves canonical stable-tag draft
   packaging and also runs signed nightly prereleases from an immutable `main`
@@ -46,6 +46,12 @@ GitHub Actions has seven distinct workflow classes:
   or the PR workflow change. It requires the targeted tests to be discoverable
   before running them, preventing a platform gate from producing an empty pass.
   Existing Linux job names and branch-protection requirements are unchanged.
+- `.github/workflows/codex-listener-proof.yml` runs the dormant connected-stream
+  proof and SDK decoder tests on a macOS arm64 runner for Rust changes on PRs
+  and `main`, plus manual dispatch. It requires supported-platform test discovery
+  before execution; this does not qualify an installed Codex binary or enable
+  native startup. [GitHub's runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
+  documents the `macos-15` arm64 label.
 - `.github/workflows/main-ci.yml` unconditionally reruns the full desktop and
   Rust test suites plus the OpenCode session reporter's Node tests and POSIX
   harness reporter's Bash diagnostics test against `main`, without path

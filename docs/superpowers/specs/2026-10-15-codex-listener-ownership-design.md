@@ -8,7 +8,10 @@ status: draft
 
 # Codex listener ownership before capability delivery
 
-Status: **proposed; owner approval required before runtime implementation**.
+Status: **owner-approved for dormant local macOS proof on 2026-10-16;
+all-client integration remains blocked**. The owner approved the linked local
+proof proposal in the active Codex session ("lets do it"). This does not approve
+a new upstream transport, native-client identity mechanism, or production rollout.
 Issue: [#763](https://github.com/Rambolarsen/orkworks/issues/763).
 Parent outcome: [#690](https://github.com/Rambolarsen/orkworks/issues/690).
 This completes a startup design investigation, not the Needs You fix or a

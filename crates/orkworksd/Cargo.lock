@@ -1180,6 +1180,7 @@ version = "0.2.0"
 dependencies = [
  "axum",
  "base64",
+ "cc",
  "chrono",
  "dirs",
  "ed25519-dalek",
