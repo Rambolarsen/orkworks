@@ -248,10 +248,13 @@ v1 does not admit cross-workspace result/evaluation references.
 A report descriptor resolves an immutable #742 report and must match its stored
 identity, size and content digest. A corrected report gets a new source key.
 Report evidence is current only while its exact immutable version is the
-current correction head. #742 must define expected-version/digest CAS,
-exact-retry resolution before head checks, and atomic correction publication;
-arrival time or numeric version alone cannot select that head. Until that
-contract is approved and reconciled, research-report evidence cannot establish
+current correction head under [#742’s proposed head protocol](2026-10-04-orchestrator-preparation-design.md#current-report-head-and-corrections):
+exact expected-version/digest CAS, exact-retry resolution before head checks,
+and atomic publication with dependent freshness fences. Arrival time or numeric
+version alone cannot select that head; a saved receipt does not establish
+currentness. User-authored replacements retain their explicit provenance and
+assignment lineage, never child authorship. Until that contract is approved and
+reconciled, research-report evidence cannot establish
 a current #744 outcome. #744 adds no independent report invalidation authority;
 withdrawal without replacement remains unsupported until #742 specifies it.
 These report-source gates are distinct from evaluation invalidation below.
