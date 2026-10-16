@@ -678,7 +678,7 @@ The first useful MVP should include:
   composer. Cancel returns to previous content; Start opens the created terminal
   only after successful creation. Existing sessions continue running. Creation
   drafts are workspace-scoped presentation state and never restored as actions.
-- central context shows Terminal, the reusable Review surface, or Workflow when
+- central context shows Terminal, the reusable Review surface, transient Recommendations, or Workflow when
   a validated and separately gated orchestration projection is available
 - no user-arranged panels, drag-and-drop docking, movable floating panels, or
   tab-based navigation; users resize fixed regions and navigate through explicit
@@ -689,8 +689,12 @@ The first useful MVP should include:
   layout records. Retain the temporary inspector page below 1180 CSS px. Escape
   within the inspector/page closes it and restores its invoker in either mode;
   Escape outside it does not dismiss it, and nested dialogs own their Escape.
-- details follow the visible subject; Actions, Capacity, and Recommendations
-  are available through the optional inspector or a labeled compact page
+- details follow the visible subject; Actions and Capacity are available through
+  the optional inspector or a labeled compact page. Recommendations replaces
+  central content at every width, preserving the responsive Sessions sidebar.
+  Back, its toggle, or Escape within the page returns to the previous view and
+  restores its invoker; selecting a session opens its Terminal. Recommendations
+  is transient and is not restored after restart; see ADR 0084.
 - Electron launches Rust backend sidecar
 - frontend communicates with backend over localhost HTTP/WebSocket
 - secure preload bridge
@@ -708,7 +712,7 @@ The first useful MVP should include:
   - current-subject Details shortcut
   - selected Terminal/history shortcut
   - Capacity inspector/page shortcut
-  - Recommendations inspector/page shortcut
+  - Recommendations main-view shortcut
   - reset layout shortcut
 - default hotkeys must match the shipped accelerators
 - build Electron menu accelerators from saved settings rather than hard-coded constants

@@ -99,17 +99,18 @@ export default function ApplicationShell(props: Props) {
   const recommendations = useActionsRecommendations(actionsScope, sourcesReady && props.taskmasterReady);
   const actionsModel = buildActionsOverview(sourcesReady ? props.sessions : [], sourcesReady ? props.sessionsSourceStatus ?? "loading" : "unavailable",
     recommendations.items, recommendations.status);
-  const layout = computeShellLayout(width, props.preferences, props.inspector !== null);
+  const recommendationsPage = props.inspector === "recommendations";
+  const layout = computeShellLayout(width, props.preferences, props.inspector !== null && !recommendationsPage);
   const compact = layout.mode === "compact";
   const showSessionsPage = compact && sessionsPage;
-  const temporaryUtility = !showSessionsPage && layout.inspectorPage && props.inspector !== null;
+  const temporaryUtility = !showSessionsPage && props.inspector !== null && (layout.inspectorPage || recommendationsPage);
   const showComposer = !!props.newSessionContent && !showSessionsPage && !temporaryUtility;
   const reviewing = (props.centralSurface?.kind === "review" && props.centralSurface.sessionId === props.activeSessionId)
     || (!!props.reviewError && !!props.activeSessionId);
   const showReview = reviewing && !showSessionsPage && !temporaryUtility && !showComposer;
   const showTerminal = !showSessionsPage && !temporaryUtility && !showComposer && !reviewing;
   const showSessions = showSessionsPage || layout.sessionsVisible;
-  const showInspector = !showSessionsPage && layout.inspectorWidth > 0 && props.inspector !== null;
+  const showInspector = !showSessionsPage && !recommendationsPage && layout.inspectorWidth > 0 && props.inspector !== null;
   const session = props.sessions.find(s => s.id === props.activeSessionId) ?? null;
   const canResume = session?.lifecycle === "dead"
     && props.backendStatus === "connected" && !props.isSwitchingWorkspace
@@ -403,7 +404,7 @@ export default function ApplicationShell(props: Props) {
             <summary>Workspace<ChevronDown size={14} aria-hidden="true" /></summary>
             <div className="shell-navigation-popover">{workspaceNavigation}<footer className="shell-sidebar-footer">{settingsAndStatus}</footer></div>
           </details>}
-          <div className="shell-context"><h1 data-shell-terminal-focus tabIndex={-1}>{showComposer ? "New agent session" : session?.label || "Terminal"}</h1><span className="shell-context-scope">{showComposer ? "Start a session in this workspace" : session?.harness || "No session selected"}</span></div>
+          <div className="shell-context"><h1 data-shell-terminal-focus tabIndex={-1}>{showComposer ? "New agent session" : recommendationsPage ? "Recommendations" : session?.label || "Terminal"}</h1><span className="shell-context-scope">{showComposer ? "Start a session in this workspace" : recommendationsPage ? "Workspace recommendations" : session?.harness || "No session selected"}</span></div>
           {!showComposer && canResume && <button type="button" className="shell-resume-button" data-shell-resume
             onClick={() => session?.resumeStrategy === "exact" ? props.onResumeSession(session.id) : runCommand("details", true)}><Play size={15} aria-hidden="true" />Resume session</button>}
           {session?.hasOpenablePlan && props.onOpenReview && !showComposer && <button type="button" data-shell-command="review"
@@ -429,7 +430,7 @@ export default function ApplicationShell(props: Props) {
           </header>
           {props.reviewContent}
         </section>}
-        {temporaryUtility && <section className="shell-region shell-region--central" aria-label="Temporary content page" data-shell-region="utility">
+        {temporaryUtility && <section className="shell-region shell-region--central" aria-label={recommendationsPage ? "Recommendations" : "Temporary content page"} data-shell-region="utility">
           {utilityHeader(true)}{renderUtility()}
         </section>}
       </main>}

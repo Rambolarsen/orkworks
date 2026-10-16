@@ -11,6 +11,12 @@ Taskmaster looks across recorded workflow observations and suggests
 improvements to the way you work. For example, repeated missing context may
 lead to a suggestion to improve repository instructions.
 
+In current source builds, **Recommendations** opens in the main view at every
+window width. **Back to Terminal** (or **Back to Review**) returns to the previous
+view; Escape within Recommendations does the same. Selecting a session opens
+its terminal. Sessions keeps its normal responsive placement. Published installers
+may still show Recommendations in the inspector.
+
 ## Two kinds of recommendations
 
 Recommendations from either pipeline carry an origin badge (anything with an

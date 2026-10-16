@@ -779,7 +779,10 @@ desktop verification remains tracked by #525.
 ## Fixed desktop shell
 
 `ApplicationShell` owns fixed React/CSS Grid regions: Sessions, one central
-Terminal, Review or temporary utility page, and at most one inspector. Dockview is
+Terminal, Review or temporary utility page, and at most one inspector.
+Recommendations uses the central utility page at every width, without an
+inspector or pin control; Back restores the underlying view and its invoker.
+It remains transient presentation state under [ADR 0084](../adr/0084-recommendations-main-view.md). Dockview is
 removed under [ADR 0082](../adr/0082-react-grid-desktop-shell.md), which supersedes
 the library choice in [ADR 0078](../adr/0078-fixed-desktop-shell-and-central-navigation.md).
 Pointer and keyboard separators resize bounded regions. At medium widths a
