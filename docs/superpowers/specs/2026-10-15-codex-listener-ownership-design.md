@@ -194,6 +194,9 @@ direct-launch path. A failure after startup keeps attention conservative.
 
 ## Delivery and required evidence
 
+The [native-client proposal](2026-10-16-codex-client-identity-proposal.md)
+refines the missing upstream handoff and reconnect requirements; its process-instance
+backend remains an explicit prerequisite, not an approved implementation.
 The [implementation plan](../plans/2026-10-15-codex-listener-ownership.md)
 separates the locally feasible proof from the missing native-client contract.
 Before removing the listener gate, require:
