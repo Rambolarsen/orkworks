@@ -162,3 +162,4 @@ Dated design records; these do not establish current product behavior.
 - [Privacy-qualified Taskmaster knowledge distribution](2026-10-10-taskmaster-knowledge-distribution-design.md) — Reviewed Brain export, signed offline and feed knowledge, and verified Taskmaster admission for issue 529.
 - [Hierarchy projection mapping and review fixtures](2026-10-15-hierarchy-projection-mapping.md) — Proposed exact source joins, summary freshness, open consumer decisions and synthetic fixtures for #746.
 - [Codex listener ownership before capability delivery](2026-10-15-codex-listener-ownership-design.md) — Connected-socket proof proposal and missing native-client identity contract.
+- [Codex client identity before authenticated local connection](2026-10-16-codex-client-identity-proposal.md) — Proposed upstream native-client identity handoff, reconnect contract and platform prerequisites.
