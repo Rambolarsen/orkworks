@@ -35,7 +35,9 @@ fixture and version/feature evidence are added beside the binding.
 
 Codex's source reporter also has a marker-gated API-only instruction path for
 [#789](https://github.com/Rambolarsen/orkworks/issues/789). Integration reconciliation
-copies `session-metadata.py` into stable reporter storage. A `SessionStart` with
+copies `session-metadata.py` into stable reporter storage. Missing, corrupt, or
+release-stale helper bytes mark the integration drifted and offer reconciliation.
+Packaged and Windows-installed artifact verification require that helper. A `SessionStart` with
 `ORKWORKS_SESSION_METADATA_API_VERSION=1` emits additional context instructing the
 agent to bootstrap and use revisioned metadata patches, with no JSON-file fallback.
 The helper performs authenticated GET and validation-only PATCH from its caller's

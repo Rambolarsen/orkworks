@@ -26,7 +26,23 @@ test("Windows expectation names the installer and installed resources", () => {
     "report-harness-event.sh",
     "report-harness-event.ps1",
     "report-opencode-session.sh",
+    "session-metadata.py",
   ]);
+});
+
+test("missing metadata helper fails installed Windows artifact verification", () => {
+  const expectation = createWindowsInstallerExpectation({
+    version: "0.1.0", releaseDir: "C:\\release", installDir: "C:\\temp\\orkworks-smoke", productName: "OrkWorks",
+  });
+  const missing = join(expectation.scriptsDir, "session-metadata.py");
+  const fakeFs = { statSync(path) {
+    if (path === missing) throw new Error("ENOENT");
+    return { isFile: () => true, isDirectory: () => true, size: 1 };
+  } };
+  assert.throws(
+    () => verifyInstalledWindowsApp(expectation, fakeFs),
+    (error) => error instanceof Error && error.message.includes(missing),
+  );
 });
 
 test("unsupported targets fail before any installer process is invoked", async () => {

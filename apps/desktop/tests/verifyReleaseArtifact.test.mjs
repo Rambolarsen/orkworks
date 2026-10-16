@@ -74,6 +74,7 @@ test("macOS expectation points at the DMG and packaged resources", () => {
       join("/release", "mac-arm64", "OrkWorks.app", "Contents", "Resources", "scripts", "report-harness-event.sh"),
       join("/release", "mac-arm64", "OrkWorks.app", "Contents", "Resources", "scripts", "report-harness-event.ps1"),
       join("/release", "mac-arm64", "OrkWorks.app", "Contents", "Resources", "scripts", "report-opencode-session.sh"),
+      join("/release", "mac-arm64", "OrkWorks.app", "Contents", "Resources", "scripts", "session-metadata.py"),
     ],
   });
 });
@@ -128,6 +129,7 @@ test("Windows expectation points at the NSIS installer and exe sidecar", () => {
     "report-harness-event.sh",
     "report-harness-event.ps1",
     "report-opencode-session.sh",
+    "session-metadata.py",
   ]);
 });
 
@@ -136,6 +138,21 @@ test("unsupported release targets are rejected", () => {
     () => createReleaseArtifactExpectation("linux", "x64", "0.1.0", "/release"),
     /Unsupported release target/,
   );
+});
+
+test("missing metadata helper fails packaged artifact verification", () => {
+  for (const [platform, arch] of [["darwin", "arm64"], ["win32", "x64"]]) {
+    const expectation = createReleaseArtifactExpectation(platform, arch, "0.1.0", "/release");
+    const missing = join(expectation.scriptsDir, "session-metadata.py");
+    const fakeFs = { statSync(path) {
+      if (path === missing) throw new Error("ENOENT");
+      return { isFile: () => true, isDirectory: () => true, size: 1 };
+    } };
+    assert.throws(
+      () => verifyReleaseArtifact(expectation, fakeFs, passingMetadataModule),
+      (error) => error instanceof Error && error.message.includes(missing),
+    );
+  }
 });
 
 test("missing starter knowledge fails packaged release verification", () => {

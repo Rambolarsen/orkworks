@@ -71,3 +71,14 @@ apostrophe in the helper path. The separate code review found no required
 changes and noted missing direct PowerShell instruction-path coverage; that
 platform remains unqualified. This is test-router/source evidence, not an
 installed agent sandbox handshake. #789 and #690 remain open.
+
+## Review cycle 1 of 3
+
+Codex's automated review identified two required asset-boundary fixes: include
+the helper in integration currentness and in packaged/installed artifact gates.
+Both were reproduced by failing regressions. The currentness check now consumes
+additional assets declared by the existing hook contract, with Codex declaring
+its helper and other handlers declaring none. The release script list is shared
+with Windows installed expectations. Thirty-five artifact tests and the helper
+drift regression pass; the scoped fresh review found no required changes.
+Full verification is rerun for the corrected code before the next push.

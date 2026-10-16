@@ -7,6 +7,7 @@ const HOOK_SCRIPT_NAMES = [
   "report-harness-event.sh",
   "report-harness-event.ps1",
   "report-opencode-session.sh",
+  "session-metadata.py",
 ];
 
 export function createReleaseArtifactExpectation(platform, arch, version, releaseDir, channel = "latest") {

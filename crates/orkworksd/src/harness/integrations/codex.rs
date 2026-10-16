@@ -120,6 +120,7 @@ fn extract_marker(command: &str) -> Option<&str> {
 pub(crate) static HANDLER: JsonHookHandler = JsonHookHandler::new(
     ToolHookContract {
         harness_id: "codex",
+        additional_reporter_assets: &["session-metadata.py"],
         tool_name: "Codex",
         relative_path: ".codex/hooks.json",
         ownership_marker: MARKER,
@@ -849,6 +850,64 @@ mod tests {
             .push(duplicate);
 
         assert_eq!(probe(&document, &script).unwrap(), FragmentState::Ambiguous);
+    }
+
+    #[test]
+    fn metadata_helper_drift_requires_reconciliation() {
+        use crate::harness::integration::IntegrationRegistration;
+        let workspace = gitignored_workspace();
+        let source = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        std::fs::write(
+            source.path().join(ReporterPlatform::current().asset_name()),
+            "reporter",
+        )
+        .unwrap();
+        std::fs::write(source.path().join("session-metadata.py"), "helper-v1").unwrap();
+        let resolver = ReporterAssetResolver {
+            source_dir: source.path().to_path_buf(),
+            stable_dir: home.path().join(".orkworks/hook-scripts"),
+        };
+        let ctx = IntegrationContext {
+            workspace: workspace.path(),
+            workspace_metadata: None,
+            orkworks_root: home.path(),
+            enabled: true,
+            detected_tool: None,
+            reporter_assets: &resolver,
+        };
+        HANDLER.install(&ctx).unwrap();
+        assert_eq!(
+            HANDLER.status(&ctx).unwrap().registration,
+            IntegrationRegistration::Installed
+        );
+        let helper = resolver.stable_path("session-metadata.py").unwrap();
+        for content in [None, Some("corrupted")] {
+            if let Some(content) = content {
+                std::fs::write(&helper, content).unwrap();
+            } else {
+                std::fs::remove_file(&helper).unwrap();
+            }
+            let status = HANDLER.status(&ctx).unwrap();
+            assert_eq!(status.registration, IntegrationRegistration::Drifted);
+            assert!(status
+                .diagnostics
+                .iter()
+                .any(|d| d.action.as_deref() == Some("reconcile")));
+            HANDLER.install(&ctx).unwrap();
+            assert_eq!(
+                HANDLER.status(&ctx).unwrap().registration,
+                IntegrationRegistration::Installed
+            );
+        }
+        std::fs::write(source.path().join("session-metadata.py"), "helper-v2").unwrap();
+        assert_eq!(
+            HANDLER.status(&ctx).unwrap().registration,
+            IntegrationRegistration::Drifted
+        );
+        HANDLER.install(&ctx).unwrap();
+        assert_eq!(std::fs::read_to_string(helper).unwrap(), "helper-v2");
     }
 
     #[cfg(unix)]

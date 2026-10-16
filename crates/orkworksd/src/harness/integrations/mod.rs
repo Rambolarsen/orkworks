@@ -70,6 +70,8 @@ pub(crate) fn current_codex_hook_fingerprint(reporter: &Path) -> Result<String, 
 #[derive(Clone)]
 pub(crate) struct ToolHookContract {
     pub harness_id: &'static str,
+    /// Additional source-owned files needed by this reporter integration.
+    pub additional_reporter_assets: &'static [&'static str],
     pub tool_name: &'static str,
     pub relative_path: &'static str,
     /// Kept in the code-owned contract for review/auditing. Each structural
@@ -182,6 +184,20 @@ impl JsonHookHandler {
             )
             .ok(),
         }
+    }
+
+    fn reporter_assets_current(
+        &self,
+        ctx: &IntegrationContext<'_>,
+    ) -> Result<bool, IntegrationError> {
+        for asset in std::iter::once(ReporterPlatform::current().asset_name())
+            .chain(self.contract.additional_reporter_assets.iter().copied())
+        {
+            if !ctx.reporter_assets.is_current(asset)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     fn error_status(
@@ -344,19 +360,14 @@ impl IntegrationHandler for JsonHookHandler {
             copilot::prompt_attention_probe(&document, &reporter)
         };
         probe.is_ok_and(|state| state == FragmentState::Installed)
-            && ctx
-                .reporter_assets
-                .is_current(ReporterPlatform::current().asset_name())
-                .unwrap_or(false)
+            && self.reporter_assets_current(ctx).unwrap_or(false)
     }
 
     fn status(&self, ctx: &IntegrationContext<'_>) -> Result<IntegrationStatus, IntegrationError> {
         let result = self.load(ctx).and_then(|(_, document, reporter)| {
             let mut status = self.status_from_document(ctx, &document, &reporter)?;
             if status.registration == IntegrationRegistration::Installed
-                && !ctx
-                    .reporter_assets
-                    .is_current(ReporterPlatform::current().asset_name())?
+                && !self.reporter_assets_current(ctx)?
             {
                 status.registration = IntegrationRegistration::Drifted;
                 status.activation = IntegrationActivation::Unknown;

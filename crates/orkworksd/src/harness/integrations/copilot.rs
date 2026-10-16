@@ -18,6 +18,7 @@ const EVENTS: [(&str, &str); 3] = [
 pub(crate) static HANDLER: JsonHookHandler = JsonHookHandler::new(
     ToolHookContract {
         harness_id: "copilot",
+        additional_reporter_assets: &[],
         tool_name: "GitHub Copilot CLI",
         relative_path: ".github/copilot/settings.local.json",
         ownership_marker: MARKER,
