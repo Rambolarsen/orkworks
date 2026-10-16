@@ -201,3 +201,20 @@ fn signed_hierarchy_applicability_and_provenance_remain_in_verified_proof() {
         "https://example.test/source"
     );
 }
+
+#[test]
+fn production_starter_admits_offline_analysis_and_corruption_revokes_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = TaskmasterRuntime::open(dir.path().into());
+    assert!(runtime.brain_knowledge_availability().is_err());
+    let starter = include_bytes!("../../../../../apps/desktop/resources/knowledge/starter.json");
+    runtime.activate_knowledge(starter).unwrap();
+    assert!(runtime.brain_knowledge_availability().is_ok());
+    assert_eq!(runtime.data.lock().unwrap().ledger.reservations, 0);
+    let restarted = TaskmasterRuntime::open(dir.path().into());
+    assert!(restarted.brain_knowledge_availability().is_ok());
+    fs::write(runtime.knowledge_path(), b"corrupt").unwrap();
+    assert!(runtime.brain_knowledge_availability().is_err());
+    assert!(restarted.brain_knowledge_availability().is_err());
+    assert_eq!(runtime.data.lock().unwrap().ledger.reservations, 0);
+}

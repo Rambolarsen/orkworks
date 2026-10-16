@@ -130,12 +130,13 @@ a provider call when the evidence and effective settings have not changed.
 
 Before any Brain-backed provider call, the active bundle must be eligible under
 the strict privacy rules above. Apply this gate to background analysis,
-**Analyze now**, and **Assess workflow**. Until #529 delivers the reviewed
-allowlisted export, generated compliant starter snapshot, and verified signed
-publication, fail closed for every Brain-backed analysis; do not send pages from
-the legacy starter or cached bundle that lack the supported privacy policy
-version. The current starter snapshot is ineligible until replaced by the
-compliant snapshot from #529.
+**Analyze now**, and **Assess workflow**. The #529 delivery requires the reviewed
+allowlisted export, generated compliant starter snapshot and verified signed
+publication. Current source packages the generated signed starter and matching
+key from that approved publication. Fail closed whenever eligible proof is absent;
+do not send pages from a legacy starter or cached bundle that lacks the supported
+privacy policy and signed manifest attestation. Older installed versions with the
+legacy starter remain ineligible.
 Deterministic workflow-observation recommendations continue without Brain
 inference. Once an eligible bundle is active, verified cached guidance remains
 usable offline. This prevents older packaged content from bypassing the

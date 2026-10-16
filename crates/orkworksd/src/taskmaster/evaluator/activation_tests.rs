@@ -1,4 +1,4 @@
-//! Exercise the dormant post-admission engine and production privacy admission
+//! Exercise the post-admission engine and production privacy admission
 //! separately, with local stores and a real fixture child.
 use super::*;
 use crate::harness::{
@@ -620,7 +620,7 @@ fn legacy_knowledge_blocks_background_and_manual_dispatch() {
                 fixture.approve();
                 let runtime = TaskmasterRuntime::open_fixture(fixture.root.clone());
                 let mut stored: serde_json::Value = serde_json::from_str(include_str!(
-                    "../../../../../apps/desktop/resources/knowledge/starter.json"
+                    "../../../../../tests/fixtures/taskmaster-knowledge/unsigned-bundle.json"
                 ))
                 .unwrap();
                 if claimed_policy {
@@ -677,8 +677,9 @@ async fn legacy_knowledge_is_unavailable_before_queueing_analysis() {
         let fixture = Fixture::new("success");
         fixture.approve();
         let runtime = TaskmasterRuntime::open_fixture(fixture.root.clone());
-        let starter =
-            include_bytes!("../../../../../apps/desktop/resources/knowledge/starter.json");
+        let starter = include_bytes!(
+            "../../../../../tests/fixtures/taskmaster-knowledge/unsigned-bundle.json"
+        );
         assert!(runtime.activate_knowledge(starter).is_err());
         let result = schedule_model_evaluation_with_workspace(
             fixture.state.clone(),
@@ -942,4 +943,90 @@ fn queued_fixture_run_is_interrupted_when_proof_is_lost_before_worker_entry() {
     );
     assert!(!fixture.marker.exists());
     assert_eq!(fixture.remaining(), 8);
+}
+
+#[test]
+fn production_starter_dispatches_background_and_manual_native_and_custom_analysis() {
+    use sha2::Digest;
+    for provider in ["custom", "codex"] {
+        for manual in [false, true] {
+            let mut fixture = Fixture::new("success");
+            fixture.approve();
+            let runtime = TaskmasterRuntime::open(fixture.root.clone());
+            runtime
+                .activate_knowledge(include_bytes!(
+                    "../../../../../apps/desktop/resources/knowledge/starter.json"
+                ))
+                .unwrap();
+            let mut settings = runtime.status(None).settings;
+            settings.enabled = !manual;
+            let native_calls = Arc::new(AtomicUsize::new(0));
+            if provider == "codex" {
+                settings.selection = Some(
+                    serde_json::from_value(json!({
+                        "provider":"codex", "model":"gpt-6-luna"
+                    }))
+                    .unwrap(),
+                );
+                let result = json!({"proposals":[{
+                    "targetSurface":"documentation", "title":"Document verification",
+                    "summary":"Experimental improvement",
+                    "repositoryFactHashes":[hex::encode(sha2::Sha256::digest(b"Document verification commands."))]
+                }]}).to_string();
+                let output = [
+                    json!({"type":"thread.started", "thread_id":"fixture"}),
+                    json!({"type":"turn.started"}),
+                    json!({"type":"item.completed", "item":{"type":"agent_message", "text":result}}),
+                    json!({"type":"turn.completed", "usage":{}}),
+                ].into_iter().map(|event| event.to_string()).collect::<Vec<_>>().join("\n");
+                Arc::get_mut(&mut fixture.state).unwrap().providers =
+                    crate::providers::ProviderManager::for_tests(
+                        crate::providers::ProviderSettingsPayload::default(),
+                        vec![crate::providers::FakeProvider::new("codex")
+                            .version("codex-cli 0.160.0")
+                            .stdout(&output)
+                            .with_counter(native_calls.clone())],
+                    );
+            }
+            runtime.replace_settings(settings).unwrap();
+            let workspace = fixture.dir.path().to_path_buf();
+            let trigger = if manual {
+                TaskmasterRunTrigger::Manual
+            } else {
+                TaskmasterRunTrigger::Background
+            };
+            let lease = runtime.try_analysis_lease().unwrap().unwrap();
+            let id = runtime
+                .queue_run(&workspace, trigger, provider, "fixture-model")
+                .unwrap();
+            run_model_evaluation_at_with_workspace(
+                fixture.state.clone(),
+                fixture.root.clone(),
+                manual.then(|| workspace.clone()),
+                Some(lease),
+                Some(ScheduledRun {
+                    id,
+                    workspace_path: workspace.clone(),
+                    root: fixture.root.clone(),
+                }),
+            );
+            let outcome = runtime
+                .run_status(Some(&workspace))
+                .unwrap()
+                .latest_outcome
+                .unwrap();
+            assert_eq!(
+                outcome.state,
+                crate::taskmaster::runtime::TaskmasterRunOutcomeState::Succeeded,
+                "provider={provider}, manual={manual}: {outcome:?}"
+            );
+            if provider == "custom" {
+                assert!(fixture.marker.exists());
+            } else {
+                assert!(native_calls.load(Ordering::SeqCst) > 0);
+            }
+            assert_eq!(fixture.remaining(), if manual { 8 } else { 7 });
+            assert_eq!(fixture.recommendations().len(), 1);
+        }
+    }
 }

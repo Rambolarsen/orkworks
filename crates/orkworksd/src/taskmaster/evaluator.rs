@@ -362,7 +362,7 @@ fn schedule_model_evaluation_with_workspace(
             Err(_) => return ScheduleResult::Unavailable,
         };
         let _ = runtime.recover_workspace_run(&workspace_path, &lease);
-        // Preserve deferred status recovery even while Brain admission is closed.
+        // Preserve deferred status recovery when verified knowledge is unavailable.
         // The shared lease proves no other instance owns this stale attempt.
         if runtime.brain_knowledge_availability().is_err() {
             return ScheduleResult::Unavailable;
@@ -432,7 +432,7 @@ struct ScheduledRun {
     root: std::path::PathBuf,
 }
 
-/// Test the dormant engine after admission; production enters the gated worker.
+/// Test the post-admission engine; production enters the gated worker.
 #[cfg(test)]
 fn run_admitted_model_evaluation_at(state: Arc<AppState>, root: std::path::PathBuf) {
     run_model_evaluation_with_context_and_workspace(
@@ -475,7 +475,7 @@ fn run_model_evaluation_at_with_workspace(
     );
 }
 
-/// Test-only collector injection for the dormant post-admission engine.
+/// Test-only collector injection for the post-admission engine.
 #[cfg(test)]
 fn run_admitted_model_evaluation_with_context(
     state: Arc<AppState>,
