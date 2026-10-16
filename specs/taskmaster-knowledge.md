@@ -164,7 +164,8 @@ it can only cite evidence and knowledge supplied in the request.
 
 ### Manual Brain-guided next-step assessment (#769)
 
-Status: proposed; runtime availability depends on #529.
+Status: proposed; assessment runtime implementation remains tracked in #769.
+Current source includes the signed guidance dependency delivered by #529.
 
 The Recommendations panel has a separate user-triggered **Assess workflow**
 action. It assesses only the currently selected workspace, using the configured
@@ -197,15 +198,13 @@ cached eligible bundle remains usable offline; connectivity or age alone does
 not make the action unavailable. If no eligible verified bundle is available,
 or it lacks the capability, the action reports unavailable. It does not fall
 back to a duplicate prompt, private Brain pages, or an assumed publication.
-The action becomes available only after #529's curated export, generated
-compliant starter snapshot, and verified signed publication deliver the
-required guidance, signed `privacyPolicyVersion`, and capability marker. The
-starter must ship as a signed envelope plus matching signed manifest
-attestation, so a fresh offline install follows the same verification path as
-feed bundles. Verify #529's tracked acceptance criteria cover these fields and
-the starter attestation before implementation; resolve any gap in #529 first.
-This prerequisite gates runtime availability; missing, privacy-ineligible, or
-unverified guidance must fail closed.
+Current source includes the reviewed guidance, signed `privacyPolicyVersion`,
+assessment capability marker and generated starter with matching signed manifest
+attestation from the approved publication. This supplies the knowledge dependency;
+it does not implement or enable the proposed **Assess workflow** action tracked
+in #769. A fresh offline install follows the same verification path as feed
+bundles. Assessment runtime must still require eligible proof and the capability;
+missing, privacy-ineligible or unverified guidance must fail closed.
 
 Use the existing Brain-derived `improve_workflow` recommendation identity
 (`proactive:v1:`), deduplication, dismissal, active-recommendation, acceptance,
