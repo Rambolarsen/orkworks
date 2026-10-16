@@ -11,11 +11,13 @@ Open **Settings → Recommendations** to choose a Taskmaster model provider and
 model. This selection is independent of Peon. Without a configured supported
 model, the existing deterministic recommendations remain available.
 
-**Brain analysis is currently unavailable** while reviewed, privacy-qualified
-signed reference knowledge is prepared. Background discovery and **Analyze now**
-do not invoke a model provider. Observation recommendations and **Fix with AI**
-remain available. A loaded knowledge version or an approved executable does not
-make reference knowledge eligible for analysis.
+Current source builds include a reviewed, signed starter that enables Brain
+analysis offline when a supported Taskmaster provider/model is configured.
+Background discovery and **Analyze now** require independently verified privacy
+and manifest proof. Missing or invalid proof keeps analysis unavailable while
+observation recommendations and **Fix with AI** remain available. Older installed
+versions may still have Brain analysis disabled; rebuilding or installing a version
+with the signed starter and matching key is required.
 
 The configured inference transports support Ollama, Codex, and Claude Code. CLI profiles require
 Codex 0.153.4 or later in the 0.x series, or Claude Code 2.1.236 or later in the
@@ -75,15 +77,16 @@ you complete or dismiss it, you can request another analysis. Unchanged evidence
 still does not create a duplicate recommendation.
 
 Shared reference knowledge ships with the application and updates automatically
-every six hours while the app is running. Signed feed updates are verified for integrity; an
-offline or failed update keeps the cached version. The current starter and legacy
-caches are ineligible for Brain analysis until the strict privacy and signed
-attestation requirements are implemented. You can disable knowledge
+every six hours while the app is running, with a startup check when due. Both
+Electron and the sidecar verify signatures, privacy policy, content hashes and
+matching manifest proof. Offline operation or a failed update retains eligible
+cached knowledge or the signed starter; verified guidance has no age expiry.
+Legacy unsigned snapshots cannot enable analysis. You can disable knowledge
 updates independently of AI analysis. Settings shows version, last successful
 check, and remaining background evaluations.
-Knowledge page IDs preserve relative Markdown names, including spaces, dots,
-and Unicode, within 256 UTF-8 bytes. Absolute paths, traversal components, and
-control characters are rejected.
+Knowledge page IDs use bounded ASCII relative Markdown paths ending in lowercase
+`.md`. Spaces, Unicode, absolute paths, traversal components and control
+characters are rejected.
 
 Recommendation evidence distinguishes session observations, repository snapshots,
 and the knowledge pages that informed a suggestion. Experimental guidance remains

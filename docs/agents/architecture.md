@@ -126,20 +126,21 @@ model follow [ADR 0054](../adr/0054-taskmaster-honors-managed-cli-policy.md) and
 owns feed/cache/starter verification and sends retained signed activation proof;
 the sidecar independently verifies that proof and owns bounded analysis and
 evidence validation. Knowledge cannot change execution authority.
-Brain-backed analysis is currently unavailable until #529 delivers reviewed,
-privacy-qualified signed knowledge, its compliant generated starter, and verified
-publication. The signed activation protocol is implemented under
-[ADR 0081](../adr/0081-signed-taskmaster-knowledge-activation-proof.md). The
-sidecar enforces this prerequisite at manual admission, scheduling, and worker
-entry, before provider preparation, context collection or usage reservation.
-The production gate remains closed; private unit-test runtimes use synthetic
-signed fixtures to exercise the verified continuation. Unsigned policy fields, legacy starter/cache
-contents and executable approval cannot enable it. Manual admission and scheduling still retry
-lease-protected stale run-status recovery before refusing analysis. Already-queued
-workers become interrupted without dispatch. Deterministic observation recommendations and
-explicit Fix with AI remain available. Production-admission regressions separately prove the closed gate. #529 still
-owns the reviewed public content, matching production signing key, generated
-signed starter and verified publication before admission can open.
+Brain-backed analysis requires server-owned, reverified durable knowledge proof
+under [ADR 0081](../adr/0081-signed-taskmaster-knowledge-activation-proof.md).
+Current source packages the generated `brain-1` signed starter and matching
+replacement public key from the approved production publication. Admission checks
+manual requests, scheduling and worker entry before provider preparation, context
+collection or usage reservation. Missing, corrupt, unsupported or mismatched proof
+remains unavailable; unsigned policy fields, legacy snapshots and executable
+approval cannot enable it. Manual admission and scheduling still retry
+lease-protected stale run-status recovery, and queued workers whose proof becomes
+unavailable are interrupted without dispatch. Production regressions cover the
+actual starter, authenticated activation, all four native/custom manual/background
+dispatch paths, offline restart and corruption revocation. Deterministic observation
+recommendations and explicit Fix with AI remain available independently.
+See [knowledge publication operations](taskmaster-knowledge-publication.md) for
+public artifact identities, promotion and trust rotation.
 CLI analysis reuses installed logins through fixed recommendation profiles and
 honors administrator-managed policies; required hooks/context/routing are not
 bypassed. OrkWorks' context limits constrain its own collection and request.
@@ -169,10 +170,11 @@ Changed knowledge durably advances generation before publishing the proof, so a
 crash between writes invalidates old work. Unique synced temporary files use the
 existing platform-safe atomic replacement primitive.
 
-The current packaged resources remain `knowledge/starter.json` and
-`knowledge/public-key.pem`; that legacy starter cannot activate. The compliant
-signed starter/publication and opening production admission remain the later
-#529 delivery gate.
+The packaged resources are `knowledge/starter.json` (an activation record retaining
+both original signed envelopes) and `knowledge/public-key.pem`. The Rust verifier
+embeds that same public key. The generated starter is independently eligible
+without contacting the feed; a key rotation ships its signed starter and trust pin
+together. This describes current source, not older published installers.
 
 The custom inference foundation follows [ADR 0055](../adr/0055-json-taskmaster-inference-adapters.md).
 `harness/inference.rs` validates inert JSON capabilities;

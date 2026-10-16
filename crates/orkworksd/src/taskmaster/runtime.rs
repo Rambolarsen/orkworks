@@ -53,7 +53,6 @@ const MAX_PATH_BYTES: usize = 512;
 const MAX_DAILY_EVALUATIONS: u32 = 64;
 const MAX_INTERVAL_MINUTES: u32 = 24 * 60;
 
-// Task 7 owns opening production admission after the reviewed starter/publication gate.
 const BRAIN_KNOWLEDGE_UNAVAILABLE: &str = "Brain analysis is unavailable until verified reference knowledge meets the privacy requirements. Observation recommendations remain available.";
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -393,12 +392,7 @@ impl TaskmasterRuntime {
         if !data.ledger_readable || data.verified_knowledge.is_none() {
             return Err(reason);
         }
-        #[cfg(test)]
-        if data.test_key.is_some() {
-            return Ok(());
-        }
-        // Task 7 owns the compliant production starter/publication admission gate.
-        Err(reason)
+        Ok(())
     }
 
     #[cfg(test)]
@@ -1323,7 +1317,8 @@ mod tests {
     fn unsigned_knowledge_cannot_be_activated() {
         let dir = tempfile::tempdir().unwrap();
         let runtime = TaskmasterRuntime::open(dir.path().to_path_buf());
-        let starter = include_bytes!("../../../../apps/desktop/resources/knowledge/starter.json");
+        let starter =
+            include_bytes!("../../../../tests/fixtures/taskmaster-knowledge/unsigned-bundle.json");
         assert!(
             runtime.activate_knowledge(starter).is_err(),
             "unsigned starter must not establish server proof"

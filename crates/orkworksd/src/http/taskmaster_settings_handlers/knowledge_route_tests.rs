@@ -314,3 +314,42 @@ async fn authenticated_server_keeps_its_token_until_shutdown_while_another_test_
     release_tx.send(()).unwrap();
     contender.await.unwrap();
 }
+
+#[tokio::test]
+async fn production_starter_activates_through_authenticated_route_and_reports_ready() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = crate::test_support::test_app_state_with_workspace(directory.path());
+    let runtime = runtime_for(&state);
+    let mut settings = TaskmasterSettings::default();
+    settings.selection = Some(
+        serde_json::from_value(serde_json::json!({
+            "provider":"ollama", "model":"fixture-model"
+        }))
+        .unwrap(),
+    );
+    runtime.replace_settings(settings).unwrap();
+    assert_eq!(
+        status_for(&state, &runtime).analysis_status,
+        "knowledge_unavailable"
+    );
+    let (url, server) = server(state.clone(), false).await;
+    let response = reqwest::Client::new()
+        .post(format!("{url}/settings/taskmaster/knowledge"))
+        .header("x-orkworks-open-plan-token", "taskmaster-test-token")
+        .header("content-type", "application/json")
+        .body(
+            include_bytes!("../../../../../apps/desktop/resources/knowledge/starter.json").to_vec(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let result: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(result["analysisStatus"], "ready");
+    assert_eq!(
+        runtime.status(Some(directory.path())).remaining_evaluations,
+        8
+    );
+    assert!(runtime_for(&state).brain_knowledge_availability().is_ok());
+    server.shutdown().await;
+}

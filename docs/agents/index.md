@@ -25,6 +25,7 @@ needed. This index is a routing map; do not load the entire bundle for every tas
 - [Development workflow](development-workflow.md) — Issue, planning,
   documentation, decision, and maintenance workflow reference.
 - [Release signing](release-signing.md) — Signing, notarization, and release-secret setup.
+- [Taskmaster knowledge publication](taskmaster-knowledge-publication.md) — Signed knowledge promotion, paired starter trust, artifact identities and offline recovery.
 - [Site maintenance](site-maintenance.md) — Public-site content, generated facts,
   publishing, and scheduled documentation proposals.
 - [Local SonarQube analysis](local-sonarqube.md) — Free local complexity measurements, snapshot scans and simplification workflow.
