@@ -280,6 +280,9 @@ rotation, run/task mutations and all publishers for the stream:
    authority generation. For the user operation, verify existing UI authority
    and retained current-epoch run identity. Revoked child requests fail before
    receipt lookup, including retries of an earlier successful publication.
+   Then consume/check the authenticated child/per-run user request-rate budget
+   before receipt lookup or any early return. Duplicates consume that budget;
+   an exhausted budget returns `429` without changing stored records.
 2. Validate the bounded schema, identities, source scope and sidecar-derived
    author. User normalization resolves the request’s immutable expected
    predecessor, not the live head; a later head must not change normalized retry
@@ -294,7 +297,7 @@ rotation, run/task mutations and all publishers for the stream:
 4. For a new request, compare the expected task version (child) or run version
    (user) and expected head against stored state. A stale comparison returns
    `409` with bounded authorized current metadata; it stores nothing. Validate
-   exact next version and all quotas before committing. A changed same-version
+   exact next version and storage/counter quotas before committing. A changed same-version
    request is not a retry, even when its replacement content happens to match.
 5. Durably publish the immutable descriptor, receipt/request binding, new head
    and dependent freshness fences as one recoverable transaction. Increment
@@ -891,6 +894,7 @@ live coding-tool probes were run while drafting this document.
 | Concurrent child/user corrections from one head | One durable winner; loser conflicts without consuming a version or invalidating twice |
 | Successful correction retry after another version wins | Return original receipt before expected task/run/head CAS; do not claim it is still current |
 | Same version with different expected head or content / revoked child retry | Conflict / reject before receipt lookup; no publication |
+| Accepted receipt replay exceeds the request-rate budget | `429` before receipt lookup; no new version, head change or reinvalidation |
 | User correction after final completion/cancellation | Preserve user provenance and original assignment lineage; stale citing evidence, keep run terminal and grants revoked |
 | Child resume followed by correction | Same stream and exact head, new child generation/provenance; predecessor runtime cannot replay |
 | Corrected research source used by evaluation | Only citing outcomes stale; replacement needs explicit new review, not automatic source substitution |
