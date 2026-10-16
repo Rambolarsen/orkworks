@@ -2481,6 +2481,14 @@ html, body, #root {
 .shell-inspector-host--overlay > .shell-region-separator { flex: 0 0 6px; }
 .shell-inspector-host--overlay > .shell-region--inspector { flex: 1; background: color-mix(in srgb, var(--surface-1) 96%, transparent); }
 .shell-inspector-host--overlay .recommendations-panel { background: transparent; }
+/* Reserve the focus border so focus never resizes content. A scrollport border
+   stays visible while its children scroll and cannot be covered by terminal canvases. */
+.shell-region--sessions, .shell-main, .shell-region--inspector { border: 2px solid transparent; }
+.shell-region--sessions:focus-within,
+.shell-main:focus-within,
+.shell-region--inspector:focus-within {
+  border-color: var(--accent-focus);
+}
 .shell-region-header { display: flex; flex-wrap: wrap; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: var(--space-2); min-height: 38px; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border-subtle); }
 .shell-region-header [data-shell-pin] { margin-inline-start: auto; }
 .shell-sidebar-top { flex: 0 0 auto; padding: var(--space-3) var(--space-2); border-bottom: 1px solid var(--border-subtle); }
