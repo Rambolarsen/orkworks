@@ -8,7 +8,6 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-#[cfg(any(test, all(target_os = "macos", target_arch = "aarch64")))]
 use std::time::Duration;
 use std::time::Instant;
 #[derive(Clone)]
@@ -147,7 +146,7 @@ fn inspect_with_budget(
         return Err(NativeError::Unavailable);
     }
     let size = std::mem::size_of::<Descriptor>();
-    for _ in 0..MAX_INVENTORY_ATTEMPTS {
+    for attempt in 0..MAX_INVENTORY_ATTEMPTS {
         budget.check()?;
         let estimate = kernel.descriptors(pid, &mut [])?;
         if estimate == 0 || estimate > MAX_INVENTORY_BYTES || estimate % size != 0 {
@@ -180,11 +179,19 @@ fn inspect_with_budget(
             }
         }
         budget.check()?;
-        return if matches == 1 {
-            Ok(())
-        } else {
-            Err(NativeError::Unavailable)
-        };
+        if matches == 1 {
+            return Ok(());
+        }
+        if matches > 1 {
+            return Err(NativeError::Unavailable);
+        }
+        // Connect may complete while the accepted socket is still queued and
+        // has no child descriptor. Retry complete zero-match snapshots too,
+        // without sending bytes, spinning, or extending the shared deadline.
+        if attempt + 1 < MAX_INVENTORY_ATTEMPTS {
+            let remaining = budget.deadline.saturating_duration_since(Instant::now());
+            std::thread::sleep(Duration::from_millis(5).min(remaining));
+        }
     }
     Err(NativeError::Unavailable)
 }
@@ -248,6 +255,7 @@ mod tests {
         denied: bool,
         socket_error: bool,
         full_reads: usize,
+        hidden_reads: usize,
         cancel_on_socket: Option<Arc<AtomicBool>>,
         reads: Cell<usize>,
     }
@@ -260,6 +268,7 @@ mod tests {
                 denied: false,
                 socket_error: false,
                 full_reads: 0,
+                hidden_reads: 0,
                 cancel_on_socket: None,
                 reads: Cell::new(0),
             }
@@ -291,6 +300,9 @@ mod tests {
             }
             if let Some(cancelled) = &self.cancel_on_socket {
                 cancelled.store(true, Ordering::Release);
+            }
+            if self.reads.get() <= self.hidden_reads {
+                return Ok(None);
             }
             Ok(self.rows[fd as usize])
         }
@@ -324,6 +336,17 @@ mod tests {
         let mut during = Fixture::new(vec![Some(TUPLE)]);
         during.cancel_on_socket = Some(budget.cancelled.clone());
         assert!(inspect_with_budget(&during, 42, TUPLE, &budget).is_err());
+    }
+    #[test]
+    fn zero_match_snapshot_retries_until_accepted_descriptor_is_visible() {
+        let mut kernel = Fixture::new(vec![Some(TUPLE)]);
+        kernel.hidden_reads = 1;
+        assert!(inspect(&kernel, 42, TUPLE).is_ok());
+        assert_eq!(kernel.reads.get(), 2);
+        let mut missing = Fixture::new(vec![Some(TUPLE)]);
+        missing.hidden_reads = 4;
+        assert!(inspect(&missing, 42, TUPLE).is_err());
+        assert_eq!(missing.reads.get(), 3);
     }
     #[test]
     fn inventory_growth_retries_are_bounded_and_only_complete_results_qualify() {

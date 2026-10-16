@@ -128,3 +128,25 @@ its follow-up on replacement/ambiguity/unsupported tests and native CI routing.
 Docs warnings need no public-guide/root-rule edit because this dormant helper
 adds no available feature, and the private build dependency changes no universal
 agent rule. A foreign merged worktree warning was left to its owner.
+
+## Review cycle 1 of 3
+
+Current-head Codex review identified the accepted-descriptor visibility race:
+TCP connect can finish before the child accepts and acquires a connected FD.
+A deterministic regression first failed because a complete zero-match snapshot
+returned unavailable immediately. The scanner now retries those snapshots with
+a bounded five-millisecond pause, within the existing three-attempt and shared
+deadline limits. Ambiguous results still fail immediately. The regression also
+requires a permanently absent descriptor to stop after exactly three snapshots.
+The custom review's desktop IPC finding was a reverse comparison of intervening
+main changes from #899, not part of this PR; the GitHub PR file inventory and
+prospective merge result confirm those changes are retained without a delta.
+
+Cycle 1 validation: all ten proof tests pass. The first full rerun encountered
+the existing readiness-cancellation PID/reaper race tracked in
+[#901](https://github.com/Rambolarsen/orkworks/issues/901); the fully qualified
+case passed in isolation, then one complete retry of `verify-repo.sh` passed
+with 1,995 Rust tests (five ignored), the SDK/reporter/producer suites,
+1,322 desktop tests (one skipped), and build/docs/close-out checks. No readiness
+or reaper production path was changed. Scoped medium review found no required
+changes in the visibility fix.
