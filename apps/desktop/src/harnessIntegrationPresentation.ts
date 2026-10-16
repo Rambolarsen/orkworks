@@ -1,10 +1,9 @@
 import type {
-  IntegrationActivation,
-  IntegrationCoverage,
-  IntegrationRegistration,
   IntegrationStatus,
   IntegrationStatusResult,
 } from "./harnessTypes.ts";
+import type { ActiveHarnessIntegrationResult, IntegrationConsumer, IntegrationKey } from "./orkworksWindow";
+export type { ActiveHarnessIntegrationResult, ActiveHarnessSaveResult, IntegrationConsumer, IntegrationKey } from "./orkworksWindow";
 
 // TODO(#271): derive this from a backend-declared event-semantics field on
 // the integration status instead of duplicating the current integration
@@ -46,40 +45,10 @@ export interface IntegrationDisplayState {
   glyph: "neutral" | "healthy" | "warning" | "trust" | "offline" | "spinner";
 }
 
-export interface ActiveHarnessIntegrationResult {
-  key: IntegrationKey;
-  consumerHarnessIds: string[];
-  operation: "install" | "repair" | "uninstall" | "skipped";
-  outcome: "succeeded" | "failed" | "unsupported" | "stale_workspace";
-  registration: IntegrationRegistration;
-  activation: IntegrationActivation;
-  coverage: IntegrationCoverage;
-  diagnosticCode?: string;
-  message?: string;
-}
-
-export interface IntegrationKey {
-  adapterId: string;
-  targetId: string;
-}
-
-export interface IntegrationConsumer {
-  harnessId: string;
-  harnessName: string;
-}
-
 export interface GroupedIntegrationStatus {
   key: IntegrationKey;
   consumers: IntegrationConsumer[];
   status: IntegrationStatus;
-}
-
-export interface ActiveHarnessSaveResult {
-  activeHarnesses: {
-    outcome: "persisted" | "failed" | "stale_workspace";
-    message?: string;
-  };
-  integrations: Record<string, ActiveHarnessIntegrationResult>;
 }
 
 /** Projects one grouped save outcome onto the row that consumes its adapter. */

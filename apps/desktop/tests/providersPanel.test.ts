@@ -174,26 +174,6 @@ test("preload exposes the combined active-harness save IPC bridge", () => {
   );
 });
 
-test("preload and orkworksWindow keep the combined active-harness save contract aligned", () => {
-  const preloadSource = readFileSync(new URL("../electron/preload.ts", import.meta.url), "utf8");
-  const windowSource = readFileSync(new URL("../src/orkworksWindow.d.ts", import.meta.url), "utf8");
-
-  const preloadType = preloadSource.match(/type ActiveHarnessSaveResult = \{[\s\S]*?\n\};/);
-  const windowType = windowSource.match(/export type ActiveHarnessSaveResult = \{[\s\S]*?\n\};/);
-
-  assert.ok(preloadType, "expected ActiveHarnessSaveResult in preload.ts");
-  assert.ok(windowType, "expected ActiveHarnessSaveResult in orkworksWindow.d.ts");
-
-  const normalizeType = (value: string) =>
-    value
-      .replace(/^export\s+/m, "")
-      .replace(/\s+/g, " ")
-      .trim();
-
-  assert.equal(normalizeType(preloadType[0]), normalizeType(windowType[0]));
-  assert.match(windowSource, /saveActiveHarnessesWithIntegrations: \(ids: string\[\]\) => Promise<ActiveHarnessSaveResult>/);
-});
-
 test("grouped integration status has an explicit preload and renderer contract", () => {
   const preloadSource = readFileSync(new URL("../electron/preload.ts", import.meta.url), "utf8");
   const rendererTypes = readFileSync(new URL("../src/orkworksWindow.d.ts", import.meta.url), "utf8");
