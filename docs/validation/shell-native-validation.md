@@ -103,3 +103,60 @@ by this partial run.
 - Retest any confirmed defects after fixes on an explicitly identified build;
   rerun relevant checks when the shell or build changes. Review, Actions and
   Workflow delivery remain separately gated.
+
+
+## October 16 continuation
+
+This agent-operated native walkthrough extends the earlier partial evidence. It
+is not human acceptance, exact-200% qualification, or a completed platform gate.
+
+### Build and conditions
+
+- Source: `68632e240a5ad47274e760ab65c04cbfc1969ea0`, including the visible
+  keyboard-focus fix from PR #852. No runtime source was modified.
+- Host: macOS 26.6.2, build 25G83, arm64; Electron 44.6.0; pnpm 11.24.0.
+- Owned checkout: `orkworks-shell-native-validation-836`; launched with
+  `ORKWORKS_DEV_PORT=5473 pnpm dev`, using checkout-scoped settings.
+- Disposable Git workspace: `/private/tmp/orkworks-836-native-20261016`.
+  One ordinary Shell session was created. No coding-agent harness was launched
+  and no coding-tool integration was enabled.
+- Initial read-only DevTools measurements: native outer size 1400 × 870,
+  position `(56, 33)`, and `devicePixelRatio=2` on the 2× display. Docked
+  DevTools reduced the renderer viewport; it was closed for shell observations.
+- Native View-menu zoom steps produced `devicePixelRatio=4.147200107574463`,
+  approximately 207.36%. Native edge resizing then produced outer size
+  903 × 865 at the same pixel ratio. These conditions do not establish 200%.
+- Observations used native AX and screenshots, inspected in this session and
+  not retained in the repository. No screen reader was used.
+
+### Observed results
+
+| Conditions | Action and expected result | Actual result / disposition |
+| --- | --- | --- |
+| 1400 × 870, 100% | Enter/exit native fullscreen without losing the ordinary terminal | `Control+Command+F` expanded the window and removed the exposed native window controls; repeating restored the window and controls. The `836-native-20261016-before-controls` output marker remained visible in both states. Bounded fullscreen/replay check observed as expected. |
+| 1400 × 870, 100% | View → Sessions followed by Tab navigation exposes visible keyboard focus | Tab reached Kill session, then Settings. AX reported Settings focused and the screenshot showed its rounded lime outline, along with the Sessions region outline. This validates that sampled focus path on the #852-containing build, not every control or the full keyboard gate. |
+| 903 × 865, approximately 207.36% | Native resize preserves reachable compact navigation and terminal content | Window width changed from 1400 to 903; header controls wrapped visibly, native traffic-light controls remained present, and the terminal marker and prompt remained visible. No overlap or unreachable header control was observed in this sample. |
+| Same narrow/high-zoom conditions | Details opens a temporary page; Escape returns to its invoker | Details replaced Terminal, exposed Back to Terminal, and focused the Details heading. Escape restored Terminal and AX reported the Details button focused. Observed as expected. |
+| After high-zoom checks | View → Actual Size restores ordinary presentation | The Sessions region and width splitter returned and Details remained the focused invoker. This is observed presentation restoration; a second numeric pixel-ratio measurement was not taken. |
+
+### Limits and remaining disposition
+
+- A title-region drag attempt again left measured position `(56, 33)` unchanged.
+  Native edge resizing did change window dimensions through the same API, but
+  this does not qualify title dragging. Keep the human drag check open; do not
+  classify the unchanged position alone as a product defect.
+- Invoking the native minimize control did not provide a distinguishable
+  minimized state in subsequent app-bound AX/screenshot observations. This
+  attempt does not establish minimize/restore behavior.
+- The View menu exposes Actual Size, Zoom In and Zoom Out, with no exact-200%
+  selection. The measured high-zoom run remains 207.36%; exact 200% is pending.
+- Fresh startup encountered the same Node ABI 147 / Electron ABI 149 mismatch
+  previously recorded. This build's `build:native` verification detected it,
+  rebuilt `fs-ext` for Electron 44.6.0, verified the module, and continued to the
+  running app without a manual repair. This observes the current repair path;
+  it does not establish the historical root cause or every native-build case.
+- The existing host `.zshrc` completion warning appeared again; the Shell
+  prompt and marker command worked. No host configuration was changed.
+- Windows/Linux chrome, spoken screen-reader announcements, exact 200%,
+  minimize/restore, close lifecycle, full keyboard coverage and live
+  reduced-motion attention transitions remain unaccepted. Keep #836 open.
