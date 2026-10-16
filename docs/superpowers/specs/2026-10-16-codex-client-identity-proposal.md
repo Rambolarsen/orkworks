@@ -84,13 +84,24 @@ An external `resume` invocation starts a new launch/qualification decision; it
 cannot reuse a stale identity bundle. Missing or unsupported policy fields
 are errors, not instructions to downgrade to ordinary remote mode.
 
-The exact policy handoff must be reviewed with upstream. Non-secret identity
-fields could use a dedicated launch argument or private inherited descriptor;
-this proposal selects neither as an existing supported interface. Keep the
-current private bearer delivery separate, remove private launch values before
-spawning tool children, and never persist credentials in config or thread logs.
+For the initial macOS scope, propose a one-shot private inherited read descriptor
+whose number is supplied by a new, explicitly opt-in TUI launch argument.
+The launcher writes one versioned policy message, bounded to 4 KiB, closes its
+write end, and transfers only the read end to the intended TUI. The client
+reads within the remaining startup deadline, requires EOF, rejects duplicate,
+unknown or missing fields, freezes the validated policy, and closes the descriptor
+before any tool spawn. Expected identity and executable fields use a tagged
+platform encoding fixed by the reviewed backend; arbitrary strings cannot
+qualify it. The argument name and serialization are proposed upstream API work,
+not existing Codex support. Windows is unavailable under this initial handoff.
+
+The identity message contains no bearer. Keep the current private bearer
+delivery separate, remove private launch values before spawning tool children,
+and never persist credentials in config or thread logs. The descriptor conveys
+the trusted launcher's expectation; it does not itself prove the server peer.
 Neither a user-configurable option nor a self-reported server identity may
-activate OrkWorks eligibility.
+activate OrkWorks eligibility. Upstream review must confirm descriptor ownership,
+inheritance and early parsing before this handoff can be implemented.
 
 Conceptual shared-client boundary:
 
@@ -183,9 +194,10 @@ is useful resource hygiene but is not a security prerequisite for this rule.
 
 ## Acceptance and delivery
 
-1. Upstream review confirms a supported immutable-policy handoff and shared
-   initial/reconnect connector; it identifies every native client path that
-   can send credentials. Request review before choosing a CLI/API spelling.
+1. Upstream review accepts or revises the proposed bounded inherited-descriptor
+   handoff and shared initial/reconnect connector; it identifies every native
+   client path that can send credentials. Confirm CLI/API spelling and platform
+   policy encoding before implementation.
 2. Platform review establishes instance lifetime, executable identity, descriptor
    sharing and post-owner-death behavior. Record exact supported OS/SDK/architecture
    and fail closed everywhere else. This is a blocker, not deferred hardening.
