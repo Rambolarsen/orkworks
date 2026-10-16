@@ -26,8 +26,17 @@ pub(crate) struct HarnessDefinition {
     pub integration: Option<IntegrationBinding>,
     pub voice: Option<VoiceCapability>,
     pub min_version: Option<VersionRequirement>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_metadata_write_protocol: Option<SessionMetadataWriteProtocol>,
     #[serde(default)]
     pub label_reset_commands: Vec<String>,
+}
+
+/// Source-owned protocol declaration. Editable definitions cannot supply it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum SessionMetadataWriteProtocol {
+    SidecarV1,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -551,6 +560,7 @@ impl From<CustomHarnessDefinition> for HarnessDefinition {
             integration: None,
             voice: value.voice,
             min_version: value.min_version,
+            session_metadata_write_protocol: None,
             label_reset_commands: value.label_reset_commands,
         }
     }
@@ -1271,6 +1281,15 @@ impl HarnessDefinition {
 
     pub(crate) fn validate(&self, origin: DefinitionOrigin) -> Result<(), Vec<HarnessDiagnostic>> {
         let mut errors = Vec::new();
+        if self.session_metadata_write_protocol.is_some()
+            && (self.id != "codex" || origin == DefinitionOrigin::Custom)
+        {
+            errors.push(HarnessDiagnostic::for_id(
+                &self.id,
+                "unsupported_metadata_write_protocol",
+                "Only the source-owned Codex definition may declare a metadata write protocol.",
+            ));
+        }
         let valid_id = !self.id.is_empty()
             && self.id.split('-').all(|segment| {
                 !segment.is_empty()
@@ -1493,6 +1512,36 @@ impl HarnessDiagnostic {
 mod tests {
     use super::*;
     use crate::harness::registry::resolve_document;
+
+    #[test]
+    fn metadata_write_protocol_rejects_unknown_versions() {
+        let mut value = serde_json::to_value(codex()).unwrap();
+        value["sessionMetadataWriteProtocol"] = serde_json::json!("sidecar-v2");
+        assert!(serde_json::from_value::<HarnessDefinition>(value).is_err());
+    }
+
+    #[test]
+    fn metadata_protocol_cannot_be_added_by_custom_definitions_or_overrides() {
+        let mut value = serde_json::to_value(codex()).unwrap();
+        value["id"] = serde_json::json!("custom-codex");
+        value["sessionMetadataWriteProtocol"] = serde_json::json!("sidecar-v1");
+        assert!(parse_custom_definition(&serde_json::to_vec(&value).unwrap()).is_err());
+        assert!(serde_json::from_str::<HarnessPatch>(
+            r#"{"sessionMetadataWriteProtocol":"sidecar-v1"}"#
+        )
+        .is_err());
+        let definition: HarnessDefinition = serde_json::from_value(value).unwrap();
+        assert!(definition.validate(DefinitionOrigin::Builtin).is_err());
+    }
+
+    #[test]
+    fn builtin_metadata_protocol_is_known_but_remains_unadvertised() {
+        let mut value = serde_json::to_value(codex()).unwrap();
+        value["sessionMetadataWriteProtocol"] = serde_json::json!("sidecar-v1");
+        let definition: HarnessDefinition = serde_json::from_value(value).unwrap();
+        assert!(definition.validate(DefinitionOrigin::Builtin).is_ok());
+        assert!(codex().session_metadata_write_protocol.is_none());
+    }
 
     fn codex() -> HarnessDefinition {
         BuiltinDocument::parse(EMBEDDED_BUILTINS)

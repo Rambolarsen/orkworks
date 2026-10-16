@@ -33,6 +33,17 @@ fixture and version/feature evidence are added beside the binding.
 
 ### Prompt attention authority
 
+Codex's source reporter also has a marker-gated API-only instruction path for
+[#789](https://github.com/Rambolarsen/orkworks/issues/789). Integration reconciliation
+copies `session-metadata.py` into stable reporter storage. A `SessionStart` with
+`ORKWORKS_SESSION_METADATA_API_VERSION=1` emits additional context instructing the
+agent to bootstrap and use revisioned metadata patches, with no JSON-file fallback.
+The helper performs authenticated GET and validation-only PATCH from its caller's
+execution context before each write. Host-hook execution is not the agent-context
+handshake. The embedded capability and launch marker remain absent pending migration
+and installed-context verification; native startup/clearing gates remain unchanged.
+
+
 The #690 serial capture gate has passed; current behavior below is unchanged.
 [Accepted ADR 0076](../adr/0076-codex-owned-native-approval-observer.md) and its
 [written design](../superpowers/specs/2026-10-03-codex-native-approval-status-design.md)

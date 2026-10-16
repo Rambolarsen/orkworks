@@ -1674,6 +1674,11 @@ function Invoke-RestMethod {
             fs::write(&target, r#"{"unrelated":{"keep":true}}"#).unwrap();
             let assets = tempfile::tempdir().unwrap();
             fs::write(
+                assets.path().join("session-metadata.py"),
+                include_str!("../../../scripts/session-metadata.py"),
+            )
+            .unwrap();
+            fs::write(
                 assets.path().join(ReporterPlatform::Posix.asset_name()),
                 "#!/bin/sh\n",
             )
@@ -1781,6 +1786,11 @@ function Invoke-RestMethod {
         .unwrap();
         let assets = tempfile::tempdir().unwrap();
         fs::write(
+            assets.path().join("session-metadata.py"),
+            include_str!("../../../scripts/session-metadata.py"),
+        )
+        .unwrap();
+        fs::write(
             assets.path().join(ReporterPlatform::Posix.asset_name()),
             "#!/bin/sh\n",
         )
@@ -1838,6 +1848,11 @@ function Invoke-RestMethod {
         let home = tempfile::tempdir().unwrap();
         let _fake_home = FakeHome::set(home.path());
         let assets = tempfile::tempdir().unwrap();
+        fs::write(
+            assets.path().join("session-metadata.py"),
+            include_str!("../../../scripts/session-metadata.py"),
+        )
+        .unwrap();
         fs::write(
             assets.path().join(ReporterPlatform::Posix.asset_name()),
             "#!/bin/sh\n",
@@ -1926,6 +1941,11 @@ function Invoke-RestMethod {
         let _fake_home = FakeHome::set(home.path());
         let assets = tempfile::tempdir().unwrap();
         fs::write(
+            assets.path().join("session-metadata.py"),
+            include_str!("../../../scripts/session-metadata.py"),
+        )
+        .unwrap();
+        fs::write(
             assets.path().join(ReporterPlatform::Posix.asset_name()),
             "#!/bin/sh\n",
         )
@@ -1962,6 +1982,11 @@ function Invoke-RestMethod {
         let home = tempfile::tempdir().unwrap();
         let _fake_home = FakeHome::set(home.path());
         let assets = tempfile::tempdir().unwrap();
+        fs::write(
+            assets.path().join("session-metadata.py"),
+            include_str!("../../../scripts/session-metadata.py"),
+        )
+        .unwrap();
         fs::write(
             assets.path().join(ReporterPlatform::Posix.asset_name()),
             "#!/bin/sh\n",
@@ -2002,6 +2027,11 @@ function Invoke-RestMethod {
 
             let _fake_home = FakeHome::set(home_dir);
             let assets = tempfile::tempdir().unwrap();
+            fs::write(
+                assets.path().join("session-metadata.py"),
+                include_str!("../../../scripts/session-metadata.py"),
+            )
+            .unwrap();
             fs::write(
                 assets.path().join(ReporterPlatform::Posix.asset_name()),
                 "#!/bin/sh\n",
@@ -2059,6 +2089,11 @@ function Invoke-RestMethod {
         let alice_home = tempfile::tempdir().unwrap();
         let alice_assets = tempfile::tempdir().unwrap();
         fs::write(
+            alice_assets.path().join("session-metadata.py"),
+            include_str!("../../../scripts/session-metadata.py"),
+        )
+        .unwrap();
+        fs::write(
             alice_assets
                 .path()
                 .join(ReporterPlatform::Posix.asset_name()),
@@ -2092,6 +2127,11 @@ function Invoke-RestMethod {
         let bob_home = tempfile::tempdir().unwrap();
         let _fake_home = FakeHome::set(bob_home.path());
         let bob_assets = tempfile::tempdir().unwrap();
+        fs::write(
+            bob_assets.path().join("session-metadata.py"),
+            include_str!("../../../scripts/session-metadata.py"),
+        )
+        .unwrap();
         fs::write(
             bob_assets.path().join(ReporterPlatform::Posix.asset_name()),
             "#!/bin/sh\n",
@@ -2208,6 +2248,11 @@ function Invoke-RestMethod {
         let _fake_home = FakeHome::set(home.path());
         let assets = tempfile::tempdir().unwrap();
         fs::write(
+            assets.path().join("session-metadata.py"),
+            include_str!("../../../scripts/session-metadata.py"),
+        )
+        .unwrap();
+        fs::write(
             assets.path().join(ReporterPlatform::Posix.asset_name()),
             "#!/bin/sh\n",
         )
@@ -2280,6 +2325,11 @@ function Invoke-RestMethod {
             // `require_local_or_ignored_untracked` rejects it as not ignored.
             let assets = tempfile::tempdir().unwrap();
             fs::write(
+                assets.path().join("session-metadata.py"),
+                include_str!("../../../scripts/session-metadata.py"),
+            )
+            .unwrap();
+            fs::write(
                 assets.path().join(ReporterPlatform::Posix.asset_name()),
                 "#!/bin/sh\n",
             )
@@ -2334,6 +2384,11 @@ function Invoke-RestMethod {
         fs::create_dir_all(target.parent().unwrap()).unwrap();
         fs::write(&target, "{}").unwrap();
         let assets = tempfile::tempdir().unwrap();
+        fs::write(
+            assets.path().join("session-metadata.py"),
+            include_str!("../../../scripts/session-metadata.py"),
+        )
+        .unwrap();
         fs::write(
             assets.path().join(ReporterPlatform::current().asset_name()),
             "#!/bin/sh\n",
@@ -2412,6 +2467,11 @@ function Invoke-RestMethod {
         fs::create_dir_all(target.parent().unwrap()).unwrap();
         fs::write(&target, r#"{"unrelated":{"keep":true}}"#).unwrap();
         let assets = tempfile::tempdir().unwrap();
+        fs::write(
+            assets.path().join("session-metadata.py"),
+            include_str!("../../../scripts/session-metadata.py"),
+        )
+        .unwrap();
         fs::write(
             assets.path().join(ReporterPlatform::Posix.asset_name()),
             "#!/bin/sh\n",
@@ -2497,6 +2557,11 @@ function Invoke-RestMethod {
         )
         .unwrap();
         let assets = tempfile::tempdir().unwrap();
+        fs::write(
+            assets.path().join("session-metadata.py"),
+            include_str!("../../../scripts/session-metadata.py"),
+        )
+        .unwrap();
         let stable = tempfile::tempdir().unwrap();
         let reporter = ReporterAssetResolver {
             source_dir: assets.path().to_path_buf(),
@@ -2548,6 +2613,11 @@ function Invoke-RestMethod {
     fn resolved_generic_shell_status_is_explicitly_unsupported() {
         let workspace = tempfile::tempdir().unwrap();
         let assets = tempfile::tempdir().unwrap();
+        fs::write(
+            assets.path().join("session-metadata.py"),
+            include_str!("../../../scripts/session-metadata.py"),
+        )
+        .unwrap();
         let stable = tempfile::tempdir().unwrap();
         let reporter = ReporterAssetResolver {
             source_dir: assets.path().to_path_buf(),
@@ -2579,6 +2649,11 @@ function Invoke-RestMethod {
         let metadata = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(metadata.path());
         let assets = tempfile::tempdir().unwrap();
+        fs::write(
+            assets.path().join("session-metadata.py"),
+            include_str!("../../../scripts/session-metadata.py"),
+        )
+        .unwrap();
         fs::write(
             assets.path().join(ReporterPlatform::current().asset_name()),
             "#!/bin/sh\n",
@@ -2764,6 +2839,11 @@ function Invoke-RestMethod {
         let metadata = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(metadata.path());
         let assets = tempfile::tempdir().unwrap();
+        fs::write(
+            assets.path().join("session-metadata.py"),
+            include_str!("../../../scripts/session-metadata.py"),
+        )
+        .unwrap();
         let stable = tempfile::tempdir().unwrap();
         let reporter = ReporterAssetResolver {
             source_dir: assets.path().to_path_buf(),
@@ -2792,6 +2872,11 @@ function Invoke-RestMethod {
         fs::write(&preference, "{bad json").unwrap();
         let store = MetadataStore::new(metadata.path());
         let assets = tempfile::tempdir().unwrap();
+        fs::write(
+            assets.path().join("session-metadata.py"),
+            include_str!("../../../scripts/session-metadata.py"),
+        )
+        .unwrap();
         fs::write(
             assets.path().join(ReporterPlatform::current().asset_name()),
             "#!/bin/sh\n",
@@ -2946,6 +3031,11 @@ function Invoke-RestMethod {
         fs::create_dir_all(workspace.path().join(".claude")).unwrap();
         fs::write(workspace.path().join(".claude/settings.local.json"), "{}").unwrap();
         let assets = tempfile::tempdir().unwrap();
+        fs::write(
+            assets.path().join("session-metadata.py"),
+            include_str!("../../../scripts/session-metadata.py"),
+        )
+        .unwrap();
         fs::write(
             assets.path().join(ReporterPlatform::Posix.asset_name()),
             "#!/bin/sh\n",

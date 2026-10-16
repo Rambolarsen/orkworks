@@ -208,3 +208,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Revisioned session metadata transactions](2026-10-15-session-metadata-transactions.md) — Storage prerequisite for coordinated Codex attention writes.
 
 - [Coordinated session metadata API and provenance](2026-10-15-session-metadata-api.md) — Remaining #788 sidecar contract.
+
+- [Codex API-only metadata producer](./2026-10-16-codex-metadata-producer.md) — Prepare the authenticated agent helper without enabling migration or clearing.

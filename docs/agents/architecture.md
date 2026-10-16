@@ -530,6 +530,20 @@ prompt-plus-Enter. Other harnesses retain plain input delivery.
 
 ## Metadata protocol
 
+The source-owned `session-metadata.py` producer prepares API-only agent reporting
+for #789. With `ORKWORKS_SESSION_METADATA_API_VERSION=1`, it requires authenticated
+GET and validation-only PATCH before a revisioned mutation, preserves the caller's
+revision, and fails without direct-file fallback. Codex integration reconciliation
+installs the helper beside its reporters; a marked `SessionStart` emits the
+instructions as native additional context. The agent must run bootstrap through
+its actual sandboxed tool context; the host hook does not prove that reachability.
+The closed `sessionMetadataWriteProtocol` definition field accepts only
+`sidecar-v1` on the source-owned Codex definition; custom definitions and overrides
+cannot add it. The embedded definition still omits it, the launch marker is not
+advertised, and inherited copies of that marker are filtered. This preparation
+changes no current attention mapping and supplies no native-clear eligibility.
+
+
 The versioned agent API uses `metadata/session_transactions.rs`: checked, durable
 revisions are stored in the canonical session JSON, and scoped mutations hold the
 retained store's per-session lock across read/check/modify/replace. Internal
