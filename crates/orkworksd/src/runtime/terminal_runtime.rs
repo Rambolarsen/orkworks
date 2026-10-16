@@ -1079,6 +1079,17 @@ fn mark_committed_input_working(
         .insert(id.to_string(), tokio::time::Instant::now());
 }
 
+#[cfg(test)]
+#[test]
+fn metadata_protocol_marker_cannot_be_inherited_from_the_parent() {
+    assert!(!should_forward_terminal_env(
+        "ORKWORKS_SESSION_METADATA_API_VERSION"
+    ));
+    assert!(!should_forward_terminal_env(
+        "orkworks_session_metadata_api_version"
+    ));
+}
+
 pub(crate) fn should_forward_terminal_env(key: &str) -> bool {
     key != "NODE_OPTIONS"
         && key != "VSCODE_INSPECTOR_OPTIONS"
@@ -1087,6 +1098,7 @@ pub(crate) fn should_forward_terminal_env(key: &str) -> bool {
         && key != "ORKWORKS_OPEN_PLAN_TOKEN"
         && key != "ORKWORKS_CODEX_SESSION_REPORT_DIR"
         && !key.eq_ignore_ascii_case("ORKWORKS_CODEX_NATIVE_APPROVAL")
+        && !key.eq_ignore_ascii_case("ORKWORKS_SESSION_METADATA_API_VERSION")
         && key != "ORKWORKS_PROMPT_HOOK_GENERATION"
 }
 

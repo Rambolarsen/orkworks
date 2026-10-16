@@ -1,0 +1,174 @@
+#!/usr/bin/env python3
+"""API-only agent metadata producer. Never reads or writes session JSON files."""
+
+import http.client
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import sys
+
+MAX_BODY = 8192
+MAX_RESPONSE = 1024 * 1024
+TIMEOUT_SECONDS = 5
+
+
+class ProducerError(Exception):
+    pass
+
+
+class RevisionConflict(ProducerError):
+    pass
+
+
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ProducerError("duplicate metadata JSON key")
+        result[key] = value
+    return result
+
+
+def valid_revision(value):
+    return isinstance(value, str) and re.fullmatch(r"0|[1-9][0-9]{0,19}", value) is not None and int(value) < 2**64
+
+
+class Client:
+    def __init__(self):
+        if os.environ.get("ORKWORKS_SESSION_METADATA_API_VERSION") != "1":
+            raise ProducerError("API-only metadata protocol version 1 is required")
+        self.session_id = os.environ.get("ORKWORKS_SESSION_ID", "")
+        port = os.environ.get("ORKWORKS_PORT", "")
+        self.token = os.environ.get("ORKWORKS_REPORT_TOKEN", "")
+        if re.fullmatch(r"[A-Za-z0-9_-]{1,128}", self.session_id) is None:
+            raise ProducerError("invalid metadata session environment")
+        if re.fullmatch(r"[0-9]{1,5}", port) is None or not 0 < int(port) <= 65535:
+            raise ProducerError("invalid metadata port environment")
+        if not self.token or len(self.token) > 4096 or any(ord(c) < 33 or ord(c) > 126 for c in self.token):
+            raise ProducerError("invalid metadata reporting capability")
+        self.port = int(port)
+        self.path = "/sessions/" + self.session_id + "/metadata"
+
+    def request(self, method, body=None, validate_only=False):
+        encoded = None if body is None else json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        if encoded is not None and len(encoded) > MAX_BODY:
+            raise ProducerError("metadata patch exceeds the size limit")
+        # HTTPConnection ignores ambient proxies and never follows redirects.
+        # The sole destination is this runtime's IPv4 loopback sidecar port.
+        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=TIMEOUT_SECONDS)
+        try:
+            path = self.path + ("?validateOnly=true" if validate_only else "")
+            connection.request(method, path, body=encoded, headers={"Authorization": "Bearer " + self.token, "Content-Type": "application/json"})
+            response = connection.getresponse()
+            if response.status == 409:
+                raise RevisionConflict("metadata revision conflict; reread and retry the intended patch")
+            if response.status != 200:
+                raise ProducerError("metadata API request failed (HTTP " + str(response.status) + ")")
+            raw = response.read(MAX_RESPONSE + 1)
+            if len(raw) > MAX_RESPONSE:
+                raise ProducerError("metadata response exceeds the size limit")
+            value = json.loads(raw, object_pairs_hook=unique_object)
+            if not isinstance(value, dict) or not valid_revision(value.get("metadataRevision")):
+                raise ProducerError("invalid metadata API response")
+            return value
+        except (OSError, http.client.HTTPException, ValueError):
+            # Neither server response bodies nor transport exceptions are safe
+            # diagnostics: they can contain capabilities or request details.
+            raise ProducerError("metadata API transport or response failed") from None
+        finally:
+            connection.close()
+
+    def read(self):
+        value = self.request("GET")
+        if value.get("id") != self.session_id:
+            raise ProducerError("metadata API returned a different session")
+        return value
+
+    def bootstrap(self):
+        record = self.read()
+        revision = record["metadataRevision"]
+        # This exercises the actual PATCH route/schema/revision/auth boundary
+        # without touching metadata, even when the existing source is user.
+        probe = {"metadataRevision": revision, "patch": {"agentMetadata": {"summary": None}}}
+        result = self.request("PATCH", probe, validate_only=True)
+        if result.get("validated") is not True or result["metadataRevision"] != revision:
+            raise ProducerError("metadata bootstrap was not validated")
+        if self.read()["metadataRevision"] != revision:
+            raise ProducerError("metadata bootstrap changed revision; reread before retrying")
+        return result
+
+
+def read_patch():
+    raw = sys.stdin.buffer.read(MAX_BODY + 1)
+    if len(raw) > MAX_BODY:
+        raise ProducerError("metadata patch exceeds the size limit")
+    try:
+        envelope = json.loads(raw, object_pairs_hook=unique_object)
+    except (ValueError, UnicodeError):
+        raise ProducerError("invalid metadata patch JSON") from None
+    if not isinstance(envelope, dict) or set(envelope) != {"metadataRevision", "patch"} or not valid_revision(envelope["metadataRevision"]) or not isinstance(envelope["patch"], dict):
+        raise ProducerError("metadata patch requires an explicit revision and patch object")
+    return envelope
+
+
+def instructions():
+    if os.environ.get("ORKWORKS_SESSION_METADATA_API_VERSION") != "1":
+        return None
+    helper_path = str(Path(__file__).resolve())
+    helper = "\'" + helper_path.replace("\'", "\'\'") + "\'" if os.name == "nt" else shlex.quote(helper_path)
+    context = (
+        "OrkWorks session metadata uses API-only protocol version 1 for this session. "
+        "Never write session metadata JSON files directly, including on API failure. "
+        "Before any metadata mutation, run `python3 " + helper + " bootstrap` from your actual "
+        "agent shell/tool execution context under its effective sandbox. This performs "
+        "authenticated GET and validation-only PATCH without changing metadata. "
+        "If bootstrap fails, stop metadata reporting; do not weaken the sandbox or use file fallback. "
+        "Use `python3 " + helper + " get` to read the current metadataRevision. "
+        "Send a JSON object with metadataRevision (the exact string read) and patch to "
+        "`python3 " + helper + " patch` on stdin. This repeats bootstrap before writing. "
+        "On revision conflict, reread and reconsider the patch; never retry blindly. "
+        "The patch may contain attentionState (the complete observedStatus, needsUserInput, "
+        "detectedQuestion, suggestedOptions tuple) and/or agentMetadata (summary, planPath, "
+        "or a complete workFields snapshot: task, nextAction, workPhase, blockerDescription, "
+        "failedCommand, failedTest). Use null explicitly to clear a nullable field. "
+        "Reporting credentials are inherited environment capabilities: never print, log, "
+        "persist, or put them in tool arguments. This protocol does not authorize "
+        "native attention clearing or changes to other sessions."
+    )
+    return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": context}}
+
+
+def main():
+    if len(sys.argv) != 2 or sys.argv[1] not in ("bootstrap", "get", "patch", "instructions"):
+        raise ProducerError("usage: session-metadata.py bootstrap|get|patch|instructions")
+    command = sys.argv[1]
+    if command == "instructions":
+        result = instructions()
+    else:
+        envelope = read_patch() if command == "patch" else None
+        client = Client()
+        if command == "get":
+            result = client.read()
+        else:
+            result = client.bootstrap()
+            if command == "patch":
+                # Preserve the caller's revision; a newer bootstrap revision
+                # must not silently turn a stale intent into an accepted write.
+                result = client.request("PATCH", envelope)
+                if result.get("id") != client.session_id:
+                    raise ProducerError("metadata API returned a different session")
+    if result is not None:
+        print(json.dumps(result, separators=(",", ":")))
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except RevisionConflict as error:
+        print(str(error), file=sys.stderr)
+        sys.exit(3)
+    except ProducerError as error:
+        print(str(error), file=sys.stderr)
+        sys.exit(2)

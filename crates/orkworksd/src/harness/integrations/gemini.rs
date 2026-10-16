@@ -12,6 +12,7 @@ const MARKER: &str = "orkworks:harness-integration:v2:gemini";
 pub(crate) static HANDLER: JsonHookHandler = JsonHookHandler::new(
     ToolHookContract {
         harness_id: "gemini",
+        additional_reporter_assets: &[],
         tool_name: "Gemini CLI",
         relative_path: ".gemini/settings.json",
         ownership_marker: MARKER,

@@ -13,6 +13,7 @@ const MARKER: &str = "orkworks:harness-integration:v2:claude-code";
 pub(crate) static HANDLER: JsonHookHandler = JsonHookHandler::new(
     ToolHookContract {
         harness_id: "claude-code",
+        additional_reporter_assets: &[],
         tool_name: "Claude Code",
         relative_path: ".claude/settings.local.json",
         ownership_marker: MARKER,

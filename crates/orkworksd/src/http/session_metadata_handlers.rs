@@ -335,6 +335,165 @@ mod tests {
             .protects_permission_wait(&handle.runtime.attention_owner, &handle.info));
     }
 
+    #[cfg(unix)]
+    async fn run_metadata_producer(
+        state: Arc<AppState>,
+        id: &str,
+        command: &str,
+        body: Option<Value>,
+    ) -> std::process::Output {
+        use tokio::io::AsyncWriteExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let router = super::routes().with_state(state);
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let mut child = tokio::process::Command::new("python3")
+            .arg(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/scripts/session-metadata.py"
+            ))
+            .arg(command)
+            .env("ORKWORKS_SESSION_METADATA_API_VERSION", "1")
+            .env("ORKWORKS_SESSION_ID", id)
+            .env("ORKWORKS_PORT", port.to_string())
+            .env("ORKWORKS_REPORT_TOKEN", "secret")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        if let Some(body) = body {
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(body.to_string().as_bytes())
+                .await
+                .unwrap();
+        } else {
+            drop(child.stdin.take());
+        }
+        let output =
+            tokio::time::timeout(std::time::Duration::from_secs(20), child.wait_with_output())
+                .await
+                .unwrap()
+                .unwrap();
+        server.abort();
+        let _ = server.await;
+        output
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn producer_bootstrap_is_read_only_and_identical_attention_patch_revokes_owner() {
+        let (state, id, _dir) = fixture().await;
+        install_hook_owned_wait(&state, &id);
+        let path = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .sessions_dir()
+            .join(format!("{id}.json"));
+        let before = std::fs::read(&path).unwrap();
+        let owner = state.sessions.lock().unwrap()[&id]
+            .runtime
+            .attention_owner
+            .snapshot()
+            .unwrap();
+        let output = run_metadata_producer(state.clone(), &id, "bootstrap", None).await;
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert!(state.sessions.lock().unwrap()[&id]
+            .runtime
+            .attention_owner
+            .owns(&owner));
+        let validated: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(validated["validated"], true);
+        let patch = json!({"metadataRevision": validated["metadataRevision"], "patch": {"attentionState": {
+            "observedStatus": "waiting_for_input", "needsUserInput": true,
+            "detectedQuestion": null, "suggestedOptions": null
+        }}});
+        let output = run_metadata_producer(state.clone(), &id, "patch", Some(patch)).await;
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let sessions = state.sessions.lock().unwrap();
+        let handle = &sessions[&id];
+        assert!(!handle.runtime.attention_owner.owns(&owner));
+        assert_eq!(handle.info.attention.as_deref(), Some("needs_you"));
+        assert_eq!(
+            handle.info.provenance.attention_origin.as_deref(),
+            Some("direct_agent")
+        );
+        assert!(!handle
+            .runtime
+            .native_approval
+            .as_ref()
+            .unwrap()
+            .protects_permission_wait(&handle.runtime.attention_owner, &handle.info));
+        crate::runtime::terminal_runtime::clear_workflow_report_token(&id);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn producer_keeps_stale_patch_conflicting_after_fresh_bootstrap() {
+        let (state, id, _dir) = fixture().await;
+        let stale_revision = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .try_read_revisioned_session(&id)
+            .unwrap()
+            .unwrap()
+            .revision;
+        let stale_revision: String = stale_revision.into();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .mutate_session(
+                &id,
+                crate::metadata::session_transactions::WriteScope::ALL,
+                |meta| {
+                    meta.summary = Some("competing writer".into());
+                    Ok(())
+                },
+            )
+            .unwrap();
+        let path = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .sessions_dir()
+            .join(format!("{id}.json"));
+        let before = std::fs::read(&path).unwrap();
+        let patch = json!({"metadataRevision": stale_revision, "patch": {"agentMetadata": {"summary": "stale intent"}}});
+        let output = run_metadata_producer(state.clone(), &id, "patch", Some(patch)).await;
+        assert_eq!(output.status.code(), Some(3));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("reread"));
+        assert_eq!(std::fs::read(path).unwrap(), before);
+        crate::runtime::terminal_runtime::clear_workflow_report_token(&id);
+    }
+
     async fn request(
         state: Arc<AppState>,
         id: &str,

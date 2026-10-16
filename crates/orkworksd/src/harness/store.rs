@@ -698,6 +698,7 @@ fn legacy_definition(
         voice: legacy_voice(&entry.capabilities),
         min_version: safe_adapter.and_then(|definition| definition.min_version.clone()),
         label_reset_commands: Vec::new(),
+        session_metadata_write_protocol: None,
     }
 }
 

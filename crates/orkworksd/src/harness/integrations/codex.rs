@@ -120,6 +120,7 @@ fn extract_marker(command: &str) -> Option<&str> {
 pub(crate) static HANDLER: JsonHookHandler = JsonHookHandler::new(
     ToolHookContract {
         harness_id: "codex",
+        additional_reporter_assets: &["session-metadata.py"],
         tool_name: "Codex",
         relative_path: ".codex/hooks.json",
         ownership_marker: MARKER,
@@ -137,8 +138,15 @@ pub(crate) static HANDLER: JsonHookHandler = JsonHookHandler::new(
     probe,
     merge,
     remove,
-    reconcile_current,
+    reconcile_codex_reporters,
 );
+
+fn reconcile_codex_reporters(
+    resolver: &crate::harness::integration::ReporterAssetResolver,
+) -> Result<std::path::PathBuf, IntegrationError> {
+    resolver.reconcile("session-metadata.py")?;
+    reconcile_current(resolver)
+}
 
 fn groups(document: &Map<String, Value>) -> Result<Vec<(String, Value)>, IntegrationError> {
     let Some(hooks) = document.get("hooks") else {
@@ -845,6 +853,135 @@ mod tests {
     }
 
     #[test]
+    fn metadata_helper_drift_requires_reconciliation() {
+        use crate::harness::integration::IntegrationRegistration;
+        let workspace = gitignored_workspace();
+        let source = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        std::fs::write(
+            source.path().join(ReporterPlatform::current().asset_name()),
+            "reporter",
+        )
+        .unwrap();
+        std::fs::write(source.path().join("session-metadata.py"), "helper-v1").unwrap();
+        let resolver = ReporterAssetResolver {
+            source_dir: source.path().to_path_buf(),
+            stable_dir: home.path().join(".orkworks/hook-scripts"),
+        };
+        let ctx = IntegrationContext {
+            workspace: workspace.path(),
+            workspace_metadata: None,
+            orkworks_root: home.path(),
+            enabled: true,
+            detected_tool: None,
+            reporter_assets: &resolver,
+        };
+        HANDLER.install(&ctx).unwrap();
+        assert_eq!(
+            HANDLER.status(&ctx).unwrap().registration,
+            IntegrationRegistration::Installed
+        );
+        let helper = resolver.stable_path("session-metadata.py").unwrap();
+        for content in [None, Some("corrupted")] {
+            if let Some(content) = content {
+                std::fs::write(&helper, content).unwrap();
+            } else {
+                std::fs::remove_file(&helper).unwrap();
+            }
+            let status = HANDLER.status(&ctx).unwrap();
+            assert_eq!(status.registration, IntegrationRegistration::Drifted);
+            assert!(status
+                .diagnostics
+                .iter()
+                .any(|d| d.action.as_deref() == Some("reconcile")));
+            HANDLER.install(&ctx).unwrap();
+            assert_eq!(
+                HANDLER.status(&ctx).unwrap().registration,
+                IntegrationRegistration::Installed
+            );
+        }
+        std::fs::write(source.path().join("session-metadata.py"), "helper-v2").unwrap();
+        assert_eq!(
+            HANDLER.status(&ctx).unwrap().registration,
+            IntegrationRegistration::Drifted
+        );
+        HANDLER.install(&ctx).unwrap();
+        assert_eq!(std::fs::read_to_string(helper).unwrap(), "helper-v2");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn installed_session_start_command_delivers_api_only_instructions() {
+        use std::process::{Command, Stdio};
+        let workspace = gitignored_workspace();
+        let home = tempfile::Builder::new()
+            .prefix("metadata home '")
+            .tempdir()
+            .unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let resolver = ReporterAssetResolver {
+            source_dir: Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts"),
+            stable_dir: home.path().join(".orkworks/hook-scripts"),
+        };
+        let ctx = IntegrationContext {
+            workspace: workspace.path(),
+            workspace_metadata: None,
+            orkworks_root: home.path(),
+            enabled: true,
+            detected_tool: None,
+            reporter_assets: &resolver,
+        };
+        HANDLER.install(&ctx).unwrap();
+        let document: Value = serde_json::from_slice(
+            &std::fs::read(workspace.path().join(".codex/hooks.json")).unwrap(),
+        )
+        .unwrap();
+        let command = document["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap();
+        let mut child = Command::new("bash")
+            .args(["-c", command])
+            .env("HOME", home.path())
+            .env("ORKWORKS_SESSION_METADATA_API_VERSION", "1")
+            .env_remove("ORKWORKS_PORT")
+            .env_remove("ORKWORKS_SESSION_ID")
+            .env_remove("ORKWORKS_REPORT_TOKEN")
+            .env_remove("ORKWORKS_CODEX_NATIVE_APPROVAL")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(br#"{"session_id":"root-id","source":"startup"}"#)
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let context: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(
+            context["hookSpecificOutput"]["hookEventName"],
+            "SessionStart"
+        );
+        let text = context["hookSpecificOutput"]["additionalContext"]
+            .as_str()
+            .unwrap();
+        assert!(text.contains("API-only"));
+        assert!(text.contains("bootstrap"));
+        assert!(resolver
+            .stable_path("session-metadata.py")
+            .unwrap()
+            .is_file());
+    }
+
+    #[test]
     fn install_reconciles_a_stale_reporter_even_when_the_hook_bundle_is_installed() {
         let workspace = gitignored_workspace();
         let source = tempfile::tempdir().unwrap();
@@ -853,6 +990,11 @@ mod tests {
         let asset_name = ReporterPlatform::current().asset_name();
         let source_asset = source.path().join(asset_name);
         std::fs::write(&source_asset, "current reporter\n").unwrap();
+        std::fs::write(
+            source.path().join("session-metadata.py"),
+            "current helper\n",
+        )
+        .unwrap();
         let resolver = ReporterAssetResolver {
             source_dir: source.path().to_path_buf(),
             stable_dir: home.path().join(".orkworks/hook-scripts"),
@@ -868,6 +1010,12 @@ mod tests {
 
         HANDLER.install(&ctx).unwrap();
         let stable_asset = resolver.stable_path(asset_name).unwrap();
+        let stable_helper = resolver.stable_path("session-metadata.py").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&stable_helper).unwrap(),
+            "current helper\n"
+        );
+        std::fs::write(&stable_helper, "stale helper\n").unwrap();
         std::fs::write(&stable_asset, "stale reporter\n").unwrap();
 
         HANDLER.install(&ctx).unwrap();
@@ -875,6 +1023,10 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(stable_asset).unwrap(),
             "current reporter\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&stable_helper).unwrap(),
+            "current helper\n"
         );
     }
 

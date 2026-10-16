@@ -564,3 +564,11 @@ finally:
         "${codex_payload_capture:-}" ) >/dev/null 2>&1 || true
   fi
 fi
+
+# API-only agent instructions are supplied only by qualified launch markers.
+# Hooks run on the host: bootstrap must be run by the agent's own tool context.
+if [ "$session_source" = "codex_hook" ] && [ "$event" = "SessionStart" ] && \
+   [ "${ORKWORKS_SESSION_METADATA_API_VERSION:-}" = "1" ]; then
+  metadata_helper="$(dirname -- "${BASH_SOURCE[0]}")/session-metadata.py"
+  python3 "$metadata_helper" instructions
+fi
