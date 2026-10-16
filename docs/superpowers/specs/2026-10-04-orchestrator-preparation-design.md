@@ -149,7 +149,8 @@ A version-1 `ResearchReport` contains:
 | `uncertainties`, `blockers` | What was not established and why |
 | `evidenceReferences` | Declared file/revision/location or source URL/retrieval time and bounded excerpt digest |
 | `recommendations`, `limitations` | Proposed consequences and coverage limitations |
-| `contentDigest` | Digest of the immutable validated report descriptor |
+| `author` | Sidecar-derived `{"kind":"child"}` or `{"kind":"user"}` provenance; never caller-selected |
+| `contentDigest` | Digest of the immutable validated report descriptor, including `author` |
 
 Report authentication derives the child, reservation, configuration, sidecar
 and active producer launch generation from the session capability and launch
@@ -171,7 +172,7 @@ rewritten or silently promoted to the resumed runtime's current delivery.
 The proposed `submitResearchReport` child tool uses
 `POST /sessions/{childSessionId}/orchestration/research-reports` on the existing
 local sidecar channel. The request carries `schemaVersion` (1),
-`expectedTaskVersion` and the immutable report descriptor, at most 32 KiB
+`expectedTaskVersion`, `expectedReportHead` and the immutable report descriptor, at most 32 KiB
 including the envelope. It uses `Authorization: Bearer` with a distinct
 OS-random `ResearchReportCapability`, injected through the verified child's
 startup environment/tool integration, never model prompts or renderer state.
@@ -192,7 +193,7 @@ checks and persistence. IDs/digests/source scope must match the stored assignmen
 producer identity is sidecar-derived, never trusted from body fields. Responses:
 `201` stores a new receipt; `200` returns an identical stored receipt; `400` invalid
 schema; `401` absent/revoked capability; `403` cross-assignment/scope access;
-`409` stale generation/task version or conflicting report ID/version; `413`
+`409` stale generation/task version/head or conflicting report ID/version; `413`
 oversize; `429` rate limited. Bounded responses provide current authorized
 metadata where needed; retries do not alter task outcomes or version counts.
 
@@ -202,8 +203,8 @@ may report while its stage plan is paused/complete and the run remains active;
 a report still cannot restore a launch grant. On an explicit verified child
 resume, issue a fresh generation-bound capability, retain historical reports,
 and require new versions for current delivery. After final run completion,
-corrections require a separate Electron-authorized user-provenance record;
-they cannot impersonate a child or reopen the run. Report acceptance emits a
+corrections require the separate Electron-authorized user-provenance operation
+below; they cannot impersonate a child or reopen the run. Report acceptance emits a
 bounded run event for automatic parent collection. Apply the stated report/rate/
 aggregate limits before persistence and serialize with runtime/run revocation.
 
@@ -212,6 +213,173 @@ are correct. Native tool observations and independent review evidence remain
 separate. No full prompts, credentials, hidden reasoning, or complete transcripts
 are stored in research reports. Evidence references point to approved sources;
 a URL or quoted path does not authorize following it or widening access.
+
+### Current report head and corrections
+
+This is a proposed extension to the report protocol, for written review with
+[#744's evidence-source contract](2026-10-04-assignment-evaluation-design.md#criteria-completeness-and-quality).
+It specifies reporting only; it grants no additional investigation, child
+resume, plan approval or launch authority. Withdrawal without replacement
+remains unsupported. A replacement may explicitly record uncertainty or a
+retracted finding rather than silently erase earlier evidence.
+
+**Stream and head.** One exact approved research task/reservation has one report
+stream. Its key object has exactly `workspaceId`, `runId`, `planId`,
+`planRevision`, `taskId`, `reservationId`, `childSessionId` and
+`configurationDigest`, using existing encodings and sidecar-derived bindings. A successor assignment
+has a different stream. Runtime generations are immutable version provenance,
+not stream keys: an authorized resume can correct the same assignment without
+making its old runtime authoritative. The first accepted report fixes the
+stream's `reportId`; another ID cannot bypass its correction history or limit.
+
+The durable `ResearchReportHead` has exactly `reportId`, `reportVersion` and
+`contentDigest`, with the existing ID/counter/digest encodings. It resolves one
+immutable report with that stream identity and exact original generation
+fields. No report means no head. First publication requires
+`expectedReportHead: null` and `reportVersion: 1`. Each correction supplies the
+complete prior head as `expectedReportHead`, retains `reportId`, and uses exactly
+prior `reportVersion + 1`, capped at eight. Reject gaps, branch versions and
+reusing a version with changed bytes. Neither latest arrival, largest numeric
+version nor a resumed runtime selects a head; only the committed transition
+does. Historical versions remain readable under existing scope/reference rules.
+
+**Author and authority.** A child publication has `author: {"kind":"child"}`;
+the report's sidecar/launch generations are its authenticated current runtime.
+The parent cannot submit corrections for a researcher. The existing scoped
+capability permits corrections while the run is active, including a paused or
+completed stage; it still cannot survive runtime end, final run completion,
+cancellation or namespace rotation.
+
+An explicit user correction uses a separate Electron-main-authorized logical
+`correctResearchReport` operation over existing UI authority, not the child
+endpoint or a new renderer token. It requires an existing head, the exact stream,
+`expectedRunVersion`, `expectedReportHead` and a replacement descriptor within
+the same 32 KiB request limit. The sidecar sets `author: {"kind":"user"}`;
+it copies assignment identity and generation fields from the immutable
+predecessor named by `expectedReportHead` as
+source lineage, not proof the child authored this version. User content cannot
+change question IDs, approved source scope, assignment or configuration. The
+content digest includes user provenance. #744's report identity maps these
+lineage fields normally; reading details must retain the user author label.
+
+The user may correct an existing retained stream in an active, completed or
+cancelled run in the current admission epoch. This neither revives credentials
+nor changes terminal lifecycle/coordination outcomes. Missing/forgotten runs and
+old-epoch records remain unavailable/read-only under the admission fence. A user
+cannot create an initial child report, impersonate a runtime, correct a foreign
+workspace, or clear a blocker by submitting a replacement. Publication and any
+later continue/reapproval remain separate explicit operations. A resumed child
+may correct a user-authored head only under its fresh assignment-bound capability
+and exact head CAS; each version keeps its own author, without promoting user
+content to child evidence or vice versa.
+
+**Acceptance order and retry.** Serialize against runtime revocation, namespace
+rotation, run/task mutations and all publishers for the stream:
+
+1. Authenticate and validate the admitted workspace/run/assignment and current
+   authority generation. For the user operation, verify existing UI authority
+   and retained current-epoch run identity. Revoked child requests fail before
+   receipt lookup, including retries of an earlier successful publication.
+   Then consume/check the authenticated child/per-run user request-rate budget
+   before receipt lookup or any early return. Duplicates consume that budget;
+   an exhausted budget returns `429` without changing stored records.
+2. Validate the bounded schema, identities, source scope and sidecar-derived
+   author. User normalization resolves the request’s immutable expected
+   predecessor, not the live head; a later head must not change normalized retry
+   bytes. Derive a receipt key from the stream plus `reportId`/`reportVersion`,
+   and compare the exact canonical operation kind, expected task/run version,
+   expected head and replacement descriptor against any stored request.
+3. An exact accepted retry returns the saved receipt **before** task/run version
+   or head CAS, even if a later correction advanced the head. A different
+   request for that key conflicts. The receipt says which immutable version
+   was accepted; it does not assert that version is still current. Currentness
+   requires an authoritative head read. Never republish or re-invalidate on retry.
+4. For a new request, compare the expected task version (child) or run version
+   (user) and expected head against stored state. A stale comparison returns
+   `409` with bounded authorized current metadata; it stores nothing. Validate
+   exact next version and storage/counter quotas before committing. A changed same-version
+   request is not a retry, even when its replacement content happens to match.
+5. Durably publish the immutable descriptor, receipt/request binding, new head
+   and dependent freshness fences as one recoverable transaction. Increment
+   `runVersion` with checked arithmetic; reporting alone does not advance the
+   task’s coordination version or outcome. For affected active preparation,
+   create the new input revision in this transaction; terminal runs gain no
+   preparation/proposal transition. New publication
+   returns `201`; exact retry `200`. No successful receipt is returned until the
+   transaction is durable. User operations use the same schema/conflict/size/rate
+   response classes as child submission without accepting a child bearer.
+
+The stored receipt binds stream, author, accepted head and exact request; its
+request fingerprint is SHA-256 over `orkworks.research-report-request.v1\n`
+(one literal LF) plus role-contract canonical JSON of the operation kind,
+sidecar-resolved stream, expected versions/head and replacement descriptor.
+The fingerprint payload has exactly `schemaVersion: 1`, `operation`
+(`submitResearchReport` or `correctResearchReport`), `stream` (the stream-key
+fields above), `expectedTaskVersion` (integer for child, otherwise null),
+`expectedRunVersion` (integer for user, otherwise null), `expectedReportHead`
+(head object or null), and `report` (complete accepted descriptor). All members
+are required, including nulls. It excludes credentials, transport metadata and
+the fingerprint itself. The
+stored accepted descriptor includes `contentDigest`; its own content hash uses
+the existing report domain and excludes only that hash field. A fingerprint
+collision with a different canonical request fails closed. Retain the request
+binding and receipt with the immutable version; reuse that descriptor rather
+than duplicate its bytes in receipt metadata. No separate unbounded retry log.
+
+**Dependent reads and recovery.** Head advancement makes the old exact report
+version stale for every citing preparation summary/proposal and every #744
+outcome that cites its source key. It never rewrites an accepted evaluation or
+substitutes the replacement as reviewed evidence. Unrelated outcomes remain
+eligible; #744 still computes overall failure/conflict precedence. A correction
+invalidates affected pending proposals; affected approved plans pause new
+launches and show the existing revision/reapproval blocker. Already-launched
+assignments retain their original bindings and receive a visible blocker.
+Historical plan/coordination records remain intact. Terminal runs stay terminal.
+
+Consumers validate exact version/digest against the authoritative head in the
+same serialization boundary as evidence admission, evaluation projection,
+proposal approval and dependent launch. Dependent caches/projections must be
+fenced before the new head is visible. If #745 repository-wide learning cannot
+join that boundary, exclude/fence affected contributions before serving its
+next summary; never serve an old cached passing outcome as current. Its joint
+custody/repository transaction gate remains separate and closed until reviewed.
+
+Recovery exposes either the complete old transaction or complete new
+transaction, never a new head paired with current old dependent evidence.
+An implementation must choose and review the journal/transaction and durable
+fence mechanism before code. On missing descriptors, digest mismatch, ambiguous
+head, or incomplete dependency reconciliation, block current evidence reads,
+approvals and affected launches; do not elect the largest version or reconstruct
+from event arrival. Reconcile durable receipts before permitting retries; no
+recovery path recreates volatile credentials. Run events notify collection after
+commit, carry bounded references only, and are not the authority for freshness.
+An event-ring gap requires an authoritative snapshot of heads and fences.
+
+For example, a child corrects head `(report-a, 1, digest-a)` to version 2
+with `digest-b`. A user then corrects that exact head to version 3 with
+`digest-c`. The still-authorized child’s exact version-2 retry returns its
+original version-2 receipt; the head remains version 3. Another new request
+expecting version 1 conflicts. An outcome citing version 1 or 2 is stale; only
+a new explicit evaluation citing the user-authored version 3 can assess that
+replacement. These symbolic digests illustrate transitions, not wire fixtures.
+
+**Bounds and retention.** The eight-version budget is shared by child and user
+publications, including the first report; competing writers share one head.
+Each request/descriptor, receipt and head counts toward the 32 MiB run metadata
+limit. User correction requests are limited to ten per rolling minute per run;
+duplicates count against request rate but not stored versions. Receipt metadata
+is capped at 2 KiB per accepted version, head metadata at 512 bytes per stream;
+all fields use existing finite encodings. Quota or counter exhaustion rejects the
+whole mutation, preserves the prior head, and shows a visible blocker; it cannot
+silently publish a partial correction. Quota rejection does not advance the
+head or freshness state; the visible rejection must distinguish retained prior
+evidence from an accepted correction. No consumer can claim the rejected
+replacement was incorporated. Exhaustion pauses affected automation under the
+existing counter/limit policy, without rewriting stored evaluations. Existing run/input
+counter exhaustion rules also apply when a correction invalidates preparation.
+Deletion serializes with head publication and protects descriptors, receipts,
+heads and dependency fences while referenced. Forget removes the whole eligible
+stream only after references retire, preserving the admission high-water fence.
 
 ## Research approval and result collection
 
@@ -526,8 +694,8 @@ in place. Unused tasks on affected plans pause until the user approves a revised
 definition; already-launched tasks remain bound to their original assignment.
 
 Late reports for complete/cancelled plans never reopen tasks or restore a grant.
-Identical report replays return the stored receipt. A new correction is a separate
-versioned evidence record, retains the original, invalidates dependent summaries
+Identical report replays return the stored receipt. A new correction follows [head CAS and atomic publication](#current-report-head-and-corrections),
+retains the original, invalidates dependent summaries
 and pending proposals, and raises a visible blocker if execution already launched.
 It cannot retroactively rewrite a coordination outcome or silently reconfigure
 live children. Reports from the wrong child/reservation/generation fail validation.
@@ -574,7 +742,9 @@ replace old approval evidence to make room.
 | Research questions | At most 32 per research plan; each question at most 8 KiB inclusive scope/criteria references |
 | Report | 32 KiB; 32 findings, 64 evidence references, 16 uncertainty/blocker entries, 16 recommendation/limitation entries |
 | Evidence reference / finding | 1 KiB / 2 KiB; no inline full artifact |
-| Report versions | At most eight per task; immutable digest-bound versions |
+| Report versions | One stream per exact task/reservation; at most eight versions shared by child/user, including initial publication |
+| Report head / receipt metadata | 512 bytes per stream / 2 KiB per version, included in the run aggregate |
+| User report corrections | Ten requests per rolling minute per run; duplicates count against rate, not stored versions |
 | Research summary | 8 KiB; at most 128 report/review references |
 | Input revision manifest | 32 KiB; at most 256 unique record references |
 | Event cursor stream | Ring of 256 metadata-only notifications per run, 1 KiB each; report content fetched separately |
@@ -720,6 +890,18 @@ live coding-tool probes were run while drafting this document.
 | Unauthenticated/cross-child report / parent run bearer used for ingestion | Reject; only the exact generation-bound child report capability can submit |
 | Report event without task-turn receipt | Store report, do not infer task result or advance dependency |
 | Required review conflict / unknown capability | Block ready execution proposal; explain missing evidence |
+| Initial report / replacement | Null head admits version 1; exact prior version/digest admits only the next version under the same stream/report ID |
+| Concurrent child/user corrections from one head | One durable winner; loser conflicts without consuming a version or invalidating twice |
+| Successful correction retry after another version wins | Return original receipt before expected task/run/head CAS; do not claim it is still current |
+| Same version with different expected head or content / revoked child retry | Conflict / reject before receipt lookup; no publication |
+| Accepted receipt replay exceeds the request-rate budget | `429` before receipt lookup; no new version, head change or reinvalidation |
+| User correction after final completion/cancellation | Preserve user provenance and original assignment lineage; stale citing evidence, keep run terminal and grants revoked |
+| Child resume followed by correction | Same stream and exact head, new child generation/provenance; predecessor runtime cannot replay |
+| Corrected research source used by evaluation | Only citing outcomes stale; replacement needs explicit new review, not automatic source substitution |
+| Correction racing evaluation/proposal approval/launch | Serialize head validation and dependent fence; cannot expose old evidence as current after publication |
+| Crash before/after correction commit or event loss | Complete old/new transaction or fail closed; retry resolves durable receipt, snapshot resolves head |
+| Different report ID, ninth shared version or metadata quota | Reject before publication; retain head/history and show exhaustion where applicable |
+| Correction racing deletion or admission-epoch rotation | Serialize; preserve referenced history, reject retired identity, never recreate forgotten run |
 | Pending proposal report corrected | New input revision invalidates old proposal; approval fails stale |
 | Correction after execution launched | Visible blocker; keep original assignments, no automatic rewrite/retry |
 | Stable child session ID resumes into a new runtime | Revalidate group ownership/capacity before spawn; reject old-generation report requests before dedupe; retain historical reports; new versions bind current runtime |
