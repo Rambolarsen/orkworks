@@ -442,6 +442,11 @@ gate before bearer delivery. Child liveness and an expected initialize shape
 do not attest a listener after a released-port race.
 [#763](https://github.com/Rambolarsen/orkworks/issues/763) tracks the required
 reviewed handoff/identity contract; controlled fake fixtures cannot enable it.
+The owner-approved dormant macOS arm64 `listener_identity` helper proves an
+already-connected IPv4 stream against the retained owned leader's exact accepted
+socket. Its SDK adapter, bounded inventory, blocking worker, and same-stream
+guard do not activate startup or qualify the native TUI's independent reconnects.
+All-client support and installed evidence remain required.
 
 Native clearing has a separate unfenced-writer gate. The current MVP contract
 permits direct agent JSON writes, which sidecar revisions and completed-file

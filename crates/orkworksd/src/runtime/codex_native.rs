@@ -7,6 +7,9 @@ use crate::harness::{
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 mod launch;
+// Dormant until all-client identity and independent rollout gates are satisfied.
+#[allow(dead_code)]
+mod listener_identity;
 mod protocol;
 
 // Shipping entries require independent production evidence, never a diagnostic spike.

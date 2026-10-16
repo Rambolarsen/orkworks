@@ -162,8 +162,9 @@ crash, a surviving TUI can reconnect to a replacement listener and disclose
 the capability. The audited TUI retries connections for up to 120 seconds.
 Observer-side proof alone cannot qualify the native TUI's connection.
 
-This amendment records a **proposal awaiting owner security-design approval**.
-The local proof is ready for review; full startup remains blocked on an exact
+The owner approved the dormant local macOS proof on 2026-10-16 in the active
+Codex session. That approval is limited to the first implementation deliverable;
+full startup remains blocked on an exact
 upstream native-client contract that checks immutable process/birth identity
 before every bearer upgrade. No such flag/API is assumed to exist. The
 [implementation plan](../superpowers/plans/2026-10-15-codex-listener-ownership.md)

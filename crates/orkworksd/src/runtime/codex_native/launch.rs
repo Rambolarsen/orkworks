@@ -163,6 +163,15 @@ impl OwnedProcess {
             }
         }
     }
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    pub(super) fn listener_process_id(&self) -> Option<libc::pid_t> {
+        if !self.retains_identity() || !self.is_alive() {
+            return None;
+        }
+        libc::pid_t::try_from(self.child.as_ref()?.id())
+            .ok()
+            .filter(|pid| *pid > 0)
+    }
     pub(super) fn is_alive(&self) -> bool {
         #[cfg(unix)]
         {
@@ -1665,4 +1674,160 @@ pub(crate) async fn installed_diagnostic_plan(
     _cache: &VersionProbeCache,
 ) -> Result<NativeLaunchPlan, NativeError> {
     Err(NativeError::Unavailable)
+}
+
+#[cfg(all(test, unix))]
+mod listener_identity_tests {
+    use super::super::listener_identity::prove;
+    use super::*;
+    use std::io::Write;
+    use std::net::TcpStream;
+
+    async fn wait_file(path: &Path) -> String {
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                if let Ok(value) = std::fs::read_to_string(path) {
+                    if !value.is_empty() {
+                        break value;
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("fake child barrier timed out")
+    }
+    async fn server(
+        dir: &Path,
+        name: &str,
+        requested_port: Option<u16>,
+    ) -> (OwnedProcess, TcpStream) {
+        let script = r#"
+import pathlib,socket,sys,time
+root=pathlib.Path(sys.argv[1]); name=sys.argv[2]
+s=socket.socket(); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); s.bind(('127.0.0.1',int(sys.argv[3]))); s.listen()
+(root/(name+'.port')).write_text(str(s.getsockname()[1]))
+c,_=s.accept()
+if name=='duplicate': duplicate=c.dup()
+(root/(name+'.accepted')).write_text('yes')
+while not (root/(name+'.read')).exists():
+    if s is not None and (root/(name+'.release')).exists():
+        s.close(); s=None; (root/(name+'.closed')).write_text('yes')
+    time.sleep(0.005)
+c.settimeout(0.2)
+try: count=len(c.recv(128))
+except socket.timeout: count=0
+(root/(name+'.bytes')).write_text(str(count))
+while True: time.sleep(0.1)
+"#;
+        let mut command = Command::new("python3");
+        command
+            .args(["-c", script])
+            .arg(dir)
+            .arg(name)
+            .arg(requested_port.unwrap_or(0).to_string())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let owner = OwnedProcess::spawn(command).unwrap();
+        let port = wait_file(&dir.join(format!("{name}.port")))
+            .await
+            .parse::<u16>()
+            .unwrap();
+        let stream = TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, port)).unwrap();
+        wait_file(&dir.join(format!("{name}.accepted"))).await;
+        (owner, stream)
+    }
+    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    #[tokio::test]
+    async fn unsupported_platform_never_qualifies_even_its_owned_stream() {
+        let dir = tempfile::tempdir().unwrap();
+        let (owner, stream) = server(dir.path(), "owned", None).await;
+        assert!(matches!(
+            prove(&owner, stream, Instant::now() + Duration::from_secs(3)).await,
+            Err(NativeError::Unavailable)
+        ));
+    }
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[tokio::test]
+    async fn retained_stream_survives_listener_rebind_but_replacement_stream_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let (owner, original) = server(dir.path(), "owned", None).await;
+        let port = original.peer_addr().unwrap().port();
+        std::fs::write(dir.path().join("owned.release"), "release").unwrap();
+        wait_file(&dir.path().join("owned.closed")).await;
+        let (_competitor, replacement) = server(dir.path(), "competitor", Some(port)).await;
+        let original = prove(&owner, original, Instant::now() + Duration::from_secs(3))
+            .await
+            .unwrap();
+        let replacement = prove(&owner, replacement, Instant::now() + Duration::from_secs(3)).await;
+        if let Ok(proved) = &replacement {
+            proved.stream().unwrap().write_all(b"fixture").unwrap();
+        }
+        std::fs::write(dir.path().join("competitor.read"), "read").unwrap();
+        assert_eq!(wait_file(&dir.path().join("competitor.bytes")).await, "0");
+        assert!(replacement.is_err());
+        original.stream().unwrap().write_all(b"fixture").unwrap();
+        std::fs::write(dir.path().join("owned.read"), "read").unwrap();
+        assert_eq!(wait_file(&dir.path().join("owned.bytes")).await, "7");
+    }
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[tokio::test]
+    async fn duplicated_accepted_descriptor_is_ambiguous() {
+        let dir = tempfile::tempdir().unwrap();
+        let (owner, stream) = server(dir.path(), "duplicate", None).await;
+        assert!(
+            prove(&owner, stream, Instant::now() + Duration::from_secs(3))
+                .await
+                .is_err()
+        );
+    }
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[tokio::test]
+    async fn connected_child_is_proved_but_accepting_competitor_receives_zero_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let (owner, stream) = server(dir.path(), "owned", None).await;
+        let proved = prove(&owner, stream, Instant::now() + Duration::from_secs(3))
+            .await
+            .expect("owned accepted stream must qualify");
+        proved.stream().unwrap().write_all(b"fixture").unwrap();
+        std::fs::write(dir.path().join("owned.read"), "read").unwrap();
+        assert_eq!(wait_file(&dir.path().join("owned.bytes")).await, "7");
+        let (_competitor, stream) = server(dir.path(), "competitor", None).await;
+        let result = prove(&owner, stream, Instant::now() + Duration::from_secs(3)).await;
+        if let Ok(proved) = &result {
+            proved.stream().unwrap().write_all(b"fixture").unwrap();
+        }
+        std::fs::write(dir.path().join("competitor.read"), "read").unwrap();
+        assert_eq!(wait_file(&dir.path().join("competitor.bytes")).await, "0");
+        assert!(result.is_err());
+    }
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[tokio::test]
+    async fn expired_proof_deadline_sends_no_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let (owner, stream) = server(dir.path(), "owned", None).await;
+        let result = prove(&owner, stream, Instant::now()).await;
+        assert!(matches!(result, Err(NativeError::Timeout)));
+        std::fs::write(dir.path().join("owned.read"), "read").unwrap();
+        assert_eq!(wait_file(&dir.path().join("owned.bytes")).await, "0");
+    }
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[tokio::test]
+    async fn exited_owned_leader_cannot_reuse_a_proved_stream() {
+        let dir = tempfile::tempdir().unwrap();
+        let (owner, stream) = server(dir.path(), "owned", None).await;
+        let proved = prove(&owner, stream, Instant::now() + Duration::from_secs(3))
+            .await
+            .unwrap();
+        owner.signal(libc::SIGKILL);
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while owner.is_alive() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(proved.stream().is_err());
+    }
 }
