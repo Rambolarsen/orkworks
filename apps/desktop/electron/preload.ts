@@ -2,61 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import { subscribeBackendLifecycle, type BackendLifecycleEvent, type BackendRetryResult, type InitialWorkspaceSnapshot } from "./backendLifecycleEvent";
 import type { UpdateStatus } from "./updateService";
 
-type IntegrationKey = {
-  adapterId: string;
-  targetId: string;
-};
-
-type IntegrationConsumer = {
-  harnessId: string;
-  harnessName: string;
-};
-
-type GroupedIntegrationStatus = {
-  key: IntegrationKey;
-  consumers: IntegrationConsumer[];
-  status: {
-    harnessId: string;
-    enabled: boolean;
-    toolDetected: boolean;
-    registration: "unsupported" | "absent" | "installed" | "drifted" | "error";
-    ownership: "none" | "ork_works" | "ambiguous";
-    activation: "active" | "needs_trust" | "disabled" | "unknown" | "not_applicable";
-    coverage: "full" | "limited" | "none";
-    diagnostics: Array<{ code: string; message: string; action?: string }>;
-    confirmation: {
-      toolName: string;
-      workspaceLabel: string;
-      coverageSummary: string;
-      relativePaths: string[];
-      executableCodeWarning: boolean;
-    } | null;
-  };
-};
-
-type GroupedIntegrationStatusResult =
-  | { ok: true; group: GroupedIntegrationStatus }
-  | { ok: false; error: string; code?: string };
-
-type ActiveHarnessIntegrationResult = {
-  key: IntegrationKey;
-  consumerHarnessIds: string[];
-  operation: "install" | "repair" | "uninstall" | "skipped";
-  outcome: "succeeded" | "failed" | "unsupported" | "stale_workspace";
-  registration: "unsupported" | "absent" | "installed" | "drifted" | "error";
-  activation: "active" | "needs_trust" | "disabled" | "unknown" | "not_applicable";
-  coverage: "full" | "limited" | "none";
-  diagnosticCode?: string;
-  message?: string;
-};
-
-type ActiveHarnessSaveResult = {
-  activeHarnesses: {
-    outcome: "persisted" | "failed" | "stale_workspace";
-    message?: string;
-  };
-  integrations: Record<string, ActiveHarnessIntegrationResult>;
-};
+import type { ActiveHarnessSaveResult, GroupedIntegrationStatusResult } from "./activeHarnessIntegration";
 
 type TaskmasterAcceptOptions = {
   sessionId?: string;
