@@ -7,7 +7,7 @@ tags: ["orkworks", "architecture"]
 
 # Fixed desktop shell with central navigation
 
-- Status: accepted; inspector presentation partially superseded by [ADR 0083](0083-inspector-overlay-and-pin.md); library choice superseded by [ADR 0082](0082-react-grid-desktop-shell.md)
+- Status: accepted; Recommendations placement superseded by [ADR 0084](0084-recommendations-main-view.md); inspector presentation partially superseded by [ADR 0083](0083-inspector-overlay-and-pin.md); library choice superseded by [ADR 0082](0082-react-grid-desktop-shell.md)
 - Deciders: user
 - Date: 2026-10-08
 

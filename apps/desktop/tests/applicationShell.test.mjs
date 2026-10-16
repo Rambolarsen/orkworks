@@ -26,7 +26,47 @@ if (process.versions.electron) {
       await fresh();
       const scenario = process.env.ORKWORKS_SHELL_SCENARIO;
       const click = async command => evaluate('(()=>{const b=document.querySelector("[data-shell-command=' + command + ']");b.focus();b.click()})()');
-      if (scenario === 'app-review-cancel-workspace') {
+      if (scenario === 'recommendations-main') {
+        for (const width of [1280,1000,640]) {
+          await win.setContentSize(width,700);
+          await waitFor(`document.querySelector(".shell-layout").dataset.mode==="${width>=1180?'wide':width>=860?'medium':'compact'}"`);
+          await evaluate('fixture.command("recommendations",true)');
+          await waitFor('document.querySelector("[data-shell-page-heading]")');
+          assert.equal(await evaluate('!!document.querySelector("main [data-shell-region=utility]")'),true,'Recommendations occupies the main view at every width');
+          assert.equal(await evaluate('!!document.querySelector("[data-shell-region=terminal], [data-shell-region=inspector], [data-shell-pin]")'),false);
+          assert.equal(await evaluate('document.querySelector("[data-shell-terminal-focus]").textContent'),'Recommendations');
+          assert.equal(await evaluate('fixture.selections'),0,'opening Recommendations does not select a session');
+          if(width>=860)assert.equal(await evaluate('!!document.querySelector("[data-shell-region=sessions]")'),true);
+          await evaluate('document.querySelector("[data-shell-return]").click()');
+          await waitFor('document.querySelector("[data-shell-region=terminal]")');
+          await evaluate('fixture.command("recommendations",true)');
+          await waitFor('document.querySelector("[data-shell-page-heading]")');
+          await evaluate('document.querySelector("[data-shell-page-heading]").dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
+          await waitFor('document.querySelector("[data-shell-region=terminal]")');
+        }
+        await win.setContentSize(1280,700);
+        await waitFor('document.querySelector(".shell-layout").dataset.mode==="wide"');
+        await evaluate('fixture.openReview()');
+        await waitFor('document.querySelector("[data-shell-region=review]")');
+        await evaluate('fixture.command("recommendations",true)');
+        await waitFor('document.querySelector("main [data-shell-region=utility]")');
+        assert.equal(await evaluate('document.querySelector("[data-shell-return]").textContent'),'Back to Review');
+        await evaluate('document.querySelector("[data-shell-return]").click()');
+        await waitFor('document.querySelector("[data-shell-region=review]")');
+        await evaluate('fixture.command("terminal")');
+        await waitFor('document.querySelector("[data-shell-region=terminal]")');
+        await evaluate('fixture.command("recommendations",true)');
+        await waitFor('document.querySelector("[data-shell-page-heading]")');
+        await evaluate('Array.from(document.querySelectorAll("[role=option]")).find(el=>el.textContent.includes("other")).click()');
+        await waitFor('document.querySelector("[data-shell-region=terminal]")');
+        assert.equal(await evaluate('fixture.activeSessionId'),'other');
+        await evaluate('fixture.command("recommendations",true)');
+        await waitFor('document.querySelector("[data-shell-page-heading]")');
+        await evaluate('fixture.advanceWorkspace()');
+        await waitFor('document.querySelector("[data-shell-region=terminal]")');
+        assert.deepEqual(await evaluate('fixture.errors'),[]);
+        return;
+      } else if (scenario === 'app-review-cancel-workspace') {
         await waitFor('fixture.runtime()?.terminal.element?.isConnected');
         await click('review');
         await waitFor('document.querySelector(".review-plan-content")');
@@ -595,8 +635,9 @@ if (process.versions.electron) {
           assert.equal(await evaluate('fixture.input.length'),0);
           await click('recommendations');
           await waitFor('document.querySelector(".recommendations-panel")');
-          assert.equal(await evaluate('getComputedStyle(document.querySelector(".recommendations-panel")).backgroundColor'),'rgba(0, 0, 0, 0)','Recommendations must not cover the translucent parent');
-          await evaluate('document.querySelector(".shell-inspector-host [role=separator]").focus();document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
+          assert.equal(await evaluate('!!document.querySelector("main .recommendations-panel")'),true,'Recommendations occupies the main pane');
+          assert.equal(await evaluate('!!document.querySelector("[data-shell-region=inspector]")'),false);
+          await evaluate('document.querySelector("[data-shell-page-heading]").focus();document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
           await waitFor('!document.querySelector("[data-shell-region=inspector]")');
           assert.equal(await evaluate('document.activeElement.dataset.shellCommand'),'recommendations');
           await click('details');
@@ -618,7 +659,7 @@ if (process.versions.electron) {
           await evaluate('document.querySelector("[data-actions-detail] button").click()');
           assert.deepEqual(await evaluate('fixture.openedRecommendations'),['r2']);
           await evaluate('fixture.setSessionState({harnessId:"generic-shell",harness:"generic-shell"});fixture.command("recommendations",true)');
-          await waitFor('document.querySelector("[data-shell-region=inspector] h2").textContent==="Recommendations"');
+          await waitFor('document.querySelector("main [data-shell-region=utility] h2")?.textContent==="Recommendations"');
           await click('actions');
 
           await evaluate('fixture.partial=true;fixture.setBackendStatus("unreachable")');
@@ -1116,7 +1157,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['inspector-overlay','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['recommendations-main','inspector-overlay','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
@@ -1215,9 +1256,10 @@ if (process.versions.electron) {
             const [sessionState,setSessionState]=useState({});fixture.setSessionState=setSessionState;fixture.resumed??=[];
             const [sessionsSourceStatus,setSessionSourceStatus]=useState('ready');fixture.setSessionSourceStatus=setSessionSourceStatus;
             const [inspector,setInspector]=useState(null);
+            const [reviewing,setReviewing]=useState(false);fixture.openReview=()=>setReviewing(true);
             const [creating,setCreating]=useState(false);fixture.setCreating=setCreating;
             const [empty,setEmpty]=useState(false);fixture.setEmpty=setEmpty;
-            const [generation,setGeneration]=useState(0);fixture.workspaceGeneration=generation;fixture.advanceWorkspace=()=>setGeneration(n=>n+1);
+            const [generation,setGeneration]=useState(0);fixture.workspaceGeneration=generation;fixture.advanceWorkspace=()=>{if(${JSON.stringify(scenario)}==='recommendations-main')setInspector(null);setGeneration(n=>n+1)};
             const [backendStatus,setBackendStatus]=useState('connected');
             const [commandRequest,setCommandRequest]=useState(null);
             fixture.command=(command,reveal=false)=>setCommandRequest(old=>({command,reveal,sequence:(old?.sequence||0)+1}));
@@ -1226,13 +1268,13 @@ if (process.versions.electron) {
             fixture.activeSessionId=activeSessionId;
             fixture.select=setActiveSessionId;
             const [preferences,setPreferences]=useState({sessionsWidth:240,inspectorWidth:320,sessionsVisible:true,density:'low'});
-            return <ApplicationShell sessions={empty ? [] : ((${JSON.stringify(scenario)}==='sidebar-controls'?['coding','other',...Array.from({length:80},(_,i)=>'history-'+i)]:['coding','other']).map((id,i)=>({id,name:id,cwd:'/tmp/test',harnessId:'codex',harness:'codex',lifecycle:'alive',status:'running',attention:(${JSON.stringify(scenario)}==='actions' && id==='other'?'needs_you':'idle'),...sessionState,label:id,createdAt:'2026-10-10T10:00:00Z',lastActivityAt:i?'2026-10-10T09:00:00Z':'2026-10-10T10:00:00Z'})))}
+            return <ApplicationShell centralSurface={reviewing ? {kind:"review",sessionId:activeSessionId,artifactId:"plan"} : {kind:"terminal",sessionId:activeSessionId}} onCloseReview={()=>setReviewing(false)} reviewContent={<p>Current plan</p>} sessions={empty ? [] : ((${JSON.stringify(scenario)}==='sidebar-controls'?['coding','other',...Array.from({length:80},(_,i)=>'history-'+i)]:['coding','other']).map((id,i)=>({id,name:id,cwd:'/tmp/test',harnessId:'codex',harness:'codex',lifecycle:'alive',status:'running',attention:(${JSON.stringify(scenario)}==='actions' && id==='other'?'needs_you':'idle'),...sessionState,label:id,createdAt:'2026-10-10T10:00:00Z',lastActivityAt:i?'2026-10-10T09:00:00Z':'2026-10-10T10:00:00Z'})))}
               workspace={{path:'/tmp/test'}} workspaceControl={<div className="shell-workspace-control"><span className="titlebar-text">test</span><WorkspaceHistoryDropdown triggerLabel="⇄" triggerClassName="titlebar-switch-button" triggerAriaLabel="Switch workspace" currentWorkspacePath="/tmp/test" isSwitching={false} onOpenPath={()=>{fixture.workspaceOpens++;setGeneration(n=>n+1)}} onOpenOtherFolder={()=>{}} onError={()=>{}}/></div>} onOpenSettings={()=>fixture.settingsOpened++} onCreateSession={()=>{fixture.sessionsCreated++;if(${JSON.stringify(scenario)}==='new-session'){setCreating(true);fixture.command('new-session')}}} activeSessionId={activeSessionId} workspaceGeneration={generation}
               newSessionContent={creating ? <NewSessionDialog key={generation} harnesses={[]} providerRuntime={null} onConfirm={async opts=>{fixture.submitted=opts;fixture.finishCreate=new Promise(resolve=>fixture.resolveCreate=resolve);await fixture.finishCreate;setCreating(false);fixture.command("terminal")}} onCancel={()=>fixture.command("cancel-new-session")}/> : null}
               onCancelNewSession={()=>setCreating(false)} backendStatus={backendStatus} sessionsSourceStatus={sessionsSourceStatus} taskmasterReady={${JSON.stringify(scenario)}==='actions-sources'} onOpenRecommendation={id=>fixture.openedRecommendations.push(id)} onFixWithAi={()=>fixture.prompts++} onRunCleanup={()=>fixture.prompts++} harnesses={[]} debugSettings={{showSessionIds:false}}
               commandRequest={commandRequest} preferences={preferences} onPreferencesChange={setPreferences} onResetPreferences={()=>new Promise(resolve=>{fixture.finishReset=resolve})}
               inspector={inspector} onInspect={setInspector} unreadIds={new Set(${JSON.stringify(scenario)}==='actions'?['other']:[])} acknowledgedIds={new Set()}
-              onResumeSession={id=>fixture.resumed.push(id)} onSelectSession={id=>{fixture.selections++;setActiveSessionId(id)}} onFocusTerminal={()=>fixture.runtime()?.terminal.focus()} onBackendUnavailable={()=>{}} />;
+              onResumeSession={id=>fixture.resumed.push(id)} onSelectSession={id=>{fixture.selections++;if(${JSON.stringify(scenario)}==='recommendations-main')setInspector(null);setActiveSessionId(id)}} onFocusTerminal={()=>fixture.runtime()?.terminal.focus()} onBackendUnavailable={()=>{}} />;
           }
           createRoot(document.getElementById('root')).render(${JSON.stringify(scenario)}.startsWith('preferences-')?<PreferencesHarness/>:${JSON.stringify(scenario)}.startsWith('app-')?<App/>:<Harness/>);
         `, resolveDir: root, loader: 'tsx' },

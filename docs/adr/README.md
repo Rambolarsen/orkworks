@@ -98,3 +98,5 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0081](./0081-signed-taskmaster-knowledge-activation-proof.md) | Signed Taskmaster knowledge activation proof | accepted |
 | [0082](./0082-react-grid-desktop-shell.md) | React and CSS Grid desktop shell | accepted; inspector presentation superseded by [0083](./0083-inspector-overlay-and-pin.md) |
 | [0083](./0083-inspector-overlay-and-pin.md) | Fixed inspector overlay and pin | accepted |
+
+| [0084](./0084-recommendations-main-view.md) | Recommendations in the main view | accepted |

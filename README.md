@@ -70,8 +70,9 @@ and one optional inspector, following [ADR 0078](docs/adr/0078-fixed-desktop-she
 and [ADR 0082](docs/adr/0082-react-grid-desktop-shell.md). The fixed right inspector
 overlies the main view with slight transparency until pinned; pinning reserves
 space at full opacity, per [ADR 0083](docs/adr/0083-inspector-overlay-and-pin.md).
-Utility pages replace
-Terminal at narrower widths without ending its session. Review and Actions
+Recommendations opens in the main view at every width, with Back/Escape return
+to the previous view, per [ADR 0084](docs/adr/0084-recommendations-main-view.md).
+Other utility pages replace Terminal at narrower widths without ending its session. Review and Actions
 navigation remain follow-up work under [#755](https://github.com/Rambolarsen/orkworks/issues/755).
 This describes source behavior, not the contents of published installers.
 

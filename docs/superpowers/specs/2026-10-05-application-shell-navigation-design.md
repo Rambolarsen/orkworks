@@ -160,7 +160,9 @@ not persistent panel tabs.
 No floating, docking, view reordering or document-tab strip exists. Resize
 handles adjust fixed regions only and have keyboard-operable separator controls.
 
-Details, Actions, Recommendations and Capacity share the optional inspector;
+Recommendations placement is superseded by [ADR 0084](../../adr/0084-recommendations-main-view.md):
+it uses the central utility page at every width with Back/Escape return.
+Details, Actions and Capacity share the optional inspector;
 only one is visible there. Capacity and recommendations keep explicit workspace/tool
 scope labels and their existing unavailable/disabled states. A utility's return
 action restores the prior valid detail subject, never a stale session. Closing

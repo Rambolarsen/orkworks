@@ -91,3 +91,5 @@ Decision records and their original rationale and consequences.
 - [React and CSS Grid desktop shell](0082-react-grid-desktop-shell.md) — Replacement of Dockview with explicit React regions and accessible resizing.
 
 - [Fixed inspector overlay and pin](0083-inspector-overlay-and-pin.md) — Overlay, pin, persistence, and focus-scoped dismissal.
+
+- [Recommendations in the main view](0084-recommendations-main-view.md) — Central Recommendations placement and return behavior.
