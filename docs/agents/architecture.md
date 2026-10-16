@@ -532,8 +532,8 @@ prompt-plus-Enter. Other harnesses retain plain input delivery.
 
 The source-owned `session-metadata.py` producer prepares API-only agent reporting
 for #789. With `ORKWORKS_SESSION_METADATA_API_VERSION=1`, it requires authenticated
-GET and validation-only PATCH before a revisioned mutation, preserves the caller's
-revision, and fails without direct-file fallback. Codex integration reconciliation
+GET, validation-only PATCH, and follow-up GET with the same revision before a
+revisioned mutation, preserves the caller's revision, and fails without direct-file fallback. Codex integration reconciliation
 installs the helper beside its reporters; a marked `SessionStart` emits the
 instructions as native additional context. The agent must run bootstrap through
 its actual sandboxed tool context; the host hook does not prove that reachability.

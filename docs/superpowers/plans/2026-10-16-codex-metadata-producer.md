@@ -10,8 +10,8 @@ status: draft
 
 Implements the local producer work in [#789](https://github.com/Rambolarsen/orkworks/issues/789)
 under the [approved metadata design](../specs/2026-10-08-codex-native-attention-layer-design.md).
-The pass condition is an authenticated GET and validation-only PATCH before
-any agent PATCH, without direct-file fallback or blind conflict retry.
+The pass condition is an authenticated GET, validation-only PATCH, and follow-up
+GET with the same revision before any agent PATCH, without direct-file fallback or blind conflict retry.
 This does not enable native clearing or resolve #690.
 
 ## Delivery
@@ -82,3 +82,13 @@ its helper and other handlers declaring none. The release script list is shared
 with Windows installed expectations. Thirty-five artifact tests and the helper
 drift regression pass; the scoped fresh review found no required changes.
 Full verification is rerun for the corrected code before the next push.
+
+## Review cycle 2 of 3
+
+The current-head Codex review identified a missing follow-up GET in bootstrap
+and ASCII escaping that could inflate valid UTF-8 patches over the byte limit.
+Both were reproduced by failing behavioral regressions. Bootstrap now verifies
+the revision again through GET before reporting success or mutating; request
+serialization preserves UTF-8 before enforcing the network byte limit.
+All fourteen producer behavioral cases pass. Full verification and the
+current-session medium review are repeated on the corrected code before merge.

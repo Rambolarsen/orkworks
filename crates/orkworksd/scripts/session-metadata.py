@@ -52,7 +52,7 @@ class Client:
         self.path = "/sessions/" + self.session_id + "/metadata"
 
     def request(self, method, body=None, validate_only=False):
-        encoded = None if body is None else json.dumps(body, separators=(",", ":")).encode()
+        encoded = None if body is None else json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         if encoded is not None and len(encoded) > MAX_BODY:
             raise ProducerError("metadata patch exceeds the size limit")
         # HTTPConnection ignores ambient proxies and never follows redirects.
@@ -95,6 +95,8 @@ class Client:
         result = self.request("PATCH", probe, validate_only=True)
         if result.get("validated") is not True or result["metadataRevision"] != revision:
             raise ProducerError("metadata bootstrap was not validated")
+        if self.read()["metadataRevision"] != revision:
+            raise ProducerError("metadata bootstrap changed revision; reread before retrying")
         return result
 
 

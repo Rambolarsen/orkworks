@@ -52,7 +52,7 @@ def ok(value):
 
 
 def bootstrap_replies():
-    return [ok(RECORD), ok({"validated": True, "metadataRevision": "7"})]
+    return [ok(RECORD), ok({"validated": True, "metadataRevision": "7"}), ok(RECORD)]
 
 
 class ProducerTests(unittest.TestCase):
@@ -68,10 +68,10 @@ class ProducerTests(unittest.TestCase):
         with endpoint(bootstrap_replies() + [ok({**RECORD, "metadataRevision": "8", "summary": "new"})]) as (port, requests):
             result = self.invoke("patch", port, json.dumps(PATCH))
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual([(r[0], r[1]) for r in requests], [("GET", "/sessions/session-1/metadata"), ("PATCH", "/sessions/session-1/metadata?validateOnly=true"), ("PATCH", "/sessions/session-1/metadata")])
+        self.assertEqual([(r[0], r[1]) for r in requests], [("GET", "/sessions/session-1/metadata"), ("PATCH", "/sessions/session-1/metadata?validateOnly=true"), ("GET", "/sessions/session-1/metadata"), ("PATCH", "/sessions/session-1/metadata")])
         self.assertTrue(all(r[2] == "Bearer " + TOKEN for r in requests))
         self.assertEqual(requests[1][3], {"metadataRevision": "7", "patch": {"agentMetadata": {"summary": None}}})
-        self.assertEqual(requests[2][3], PATCH)
+        self.assertEqual(requests[3][3], PATCH)
         self.assertEqual(json.loads(result.stdout)["metadataRevision"], "8")
         self.assertNotIn(TOKEN, result.stdout + result.stderr)
 
@@ -80,15 +80,32 @@ class ProducerTests(unittest.TestCase):
             result = self.invoke("bootstrap", port)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout), {"validated": True, "metadataRevision": "7"})
-        self.assertEqual(len(requests), 2)
-        self.assertTrue(requests[-1][1].endswith("?validateOnly=true"))
+        self.assertEqual([r[0] for r in requests], ["GET", "PATCH", "GET"])
+        self.assertTrue(requests[1][1].endswith("?validateOnly=true"))
+
+    def test_bootstrap_followup_read_rejects_revision_change_before_mutation(self):
+        replies = bootstrap_replies()[:2] + [ok({**RECORD, "metadataRevision": "8"})]
+        with endpoint(replies) as (port, requests):
+            result = self.invoke("patch", port, json.dumps(PATCH))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual([r[0] for r in requests], ["GET", "PATCH", "GET"])
+        self.assertTrue(all(r[0] == "GET" or r[1].endswith("?validateOnly=true") for r in requests))
+
+    def test_utf8_patch_within_byte_limit_is_not_expanded_to_ascii_escapes(self):
+        patch = {"metadataRevision": "7", "patch": {"agentMetadata": {"summary": "界" * 1400}}}
+        body = json.dumps(patch, ensure_ascii=False)
+        self.assertLess(len(body.encode("utf-8")), 8192)
+        with endpoint(bootstrap_replies() + [ok({**RECORD, "metadataRevision": "8"})]) as (port, requests):
+            result = self.invoke("patch", port, body)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(requests[-1][3], patch)
 
     def test_conflict_requires_reread_without_blind_retry(self):
         with endpoint(bootstrap_replies() + [(409, {"secret": TOKEN}, {})]) as (port, requests):
             result = self.invoke("patch", port, json.dumps(PATCH))
         self.assertEqual(result.returncode, 3)
         self.assertIn("reread", result.stderr)
-        self.assertEqual(len(requests), 3)
+        self.assertEqual(len(requests), 4)
         self.assertNotIn(TOKEN, result.stdout + result.stderr)
 
     def test_failed_bootstrap_never_writes_or_falls_back_to_file(self):
