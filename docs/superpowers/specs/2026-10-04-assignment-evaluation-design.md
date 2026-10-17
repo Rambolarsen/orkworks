@@ -614,8 +614,12 @@ not acquire an accepted result revision.
 Workspace identity is sidecar-derived; the remaining values map to #742's
 immutable report descriptor. The descriptor's content digest must equal the
 source `contentDigest`. This local source-kind tag discriminates the identity;
-it does not presume an upstream tagged report schema. Report freshness remains
-gated on #742's correction-head contract.
+it does not presume an upstream tagged report schema. Report freshness consumes
+[#742's current-head and correction contract](2026-10-04-orchestrator-preparation-design.md#current-report-head-and-corrections).
+That written contract now defines head CAS, exact version/digest validation,
+dependent invalidation and atomic recovery. Written acceptance and a reviewed
+joint implementation boundary remain gates; source events alone cannot establish
+currentness.
 
 ### Evaluation and disposition
 
@@ -839,7 +843,7 @@ A future implementation must verify these contract cases:
 | Independent child review with no user performance grade | Review may affect worker result; reviewer performance remains Unassessed and cannot gate eligibility |
 | Child attempts reviewer-of-review / user performance correction | Reject recursive child review; user performance changes only its own result, never original review eligibility |
 | User correction/invalidation and concurrent stream creation | Preserve provenance; CAS current head/slot; stale mutation conflicts; invalidation freezes stream |
-| Research report corrected under #742 | Only citing outcomes stale; source use blocked until approved correction-head CAS/currentness contract exists |
+| Research report corrected under #742 | Only citing outcomes stale; consume the written correction-head CAS/currentness contract after acceptance and joint transaction review |
 | Canonical reload/cross-language fixtures | Every tagged/nested shape, null, integer and ordering produces identical bytes/digest; duplicate/unknown fields fail |
 | Changed metric or semantic field | Result/evaluation digest changes; full timeCostEvidence is hashed; request metadata/projections do not affect hashes |
 | Unavailable metric source | Omit evidence, never fabricate zero/estimate; USD/millisecond provenance and #745 comparison boundaries remain |
@@ -847,6 +851,53 @@ A future implementation must verify these contract cases:
 | Retention/subject purge racing an incoming dependency | Same boundary protects current sources; exact subjectRevision CAS; purge deletes only unreferenced closed history |
 | Workspace deletion with surviving source consumer | #745 learning/source phases and custody transfer complete first, or retain fence/metadata and report pending |
 | Unavailable cross-workspace custody/shared learning contract | Reject shared admission; never substitute a workspace-only transaction or delete protected evidence |
+
+## Hierarchy summary revision ownership
+
+For the proposed #746 projection, the sidecar owns material result summaries
+and their revision state. This is read-projection metadata, not a new member of
+strict `AssignmentResult`, `EvaluationReference`, or evaluation digest payloads.
+It is also distinct from purge/CAS `subjectRevision` and ordinary session
+activity summaries or unread state.
+
+The proposed producer contract is:
+
+- Key a durable summary row by the complete tagged root/child
+  `AssignmentIdentity`. Bind its material state to the exact accepted result
+  revision/digest (or explicit absence), authoritative overall result, required
+  findings, and required outcome freshness/conflict dispositions. Missing or
+  corrupt source state yields unavailable, not an invented Unassessed summary.
+- `summaryRevision` is a canonical decimal string from `"1"` through
+  `"2147483647"`, without leading zeros. The sidecar increments it once per
+  committed material-state change after initial revision `"1"`. Initialize only
+  for a newly admitted summary subject, atomically with its first material state;
+  a missing row for a previously admitted subject is corruption, not initialization.
+  The renderer compares it only for equality
+  within that complete assignment identity; it never orders different subjects
+  or treats it as a grant, result revision, or evidence generation.
+- A correction round trip advances twice even when the final displayed state
+  resembles the initial state. Optional-only detail changes, timestamps,
+  polling, navigation and restart with unchanged revalidated material state do
+  not advance it. No content hash or process-local counter substitutes for this
+  durable revision lineage.
+- Publish source eligibility, authoritative material state and revision under
+  one reviewed serialization/recovery boundary, including #742 report-head
+  corrections. Until reconciliation completes, fence affected reads rather
+  than pair new evidence with an old passing summary. Events only notify readers.
+- Retain the row while the assignment's result summary or viewed/collapse
+  identity can be served. Never evict/recreate it with revision 1 for the same
+  assignment. Purging the subject removes its summary; retained navigation
+  displays summary unavailable and cannot auto-collapse on an old viewed token.
+  Missing/corrupt lineage cannot be regenerated from the latest outcome alone.
+- Exhaustion refuses publication of another current summary and exposes it as
+  unavailable without blocking an otherwise authorized source correction or
+  serving the previous disposition as current. Never wrap or reuse revisions.
+
+This gives the consumer a bounded stable token; it does not select a storage
+engine or authorize runtime work. Exact canonical material-state bytes, row and
+workspace byte/count limits, transaction/recovery fixtures, deletion ordering
+and lossless transport require review in the scoped runtime plan. See the
+[mapping fixtures](2026-10-15-hierarchy-projection-mapping.md#summary-revision-and-action-freshness).
 
 ## Implementation gate
 
@@ -858,7 +909,8 @@ projection. The parent scope supplies independent review and optional terminal
 user performance assessment; this contract adds no recursive review or mandatory
 certification. Define finite artifact/rehash/worker/run/workspace limits,
 canonical byte fixtures, sidecar finalization/recovery and dependency-index seams
-before code. Research-report freshness waits on #742's correction-head contract;
+before code. Research-report freshness requires acceptance and joint implementation
+of #742's written correction-head contract;
 provider costs stay absent until their authenticated source is approved; shared
 learning stays gated on the joint custody contract. A plan cannot defer the
 normative race outcomes above or silently enable unsupported adapters.

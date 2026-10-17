@@ -225,6 +225,14 @@ including clarification, research synthesis and preparation of execution.
 Its requirement manifests use `rootAssignmentId` as their `taskId`; it cannot
 be mistaken for a launchable child task. Role must be `orchestrator`.
 
+For the proposed #746 projection, the bootstrap supplies selected root skills,
+not delivery or usage evidence. The initial projection defers root telemetry:
+#743's child binding cannot be populated with bootstrap or future-plan values.
+Root badges remain Delivery unconfirmed and Usage unknown. This presentation
+does not relax mandatory verified parent content delivery at launch/resume;
+adapter eligibility still requires it. See the
+[root evidence boundary](2026-10-04-skill-usage-evidence-design.md#root-evidence-boundary).
+
 Apply the composition, byte/digest and bounds rules above, excluding the
 bootstrap digest field before canonical serialization. Hash
 `orkworks.orchestrator-bootstrap.v1\n` (one literal LF after `v1`) plus those

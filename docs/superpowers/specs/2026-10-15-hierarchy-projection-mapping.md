@@ -9,7 +9,7 @@ status: draft
 # Hierarchy projection mapping and review fixtures
 
 - Tracking: [#746](https://github.com/Rambolarsen/orkworks/issues/746), initiative [#738](https://github.com/Rambolarsen/orkworks/issues/738).
-- Source baseline: `2e85038c1d33476df436b12cf1e2083d61db569f` (2026-10-15).
+- Source baseline: `2e85038c1d33476df436b12cf1e2083d61db569f` (2026-10-15); producer reconciliation drafted against `1dc68e025038dfe7a6d96c4229d9852a7c9d2996` (2026-10-17).
 - Status: proposed consumer mapping for written review; upstream agreement and owner acceptance remain pending.
 
 This supplements the [hierarchy interaction contract](2026-10-04-agent-hierarchy-ui-design.md#renderer-projection-and-contract-fixtures).
@@ -51,8 +51,10 @@ session's records.
 | Action navigation | Authoritative current #610/#742 decision identity/version and exact run/plan/task target, projected as an opaque display/navigation descriptor | Reveal/inspect only; stale/failed refresh disables decisions; Electron main separately validates any eventual command |
 
 The last row does not establish an upstream `ActionTarget` wire record. Likewise,
-#742 has no finalized hierarchy snapshot version and #744 has no canonical
-`summaryRevision` field. The exact encodings/retrieval and allocation-field
+#742 has no finalized hierarchy snapshot version. #744 now proposes separate
+[summary revision metadata](2026-10-04-assignment-evaluation-design.md#hierarchy-summary-revision-ownership),
+without adding a field to canonical result/evaluation records. The remaining
+encodings/retrieval and allocation-field
 mapping need consumer agreement before executable planning. Keep transport
 metadata separate from canonical result/configuration objects; do not add
 unknown fields to strict upstream records to make the UI convenient.
@@ -81,8 +83,12 @@ reservation and plan/task. They do not define a root reporter. The root may show
 its immutable bootstrap's selected skills with Delivery unconfirmed and Usage
 unknown. Do not relabel child evidence as parent evidence or show a later plan's
 skills as loaded in the parent. Confirmed root delivery/usage requires a separately
-reviewed root-binding/projection extension; it is an explicit open #741/#743
-consumer decision, not a fallback to prompt text. Root evaluation instead uses
+reviewed root-binding/projection extension. The proposed initial slice explicitly
+defers root telemetry, as recorded in
+[#741's bootstrap contract](2026-10-04-agent-role-configuration-design.md#run-bound-orchestrator-bootstrap)
+and [#743's root boundary](2026-10-04-skill-usage-evidence-design.md#root-evidence-boundary).
+Mandatory verified parent content delivery remains a launch/resume prerequisite
+even though this projection has no root badge receipt. Root evaluation instead uses
 #744's root identity and explicit user review.
 
 ## Summary revision and action freshness
@@ -93,15 +99,22 @@ A task's stable navigation key, complete assignment identity, accepted
 three bind assignment/result/storage operations. Only the proposed summary
 revision keys explicit viewing and automatic-collapse suppression.
 
-Proposed producer rule for owner review: the sidecar issues a stable, opaque
-summary revision for the exact assignment/result and its material displayed
-summary. It changes when accepted result identity, overall result, required
+Proposed producer rule for owner review, owned by
+[#744](2026-10-04-assignment-evaluation-design.md#hierarchy-summary-revision-ownership):
+the sidecar issues a stable summary revision for the exact assignment/result
+and its material displayed summary. It changes when accepted result identity, overall result, required
 findings, or required outcome freshness/conflict disposition changes. A change
 back to an earlier disposition is still a new material revision. Optional-only
 detail changes, polling, navigation, and a runtime restart with unchanged
-revalidated content do not change it. The producer must preserve enough bounded
-state to honor that rule; exact encoding, checked exhaustion, atomic publication
-and retention remain prerequisites to its runtime plan. Do not substitute a
+revalidated content do not change it. The token is a canonical decimal string
+`"1".."2147483647"`, scoped to the complete assignment identity and treated as
+opaque by the renderer. A durable row advances once per committed material
+transition; restart preserves it. Source freshness, material state and revision
+publish atomically or affected reads are fenced. Missing/corrupt lineage, purged
+subjects and exhausted counters produce summary unavailable; they never reset
+to 1 or serve an old pass as current. Source corrections remain possible at
+exhaustion. Exact material bytes, storage bounds and transaction/deletion
+recovery remain runtime-plan gates. Do not substitute a
 content digest that reuses an earlier revision after a correction is reversed.
 
 A group is auto-collapse eligible only after every current summary was explicitly
@@ -160,6 +173,17 @@ its explicitly stated inputs; table rows do not mutate one shared scenario.
 | F17 hierarchy unavailable | Snapshot for R is partial, corrupt or oversized, although the canonical session list is valid | Workflow structure unavailable, no guessed edges/empty-tree success or No actions; stale workflow decisions disabled; ordinary switcher usable |
 | F18 immutable root details | B1 bootstrap selects orchestrator role/skill-a and root criterion C1; a later exact plan selects child skill-b and criterion C2 | Root keeps bootstrap role/skill-a/C1 and goal; child shows its own skill-b/C2; no parent reload or transferred delivery claim |
 | F19 delivery without use | S1 has a current verified delivery receipt; reported/observed usage both Unknown with no countable stream | Filled Loaded badge with check/text; usage Unknown, counts unavailable, no usage highlight or claim of adherence |
+| F20 root receipt sent to child route | A caller supplies B1 plus invented plan/task/reservation members | Reject evidence; root stays selected/unconfirmed/unknown with no count or highlight; parent launch delivery gate remains mandatory |
+| F21 lost summary lineage | Retained A1/result 1/E1 pass exists but its durable summary row is missing/corrupt | Summary unavailable; do not recreate revision `"1"`, mark viewed, or auto-collapse; source review is not silently rewritten |
+| F22 summary exhaustion | A1 reaches `"2147483647"`; an authorized required-evidence correction changes its disposition | Accept/fence the source correction under its own rules; summary unavailable, no wrap or old current pass, no automatic collapse |
+| F23 correction publication crash | #742 report-head correction commits while a dependent summary is read; crash before/after the transaction boundary | Complete old head/old summary or complete new head/new revision; otherwise affected reads unavailable; never new head with current old pass; event replay cannot increment twice |
+| F24 subject purge and retained row | A1's purge succeeds while its navigation key remains in retained plan history | No result summary/viewed token reused; show summary unavailable and prevent automatic collapse; another assignment's revision `"1"` cannot join A1 |
+
+For F10/F11, q1/q2/q3 denote the concrete canonical revision strings
+`"1"`/`"2"`/`"3"` within A1, not globally unique tokens. In F10 both committed
+transitions advance the durable row, including the return to pass; a restart
+between them cannot reset its counter. F23's complete-old case applies only
+before the correction commits; after commit, old currentness is forbidden.
 
 Expand these into exact byte/record fixtures only after the upstream agreement
 below. The broader hierarchy contract retains keyboard, responsive/zoom,
@@ -171,8 +195,8 @@ cases; this handoff does not replace native accessibility/usability validation.
 | Owner/surface | Concrete agreement requested | Current disposition |
 | --- | --- | --- |
 | #741/#742 | Confirm bootstrap/run/plan joins and allocation sources for taskVersion/reservation/session; declare snapshot ordering and exact decision targets separately from immutable records | Proposed mapping; source types/routes are not final |
-| #743 | Confirm complete child evidence join, source/count/coverage and stable-event behavior; decide whether root evidence is deferred or gets a separately reviewed binding | Child mapping proposed; root delivery/usage unconfirmed |
-| #744 | Confirm complete root/child result/reviewer references, outcome freshness, candidate separation and producer-owned summary revision transitions | Proposed mapping; report-based current outcomes retain #742 correction-head gate |
+| #743 | Confirm complete child evidence join, source/count/coverage and stable-event behavior; review explicit initial root-telemetry deferral | Deferral recorded in #741/#743; child mapping and written acceptance remain pending |
+| #744 | Confirm complete root/child result/reviewer references, outcome freshness, candidate separation and producer-owned summary revision transitions | Durable summary rule recorded in #744; report-based outcomes consume #742's written correction-head contract, with acceptance/joint transaction review still required |
 | #745 | Confirm optional opaque repository/history references; no shared custody or learning authority inferred | Independent history/custody gates remain |
 | #746/owner | Accept exact mapping/fixtures and material summary rule, or request changes; this session's drafting authorization is not acceptance of the written contract | Written acceptance pending |
 
