@@ -212,3 +212,34 @@ monitoring.
 
 Stop only when the PR is merged or closed, the user explicitly stops or takes
 over, permissions prevent progress, or the documented babysit budget expires.
+
+
+## Post-merge wrap-up
+
+After verifying that the concrete PR is merged and completing the applicable
+repository cleanup, end with a concise user-facing response containing:
+
+- **Merged:** the PR link and a summary of what changed and why it matters.
+- **Verified:** the checks/review evidence for the merged change and any
+  remaining limitations or cleanup blockers.
+- **Suggested follow-up:** one concrete next task and a brief reason it is
+  useful now, grounded in the completed work or the live GitHub issue board.
+
+Prefer a clear follow-up exposed by the completed work. Otherwise, inspect the
+current open issues using `troubleshooting-github-connectivity` and apply the
+repository's current issue-prioritization and scope rules in
+`docs/agents/development-workflow.md#issue-prioritization-and-scope`. Before
+recommending an existing issue, verify that it is still open and check its
+scope, dependencies, and readiness; include its link. Identify a new idea from
+the completed work as a proposal, rather than implying it is already tracked
+or approved. If the next useful step is a spec review or prerequisite, suggest
+that step instead of blocked implementation.
+
+If board access is unavailable, disclose that limitation and base the
+suggestion only on verified evidence from the completed work. If neither
+source supports a useful next task, say so rather than inventing one.
+
+The follow-up is a suggestion for a separate task/session under `starting-work`;
+do not start it as part of the merged PR's babysitting lifecycle. A closed,
+unmerged PR or an unresolved handoff must retain its actual status rather than
+use this merged-work summary.
