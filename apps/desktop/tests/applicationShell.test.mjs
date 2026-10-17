@@ -589,6 +589,30 @@ if (process.versions.electron) {
           assert.equal(await evaluate('document.querySelector(".shell-main").getBoundingClientRect().width'), mainWidth, 'overlay must not shrink central view');
           assert.equal(await evaluate('document.querySelector("[data-shell-region=inspector]").getBoundingClientRect().right'), await evaluate('document.querySelector(".shell-main").getBoundingClientRect().right'));
           assert.match(await evaluate('getComputedStyle(document.querySelector("[data-shell-region=inspector]")).backgroundColor'), /0\.96/);
+          const assertCornerControls = async () => {
+            const geometry = await evaluate(`(()=>{
+              const pane=document.querySelector('[data-shell-region=inspector]');
+              const header=pane.querySelector('header');
+              const rect=element=>{const r=element.getBoundingClientRect();return {top:r.top,right:r.right,bottom:r.bottom}};
+              return {header:rect(header),pin:rect(header.querySelector('[data-shell-pin]')),close:rect(header.querySelector('[data-shell-return]'))};
+            })()`);
+            assert.ok(Math.abs(geometry.pin.top - geometry.close.top) <= 1, 'pin and close share the top row');
+            assert.ok(geometry.close.top - geometry.header.top <= 12, 'controls stay at the top of the header');
+            assert.ok(geometry.header.right - geometry.close.right <= 16, 'close stays at the right edge');
+            assert.ok(geometry.pin.right < geometry.close.right, 'pin precedes close');
+          };
+          await assertCornerControls();
+          await evaluate('fixture.command("actions",true)');
+          await waitFor('document.querySelector("[data-shell-region=inspector] h2").textContent==="Actions"');
+          await evaluate('document.querySelector(".shell-utility-scope").textContent="Workspace: /Users/developer/workspace/a-project-with-a-long-directory-name"');
+          await assertCornerControls();
+          await evaluate('fixture.command("details",true)');
+          await waitFor('document.querySelector("[data-shell-region=inspector] h2").textContent==="Details"');
+          // Overflowing detail content scrolls below the stationary controls.
+          await evaluate(`(()=>{const pane=document.querySelector('[data-shell-region=inspector]');const content=document.createElement('div');content.className='panel-content';content.style.overflowY='auto';content.innerHTML='<div style="height:2000px">Long details</div>';pane.append(content);content.scrollTop=300})()`);
+          assert.equal(await evaluate('document.querySelector("[data-shell-region=inspector] > .panel-content").scrollTop'),300);
+          await assertCornerControls();
+          await evaluate('document.querySelector("[data-shell-region=inspector] > .panel-content").remove()');
           // A real click on non-interactive inspector content must keep Escape in its region.
           const panelPoint = await evaluate('(()=>{const r=document.querySelector("[data-shell-region=inspector]").getBoundingClientRect();return {x:Math.round(r.left+40),y:Math.round(r.bottom-40)}})()');
           win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...panelPoint});
@@ -616,6 +640,7 @@ if (process.versions.electron) {
           await waitFor('document.querySelector("[data-shell-pin]").getAttribute("aria-pressed")==="true"');
           assert.ok(await evaluate('document.querySelector(".shell-main").getBoundingClientRect().width') < mainWidth);
           assert.equal(await evaluate('getComputedStyle(document.querySelector("[data-shell-region=inspector]")).backgroundColor'), await evaluate('getComputedStyle(document.querySelector("[data-shell-region=sessions]")).backgroundColor'));
+          await assertCornerControls();
           if (process.env.ORKWORKS_CAPTURE_INSPECTOR) {
             const {writeFileSync}=await import('node:fs');
             writeFileSync(process.env.ORKWORKS_CAPTURE_INSPECTOR+'-pinned.png',(await win.webContents.capturePage()).toPNG());
