@@ -582,7 +582,47 @@ if (process.versions.electron) {
         return;
       } else if (scenario !== 'baseline') {
         await waitFor('fixture.runtime()?.terminal.element?.isConnected');
-        if (scenario === 'inspector-overlay') {
+        if (scenario === 'inspector-dismissal') {
+          const nativeClick = async selector => {
+            const point = await evaluate('(()=>{const r=document.querySelector('+JSON.stringify(selector)+').getBoundingClientRect();return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}})()');
+            win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...point});
+            win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,...point});
+            await evaluate('new Promise(resolve=>requestAnimationFrame(resolve))');
+          };
+          for (const command of ['capacity','actions']) {
+            await click(command);
+            await waitFor('document.querySelector("[data-shell-region=inspector]")');
+            await nativeClick('[data-shell-region=inspector] h2');
+            assert.equal(await evaluate('!!document.querySelector("[data-shell-region=inspector]")'),true,command+' content keeps the inspector open');
+            await nativeClick('.shell-inspector-host [role=separator]');
+            assert.equal(await evaluate('!!document.querySelector("[data-shell-region=inspector]")'),true,command+' resize handle keeps the inspector open');
+            await nativeClick('[data-shell-terminal-focus]');
+            assert.equal(await evaluate('!!document.querySelector("[data-shell-region=inspector]")'),false,'outside click hides unpinned '+command);
+            assert.equal(await evaluate('document.activeElement.hasAttribute("data-shell-terminal-focus")'),true,'outside click retains its focus target');
+            await click(command);
+            await waitFor('document.querySelector("[data-shell-pin]")');
+            await evaluate('document.querySelector("[data-shell-pin]").click()');
+            await waitFor('document.querySelector("[data-shell-pin]").getAttribute("aria-pressed")==="true"');
+            await nativeClick('[data-shell-terminal-focus]');
+            assert.equal(await evaluate('!!document.querySelector("[data-shell-region=inspector]")'),true,'outside click preserves pinned '+command);
+            await evaluate('document.querySelector("[data-shell-pin]").click()');
+            await waitFor('document.querySelector("[data-shell-pin]").getAttribute("aria-pressed")==="false"');
+            await evaluate('(()=>{const button=document.querySelector('+JSON.stringify('[data-shell-command='+command+']')+');button.dispatchEvent(new PointerEvent("pointerdown",{bubbles:true}));button.click()})()');
+            await waitFor('!document.querySelector("[data-shell-region=inspector]")');
+            await win.setContentSize(1000,700);
+            await waitFor('document.querySelector(".shell-layout").dataset.mode==="medium"');
+            await click(command);
+            await waitFor('document.querySelector("[data-shell-region=utility]")');
+            await nativeClick('[data-shell-terminal-focus]');
+            assert.equal(await evaluate('!!document.querySelector("[data-shell-region=utility]")'),true,'outside click preserves responsive '+command+' page');
+            await evaluate('document.querySelector("[data-shell-return]").click()');
+            await waitFor('document.querySelector("[data-shell-region=terminal]")');
+            await win.setContentSize(1280,700);
+            await waitFor('document.querySelector(".shell-layout").dataset.mode==="wide"');
+          }
+          assert.equal(await evaluate('fixture.selections'),0);
+          assert.equal(await evaluate('fixture.input.length'),0);
+        } else if (scenario === 'inspector-overlay') {
           const mainWidth = await evaluate('document.querySelector(".shell-main").getBoundingClientRect().width');
           await click('details');
           await waitFor('document.querySelector("[data-shell-region=inspector]")');
@@ -1271,7 +1311,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['recommendations-main','inspector-overlay','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['recommendations-main','inspector-dismissal','inspector-overlay','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
