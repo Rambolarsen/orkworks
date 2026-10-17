@@ -574,8 +574,9 @@ technology and usability validation in the future runtime work.
 
 These are proposed UI input records and consumer requirements, **not** a new
 runtime API schema. #741/#742 own configuration/authority identity, #743 owns
-delivery/usage, and #744 owns result/evaluation. Exact wire names, retrieval,
-bounds, retention and owner agreement remain review gates.
+delivery/usage, and #744 owns result/evaluation. The [payload follow-up](2026-10-17-hierarchy-projection-payload-design.md) proposes
+exact overview fields, read authority and response bounds. Wire retrieval,
+retention, producer agreement and written acceptance remain review gates.
 
 | Proposed input | Required meaning |
 | --- | --- |
@@ -584,16 +585,20 @@ bounds, retention and owner agreement remain review gates.
 | `TaskProjection` | Exact run/plan/revision/task tuple, declared batch/order/dependencies, role, label, immutable configuration digest, optional exact child ID, reservation phase, coordination outcome and current subject/result reference; optional validated source times, never synthesized chronology |
 | `SkillProjection` | Exact skill ID/version/content digest and configuration/child/generation binding, separate delivery/usage source/coverage, current evidence references, stable usage event identities or authoritative dedupe cursor |
 | `EvaluationProjection` | Complete #744 assignment identity and accepted result revision/digest, separate candidate/finalization state, authoritative overall result, outcome-level freshness/conflicts and exact evaluation/reviewer/source references; optional detail scores and stable summary revision, with no renderer derivation or mutation authority |
-| `ActionTarget` | Opaque action ID, exact subject/version, reason/type and target node; display/navigation only, no token, grant, bearer, terminal input or arbitrary endpoint |
+| `ActionTarget` | Exact #912 kind/target tuple, label and target node; display/navigation only, no token, grant, bearer, terminal input or arbitrary endpoint |
 
 Join uses validated ownership references, never a second renderer session map.
 Ordinary `SessionInfo` remains the lifecycle/status source. Proposed finite UI
-budget: one run root plus up to 16 non-agent plan/stage headings and up to 128
+budget: one run root plus up to 16 simultaneously rendered non-agent stage/revision headings and up to 128
 tasks per visible
 plan; up to 16 skills per node. Use windowed rendering or explicit progressive
 reveal for large collections, retain total counts and a direct reveal path to
 selected/action targets, and never hide required actions behind pagination.
-A run can retain 16 plans under #742; do not assume 128 is a run-wide task cap.
+A run can retain 16 logical plans and 64 revisions per plan under #742; do not
+assume 128 tasks or 16 revision headings is a run-wide cap. Retain exact prior
+revision paths. The proposed payload applies an 8 MiB complete-response budget;
+source-valid larger history is visibly unavailable until separately reviewed
+pagination/completeness semantics exist. UI windowing does not truncate transport.
 A corrupt/oversized projection is rejected visibly, without truncating
 ownership or turning a partial scan into “No actions”. Ordinary session history
 continues using its existing bounds.

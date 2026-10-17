@@ -165,3 +165,5 @@ Dated design records; these do not establish current product behavior.
 - [Codex client identity before authenticated local connection](2026-10-16-codex-client-identity-proposal.md) — Proposed upstream native-client identity handoff, reconnect contract and platform prerequisites.
 
 - [Hierarchy snapshot and navigation transport](2026-10-17-hierarchy-projection-transport-design.md) — Proposed snapshot ordering, exact navigation targets and lossless display encodings for #746.
+
+- [Hierarchy projection payload and read boundary](2026-10-17-hierarchy-projection-payload-design.md) — Proposed exact overview records, read authority, finite budgets and synthetic payload fixtures.
