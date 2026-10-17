@@ -613,6 +613,31 @@ if (process.versions.electron) {
           assert.equal(await evaluate('document.querySelector("[data-shell-region=inspector] > .panel-content").scrollTop'),300);
           await assertCornerControls();
           await evaluate('document.querySelector("[data-shell-region=inspector] > .panel-content").remove()');
+          const outsideClick = async () => {
+            const point = await evaluate('(()=>{const r=document.querySelector("[data-shell-terminal-focus]").getBoundingClientRect();return {x:Math.round(r.left+10),y:Math.round(r.top+10)}})()');
+            win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...point});
+            win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,...point});
+            await evaluate('new Promise(resolve=>requestAnimationFrame(resolve))');
+          };
+          const separatorPoint = await evaluate('(()=>{const r=document.querySelector(".shell-inspector-host [role=separator]").getBoundingClientRect();return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+40)}})()');
+          win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...separatorPoint});
+          win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,...separatorPoint});
+          await evaluate('new Promise(resolve=>requestAnimationFrame(resolve))');
+          assert.equal(await evaluate('!!document.querySelector("[data-shell-region=inspector]")'),true,'resize handle preserves unpinned Details');
+          await outsideClick();
+          assert.equal(await evaluate('!!document.querySelector("[data-shell-region=inspector]")'),false,'outside click hides unpinned Details');
+          assert.notEqual(await evaluate('document.activeElement.dataset.shellCommand'),'details','outside click does not restore invoker focus');
+          const togglePoint = await evaluate('(()=>{const r=document.querySelector("[data-shell-command=details]").getBoundingClientRect();return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}})()');
+          win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...togglePoint});
+          win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,...togglePoint});
+          await evaluate('new Promise(resolve=>requestAnimationFrame(resolve))');
+          assert.equal(await evaluate('!!document.querySelector("[data-shell-region=inspector]")'),true,'Details toggle opens normally after outside dismissal');
+          // The overlay can cover the toolbar toggle; exercise its event sequence directly.
+          await evaluate('(()=>{const button=document.querySelector("[data-shell-command=details]");button.dispatchEvent(new PointerEvent("pointerdown",{bubbles:true}));button.click()})()');
+          await waitFor('!document.querySelector("[data-shell-region=inspector]")');
+          assert.equal(await evaluate('!!document.querySelector("[data-shell-region=inspector]")'),false,'Details toggle closes without reopening');
+          await click('details');
+          await waitFor('document.querySelector("[data-shell-region=inspector]")');
           // A real click on non-interactive inspector content must keep Escape in its region.
           const panelPoint = await evaluate('(()=>{const r=document.querySelector("[data-shell-region=inspector]").getBoundingClientRect();return {x:Math.round(r.left+40),y:Math.round(r.bottom-40)}})()');
           win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...panelPoint});
@@ -638,6 +663,8 @@ if (process.versions.electron) {
           assert.equal(await evaluate('!!document.querySelector("[data-shell-region=inspector]")'),true,'Escape outside inspector preserves it');
           await evaluate('document.querySelector("[data-shell-pin]").click()');
           await waitFor('document.querySelector("[data-shell-pin]").getAttribute("aria-pressed")==="true"');
+          await outsideClick();
+          assert.equal(await evaluate('!!document.querySelector("[data-shell-region=inspector]")'),true,'outside click preserves pinned Details');
           assert.ok(await evaluate('document.querySelector(".shell-main").getBoundingClientRect().width') < mainWidth);
           assert.equal(await evaluate('getComputedStyle(document.querySelector("[data-shell-region=inspector]")).backgroundColor'), await evaluate('getComputedStyle(document.querySelector("[data-shell-region=sessions]")).backgroundColor'));
           await assertCornerControls();
@@ -1179,12 +1206,13 @@ if (process.versions.electron) {
       win.webContents.sendInputEvent({type:'mouseMove',x:separator.x+32,y:separator.y});
       win.webContents.sendInputEvent({type:'mouseUp',x:separator.x+32,y:separator.y,button:'left',clickCount:1});
       await waitFor('document.querySelector("[role=separator]").getAttribute("aria-valuenow") === "232"');
+      assert.equal(await evaluate('!!document.querySelector("[data-shell-region=inspector]")'), false, 'resizing Sessions dismisses unpinned Details while the resize completes');
       await evaluate('(()=>{const button=document.querySelector("[data-shell-command=capacity]");button.focus();button.click()})()');
       await waitFor('document.querySelector("[data-shell-region=inspector] h2").textContent === "Capacity"');
       assert.equal(await evaluate('document.querySelectorAll("[data-shell-region=inspector]").length'), 1);
       await evaluate('(()=>{const button=document.querySelector("[data-shell-command=capacity]");button.focus();button.click()})()');
       await waitFor('!document.querySelector("[data-shell-region=inspector]")');
-      assert.equal(await evaluate('document.activeElement.dataset.shellCommand'), 'details');
+      assert.equal(await evaluate('document.activeElement.dataset.shellCommand'), 'capacity');
 
       await evaluate('fixture.originalRuntime=fixture.runtime(); fixture.output("before hiding\\r\\n")');
       await win.setContentSize(1000, 700);
