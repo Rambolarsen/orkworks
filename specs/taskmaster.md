@@ -1134,7 +1134,7 @@ Taskmaster is a logical product component. It does not require a permanently run
 
 ## Brain-guided next-step assessment
 
-Status: proposed by [the #769 design](../docs/superpowers/specs/2026-10-07-taskmaster-brain-guided-assessment-design.md); runtime availability depends on the reviewed signed guidance from #529.
+Status: accepted 2026-10-17 with [ADR 0085](../docs/adr/0085-taskmaster-assessment-and-analysis-outcomes.md); runtime delivery remains tracked in #769.
 
 Recommendations offers a separate, user-triggered **Assess workflow** action
 beside **Analyze now**. It assesses only the workspace selected by the current

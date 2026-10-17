@@ -90,6 +90,18 @@ struct RecommendationDeliveryTarget {
     workspace: RecommendationDeliveryWorkspace,
 }
 
+fn completion_summary(recommendation: &Recommendation, summary: Option<String>) -> String {
+    if recommendation
+        .assessment
+        .as_ref()
+        .is_some_and(|provenance| provenance.access_redacted)
+    {
+        "Taskmaster fix completed.".into()
+    } else {
+        summary.unwrap_or_else(|| "Taskmaster fix completed.".into())
+    }
+}
+
 struct RecommendationDeliveryGuard((PathBuf, String));
 
 impl RecommendationDeliveryGuard {
@@ -1029,63 +1041,94 @@ impl SessionApplication {
         ),
         RecommendationQueryError,
     > {
-        let workspace_guard = self.state.workspace.lock().unwrap();
-        let workspace = workspace_guard
-            .as_ref()
-            .ok_or(RecommendationQueryError::Conflict)?;
-        let recommendations = workspace
-            .recommendation_store
-            .list()
-            .map_err(RecommendationQueryError::Store)?;
-        let diagnostics = workspace.workflow_observations.diagnostics();
-        Ok((recommendations, diagnostics))
+        crate::taskmaster::assessment_access::with_recommendations(
+            &self.state,
+            false,
+            RecommendationQueryError::Store,
+            |workspace, recommendations| {
+                Ok((
+                    recommendations,
+                    workspace.workflow_observations.diagnostics(),
+                ))
+            },
+        )?
+        .ok_or(RecommendationQueryError::Conflict)
+    }
+
+    pub(crate) fn list_recommendations_for_action(
+        &self,
+    ) -> Result<
+        (
+            Vec<crate::taskmaster::Recommendation>,
+            Vec<crate::workflow_observations::ObservationDiagnostic>,
+        ),
+        RecommendationQueryError,
+    > {
+        crate::taskmaster::assessment_access::with_recommendations(
+            &self.state,
+            true,
+            RecommendationQueryError::Store,
+            |workspace, recommendations| {
+                Ok((
+                    recommendations,
+                    workspace.workflow_observations.diagnostics(),
+                ))
+            },
+        )?
+        .ok_or(RecommendationQueryError::Conflict)
     }
 
     pub(crate) fn get_recommendation(
         &self,
         id: &str,
     ) -> Result<Option<crate::taskmaster::Recommendation>, RecommendationQueryError> {
-        let workspace_guard = self.state.workspace.lock().unwrap();
-        let workspace = workspace_guard
-            .as_ref()
-            .ok_or(RecommendationQueryError::Conflict)?;
-        workspace
-            .recommendation_store
-            .get(id)
-            .map_err(RecommendationQueryError::Store)
+        crate::taskmaster::assessment_access::with_recommendations(
+            &self.state,
+            false,
+            RecommendationQueryError::Store,
+            |_workspace, recommendations| {
+                Ok(recommendations
+                    .into_iter()
+                    .find(|recommendation| recommendation.id == id))
+            },
+        )?
+        .ok_or(RecommendationQueryError::Conflict)
     }
 
     pub(crate) fn dismiss_recommendation(
         &self,
         id: &str,
     ) -> Result<Option<crate::taskmaster::Recommendation>, RecommendationDismissError> {
-        let workspace_guard = self.state.workspace.lock().unwrap();
-        let workspace = workspace_guard
-            .as_ref()
-            .ok_or(RecommendationDismissError::Conflict)?;
-        if recommendation_delivery_in_flight(&workspace.path, id) {
-            return Err(RecommendationDismissError::Conflict);
-        }
-        let Some(existing) = workspace
-            .recommendation_store
-            .get(id)
-            .map_err(RecommendationDismissError::Store)?
-        else {
-            return Ok(None);
-        };
-        if !matches!(
-            existing.recommendation_type,
-            RecommendationType::ImproveWorkflow | RecommendationType::Cleanup
-        ) || !matches!(
-            existing.status,
-            RecommendationStatus::Proposed | RecommendationStatus::Executing
-        ) {
-            return Err(RecommendationDismissError::Conflict);
-        }
-        workspace
-            .recommendation_store
-            .dismiss(id, chrono::Utc::now().to_rfc3339(), None)
-            .map_err(RecommendationDismissError::Store)
+        crate::taskmaster::assessment_access::with_recommendations(
+            &self.state,
+            true,
+            RecommendationDismissError::Store,
+            |workspace, recommendations| {
+                if recommendation_delivery_in_flight(&workspace.path, id) {
+                    return Err(RecommendationDismissError::Conflict);
+                }
+                let Some(existing) = recommendations
+                    .into_iter()
+                    .find(|recommendation| recommendation.id == id)
+                else {
+                    return Ok(None);
+                };
+                if !matches!(
+                    existing.recommendation_type,
+                    RecommendationType::ImproveWorkflow | RecommendationType::Cleanup
+                ) || !matches!(
+                    existing.status,
+                    RecommendationStatus::Proposed | RecommendationStatus::Executing
+                ) {
+                    return Err(RecommendationDismissError::Conflict);
+                }
+                workspace
+                    .recommendation_store
+                    .dismiss(id, chrono::Utc::now().to_rfc3339(), None)
+                    .map_err(RecommendationDismissError::Store)
+            },
+        )?
+        .ok_or(RecommendationDismissError::Conflict)
     }
 
     /// Attaches or supersedes one evidence packet on an existing workflow
@@ -1108,6 +1151,8 @@ impl SessionApplication {
         else {
             return Ok(None);
         };
+        crate::taskmaster::assessment_access::ensure_mutable(&existing)
+            .map_err(RecommendationPacketError::Store)?;
         if existing.recommendation_type != RecommendationType::ImproveWorkflow
             || existing.source_session_ids.len() != 1
             || existing.source_session_ids[0] != source_session_id
@@ -1164,76 +1209,91 @@ impl SessionApplication {
         prompt_override: Option<String>,
         packet_mutation: Option<CompletionMutationRequest>,
     ) -> Result<Option<crate::taskmaster::Recommendation>, RecommendationAcceptError> {
-        let (prompt, title, delivery_guard, target) = {
-            let workspace_guard = self.state.workspace.lock().unwrap();
-            let workspace = workspace_guard
-                .as_ref()
-                .ok_or(RecommendationAcceptError::Conflict)?;
-            let Some(recommendation) = workspace
-                .recommendation_store
-                .get(id)
-                .map_err(RecommendationAcceptError::Store)?
-            else {
-                return Ok(None);
-            };
-            if recommendation.recommendation_type != RecommendationType::ImproveWorkflow
-                || recommendation.status != RecommendationStatus::Proposed
-            {
-                return Err(RecommendationAcceptError::Conflict);
-            }
-            let metadata = workspace
-                .metadata
-                .read_session(session_id)
-                .ok_or(RecommendationAcceptError::SessionNotFound)?;
-            if metadata.lifecycle != "alive" {
-                return Err(RecommendationAcceptError::Conflict);
-            }
-            let (runtime_identity, control_tx) = {
-                let sessions = self.state.sessions.lock().unwrap();
-                let handle = sessions
-                    .get(session_id)
-                    .ok_or(RecommendationAcceptError::Conflict)?;
-                (handle.runtime.identity(), handle.runtime.control_tx.clone())
-            };
-            let target = RecommendationDeliveryTarget {
-                session_id: session_id.to_string(),
-                runtime_identity,
-                control_tx,
-                workspace: RecommendationDeliveryWorkspace::capture(workspace),
-            };
-            let prompt = if let Some(packet) = &recommendation.completion_packet {
-                if prompt_override.is_some() {
+        let prepared = crate::taskmaster::assessment_access::with_recommendations(
+            &self.state,
+            true,
+            RecommendationAcceptError::Store,
+            |workspace, recommendations| {
+                let Some(recommendation) = recommendations
+                    .into_iter()
+                    .find(|recommendation| recommendation.id == id)
+                else {
+                    return Ok(None);
+                };
+                if recommendation.recommendation_type != RecommendationType::ImproveWorkflow
+                    || recommendation.status != RecommendationStatus::Proposed
+                {
                     return Err(RecommendationAcceptError::Conflict);
                 }
-                let mutation = packet_mutation
-                    .as_ref()
-                    .ok_or(RecommendationAcceptError::Conflict)?;
-                workspace
-                    .recommendation_store
-                    .begin_execution_checked(
-                        id,
-                        session_id.to_string(),
-                        chrono::Utc::now().to_rfc3339(),
-                        mutation,
-                        "user".into(),
-                    )
-                    .map_err(RecommendationAcceptError::Store)?
-                    .ok_or(RecommendationAcceptError::Conflict)?;
-                format!("{}\r", packet.action.prompt.trim_end_matches('\r'))
-            } else {
-                let prompt = prompt_override
-                    .map(|prompt| ensure_recommendation_handoff_contract(prompt, &recommendation))
-                    .unwrap_or_else(|| crate::taskmaster::build_fix_prompt(&recommendation));
-                workspace
-                    .recommendation_store
-                    .begin_execution(id, session_id.to_string(), chrono::Utc::now().to_rfc3339())
-                    .map_err(RecommendationAcceptError::Store)?
-                    .ok_or(RecommendationAcceptError::Conflict)?;
-                prompt
-            };
-            let delivery_guard =
-                RecommendationDeliveryGuard::new(&workspace.path, &recommendation.id);
-            (prompt, recommendation.title.clone(), delivery_guard, target)
+                let metadata = workspace
+                    .metadata
+                    .read_session(session_id)
+                    .ok_or(RecommendationAcceptError::SessionNotFound)?;
+                if metadata.lifecycle != "alive" {
+                    return Err(RecommendationAcceptError::Conflict);
+                }
+                let (runtime_identity, control_tx) = {
+                    let sessions = self.state.sessions.lock().unwrap();
+                    let handle = sessions
+                        .get(session_id)
+                        .ok_or(RecommendationAcceptError::Conflict)?;
+                    (handle.runtime.identity(), handle.runtime.control_tx.clone())
+                };
+                let target = RecommendationDeliveryTarget {
+                    session_id: session_id.to_string(),
+                    runtime_identity,
+                    control_tx,
+                    workspace: RecommendationDeliveryWorkspace::capture(workspace),
+                };
+                let prompt = if let Some(packet) = &recommendation.completion_packet {
+                    if prompt_override.is_some() {
+                        return Err(RecommendationAcceptError::Conflict);
+                    }
+                    let mutation = packet_mutation
+                        .as_ref()
+                        .ok_or(RecommendationAcceptError::Conflict)?;
+                    workspace
+                        .recommendation_store
+                        .begin_execution_checked(
+                            id,
+                            session_id.to_string(),
+                            chrono::Utc::now().to_rfc3339(),
+                            mutation,
+                            "user".into(),
+                        )
+                        .map_err(RecommendationAcceptError::Store)?
+                        .ok_or(RecommendationAcceptError::Conflict)?;
+                    format!("{}\r", packet.action.prompt.trim_end_matches('\r'))
+                } else {
+                    let prompt = prompt_override
+                        .map(|prompt| {
+                            ensure_recommendation_handoff_contract(prompt, &recommendation)
+                        })
+                        .unwrap_or_else(|| crate::taskmaster::build_fix_prompt(&recommendation));
+                    workspace
+                        .recommendation_store
+                        .begin_execution(
+                            id,
+                            session_id.to_string(),
+                            chrono::Utc::now().to_rfc3339(),
+                        )
+                        .map_err(RecommendationAcceptError::Store)?
+                        .ok_or(RecommendationAcceptError::Conflict)?;
+                    prompt
+                };
+                let delivery_guard =
+                    RecommendationDeliveryGuard::new(&workspace.path, &recommendation.id);
+                Ok(Some((
+                    prompt,
+                    recommendation.title.clone(),
+                    delivery_guard,
+                    target,
+                )))
+            },
+        )?
+        .ok_or(RecommendationAcceptError::Conflict)?;
+        let Some((prompt, title, delivery_guard, target)) = prepared else {
+            return Ok(None);
         };
 
         // HTTP cancellation only stops waiting for the result; it must not
@@ -1258,14 +1318,34 @@ impl SessionApplication {
         target: RecommendationDeliveryTarget,
     ) -> Result<Option<crate::taskmaster::Recommendation>, RecommendationAcceptError> {
         let _delivery_guard = delivery_guard;
-        let delivery = crate::runtime::terminal_runtime::submit_approved_input_to_runtime(
-            &self.state,
-            &target.session_id,
-            &target.runtime_identity,
-            &target.control_tx,
-            prompt,
-        )
-        .await;
+        let delivery =
+            crate::runtime::terminal_runtime::submit_approved_input_to_runtime_with_admission(
+                &self.state,
+                &target.session_id,
+                &target.runtime_identity,
+                &target.control_tx,
+                prompt,
+                |send| {
+                    crate::taskmaster::assessment_access::with_recommendations(
+                        &self.state,
+                        false,
+                        |_| (),
+                        |workspace, recommendations| {
+                            if !target.workspace.matches(workspace)
+                                || !recommendations.iter().any(|recommendation| {
+                                    recommendation.id == id
+                                        && recommendation.status == RecommendationStatus::Executing
+                                })
+                            {
+                                return Err(());
+                            }
+                            send()
+                        },
+                    )?
+                    .ok_or(())
+                },
+            )
+            .await;
 
         // A replaced workspace owns another store. Leave the old reservation
         // for recovery rather than finalizing it against a new instance.
@@ -1282,6 +1362,12 @@ impl SessionApplication {
                     .recommendation_store
                     .cancel_execution(&id, chrono::Utc::now().to_rfc3339());
             }
+            let _ = crate::taskmaster::assessment_access::with_recommendations(
+                &self.state,
+                true,
+                RecommendationAcceptError::Store,
+                |_workspace, _recommendations| Ok(()),
+            );
             return Err(RecommendationAcceptError::Conflict);
         }
 
@@ -1290,6 +1376,16 @@ impl SessionApplication {
             .as_ref()
             .filter(|workspace| target.workspace.matches(workspace))
             .ok_or(RecommendationAcceptError::Conflict)?;
+        let current = workspace
+            .recommendation_store
+            .get(&id)
+            .map_err(RecommendationAcceptError::Store)?
+            .ok_or(RecommendationAcceptError::Conflict)?;
+        let delivery_summary = if current.assessment.is_some() {
+            "Taskmaster sent an approved assessment fix prompt.".to_string()
+        } else {
+            format!("Taskmaster sent a fix prompt for: {title}")
+        };
         workspace.metadata.append_event(
             &target.session_id,
             &metadata::Event {
@@ -1298,7 +1394,7 @@ impl SessionApplication {
                 status: "working".into(),
                 observed_status: Some("working".into()),
                 confidence: None,
-                summary: Some(format!("Taskmaster sent a fix prompt for: {title}")),
+                summary: Some(delivery_summary),
                 source: Some("user".into()),
                 recommendation_id: Some(id.to_string()),
             },
@@ -1357,7 +1453,7 @@ impl SessionApplication {
                 status: "working".into(),
                 observed_status: Some("working".into()),
                 confidence: None,
-                summary: Some(summary.unwrap_or_else(|| "Taskmaster fix completed.".into())),
+                summary: Some(completion_summary(&existing, summary)),
                 source: Some("agent".into()),
                 recommendation_id: Some(id.to_string()),
             };
@@ -1397,7 +1493,7 @@ impl SessionApplication {
             status: "working".into(),
             observed_status: Some("working".into()),
             confidence: None,
-            summary: Some(summary.unwrap_or_else(|| "Taskmaster fix completed.".into())),
+            summary: Some(completion_summary(&existing, summary)),
             source: Some("agent".into()),
             recommendation_id: Some(id.to_string()),
         };
@@ -3756,20 +3852,34 @@ impl SessionApplication {
         }
 
         drop(workspace);
-        if let Some(taskmaster_root) = crate::taskmaster::runtime::taskmaster_global_dir() {
-            let runtime = crate::taskmaster::runtime::TaskmasterRuntime::open(taskmaster_root);
+        {
+            let runtime = crate::taskmaster::assessment_access::runtime_for(&self.state);
+            let reconciliation = runtime.with_workspace_settings(&path, |settings| {
+                crate::taskmaster::assessment_access::reconcile_metadata(&global_dir, settings)
+            });
+            if !matches!(reconciliation, Ok(Ok(()))) {
+                tracing::warn!("Assessment access reconciliation is unavailable; assessment consumers remain fenced");
+            }
             match runtime.try_analysis_lease() {
                 Ok(Some(lease)) => {
                     if let Err(error) = runtime.recover_workspace_run(&path, &lease) {
                         tracing::warn!(path = %path.display(), %error, "failed to recover Taskmaster analysis status");
                     }
+                    if crate::taskmaster::assessment::recover_workspace_record_under_lease(
+                        &self.state,
+                        runtime.root_path(),
+                        &global_dir,
+                        &lease,
+                    )
+                    .is_err()
+                    {
+                        tracing::warn!("Assessment publication recovery is unavailable; pending consumers remain fenced");
+                    }
                 }
-                Ok(None) => {
-                    tracing::debug!(path = %path.display(), "Taskmaster analysis is active in another instance; defer run-status recovery")
-                }
-                Err(error) => {
-                    tracing::warn!(path = %path.display(), %error, "could not acquire Taskmaster analysis lease for run-status recovery")
-                }
+                Ok(None) => tracing::debug!(
+                    "Taskmaster analysis is active; defer assessment and run-status recovery"
+                ),
+                Err(_) => tracing::warn!("Taskmaster recovery lease is unavailable"),
             }
         }
         crate::taskmaster::evaluator::schedule_evaluation(self.state.clone());
@@ -12974,6 +13084,7 @@ mod tests {
             Vec::new()
         };
         let card = Recommendation {
+            assessment: None,
             id: id.into(),
             workspace_id: state
                 .workspace
@@ -14360,6 +14471,103 @@ mod tests {
             completions[0].summary.as_deref(),
             Some("Verified the fix in the target session.")
         );
+    }
+
+    #[test]
+    fn redacted_delivered_assessment_completion_is_target_bound_and_never_persists_supplied_summary(
+    ) {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let recommendation_id = proposed_recommendation_id(&state, "complete-redacted-assessment");
+        let session_id = "complete-redacted-target";
+        write_alive_session(&state, root.path(), session_id);
+
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let store = &workspace.as_ref().unwrap().recommendation_store;
+            store
+                .begin_execution(
+                    &recommendation_id,
+                    session_id.into(),
+                    "2026-09-07T10:00:00Z".into(),
+                )
+                .unwrap();
+            store
+                .complete_execution(&recommendation_id, "2026-09-07T10:00:01Z".into())
+                .unwrap();
+            let mut recommendation = store.get(&recommendation_id).unwrap().unwrap();
+            recommendation.assessment = Some(crate::taskmaster::AssessmentProvenance {
+                access_redacted: false,
+                id: "assessment-redacted-later".into(),
+                input_fingerprint: "sha256:assessment-input".into(),
+                context_level: crate::taskmaster::runtime::ContextLevel::WorkflowContext,
+                excluded_paths: Vec::new(),
+            });
+            crate::taskmaster::assessment_access::redact_recommendation(
+                &mut recommendation,
+                &crate::taskmaster::runtime::TaskmasterSettings {
+                    context_level: crate::taskmaster::runtime::ContextLevel::SessionObservations,
+                    ..crate::taskmaster::runtime::TaskmasterSettings::default()
+                },
+            );
+            recommendation.source_session_ids = vec![session_id.into()];
+            store.put(&recommendation).unwrap();
+        }
+
+        let application = SessionApplication::new(state.clone());
+        assert!(matches!(
+            application.report_completion_packet(
+                &recommendation_id,
+                session_id,
+                crate::taskmaster::completion_tests::test_packet(),
+            ),
+            Err(RecommendationPacketError::Store(
+                crate::taskmaster::store::StoreError::InvalidTransition
+            ))
+        ));
+        assert!(matches!(
+            application.complete_recommendation_with_packet(
+                &recommendation_id,
+                "another-session",
+                Some("private generated completion detail".into()),
+                None,
+            ),
+            Err(RecommendationCompleteError::Conflict)
+        ));
+        let completed = application
+            .complete_recommendation_with_packet(
+                &recommendation_id,
+                session_id,
+                Some("private generated completion detail".into()),
+                None,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(completed.status, RecommendationStatus::Completed);
+        assert!(completed.assessment.unwrap().access_redacted);
+
+        let events = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_events(session_id);
+        let completions: Vec<_> = events
+            .iter()
+            .filter(|event| event.event_type == "taskmaster_fix_completed")
+            .collect();
+        assert_eq!(completions.len(), 1);
+        assert_eq!(
+            completions[0].summary.as_deref(),
+            Some("Taskmaster fix completed.")
+        );
+        assert!(!completions[0]
+            .summary
+            .as_deref()
+            .unwrap()
+            .contains("private generated completion detail"));
     }
 
     #[test]
@@ -17192,5 +17400,263 @@ mod tests {
         assert_eq!(saved.observed_status.as_deref(), Some("waiting_for_input"));
         assert_eq!(saved.attention.as_deref(), Some("needs_you"));
         authority.remove(id);
+    }
+    #[tokio::test]
+    async fn recommendation_handoff_checks_admission_after_waiting_for_terminal_capacity() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let session_id = "handoff-capacity-target";
+        write_alive_session(&state, root.path(), session_id);
+        let mut handle = attention_test_handle(session_id, root.path());
+        let (runtime, mut control_rx) =
+            crate::runtime::session_runtime::SessionRuntime::live(24, 80);
+        let identity = runtime.identity();
+        let tx = runtime.control_tx.clone();
+        handle.runtime = runtime;
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(session_id.into(), handle);
+        let capacity = tx.capacity();
+        for _ in 0..capacity {
+            tx.try_send(crate::runtime::session_runtime::RuntimeCommand::Input {
+                data: "existing input".into(),
+                accepted: None,
+            })
+            .unwrap();
+        }
+        let allowed = std::sync::Arc::new(AtomicBool::new(true));
+        let approved = allowed.clone();
+        let task_state = state.clone();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let mut task = tokio::spawn(async move {
+            started_tx.send(()).unwrap();
+            crate::runtime::terminal_runtime::submit_approved_input_to_runtime_with_admission(
+                &task_state,
+                session_id,
+                &identity,
+                &tx,
+                "assessment prompt".into(),
+                |send| {
+                    if approved.load(Ordering::SeqCst) {
+                        send()
+                    } else {
+                        Err(())
+                    }
+                },
+            )
+            .await
+        });
+        started_rx.await.unwrap();
+        tokio::task::yield_now().await;
+        allowed.store(false, Ordering::SeqCst);
+        for _ in 0..capacity {
+            control_rx.recv().await.unwrap();
+        }
+        tokio::select! {
+            result = &mut task => assert!(result.unwrap().is_err()),
+            command = control_rx.recv() => { task.abort(); panic!("invalidated assessment reached terminal: {}", command.is_some()); },
+        }
+        assert!(state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_events(session_id)
+            .iter()
+            .all(|event| event.event_type != "taskmaster_fix_requested"));
+    }
+    #[tokio::test]
+    async fn delivered_assessment_finalizes_after_access_narrows_without_copying_its_title_to_history(
+    ) {
+        use crate::taskmaster::{
+            assessment::integration_tests::AssessmentFixture,
+            runtime::{ContextLevel, TaskmasterRuntime},
+        };
+        let fixture = AssessmentFixture::new();
+        fixture.prepare_response("proposed");
+        assert_eq!(
+            crate::taskmaster::assessment::schedule(
+                fixture.state.clone(),
+                fixture.runtime_root.clone()
+            )
+            .status,
+            crate::taskmaster::assessment::AssessmentRequestStatus::Scheduled
+        );
+        let record = fixture.wait_for_terminal().await;
+        let recommendation_id = record.report.unwrap().recommendation_id.unwrap();
+        let state = fixture.state.clone();
+        let workspace_path = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .path
+            .clone();
+        let session_id = "assessment-delivery-policy-target";
+        write_alive_session(&state, &workspace_path, session_id);
+        let mut handle = attention_test_handle(session_id, &workspace_path);
+        let (runtime, mut control_rx) =
+            crate::runtime::session_runtime::SessionRuntime::live(24, 80);
+        handle.runtime = runtime;
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(session_id.into(), handle);
+        let application = SessionApplication::new(state.clone());
+        let id = recommendation_id.clone();
+        let mut request = tokio::spawn(async move {
+            application
+                .accept_recommendation_with_packet(&id, session_id, None, None)
+                .await
+        });
+        let command = tokio::select! {
+            command = control_rx.recv() => command.unwrap(),
+            result = &mut request => panic!("approval failed before enqueue: {:?}",result.unwrap()),
+        };
+        let crate::runtime::session_runtime::RuntimeCommand::Input { accepted, .. } = command
+        else {
+            panic!("expected approved input");
+        };
+        let runtime = TaskmasterRuntime::open(fixture.runtime_root.clone());
+        let mut settings = runtime.status(Some(&workspace_path)).settings;
+        settings.context_level = ContextLevel::SessionObservations;
+        runtime
+            .replace_settings_with_reconcile(settings, |_, settings| {
+                crate::taskmaster::assessment_access::reconcile_settings(&state, settings)
+            })
+            .unwrap();
+        accepted.unwrap().send(Ok(())).unwrap();
+        let finalized = request.await.unwrap().unwrap().unwrap();
+        assert_eq!(finalized.status, RecommendationStatus::Accepted);
+        assert!(finalized.assessment.unwrap().access_redacted);
+        let workspace = state.workspace.lock().unwrap();
+        let events = workspace.as_ref().unwrap().metadata.read_events(session_id);
+        let delivery = events
+            .iter()
+            .find(|event| event.event_type == "taskmaster_fix_requested")
+            .unwrap();
+        assert!(!delivery
+            .summary
+            .as_deref()
+            .unwrap()
+            .contains("Clarify the workflow guide"));
+        assert_eq!(
+            delivery.recommendation_id.as_deref(),
+            Some(recommendation_id.as_str())
+        );
+    }
+    #[tokio::test]
+    async fn undelivered_assessment_reservation_is_retired_when_access_narrows_during_capacity_wait(
+    ) {
+        use crate::taskmaster::{
+            assessment::integration_tests::AssessmentFixture,
+            runtime::{ContextLevel, TaskmasterRuntime},
+        };
+        let fixture = AssessmentFixture::new();
+        fixture.prepare_response("proposed");
+        assert_eq!(
+            crate::taskmaster::assessment::schedule(
+                fixture.state.clone(),
+                fixture.runtime_root.clone()
+            )
+            .status,
+            crate::taskmaster::assessment::AssessmentRequestStatus::Scheduled
+        );
+        let record = fixture.wait_for_terminal().await;
+        let recommendation_id = record.report.unwrap().recommendation_id.unwrap();
+        let state = fixture.state.clone();
+        let workspace_path = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .path
+            .clone();
+        let session_id = "assessment-denied-capacity-target";
+        write_alive_session(&state, &workspace_path, session_id);
+        let mut handle = attention_test_handle(session_id, &workspace_path);
+        let (runtime, mut control_rx) =
+            crate::runtime::session_runtime::SessionRuntime::live(24, 80);
+        let tx = runtime.control_tx.clone();
+        let capacity = tx.capacity();
+        for _ in 0..capacity {
+            tx.try_send(crate::runtime::session_runtime::RuntimeCommand::Input {
+                data: "existing input".into(),
+                accepted: None,
+            })
+            .unwrap();
+        }
+        handle.runtime = runtime;
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(session_id.into(), handle);
+        let application = SessionApplication::new(state.clone());
+        let id = recommendation_id.clone();
+        let mut request = tokio::spawn(async move {
+            application
+                .accept_recommendation_with_packet(&id, session_id, None, None)
+                .await
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let executing = state
+                    .workspace
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .recommendation_store
+                    .get(&recommendation_id)
+                    .unwrap()
+                    .unwrap()
+                    .status
+                    == RecommendationStatus::Executing;
+                if executing {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        let runtime = TaskmasterRuntime::open(fixture.runtime_root.clone());
+        let mut settings = runtime.status(Some(&workspace_path)).settings;
+        settings.context_level = ContextLevel::SessionObservations;
+        runtime
+            .replace_settings_with_reconcile(settings, |_, settings| {
+                crate::taskmaster::assessment_access::reconcile_settings(&state, settings)
+            })
+            .unwrap();
+        for _ in 0..capacity {
+            control_rx.recv().await.unwrap();
+        }
+        tokio::select! {
+            result = &mut request => assert!(result.unwrap().is_err()),
+            command = control_rx.recv() => { request.abort(); panic!("invalidated assessment reached terminal: {}",command.is_some()); },
+        }
+        let workspace = state.workspace.lock().unwrap();
+        let workspace = workspace.as_ref().unwrap();
+        let saved = workspace
+            .recommendation_store
+            .get(&recommendation_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(saved.status, RecommendationStatus::Superseded);
+        assert!(saved.assessment.unwrap().access_redacted);
+        assert!(workspace
+            .metadata
+            .read_events(session_id)
+            .iter()
+            .all(|event| event.event_type != "taskmaster_fix_requested"));
     }
 }

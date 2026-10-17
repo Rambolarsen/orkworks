@@ -591,7 +591,7 @@ test("Recommendations polls authenticated Taskmaster run status without coupling
   assert.match(refresh, /getTaskmasterRunStatus\(\)/);
   assert.match(refresh, /setRunStatusError/);
   assert.match(panel, /setInterval\(\(\) => \{/);
-  assert.match(panel, /formatTaskmasterRunStatus\(runStatus\)/);
+  assert.match(panel, /formatTaskmasterRunStatus\(currentRunStatus\)/);
 });
 
 test("Analyze now asks the backend to revalidate a cached active recommendation", () => {

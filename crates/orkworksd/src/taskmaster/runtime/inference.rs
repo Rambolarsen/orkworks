@@ -2,7 +2,8 @@
 
 use super::{
     canonical_workspace_key, effective_settings, proof_matches, reload_durable, validate_selection,
-    EvaluationSnapshot, PersistenceGuard, TaskmasterRuntime, TaskmasterSettings,
+    EvaluationReservation, EvaluationSnapshot, PersistenceGuard, TaskmasterRuntime,
+    TaskmasterSettings,
 };
 use crate::harness::{
     inference::InferenceCapability,
@@ -206,6 +207,7 @@ impl TaskmasterRuntime {
             false,
             |reserve| reserve(),
         )
+        .map(EvaluationReservation::is_reserved)
     }
 
     #[cfg(test)]
@@ -226,6 +228,7 @@ impl TaskmasterRuntime {
             true,
             |reserve| reserve(),
         )
+        .map(EvaluationReservation::is_reserved)
     }
 
     /// Enter workspace admission only after harness/persistence/data locks.
@@ -236,8 +239,10 @@ impl TaskmasterRuntime {
         now: &str,
         cache_key: &str,
         snapshot: &EvaluationSnapshot,
-        admit: impl FnOnce(&mut dyn FnMut() -> Result<bool, String>) -> Result<bool, String>,
-    ) -> Result<bool, String> {
+        admit: impl FnOnce(
+            &mut dyn FnMut() -> Result<EvaluationReservation, String>,
+        ) -> Result<EvaluationReservation, String>,
+    ) -> Result<EvaluationReservation, String> {
         self.reserve_snapshot_with_interval(
             harnesses, workspace, now, cache_key, snapshot, true, admit,
         )
@@ -251,14 +256,16 @@ impl TaskmasterRuntime {
         cache_key: &str,
         snapshot: &EvaluationSnapshot,
         manual: bool,
-        admit: impl FnOnce(&mut dyn FnMut() -> Result<bool, String>) -> Result<bool, String>,
-    ) -> Result<bool, String> {
+        admit: impl FnOnce(
+            &mut dyn FnMut() -> Result<EvaluationReservation, String>,
+        ) -> Result<EvaluationReservation, String>,
+    ) -> Result<EvaluationReservation, String> {
         if let Some(captured) = &snapshot.custom_inference {
             if !captured.matches_snapshot(workspace, snapshot) {
-                return Ok(false);
+                return Ok(EvaluationReservation::ContextChanged);
             }
-            let mut reserved = Ok(false);
-            self.with_current_custom_data(harnesses, captured, |data| {
+            let mut reserved = Ok(EvaluationReservation::Skipped);
+            let current = self.with_current_custom_data(harnesses, captured, |data| {
                 reserved = admit(&mut || {
                     self.reserve_loaded(
                         data,
@@ -272,23 +279,30 @@ impl TaskmasterRuntime {
                     )
                 });
             })?;
+            if !current {
+                return Ok(EvaluationReservation::ContextChanged);
+            }
             reserved
         } else {
-            let mut reserved = Ok(false);
-            self.with_current_native_data(harnesses, workspace, snapshot, |data| {
-                reserved = admit(&mut || {
-                    self.reserve_loaded(
-                        data,
-                        workspace,
-                        now,
-                        Some(cache_key),
-                        Some(snapshot.generation),
-                        manual,
-                        manual,
-                        manual,
-                    )
-                });
-            })?;
+            let mut reserved = Ok(EvaluationReservation::Skipped);
+            let current =
+                self.with_current_native_data(harnesses, workspace, snapshot, |data| {
+                    reserved = admit(&mut || {
+                        self.reserve_loaded(
+                            data,
+                            workspace,
+                            now,
+                            Some(cache_key),
+                            Some(snapshot.generation),
+                            manual,
+                            manual,
+                            manual,
+                        )
+                    });
+                })?;
+            if !current {
+                return Ok(EvaluationReservation::ContextChanged);
+            }
             reserved
         }
     }

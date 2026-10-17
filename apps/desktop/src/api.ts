@@ -677,9 +677,25 @@ export interface WorkflowImprovement {
   dismissalWatermark: DismissalWatermark | null;
 }
 
+export interface RepositoryEvidence {
+  path: string;
+  sha256: string;
+  excerpt: string;
+  observedAt: string;
+}
+
+export interface KnowledgeEvidence {
+  pageId: string;
+  title: string;
+  status: string;
+  bundleVersion: string;
+  sha256: string;
+  excerpt: string;
+}
+
 export interface WorkflowRecommendation {
-  repositoryEvidence?: Array<{ path: string; sha256: string; excerpt: string; observedAt: string }>;
-  knowledgeEvidence?: Array<{ pageId: string; title: string; status: string; bundleVersion: string; sha256: string; excerpt: string }>;
+  repositoryEvidence?: RepositoryEvidence[];
+  knowledgeEvidence?: KnowledgeEvidence[];
   id: string;
   workspaceId: string;
   chainId: string;
@@ -745,6 +761,12 @@ export interface ManualTaskmasterAnalysisResponse {
     | "unavailable";
   recommendation?: WorkflowRecommendation;
   recoveryAllowed: boolean;
+  message?: string;
+}
+
+export interface TaskmasterAssessmentRequestResponse {
+  status: "scheduled" | "cached" | "active_recommendation" | "already_running" | "unavailable";
+  recommendation?: { id: string; status: string };
   message?: string;
 }
 

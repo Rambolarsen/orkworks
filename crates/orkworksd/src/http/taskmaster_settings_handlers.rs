@@ -35,20 +35,7 @@ fn workspace_path(state: &AppState) -> Option<std::path::PathBuf> {
 }
 
 pub(super) fn runtime_for(state: &AppState) -> TaskmasterRuntime {
-    #[cfg(not(test))]
-    let _ = state;
-    #[cfg(test)]
-    let root = state
-        .workspace
-        .lock()
-        .expect("workspace lock poisoned")
-        .as_ref()
-        .map(|workspace| workspace.metadata.root_path().join("taskmaster"))
-        .unwrap_or_else(|| std::env::temp_dir().join("orkworks-taskmaster-test"));
-    #[cfg(not(test))]
-    let root = crate::taskmaster::runtime::taskmaster_global_dir()
-        .unwrap_or_else(|| std::env::temp_dir().join("orkworks-taskmaster"));
-    TaskmasterRuntime::open(root)
+    crate::taskmaster::assessment_access::runtime_for(state)
 }
 
 pub(super) fn authorize_taskmaster_request(headers: &HeaderMap) -> Result<(), StatusCode> {
@@ -166,7 +153,14 @@ pub(crate) async fn get_taskmaster_run_status(
     }
     let runtime = runtime_for(&state);
     match runtime.run_status(workspace_path(&state).as_deref()) {
-        Ok(status) => Json(status).into_response(),
+        Ok(status) => {
+            let Ok(mut value) = serde_json::to_value(status) else {
+                return StatusCode::SERVICE_UNAVAILABLE.into_response();
+            };
+            value["assessment"] =
+                crate::taskmaster::assessment_access::status_for(&state, &runtime);
+            Json(value).into_response()
+        }
         Err(error) => (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(ErrorResponse { error }),
@@ -217,7 +211,9 @@ pub(crate) async fn set_taskmaster_settings(
                         return Err("Taskmaster provider does not support reasoning effort".into());
                     }
                 }
-                runtime.replace_settings(settings)
+                runtime.replace_settings_with_reconcile(settings, |_, settings| {
+                    crate::taskmaster::assessment_access::reconcile_settings(&state, settings)
+                })
             });
     match validation {
         Ok(()) => Json(status_for(&state, &runtime)).into_response(),
@@ -343,6 +339,82 @@ mod tests {
                 .daily_evaluation_limit,
             8
         );
+    }
+
+    #[tokio::test]
+    async fn settings_replacement_reconciles_assessment_access_before_returning() {
+        let _token = crate::test_support::open_plan_token::set("taskmaster-test-token").await;
+        let directory = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(directory.path());
+        let metadata_root = {
+            let workspace_guard = state.workspace.lock().unwrap();
+            let workspace = workspace_guard.as_ref().unwrap();
+            let metadata_root = workspace.metadata.root_path();
+            let record = crate::taskmaster::assessment_report::AssessmentRecord {
+                format_version: 1,
+                id: "assessment-settings-test".into(),
+                state: crate::taskmaster::assessment_report::AssessmentState::Succeeded,
+                started_at: "2026-10-17T10:00:00Z".into(),
+                completed_at: Some("2026-10-17T10:01:00Z".into()),
+                report: Some(crate::taskmaster::assessment_report::AssessmentReport {
+                    id: "assessment-settings-test".into(),
+                    workspace_path: workspace.path.display().to_string(),
+                    workspace_instance: workspace.workflow_observations.instance_id(),
+                    observed_at: "2026-10-17T10:00:00Z".into(),
+                    provider: "codex".into(),
+                    model: "fixture".into(),
+                    bundle_version: "v1".into(),
+                    knowledge_identity: serde_json::json!({"version":"v1"}),
+                    input_fingerprint: "f".repeat(64),
+                    context_level: crate::taskmaster::runtime::ContextLevel::SourceCode,
+                    excluded_paths: Vec::new(),
+                    outcome: "proposed".into(),
+                    summary: "Source-derived assessment summary".into(),
+                    proposal: Some(crate::taskmaster::assessment_report::AssessmentProposal {
+                        target_surface: crate::taskmaster::TargetSurface::Documentation,
+                        title: "Improve the guide".into(),
+                        summary: "Document the workflow".into(),
+                    }),
+                    no_proposal_reason: None,
+                    unverified_checks: vec!["Check the generated workflow".into()],
+                    repository_evidence: vec![crate::taskmaster::RepositoryEvidence {
+                        path: "src/private.rs".into(),
+                        sha256: "a".repeat(64),
+                        excerpt: "Private source excerpt".into(),
+                        observed_at: "2026-10-17T10:00:00Z".into(),
+                    }],
+                    knowledge_evidence: Vec::new(),
+                    recommendation_id: None,
+                }),
+                pending_recommendation: None,
+                error_summary: None,
+                reused: false,
+            };
+            crate::taskmaster::assessment_store::AssessmentStore::new(&metadata_root)
+                .save(&record)
+                .unwrap();
+            metadata_root
+        };
+
+        let response = set_taskmaster_settings(
+            State(state.clone()),
+            authorized_headers(),
+            Json(TaskmasterSettings::default()),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let saved = crate::taskmaster::assessment_store::AssessmentStore::new(&metadata_root)
+            .load::<crate::taskmaster::assessment_report::AssessmentRecord>()
+            .unwrap()
+            .unwrap();
+        let report = saved.report.unwrap();
+        assert_eq!(
+            report.summary,
+            "Assessment evidence was redacted after context access changed."
+        );
+        assert!(report.proposal.is_none());
+        assert!(report.unverified_checks.is_empty());
+        assert!(report.repository_evidence.is_empty());
     }
 
     fn authorized_headers() -> HeaderMap {
@@ -482,6 +554,17 @@ mod tests {
         let _ = authorized_headers();
         let directory = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(directory.path());
+        let status_response =
+            get_taskmaster_run_status(State(state.clone()), authorized_headers()).await;
+        let status_body = axum::body::to_bytes(status_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let status_value: serde_json::Value = serde_json::from_slice(&status_body).unwrap();
+        assert!(status_value.get("assessment").is_some());
+        assert_eq!(status_value["assessment"]["state"], "idle");
+        assert!(status_value["assessment"].get("report").is_some());
+        assert!(status_value["assessment"].get("errorSummary").is_some());
+        assert!(status_value["assessment"].get("reused").is_some());
         let mut unauthorized = HeaderMap::new();
         unauthorized.insert("x-orkworks-open-plan-token", "wrong".parse().unwrap());
         assert_eq!(

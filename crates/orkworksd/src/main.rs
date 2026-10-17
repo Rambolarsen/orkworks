@@ -59,8 +59,9 @@ use crate::http::session_handlers::{
     set_active_session, set_workspace,
 };
 use crate::http::taskmaster_handlers::{
-    accept_recommendation, analyze_taskmaster, complete_recommendation, dismiss_recommendation,
-    get_recommendation, list_recommendations, report_completion_packet, run_recommendation_audit,
+    accept_recommendation, analyze_taskmaster, assess_workflow, complete_recommendation,
+    dismiss_recommendation, get_recommendation, list_recommendations, report_completion_packet,
+    run_recommendation_audit,
 };
 use crate::http::taskmaster_settings_handlers::{
     get_taskmaster_run_status, get_taskmaster_settings, post_taskmaster_knowledge,
@@ -407,6 +408,7 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
         )
         .route("/settings/retention", post(set_retention))
         .route("/taskmaster/analyze", post(analyze_taskmaster))
+        .route("/taskmaster/assess-workflow", post(assess_workflow))
         .route(
             "/taskmaster/audit/recommendations",
             post(run_recommendation_audit),
@@ -495,6 +497,7 @@ pub(crate) mod test_support {
             })
             .collect();
         taskmaster::Recommendation {
+            assessment: None,
             id: id.into(),
             workspace_id: "workspace-1".into(),
             chain_id: id.into(),

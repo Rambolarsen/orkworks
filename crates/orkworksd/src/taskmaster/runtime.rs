@@ -7,6 +7,8 @@ use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+mod access;
+mod assessment;
 mod inference;
 #[cfg(test)]
 mod knowledge_tests;
@@ -197,6 +199,8 @@ pub(crate) struct TaskmasterRunStatus {
     pub workspace_path: Option<String>,
     pub active_attempt: Option<TaskmasterRunAttempt>,
     pub latest_outcome: Option<TaskmasterRunOutcome>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_manual_request: Option<TaskmasterManualRequest>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -243,6 +247,54 @@ pub(crate) struct TaskmasterRunOutcome {
     pub provider: String,
     pub model: String,
     pub error_summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proposal_counts: Option<TaskmasterProposalCounts>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TaskmasterProposalCounts {
+    pub created: u32,
+    pub suppressed: u32,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum TaskmasterManualRequestDisposition {
+    Cached,
+    Skipped,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum TaskmasterManualRequestReason {
+    UnchangedInputs,
+    ContextChanged,
+    Unavailable,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TaskmasterManualRequest {
+    pub id: String,
+    pub requested_at: String,
+    pub completed_at: String,
+    pub disposition: TaskmasterManualRequestDisposition,
+    pub reason: TaskmasterManualRequestReason,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum EvaluationReservation {
+    Reserved,
+    Cached,
+    ContextChanged,
+    Skipped,
+}
+
+impl EvaluationReservation {
+    pub(crate) fn is_reserved(self) -> bool {
+        self == Self::Reserved
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -250,6 +302,8 @@ pub(crate) struct TaskmasterRunOutcome {
 struct WorkspaceRunRecord {
     active_attempt: Option<TaskmasterRunAttempt>,
     latest_outcome: Option<TaskmasterRunOutcome>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    latest_manual_request: Option<TaskmasterManualRequest>,
 }
 
 #[derive(Default, Deserialize, Serialize)]
@@ -473,6 +527,7 @@ impl TaskmasterRuntime {
             workspace_path: Some(key),
             active_attempt: record.and_then(|record| record.active_attempt.clone()),
             latest_outcome: record.and_then(|record| record.latest_outcome.clone()),
+            latest_manual_request: record.and_then(|record| record.latest_manual_request.clone()),
         })
     }
 
@@ -496,6 +551,9 @@ impl TaskmasterRuntime {
             ledger.next_run_id = ledger.next_run_id.saturating_add(1);
             let id = ledger.next_run_id;
             let record = ledger.workspace_runs.entry(key).or_default();
+            if trigger == TaskmasterRunTrigger::Manual {
+                record.latest_manual_request = None;
+            }
             record.active_attempt = Some(TaskmasterRunAttempt {
                 id,
                 state: TaskmasterRunAttemptState::Queued,
@@ -542,6 +600,17 @@ impl TaskmasterRuntime {
         state: TaskmasterRunOutcomeState,
         error_summary: Option<&str>,
     ) -> Result<bool, String> {
+        self.finish_run_with_counts(workspace, run_id, state, error_summary, None)
+    }
+
+    pub(crate) fn finish_run_with_counts(
+        &self,
+        workspace: &Path,
+        run_id: u64,
+        state: TaskmasterRunOutcomeState,
+        error_summary: Option<&str>,
+        proposal_counts: Option<TaskmasterProposalCounts>,
+    ) -> Result<bool, String> {
         let key = canonical_workspace_key(workspace)
             .ok_or_else(|| "Selected workspace is unavailable".to_string())?;
         self.mutate_ledger(|ledger| {
@@ -556,6 +625,11 @@ impl TaskmasterRuntime {
                 .take()
                 .expect("matching active attempt");
             let completed_at = chrono::Utc::now().to_rfc3339();
+            let proposal_counts = if state == TaskmasterRunOutcomeState::Succeeded {
+                proposal_counts
+            } else {
+                None
+            };
             record.latest_outcome = Some(TaskmasterRunOutcome {
                 state,
                 started_at: attempt
@@ -566,7 +640,77 @@ impl TaskmasterRuntime {
                 provider: attempt.provider,
                 model: attempt.model,
                 error_summary: error_summary.map(bounded_run_error_summary),
+                proposal_counts,
             });
+            Ok(true)
+        })
+    }
+
+    pub(crate) fn record_manual_request_disposition(
+        &self,
+        workspace: &Path,
+        run_id: u64,
+        disposition: TaskmasterManualRequestDisposition,
+        reason: TaskmasterManualRequestReason,
+    ) -> Result<bool, String> {
+        let key = canonical_workspace_key(workspace)
+            .ok_or_else(|| "Selected workspace is unavailable".to_string())?;
+        self.mutate_ledger(|ledger| {
+            let Some(record) = ledger.workspace_runs.get_mut(&key) else {
+                return Ok(false);
+            };
+            let Some((requested_at, request_id)) = record
+                .active_attempt
+                .as_ref()
+                .filter(|attempt| {
+                    attempt.id == run_id && attempt.trigger == TaskmasterRunTrigger::Manual
+                })
+                .map(|attempt| (attempt.queued_at.clone(), attempt.id.to_string()))
+            else {
+                return Ok(false);
+            };
+            record.latest_manual_request = Some(TaskmasterManualRequest {
+                id: request_id,
+                requested_at,
+                completed_at: chrono::Utc::now().to_rfc3339(),
+                disposition,
+                reason,
+            });
+            Ok(true)
+        })
+    }
+
+    pub(crate) fn finish_manual_request_without_outcome(
+        &self,
+        workspace: &Path,
+        run_id: u64,
+        disposition: TaskmasterManualRequestDisposition,
+        reason: TaskmasterManualRequestReason,
+    ) -> Result<bool, String> {
+        let key = canonical_workspace_key(workspace)
+            .ok_or_else(|| "Selected workspace is unavailable".to_string())?;
+        self.mutate_ledger(|ledger| {
+            let Some(record) = ledger.workspace_runs.get_mut(&key) else {
+                return Ok(false);
+            };
+            let Some((requested_at, request_id)) = record
+                .active_attempt
+                .as_ref()
+                .filter(|attempt| {
+                    attempt.id == run_id && attempt.trigger == TaskmasterRunTrigger::Manual
+                })
+                .map(|attempt| (attempt.queued_at.clone(), attempt.id.to_string()))
+            else {
+                return Ok(false);
+            };
+            record.latest_manual_request = Some(TaskmasterManualRequest {
+                id: request_id,
+                requested_at,
+                completed_at: chrono::Utc::now().to_rfc3339(),
+                disposition,
+                reason,
+            });
+            record.active_attempt = None;
             Ok(true)
         })
     }
@@ -582,7 +726,7 @@ impl TaskmasterRuntime {
                 return Ok(false);
             }
             record.active_attempt = None;
-            if record.latest_outcome.is_none() {
+            if record.latest_outcome.is_none() && record.latest_manual_request.is_none() {
                 ledger.workspace_runs.remove(&key);
             }
             Ok(true)
@@ -616,9 +760,10 @@ impl TaskmasterRuntime {
                     provider: attempt.provider,
                     model: attempt.model,
                     error_summary: None,
+                    proposal_counts: None,
                 });
             }
-            if record.latest_outcome.is_none() {
+            if record.latest_outcome.is_none() && record.latest_manual_request.is_none() {
                 ledger.workspace_runs.remove(&key);
             }
             Ok(true)
@@ -644,6 +789,14 @@ impl TaskmasterRuntime {
     }
 
     pub(crate) fn replace_settings(&self, settings: TaskmasterSettings) -> Result<(), String> {
+        self.replace_settings_with_reconcile(settings, |_, _| Ok(()))
+    }
+
+    pub(crate) fn replace_settings_with_reconcile(
+        &self,
+        settings: TaskmasterSettings,
+        reconcile: impl FnOnce(&TaskmasterSettings, &TaskmasterSettings) -> Result<(), String>,
+    ) -> Result<(), String> {
         let _persistence = PERSISTENCE_LOCK
             .lock()
             .expect("taskmaster persistence lock poisoned");
@@ -654,6 +807,7 @@ impl TaskmasterRuntime {
         if !data.ledger_readable {
             return Err("Taskmaster evaluation ledger is unreadable".into());
         }
+        reconcile(&data.settings, &settings)?;
         data.ledger.generation = data.ledger.generation.saturating_add(1);
         data.ledger.workspace_cache_keys.clear();
         write_json(&self.root.join("evaluations.json"), &data.ledger)?;
@@ -752,6 +906,7 @@ impl TaskmasterRuntime {
         self.reserve_loaded(
             &mut data, workspace, now, cache_key, generation, manual, manual, manual,
         )
+        .map(EvaluationReservation::is_reserved)
     }
 
     /// Caller owns the persistence lease and runtime-data mutex through the write.
@@ -765,19 +920,19 @@ impl TaskmasterRuntime {
         bypass_min_interval: bool,
         allow_disabled: bool,
         manual: bool,
-    ) -> Result<bool, String> {
+    ) -> Result<EvaluationReservation, String> {
         let Some(workspace) = canonical_workspace_key(workspace) else {
-            return Ok(false);
+            return Ok(EvaluationReservation::Skipped);
         };
         if !data.ledger_readable {
             return Err("Taskmaster evaluation ledger is unreadable".into());
         }
         if generation.is_some_and(|expected| expected != data.ledger.generation) {
-            return Ok(false);
+            return Ok(EvaluationReservation::ContextChanged);
         }
         let effective = effective_settings(&data.settings, &workspace);
         if (!allow_disabled && !effective.enabled) || effective.selection.is_none() {
-            return Ok(false);
+            return Ok(EvaluationReservation::Skipped);
         }
         let day = now
             .get(..10)
@@ -789,7 +944,7 @@ impl TaskmasterRuntime {
             data.ledger.reservations = 0;
         }
         if !manual && data.ledger.reservations >= effective.daily_evaluation_limit {
-            return Ok(false);
+            return Ok(EvaluationReservation::Skipped);
         }
         if cache_key.is_some_and(|cache_key| {
             data.ledger
@@ -797,7 +952,11 @@ impl TaskmasterRuntime {
                 .get(&workspace)
                 .is_some_and(|existing| existing == cache_key)
         }) {
-            return Ok(false);
+            return Ok(if manual {
+                EvaluationReservation::Cached
+            } else {
+                EvaluationReservation::Skipped
+            });
         }
         if !bypass_min_interval {
             if let Some(last) = data.ledger.workspace_last_evaluated.get(&workspace) {
@@ -807,7 +966,7 @@ impl TaskmasterRuntime {
                     current.signed_duration_since(last).num_minutes()
                         < i64::from(effective.min_interval_minutes)
                 }) {
-                    return Ok(false);
+                    return Ok(EvaluationReservation::Skipped);
                 }
             }
         }
@@ -818,7 +977,7 @@ impl TaskmasterRuntime {
             .workspace_last_evaluated
             .insert(workspace.clone(), now.to_string());
         write_json(&self.root.join("evaluations.json"), &data.ledger)?;
-        Ok(true)
+        Ok(EvaluationReservation::Reserved)
     }
 
     pub(crate) fn evaluation_snapshot(&self, workspace: &Path) -> Option<EvaluationSnapshot> {
@@ -1137,7 +1296,7 @@ mod selection_tests {
     }
 }
 
-fn effective_settings(base: &TaskmasterSettings, workspace: &str) -> TaskmasterSettings {
+pub(super) fn effective_settings(base: &TaskmasterSettings, workspace: &str) -> TaskmasterSettings {
     let mut effective = base.clone();
     if let Some(override_) = base.workspace_overrides.get(workspace) {
         if let Some(enabled) = override_.enabled {
@@ -1441,6 +1600,203 @@ mod tests {
             .run_status(Some(directory.path()))
             .unwrap_err()
             .contains("unreadable"));
+    }
+
+    #[test]
+    fn run_status_round_trips_optional_proposal_counts_and_manual_disposition() {
+        let value = serde_json::json!({
+            "workspacePath": "/workspace",
+            "activeAttempt": null,
+            "latestOutcome": {
+                "state": "succeeded",
+                "startedAt": "2026-10-17T10:00:00Z",
+                "completedAt": "2026-10-17T10:01:00Z",
+                "trigger": "manual",
+                "provider": "codex",
+                "model": "gpt-6-luna",
+                "errorSummary": null,
+                "proposalCounts": { "created": 2, "suppressed": 1 }
+            },
+            "latestManualRequest": {
+                "id": "42",
+                "requestedAt": "2026-10-17T10:00:00Z",
+                "completedAt": "2026-10-17T10:00:01Z",
+                "disposition": "cached",
+                "reason": "unchanged_inputs"
+            }
+        });
+
+        let status: TaskmasterRunStatus = serde_json::from_value(value.clone()).unwrap();
+
+        assert_eq!(serde_json::to_value(status).unwrap(), value);
+    }
+
+    #[test]
+    fn skipped_manual_request_preserves_latest_outcome_and_background_does_not_replace_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let runtime = TaskmasterRuntime::open(directory.path().into());
+        let workspace = directory.path();
+        let actual = runtime
+            .queue_run(workspace, TaskmasterRunTrigger::Manual, "codex", "model")
+            .unwrap();
+        runtime
+            .mark_run_running(workspace, actual, "codex", "model")
+            .unwrap();
+        runtime
+            .finish_run_with_counts(
+                workspace,
+                actual,
+                TaskmasterRunOutcomeState::Succeeded,
+                None,
+                Some(TaskmasterProposalCounts {
+                    created: 1,
+                    suppressed: 2,
+                }),
+            )
+            .unwrap();
+        let before = runtime
+            .run_status(Some(workspace))
+            .unwrap()
+            .latest_outcome
+            .unwrap();
+
+        let manual = runtime
+            .queue_run(workspace, TaskmasterRunTrigger::Manual, "codex", "model")
+            .unwrap();
+        runtime
+            .mark_run_running(workspace, manual, "codex", "model")
+            .unwrap();
+        runtime
+            .record_manual_request_disposition(
+                workspace,
+                manual,
+                TaskmasterManualRequestDisposition::Skipped,
+                TaskmasterManualRequestReason::ContextChanged,
+            )
+            .unwrap();
+        runtime.clear_run(workspace, manual).unwrap();
+        let status = runtime.run_status(Some(workspace)).unwrap();
+        assert_eq!(status.latest_outcome, Some(before));
+        assert_eq!(status.latest_manual_request.unwrap().id, manual.to_string());
+
+        let background = runtime
+            .queue_run(
+                workspace,
+                TaskmasterRunTrigger::Background,
+                "codex",
+                "model",
+            )
+            .unwrap();
+        runtime
+            .mark_run_running(workspace, background, "codex", "model")
+            .unwrap();
+        runtime
+            .record_manual_request_disposition(
+                workspace,
+                background,
+                TaskmasterManualRequestDisposition::Skipped,
+                TaskmasterManualRequestReason::Unavailable,
+            )
+            .unwrap();
+        runtime.clear_run(workspace, background).unwrap();
+        assert_eq!(
+            runtime
+                .run_status(Some(workspace))
+                .unwrap()
+                .latest_manual_request
+                .unwrap()
+                .id,
+            manual.to_string()
+        );
+
+        let next_manual = runtime
+            .queue_run(workspace, TaskmasterRunTrigger::Manual, "codex", "model")
+            .unwrap();
+        assert_eq!(
+            runtime
+                .run_status(Some(workspace))
+                .unwrap()
+                .latest_manual_request,
+            None
+        );
+        runtime.clear_run(workspace, next_manual).unwrap();
+    }
+
+    #[test]
+    fn manual_skip_disposition_and_attempt_clear_are_one_durable_mutation() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("taskmaster");
+        let runtime = TaskmasterRuntime::open(root.clone());
+        let workspace = directory.path();
+        let actual = runtime
+            .queue_run(workspace, TaskmasterRunTrigger::Manual, "codex", "model")
+            .unwrap();
+        runtime
+            .mark_run_running(workspace, actual, "codex", "model")
+            .unwrap();
+        runtime
+            .finish_run(
+                workspace,
+                actual,
+                TaskmasterRunOutcomeState::Succeeded,
+                None,
+            )
+            .unwrap();
+        let latest_outcome = runtime
+            .run_status(Some(workspace))
+            .unwrap()
+            .latest_outcome
+            .unwrap();
+
+        let skipped = runtime
+            .queue_run(workspace, TaskmasterRunTrigger::Manual, "codex", "model")
+            .unwrap();
+        runtime
+            .mark_run_running(workspace, skipped, "codex", "model")
+            .unwrap();
+        assert!(runtime
+            .finish_manual_request_without_outcome(
+                workspace,
+                skipped,
+                TaskmasterManualRequestDisposition::Skipped,
+                TaskmasterManualRequestReason::ContextChanged,
+            )
+            .unwrap());
+
+        let reopened = TaskmasterRuntime::open(root);
+        let status = reopened.run_status(Some(workspace)).unwrap();
+        assert_eq!(status.active_attempt, None);
+        assert_eq!(status.latest_outcome, Some(latest_outcome));
+        let request = status.latest_manual_request.unwrap();
+        assert_eq!(request.id, skipped.to_string());
+        assert_eq!(
+            request.disposition,
+            TaskmasterManualRequestDisposition::Skipped
+        );
+        assert_eq!(
+            request.reason,
+            TaskmasterManualRequestReason::ContextChanged
+        );
+    }
+
+    #[test]
+    fn settings_reconciliation_failure_leaves_settings_and_generation_unchanged() {
+        let directory = tempfile::tempdir().unwrap();
+        let runtime = TaskmasterRuntime::open(directory.path().into());
+        let before = runtime.status(Some(directory.path())).settings;
+        let generation = runtime.data.lock().unwrap().ledger.generation;
+        let mut changed = before.clone();
+        changed.context_level = ContextLevel::SourceCode;
+        assert!(runtime
+            .replace_settings_with_reconcile(changed, |old, new| {
+                assert_eq!(old, &before);
+                assert_eq!(new.context_level, ContextLevel::SourceCode);
+                Err("reconciliation rejected".into())
+            })
+            .unwrap_err()
+            .contains("reconciliation rejected"));
+        assert_eq!(runtime.status(Some(directory.path())).settings, before);
+        assert_eq!(runtime.data.lock().unwrap().ledger.generation, generation);
     }
 
     #[test]

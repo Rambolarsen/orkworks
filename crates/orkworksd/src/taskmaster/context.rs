@@ -255,13 +255,25 @@ fn collect_paths(
     Ok(())
 }
 
-fn path_is_excluded(relative: &str, configured: &str) -> bool {
+pub(super) fn path_is_excluded(relative: &str, configured: &str) -> bool {
     let configured = configured.replace('\\', "/");
     #[cfg(windows)]
     let (relative, configured) = (relative.to_lowercase(), configured.to_lowercase());
     let configured = configured.trim().trim_matches('/');
     !configured.is_empty()
         && (relative == configured || relative.starts_with(&format!("{configured}/")))
+}
+
+/// Applies the collector's access policy to an immutable saved snapshot.
+pub(super) fn fact_is_permitted(path: &str, level: ContextLevel, excluded: &[String]) -> bool {
+    level != ContextLevel::SessionObservations
+        && !Path::new(path).is_absolute()
+        && !Path::new(path)
+            .components()
+            .any(|part| matches!(part, std::path::Component::ParentDir))
+        && !excluded.iter().any(|prefix| path_is_excluded(path, prefix))
+        && !builtin_excluded(Path::new(path))
+        && allowed_file(Path::new(path), level)
 }
 
 fn builtin_excluded(relative: &Path) -> bool {

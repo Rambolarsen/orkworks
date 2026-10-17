@@ -61,6 +61,12 @@ test("run status uses its dedicated authenticated read-only route", async () => 
   assert.equal(received?.method, "GET");
   assert.equal((received?.headers as Record<string, string>)["x-orkworks-open-plan-token"], "test-authority");
 });
+test("run status accepts a bounded workspace report larger than the legacy status limit", async () => {
+  const payload = { assessment: { state: "succeeded", report: { summary: "x".repeat(70 * 1024) }, reused: false } };
+  const result = await taskmasterRequest(4321, "test-authority", "run-status", undefined,
+    async () => new Response(JSON.stringify(payload)));
+  assert.deepEqual(result, payload);
+});
 test("model discovery rejects oversized provider responses", async () => {
   await assert.rejects(
     taskmasterRequest(4321, "test-authority", "models", { provider: "codex" }, async () =>

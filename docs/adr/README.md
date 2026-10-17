@@ -101,4 +101,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 
 | [0084](./0084-recommendations-main-view.md) | Recommendations in the main view | accepted |
 
-| [0085](./0085-taskmaster-assessment-and-analysis-outcomes.md) | Taskmaster assessment reports and explicit analysis outcomes | proposed; owner review pending |
+| [0085](./0085-taskmaster-assessment-and-analysis-outcomes.md) | Taskmaster assessment reports and explicit analysis outcomes | accepted |

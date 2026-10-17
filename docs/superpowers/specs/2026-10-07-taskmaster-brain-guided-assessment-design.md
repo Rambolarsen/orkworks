@@ -7,7 +7,7 @@ tags: ["orkworks", "design"]
 
 # Taskmaster Brain-guided next-step assessment
 
-- Status: proposed; owner approved the feature outcome on 2026-10-17; written protocol review pending
+- Status: accepted; owner approved the written specification and ADR 0085 on 2026-10-17
 - Date: 2026-10-07
 - Tracking issue: [#769](https://github.com/Rambolarsen/orkworks/issues/769)
 - Initiative: [#738](https://github.com/Rambolarsen/orkworks/issues/738)
@@ -204,8 +204,8 @@ focus changes are introduced.
 - Write an accepted architecture decision before implementation if the durable
   report format or HTTP/preload contract establishes a new protocol boundary.
 - Create a scoped implementation plan and verify the relevant issue
-  dependencies before runtime changes. This design does not authorize runtime
-  implementation, command execution, or changes to Brain's private repository.
+  dependencies before runtime changes. The owner approved runtime implementation through ADR 0085 and the linked
+  specification on 2026-10-17. This does not authorize changes to Brain's private repository.
 
 ## Unresolved risks to review
 
@@ -220,7 +220,7 @@ focus changes are introduced.
   it. Access narrowing redacts all affected snapshots and model prose before
   settings return, including unopened workspaces; read-only status hides stale
   data rather than mutating it. These requirements are specified in the
-  authoritative knowledge contract and the proposed protocol ADR.
+  authoritative knowledge contract and the accepted protocol ADR.
 - Current provider profiles may impose managed hooks/instructions. Their
   effects remain in force; Taskmaster's read-only request does not claim to
   undo provider-side effects.
@@ -241,10 +241,10 @@ numbers before selecting the latest 16 entries, share that selection with knowle
 retrieval, and include observation kind/time. Preserve history and grounding.
 No age cutoff treats an old report as proof that friction is resolved.
 
-The proposed [protocol ADR](../../adr/0085-taskmaster-assessment-and-analysis-outcomes.md)
+The accepted [protocol ADR](../../adr/0085-taskmaster-assessment-and-analysis-outcomes.md)
 records assessment persistence, compatibility, transaction recovery, and explicit
 ordinary-analysis empty/cache outcomes. The [implementation plan](../plans/2026-10-07-taskmaster-brain-guided-assessment.md)
 reuses the canonical specification's complete input-identity, redaction, and
-consumer revalidation rules. Approval of that concrete protocol and the linked
-written specification is the remaining runtime gate. This review does not open
+consumer revalidation rules. The owner approved that concrete protocol and the linked
+written specification on 2026-10-17. This approval does not open
 #610 orchestration, private Brain access, or configuration-learning execution.

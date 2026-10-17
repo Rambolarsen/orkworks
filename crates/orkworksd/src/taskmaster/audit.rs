@@ -220,6 +220,7 @@ pub(crate) fn build_cleanup_card(
         entries.len()
     );
     Some(Recommendation {
+        assessment: None,
         id,
         workspace_id: workspace_id.to_string(),
         chain_id: "cleanup:v1".into(),
@@ -331,6 +332,7 @@ mod tests {
             .map(|item| item.observation_id.clone())
             .collect();
         Recommendation {
+            assessment: None,
             id: "recommendation-1".into(),
             workspace_id: WORKSPACE.into(),
             chain_id: "chain-1".into(),

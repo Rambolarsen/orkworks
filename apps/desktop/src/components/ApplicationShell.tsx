@@ -328,6 +328,7 @@ export default function ApplicationShell(props: Props) {
         requestFocus("terminal");
       }} onOpenRecommendation={props.onOpenRecommendation} />;
     return <RecommendationsPanel hasWorkspace={!!props.workspace && !props.isSwitchingWorkspace}
+      workspacePath={props.workspace?.path ?? null}
       taskmasterReady={props.taskmasterReady} canFixWithAi={props.canFixWithAi && session?.lifecycle === "alive"}
       onSelectSession={props.onSelectSession} onFixWithAi={props.onFixWithAi} onRunCleanup={props.onRunCleanup}
       focusedRecommendationId={props.focusedRecommendationId} />;
