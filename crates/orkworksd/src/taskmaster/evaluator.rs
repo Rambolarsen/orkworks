@@ -461,6 +461,7 @@ fn run_model_evaluation_at_with_workspace(
                 workspace_path: run.workspace_path,
                 id: run.id,
                 completed: false,
+                terminal_outcome_attempted: false,
                 manual_disposition: (
                     TaskmasterManualRequestDisposition::Skipped,
                     TaskmasterManualRequestReason::Unavailable,
@@ -521,6 +522,7 @@ fn run_model_evaluation_with_context_and_workspace(
         workspace_path: run.workspace_path,
         id: run.id,
         completed: false,
+        terminal_outcome_attempted: false,
         manual_disposition: (
             TaskmasterManualRequestDisposition::Skipped,
             TaskmasterManualRequestReason::Unavailable,
@@ -883,6 +885,7 @@ struct RunGuard {
     workspace_path: std::path::PathBuf,
     id: u64,
     completed: bool,
+    terminal_outcome_attempted: bool,
     manual_disposition: (
         TaskmasterManualRequestDisposition,
         TaskmasterManualRequestReason,
@@ -897,6 +900,7 @@ impl RunGuard {
     }
 
     fn finish(&mut self, state: TaskmasterRunOutcomeState, error: Option<&str>) {
+        self.terminal_outcome_attempted = true;
         if self
             .runtime
             .finish_run(&self.workspace_path, self.id, state, error)
@@ -907,6 +911,7 @@ impl RunGuard {
     }
 
     fn finish_success(&mut self, error: Option<&str>, counts: TaskmasterProposalCounts) {
+        self.terminal_outcome_attempted = true;
         if self
             .runtime
             .finish_run_with_counts(
@@ -934,13 +939,20 @@ impl RunGuard {
 impl Drop for RunGuard {
     fn drop(&mut self) {
         if !self.completed {
-            let _ = self.runtime.record_manual_request_disposition(
+            if self.terminal_outcome_attempted {
+                return;
+            }
+            match self.runtime.finish_manual_request_without_outcome(
                 &self.workspace_path,
                 self.id,
                 self.manual_disposition.0,
                 self.manual_disposition.1,
-            );
-            let _ = self.runtime.clear_run(&self.workspace_path, self.id);
+            ) {
+                Ok(true) | Err(_) => {}
+                Ok(false) => {
+                    let _ = self.runtime.clear_run(&self.workspace_path, self.id);
+                }
+            }
         }
     }
 }
@@ -1638,6 +1650,70 @@ mod tests {
     };
     use crate::taskmaster::RepositoryEvidence;
     use sha2::Digest;
+
+    #[test]
+    fn failed_manual_outcome_write_is_recovered_as_interrupted_not_skipped() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("runtime");
+        let runtime = Arc::new(TaskmasterRuntime::open(root.clone()));
+        let workspace = directory.path();
+        let previous = runtime
+            .queue_run(
+                workspace,
+                TaskmasterRunTrigger::Background,
+                "codex",
+                "model",
+            )
+            .unwrap();
+        runtime
+            .mark_run_running(workspace, previous, "codex", "model")
+            .unwrap();
+        runtime
+            .finish_run(
+                workspace,
+                previous,
+                TaskmasterRunOutcomeState::Succeeded,
+                None,
+            )
+            .unwrap();
+
+        let attempt = runtime
+            .queue_run(workspace, TaskmasterRunTrigger::Manual, "codex", "model")
+            .unwrap();
+        runtime
+            .mark_run_running(workspace, attempt, "codex", "model")
+            .unwrap();
+        let mut guard = RunGuard {
+            runtime: runtime.clone(),
+            workspace_path: workspace.to_path_buf(),
+            id: attempt,
+            completed: false,
+            terminal_outcome_attempted: false,
+            manual_disposition: (
+                TaskmasterManualRequestDisposition::Skipped,
+                TaskmasterManualRequestReason::Unavailable,
+            ),
+        };
+
+        let ledger_path = root.join("evaluations.json");
+        let ledger = std::fs::read(&ledger_path).unwrap();
+        std::fs::remove_file(&ledger_path).unwrap();
+        std::fs::create_dir(&ledger_path).unwrap();
+        guard.finish(TaskmasterRunOutcomeState::Succeeded, None);
+        std::fs::remove_dir(&ledger_path).unwrap();
+        std::fs::write(&ledger_path, ledger).unwrap();
+        drop(guard);
+
+        let restarted = TaskmasterRuntime::open(root);
+        let lease = restarted.try_analysis_lease().unwrap().unwrap();
+        assert!(restarted.recover_workspace_run(workspace, &lease).unwrap());
+        let status = restarted.run_status(Some(workspace)).unwrap();
+        assert_eq!(status.active_attempt, None);
+        let outcome = status.latest_outcome.unwrap();
+        assert_eq!(outcome.state, TaskmasterRunOutcomeState::Interrupted);
+        assert_eq!(outcome.trigger, TaskmasterRunTrigger::Manual);
+        assert_eq!(status.latest_manual_request, None);
+    }
 
     #[test]
     fn unprovided_repository_citation_is_rejected_before_recommendation_mutation() {

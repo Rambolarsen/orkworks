@@ -246,40 +246,20 @@ fn contains_direct_command(text: &str) -> bool {
 
 fn contains_imperative_command(text: &str) -> bool {
     text.split(['.', '!', '?', ':']).any(|sentence| {
-        let mut words = sentence
-            .split(|character: char| !character.is_ascii_alphanumeric())
-            .filter(|word| !word.is_empty());
-        let Some(verb) = words.next() else {
-            return false;
-        };
-        let Some(target) = words.next() else {
-            return false;
-        };
-        matches!(verb, "run" | "execute" | "invoke")
-            && matches!(
-                target,
-                "cargo"
-                    | "pnpm"
-                    | "npm"
-                    | "yarn"
-                    | "bash"
-                    | "sh"
-                    | "git"
-                    | "rustfmt"
-                    | "make"
-                    | "just"
-                    | "pytest"
-                    | "python"
-                    | "node"
-                    | "rm"
-                    | "mkdir"
-                    | "cd"
-                    | "curl"
-                    | "wget"
-                    | "tests"
-                    | "checks"
-                    | "build"
-            )
+        let words = sentence
+            .split(|ch: char| !ch.is_ascii_alphanumeric())
+            .filter(|word| !word.is_empty())
+            .collect::<Vec<_>>();
+        words.windows(2).enumerate().any(|(index, pair)| {
+            let imperative_position = index == 0
+                || matches!(
+                    words[index - 1],
+                    "please" | "then" | "and" | "must" | "should" | "can" | "you" | "to"
+                );
+            imperative_position
+                && matches!(pair[0], "run" | "execute" | "invoke")
+                && pair[1] != "through"
+        })
     })
 }
 
@@ -608,6 +588,15 @@ mod tests {
             "All tests passed successfully.",
             "Verification completed successfully.",
             "printf hello; rm -rf /tmp/output",
+            "Run go test ./...",
+            "Run terraform plan",
+            "Run terraform refresh",
+            "Run unknowncli frobnicate",
+            "Please run unknowncli frobnicate",
+            "Run the unknowncli frobnicate",
+            "You should execute unknowncli frobnicate",
+            "Run the documentation check after implementation.",
+            "Run kubectl apply -f deployment.yaml",
         ] {
             let mut value = proposed();
             value["summary"] = json!(text);
@@ -632,6 +621,7 @@ mod tests {
             "Document the Git workflow.",
             "Compare run evidence.",
             "Explain how tests should pass.",
+            "Run through the plan.",
             "Tests have not been verified.",
             "Check whether tests pass.",
         ] {

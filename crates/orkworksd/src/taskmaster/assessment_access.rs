@@ -241,6 +241,7 @@ pub(crate) fn ensure_mutable(
 fn reconcile_known_workspaces(
     metadata_root: &std::path::Path,
     settings: &TaskmasterSettings,
+    active_metadata_root: Option<&std::path::Path>,
 ) -> Result<(), String> {
     let entries = match std::fs::read_dir(metadata_root) {
         Ok(entries) => entries,
@@ -257,6 +258,10 @@ fn reconcile_known_workspaces(
             continue;
         }
         let root = entry.path();
+        if active_metadata_root == Some(root.as_path()) {
+            // The active workspace is reconciled separately under its lock.
+            continue;
+        }
         let Some(origin) = crate::workspace_runtime::read_origin_file(&root) else {
             if root.join("assessment.json").exists() {
                 return Err("Assessment workspace identity is unavailable".into());
@@ -280,14 +285,19 @@ pub(crate) fn reconcile_settings(
     state: &std::sync::Arc<crate::AppState>,
     settings: &TaskmasterSettings,
 ) -> Result<(), String> {
-    #[cfg(not(test))]
-    if let Some(root) = crate::workspace_runtime::orkworks_workspaces_root() {
-        reconcile_known_workspaces(&root, settings)?;
-    }
+    // Keep selection stable through the global scan and active pass, and
+    // serialize both against delivery completion and recommendation writes.
     let workspace = state
         .workspace
         .lock()
         .map_err(|_| "Workspace state is unavailable")?;
+    #[cfg(not(test))]
+    if let Some(root) = crate::workspace_runtime::orkworks_workspaces_root() {
+        let active_root = workspace
+            .as_ref()
+            .map(|workspace| workspace.metadata.root_path());
+        reconcile_known_workspaces(&root, settings, active_root.as_deref())?;
+    }
     if let Some(workspace) = workspace.as_ref() {
         let key = workspace
             .path
@@ -932,12 +942,25 @@ mod tests {
                 ..WorkspaceOverride::default()
             },
         );
-        reconcile_known_workspaces(root.path(), &scoped).unwrap();
+        reconcile_known_workspaces(root.path(), &scoped, None).unwrap();
         assert!(stores[0].list().unwrap()[0].repository_evidence.is_empty());
         assert!(!stores[1].list().unwrap()[0].repository_evidence.is_empty());
         scoped.context_level = ContextLevel::SessionObservations;
-        reconcile_known_workspaces(root.path(), &scoped).unwrap();
-        assert!(stores[1].list().unwrap()[0].repository_evidence.is_empty());
+        let active_root = root.path().join("b");
+        reconcile_known_workspaces(root.path(), &scoped, Some(&active_root)).unwrap();
+        assert!(
+            !stores[1].list().unwrap()[0].repository_evidence.is_empty(),
+            "the global pass must not read/replace the active recommendation"
+        );
+        let mut delivered = stores[1].list().unwrap().remove(0);
+        delivered.status = RecommendationStatus::Accepted;
+        stores[1].put(&delivered).unwrap();
+        // The active pass observes the delivered lifecycle under the workspace
+        // lock rather than applying a pre-delivery clone from the global scan.
+        reconcile_metadata(&active_root, &scoped).unwrap();
+        let final_record = stores[1].list().unwrap().remove(0);
+        assert_eq!(final_record.status, RecommendationStatus::Accepted);
+        assert!(final_record.repository_evidence.is_empty());
     }
 
     #[test]

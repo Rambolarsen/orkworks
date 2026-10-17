@@ -106,7 +106,7 @@ impl AssessmentFixture {
                 "summary": "The supplied evidence supports a bounded documentation improvement.",
                 "repositoryFactHashes": [fact_hash],
                 "knowledgePageIds": [page_id],
-                "unverifiedChecks": ["Run the documentation check after implementation."],
+                "unverifiedChecks": ["Documentation verification remains unverified until implementation."],
                 "proposal": {
                     "targetSurface": "documentation",
                     "title": "Clarify the workflow guide",
@@ -372,6 +372,17 @@ async fn scheduled_assessment_publishes_a_grounded_no_proposal_report() {
         AssessmentRequestStatus::Cached,
         "a matching durable report should be reused without another provider dispatch"
     );
+    let reloaded = AssessmentStore::new(&fixture.workspace_root())
+        .load::<AssessmentRecord>()
+        .unwrap()
+        .unwrap();
+    assert!(reloaded.reused, "cache reuse must survive a report reload");
+    let runtime = TaskmasterRuntime::open(fixture.runtime_root.clone());
+    assert_eq!(
+        crate::taskmaster::assessment_access::status_for(&fixture.state, &runtime)["reused"],
+        true
+    );
+
     assert_eq!(
         fs::read_to_string(fixture.marker.with_extension("count"))
             .unwrap()
@@ -617,7 +628,12 @@ async fn changed_assessment_inputs_create_a_provenance_linked_successor() {
         AssessmentRequestStatus::Scheduled
     );
     let first = fixture.wait_for_terminal().await;
-    assert_eq!(first.state, AssessmentState::Succeeded);
+    assert_eq!(
+        first.state,
+        AssessmentState::Succeeded,
+        "{:?}",
+        first.error_summary
+    );
     let old_id = first.report.unwrap().recommendation_id.unwrap();
 
     let runtime = TaskmasterRuntime::open(fixture.runtime_root.clone());
@@ -825,4 +841,218 @@ fn pending_crash_replay_is_idempotent_before_and_after_recommendation_upsert() {
             committed_bytes
         );
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn superseded_proposal_remains_eligible_after_an_intervening_no_proposal() {
+    let fixture = AssessmentFixture::new();
+    fixture.prepare_response("proposed");
+    assert_eq!(
+        schedule(fixture.state.clone(), fixture.runtime_root.clone()).status,
+        AssessmentRequestStatus::Scheduled
+    );
+    let first = fixture.wait_for_terminal().await;
+    assert_eq!(
+        first.state,
+        AssessmentState::Succeeded,
+        "{:?}",
+        first.error_summary
+    );
+    let old_id = first.report.unwrap().recommendation_id.unwrap();
+
+    let runtime = TaskmasterRuntime::open(fixture.runtime_root.clone());
+    let workspace_path = fixture
+        .state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .path
+        .clone();
+    let mut settings = runtime.status(Some(&workspace_path)).settings;
+    settings.selection.as_mut().unwrap().model = "successor-fixture-model".into();
+    runtime.replace_settings(settings).unwrap();
+    fixture.write_response("no_proposal");
+    assert_eq!(
+        schedule(fixture.state.clone(), fixture.runtime_root.clone()).status,
+        AssessmentRequestStatus::Scheduled
+    );
+    let intermediate = fixture.wait_for_terminal().await;
+    assert_eq!(intermediate.report.unwrap().outcome, "no_proposal");
+    let mut settings = runtime.status(Some(&workspace_path)).settings;
+    settings.selection.as_mut().unwrap().model = "after-intervening-assessment".into();
+    runtime.replace_settings(settings).unwrap();
+    fixture.write_response("proposed");
+    assert_eq!(
+        schedule(fixture.state.clone(), fixture.runtime_root.clone()).status,
+        AssessmentRequestStatus::Scheduled
+    );
+    let second = fixture.wait_for_terminal().await;
+    assert_eq!(
+        second.state,
+        AssessmentState::Succeeded,
+        "{:?}",
+        second.error_summary
+    );
+    let successor_id = second.report.unwrap().recommendation_id.unwrap();
+    assert_ne!(successor_id, old_id);
+    let workspace = fixture.state.workspace.lock().unwrap();
+    let store = &workspace.as_ref().unwrap().recommendation_store;
+    let old = store.get(&old_id).unwrap().unwrap();
+    let successor = store.get(&successor_id).unwrap().unwrap();
+    assert_eq!(
+        old.status,
+        crate::taskmaster::RecommendationStatus::Superseded
+    );
+    assert_eq!(
+        successor
+            .workflow_improvement
+            .supersedes_recommendation_id
+            .as_deref(),
+        Some(old_id.as_str())
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn superseded_proposal_remains_eligible_after_an_intervening_failure() {
+    let fixture = AssessmentFixture::new();
+    fixture.prepare_response("proposed");
+    assert_eq!(
+        schedule(fixture.state.clone(), fixture.runtime_root.clone()).status,
+        AssessmentRequestStatus::Scheduled
+    );
+    let first = fixture.wait_for_terminal().await;
+    assert_eq!(
+        first.state,
+        AssessmentState::Succeeded,
+        "{:?}",
+        first.error_summary
+    );
+    let old_id = first.report.unwrap().recommendation_id.unwrap();
+
+    let runtime = TaskmasterRuntime::open(fixture.runtime_root.clone());
+    let workspace_path = fixture
+        .state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .path
+        .clone();
+    let mut settings = runtime.status(Some(&workspace_path)).settings;
+    settings.selection.as_mut().unwrap().model = "successor-fixture-model".into();
+    runtime.replace_settings(settings).unwrap();
+    fs::write(&fixture.response, "invalid provider output").unwrap();
+    assert_eq!(
+        schedule(fixture.state.clone(), fixture.runtime_root.clone()).status,
+        AssessmentRequestStatus::Scheduled
+    );
+    let intermediate = fixture.wait_for_terminal().await;
+    assert_eq!(intermediate.state, AssessmentState::Failed);
+    let mut settings = runtime.status(Some(&workspace_path)).settings;
+    settings.selection.as_mut().unwrap().model = "after-intervening-assessment".into();
+    runtime.replace_settings(settings).unwrap();
+    fixture.write_response("proposed");
+    assert_eq!(
+        schedule(fixture.state.clone(), fixture.runtime_root.clone()).status,
+        AssessmentRequestStatus::Scheduled
+    );
+    let second = fixture.wait_for_terminal().await;
+    assert_eq!(
+        second.state,
+        AssessmentState::Succeeded,
+        "{:?}",
+        second.error_summary
+    );
+    let successor_id = second.report.unwrap().recommendation_id.unwrap();
+    assert_ne!(successor_id, old_id);
+    let workspace = fixture.state.workspace.lock().unwrap();
+    let store = &workspace.as_ref().unwrap().recommendation_store;
+    let old = store.get(&old_id).unwrap().unwrap();
+    let successor = store.get(&successor_id).unwrap().unwrap();
+    assert_eq!(
+        old.status,
+        crate::taskmaster::RecommendationStatus::Superseded
+    );
+    assert_eq!(
+        successor
+            .workflow_improvement
+            .supersedes_recommendation_id
+            .as_deref(),
+        Some(old_id.as_str())
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn successive_input_invalidations_extend_the_unique_assessment_chain() {
+    let fixture = AssessmentFixture::new();
+    fixture.prepare_response("proposed");
+    assert_eq!(
+        schedule(fixture.state.clone(), fixture.runtime_root.clone()).status,
+        AssessmentRequestStatus::Scheduled
+    );
+    let first = fixture.wait_for_terminal().await;
+    assert_eq!(
+        first.state,
+        AssessmentState::Succeeded,
+        "{:?}",
+        first.error_summary
+    );
+    let old_id = first.report.unwrap().recommendation_id.unwrap();
+
+    let runtime = TaskmasterRuntime::open(fixture.runtime_root.clone());
+    let workspace_path = fixture
+        .state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .path
+        .clone();
+    let mut settings = runtime.status(Some(&workspace_path)).settings;
+    settings.selection.as_mut().unwrap().model = "successor-fixture-model".into();
+    runtime.replace_settings(settings).unwrap();
+    fixture.write_response("proposed");
+    assert_eq!(
+        schedule(fixture.state.clone(), fixture.runtime_root.clone()).status,
+        AssessmentRequestStatus::Scheduled
+    );
+    let second = fixture.wait_for_terminal().await;
+    assert_eq!(
+        second.state,
+        AssessmentState::Succeeded,
+        "{:?}",
+        second.error_summary
+    );
+    let successor_id = second.report.unwrap().recommendation_id.unwrap();
+    assert_ne!(successor_id, old_id);
+    let mut settings = runtime.status(Some(&workspace_path)).settings;
+    settings.selection.as_mut().unwrap().model = "third-fixture-model".into();
+    runtime.replace_settings(settings).unwrap();
+    fixture.write_response("proposed");
+    assert_eq!(
+        schedule(fixture.state.clone(), fixture.runtime_root.clone()).status,
+        AssessmentRequestStatus::Scheduled
+    );
+    let third = fixture.wait_for_terminal().await;
+    assert_eq!(third.state, AssessmentState::Succeeded);
+    let third_id = third
+        .report
+        .unwrap()
+        .recommendation_id
+        .expect("latest invalidated predecessor permits a successor");
+    let workspace = fixture.state.workspace.lock().unwrap();
+    let store = &workspace.as_ref().unwrap().recommendation_store;
+    let third = store.get(&third_id).unwrap().unwrap();
+    assert_eq!(
+        third
+            .workflow_improvement
+            .supersedes_recommendation_id
+            .as_deref(),
+        Some(successor_id.as_str())
+    );
+    assert_ne!(third_id, old_id);
 }

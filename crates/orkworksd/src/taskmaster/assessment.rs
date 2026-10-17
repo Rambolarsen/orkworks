@@ -437,6 +437,17 @@ pub(crate) fn schedule(
     } {
         return active_recommendation_response(recommendation);
     }
+    let lease = match runtime.try_analysis_lease() {
+        Ok(Some(lease)) => lease,
+        Ok(None) => {
+            return AssessmentRequestResponse {
+                status: AssessmentRequestStatus::AlreadyRunning,
+                recommendation: None,
+                message: None,
+            }
+        }
+        Err(_) => return unavailable("Taskmaster analysis is unavailable"),
+    };
     if let Ok(snapshot) =
         capture_current_snapshot(&state, &runtime_root, previous_recommendation_id)
     {
@@ -447,6 +458,60 @@ pub(crate) fn schedule(
                     .as_ref()
                     .is_some_and(|report| report.input_fingerprint == snapshot.fingerprint)
         }) {
+            let mut reused = false;
+            let mut save_failed = false;
+            let current = runtime.with_current_evaluation(
+                &state.harness_store,
+                &snapshot.workspace_path,
+                &snapshot.evaluation,
+                || {
+                    let workspace = state.workspace.lock().expect("workspace lock poisoned");
+                    let Some(workspace) = workspace.as_ref().filter(|workspace| {
+                        workspace_identity_matches(
+                            &workspace.path,
+                            workspace.workflow_observations.instance_id(),
+                            &snapshot.workspace_path,
+                            snapshot.workspace_instance,
+                        )
+                    }) else {
+                        return;
+                    };
+                    let Ok(input) = capture_workspace_input(
+                        workspace,
+                        &snapshot.evaluation,
+                        previous_recommendation_id,
+                    ) else {
+                        return;
+                    };
+                    if input.fingerprint != snapshot.fingerprint {
+                        return;
+                    }
+                    let Ok(current_record) =
+                        store.load::<super::assessment_report::AssessmentRecord>()
+                    else {
+                        save_failed = true;
+                        return;
+                    };
+                    if current_record != previous {
+                        return;
+                    }
+                    let Some(mut record) = current_record else {
+                        return;
+                    };
+                    record.reused = true;
+                    if store.save(&record).is_err() {
+                        save_failed = true;
+                    } else {
+                        reused = true;
+                    }
+                },
+            );
+            if current.is_err() || save_failed {
+                return unavailable("Assessment reuse could not be stored");
+            }
+            if current != Ok(true) || !reused {
+                return unavailable("Assessment inputs changed before reuse");
+            }
             return AssessmentRequestResponse {
                 status: AssessmentRequestStatus::Cached,
                 recommendation: previous
@@ -469,17 +534,6 @@ pub(crate) fn schedule(
             };
         }
     }
-    let lease = match runtime.try_analysis_lease() {
-        Ok(Some(lease)) => lease,
-        Ok(None) => {
-            return AssessmentRequestResponse {
-                status: AssessmentRequestStatus::AlreadyRunning,
-                recommendation: None,
-                message: None,
-            }
-        }
-        Err(_) => return unavailable("Taskmaster analysis is unavailable"),
-    };
     let effective = runtime.status(Some(&workspace_path)).effective_settings;
     if super::assessment_access::reconcile_metadata(&workspace_root, &effective).is_err() {
         return unavailable("Assessment access state is unavailable");
@@ -522,7 +576,6 @@ pub(crate) fn schedule(
             workspace_root,
             record,
             lease,
-            previous,
         );
     });
     AssessmentRequestResponse {
@@ -727,7 +780,6 @@ fn run_assessment(
     workspace_root: PathBuf,
     mut record: super::assessment_report::AssessmentRecord,
     _analysis_lease: std::fs::File,
-    previous_record: Option<super::assessment_report::AssessmentRecord>,
 ) {
     use super::assessment_report::{AssessmentReport, AssessmentState};
     let runtime = super::runtime::TaskmasterRuntime::open(runtime_root.clone());
@@ -911,18 +963,20 @@ fn run_assessment(
             &existing
                 .iter()
                 .map(|item| {
+                    // Invalidation lineage lives with the recommendation, not
+                    // the latest report, which may be a later failed/no-proposal run.
                     let stale_predecessor = item.assessment.as_ref().is_some_and(|provenance| {
-                        previous_record.as_ref().is_some_and(|previous| {
-                            previous.state == super::assessment_report::AssessmentState::Succeeded
-                                && previous.id == provenance.id
-                                && previous.report.as_ref().is_some_and(|report| {
-                                    report.recommendation_id.as_deref() == Some(item.id.as_str())
-                                        && (report.input_fingerprint != snapshot.fingerprint
-                                            || provenance.access_redacted)
-                                })
-                        })
+                        provenance.input_fingerprint != snapshot.fingerprint
+                            || provenance.access_redacted
                     });
-                    (item.status, stale_predecessor, item.id.as_str())
+                    (
+                        item.status,
+                        stale_predecessor,
+                        item.id.as_str(),
+                        item.workflow_improvement
+                            .supersedes_recommendation_id
+                            .as_deref(),
+                    )
                 })
                 .collect::<Vec<_>>(),
         );
@@ -1095,14 +1149,51 @@ enum ProposalDedupeDecision {
 }
 
 fn proposal_dedupe_decision(
-    existing: &[(super::RecommendationStatus, bool, &str)],
+    existing: &[(super::RecommendationStatus, bool, &str, Option<&str>)],
 ) -> ProposalDedupeDecision {
-    match existing {
-        [] => ProposalDedupeDecision::Create,
-        [(super::RecommendationStatus::Superseded, true, id)] => {
-            ProposalDedupeDecision::Successor((*id).into())
+    if existing.is_empty() {
+        return ProposalDedupeDecision::Create;
+    }
+    if existing
+        .iter()
+        .any(|(status, stale, _, _)| *status != super::RecommendationStatus::Superseded || !stale)
+    {
+        return ProposalDedupeDecision::Suppress;
+    }
+    // Only a single connected, invalidated assessment chain can advance.
+    // Historical ancestors do not suppress the unique current tip, while
+    // ordinary records, competing tips, cycles, and missing links fail closed.
+    let tips = existing
+        .iter()
+        .filter(|(_, _, id, _)| {
+            !existing
+                .iter()
+                .any(|(_, _, _, predecessor)| *predecessor == Some(*id))
+        })
+        .collect::<Vec<_>>();
+    let [tip] = tips.as_slice() else {
+        return ProposalDedupeDecision::Suppress;
+    };
+    let mut seen = std::collections::HashSet::new();
+    let mut current = *tip;
+    loop {
+        if !seen.insert(current.2) {
+            return ProposalDedupeDecision::Suppress;
         }
-        _ => ProposalDedupeDecision::Suppress,
+        match current.3 {
+            None => break,
+            Some(predecessor) => {
+                let Some(parent) = existing.iter().find(|(_, _, id, _)| *id == predecessor) else {
+                    return ProposalDedupeDecision::Suppress;
+                };
+                current = parent;
+            }
+        }
+    }
+    if seen.len() == existing.len() {
+        ProposalDedupeDecision::Successor(tip.2.into())
+    } else {
+        ProposalDedupeDecision::Suppress
     }
 }
 
@@ -1335,19 +1426,23 @@ mod tests {
     }
 
     #[test]
-    fn only_a_single_superseded_assessment_record_can_have_a_successor() {
+    fn only_a_unique_connected_invalidated_assessment_chain_can_have_a_successor() {
         use super::super::RecommendationStatus;
+        let stale = RecommendationStatus::Superseded;
         assert_eq!(
             proposal_dedupe_decision(&[]),
             ProposalDedupeDecision::Create
         );
         assert_eq!(
-            proposal_dedupe_decision(&[(
-                RecommendationStatus::Superseded,
-                true,
-                "recommendation-1"
-            )]),
-            ProposalDedupeDecision::Successor("recommendation-1".into())
+            proposal_dedupe_decision(&[(stale, true, "first", None)]),
+            ProposalDedupeDecision::Successor("first".into())
+        );
+        assert_eq!(
+            proposal_dedupe_decision(&[
+                (stale, true, "first", None),
+                (stale, true, "second", Some("first"))
+            ]),
+            ProposalDedupeDecision::Successor("second".into())
         );
         for status in [
             RecommendationStatus::Proposed,
@@ -1357,25 +1452,24 @@ mod tests {
             RecommendationStatus::Completed,
         ] {
             assert_eq!(
-                proposal_dedupe_decision(&[(status, true, "recommendation-1")]),
+                proposal_dedupe_decision(&[(status, true, "first", None)]),
                 ProposalDedupeDecision::Suppress
             );
         }
-        assert_eq!(
-            proposal_dedupe_decision(&[(
-                RecommendationStatus::Superseded,
-                false,
-                "recommendation-1"
-            )]),
-            ProposalDedupeDecision::Suppress
-        );
-        assert_eq!(
-            proposal_dedupe_decision(&[
-                (RecommendationStatus::Superseded, true, "first"),
-                (RecommendationStatus::Superseded, true, "second")
-            ]),
-            ProposalDedupeDecision::Suppress
-        );
+        for records in [
+            vec![(stale, false, "first", None)],
+            vec![(stale, true, "first", None), (stale, true, "second", None)],
+            vec![(stale, true, "first", Some("missing"))],
+            vec![
+                (stale, true, "first", Some("second")),
+                (stale, true, "second", Some("first")),
+            ],
+        ] {
+            assert_eq!(
+                proposal_dedupe_decision(&records),
+                ProposalDedupeDecision::Suppress
+            );
+        }
     }
 
     #[test]

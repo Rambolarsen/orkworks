@@ -24,6 +24,18 @@ const compiledSummary = await build({
 const summaryModule = { exports: {} as Record<string, unknown> };
 new Function("require", "module", "exports", compiledSummary.outputFiles[0].text)(require, summaryModule, summaryModule.exports);
 const TaskmasterAssessmentSummary = summaryModule.exports.default as (props: { assessment: TaskmasterAssessmentStatus }) => ReactElement;
+const compiledPanel = await build({
+  entryPoints: [new URL("../src/components/RecommendationsPanel.tsx", import.meta.url).pathname],
+  bundle: true, write: false, platform: "node", format: "cjs", packages: "external",
+});
+const panelModule = { exports: {} as Record<string, unknown> };
+new Function("require", "module", "exports", compiledPanel.outputFiles[0].text)(require, panelModule, panelModule.exports);
+const RecommendationsPanel = panelModule.exports.default as (props: {
+  hasWorkspace: boolean;
+  workspacePath: string | null;
+  taskmasterReady: boolean;
+  canFixWithAi: boolean;
+}) => ReactElement;
 
 const report: AssessmentReport = {
   id: "assessment-1",
@@ -97,14 +109,38 @@ test("assessment summary renders no-proposal reason, provenance and unverified c
   assert.doesNotMatch(markup, /<img src=x/);
 });
 
-test("proposed assessment points to the existing recommendation card and progress stays inline", () => {
+test("proposed assessment identifies its historical recommendation without claiming it is still active", () => {
   const proposed = renderToStaticMarkup(createElement(TaskmasterAssessmentSummary, {
     assessment: { state: "succeeded", report: { ...report, outcome: "proposed", noProposalReason: null, recommendationId: "rec-1" }, reused: false },
   }));
-  assert.match(proposed, /Recommendation rec-1 is available below/);
+  assert.match(proposed, /Assessment recommendation ID: rec-1/);
+  assert.doesNotMatch(proposed, /available below/);
   assert.match(renderToStaticMarkup(createElement(TaskmasterAssessmentSummary, {
     assessment: { state: "running", report: null, reused: false },
   })), /Assessing this workspace/);
+});
+
+test("assessment action is enabled while workspace readiness is known, even before a report loads", () => {
+  const buttonMarkup = (props: { hasWorkspace: boolean; taskmasterReady: boolean }) => {
+    const markup = renderToStaticMarkup(createElement(RecommendationsPanel, {
+      ...props,
+      workspacePath: props.hasWorkspace ? "/workspace/a" : null,
+      canFixWithAi: false,
+    }));
+    return markup.match(/<button type="button"[^>]*>Assess workflow<\/button>/)?.[0] ?? null;
+  };
+
+  const readyButton = buttonMarkup({ hasWorkspace: true, taskmasterReady: true });
+  assert.ok(readyButton, "expected the assessment action in a ready workspace");
+  assert.doesNotMatch(readyButton, /\sdisabled(?:=|\s|>)/);
+
+  const noWorkspaceButton = buttonMarkup({ hasWorkspace: false, taskmasterReady: true });
+  assert.ok(noWorkspaceButton);
+  assert.match(noWorkspaceButton, /\sdisabled(?:=|\s|>)/);
+
+  const notReadyButton = buttonMarkup({ hasWorkspace: true, taskmasterReady: false });
+  assert.ok(notReadyButton);
+  assert.match(notReadyButton, /\sdisabled(?:=|\s|>)/);
 });
 
 test("ordinary outcome summaries use server counts and keep legacy successes generic", () => {

@@ -9,7 +9,7 @@ export default function TaskmasterAssessmentSummary({ assessment }: Props) {
   return <section className="recommendation-analysis-status" aria-label="Workflow assessment" role="status">
     <p>{formatTaskmasterAssessment(assessment)}</p>
     {report && <>
-      {report.outcome === "proposed" && report.recommendationId && <p>Recommendation {report.recommendationId} is available below.</p>}
+      {report.outcome === "proposed" && report.recommendationId && <p>Assessment recommendation ID: {report.recommendationId}.</p>}
       <p>Outcome: {report.outcome === "proposed" ? "Proposal" : "No proposal"}</p>
       <p>Assessment {report.id} · Workspace {report.workspacePath} · Observed {report.observedAt} · {report.provider} / {report.model} · Brain bundle {report.bundleVersion}</p>
       {report.unverifiedChecks.length > 0 && <div>

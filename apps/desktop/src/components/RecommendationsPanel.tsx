@@ -471,7 +471,7 @@ function RecommendationsPanel({ hasWorkspace, workspacePath, taskmasterReady, ca
   }
 
   async function assessWorkflow() {
-    if (!hasWorkspace || !taskmasterReady || !assessmentAvailable || activityBusy) return;
+    if (!hasWorkspace || !taskmasterReady || activityBusy) return;
     const generation = workspaceGeneration.current;
     const requestedWorkspacePath = workspacePath;
     setAssessmentBusy(true);
@@ -577,7 +577,6 @@ function RecommendationsPanel({ hasWorkspace, workspacePath, taskmasterReady, ca
 
   const currentRunStatus = runStatus?.workspacePath === workspacePath ? runStatus : null;
   const assessmentStatus = workspacePath ? taskmasterAssessmentForWorkspace(currentRunStatus, workspacePath) : null;
-  const assessmentAvailable = assessmentStatus !== null && assessmentStatus.state !== "unavailable";
   const activityBusy = analysisBusy || assessmentBusy || taskmasterAnalysisBusy(currentRunStatus);
   const proposalCountsSummary = formatTaskmasterProposalCounts(currentRunStatus?.activeAttempt ? null : currentRunStatus?.latestOutcome ?? null);
   const visibleRecommendations = hasWorkspace && taskmasterReady && loadedWorkspacePath === workspacePath
@@ -610,7 +609,7 @@ function RecommendationsPanel({ hasWorkspace, workspacePath, taskmasterReady, ca
           <button type="button" disabled={!hasWorkspace || !taskmasterReady || activityBusy} onClick={() => void analyzeNow()}>
             {analysisBusy ? "Requesting…" : "Analyze now"}
           </button>
-          <button type="button" disabled={!hasWorkspace || !taskmasterReady || !assessmentAvailable || activityBusy} onClick={() => void assessWorkflow()}>
+          <button type="button" disabled={!hasWorkspace || !taskmasterReady || activityBusy} onClick={() => void assessWorkflow()}>
             {assessmentBusy || assessmentStatus?.state === "queued" || assessmentStatus?.state === "running" ? "Assessing…" : "Assess workflow"}
           </button>
           <button type="button" disabled={!hasWorkspace || !taskmasterReady || auditBusy} onClick={() => void runAudit()}>

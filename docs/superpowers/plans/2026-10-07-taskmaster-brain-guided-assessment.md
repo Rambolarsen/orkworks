@@ -178,7 +178,7 @@ for unchanged accepted portions after that review.
 - [x] Verify a proposal reaches the existing `proactive:v1:` lifecycle and respects duplicate/dismissed/active recommendation state without duplicating mutations.
 - [x] Verify insufficient evidence, missing or unsupported Brain citations, changed cited or uncited facts, changed recommendation inputs/configuration/workspace, direct list/get/accept/Fix with AI after invalidation, and unavailable provider produce no ungrounded or cached-stale recommendation.
 - [x] Verify report replacement, local-only persistence, workspace metadata deletion, stale-report suppression on read-only status reads, access-narrowing redaction of evidence and generated recommendation/report text before settings replies including inherited global defaults across multiple workspaces, proposed-recommendation supersession and linked successors, live commit-failure suppression, redaction of dismissed evidence after access narrowing, preservation of audit snapshots for non-access changes, bounded size, crash recovery, and separation from Analyze now cache/report state.
-- [ ] Run Rust tests, formatting, focused desktop tests/type-check, documentation link/build checks, and the repository-required `/code-review low` before code PR merge.
+- [x] Run Rust tests, formatting, focused desktop tests/type-check, documentation link/build checks, and the repository-required `/code-review low` before code PR merge (medium effort under the documented lifecycle/protocol/size escalation).
 - [x] Keep all Brain-backed inference explicitly gated until #529's reviewed distilled export, supported signed-payload policy/capability fields, generated starter snapshot, and verified signed publication are complete; report any remaining #745 lifecycle alignment before implementation handoff.
 
 
@@ -340,3 +340,41 @@ availability unit includes lifecycle, concurrency, privacy and more than eight
 code files. Splitting admission from its consumer/recovery fences would leave a
 partial protocol exposed. The current lower-cost Luna tier remains first. The
 final review gate and PR/CI lifecycle remain pending.
+
+
+### PR #913 review cycle 1
+
+The initial current-code manual review approved `f0757cec`; the subsequent
+GitHub Codex review identified seven actionable lifecycle/UI/validation edge
+cases. This is substantial feedback cycle 1 of 3, within the original approved
+protocol scope. Corrections make skipped/cached manual completion atomic,
+persist assessment reuse under current-input guards, allow reassessment when a
+prior report becomes stale, and identify a report's recommendation as history
+rather than promising an actionable card below it. The global settings scan
+holds the active-workspace lock and skips that workspace before its guarded
+reconciliation. Successor eligibility uses durable recommendation provenance
+and the unique connected invalidated chain tip, surviving intervening failed or
+no-proposal assessments without bypassing ordinary lifecycle suppression.
+
+Separate review also found that failed actual-outcome persistence could fall
+back to a false pre-dispatch skip. The guard now preserves that active attempt
+for interrupted-run recovery. Command-like checks, including unknown tools and
+polite/article wrappers, are rejected; the native provider fixture uses a check
+description. Regression tests reproduced reuse loss, intervening-report
+suppression, repeated-chain suppression, the stale desktop admission gate, and
+false skip after a transient outcome write failure before their fixes. Full
+verification and current-code review are repeated before the cycle is pushed;
+current-head external reviews and CI remain merge gates.
+
+
+Cycle 1 final integrated verification passed with `bash scripts/verify-repo.sh`:
+2,072 Rust tests passed (5 ignored), all Rust integration executables passed,
+9 OpenCode tests passed, 1,335 desktop tests passed (1 skipped), and all builds,
+type checks, docs checks/build, diff and currency checks passed. Host Node ABI
+was restored before this run; the desktop native ABI repair then passed as part
+of normal verification. The separate current-diff medium manual review approved
+the corrected production code with no remaining findings. Review evidence is
+recorded on PR #913 for the committed code SHA; external re-review and CI follow
+the feedback-cycle push before merge. Source/user-guide claims were reviewed:
+the corrections refine the documented existing workflow and require no new
+installer-availability claim or homepage wording.

@@ -680,6 +680,41 @@ impl TaskmasterRuntime {
         })
     }
 
+    pub(crate) fn finish_manual_request_without_outcome(
+        &self,
+        workspace: &Path,
+        run_id: u64,
+        disposition: TaskmasterManualRequestDisposition,
+        reason: TaskmasterManualRequestReason,
+    ) -> Result<bool, String> {
+        let key = canonical_workspace_key(workspace)
+            .ok_or_else(|| "Selected workspace is unavailable".to_string())?;
+        self.mutate_ledger(|ledger| {
+            let Some(record) = ledger.workspace_runs.get_mut(&key) else {
+                return Ok(false);
+            };
+            let Some((requested_at, request_id)) = record
+                .active_attempt
+                .as_ref()
+                .filter(|attempt| {
+                    attempt.id == run_id && attempt.trigger == TaskmasterRunTrigger::Manual
+                })
+                .map(|attempt| (attempt.queued_at.clone(), attempt.id.to_string()))
+            else {
+                return Ok(false);
+            };
+            record.latest_manual_request = Some(TaskmasterManualRequest {
+                id: request_id,
+                requested_at,
+                completed_at: chrono::Utc::now().to_rfc3339(),
+                disposition,
+                reason,
+            });
+            record.active_attempt = None;
+            Ok(true)
+        })
+    }
+
     pub(crate) fn clear_run(&self, workspace: &Path, run_id: u64) -> Result<bool, String> {
         let key = canonical_workspace_key(workspace)
             .ok_or_else(|| "Selected workspace is unavailable".to_string())?;
@@ -1685,6 +1720,63 @@ mod tests {
             None
         );
         runtime.clear_run(workspace, next_manual).unwrap();
+    }
+
+    #[test]
+    fn manual_skip_disposition_and_attempt_clear_are_one_durable_mutation() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("taskmaster");
+        let runtime = TaskmasterRuntime::open(root.clone());
+        let workspace = directory.path();
+        let actual = runtime
+            .queue_run(workspace, TaskmasterRunTrigger::Manual, "codex", "model")
+            .unwrap();
+        runtime
+            .mark_run_running(workspace, actual, "codex", "model")
+            .unwrap();
+        runtime
+            .finish_run(
+                workspace,
+                actual,
+                TaskmasterRunOutcomeState::Succeeded,
+                None,
+            )
+            .unwrap();
+        let latest_outcome = runtime
+            .run_status(Some(workspace))
+            .unwrap()
+            .latest_outcome
+            .unwrap();
+
+        let skipped = runtime
+            .queue_run(workspace, TaskmasterRunTrigger::Manual, "codex", "model")
+            .unwrap();
+        runtime
+            .mark_run_running(workspace, skipped, "codex", "model")
+            .unwrap();
+        assert!(runtime
+            .finish_manual_request_without_outcome(
+                workspace,
+                skipped,
+                TaskmasterManualRequestDisposition::Skipped,
+                TaskmasterManualRequestReason::ContextChanged,
+            )
+            .unwrap());
+
+        let reopened = TaskmasterRuntime::open(root);
+        let status = reopened.run_status(Some(workspace)).unwrap();
+        assert_eq!(status.active_attempt, None);
+        assert_eq!(status.latest_outcome, Some(latest_outcome));
+        let request = status.latest_manual_request.unwrap();
+        assert_eq!(request.id, skipped.to_string());
+        assert_eq!(
+            request.disposition,
+            TaskmasterManualRequestDisposition::Skipped
+        );
+        assert_eq!(
+            request.reason,
+            TaskmasterManualRequestReason::ContextChanged
+        );
     }
 
     #[test]
