@@ -135,6 +135,16 @@ observation window for relevant-guidance retrieval and the model prompt. Include
 observation kind and observation time; an old report is not proof that friction
 still applies. Preserve durable observation history and grounding rules.
 
+Repository context collection prioritizes root instructions and manifests, scoped
+instructions, and current workflow guidance before historical plans and agent
+reports. Within those groups, permitted observation signals rank relevant paths
+with deterministic path tie-breaking. The existing 32-file, 8 KiB per-file,
+64 KiB total, depth and traversal bounds remain in force. Each supplied excerpt
+is one verbatim span of at most 2,000 characters within that bounded read,
+starting at a relevant line when signals match; its evidence hash still identifies
+the bounded file bytes. Filtering for credentials, ignored/excluded paths,
+symlinks and context level applies before evidence reaches the provider.
+
 Before any Brain-backed provider call, the active bundle must be eligible under
 the strict privacy rules above. Apply this gate to background analysis,
 **Analyze now**, and **Assess workflow**. The #529 delivery requires the reviewed
@@ -181,6 +191,11 @@ workflow observations, and relevant pages from the verified signed bundle. It
 shares the existing installation-wide single-analysis lease and manual-run
 admission gate. It is separate from **Analyze now** in request, cache, status,
 and result identity; an Analyze now result is never presented as an assessment.
+
+Assessment selects up to the newest 128 observations with textual evidence
+containing Unicode letters or numbers, filtering terminal-glyph-only noise before
+bounding. Its prompt, repository relevance signals and Brain retrieval use that
+same observation window. Durable observation history remains unchanged.
 
 Assess only as broadly as needed to identify one evidence-backed next
 improvement. Brain concepts are guidance, not a checklist or a 14-concept

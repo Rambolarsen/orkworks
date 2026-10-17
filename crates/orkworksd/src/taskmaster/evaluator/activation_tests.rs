@@ -361,7 +361,7 @@ fn custom_evaluation_rechecks_readiness_before_context_and_reservation() {
         run_admitted_model_evaluation_with_context(
             fixture.state.clone(),
             fixture.root.clone(),
-            |_, _, _, _| {
+            |_, _, _, _, _| {
                 panic!("{change}: must not collect repository context before readiness");
             },
         );
@@ -836,7 +836,7 @@ fn invalid_or_missing_signed_proof_blocks_context_preparation_and_reservation() 
                 run_model_evaluation_with_context_and_workspace(
                     fixture.state.clone(),
                     Arc::new(runtime),
-                    |_, _, _, _| {
+                    |_, _, _, _, _| {
                         collected.fetch_add(1, Ordering::SeqCst);
                         Ok(vec![])
                     },
@@ -921,7 +921,7 @@ fn queued_fixture_run_is_interrupted_when_proof_is_lost_before_worker_entry() {
     run_model_evaluation_with_context_and_workspace(
         fixture.state.clone(),
         Arc::new(runtime),
-        |_, _, _, _| panic!("lost proof must not collect context"),
+        |_, _, _, _, _| panic!("lost proof must not collect context"),
         None,
         None,
         Some(ScheduledRun {

@@ -73,6 +73,7 @@ impl Fixture {
             snapshot.settings.context_level,
             &[],
             "2026-09-11T00:00:00Z",
+            "",
         )
         .unwrap();
         let instance = state
@@ -279,7 +280,7 @@ fn manual_evaluation_discards_a_request_after_workspace_switch() {
         Arc::new(TaskmasterRuntime::open_fixture(
             fixture.dir.path().join("runtime"),
         )),
-        |_, _, _, _| panic!("repository context must not be collected for a stale workspace"),
+        |_, _, _, _, _| panic!("repository context must not be collected for a stale workspace"),
         Some(requested_workspace),
         None,
         None,
@@ -302,7 +303,7 @@ fn scheduled_run_clears_queued_skip_and_records_context_failure() {
     run_model_evaluation_with_context_and_workspace(
         fixture.state.clone(),
         Arc::new(TaskmasterRuntime::open_fixture(root.clone())),
-        |_, _, _, _| panic!("a stale manual request must not collect context"),
+        |_, _, _, _, _| panic!("a stale manual request must not collect context"),
         Some(fixture.dir.path().join("different-workspace")),
         None,
         Some(ScheduledRun {
@@ -330,7 +331,7 @@ fn scheduled_run_clears_queued_skip_and_records_context_failure() {
     run_model_evaluation_with_context_and_workspace(
         fixture.state.clone(),
         Arc::new(TaskmasterRuntime::open_fixture(root.clone())),
-        |_, _, _, _| Err("context collection failed".into()),
+        |_, _, _, _, _| Err("context collection failed".into()),
         None,
         None,
         Some(ScheduledRun {
@@ -524,7 +525,7 @@ fn manual_evaluation_rechecks_active_recommendations_at_its_admission_point() {
         Arc::new(TaskmasterRuntime::open_fixture(
             fixture.dir.path().join("runtime"),
         )),
-        move |_, _, _, _| {
+        move |_, _, _, _, _| {
             let fact = facts.iter().find(|fact| fact.path == "README.md").unwrap();
             let output = serde_json::json!({"enrichments":[],"proposals":[{
                 "targetSurface":"documentation","title":"Document verification",
