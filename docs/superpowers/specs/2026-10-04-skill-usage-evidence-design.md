@@ -686,6 +686,24 @@ that local interval into a lifetime no-use claim. Loading and usage evidence
 remain separate from quality/completeness scoring (#744) and from user
 acceptance.
 
+### Root evidence boundary
+
+The proposed initial #746 projection defers root delivery/usage telemetry.
+The root displays only selected skills from its exact #741 bootstrap, with
+Delivery unconfirmed and Usage unknown; no count, usage event, or highlight is
+manufactured. This is not a finding that parent delivery failed. Verified
+parent content delivery remains a #741/#740 launch/resume prerequisite, but
+this child protocol supplies no root badge receipt.
+
+Reject root evidence submitted to the child route, including a root identity
+with fabricated plan/task/reservation members. A later root protocol must bind
+the immutable bootstrap/root identity and actual parent runtime, define its own
+authentication, correction, replay, retention and resume rules, and receive
+separate written review and capability evidence before runtime planning. No
+such extension is introduced here. The
+[#746 mapping](2026-10-15-hierarchy-projection-mapping.md#generation-and-root-evidence-boundaries)
+consumes this limitation explicitly; it does not widen this protocol's scope.
+
 ## Contract verification and implementation gates
 
 Before runtime planning, written review must resolve field compatibility with

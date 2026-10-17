@@ -43,8 +43,8 @@ responsive behavior rather than copying their older shell controls.
 
 The [projection mapping and review fixtures](2026-10-15-hierarchy-projection-mapping.md)
 map the current #741/#742/#743/#744 identities to these UI inputs, distinguish
-child evidence from the still-unspecified root evidence binding, and propose
-producer-owned summary revision transitions with synthetic mismatch/correction
+child evidence from explicitly deferred root telemetry, and propose
+#744-owned durable summary revision transitions with synthetic mismatch/correction
 cases. This is a written consumer proposal; upstream mapping agreement and
 owner acceptance remain pending. It adds no runtime API or eligibility.
 
@@ -739,7 +739,7 @@ open until the reviewed projection agreement and scoped execution handoff are co
 | --- | --- |
 | Shell direction and placement | Accepted under ADR 0078 and #755; consume the current responsive/header/sidebar contract, with ordinary Review #780 and Actions #805 delivery tracked separately |
 | #746 written interaction/projection acceptance | Pending owner review of exact identity mappings, summary revisions and fixtures; this revision does not mark that approval complete |
-| Upstream projection agreement | #741/#742 identity and result transport, #743 evidence, #744 outcome/finalization and summary-change inputs need explicit mapping agreement before executable planning |
+| Upstream projection agreement | #741/#743 now record proposed initial root-telemetry deferral; #744 owns the proposed durable summary revision rule. Written mapping acceptance, #741/#742 identity/result transport and #743/#744 joins still precede executable planning |
 | Capability eligibility | #740 profiles remain unverified/no-go; capped capability-evidence work is deferred until November per owner direction, with no probe in this task |
 | Learning/history consumption | Optional #745 references remain independently gated, including shared custody; unavailable history must not block ordinary inspection |
 | Runtime delivery and validation | Separate scoped issues/plans and approval remain required; synthetic fixtures are not native keyboard, screen-reader or usability evidence |
