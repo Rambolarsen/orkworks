@@ -267,6 +267,12 @@ a disposition. If the bounded babysit budget expires, an explicit unresolved-
 work handoff is allowed only after reporting the outstanding comments and
 checks; `gh pr view` alone is not a complete inline-comment inventory.
 
+After a verified merge and applicable cleanup, the babysitting skill requires a
+concise summary of the merged work and verification, plus a concrete follow-up
+suggestion grounded in that work or the live issue board. Board-based suggestions
+follow the current priority and scope rules above; the suggestion is a handoff
+for a separate task, not authorization to begin it in the same session.
+
 ## Architecture decision records
 
 Architecture decisions are recorded in `docs/adr/`, using the
