@@ -63,7 +63,9 @@ by default. Choose **Pin inspector** to make it opaque and reserve space beside
 the main view; **Unpin inspector** restores the overlay. The pin preference is
 saved across restarts, and Reset Layout returns it to unpinned. With keyboard
 focus inside the inspector, **Escape** closes it and restores focus to the
-control that opened it. Narrow windows keep the temporary inspector page.
+control that opened it. Clicking outside an unpinned Details overlay hides it
+without interrupting the clicked control. Pinned Details stays open. Narrow
+windows keep the temporary inspector page.
 This describes current source builds; published installers may differ.
 
 If saved layout preferences cannot be read, the shell uses defaults and offers
