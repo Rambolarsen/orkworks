@@ -65,6 +65,11 @@ Settings page and Recommendations panel report when an analysis is queued or
 running, and its latest success, failure, or interruption. A failure includes
 the provider/model and a short error summary, so you can distinguish a failed
 analysis from a provider that is simply not configured.
+New successful analyses also report how many recommendations were created or
+suppressed as duplicates. A confirmed cache hit reports unchanged inputs and
+keeps the previous analysis result. A successful run with no new proposals is
+a valid outcome; older saved results without counts remain generic success.
+
 If the model's rollup grouping could not be used, the analysis still succeeds
 with your individual recommendations and the status reads `Rollups degraded`
 followed by a short reason code.
@@ -73,6 +78,26 @@ A rollup card also shows a proposed change: the model's suggested edit or new
 file targets and how to verify the change. It is a suggestion for the
 receiving session to check, not evidence; paths that look sensitive are
 flagged.
+
+## Assess one next improvement
+
+Current source builds offer **Assess workflow** beside **Analyze now**. It uses
+your selected Taskmaster model, current context settings, and signed assessment
+guidance to assess one next workflow improvement. Its report explains the
+observed state and presents one grounded proposal or a reason why the supplied
+evidence does not justify a proposal.
+
+The report shows cited repository excerpts, Brain page provenance, and checks
+that remain unverified. Bounded excerpts establish what was supplied; omitted
+files remain unknown. A reused report is labeled explicitly. Assess workflow
+works with Background discovery off and does not spend its daily allowance or
+cooldown. An active Brain recommendation must be handled first.
+
+A proposed improvement uses the existing recommendation card and **Fix with AI**
+action. Assessment itself does not edit files, run repository checks, or start a
+session. Changed inputs hide an old report and prevent stale recommendations
+from being handed off; reducing context access redacts saved assessment evidence
+and generated text, including dismissed or completed recommendations.
 
 ## Inspect before acting
 

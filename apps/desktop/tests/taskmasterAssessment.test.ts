@@ -1,0 +1,129 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+import { build } from "esbuild";
+import { createElement, type ReactElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { taskmasterRequest } from "../electron/taskmasterSettings.ts";
+import {
+  formatTaskmasterAssessment,
+  formatTaskmasterManualRequest,
+  formatTaskmasterProposalCounts,
+  taskmasterAnalysisBusy,
+  taskmasterAssessmentForWorkspace,
+  type TaskmasterAssessmentStatus,
+  type AssessmentReport,
+  type TaskmasterRunStatus,
+} from "../src/taskmasterSettings.ts";
+
+const require = createRequire(import.meta.url);
+const compiledSummary = await build({
+  entryPoints: [new URL("../src/components/TaskmasterAssessmentSummary.tsx", import.meta.url).pathname],
+  bundle: true, write: false, platform: "node", format: "cjs", packages: "external",
+});
+const summaryModule = { exports: {} as Record<string, unknown> };
+new Function("require", "module", "exports", compiledSummary.outputFiles[0].text)(require, summaryModule, summaryModule.exports);
+const TaskmasterAssessmentSummary = summaryModule.exports.default as (props: { assessment: TaskmasterAssessmentStatus }) => ReactElement;
+
+const report: AssessmentReport = {
+  id: "assessment-1",
+  workspacePath: "/workspace/a",
+  observedAt: "2026-10-17T10:00:00Z",
+  provider: "codex",
+  model: "gpt-x",
+  bundleVersion: "bundle-4",
+  outcome: "no_proposal",
+  summary: "The workspace has enough structure for its current needs.",
+  noProposalReason: "No evidence-backed improvement stood out.",
+  unverifiedChecks: ["Build and tests were not run."],
+  repositoryEvidence: [{ path: "README.md", sha256: "a".repeat(64), excerpt: "Project overview", observedAt: "2026-10-17T09:59:00Z" }],
+  knowledgeEvidence: [{ pageId: "brain-1", title: "Keep changes small", status: "reviewed", bundleVersion: "bundle-4", sha256: "b".repeat(64), excerpt: "Prefer a narrow next step." }],
+  recommendationId: null,
+};
+
+test("assessment transport sends an empty authenticated POST to its fixed route", async () => {
+  let received: RequestInit | undefined;
+  const result = await taskmasterRequest(4321, "test-authority", "assess-workflow", undefined, async (url, init) => {
+    assert.equal(url, "http://127.0.0.1:4321/taskmaster/assess-workflow");
+    received = init;
+    return new Response(JSON.stringify({ status: "active_recommendation", recommendation: { id: "rec-1", status: "proposed" } }));
+  });
+
+  assert.equal(received?.method, "POST");
+  assert.equal(received?.body, undefined);
+  assert.equal((received?.headers as Record<string, string>)["x-orkworks-open-plan-token"], "test-authority");
+  assert.deepEqual(result, { status: "active_recommendation", recommendation: { id: "rec-1", status: "proposed" } });
+});
+
+test("assessment transport rejects a response after the backend generation changes", async () => {
+  let current = true;
+  await assert.rejects(taskmasterRequest(4321, "test-authority", "assess-workflow", undefined, async () => {
+    current = false;
+    return new Response(JSON.stringify({ status: "scheduled" }));
+  }, () => {
+    if (!current) throw new Error("Workspace changed");
+  }), /Workspace changed/);
+});
+
+test("assessment transport rejects caller-supplied context before network access", async () => {
+  let calls = 0;
+  await assert.rejects(taskmasterRequest(4321, "test-authority", "assess-workflow", { workspace: "/other" }, async () => {
+    calls++;
+    return new Response("{}");
+  }), /does not accept a request body/);
+  assert.equal(calls, 0);
+});
+
+test("assessment copy and provenance are returned only for their selected workspace", () => {
+  assert.equal(taskmasterAssessmentForWorkspace({ workspacePath: "/workspace/b", assessment: { state: "succeeded", report, reused: true } }, "/workspace/a"), null);
+  const status = { workspacePath: "/workspace/a", assessment: { state: "succeeded" as const, report, reused: true } };
+  assert.deepEqual(taskmasterAssessmentForWorkspace(status, "/workspace/a"), status.assessment);
+  const display = formatTaskmasterAssessment(status.assessment);
+  assert.match(display, /No evidence-backed improvement stood out/);
+  assert.match(display, /The workspace has enough structure/);
+  assert.match(display, /codex \/ gpt-x/);
+  assert.equal(report.unverifiedChecks[0], "Build and tests were not run.");
+});
+
+test("assessment summary renders no-proposal reason, provenance and unverified checks as text", () => {
+  const markup = renderToStaticMarkup(createElement(TaskmasterAssessmentSummary, {
+    assessment: { state: "succeeded", report: { ...report, summary: "<img src=x onerror=alert(1)>", outcome: "no_proposal" }, reused: false },
+  }));
+  assert.match(markup, /No evidence-backed improvement stood out/);
+  assert.match(markup, /Brain bundle bundle-4/);
+  assert.match(markup, /Assessment assessment-1 · Workspace \/workspace\/a/);
+  assert.match(markup, /Build and tests were not run/);
+  assert.match(markup, /&lt;img src=x onerror=alert\(1\)&gt;/);
+  assert.doesNotMatch(markup, /<img src=x/);
+});
+
+test("proposed assessment points to the existing recommendation card and progress stays inline", () => {
+  const proposed = renderToStaticMarkup(createElement(TaskmasterAssessmentSummary, {
+    assessment: { state: "succeeded", report: { ...report, outcome: "proposed", noProposalReason: null, recommendationId: "rec-1" }, reused: false },
+  }));
+  assert.match(proposed, /Recommendation rec-1 is available below/);
+  assert.match(renderToStaticMarkup(createElement(TaskmasterAssessmentSummary, {
+    assessment: { state: "running", report: null, reused: false },
+  })), /Assessing this workspace/);
+});
+
+test("ordinary outcome summaries use server counts and keep legacy successes generic", () => {
+  const base: TaskmasterRunStatus = {
+    workspacePath: "/workspace/a",
+    activeAttempt: null,
+    latestOutcome: { state: "succeeded", startedAt: "t0", completedAt: "t1", trigger: "manual", provider: "codex", model: "gpt-x", errorSummary: null },
+  };
+  assert.equal(formatTaskmasterProposalCounts(base.latestOutcome), "");
+  assert.equal(base.latestOutcome?.proposalCounts, undefined);
+  assert.equal(formatTaskmasterProposalCounts({ ...base.latestOutcome!, proposalCounts: { created: 0, suppressed: 2 } }), "No new proposals · 2 duplicates suppressed");
+  assert.equal(formatTaskmasterProposalCounts({ ...base.latestOutcome!, proposalCounts: { created: 1, suppressed: 1 } }), "1 proposal created · 1 duplicate suppressed");
+  assert.equal(formatTaskmasterAssessment({ state: "idle", report: null, reused: false }), "No assessment has run for this workspace.");
+  assert.equal(formatTaskmasterManualRequest({ id: 2, requestedAt: "t0", completedAt: "t1", disposition: "cached", reason: "unchanged_inputs" }), "Analysis reused the cached result because its inputs were unchanged.");
+});
+
+test("either analysis or assessment activity disables both recommendation actions", () => {
+  const base: TaskmasterRunStatus = { workspacePath: "/workspace/a", activeAttempt: null, latestOutcome: null };
+  assert.equal(taskmasterAnalysisBusy({ ...base, activeAttempt: { id: 1, state: "queued", queuedAt: "t0", startedAt: null, trigger: "manual", provider: "codex", model: "gpt-x" } }), true);
+  assert.equal(taskmasterAnalysisBusy({ ...base, assessment: { state: "running", report: null, reused: false } }), true);
+  assert.equal(taskmasterAnalysisBusy(base), false);
+});

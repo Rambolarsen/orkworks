@@ -1,14 +1,14 @@
 ---
 type: Architecture Decision
 title: Taskmaster assessment reports and explicit analysis outcomes
-description: Proposed local assessment protocol, evidence lifecycle, recovery, and empty or cached analysis status.
+description: Local assessment protocol, evidence lifecycle, recovery, and empty or cached analysis status.
 tags: [orkworks, architecture, taskmaster, assessment]
-status: draft
+status: stable
 ---
 
 # Taskmaster assessment reports and explicit analysis outcomes
 
-- Status: proposed; owner review required before dependent runtime implementation
+- Status: accepted; owner approved the written protocol and linked specification on 2026-10-17
 - Deciders: repository owner
 - Date: 2026-10-17
 - Tracking: [#769](https://github.com/Rambolarsen/orkworks/issues/769), [#909](https://github.com/Rambolarsen/orkworks/issues/909)

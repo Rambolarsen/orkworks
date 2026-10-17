@@ -13,8 +13,9 @@ model, the existing deterministic recommendations remain available.
 
 Current source builds include a reviewed, signed starter that enables Brain
 analysis offline when a supported Taskmaster provider/model is configured.
-Background discovery and **Analyze now** require independently verified privacy
-and manifest proof. Missing or invalid proof keeps analysis unavailable while
+Background discovery, **Analyze now**, and **Assess workflow** require
+independently verified privacy and manifest proof. Assess workflow additionally
+requires signed assessment guidance. Missing or invalid proof keeps analysis unavailable while
 observation recommendations and **Fix with AI** remain available. Older installed
 versions may still have Brain analysis disabled; rebuilding or installing a version
 with the signed starter and matching key is required.
@@ -61,11 +62,13 @@ additional terminal replay is not collected.
 Use **All workspaces** for defaults or **This workspace** for overrides. The
 default limit is eight background AI evaluations per UTC day across the app and at least
 one hour between automatic evaluations of a workspace. Once eligible reference knowledge is available, a manual **Analyze now**
-request can run when automatic Background discovery is off. It bypasses
+request and **Assess workflow** can run when automatic Background discovery is off. It bypasses
 the hourly interval and the daily limit, which governs automatic Background
 discovery only. Failed automatic calls count. This
 limits usage, not the amount a provider may bill. Saving a narrower context
-invalidates pending results that used the previous context.
+invalidates pending results that used the previous context. It also redacts
+saved assessment evidence and generated text across affected workspaces,
+including unopened workspaces and dismissed or completed recommendations.
 Failed or discarded evaluations can retry after the minimum interval, within
 the remaining budget. Only successfully accepted results suppress identical
 future evaluations.
@@ -99,6 +102,20 @@ verified completion remain local; the app does not upload lessons to the brain.
 
 See [the design contract](../../specs/taskmaster-knowledge.md) for limits and
 distribution details.
+
+## Assessment reports and recovery
+
+Current source builds retain one latest assessment report per workspace until
+replacement or workspace metadata deletion. Reports and their cited snapshots
+stay local; permitted context goes only to the selected inference provider.
+Unchanged inputs can reuse a report. Changed repository facts, settings,
+provider configuration, or verified knowledge invalidate it before display or use.
+
+Interrupted publication is recovered before a pending recommendation becomes
+visible or actionable. After an assessment report exists, recovery uses a fixed
+newer build while keeping privacy and freshness checks enabled. Binary downgrade
+cannot enforce those checks and is unsupported. These source behaviors do not
+establish availability in an older installed release.
 
 ## Custom inference executable approvals
 

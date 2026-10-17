@@ -57,6 +57,7 @@ fn recommendation(id: &str, sequence: u64) -> Recommendation {
         observed_at: format!("2026-09-13T00:00:{sequence:02}Z"),
     };
     Recommendation {
+        assessment: None,
         id: id.into(),
         workspace_id: "workspace".into(),
         chain_id: format!("chain-{id}"),
@@ -1355,6 +1356,43 @@ fn omitted_rollups_degrade_without_dissolving_existing_rollups() {
         RollupSection::Degraded("rollups_missing")
     );
     assert!(parse_provider_response(legacy_only, None).is_ok());
+}
+
+#[test]
+fn proposal_counts_include_new_rollup_parent_but_not_parent_refresh() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b"]);
+    let snapshot = bound_snapshot(&state, &runtime, directory.path());
+    let request =
+        build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
+    let model_output = output(&[cluster(&["a", "b"])]);
+
+    let created = apply_with_disposition(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        &request,
+        &model_output,
+    )
+    .unwrap();
+    assert_eq!(created.proposal_counts.created, 1);
+    assert_eq!(created.proposal_counts.suppressed, 0);
+
+    let current = stored_recommendations(&state);
+    let refresh_request =
+        build_rollup_request(workspace_instance(&state), &snapshot, &current).unwrap();
+    let refreshed = apply_with_disposition(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        &refresh_request,
+        &model_output,
+    )
+    .unwrap();
+    assert_eq!(refreshed.proposal_counts.created, 0);
+    assert_eq!(refreshed.proposal_counts.suppressed, 0);
 }
 
 #[test]

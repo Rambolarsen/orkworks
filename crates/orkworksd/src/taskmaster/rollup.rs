@@ -493,6 +493,7 @@ mod tests {
             .map(|item| item.session_id.clone())
             .collect();
         Recommendation {
+            assessment: None,
             id: id.into(),
             workspace_id: "workspace-1".into(),
             chain_id: format!("chain-{id}"),

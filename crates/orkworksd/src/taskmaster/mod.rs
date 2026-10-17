@@ -1,4 +1,9 @@
 // Used by the following Taskmaster admission integration.
+pub(crate) mod assessment;
+pub(crate) mod assessment_access;
+pub(crate) mod assessment_model;
+pub(crate) mod assessment_report;
+pub(crate) mod assessment_store;
 pub(crate) mod audit;
 pub(crate) mod completion;
 #[cfg(test)]
@@ -170,8 +175,21 @@ pub(crate) struct KnowledgeEvidence {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct AssessmentProvenance {
+    #[serde(default)]
+    pub access_redacted: bool,
+    pub id: String,
+    pub input_fingerprint: String,
+    pub context_level: runtime::ContextLevel,
+    pub excluded_paths: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Recommendation {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assessment: Option<AssessmentProvenance>,
     pub id: String,
     pub workspace_id: String,
     pub chain_id: String,
@@ -477,6 +495,7 @@ pub(crate) fn evaluate_workflow_improvements(
             _ => now.to_string(),
         };
         proposals.push(Recommendation {
+            assessment: None,
             id,
             workspace_id: workspace_id.to_string(),
             chain_id: prior

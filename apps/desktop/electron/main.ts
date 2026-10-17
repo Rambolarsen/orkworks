@@ -626,6 +626,38 @@ app.whenReady().then(async () => {
     if (generation !== backendGeneration) throw new Error("Workspace changed; reload Recommendations");
     return result;
   }
+  async function requestTaskmasterAssessment(): Promise<{
+    status: "scheduled" | "cached" | "active_recommendation" | "already_running" | "unavailable";
+    recommendation?: { id: string; status: string };
+    message?: string;
+  }> {
+    return withReadyBackendGeneration(async (port, token, signal) => {
+      const response = await sidecarSend(port, "taskmaster/assess-workflow", {
+        method: "POST", token, signal, timeoutMs: 15_000,
+      });
+      const body: unknown = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(errorFromBody(body, `Taskmaster request failed (${response.status})`));
+      if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("Invalid Taskmaster assessment response");
+      const value = body as Record<string, unknown>;
+      const statuses = ["scheduled", "cached", "active_recommendation", "already_running", "unavailable"];
+      if (typeof value.status !== "string" || !statuses.includes(value.status)) throw new Error("Invalid Taskmaster assessment response");
+      let recommendation: { id: string; status: string } | undefined;
+      if (value.recommendation !== undefined) {
+        if (!value.recommendation || typeof value.recommendation !== "object" || Array.isArray(value.recommendation)) {
+          throw new Error("Invalid Taskmaster assessment response");
+        }
+        const candidate = value.recommendation as Record<string, unknown>;
+        if (typeof candidate.id !== "string" || typeof candidate.status !== "string") throw new Error("Invalid Taskmaster assessment response");
+        recommendation = { id: candidate.id, status: candidate.status };
+      }
+      if (value.message !== undefined && typeof value.message !== "string") throw new Error("Invalid Taskmaster assessment response");
+      return {
+        status: value.status as "scheduled" | "cached" | "active_recommendation" | "already_running" | "unavailable",
+        ...(recommendation ? { recommendation } : {}),
+        ...(typeof value.message === "string" ? { message: value.message } : {}),
+      };
+    });
+  }
   const STALE_BACKEND_GENERATION_MESSAGE =
     "The workspace changed before this request could run. Reload the current workspace and retry.";
   const generationBoundRequestControllers = new Set<AbortController>();
@@ -1410,6 +1442,7 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle("get-taskmaster-settings", () => readTaskmasterSettings());
   ipcMain.handle("get-taskmaster-run-status", () => readTaskmasterRunStatus());
+  ipcMain.handle("assess-taskmaster-workflow", () => requestTaskmasterAssessment());
   ipcMain.handle("refresh-taskmaster-models", (_event, provider: unknown, ollamaBaseUrl?: unknown) => refreshTaskmasterModels(provider, ollamaBaseUrl));
   ipcMain.handle("get-inference-trust", async () => readInferenceTrust(await inferenceTrustContext()));
   ipcMain.handle("approve-inference-adapter", (_event, request: unknown) => enqueueSettingsWrite(async () => approveInferenceAdapter(request, await inferenceTrustContext())));

@@ -245,8 +245,8 @@ not invoked. Recovery clears queued attempts and marks running attempts
 interrupted only after acquiring the same installation-wide analysis lease used
 by evaluators; if another instance holds the lease, recovery waits for the next
 workspace open or evaluation admission. Status queries are read-only. Each
-workspace retains only its active attempt and latest terminal
-outcome; total record count grows with the number of workspaces used, with
+workspace retains its active attempt, latest terminal outcome, and optional
+latest manual-request disposition; total record count grows with the number of workspaces used, with
 global retention and cleanup outside this increment. The workspace run record
 is the sole displayed source for analysis outcomes; the legacy installation-wide
 `lastError` remains readable for old ledger files but is no longer written or
@@ -255,6 +255,36 @@ displayed as an analysis error. Both UI surfaces call the narrow
 `GET /taskmaster/run-status`; Settings polls every five seconds and on window
 focus, and Recommendations polls alongside its recommendation list. The status
 does not enumerate or coordinate other OrkWorks instances.
+New ordinary success outcomes include fixed-category created/suppressed proposal
+counts. A separate `latestManualRequest` records confirmed cache hits or
+pre-dispatch skips without overwriting the last actual outcome; background work
+does not replace that disposition. Legacy count-less outcomes remain generic.
+
+Manual workflow assessment uses separate `taskmaster/assessment.rs` scheduling,
+`assessment_model.rs` strict decoding, `assessment_report.rs` publication, and
+`assessment_store.rs` capped atomic workspace storage. The narrow
+`requestTaskmasterAssessment()` preload call reaches authenticated empty-body
+`POST /taskmaster/assess-workflow`. It shares the installation analysis lease and
+selected provider/context, requires signed assessment capability, and bypasses
+background quota/cooldown. Its separate run-status projection exposes only a
+currently revalidated report. One version-1 `assessment.json` beneath workspace
+metadata holds at most 64 KiB, including any pending recommendation upsert.
+Startup and immediate commit-error recovery replay the stable upsert before
+publishing success; pending consumers fail closed.
+
+`assessment_access.rs` shares current-input checks across list/detail, manual
+admission, acceptance, and terminal handoff. Access-setting writes reconcile all
+known affected workspace stores before persisting the narrower policy. Redacted
+completion packets keep audit IDs, fingerprints, approvals, and lifecycle history
+while losing source-derived display text; their provenance marks them audit-only
+and rejects further actions. Other input changes retain audit snapshots. A terminal
+handoff reserves queue capacity before revalidation through synchronous enqueue,
+then awaits delivery acknowledgement without configuration/workspace locks.
+Already-delivered prompts finalize their audit outcome after a policy change;
+undelivered redacted reservations roll back and become superseded. Assessment
+handoff events use fixed text rather than retaining a generated title.
+See [ADR 0085](../adr/0085-taskmaster-assessment-and-analysis-outcomes.md).
+
 `taskmaster/runtime/inference.rs` now captures an immutable identity containing
 the approved definition/path, trust generation, runtime generation, selected
 settings, workspace key and full verified knowledge identity. Its short
@@ -640,7 +670,8 @@ every recommendation derived from it.
 
 The workflow-observation and Taskmaster routes this design introduces or repurposes:
 
-- `POST /taskmaster/analyze` — implemented. A user-requested Brain analysis bypasses the workspace cooldown but consumes the installation-wide daily allowance; it returns an active Brain recommendation instead of scheduling another evaluation while one is proposed, accepted, or executing.
+- `POST /taskmaster/assess-workflow` — implemented in source. Authenticated manual assessment returns one grounded report or an explicit no-proposal outcome, with stable identity-only admission responses.
+- `POST /taskmaster/analyze` — implemented. A user-requested Brain analysis bypasses the background workspace cooldown and installation-wide daily allowance; it returns an active Brain recommendation instead of scheduling another evaluation while one is proposed, accepted, or executing.
 
 - `POST /sessions/:id/workflow-observations` — implemented. Harness-neutral explicit report, authenticated with a per-session, non-persisted `ORKWORKS_REPORT_TOKEN` bearer capability (alongside the existing `ORKWORKS_SESSION_ID`/`ORKWORKS_PORT` env vars, generated from OS randomness at session start/resume and never persisted, logged, or serialized) and an `Idempotency-Key` header; body limited to `kind`/`description`/optional `problemArea`/`evidence`/`reportedImpact`, 8 KiB total, rate-limited to 30/session/60s ahead of the store's own 60/session/minute acceptance cap. Missing `problemArea` preserves v1 identity for compatibility; explicit malformed optional fields are rejected without discarding an otherwise valid legacy report.
 - `GET /taskmaster/recommendations` and `GET /taskmaster/recommendations/:id` — implemented; list responses include persisted observation diagnostics. The list contract returns active rollup parents and proposed exact families without an active parent, never a `rolled_up` member. Detail responses retain parent/member relationship fields for audit and handoff; actions against a rolled-up member return the existing invalid-transition response.

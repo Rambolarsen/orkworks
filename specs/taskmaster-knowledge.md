@@ -171,7 +171,7 @@ it can only cite evidence and knowledge supplied in the request.
 
 ### Manual Brain-guided next-step assessment (#769)
 
-Status: proposed; assessment runtime implementation remains tracked in #769.
+Status: accepted 2026-10-17 with ADR 0085; runtime implementation remains tracked in #769.
 Current source includes the signed guidance dependency delivered by #529.
 
 The Recommendations panel has a separate user-triggered **Assess workflow**
@@ -208,10 +208,10 @@ back to a duplicate prompt, private Brain pages, or an assumed publication.
 Current source includes the reviewed guidance, signed `privacyPolicyVersion`,
 assessment capability marker and generated starter with matching signed manifest
 attestation from the approved publication. This supplies the knowledge dependency;
-it does not implement or enable the proposed **Assess workflow** action tracked
-in #769. A fresh offline install follows the same verification path as feed
-bundles. Assessment runtime must still require eligible proof and the capability;
-missing, privacy-ineligible or unverified guidance must fail closed.
+the assessment runtime re-verifies that proof and capability before using it.
+A fresh offline install follows the same verification path as feed bundles.
+Missing, privacy-ineligible or unverified guidance fails closed. This section
+describes repository source; installer availability follows the release pipeline.
 
 Use the existing Brain-derived `improve_workflow` recommendation identity
 (`proactive:v1:`), deduplication, dismissal, active-recommendation, acceptance,
@@ -417,11 +417,11 @@ focus. Do not add peer-instance status or analysis coordination. Errors remain
 inline and unobtrusive: no background popups or focus changes. Personal/team
 brain connections and exporting local lessons are deferred.
 
-### Proposed explanatory ordinary-analysis outcomes (2026-10-17)
+### Explanatory ordinary-analysis outcomes (approved 2026-10-17)
 
 The owner requested clearer empty and cached outcomes alongside #769. The
-[proposed protocol ADR](../docs/adr/0085-taskmaster-assessment-and-analysis-outcomes.md)
-requires owner written review before implementing these additive status fields.
+[accepted protocol ADR](../docs/adr/0085-taskmaster-assessment-and-analysis-outcomes.md)
+records owner written approval for these additive status fields.
 New successful ordinary-analysis outcomes include fixed-category counts for
 created and duplicate-suppressed proposals, without model prose or repository
 evidence in the installation-wide ledger. Legacy outcomes without counts stay

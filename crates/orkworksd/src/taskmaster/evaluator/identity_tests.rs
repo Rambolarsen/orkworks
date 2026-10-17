@@ -1251,3 +1251,102 @@ fn native_process_output_is_not_accepted_after_proof_corruption_during_invocatio
         )
         .unwrap());
 }
+
+#[test]
+fn provider_output_counts_created_and_duplicate_suppressed_proposals() {
+    let fixture = Fixture::new();
+    let fact = fixture
+        .facts
+        .iter()
+        .find(|fact| fact.path == "README.md")
+        .unwrap();
+    let output = serde_json::json!({
+        "enrichments": [],
+        "proposals": [{
+            "targetSurface": "documentation",
+            "title": "Document verification",
+            "summary": "Describe the existing verification workflow.",
+            "repositoryFactHashes": [fact.sha256],
+            "knowledgePageIds": []
+        }]
+    })
+    .to_string();
+
+    let first = super::apply_provider_output_with_diagnostic(
+        &fixture.state,
+        &fixture.runtime,
+        &fixture.snapshot,
+        fixture.dir.path(),
+        fixture.instance,
+        &fixture.facts,
+        &[],
+        None,
+        &output,
+    )
+    .unwrap();
+    assert_eq!(first.proposal_counts.created, 1);
+    assert_eq!(first.proposal_counts.suppressed, 0);
+
+    let recommendations = fixture
+        .state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .recommendation_store
+        .list()
+        .unwrap();
+    let second = super::apply_provider_output_with_diagnostic(
+        &fixture.state,
+        &fixture.runtime,
+        &fixture.snapshot,
+        fixture.dir.path(),
+        fixture.instance,
+        &fixture.facts,
+        &recommendations,
+        None,
+        &output,
+    )
+    .unwrap();
+    assert_eq!(second.proposal_counts.created, 0);
+    assert_eq!(second.proposal_counts.suppressed, 1);
+}
+
+#[test]
+fn repeated_proposals_in_one_provider_response_count_once_as_created() {
+    let fixture = Fixture::new();
+    let fact = fixture
+        .facts
+        .iter()
+        .find(|fact| fact.path == "README.md")
+        .unwrap();
+    let proposal = serde_json::json!({
+        "targetSurface": "documentation",
+        "title": "Document verification",
+        "summary": "Describe the existing verification workflow.",
+        "repositoryFactHashes": [fact.sha256],
+        "knowledgePageIds": []
+    });
+    let output = serde_json::json!({
+        "enrichments": [],
+        "proposals": [proposal.clone(), proposal]
+    })
+    .to_string();
+
+    let disposition = super::apply_provider_output_with_diagnostic(
+        &fixture.state,
+        &fixture.runtime,
+        &fixture.snapshot,
+        fixture.dir.path(),
+        fixture.instance,
+        &fixture.facts,
+        &[],
+        None,
+        &output,
+    )
+    .unwrap();
+
+    assert_eq!(disposition.proposal_counts.created, 1);
+    assert_eq!(disposition.proposal_counts.suppressed, 1);
+}

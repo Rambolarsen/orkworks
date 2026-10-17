@@ -318,6 +318,7 @@ impl RecommendationStore {
         let Some(recommendation) = self.get(id)? else {
             return Ok(None);
         };
+        super::assessment_access::ensure_mutable(&recommendation)?;
         if !matches!(
             recommendation.recommendation_type,
             RecommendationType::ImproveWorkflow | RecommendationType::Cleanup
@@ -348,6 +349,7 @@ impl RecommendationStore {
         let Some(mut recommendation) = self.get(id)? else {
             return Ok(None);
         };
+        super::assessment_access::ensure_mutable(&recommendation)?;
         if recommendation.recommendation_type != RecommendationType::ImproveWorkflow
             || recommendation.status != RecommendationStatus::Proposed
         {
@@ -372,6 +374,7 @@ impl RecommendationStore {
         let Some(mut recommendation) = self.get(id)? else {
             return Ok(None);
         };
+        super::assessment_access::ensure_mutable(&recommendation)?;
         if recommendation.recommendation_type != RecommendationType::ImproveWorkflow
             || recommendation.status != RecommendationStatus::Proposed
         {
@@ -410,6 +413,9 @@ impl RecommendationStore {
         let Some(mut recommendation) = self.get(id)? else {
             return Ok(None);
         };
+        // Delivery already succeeded under the admission guard. Access may
+        // narrow while awaiting its acknowledgement; recording that outcome
+        // grants no new action authority and must preserve the audit lifecycle.
         if recommendation.recommendation_type != RecommendationType::ImproveWorkflow
             || recommendation.status != RecommendationStatus::Executing
         {
@@ -431,6 +437,7 @@ impl RecommendationStore {
         let Some(mut recommendation) = self.get(id)? else {
             return Ok(None);
         };
+        super::assessment_access::ensure_mutable(&recommendation)?;
         if recommendation.recommendation_type != RecommendationType::ImproveWorkflow
             || recommendation.status != RecommendationStatus::Accepted
         {
@@ -452,6 +459,7 @@ impl RecommendationStore {
         let Some(mut recommendation) = self.get(id)? else {
             return Ok(None);
         };
+        super::assessment_access::ensure_mutable(&recommendation)?;
         let Some(packet) = recommendation.completion_packet.as_mut() else {
             return Err(StoreError::InvalidTransition);
         };
@@ -499,6 +507,10 @@ impl RecommendationStore {
         let Some(mut recommendation) = self.get(id)? else {
             return Ok(None);
         };
+        let redacted = recommendation
+            .assessment
+            .as_ref()
+            .is_some_and(|provenance| provenance.access_redacted);
         if recommendation.recommendation_type != RecommendationType::ImproveWorkflow
             || recommendation.status != RecommendationStatus::Executing
         {
@@ -512,6 +524,13 @@ impl RecommendationStore {
         }
         recommendation.updated_at = cancelled_at;
         self.put(&recommendation)?;
+        if redacted {
+            // No input was delivered. Roll back the reservation first, then
+            // terminally invalidate the now-proposed assessment; never restore
+            // its evidence or grant a new execution capability.
+            recommendation.status = RecommendationStatus::Superseded;
+            self.put(&recommendation)?;
+        }
         Ok(Some(recommendation))
     }
 
@@ -532,6 +551,7 @@ impl RecommendationStore {
             return Ok(None);
         };
         let current = &current_record.recommendation;
+        super::assessment_access::ensure_mutable(current)?;
         if current.recommendation_type != RecommendationType::ImproveWorkflow
             || !matches!(
                 current.status,
@@ -1357,9 +1377,21 @@ fn recommendation_filename(id: &str) -> String {
 
 fn validate_recommendation(recommendation: &Recommendation) -> Result<(), StoreError> {
     if let Some(packet) = &recommendation.completion_packet {
-        packet
-            .validate(&recommendation.workspace_id)
+        if recommendation
+            .assessment
+            .as_ref()
+            .is_some_and(|provenance| provenance.access_redacted)
+        {
+            super::assessment_access::validate_redacted_packet(
+                packet,
+                &recommendation.workspace_id,
+            )
             .map_err(StoreError::GraphInvariant)?;
+        } else {
+            packet
+                .validate(&recommendation.workspace_id)
+                .map_err(StoreError::GraphInvariant)?;
+        }
         if recommendation.source_session_ids.len() != 1
             || recommendation.source_session_ids[0] != packet.source_session_id
         {
@@ -1610,6 +1642,7 @@ mod tests {
             observed_at: "2026-08-20T12:00:00Z".into(),
         };
         Recommendation {
+            assessment: None,
             id: id.into(),
             workspace_id: "workspace-1".into(),
             chain_id: "chain-1".into(),
@@ -2162,6 +2195,7 @@ mod tests {
 
     fn a_proposed_cleanup_card(store: &RecommendationStore) -> Recommendation {
         let card = Recommendation {
+            assessment: None,
             id: "cleanup-recommendation-1".into(),
             workspace_id: "workspace-1".into(),
             chain_id: "cleanup:v1".into(),

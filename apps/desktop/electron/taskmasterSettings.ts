@@ -1,26 +1,30 @@
 /** Narrow privileged transport: renderer input never selects a URL or authority. */
 export async function taskmasterRequest(
-  port: number, token: string, resource: "settings" | "knowledge" | "inference" | "models" | "run-status", payload?: unknown,
+  port: number, token: string, resource: "settings" | "knowledge" | "inference" | "models" | "run-status" | "assess-workflow", payload?: unknown,
   fetcher: (url: string, init?: RequestInit) => Promise<Response> = fetch,
   assertCurrent: () => void = () => {},
 ): Promise<Record<string, unknown>> {
   assertCurrent();
   if (!Number.isInteger(port) || port < 1 || port > 65535 || !token) throw new Error("Taskmaster backend unavailable");
+  if (resource === "assess-workflow" && payload !== undefined) throw new Error("Workflow assessment does not accept a request body");
   const body = payload === undefined ? undefined : JSON.stringify(payload);
   const limit = resource === "knowledge" ? 6 * 1024 * 1024 : resource === "inference" ? 8 * 1024 : 64 * 1024;
   if (body && Buffer.byteLength(body) > limit) throw new Error("Taskmaster request too large");
   const path = resource === "settings" ? "/settings/taskmaster"
     : resource === "run-status" ? "/taskmaster/run-status"
+      : resource === "assess-workflow" ? "/taskmaster/assess-workflow"
       : `/settings/taskmaster/${resource}`;
   const response = await fetcher(`http://127.0.0.1:${port}${path}`, {
-    method: body === undefined ? "GET" : "POST",
+    method: resource === "assess-workflow" || body !== undefined ? "POST" : "GET",
     headers: { "Content-Type": "application/json", "x-orkworks-open-plan-token": token },
     body, signal: AbortSignal.timeout(resource === "models" ? 45_000 : 15_000),
   });
   assertCurrent();
   const responseText = await response.text();
   assertCurrent();
-  const responseLimit = resource === "knowledge" ? 2 * 1024 * 1024 : resource === "models" ? 256 * 1024 : 64 * 1024;
+  const responseLimit = resource === "knowledge" ? 2 * 1024 * 1024
+    : resource === "models" ? 256 * 1024
+      : resource === "run-status" ? 128 * 1024 : 64 * 1024;
   if (Buffer.byteLength(responseText) > responseLimit) throw new Error("Taskmaster response too large");
   let result: unknown;
   try { result = JSON.parse(responseText); }

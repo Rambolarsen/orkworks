@@ -1,0 +1,646 @@
+use crate::taskmaster::TargetSurface;
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+
+const MAX_RESPONSE_BYTES: usize = 64 * 1024;
+const MAX_TITLE_CHARS: usize = 240;
+const MAX_TEXT_CHARS: usize = 1_000;
+const MAX_CHECK_CHARS: usize = 200;
+const MAX_FACT_HASHES: usize = 32;
+const MAX_PAGE_IDS: usize = 8;
+const MAX_UNVERIFIED_CHECKS: usize = 4;
+const ENVELOPE_FIELDS: [&str; 8] = [
+    "version",
+    "outcome",
+    "summary",
+    "repositoryFactHashes",
+    "knowledgePageIds",
+    "unverifiedChecks",
+    "proposal",
+    "noProposalReason",
+];
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct AssessmentResponse {
+    pub version: u8,
+    pub outcome: AssessmentOutcome,
+    pub summary: String,
+    pub repository_fact_hashes: Vec<String>,
+    pub knowledge_page_ids: Vec<String>,
+    pub unverified_checks: Vec<String>,
+    pub proposal: Option<AssessmentProposal>,
+    pub no_proposal_reason: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum AssessmentOutcome {
+    Proposed,
+    NoProposal,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct AssessmentProposal {
+    pub target_surface: TargetSurface,
+    pub title: String,
+    pub summary: String,
+}
+
+pub(crate) fn parse_assessment_response(
+    output: &str,
+    facts: &[crate::taskmaster::RepositoryEvidence],
+    pages: &[crate::taskmaster::runtime::KnowledgePage],
+) -> Result<AssessmentResponse, String> {
+    if output.len() > MAX_RESPONSE_BYTES {
+        return Err("assessment response exceeds the size limit".into());
+    }
+    let envelope: serde_json::Value =
+        serde_json::from_str(output).map_err(|_| "assessment response is not valid JSON")?;
+    let object = envelope
+        .as_object()
+        .ok_or("assessment response must be an object")?;
+    if ENVELOPE_FIELDS
+        .iter()
+        .any(|field| !object.contains_key(*field))
+    {
+        return Err("assessment response is missing a required field".into());
+    }
+
+    // Deserialize the original text as well as checking the object keys above:
+    // serde reports duplicate keys, while the Value parse gives us presence of
+    // nullable keys (which derived Option fields otherwise treat as optional).
+    let response: AssessmentResponse =
+        serde_json::from_str(output).map_err(|_| "assessment response has an invalid shape")?;
+    if response.version != 1 {
+        return Err("unsupported assessment response version".into());
+    }
+    validate_prose(&response.summary, MAX_TEXT_CHARS, true)?;
+    validate_unique_bounded(
+        &response.repository_fact_hashes,
+        MAX_FACT_HASHES,
+        "repository hashes",
+    )?;
+    validate_unique_bounded(
+        &response.knowledge_page_ids,
+        MAX_PAGE_IDS,
+        "knowledge page IDs",
+    )?;
+    validate_unique_bounded(
+        &response.unverified_checks,
+        MAX_UNVERIFIED_CHECKS,
+        "unverified checks",
+    )?;
+    for check in &response.unverified_checks {
+        validate_prose(check, MAX_CHECK_CHARS, true)?;
+    }
+
+    let known_hashes: HashSet<&str> = facts.iter().map(|fact| fact.sha256.as_str()).collect();
+    if response
+        .repository_fact_hashes
+        .iter()
+        .any(|hash| !known_hashes.contains(hash.as_str()))
+    {
+        return Err("assessment cites an unknown repository fact".into());
+    }
+    let known_page_ids: HashSet<&str> = pages.iter().map(|page| page.id.as_str()).collect();
+    if response
+        .knowledge_page_ids
+        .iter()
+        .any(|page_id| !known_page_ids.contains(page_id.as_str()))
+    {
+        return Err("assessment cites an unknown knowledge page".into());
+    }
+
+    match response.outcome {
+        AssessmentOutcome::Proposed => {
+            let proposal = response
+                .proposal
+                .as_ref()
+                .ok_or("proposed assessment requires a proposal")?;
+            if response.repository_fact_hashes.is_empty() || response.knowledge_page_ids.is_empty()
+            {
+                return Err(
+                    "proposed assessment requires repository and knowledge citations".into(),
+                );
+            }
+            if response.no_proposal_reason.is_some() {
+                return Err("proposed assessment cannot include a no-proposal reason".into());
+            }
+            validate_prose(&proposal.title, MAX_TITLE_CHARS, true)?;
+            validate_prose(&proposal.summary, MAX_TEXT_CHARS, true)?;
+        }
+        AssessmentOutcome::NoProposal => {
+            if response.proposal.is_some() {
+                return Err("no-proposal assessment cannot include a proposal".into());
+            }
+            let reason = response
+                .no_proposal_reason
+                .as_deref()
+                .ok_or("no-proposal assessment requires a reason")?;
+            validate_prose(reason, MAX_TEXT_CHARS, true)?;
+        }
+    }
+
+    Ok(response)
+}
+
+fn validate_unique_bounded(values: &[String], limit: usize, label: &str) -> Result<(), String> {
+    if values.len() > limit {
+        return Err(format!("too many {label}"));
+    }
+    let mut seen = HashSet::with_capacity(values.len());
+    if values.iter().any(|value| !seen.insert(value.as_str())) {
+        return Err(format!("duplicate {label}"));
+    }
+    if values
+        .iter()
+        .any(|value| value.trim().is_empty() || has_control(value))
+    {
+        return Err(format!("invalid {label}"));
+    }
+    Ok(())
+}
+
+fn validate_prose(value: &str, limit: usize, required: bool) -> Result<(), String> {
+    let char_count = value.chars().count();
+    if char_count > limit
+        || has_control(value)
+        || (required && value.trim().is_empty())
+        || contains_command_or_verification_claim(value)
+    {
+        return Err("assessment contains unsafe or out-of-bounds text".into());
+    }
+    Ok(())
+}
+
+fn has_control(value: &str) -> bool {
+    value.chars().any(char::is_control)
+}
+
+fn contains_command_or_verification_claim(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    let words: Vec<&str> = lower
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .collect();
+    if lower.contains("&&") || lower.contains("||") || lower.contains("$(") || lower.contains("${")
+    {
+        return true;
+    }
+    let shell_operator =
+        lower.contains(';') || lower.contains('|') || lower.contains('>') || lower.contains('<');
+    if contains_imperative_command(&lower)
+        || contains_tool_invocation(&words)
+        || contains_direct_command(value)
+        || (shell_operator && contains_command_token(&words))
+    {
+        return true;
+    }
+    has_completed_verification_claim(&words)
+}
+
+fn contains_command_token(words: &[&str]) -> bool {
+    const COMMANDS: [&str; 19] = [
+        "bash", "sh", "python", "node", "rm", "mkdir", "cd", "curl", "wget", "printf", "echo",
+        "cat", "ls", "grep", "sed", "awk", "touch", "chmod", "find",
+    ];
+    words.iter().any(|word| COMMANDS.contains(word))
+}
+
+fn contains_direct_command(text: &str) -> bool {
+    const COMMANDS: [&str; 22] = [
+        "bash", "sh", "python", "node", "rm", "mkdir", "cd", "curl", "wget", "printf", "echo",
+        "cat", "ls", "grep", "sed", "awk", "touch", "chmod", "find", "tar", "docker", "pytest",
+    ];
+    text.split(['!', '?', ':', ';', '|']).any(|segment| {
+        let mut tokens = segment.split_whitespace();
+        let Some(command) = tokens
+            .next()
+            .map(|word| word.trim_matches(['`', '\"', '\'']))
+        else {
+            return false;
+        };
+        if !COMMANDS.contains(&command) || command != command.to_ascii_lowercase() {
+            return false;
+        }
+        let Some(argument) = tokens.next() else {
+            return true;
+        };
+        let argument = argument.trim_matches(['`', '\"', '\'']);
+        matches!(command, "echo" | "mkdir" | "cd" | "rm" | "pytest")
+            || argument.starts_with('-')
+            || argument.starts_with('/')
+            || argument.starts_with("./")
+            || argument.starts_with("../")
+            || argument.contains('/')
+            || argument.rsplit_once('.').is_some_and(|(stem, ext)| {
+                !stem.is_empty()
+                    && !ext.is_empty()
+                    && ext.chars().all(|ch| ch.is_ascii_alphanumeric())
+            })
+            || (command == "find" && argument == "." && tokens.any(|token| token.starts_with('-')))
+    })
+}
+
+fn contains_imperative_command(text: &str) -> bool {
+    text.split(['.', '!', '?', ':']).any(|sentence| {
+        let mut words = sentence
+            .split(|character: char| !character.is_ascii_alphanumeric())
+            .filter(|word| !word.is_empty());
+        let Some(verb) = words.next() else {
+            return false;
+        };
+        let Some(target) = words.next() else {
+            return false;
+        };
+        matches!(verb, "run" | "execute" | "invoke")
+            && matches!(
+                target,
+                "cargo"
+                    | "pnpm"
+                    | "npm"
+                    | "yarn"
+                    | "bash"
+                    | "sh"
+                    | "git"
+                    | "rustfmt"
+                    | "make"
+                    | "just"
+                    | "pytest"
+                    | "python"
+                    | "node"
+                    | "rm"
+                    | "mkdir"
+                    | "cd"
+                    | "curl"
+                    | "wget"
+                    | "tests"
+                    | "checks"
+                    | "build"
+            )
+    })
+}
+
+fn contains_tool_invocation(words: &[&str]) -> bool {
+    words.windows(2).any(|pair| match pair[0] {
+        "cargo" => matches!(
+            pair[1],
+            "test" | "build" | "check" | "fmt" | "run" | "clippy"
+        ),
+        "pnpm" | "npm" | "yarn" => matches!(
+            pair[1],
+            "test" | "build" | "check" | "run" | "install" | "exec" | "dlx"
+        ),
+        "git" => matches!(
+            pair[1],
+            "config"
+                | "status"
+                | "diff"
+                | "add"
+                | "commit"
+                | "switch"
+                | "branch"
+                | "checkout"
+                | "log"
+                | "show"
+                | "push"
+                | "pull"
+                | "fetch"
+                | "reset"
+                | "clean"
+                | "worktree"
+                | "merge"
+                | "rebase"
+        ),
+        "bash" | "sh" | "python" | "node" => {
+            pair[1].starts_with('-') || pair[1].contains('.') || pair[1].contains('/')
+        }
+        "make" | "just" => true,
+        _ => false,
+    })
+}
+
+fn has_completed_verification_claim(words: &[&str]) -> bool {
+    const CHECKS: [&str; 11] = [
+        "test",
+        "tests",
+        "check",
+        "checks",
+        "build",
+        "lint",
+        "format",
+        "verification",
+        "verify",
+        "verified",
+        "ci",
+    ];
+    const COMPLETION: [&str; 12] = [
+        "pass",
+        "passed",
+        "passes",
+        "passing",
+        "succeed",
+        "succeeded",
+        "successful",
+        "successfully",
+        "success",
+        "verified",
+        "green",
+        "completed",
+    ];
+    const QUALIFIERS: [&str; 9] = [
+        "not", "never", "no", "without", "whether", "should", "would", "could", "might",
+    ];
+
+    words.iter().enumerate().any(|(index, word)| {
+        if !COMPLETION.contains(word) {
+            return false;
+        }
+        let start = index.saturating_sub(5);
+        let end = (index + 4).min(words.len());
+        let nearby_checks = words[start..end]
+            .iter()
+            .enumerate()
+            .any(|(offset, candidate)| {
+                candidate != word
+                    && CHECKS.contains(candidate)
+                    && (start + offset).abs_diff(index) <= 3
+            });
+        let qualified = words[start..index]
+            .iter()
+            .any(|candidate| QUALIFIERS.contains(candidate));
+        nearby_checks && !qualified
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::taskmaster::{runtime::KnowledgePage, RepositoryEvidence};
+    use serde_json::{json, Value};
+
+    fn facts() -> Vec<RepositoryEvidence> {
+        vec![RepositoryEvidence {
+            path: "docs/workflow.md".into(),
+            sha256: "a".repeat(64),
+            excerpt: "A bounded excerpt".into(),
+            observed_at: "2026-10-17T10:00:00Z".into(),
+        }]
+    }
+
+    fn pages() -> Vec<KnowledgePage> {
+        vec![KnowledgePage {
+            id: "workflow/improvement".into(),
+            title: "Workflow improvement".into(),
+            page_type: "concept".into(),
+            status: "published".into(),
+            content: "General workflow guidance".into(),
+            sha256: "b".repeat(64),
+            related_ids: vec![],
+        }]
+    }
+
+    fn proposed() -> Value {
+        json!({
+            "version": 1,
+            "outcome": "proposed",
+            "summary": "The setup guide omits a repeatable verification step.",
+            "repositoryFactHashes": ["a".repeat(64)],
+            "knowledgePageIds": ["workflow/improvement"],
+            "unverifiedChecks": ["CI configuration should confirm the proposed test command."],
+            "proposal": {
+                "targetSurface": "documentation",
+                "title": "Document the verification workflow",
+                "summary": "Record the expected local verification checks."
+            },
+            "noProposalReason": null
+        })
+    }
+
+    fn no_proposal() -> Value {
+        json!({
+            "version": 1,
+            "outcome": "no_proposal",
+            "summary": "The available excerpts do not show a clear workflow gap.",
+            "repositoryFactHashes": [],
+            "knowledgePageIds": [],
+            "unverifiedChecks": [],
+            "proposal": null,
+            "noProposalReason": "The bounded evidence is insufficient to support a change."
+        })
+    }
+
+    fn parse(value: &Value) -> Result<AssessmentResponse, String> {
+        parse_assessment_response(&value.to_string(), &facts(), &pages())
+    }
+
+    #[test]
+    fn accepts_one_grounded_proposal_and_round_trips_exact_wire_names() {
+        let result = parse(&proposed()).expect("valid proposal should parse");
+        assert_eq!(result.outcome, AssessmentOutcome::Proposed);
+        assert_eq!(
+            result.proposal.as_ref().unwrap().target_surface,
+            TargetSurface::Documentation
+        );
+        assert!(serde_json::to_string(&result)
+            .unwrap()
+            .contains("repositoryFactHashes"));
+    }
+
+    #[test]
+    fn accepts_explicit_no_proposal_without_citations() {
+        let result = parse(&no_proposal()).expect("valid no-proposal result should parse");
+        assert_eq!(result.outcome, AssessmentOutcome::NoProposal);
+        assert!(result.proposal.is_none());
+        assert!(result.repository_fact_hashes.is_empty());
+    }
+
+    #[test]
+    fn requires_nullable_envelope_fields_to_be_present() {
+        for key in ["proposal", "noProposalReason"] {
+            let mut value = proposed();
+            value.as_object_mut().unwrap().remove(key);
+            assert!(parse(&value).is_err(), "missing {key} must fail");
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_and_duplicate_fields() {
+        let mut unknown = proposed();
+        unknown["extra"] = json!(true);
+        assert!(parse(&unknown).is_err());
+
+        let duplicate = proposed().to_string();
+        let duplicated = duplicate.replacen("\"version\":1", "\"version\":1,\"version\":1", 1);
+        assert!(parse_assessment_response(&duplicated, &facts(), &pages()).is_err());
+    }
+
+    #[test]
+    fn rejects_invalid_outcome_combinations_and_multiple_proposals() {
+        let mut proposal_missing_refs = proposed();
+        proposal_missing_refs["repositoryFactHashes"] = json!([]);
+        assert!(parse(&proposal_missing_refs).is_err());
+
+        let mut no_proposal_with_proposal = no_proposal();
+        no_proposal_with_proposal["proposal"] = proposed()["proposal"].clone();
+        assert!(parse(&no_proposal_with_proposal).is_err());
+
+        let mut too_many = proposed();
+        too_many["proposal"] = json!([
+            proposed()["proposal"].clone(),
+            proposed()["proposal"].clone()
+        ]);
+        assert!(parse(&too_many).is_err());
+    }
+
+    #[test]
+    fn rejects_unknown_citations_and_duplicate_references() {
+        let mut unknown_hash = proposed();
+        unknown_hash["repositoryFactHashes"] = json!(["c".repeat(64)]);
+        assert!(parse(&unknown_hash).is_err());
+
+        let mut unknown_page = proposed();
+        unknown_page["knowledgePageIds"] = json!(["workflow/missing"]);
+        assert!(parse(&unknown_page).is_err());
+
+        let mut duplicate = proposed();
+        duplicate["repositoryFactHashes"] = json!(["a".repeat(64), "a".repeat(64)]);
+        assert!(parse(&duplicate).is_err());
+    }
+
+    #[test]
+    fn enforces_response_and_field_bounds_using_unicode_scalars() {
+        let mut too_large = proposed();
+        too_large["summary"] = json!("界".repeat(1_001));
+        assert!(parse(&too_large).is_err());
+
+        let mut too_many_checks = proposed();
+        too_many_checks["unverifiedChecks"] = json!((0..5)
+            .map(|index| format!("Review verification point {index}."))
+            .collect::<Vec<_>>());
+        assert!(parse(&too_many_checks).is_err());
+
+        let mut duplicate_checks = proposed();
+        duplicate_checks["unverifiedChecks"] = json!([
+            "Review existing CI coverage.",
+            "Review existing CI coverage."
+        ]);
+        assert!(parse(&duplicate_checks).is_err());
+
+        let mut too_long_check = proposed();
+        too_long_check["unverifiedChecks"] = json!(["界".repeat(201)]);
+        assert!(parse(&too_long_check).is_err());
+
+        let huge_raw = " ".repeat(65_537);
+        assert!(parse_assessment_response(&huge_raw, &facts(), &pages()).is_err());
+
+        let mut unicode = proposed();
+        unicode["summary"] = json!("界".repeat(1_000));
+        assert!(parse(&unicode).is_ok());
+    }
+
+    #[test]
+    fn enforces_title_proposal_summary_reason_and_reference_count_limits() {
+        let mut title_over = proposed();
+        title_over["proposal"]["title"] = json!("界".repeat(241));
+        assert!(parse(&title_over).is_err());
+
+        let mut proposal_summary_over = proposed();
+        proposal_summary_over["proposal"]["summary"] = json!("界".repeat(1_001));
+        assert!(parse(&proposal_summary_over).is_err());
+
+        let mut reason_over = no_proposal();
+        reason_over["noProposalReason"] = json!("界".repeat(1_001));
+        assert!(parse(&reason_over).is_err());
+
+        let mut too_many_hashes = proposed();
+        too_many_hashes["repositoryFactHashes"] = json!((0..33)
+            .map(|index| format!("{index:064x}"))
+            .collect::<Vec<_>>());
+        assert!(parse(&too_many_hashes).is_err());
+
+        let mut too_many_pages = proposed();
+        too_many_pages["knowledgePageIds"] = json!((0..9)
+            .map(|index| format!("workflow/page-{index}"))
+            .collect::<Vec<_>>());
+        assert!(parse(&too_many_pages).is_err());
+    }
+
+    #[test]
+    fn accepts_unicode_at_title_and_reason_scalar_boundaries() {
+        let mut title_at_limit = proposed();
+        title_at_limit["proposal"]["title"] = json!("界".repeat(240));
+        assert!(parse(&title_at_limit).is_ok());
+
+        let mut reason_at_limit = no_proposal();
+        reason_at_limit["noProposalReason"] = json!("界".repeat(1_000));
+        assert!(parse(&reason_at_limit).is_ok());
+    }
+
+    #[test]
+    fn rejects_unsupported_versions_and_target_surfaces() {
+        let mut version = proposed();
+        version["version"] = json!(2);
+        assert!(parse(&version).is_err());
+
+        let mut target = proposed();
+        target["proposal"]["targetSurface"] = json!("shell");
+        assert!(parse(&target).is_err());
+    }
+
+    #[test]
+    fn rejects_commands_control_characters_and_unperformed_success_claims() {
+        for text in [
+            "Run cargo test before merging.",
+            "find . -name '*.md'",
+            "python script.py",
+            "ls",
+            "echo",
+            "python",
+            "echo hello",
+            "mkdir docs",
+            "cd src",
+            "rm output",
+            "pytest tests",
+            "git config user.email x",
+            "All tests passed successfully.",
+            "Verification completed successfully.",
+            "printf hello; rm -rf /tmp/output",
+        ] {
+            let mut value = proposed();
+            value["summary"] = json!(text);
+            assert!(parse(&value).is_err(), "unsafe text should fail: {text}");
+        }
+
+        let mut control = proposed();
+        control["summary"] = json!("line\nbreak");
+        assert!(parse(&control).is_err());
+
+        let mut description = proposed();
+        description["unverifiedChecks"] =
+            json!(["Existing CI configuration includes regression checks."]);
+        assert!(parse(&description).is_ok());
+    }
+
+    #[test]
+    fn accepts_descriptions_that_mention_tools_runs_and_unverified_checks() {
+        for text in [
+            "Find ways to document the workflow.",
+            "Python workflows need documentation.",
+            "Document the Git workflow.",
+            "Compare run evidence.",
+            "Explain how tests should pass.",
+            "Tests have not been verified.",
+            "Check whether tests pass.",
+        ] {
+            let mut value = proposed();
+            value["summary"] = json!(text);
+            assert!(
+                parse(&value).is_ok(),
+                "ordinary description should parse: {text}"
+            );
+        }
+    }
+}

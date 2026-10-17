@@ -11,6 +11,11 @@ type TaskmasterAcceptOptions = {
   evidenceFingerprint?: string;
   idempotencyKey?: string;
 };
+type TaskmasterAssessmentRequestResponse = {
+  status: "scheduled" | "cached" | "active_recommendation" | "already_running" | "unavailable";
+  recommendation?: { id: string; status: string };
+  message?: string;
+};
 
 type LastCentralSurface = "terminal" | "review";
 type ShellPreferences = { sessionsWidth: number; inspectorWidth: number; sessionsVisible: boolean; inspectorPinned?: boolean; density: "low" | "high" };
@@ -86,6 +91,7 @@ contextBridge.exposeInMainWorld("orkworks", {
   getTaskmasterRunStatus: (): Promise<unknown> => ipcRenderer.invoke("get-taskmaster-run-status"),
   refreshTaskmasterModels: (provider: "codex" | "ollama", ollamaBaseUrl?: string): Promise<string[]> => ipcRenderer.invoke("refresh-taskmaster-models", provider, ollamaBaseUrl),
   requestTaskmasterAnalysis: (): Promise<unknown> => ipcRenderer.invoke("analyze-taskmaster"),
+  requestTaskmasterAssessment: (): Promise<TaskmasterAssessmentRequestResponse> => ipcRenderer.invoke("assess-taskmaster-workflow"),
   dismissTaskmasterRecommendation: (id: string, reason?: string): Promise<void> =>
     ipcRenderer.invoke("dismiss-taskmaster-recommendation", id, reason),
   acceptTaskmasterRecommendation: (id: string, options: TaskmasterAcceptOptions): Promise<unknown> =>

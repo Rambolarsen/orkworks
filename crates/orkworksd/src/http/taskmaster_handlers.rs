@@ -206,13 +206,27 @@ pub(crate) async fn analyze_taskmaster(
         .filter(|(_, handle)| handle.info.has_live_runtime())
         .map(|(id, _)| id.clone())
         .collect::<std::collections::HashSet<_>>();
-    let (workspace_path, recommendations) = {
+    let workspace_path = {
         let workspace = state.workspace.lock().expect("workspace lock poisoned");
         let Some(workspace) = workspace.as_ref() else {
             return manual_analysis_response(
                 "unavailable",
                 None,
                 Some("Open a workspace before requesting Brain analysis."),
+            );
+        };
+        workspace.path.clone()
+    };
+    {
+        let workspace = state.workspace.lock().expect("workspace lock poisoned");
+        let Some(workspace) = workspace
+            .as_ref()
+            .filter(|workspace| workspace.path == workspace_path)
+        else {
+            return manual_analysis_response(
+                "unavailable",
+                None,
+                Some("The selected workspace changed before Brain analysis could start."),
             );
         };
         let protected_deliveries =
@@ -226,15 +240,26 @@ pub(crate) async fn analyze_taskmaster(
         ) {
             return store_error(error);
         }
-        let Ok(recommendations) = workspace.recommendation_store.list() else {
-            return manual_analysis_response(
-                "unavailable",
-                None,
-                Some("Taskmaster recommendations could not be read."),
-            );
+    }
+    let (recommendations, _) =
+        match SessionApplication::new(state.clone()).list_recommendations_for_action() {
+            Ok(result) => result,
+            Err(RecommendationQueryError::Conflict) => return StatusCode::CONFLICT.into_response(),
+            Err(RecommendationQueryError::Store(error)) => return store_error(error),
         };
-        (workspace.path.clone(), recommendations)
-    };
+    if !state
+        .workspace
+        .lock()
+        .expect("workspace lock poisoned")
+        .as_ref()
+        .is_some_and(|workspace| workspace.path == workspace_path)
+    {
+        return manual_analysis_response(
+            "unavailable",
+            None,
+            Some("The selected workspace changed before Brain analysis could start."),
+        );
+    }
 
     if let Some(recommendation) =
         crate::taskmaster::active_workflow_recommendation(&recommendations)
@@ -294,9 +319,29 @@ pub(crate) async fn analyze_taskmaster(
         crate::taskmaster::evaluator::ScheduleResult::Unavailable => manual_analysis_response(
             "unavailable",
             None,
-            Some("Taskmaster analysis could not be scheduled. Check Taskmaster settings and try again."),
+            Some(
+                "Taskmaster analysis could not be scheduled. Check Taskmaster settings and try again.",
+            ),
         ),
     }
+}
+
+pub(crate) async fn assess_workflow(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if let Err(status) = super::taskmaster_settings_handlers::authorize_taskmaster_request(&headers)
+    {
+        return status.into_response();
+    }
+    if !body.is_empty() {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    let runtime = super::taskmaster_settings_handlers::runtime_for(&state);
+    let response =
+        crate::taskmaster::assessment::schedule(state, runtime.root_path().to_path_buf());
+    Json(response).into_response()
 }
 
 #[derive(Serialize)]
@@ -483,12 +528,59 @@ mod tests {
     use axum::body::Bytes;
     use axum::http::header::AUTHORIZATION;
 
+    #[tokio::test]
+    async fn assess_workflow_requires_auth_empty_body_and_selected_workspace() {
+        let _token = crate::test_support::open_plan_token::set("taskmaster-test-token").await;
+        let directory = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(directory.path());
+        let mut unauthorized = HeaderMap::new();
+        unauthorized.insert("x-orkworks-open-plan-token", "wrong".parse().unwrap());
+        assert_eq!(
+            assess_workflow(State(state.clone()), unauthorized, Bytes::new())
+                .await
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            assess_workflow(
+                State(state.clone()),
+                assessment_authorized_headers(),
+                Bytes::from_static(b"{}"),
+            )
+            .await
+            .status(),
+            StatusCode::BAD_REQUEST
+        );
+
+        state.workspace.lock().unwrap().take();
+        let response =
+            assess_workflow(State(state), assessment_authorized_headers(), Bytes::new()).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(value["status"], "unavailable");
+        assert_eq!(value["message"], "No workspace is selected");
+        assert!(value.get("recommendation").is_none());
+    }
+
+    fn assessment_authorized_headers() -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-orkworks-open-plan-token",
+            "taskmaster-test-token".parse().unwrap(),
+        );
+        headers
+    }
+
     fn recommendation_fixture(
         id: &str,
         status: RecommendationStatus,
         session_id: &str,
     ) -> Recommendation {
         Recommendation {
+            assessment: None,
             id: id.into(),
             workspace_id: "workspace-1".into(),
             chain_id: id.into(),
@@ -1327,6 +1419,38 @@ mod tests {
             response.status(),
             StatusCode::UNAUTHORIZED | StatusCode::SERVICE_UNAVAILABLE
         ));
+    }
+
+    #[tokio::test]
+    async fn analyze_keeps_the_active_brain_recommendation_gate() {
+        let _token = crate::test_support::open_plan_token::set("taskmaster-test-token").await;
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let mut active = recommendation_fixture(
+            "active-brain-recommendation",
+            RecommendationStatus::Proposed,
+            "source-session",
+        );
+        active.dedupe_key = "proactive:v1:documentation:fact".into();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .put(&active)
+            .unwrap();
+
+        let response = analyze_taskmaster(State(state), assessment_authorized_headers()).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(value["status"], "active_recommendation");
+        assert_eq!(value["recommendation"]["id"], active.id);
+        assert_eq!(value["recommendation"]["status"], "proposed");
     }
 
     #[tokio::test]

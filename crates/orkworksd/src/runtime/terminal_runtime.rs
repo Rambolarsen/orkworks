@@ -649,6 +649,47 @@ pub(crate) async fn submit_approved_input_to_runtime(
     result
 }
 
+/// Revalidates caller authority after capacity is available, through the exact
+/// synchronous enqueue. No workspace/configuration guard crosses an await.
+pub(crate) async fn submit_approved_input_to_runtime_with_admission(
+    state: &Arc<AppState>,
+    id: &str,
+    identity: &crate::runtime::session_runtime::RuntimeIdentity,
+    control_tx: &tokio::sync::mpsc::Sender<crate::runtime::session_runtime::RuntimeCommand>,
+    data: String,
+    admit: impl FnOnce(&mut dyn FnMut() -> Result<(), ()>) -> Result<(), ()> + Send,
+) -> Result<(), ()> {
+    let pending = with_current_runtime_input(state, id, identity, || {
+        capture_pending_terminal_input(state, id, data.clone())
+    })
+    .ok_or(())?;
+    let permit = control_tx.reserve().await.map_err(|_| ())?;
+    let (accepted_tx, accepted_rx) = tokio::sync::oneshot::channel();
+    let mut effect = Some((
+        permit,
+        crate::runtime::session_runtime::RuntimeCommand::Input {
+            data,
+            accepted: Some(accepted_tx),
+        },
+    ));
+    with_current_runtime_input(state, id, identity, || {
+        admit(&mut || {
+            let (permit, command) = effect.take().ok_or(())?;
+            permit.send(command);
+            Ok(())
+        })
+    })
+    .ok_or(())??;
+    if effect.is_some() {
+        return Err(());
+    }
+    let result = accepted_rx.await.map_err(|_| ())?;
+    with_current_runtime_input(state, id, identity, || {
+        record_input_after_delivery(state, id, Some(&pending), &result);
+    });
+    result
+}
+
 fn with_current_runtime_input<T>(
     state: &Arc<AppState>,
     id: &str,

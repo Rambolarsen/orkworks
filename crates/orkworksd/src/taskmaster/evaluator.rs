@@ -10,8 +10,9 @@ use crate::taskmaster::rollup::{
     MAX_ROLLUP_RESPONSE_BYTES,
 };
 use crate::taskmaster::runtime::{
-    taskmaster_global_dir, EvaluationSnapshot, RollupEvaluationToken, TaskmasterRunOutcomeState,
-    TaskmasterRunTrigger, TaskmasterRuntime,
+    taskmaster_global_dir, EvaluationReservation, EvaluationSnapshot, RollupEvaluationToken,
+    TaskmasterManualRequestDisposition, TaskmasterManualRequestReason, TaskmasterProposalCounts,
+    TaskmasterRunOutcomeState, TaskmasterRunTrigger, TaskmasterRuntime,
 };
 use crate::taskmaster::{
     KnowledgeEvidence, Recommendation, RecommendationConfidence, RecommendationStatus,
@@ -263,7 +264,7 @@ fn parse_provider_response(
             Some(value) if value.as_array().map_or(true, |items| !items.is_empty()) => {
                 return Err(
                     "Taskmaster response contained rollups without supplied families".into(),
-                )
+                );
             }
             _ => RollupSection::NotRequested,
         },
@@ -460,6 +461,10 @@ fn run_model_evaluation_at_with_workspace(
                 workspace_path: run.workspace_path,
                 id: run.id,
                 completed: false,
+                manual_disposition: (
+                    TaskmasterManualRequestDisposition::Skipped,
+                    TaskmasterManualRequestReason::Unavailable,
+                ),
             };
             guard.finish(TaskmasterRunOutcomeState::Interrupted, Some(reason));
         }
@@ -516,6 +521,10 @@ fn run_model_evaluation_with_context_and_workspace(
         workspace_path: run.workspace_path,
         id: run.id,
         completed: false,
+        manual_disposition: (
+            TaskmasterManualRequestDisposition::Skipped,
+            TaskmasterManualRequestReason::Unavailable,
+        ),
     });
     if let Err(reason) = runtime.brain_knowledge_availability() {
         if let Some(guard) = run_guard.as_mut() {
@@ -678,34 +687,69 @@ fn run_model_evaluation_with_context_and_workspace(
                 // Preserve harness → persistence/data → workspace order through the write.
                 let workspace = state.workspace.lock().expect("workspace lock poisoned");
                 let Some(current) = workspace.as_ref() else {
-                    return Ok(false);
+                    return Ok(EvaluationReservation::Skipped);
                 };
                 if current.path != workspace_path
                     || current.workflow_observations.instance_id() != workspace_instance
                 {
-                    return Ok(false);
+                    return Ok(EvaluationReservation::ContextChanged);
                 }
                 let Ok(recommendations) = current.recommendation_store.list() else {
-                    return Ok(false);
+                    return Ok(EvaluationReservation::Skipped);
                 };
                 if crate::taskmaster::active_workflow_recommendation(&recommendations).is_some() {
-                    return Ok(false);
+                    return Ok(EvaluationReservation::Skipped);
                 }
                 reserve()
             },
         )
     } else {
-        runtime.reserve_snapshot(
-            &state.harness_store,
-            &workspace_path,
-            &now,
-            &cache_key,
-            &snapshot,
-        )
+        runtime
+            .reserve_snapshot(
+                &state.harness_store,
+                &workspace_path,
+                &now,
+                &cache_key,
+                &snapshot,
+            )
+            .map(|reserved| {
+                if reserved {
+                    EvaluationReservation::Reserved
+                } else {
+                    EvaluationReservation::Skipped
+                }
+            })
     };
-    let Ok(true) = reservation else {
-        return;
-    };
+    match reservation {
+        Ok(EvaluationReservation::Reserved) => {}
+        Ok(EvaluationReservation::Cached) => {
+            if let Some(guard) = run_guard.as_mut() {
+                guard.mark_disposition(
+                    TaskmasterManualRequestDisposition::Cached,
+                    TaskmasterManualRequestReason::UnchangedInputs,
+                );
+            }
+            return;
+        }
+        Ok(EvaluationReservation::ContextChanged) => {
+            if let Some(guard) = run_guard.as_mut() {
+                guard.mark_disposition(
+                    TaskmasterManualRequestDisposition::Skipped,
+                    TaskmasterManualRequestReason::ContextChanged,
+                );
+            }
+            return;
+        }
+        Ok(EvaluationReservation::Skipped) | Err(_) => {
+            if let Some(guard) = run_guard.as_mut() {
+                guard.mark_disposition(
+                    TaskmasterManualRequestDisposition::Skipped,
+                    TaskmasterManualRequestReason::Unavailable,
+                );
+            }
+            return;
+        }
+    }
     let mut dispatch_gate = |start_dispatch: &mut dyn FnMut() -> std::io::Result<()>| {
         if snapshot.custom_inference.is_none() {
             native_workspace_dispatch_gate(
@@ -773,9 +817,9 @@ fn run_model_evaluation_with_context_and_workspace(
                         // only writes the cache key; cooldown was recorded at
                         // reservation, so nothing else needs replicating.
                         if let Some(guard) = run_guard.as_mut() {
-                            guard.finish(
-                                TaskmasterRunOutcomeState::Succeeded,
+                            guard.finish_success(
                                 disposition.summary().as_deref(),
+                                disposition.proposal_counts,
                             );
                         }
                     }
@@ -788,9 +832,9 @@ fn run_model_evaluation_with_context_and_workspace(
                         ) {
                             Ok(true) => {
                                 if let Some(guard) = run_guard.as_mut() {
-                                    guard.finish(
-                                        TaskmasterRunOutcomeState::Succeeded,
+                                    guard.finish_success(
                                         disposition.summary().as_deref(),
+                                        disposition.proposal_counts,
                                     );
                                 }
                             }
@@ -839,6 +883,10 @@ struct RunGuard {
     workspace_path: std::path::PathBuf,
     id: u64,
     completed: bool,
+    manual_disposition: (
+        TaskmasterManualRequestDisposition,
+        TaskmasterManualRequestReason,
+    ),
 }
 
 impl RunGuard {
@@ -857,11 +905,41 @@ impl RunGuard {
             self.completed = true;
         }
     }
+
+    fn finish_success(&mut self, error: Option<&str>, counts: TaskmasterProposalCounts) {
+        if self
+            .runtime
+            .finish_run_with_counts(
+                &self.workspace_path,
+                self.id,
+                TaskmasterRunOutcomeState::Succeeded,
+                error,
+                Some(counts),
+            )
+            .unwrap_or(false)
+        {
+            self.completed = true;
+        }
+    }
+
+    fn mark_disposition(
+        &mut self,
+        disposition: TaskmasterManualRequestDisposition,
+        reason: TaskmasterManualRequestReason,
+    ) {
+        self.manual_disposition = (disposition, reason);
+    }
 }
 
 impl Drop for RunGuard {
     fn drop(&mut self) {
         if !self.completed {
+            let _ = self.runtime.record_manual_request_disposition(
+                &self.workspace_path,
+                self.id,
+                self.manual_disposition.0,
+                self.manual_disposition.1,
+            );
             let _ = self.runtime.clear_run(&self.workspace_path, self.id);
         }
     }
@@ -869,7 +947,7 @@ impl Drop for RunGuard {
 
 /// Bind once before collecting permitted context. A custom selection that loses
 /// its capability or approval must abort, never use the native provider branch.
-fn bind_evaluation_transport(
+pub(super) fn bind_evaluation_transport(
     runtime: &TaskmasterRuntime,
     harnesses: &crate::harness::store::HarnessStore,
     workspace: &std::path::Path,
@@ -1174,10 +1252,31 @@ fn validate_legacy_model_output(
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum ApplyDisposition {
-    Applied,
-    /// Rollups were discarded; everything else was applied.
-    RollupsDegraded(&'static str),
+struct ApplyDisposition {
+    proposal_counts: TaskmasterProposalCounts,
+    degraded: Option<&'static str>,
+}
+
+#[allow(non_upper_case_globals)]
+impl ApplyDisposition {
+    const Applied: Self = Self {
+        proposal_counts: TaskmasterProposalCounts {
+            created: 0,
+            suppressed: 0,
+        },
+        degraded: None,
+    };
+
+    #[allow(non_snake_case)]
+    fn RollupsDegraded(code: &'static str) -> Self {
+        Self {
+            proposal_counts: TaskmasterProposalCounts {
+                created: 0,
+                suppressed: 0,
+            },
+            degraded: Some(code),
+        }
+    }
 }
 
 impl ApplyDisposition {
@@ -1185,13 +1284,13 @@ impl ApplyDisposition {
     /// cache inputs, and a manual analysis keeps the cache, so they are not
     /// cached; everything else is.
     fn cacheable(&self) -> bool {
-        !matches!(self, Self::RollupsDegraded(code) if *code == crate::taskmaster::proposed_change::FILESYSTEM_CODE)
+        self.degraded != Some(crate::taskmaster::proposed_change::FILESYSTEM_CODE)
     }
 
     fn summary(&self) -> Option<String> {
-        match self {
-            Self::Applied => None,
-            Self::RollupsDegraded(code) => Some(format!(
+        match self.degraded {
+            None => None,
+            Some(code) => Some(format!(
                 "Rollups degraded ({code}); other results were applied"
             )),
         }
@@ -1280,6 +1379,10 @@ fn apply_model_output_parsed(
         RollupSection::Degraded(code) => (Vec::new(), Some(*code)),
     };
     let mut accepted = false;
+    let mut proposal_counts = TaskmasterProposalCounts {
+        created: 0,
+        suppressed: 0,
+    };
     let _ = runtime.with_current_evaluation(&state.harness_store, workspace_path, snapshot, || {
     let workspace = state.workspace.lock().expect("workspace lock poisoned");
     let Some(workspace) = workspace
@@ -1293,6 +1396,10 @@ fn apply_model_output_parsed(
     let Ok(recommendations) = workspace.recommendation_store.list() else {
         return;
     };
+    let mut seen_dedupe_keys = recommendations
+        .iter()
+        .map(|recommendation| recommendation.dedupe_key.clone())
+        .collect::<std::collections::HashSet<_>>();
     let mut updates = Vec::new();
     for enrichment in model.enrichments {
         let Some(mut recommendation) = recommendations
@@ -1346,10 +1453,8 @@ fn apply_model_output_parsed(
                 .collect::<Vec<_>>()
                 .join(":")
         );
-        if recommendations
-            .iter()
-            .any(|recommendation| recommendation.dedupe_key == dedupe_key)
-        {
+        if !seen_dedupe_keys.insert(dedupe_key.clone()) {
+            proposal_counts.suppressed = proposal_counts.suppressed.saturating_add(1);
             continue;
         }
         let knowledge_evidence = proposal
@@ -1373,6 +1478,7 @@ fn apply_model_output_parsed(
         let id = format!("recommendation-{}", short_hash(&dedupe_key));
         let now = chrono::Utc::now().to_rfc3339();
         let recommendation = Recommendation {
+            assessment: None,
             id, workspace_id: workspace.path.display().to_string(), chain_id: dedupe_key.clone(), chain_depth: 0,
             recommendation_type: RecommendationType::ImproveWorkflow, status: RecommendationStatus::Proposed,
             priority: Impact::Low, title: proposal.title, summary: proposal.summary.clone(),
@@ -1388,6 +1494,7 @@ fn apply_model_output_parsed(
             proposed_change: None,
         };
         updates.push(recommendation);
+        proposal_counts.created = proposal_counts.created.saturating_add(1);
     }
     if let Some(request) = rollup_request {
         // Path validation does filesystem I/O; the workspace lock is held here.
@@ -1427,10 +1534,24 @@ fn apply_model_output_parsed(
             }
             accepted = true;
         } else {
+            let newly_created_parents = resolved_rollups
+                .iter()
+                .filter(|cluster| {
+                    let parent_id = crate::taskmaster::rollup::stable_rollup_id(
+                        &cluster.member_recommendation_ids,
+                    );
+                    !recommendations.iter().any(|recommendation| recommendation.id == parent_id)
+                })
+                .count();
             accepted = SessionApplication::apply_rollup_clusters_locked(
                 workspace, request.token.workspace_instance, &request.snapshots,
                 &resolved_rollups, request.token.generation, &updates,
             );
+            if accepted {
+                proposal_counts.created = proposal_counts
+                    .created
+                    .saturating_add(newly_created_parents.min(u32::MAX as usize) as u32);
+            }
         }
     } else {
         for recommendation in updates {
@@ -1439,13 +1560,13 @@ fn apply_model_output_parsed(
         accepted = true;
     }
     });
-    accepted.then(|| match degraded {
-        Some(code) => ApplyDisposition::RollupsDegraded(code),
-        None => ApplyDisposition::Applied,
+    accepted.then(|| ApplyDisposition {
+        proposal_counts,
+        degraded,
     })
 }
 
-fn select_relevant_pages(
+pub(super) fn select_relevant_pages(
     snapshot: &mut EvaluationSnapshot,
     observations: &[crate::workflow_observations::WorkflowObservation],
     facts: &[crate::taskmaster::RepositoryEvidence],
