@@ -51,7 +51,7 @@ are plain UTF-8 text, never HTML, Markdown execution, paths or terminal input.
 | `Label`, `Reason` | Nonempty text, at most 512 / 2,048 UTF-8 bytes |
 | `Counter` | Plain JSON decimal integer `1..2147483647`; no fraction, exponent or coercion |
 | `U64`, `PositiveU64` | Canonical decimal strings `"0".."18446744073709551615"` / same excluding zero; compare losslessly |
-| `Time` | UTC RFC3339 `YYYY-MM-DDTHH:mm:ss[.sss]Z`, at most 32 ASCII bytes, source-validated; absent time is null, never now |
+| `Time` | Valid UTC RFC3339 with `Z` or `+00:00`, optional 1..9 fractional digits, at most 35 ASCII bytes; preserve validated source precision/spelling; absent time is null, never now |
 | `AssignmentIdentity`, `AuthorityGeneration`, `ResultPredecessor`, `EvaluationReference` | Exact tagged #744 records; their bounded numeric revisions stay JSON integers; no added metadata |
 | `ResultRef` | `assignmentIdentity`, `resultRevision` (1..32), `resultDigest: Digest` |
 | `RoleRef` | `role` from `orchestrator/research/implementation/review/verification/remediation`, `templateId: ID`, `templateVersion: Counter`, `templateDigest: Digest` |
@@ -71,7 +71,7 @@ An explicitly missing ordinary session for a valid owned reference is allowed.
 
 | Record | Exact properties |
 | --- | --- |
-| `RootNode` | `assignmentIdentity` (root variant), `role: RoleRef`, `label: Label`, `goalDigest: Digest`, `repositoryId: ID`, `runtime: RuntimeBinding`, `session: SessionDisplay`, `skills: SkillDisplay[]`, `evaluation: EvaluationDisplay`, `signals: Signals` |
+| `RootNode` | `assignmentIdentity` (root variant), `role: RoleRef`, `label: Label`, `goal` (nonempty exact UTF-8 text, at most 16 KiB), `goalDigest: Digest`, `repositoryId: ID`, `runtime: RuntimeBinding`, `session: SessionDisplay`, `skills: SkillDisplay[]`, `evaluation: EvaluationDisplay`, `signals: Signals` |
 | `RunCoordination` | `runVersion: Counter`, `runSequence` (#742 positive decimal string up to `9223372036854775807`), `state` (enum below), `currentStage` (stage NodeRef or null), `pauseReason` (null or #742 pause reason), `stageContinueRequired: boolean`, `terminal: boolean`, `blockers: Blocker[]` |
 | `StageProjection` | `planId: ID`, `planRevision` (1..64), `planDefinitionDigest: Digest`, `preparationRevision` (1..64), `inputDigest: Digest`, `kind` (`research/execution`), `disposition` (`proposed/approved/active/paused/completed/cancelled/rejected/superseded`), `terminal: boolean`, `signals: Signals`, `tasks: TaskProjection[]` |
 | `TaskProjection` | `taskId: ID`, `configurationId: ID`, `configurationDigest: Digest`, `role: RoleRef`, `label: Label`, `batchIndex` (0..127), `declarationIndex` (0..127), `phase` (`planned/starting/session/session-unavailable`), `allocation: AllocationDisplay`, `session: SessionDisplay`, `coordination: TaskCoordination`, `dependencies: NodeRef[]`, `skills: SkillDisplay[]`, `evaluation: EvaluationDisplay`, `signals: Signals` |
@@ -89,8 +89,12 @@ stage-continue gate and all lower-priority blockers remain visible under #742.
 Current stage is the exact #742 current plan/revision when present, resolves
 one stage, and is null only when the source has no current plan. Root runtime
 copies #742's current parent runtime binding, with authoritative absence distinct
-from unknown. Root configuration label/goal/repository/identity come from the
-immutable bootstrap; RoleRef copies role-template id/version/contentDigest.
+from unknown. Root label/repository/identity come from the immutable bootstrap.
+Root goal is the exact UI-authorized goal retained in #742's immutable run
+definition; SHA-256 of its original UTF-8 bytes must equal goalDigest and the
+bootstrap goal binding. Preserve whitespace/Unicode bytes without normalization,
+truncation or substitution from assignment.label. The source run-definition byte
+cap remains a lower limit. RoleRef copies role-template id/version/contentDigest.
 Task labels/roles/configuration identities come from that exact #741 assignment.
 Skill identity/version/digest/requirement copy its exact SkillSnapshot; display
 label uses the approved catalog label when available, otherwise the snapshot ID,
@@ -153,10 +157,15 @@ from resume options, which remain in the ordinary session contract.
 Capacity is `{kind: "unavailable"}` or exactly
 `{kind: "known", limit: 1..16, liveChildren: 0..16,
 unattachedReservations: 0..16, unresolvedAllocations: 0..16}`.
-Known liveChildren cannot be less than the distinct visibly nonterminal bound
-children in the complete payload; the backend ledger must reconcile missing
-sessions/reservations before claiming known counts. Never derive zero from an
-unavailable session. Known live children plus unattached reservations must not exceed the immutable
+Known liveChildren equals the distinct bound task sessions whose validated
+canonical lifecycle is nonterminal in this complete payload. Known
+unattachedReservations likewise equals the distinct visible reserved allocations.
+Reconcile every ledger entry to a visible exact task before claiming complete:
+an unmapped child/reservation is invalid-structure for the run, never an anonymous
+extra count. An explicitly owned but unavailable child session keeps its task
+visible and makes capacity unavailable until lifecycle is reconciled; do not
+infer zero or terminal status. Count mismatches cannot be served as known.
+Known live children plus unattached reservations must not exceed the immutable
 run limit; an ambiguous/excess count yields unavailable capacity, never zero.
 Count all prior-plan nonterminal children and reservations, including outside
 currently active coordination. Root is not a child slot. A complete run payload
@@ -186,10 +195,13 @@ never recomputes this from exit, absence, candidate rejection or self-report.
 
 `candidates` contains at most 32 exact records with `candidateDigest: Digest`,
 `authorityGeneration: AuthorityGeneration`, `predecessor: ResultPredecessor`,
-`state` (`staged/rejected/unsupported/superseded/accepted`). Sort by candidate digest;
+`state` (`staged/rejected/unsupported/superseded/abandoned/accepted`). Sort by candidate digest;
 include every retained candidate's disposition, not a guessed latest candidate.
 Candidate identity is the enclosing assignment plus its exact digest and generation.
 Candidate success cannot transfer a previous result's review to staged bytes.
+Explicit Electron-authorized abandonment is a distinct retained terminal
+candidate disposition under #744; it is not rejection, supersession, accepted
+result, automatic quality failure or permission to relaunch.
 Required failures win over missing evidence; optional-only stale details do not
 downgrade a pass. Source freshness and disputes are validated by #744 before
 projection. Root evaluation uses user review; child references must resolve
@@ -357,9 +369,10 @@ future paginated history needs separate completeness/selection semantics.
 
 The response builder counts bytes incrementally; it cannot first allocate an
 unbounded object and check size afterwards. Read size/depth/count budgets also
-apply to Electron/renderer decoding before adoption. Do not read transcript,
-raw prompt/instruction, credential, arbitrary file content, full evidence or
-repository history to build this overview. Permitted labels/receipt metadata
+apply to Electron/renderer decoding before adoption. The exact UI-authorized goal
+is permitted local display content, distinct from harness startup prompts. Do not
+read transcript, raw harness prompt/instruction, credential, arbitrary file
+content, full evidence or repository history to build this overview. Permitted labels/receipt metadata
 remain local authorized display data. Log bounded reason codes/counts, not body
 bytes or secrets. Details remain behind an authenticated exact-reference read
 contract; a DTO reference is never a filesystem capability.
@@ -402,7 +415,7 @@ manifest and verify all joins/digests separately from shape validation.
           "templateDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
         },
         "label": "Synthetic workflow",
-        "goalDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "goalDigest": "4e020b046d87dcbcfa44777687f13c1ccc17a51d8c256ad778e4071cc5660bd8",
         "repositoryId": "repo-fixture",
         "runtime": {
           "kind": "absent"
@@ -449,7 +462,8 @@ manifest and verify all joins/digests separately from shape validation.
           "decisionRequired": false,
           "blocked": false,
           "reworkRequired": false
-        }
+        },
+        "goal": "Plan a synthetic workflow."
       },
       "coordination": {
         "runVersion": 1,
@@ -493,6 +507,13 @@ source change; transport-shape acceptance alone never establishes a valid join.
 | `/state/projection/coordination/runSequence` → `"01"` | Reject noncanonical decimal sequence |
 | Add `token` or raw `instructions` to root | Reject unknown properties; never forward secrets/instruction bodies |
 | Remove `/state/projection/stages` or use null | Reject; empty complete collection must be explicit array |
+| Root goal removed, replaced with label, normalized, or hash mismatches goalDigest | Reject: exact immutable authorized goal/binding required |
+| Root goal contains multiple lines/Unicode and is within source/16 KiB caps | Preserve exact UTF-8 display bytes and matching SHA-256; no normalization/truncation |
+| Session time is `2026-10-17T08:00:00+00:00` or `2026-10-17T08:00:00.123456789+00:00` | Accept valid canonical UTC source spelling/precision, at most 35 ASCII bytes |
+| Time has an invalid calendar value, unknown/nonzero UTC offset, or more than nine fractional digits | Reject display Time; narrower producer timestamp rules still apply |
+| Retained pending candidate is explicitly user-abandoned | Include state abandoned; preserve accepted head/review; no relaunch or inferred quality failure |
+| Ledger live count is 1 but complete payload has no bound nonterminal child | Reconcile missing ownership; run unavailable if child has no mapped task; never known anonymous slot |
+| Known count differs from visible bound sessions/reserved allocations, or child lifecycle is unavailable | Reject known capacity; show unavailable while reconciling, preserving valid owned rows |
 | Root session becomes available/alive/needs_you in a coherently advanced snapshot | Valid source-backed attention; root needs-you count changes without selection/unread acknowledgement |
 | Exact retained plan has two tasks in batch 0 with declaration indices 0 and 1 | Valid ordering; same batch is allowed, duplicate declaration index/task ID is not |
 | Two retained revisions reuse a task label/ID under distinct planRevision values | Separate nodes and assignment/result/skill/viewed state; never replace the earlier path |
