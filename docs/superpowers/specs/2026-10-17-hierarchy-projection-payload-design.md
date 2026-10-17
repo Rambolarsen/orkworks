@@ -55,6 +55,7 @@ are plain UTF-8 text, never HTML, Markdown execution, paths or terminal input.
 | `AssignmentIdentity`, `AuthorityGeneration`, `ResultPredecessor`, `EvaluationReference` | Exact tagged #744 records; their bounded numeric revisions stay JSON integers; no added metadata |
 | `ResultRef` | `assignmentIdentity`, `resultRevision` (1..32), `resultDigest: Digest` |
 | `RoleRef` | `role` from `orchestrator/research/implementation/review/verification/remediation`, `templateId: ID`, `templateVersion: Counter`, `templateDigest: Digest` |
+| `CodingToolRef` | `harnessId: ID`, `definitionDigest: Digest`, `label: Label`; immutable #741 harness binding plus validated catalog label/fallback |
 | `NodeRef` | `{kind: "root"}`; `{kind: "stage", planId: ID, planRevision: 1..64}`; or `{kind: "task", planId: ID, planRevision: 1..64, taskId: ID}`; workspace/run come only from the envelope |
 | `Signals` | `decisionRequired`, `blocked`, `reworkRequired`: booleans supplied by the sidecar for current unresolved work, never inferred from historical text |
 
@@ -71,10 +72,10 @@ An explicitly missing ordinary session for a valid owned reference is allowed.
 
 | Record | Exact properties |
 | --- | --- |
-| `RootNode` | `assignmentIdentity` (root variant), `role: RoleRef`, `label: Label`, `goal` (nonempty exact UTF-8 text, at most 16 KiB), `goalDigest: Digest`, `repositoryId: ID`, `runtime: RuntimeBinding`, `session: SessionDisplay`, `skills: SkillDisplay[]`, `evaluation: EvaluationDisplay`, `signals: Signals` |
-| `RunCoordination` | `runVersion: Counter`, `runSequence` (#742 positive decimal string up to `9223372036854775807`), `state` (enum below), `currentStage` (stage NodeRef or null), `pauseReason` (null or #742 pause reason), `stageContinueRequired: boolean`, `terminal: boolean`, `blockers: Blocker[]` |
-| `StageProjection` | `planId: ID`, `planRevision` (1..64), `planDefinitionDigest: Digest`, `preparationRevision` (1..64), `inputDigest: Digest`, `kind` (`research/execution`), `disposition` (`proposed/approved/active/paused/completed/cancelled/rejected/superseded`), `terminal: boolean`, `signals: Signals`, `tasks: TaskProjection[]` |
-| `TaskProjection` | `taskId: ID`, `configurationId: ID`, `configurationDigest: Digest`, `role: RoleRef`, `label: Label`, `batchIndex` (0..127), `declarationIndex` (0..127), `phase` (`planned/starting/session/session-unavailable`), `allocation: AllocationDisplay`, `session: SessionDisplay`, `coordination: TaskCoordination`, `dependencies: NodeRef[]`, `skills: SkillDisplay[]`, `evaluation: EvaluationDisplay`, `signals: Signals` |
+| `RootNode` | `assignmentIdentity` (root variant), `role: RoleRef`, `codingTool: CodingToolRef`, `label: Label`, `goal` (nonempty exact UTF-8 text, at most 16 KiB), `goalDigest: Digest`, `repositoryId: ID`, `runtime: RuntimeBinding`, `session: SessionDisplay`, `skills: SkillDisplay[]`, `evaluation: EvaluationDisplay`, `signals: Signals` |
+| `RunCoordination` | `runVersion: Counter`, `runSequence` (#742 positive decimal string up to `9223372036854775807`), `state` (enum below), `currentStage` (stage NodeRef or null), `clarification: ClarificationDisplay`, `pauseReason` (null or #742 pause reason), `stageContinueRequired: boolean`, `terminal: boolean`, `blockers: Blocker[]` |
+| `StageProjection` | `planId: ID`, `planRevision` (1..64), `planDefinitionDigest: Digest`, `preparationRevision` (1..64), `inputDigest: Digest`, `kind` (`research/execution`), `childLimit` (1..16), `disposition` (`proposed/approved/active/paused/completed/cancelled/rejected/superseded`), `terminal: boolean`, `signals: Signals`, `tasks: TaskProjection[]` |
+| `TaskProjection` | `taskId: ID`, `configurationId: ID`, `configurationDigest: Digest`, `role: RoleRef`, `codingTool: CodingToolRef`, `label: Label`, `batchIndex` (0..127), `declarationIndex` (0..127), `phase` (`planned/starting/session/session-unavailable`), `allocation: AllocationDisplay`, `allocationRecovery: AllocationRecovery`, `session: SessionDisplay`, `coordination: TaskCoordination`, `dependencies: NodeRef[]`, `skills: SkillDisplay[]`, `evaluation: EvaluationDisplay`, `signals: Signals` |
 | `TaskCoordination` | `label: Label`, `terminal: boolean`, `waits: WaitReason[]`, `blockers: Blocker[]` |
 | `Blocker` | `code` (`clarification/approval/capacity/dependency/allocation/recovery/evidence/other`), `label: Reason`, `current: boolean`; at most one entry per code per record, preserving all source references in separate details |
 | `WaitReason` | `{kind: "task", target: <task NodeRef>}`; `{kind: "batch", batchIndex: 0..127}`; or `{kind: "approval"}`, `{kind: "capacity"}`, `{kind: "quiescence"}`, `{kind: "recovery"}` |
@@ -87,7 +88,13 @@ Pause reason is null except in `paused`, where it is `stage_cancelled`,
 `parent_ended`, `workspace_changed` or `sidecar_replaced`. The independent
 stage-continue gate and all lower-priority blockers remain visible under #742.
 Current stage is the exact #742 current plan/revision when present, resolves
-one stage, and is null only when the source has no current plan. Root runtime
+one stage, and is null only when the source has no current plan.
+ClarificationDisplay is exactly `{kind: "none"}` or `{kind: "pending",
+questionId: ID, requestVersion: Counter, preparationRevision: 1..64}` from the
+current unanswered #742 request. Preserve it while paused/blocked; explicit
+answer/correction changes it under #742, never elapsed time or a UI default.
+Each stage childLimit copies its exact immutable plan ceiling and is no greater
+than the run ceiling. Root runtime
 copies #742's current parent runtime binding, with authoritative absence distinct
 from unknown. Root label/repository/identity come from the immutable bootstrap.
 Root goal is the exact UI-authorized goal retained in #742's immutable run
@@ -96,6 +103,12 @@ bootstrap goal binding. Preserve whitespace/Unicode bytes without normalization,
 truncation or substitution from assignment.label. The source run-definition byte
 cap remains a lower limit. RoleRef copies role-template id/version/contentDigest.
 Task labels/roles/configuration identities come from that exact #741 assignment.
+Root/task CodingToolRef copies `harness.harnessId` and `harness.definitionDigest`
+from its immutable bootstrap/assignment AdapterBinding, including before launch.
+Label is validated catalog display text or the harness ID if unavailable. Glyphs
+use the existing local ID-to-artwork mapping with generic fallback; no arbitrary
+URL/path, renderer session lookup or role portrait substitutes for this binding.
+The configured identity alone proves neither eligibility nor delivery.
 Skill identity/version/digest/requirement copy its exact SkillSnapshot; display
 label uses the approved catalog label when available, otherwise the snapshot ID,
 never an instruction excerpt. These copies establish no content delivery.
@@ -118,6 +131,24 @@ Wait targets must be declared dependencies. Root role is orchestrator; child
 roles are non-orchestrator. No coding-tool-native subagent becomes a node.
 
 ### Allocation, session and capacity
+
+`AllocationRecovery` is exactly `{kind: "settled"}`, or `{kind: "unsettled",
+reservationId: ID | null, reason: Reason}`, or `{kind: "interrupted",
+reservationId: ID | null, reason: Reason}`. These are display metadata keyed by
+the enclosing exact stage/task/configuration, not a new source authority record.
+One attempt per declared task means at most one unresolved allocation for that
+task. A null reservation is allowed only for a durable pre-reservation intent
+with AllocationDisplay none; otherwise the reservation matches reserved/bound
+allocation exactly. Bind each source intent to that declared task before exposing
+it; missing/ambiguous mappings make the run invalid-structure, never anonymous.
+
+Each unsettled/interrupted task has a current allocation blocker, a recovery wait
+and blocked signal so Show next action can reveal it. Preserve those flags even
+in cancelled history while ownership remains unresolved. Stage completion and
+run complete/research-finish cannot coexist with unresolved allocation; cancelled
+coordination may retain it and still cannot auto-collapse or silently clean up.
+Resolution must be explicit and source-validated under #742, not a count decrement
+or text edit. No automatic retry/new reservation is granted by inspection.
 
 `AllocationDisplay` is exactly one of:
 
@@ -155,21 +186,41 @@ identity or ordinary session. Read-only selection/history navigation is separate
 from resume options, which remain in the ordinary session contract.
 
 Capacity is `{kind: "unavailable"}` or exactly
-`{kind: "known", limit: 1..16, liveChildren: 0..16,
-unattachedReservations: 0..16, unresolvedAllocations: 0..16}`.
-Known liveChildren equals the distinct bound task sessions whose validated
-canonical lifecycle is nonterminal in this complete payload. Known
-unattachedReservations likewise equals the distinct visible reserved allocations.
-Reconcile every ledger entry to a visible exact task before claiming complete:
-an unmapped child/reservation is invalid-structure for the run, never an anonymous
-extra count. An explicitly owned but unavailable child session keeps its task
-visible and makes capacity unavailable until lifecycle is reconciled; do not
-infer zero or terminal status. Count mismatches cannot be served as known.
-Known live children plus unattached reservations must not exceed the immutable
-run limit; an ambiguous/excess count yields unavailable capacity, never zero.
-Count all prior-plan nonterminal children and reservations, including outside
-currently active coordination. Root is not a child slot. A complete run payload
-may show unavailable capacity, but cannot claim readiness or auto-collapse from it.
+`{kind: "known", runLimit: 1..16, liveChildren: 0..16,
+unattachedReservations: 0..16, unresolvedAllocations: 0..16, currentPlan}`.
+CurrentPlan is exactly `{kind: "none"}` when coordination.currentStage is null,
+or `{kind: "known", stage: <stage NodeRef>, limit: 1..16,
+liveChildren: 0..16, unattachedReservations: 0..16, availableSlots: 0..16}`.
+Its stage equals coordination.currentStage and its limit equals that stage's
+childLimit; every plan limit is no greater than runLimit. All count equalities
+below are validated by the sidecar under the coherent read boundary.
+
+Known run liveChildren equals the distinct bound task sessions whose validated
+canonical lifecycle is nonterminal across every retained stage. Known
+unattachedReservations equals the distinct visible reserved allocations.
+Known unresolvedAllocations equals the distinct task keys whose AllocationRecovery
+is unsettled/interrupted, including pre-reservation intents. Reconcile every
+ledger entry to a visible exact task before claiming complete: an unmapped child,
+reservation or intent is invalid-structure for the run, never an anonymous count.
+An explicitly owned but unavailable child session keeps its task visible and makes
+capacity unavailable until lifecycle is reconciled. Count mismatches cannot be
+served as known. Run liveChildren plus unattachedReservations cannot exceed
+runLimit; an ambiguous/excess count yields unavailable capacity, never zero.
+
+CurrentPlan child/reservation counts equal the same validated sets restricted
+to its exact plan/revision, not all previous plans. Their sum cannot exceed its
+limit. AvailableSlots is the checked nonnegative minimum of remaining run slots
+and remaining current-plan slots. Prior research children consume run slots but
+do not become execution-plan children. Example: run limit 4 with two prior-plan
+children and an empty current execution plan capped at 2 has two slots; two
+current-plan children instead exhaust that plan even though the run ceiling is 4.
+Expose both ceilings/counts; do not compare all run children only to the smaller
+plan ceiling. Capacity availability is not approval/readiness: unresolved
+allocation, dependency, grant and capability gates remain independent.
+
+Root is not a child slot. A complete run payload may show unavailable capacity,
+but cannot claim readiness or auto-collapse from it. Count all prior-plan
+nonterminal children and reservations even outside active coordination.
 
 ## Evaluation summary and references
 
@@ -287,10 +338,15 @@ never claims an empty stream or complete coverage.
 `actions` is a unique array of `ActionEntry`, exactly `node: NodeRef` and
 `navigation: <#912 NavigationDescriptor>`. Its descriptor is the exact `kind`,
 `target`, `label` shape in the transport proposal, not an opaque command or URL.
-Run/plan/task targets resolve root/stage/task respectively and agree with envelope,
+Run/clarification/plan/task subjects resolve root/root/stage/task respectively and agree with envelope,
 current run version and all source bindings. Plan targets copy that stage's
 revision/definition/input/preparation values; task targets copy its complete
 bound identity and latest launch; run targets copy the root parent/runtime.
+An answer-clarification action always targets NodeRef root and copies the exact
+pending questionId/requestVersion/preparationRevision from coordination.clarification.
+No pending request means no clarification action. Root decisionRequired remains
+true for a currently required answer, even while a higher-priority blocker is
+present; a missing applicable clarification descriptor makes the run unavailable.
 The source decides applicability;
 missing decision bytes yield unavailable action state, never an empty array.
 Actions sort root first, then source stage/task order, then descriptor kind bytes.
@@ -305,7 +361,7 @@ required decisions must have descriptors; if decisionRequired is true but no
 matching action exists, the entire run is unavailable. Relevant live attention
 remains discoverable even without an orchestration descriptor: Show next action
 may reveal its exact node without selecting/acknowledging the session.
-Required-rework signals and local unviewed summaries also reveal their exact
+Blocked/required-rework signals and local unviewed summaries also reveal their exact
 nodes; they do not manufacture an upstream decision descriptor or command. Local
 unviewed-summary counts use exact #744 summary tokens, independently of unread.
 A complete projection is not approval, readiness, capability eligibility, workspace-
@@ -463,7 +519,12 @@ manifest and verify all joins/digests separately from shape validation.
           "blocked": false,
           "reworkRequired": false
         },
-        "goal": "Plan a synthetic workflow."
+        "goal": "Plan a synthetic workflow.",
+        "codingTool": {
+          "harnessId": "fixture-tool",
+          "definitionDigest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "label": "Fixture coding tool"
+        }
       },
       "coordination": {
         "runVersion": 1,
@@ -473,14 +534,20 @@ manifest and verify all joins/digests separately from shape validation.
         "pauseReason": "parent_ended",
         "stageContinueRequired": false,
         "terminal": false,
-        "blockers": []
+        "blockers": [],
+        "clarification": {
+          "kind": "none"
+        }
       },
       "capacity": {
         "kind": "known",
-        "limit": 2,
         "liveChildren": 0,
         "unattachedReservations": 0,
-        "unresolvedAllocations": 0
+        "unresolvedAllocations": 0,
+        "runLimit": 2,
+        "currentPlan": {
+          "kind": "none"
+        }
       },
       "stages": [],
       "actions": []
@@ -503,7 +570,7 @@ source change; transport-shape acceptance alone never establishes a valid join.
 | `/state/projection/root/evaluation/summary/summaryRevision` → `1` | Reject numeric summary token; decimal string required |
 | `/state/projection/root/evaluation/summary/overall` → `"meets-requirements"` | Reject: no accepted result or current required review supports pass |
 | `/state/projection/root/signals/decisionRequired` → `true` with actions still empty | Run action state unavailable; cannot claim No actions |
-| `/state/projection/capacity/liveChildren` → `3` while limit is 2 | Reject known capacity; source builder must instead emit `{ "kind": "unavailable" }` |
+| `/state/projection/capacity/liveChildren` → `3` while runLimit is 2 | Reject known capacity; source builder must instead emit `{ "kind": "unavailable" }` |
 | `/state/projection/coordination/runSequence` → `"01"` | Reject noncanonical decimal sequence |
 | Add `token` or raw `instructions` to root | Reject unknown properties; never forward secrets/instruction bodies |
 | Remove `/state/projection/stages` or use null | Reject; empty complete collection must be explicit array |
@@ -529,6 +596,15 @@ source change; transport-shape acceptance alone never establishes a valid join.
 | Source contains 65 revisions for one plan or duplicate stage keys | Limit-exceeded/invalid-structure respectively; never truncate to 64 |
 | Source-valid complete run exceeds 8 MiB after encoding | Versioned limit-exceeded; preserve history and ordinary session access |
 | Auth fails, stale workspace lease, wrong generation, or parent bearer attempts read | Request failure before run existence disclosure or snapshot-slot allocation |
+| Unresolved intent has no mapped task, or its count differs from per-task recovery records | Run invalid-structure for unmapped ownership / reject known count; never hide behind anonymous capacity |
+| Interrupted intent precedes reservation | Visible exact task with recovery kind interrupted, null reservation, current blocker/wait; no invented session/reservation or automatic retry |
+| Cancelled stage retains an interrupted allocation | Preserve recovery node/signal/count; no auto-collapse or cleanup; completed stage/run cannot claim settlement |
+| Run ceiling 4, current plan ceiling 2 with two current-plan live children | Display run 2/4 and plan 2/2, zero availableSlots; plan limit still gates launches |
+| Run ceiling 4 with two prior research children; current plan ceiling 2 has none | Display run 2/4 and current plan 0/2, availableSlots 2; no reassignment of prior-plan children |
+| Pending clarification under paused/blocked run | Exact root action with matching pending request identity/version/preparation; preserve other blockers |
+| Clarification action targets a stage/task or stale/nonpending question | Invalid-structure; never arbitrary placement or stale answer navigation |
+| Planned/reserved child has no session | Coding-tool glyph/label derives from immutable harness binding; unknown artwork gets generic fallback |
+| CodingToolRef differs from that node's exact configuration binding | Invalid-structure; no renderer inference from role/label/another session |
 | Third concurrent read / 61st attempt in rolling minute | Bounded refusal; release/cancel completed slots; no body scan or stale decision success |
 | Source changes during both allowed assembly attempts | Reconciling or request failure under invalidated scope; no mixed complete result |
 
