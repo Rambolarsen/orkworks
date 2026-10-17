@@ -899,6 +899,14 @@ workspace byte/count limits, transaction/recovery fixtures, deletion ordering
 and lossless transport require review in the scoped runtime plan. See the
 [mapping fixtures](2026-10-15-hierarchy-projection-mapping.md#summary-revision-and-action-freshness).
 
+### Proposed hierarchy display encoding
+
+The [hierarchy transport proposal](2026-10-17-hierarchy-projection-transport-design.md#lossless-display-encoding)
+uses explicit display DTOs with decimal strings for u64 metadata/artifact fields.
+Canonical records above retain their integer tokens and digest bytes. This
+proposed consumer codec does not finalize artifact retrieval, summary storage,
+or the joint recovery boundary; written producer/owner acceptance remains open.
+
 ## Implementation gate
 
 This is a proposed written contract, not runtime implementation approval.

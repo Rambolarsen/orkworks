@@ -1009,6 +1009,14 @@ approval complete. If #740 retains no-go, record that blocker explicitly and
 leave runtime planning closed rather than inventing a fallback or unsupported
 launch plan.
 
+### Proposed hierarchy read transport
+
+The [hierarchy transport proposal](2026-10-17-hierarchy-projection-transport-design.md)
+supplies run-scoped snapshot ordering and exact navigation targets around these
+records. Its target/source mapping and invalidation coverage remain pending
+producer and owner review; no new decision authority or runtime route is
+established by that draft.
+
 ## Execution plan and implementation gate
 
 Keep #742 open: this is a concrete proposed contract, not a reviewed executable

@@ -190,6 +190,15 @@ below. The broader hierarchy contract retains keyboard, responsive/zoom,
 summary disclosure, invalid lineage, large-collection and return-navigation
 cases; this handoff does not replace native accessibility/usability validation.
 
+## Proposed transport follow-up
+
+The [snapshot and navigation transport proposal](2026-10-17-hierarchy-projection-transport-design.md)
+defines a separate run-scoped envelope, volatile snapshot ordering, exact
+inspection targets and lossless display DTO encodings. It leaves canonical
+record bytes/digests intact. Producer mapping/owner acceptance, full payload
+schema, read authorization and runtime plans remain pending; this link does
+not finalize the upstream records or establish workspace-wide completeness.
+
 ## Review disposition and next gates
 
 | Owner/surface | Concrete agreement requested | Current disposition |
