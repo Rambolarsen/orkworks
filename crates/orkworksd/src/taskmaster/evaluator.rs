@@ -495,6 +495,7 @@ fn run_admitted_model_evaluation_with_context(
         crate::taskmaster::runtime::ContextLevel,
         &[String],
         &str,
+        &str,
     ) -> Result<Vec<crate::taskmaster::RepositoryEvidence>, String>,
 ) {
     run_model_evaluation_with_context_and_workspace(
@@ -514,6 +515,7 @@ fn run_model_evaluation_with_context_and_workspace(
         &std::path::Path,
         crate::taskmaster::runtime::ContextLevel,
         &[String],
+        &str,
         &str,
     ) -> Result<Vec<crate::taskmaster::RepositoryEvidence>, String>,
     manual_workspace: Option<std::path::PathBuf>,
@@ -635,6 +637,7 @@ fn run_model_evaluation_with_context_and_workspace(
         snapshot.settings.context_level,
         &snapshot.settings.excluded_paths,
         &now,
+        &super::context::observation_signals(analysis_observations(&observations)),
     ) {
         Ok(facts) => facts,
         Err(error) => {
@@ -1074,11 +1077,7 @@ fn clear_in_flight() {
 fn analysis_observations(
     observations: &[crate::workflow_observations::WorkflowObservation],
 ) -> impl Iterator<Item = &crate::workflow_observations::WorkflowObservation> {
-    observations
-        .iter()
-        .rev()
-        .filter(|item| item.evidence.chars().any(char::is_alphanumeric))
-        .take(16)
+    super::context::recent_observations(observations, 16)
 }
 
 fn build_taskmaster_prompt(
@@ -1468,7 +1467,7 @@ fn apply_model_output_parsed(
     else {
         return;
     };
-    let Ok(current_facts) = crate::taskmaster::context::collect_repository_facts(workspace_path, snapshot.settings.context_level, &snapshot.settings.excluded_paths, &chrono::Utc::now().to_rfc3339()) else { return; };
+    let Ok(current_facts) = crate::taskmaster::context::collect_repository_facts(workspace_path, snapshot.settings.context_level, &snapshot.settings.excluded_paths, &chrono::Utc::now().to_rfc3339(), &super::context::observation_signals(analysis_observations(&workspace.workflow_observations.workspace_observations().unwrap_or_default()))) else { return; };
     if facts.iter().any(|fact| !current_facts.iter().any(|current| current.path == fact.path && current.sha256 == fact.sha256)) { return; }
     let Ok(recommendations) = workspace.recommendation_store.list() else {
         return;
@@ -1776,7 +1775,7 @@ mod tests {
         run_model_evaluation_with_context_and_workspace(
             state,
             runtime.clone(),
-            |_, _, _, _| {
+            |_, _, _, _, _| {
                 collector_called = true;
                 Err("fact collection unavailable".into())
             },
@@ -1832,7 +1831,7 @@ mod tests {
         run_model_evaluation_with_context_and_workspace(
             state,
             runtime.clone(),
-            |_, _, _, _| {
+            |_, _, _, _, _| {
                 panic!("unavailable knowledge must stop before collection or provider dispatch")
             },
             Some(workspace.clone()),
@@ -2190,6 +2189,7 @@ mod tests {
             ContextLevel::WorkflowContext,
             &[],
             "now",
+            "",
         )
         .unwrap();
         let output = serde_json::json!({"proposals":[{"targetSurface":"documentation","title":"Document it","summary":"Hypothesis","repositoryFactHashes":[facts[0].sha256]}]}).to_string();

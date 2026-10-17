@@ -88,6 +88,10 @@ pub(crate) fn capture_workspace_input(
         evaluation.settings.context_level,
         &evaluation.settings.excluded_paths,
         &observed_at,
+        &super::context::observation_signals(super::context::recent_observations(
+            &observations,
+            128,
+        )),
     )?;
     let mut prompt_snapshot = evaluation.clone();
     select_assessment_pages(&mut prompt_snapshot, &observations, &facts);
@@ -212,9 +216,7 @@ fn build_assessment_prompt(
     facts: &[super::RepositoryEvidence],
     recommendations: &[super::Recommendation],
 ) -> String {
-    let observations = observations
-        .iter()
-        .take(128)
+    let observations = super::context::recent_observations(observations, 128)
         .map(|item| {
             serde_json::json!({
                 "id": item.id,
@@ -300,8 +302,7 @@ fn select_assessment_pages(
     let Some(bundle) = snapshot.knowledge.as_mut() else {
         return;
     };
-    let signals = observations
-        .iter()
+    let signals = super::context::recent_observations(observations, 128)
         .map(|item| item.description.as_str())
         .chain(facts.iter().map(|item| item.excerpt.as_str()))
         .collect::<Vec<_>>()
@@ -1381,6 +1382,81 @@ mod tests {
             input_fingerprint_excluding(&input, Some("assessment-rec")).unwrap(),
             input_fingerprint(&expected).unwrap()
         );
+    }
+
+    #[test]
+    fn assessment_prompt_and_retrieval_use_recent_meaningful_observations() {
+        use crate::workflow_observations::{
+            Impact, ObservationKind, ObservationSource, WorkflowObservation,
+        };
+        let mut observations = (0..300)
+            .map(|n| WorkflowObservation {
+                id: format!("o{n}"),
+                session_id: "session".into(),
+                source: ObservationSource::Peon,
+                kind: ObservationKind::VerificationGap,
+                description: if n < 172 {
+                    "obsolete archival".into()
+                } else {
+                    "current".into()
+                },
+                evidence: "old failure".into(),
+                problem_area: None,
+                reported_impact: Impact::Medium,
+                confidence: 0.8,
+                observed_at: "2026-09-01T00:00:00Z".into(),
+                fingerprint: format!("fingerprint-{n}"),
+                sequence: n,
+            })
+            .collect::<Vec<_>>();
+        observations[299].description = "verification".into();
+        observations[299].evidence = "current verification failure".into();
+        observations[299].observed_at = "2026-10-17T00:00:00Z".into();
+        let mut noise = observations[299].clone();
+        noise.id = "noise".into();
+        noise.sequence = 300;
+        noise.description = "obsolete archival".into();
+        noise.evidence = "▘▝".into();
+        observations.push(noise);
+        let mut snapshot = super::super::runtime::EvaluationSnapshot {
+            custom_inference: None,
+            native_revision: None,
+            settings: Default::default(),
+            generation: 0,
+            knowledge_identity: None,
+            knowledge: Some(super::super::runtime::KnowledgeBundle {
+                format_version: 1,
+                version: "v1".into(),
+                sequence: 1,
+                published_at: "now".into(),
+                pages: (0..9)
+                    .map(|n| super::super::runtime::KnowledgePage {
+                        id: format!("page{n}"),
+                        title: "Guidance".into(),
+                        page_type: "concept".into(),
+                        status: "active".into(),
+                        content: if n == 8 {
+                            "verification".into()
+                        } else {
+                            format!("obsolete archival {n}")
+                        },
+                        sha256: format!("hash{n}"),
+                        related_ids: Vec::new(),
+                    })
+                    .collect(),
+            }),
+        };
+        select_assessment_pages(&mut snapshot, &observations, &[]);
+        let prompt: serde_json::Value =
+            serde_json::from_str(&build_assessment_prompt(&snapshot, &observations, &[], &[]))
+                .unwrap();
+        let selected = prompt["workflowObservations"].as_array().unwrap();
+        assert_eq!(selected.len(), 128);
+        assert_eq!(selected[0]["id"], "o299");
+        assert_eq!(selected[0]["observedAt"], "2026-10-17T00:00:00Z");
+        assert_eq!(selected[127]["id"], "o172");
+        assert!(selected.iter().all(|item| item["id"] != "noise"));
+        assert_eq!(prompt["knowledgePages"][0]["id"], "page8");
     }
 
     #[test]

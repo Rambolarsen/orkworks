@@ -227,7 +227,13 @@ Ordinary Taskmaster analysis uses the latest 16 observations whose evidence
 contains Unicode letters or numbers. Filtering precedes the bound, and prompt
 construction and knowledge retrieval share that window. The prompt includes
 kind and observation time without treating historical friction as unresolved.
-The stored observation history remains unchanged.
+The stored observation history remains unchanged. Assessment applies the same
+filter with a newest-128 window. Each mode uses its selected window for prompt
+construction, Brain retrieval and repository relevance signals. The bounded
+repository collector ranks current root/scoped guidance and manifests before
+historical plans/reports, then uses signal overlap and deterministic path order.
+It selects a contiguous relevant excerpt within the existing bounded file read;
+access exclusions and the evidence hash of the bounded bytes remain unchanged.
 
 Taskmaster status exposes the latest analysis outcome per workspace separately
 from provider/configuration availability. Recommendations shows queued or

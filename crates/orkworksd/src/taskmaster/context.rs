@@ -19,6 +19,7 @@ pub(crate) fn collect_repository_facts(
     level: ContextLevel,
     excluded_prefixes: &[String],
     observed_at: &str,
+    signals: &str,
 ) -> Result<Vec<RepositoryEvidence>, String> {
     if level == ContextLevel::SessionObservations {
         return Ok(Vec::new());
@@ -27,6 +28,7 @@ pub(crate) fn collect_repository_facts(
         .canonicalize()
         .map_err(|error| error.to_string())?;
     let repository = git2::Repository::discover(&root).ok();
+    let terms = relevance_terms(signals);
     let mut paths = Vec::new();
     let mut remaining_entries = MAX_PATHS;
     collect_paths(
@@ -38,8 +40,11 @@ pub(crate) fn collect_repository_facts(
         repository.as_ref(),
         &mut paths,
         &mut remaining_entries,
+        &terms,
     )?;
-    paths.sort();
+    paths.sort_by_cached_key(|path| {
+        context_priority(path.strip_prefix(&root).unwrap_or(path), &terms)
+    });
 
     let mut evidence = Vec::with_capacity(paths.len().min(MAX_FILES));
     let mut remaining = MAX_TOTAL_BYTES;
@@ -78,10 +83,10 @@ pub(crate) fn collect_repository_facts(
             .map_err(|_| "repository fact escaped workspace")?
             .to_string_lossy()
             .replace('\\', "/");
-        let excerpt: String = String::from_utf8_lossy(&bytes)
-            .chars()
-            .take(2_000)
-            .collect();
+        let excerpt = relevant_excerpt(
+            std::str::from_utf8(&bytes).map_err(|error| error.to_string())?,
+            &terms,
+        );
         remaining = remaining.saturating_sub(bytes.len());
         evidence.push(RepositoryEvidence {
             path: relative,
@@ -91,6 +96,136 @@ pub(crate) fn collect_repository_facts(
         });
     }
     Ok(evidence)
+}
+
+/// Both analysis modes filter before bounding; persisted evidence is untouched.
+pub(super) fn recent_observations(
+    observations: &[crate::workflow_observations::WorkflowObservation],
+    limit: usize,
+) -> impl Iterator<Item = &crate::workflow_observations::WorkflowObservation> {
+    observations
+        .iter()
+        .rev()
+        .filter(|item| item.evidence.chars().any(char::is_alphanumeric))
+        .take(limit)
+}
+
+pub(super) fn observation_signals<'a>(
+    observations: impl Iterator<Item = &'a crate::workflow_observations::WorkflowObservation>,
+) -> String {
+    observations
+        .map(|item| {
+            format!(
+                "{} {}",
+                item.description.chars().take(500).collect::<String>(),
+                item.evidence.chars().take(1000).collect::<String>()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn relevance_terms(signals: &str) -> Vec<String> {
+    let mut terms = std::collections::BTreeSet::new();
+    for term in signals
+        .to_lowercase()
+        .split(|character: char| !character.is_alphanumeric())
+    {
+        if term.chars().count() > 3
+            && !matches!(
+                term,
+                "this"
+                    | "that"
+                    | "with"
+                    | "from"
+                    | "have"
+                    | "were"
+                    | "their"
+                    | "there"
+                    | "could"
+                    | "should"
+                    | "would"
+            )
+        {
+            terms.insert(term.to_string());
+            if terms.len() == 256 {
+                break;
+            }
+        }
+    }
+    terms.into_iter().collect()
+}
+
+fn relevance_score(text: &str, terms: &[String]) -> usize {
+    let text = text.to_lowercase();
+    terms
+        .iter()
+        .filter(|term| text.contains(term.as_str()))
+        .count()
+}
+
+/// Return a contiguous verbatim span, retaining the bounded read's identity.
+/// Score lines so a useful section after a long introduction remains visible.
+fn relevant_excerpt(text: &str, terms: &[String]) -> String {
+    let mut best_start = 0;
+    let mut best_score = 0;
+    let mut offset = 0;
+    for line in text.split_inclusive('\n') {
+        let score = relevance_score(line, terms);
+        if score > best_score {
+            best_score = score;
+            best_start = offset;
+        }
+        offset += line.len();
+    }
+    text[best_start..].chars().take(2_000).collect()
+}
+
+fn context_priority(path: &Path, terms: &[String]) -> (u8, std::cmp::Reverse<usize>, PathBuf) {
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+    let historical = path.components().any(|part| {
+        matches!(
+            part.as_os_str().to_str(),
+            Some(".superpowers" | "superpowers" | "plans" | "archive" | "archives" | "historical")
+        )
+    });
+    let score = relevance_score(&path.to_string_lossy(), terms);
+    let priority = if historical {
+        5
+    } else if path.components().count() == 1
+        && matches!(
+            name,
+            "AGENTS.md"
+                | "CLAUDE.md"
+                | "README.md"
+                | "Cargo.toml"
+                | "package.json"
+                | "pyproject.toml"
+                | "go.mod"
+        )
+    {
+        0
+    } else if matches!(name, "AGENTS.md" | "CLAUDE.md") {
+        1
+    } else if matches!(
+        name,
+        "Cargo.toml" | "package.json" | "pyproject.toml" | "go.mod"
+    ) {
+        2
+    } else if score > 0
+        || path.starts_with(".github")
+        || path.starts_with("docs/agents")
+        || path.starts_with("skills")
+        || path.starts_with(".agents/skills")
+    {
+        3
+    } else {
+        4
+    };
+    (priority, std::cmp::Reverse(score), path.to_path_buf())
 }
 
 fn open_context_file(path: &Path) -> std::io::Result<fs::File> {
@@ -191,6 +326,7 @@ fn collect_paths(
     repository: Option<&git2::Repository>,
     output: &mut Vec<PathBuf>,
     remaining_entries: &mut usize,
+    terms: &[String],
 ) -> Result<(), String> {
     if depth > MAX_DEPTH || output.len() >= MAX_PATHS {
         return Ok(());
@@ -201,7 +337,12 @@ fn collect_paths(
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| error.to_string())?;
     *remaining_entries = remaining_entries.saturating_sub(entries.len());
-    entries.sort_by_key(|entry| entry.file_name());
+    entries.sort_by_cached_key(|entry| {
+        context_priority(
+            entry.path().strip_prefix(root).unwrap_or(&entry.path()),
+            terms,
+        )
+    });
     for entry in entries {
         let path = entry.path();
         let file_type = entry.file_type().map_err(|error| error.to_string())?;
@@ -244,6 +385,7 @@ fn collect_paths(
                 repository,
                 output,
                 remaining_entries,
+                terms,
             )?;
         } else if file_type.is_file() && allowed_file(relative, level) {
             // Preserve the traversed path: canonicalizing here could conceal a
@@ -417,6 +559,7 @@ mod tests {
             ContextLevel::WorkflowContext,
             &[],
             "2026-09-09T00:00:00Z",
+            "",
         )
         .unwrap();
 
@@ -426,6 +569,95 @@ mod tests {
             .iter()
             .all(|fact| fact.path != ".env" && !fact.path.starts_with("ignored/")));
         drop(repository);
+    }
+
+    #[test]
+    fn current_guidance_survives_hundreds_of_historical_reports() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        fs::create_dir_all(root.join(".superpowers/sdd/archive")).unwrap();
+        for n in 0..200 {
+            fs::write(
+                root.join(format!(".superpowers/sdd/archive/{n:03}.md")),
+                "old report\n".repeat(700),
+            )
+            .unwrap();
+        }
+        fs::create_dir_all(root.join("apps/desktop")).unwrap();
+        fs::write(root.join("AGENTS.md"), "Current repository instructions").unwrap();
+        fs::write(root.join("README.md"), "Current project overview").unwrap();
+        fs::write(root.join("package.json"), "{\"name\":\"project\"}").unwrap();
+        fs::write(
+            root.join("apps/desktop/AGENTS.md"),
+            "Current desktop guidance",
+        )
+        .unwrap();
+        let facts =
+            collect_repository_facts(root, ContextLevel::WorkflowContext, &[], "now", "").unwrap();
+        for expected in [
+            "AGENTS.md",
+            "README.md",
+            "package.json",
+            "apps/desktop/AGENTS.md",
+        ] {
+            assert!(
+                facts.iter().any(|fact| fact.path == expected),
+                "missing {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn relevant_context_reaches_later_sections_without_expanding_access() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        fs::create_dir_all(root.join("docs")).unwrap();
+        for n in 0..80 {
+            fs::write(
+                root.join(format!("docs/a{n:03}.md")),
+                "Unrelated introductory material.\n".repeat(150),
+            )
+            .unwrap();
+        }
+        let content = format!("# Guide\n\n{}\n\n## Verification\nThe verification failure requires a reproducible fixture before retrying.\n", "General introductory material.\n".repeat(100));
+        fs::write(root.join("docs/verification.md"), &content).unwrap();
+        fs::write(
+            root.join("docs/verification-secret.md"),
+            "verification private details",
+        )
+        .unwrap();
+        fs::write(
+            root.join("docs/verification-excluded.md"),
+            "verification excluded details",
+        )
+        .unwrap();
+        fs::write(
+            root.join("docs/verification-sensitive.md"),
+            format!("{}\napi_key=must-not-appear", content),
+        )
+        .unwrap();
+        let facts = collect_repository_facts(
+            root,
+            ContextLevel::WorkflowContext,
+            &["docs/verification-excluded.md".into()],
+            "now",
+            "verification failure",
+        )
+        .unwrap();
+        let fact = facts
+            .iter()
+            .find(|fact| fact.path == "docs/verification.md")
+            .expect("relevant file must survive unrelated docs");
+        assert!(fact.excerpt.contains("requires a reproducible fixture"));
+        assert!(
+            content.contains(&fact.excerpt),
+            "excerpt remains one verbatim span"
+        );
+        assert!(fact.excerpt.chars().count() <= 2000);
+        assert_eq!(fact.sha256, hex::encode(Sha256::digest(content.as_bytes())));
+        assert!(facts.iter().all(|fact| !fact.path.contains("secret")
+            && !fact.path.contains("excluded")
+            && !fact.path.contains("sensitive")));
     }
 
     #[test]
@@ -447,6 +679,7 @@ mod tests {
             ContextLevel::WorkflowContext,
             &["excluded.md".into()],
             "now",
+            "",
         )
         .unwrap();
         assert_eq!(
