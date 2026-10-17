@@ -24,16 +24,14 @@ import {
 import {
   formatTaskmasterAssessmentAction,
   formatTaskmasterAnalysisAction,
-  formatTaskmasterManualRequest,
-  formatTaskmasterProposalCounts,
-  formatTaskmasterRunStatus,
-  formatTaskmasterRunTimestamp,
   shouldFocusAssessmentRecommendation,
   taskmasterAnalysisRequestBusy,
   taskmasterAssessmentRequestBusy,
   taskmasterAssessmentForWorkspace,
   type TaskmasterRunStatus,
 } from "../taskmasterSettings.ts";
+import { analysisStatusAdvanced } from "../taskmasterAnalysisFeedback.ts";
+import TaskmasterAnalysisStatus from "./TaskmasterAnalysisStatus";
 import EmptyState from "./EmptyState";
 import CleanupAuditBlock from "./CleanupAuditBlock";
 import RecommendationEvidence from "./RecommendationEvidence";
@@ -247,6 +245,7 @@ function RecommendationsPanel({ hasWorkspace, workspacePath, taskmasterReady, ca
   const [cleanupRunning, setCleanupRunning] = useState<string>();
   const [cleanupErrors, setCleanupErrors] = useState<Record<string, string>>({});
   const [analysisBusy, setAnalysisBusy] = useState(false);
+  const [analysisRequestBaseline, setAnalysisRequestBaseline] = useState<TaskmasterRunStatus | null>(null);
   const [analysisMessage, setAnalysisMessage] = useState<string>();
   const [analysisError, setAnalysisError] = useState<string>();
   const [assessmentBusy, setAssessmentBusy] = useState(false);
@@ -360,6 +359,7 @@ function RecommendationsPanel({ hasWorkspace, workspacePath, taskmasterReady, ca
     setBlockedRecommendation(undefined);
     setBlockedRecommendationId(undefined);
     setBlockedRecommendationRecoveryAllowed(false);
+    setAnalysisRequestBaseline(null);
     setAnalysisBusy(false);
     setAnalysisMessage(undefined);
     setAnalysisError(undefined);
@@ -390,6 +390,7 @@ function RecommendationsPanel({ hasWorkspace, workspacePath, taskmasterReady, ca
       setBlockedRecommendation(undefined);
       setBlockedRecommendationId(undefined);
       setBlockedRecommendationRecoveryAllowed(false);
+      setAnalysisRequestBaseline(null);
       setAnalysisBusy(false);
       setAnalysisMessage(undefined);
       setAnalysisError(undefined);
@@ -413,6 +414,7 @@ function RecommendationsPanel({ hasWorkspace, workspacePath, taskmasterReady, ca
       setBlockedRecommendation(undefined);
       setBlockedRecommendationId(undefined);
       setBlockedRecommendationRecoveryAllowed(false);
+      setAnalysisRequestBaseline(null);
       setAnalysisBusy(false);
       setAnalysisMessage(undefined);
       setAnalysisError(undefined);
@@ -442,12 +444,15 @@ function RecommendationsPanel({ hasWorkspace, workspacePath, taskmasterReady, ca
   async function analyzeNow() {
     if (!hasWorkspace || !taskmasterReady || analysisRequestBusy) return;
 
+    setAnalysisRequestBaseline(null);
     setAnalysisBusy(true);
     setAnalysisError(undefined);
     setAnalysisMessage(undefined);
     const generation = workspaceGeneration.current;
     const requestedWorkspacePath = workspacePath;
     try {
+      const baseline = currentRunStatus ?? await window.orkworks.getTaskmasterRunStatus();
+      if (generation !== workspaceGeneration.current || workspacePathRef.current !== requestedWorkspacePath) return;
       const result = await window.orkworks.requestTaskmasterAnalysis();
       if (!hasWorkspace || !taskmasterReady || generation !== workspaceGeneration.current || workspacePathRef.current !== requestedWorkspacePath) return;
       if (result.status === "active_recommendation" && result.recommendation) {
@@ -459,7 +464,7 @@ function RecommendationsPanel({ hasWorkspace, workspacePath, taskmasterReady, ca
         setBlockedRecommendation(undefined);
         setBlockedRecommendationId(undefined);
         setBlockedRecommendationRecoveryAllowed(false);
-        setAnalysisMessage(result.message);
+        setAnalysisMessage(result.status === "scheduled" ? undefined : result.message);
       }
       if (result.status === "scheduled") {
         // A scheduled analysis will surface a Brain recommendation on a later
@@ -469,6 +474,7 @@ function RecommendationsPanel({ hasWorkspace, workspacePath, taskmasterReady, ca
         // workspace's analysis holds the installation-wide lease, and no
         // recommendation would arrive here.
         setOriginFilter("analysis");
+        setAnalysisRequestBaseline(baseline);
       }
       if (
         result.status === "scheduled"
@@ -593,7 +599,8 @@ function RecommendationsPanel({ hasWorkspace, workspacePath, taskmasterReady, ca
   const assessmentStatus = workspacePath ? taskmasterAssessmentForWorkspace(currentRunStatus, workspacePath) : null;
   const analysisRequestBusy = taskmasterAnalysisRequestBusy(currentRunStatus, analysisBusy, assessmentBusy);
   const assessmentRequestBusy = taskmasterAssessmentRequestBusy(currentRunStatus, analysisBusy, assessmentBusy);
-  const proposalCountsSummary = formatTaskmasterProposalCounts(currentRunStatus?.activeAttempt ? null : currentRunStatus?.latestOutcome ?? null);
+  const analysisPending = Boolean(analysisRequestBaseline
+    && !analysisStatusAdvanced(currentRunStatus, analysisRequestBaseline));
   const visibleRecommendations = hasWorkspace && taskmasterReady && loadedWorkspacePath === workspacePath
     ? filterPanelRecommendations(
         recommendations,
@@ -633,8 +640,12 @@ function RecommendationsPanel({ hasWorkspace, workspacePath, taskmasterReady, ca
           <button type="button" disabled={!hasWorkspace || !taskmasterReady} onClick={() => void refresh()}>Reload</button>
         </div>
       </div>
-      {hasWorkspace && taskmasterReady && <p className="recommendation-analysis-run" role="status">{currentRunStatus ? `${formatTaskmasterRunStatus(currentRunStatus)}${formatTaskmasterRunTimestamp(currentRunStatus) ? ` · ${formatTaskmasterRunTimestamp(currentRunStatus)}` : ""}${proposalCountsSummary ? ` · ${proposalCountsSummary}` : ""}` : runStatusError ?? "Loading analysis status…"}</p>}
-      {currentRunStatus?.latestManualRequest && <p className="recommendation-analysis-run" role="status">{formatTaskmasterManualRequest(currentRunStatus.latestManualRequest)}</p>}
+      {hasWorkspace && taskmasterReady && <TaskmasterAnalysisStatus
+        status={currentRunStatus}
+        requesting={analysisBusy}
+        pending={analysisPending}
+        error={runStatusError}
+      />}
       {analysisMessage && <div className="recommendation-analysis-status" role="status">
         {blockedRecommendation && <strong>{blockedRecommendation.title}</strong>}
         <p>{analysisMessage}</p>
@@ -645,7 +656,11 @@ function RecommendationsPanel({ hasWorkspace, workspacePath, taskmasterReady, ca
         >{dismissing === blockedRecommendation.id ? "Recovering…" : "Recover stuck recommendation"}</button>}
       </div>}
       {analysisError && <p className="recommendation-error" role="alert">{analysisError}</p>}
-      {assessmentStatus && <TaskmasterAssessmentSummary assessment={assessmentStatus} />}
+      {assessmentStatus && assessmentStatus.state !== "idle" && (
+        assessmentStatus.state === "unavailable" && !assessmentStatus.report
+          ? <details className="recommendation-assessment-details"><summary>Workflow assessment unavailable</summary><TaskmasterAssessmentSummary assessment={assessmentStatus} /></details>
+          : <TaskmasterAssessmentSummary assessment={assessmentStatus} />
+      )}
       {assessmentMessage && <p className="recommendation-analysis-run" role="status">{assessmentMessage}</p>}
       {assessmentError && <p className="recommendation-error" role="alert">{assessmentError}</p>}
       {auditMessage && <div className="recommendation-analysis-status" role="status"><p>{auditMessage}</p></div>}
