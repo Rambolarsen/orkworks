@@ -2506,7 +2506,6 @@ html, body, #root {
 .shell-sidebar-navigation button { width: 100%; text-align: left; overflow-wrap: anywhere; }
 .shell-sidebar-navigation button svg, .shell-sidebar-footer button svg { flex-shrink: 0; color: var(--text-muted); }
 .shell-sessions-header { min-height: 34px; border-bottom: none; padding-bottom: 0; }
-.shell-sessions-header h2 { color: var(--text-muted); font-size: var(--text-xs); }
 .shell-sidebar-footer { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-1); padding: var(--space-2); border-top: 1px solid var(--border-subtle); }
 .shell-connection { display: inline-flex; align-items: center; gap: var(--space-1); padding-inline: var(--space-1); font-size: var(--text-xs); color: var(--text-muted); overflow-wrap: anywhere; }
 .shell-connection > span { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--state-warn); }
@@ -2517,6 +2516,7 @@ html, body, #root {
 .shell-navigation-popover { position: absolute; top: calc(100% + 6px); left: 0; z-index: 5; width: min(280px, calc(100vw - 72px)); max-height: calc(100vh - 140px); overflow-y: auto; padding: var(--space-2); background: var(--surface-1); border: 1px solid var(--border-default); border-radius: var(--radius-md); box-shadow: var(--shadow-modal); }
 .shell-utility-scope { min-width: 0; overflow-wrap: anywhere; color: var(--text-muted); font-size: var(--text-sm); }
 .shell-region-header h1, .shell-region-header h2 { margin: 0; font-size: var(--text-sm); font-weight: 500; }
+.shell-sessions-header h2 { color: var(--text-secondary); font: inherit; font-size: var(--text-sm); }
 .shell-region > .panel-content, .shell-region > .terminal-panel, .shell-region > .terminal-shell { flex: 1; min-height: 0; min-width: 0; }
 .shell-layout[data-density="high"] .session-row { padding-block: 4px; }
 .shell-region-separator { width: 6px; min-height: 0; background: var(--border-default); cursor: col-resize; touch-action: none; user-select: none; }
