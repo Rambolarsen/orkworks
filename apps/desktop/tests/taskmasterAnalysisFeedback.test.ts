@@ -83,3 +83,11 @@ test("a newer actual outcome supersedes an older manual disposition, while a new
   assert.match(newer, /Analysis did not start/);
   assert.doesNotMatch(newer, /Brain analysis complete/);
 });
+
+
+test("successful analysis retains degraded-rollup diagnostics alongside proposal counts", () => {
+  const markup = render({ ...previous, latestOutcome: { ...previous.latestOutcome!, errorSummary: "Rollups degraded: invalid_grouping", proposalCounts: { created: 1, suppressed: 0 } } });
+  assert.match(markup, /Brain analysis complete/);
+  assert.match(markup, /1 proposal created/);
+  assert.match(markup, /Rollups degraded: invalid_grouping/);
+});

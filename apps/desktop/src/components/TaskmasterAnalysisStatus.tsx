@@ -50,6 +50,7 @@ export default function TaskmasterAnalysisStatus({ status, requesting, pending, 
     detail = outcome.state === "succeeded"
       ? formatTaskmasterProposalCounts(outcome) || "Analysis finished successfully."
       : outcome.errorSummary || (outcome.state === "failed" ? "Analysis could not finish. Try Analyze now again." : "Analysis stopped before finishing. You can run it again.");
+    if (outcome.state === "succeeded" && outcome.errorSummary) detail += ` · ${outcome.errorSummary}`;
     const elapsed = formatAnalysisDuration(outcome.startedAt, Date.parse(outcome.completedAt));
     const completed = new Date(outcome.completedAt);
     timing = Number.isFinite(completed.getTime()) ? `Finished ${completed.toLocaleString()}${elapsed ? ` · Took ${elapsed}` : ""}` : null;
