@@ -1,13 +1,13 @@
 ---
 type: "Design"
 title: "Taskmaster Brain-guided next-step assessment"
-description: "Design history: Taskmaster Brain-guided next-step assessment."
+description: "Focused Brain-guided workspace assessment, evidence rules, and runtime approval boundaries."
 tags: ["orkworks", "design"]
 ---
 
 # Taskmaster Brain-guided next-step assessment
 
-- Status: proposed; design reviewed in chat, written-spec review pending
+- Status: proposed; owner approved the feature outcome on 2026-10-17; written protocol review pending
 - Date: 2026-10-07
 - Tracking issue: [#769](https://github.com/Rambolarsen/orkworks/issues/769)
 - Initiative: [#738](https://github.com/Rambolarsen/orkworks/issues/738)
@@ -45,11 +45,12 @@ writes assessment pages into the Brain repository. Those behaviors are outside
 this mode's agreed scope: it is a focused local assessment, it executes no
 commands, and it does not publish workspace data or results to Brain.
 
-The packaged fallback bundle currently contains seven pages. Issue #529 records
-that the reviewed, distilled Brain export and verified live publication are
-still unfinished. This mode therefore depends on the signed bundle including
-the general assessment guidance it needs; it must not fetch the private Brain
-repository or assume the live publisher is ready.
+Issue #529 is complete through PR #902 (2026-10-16). The generated signed
+starter and independently verified publication include the distilled assessment
+playbook and `taskmaster-assessment-v1` capability. The live empty-result probe
+on 2026-10-17 successfully admitted verified production knowledge. Runtime
+must still verify the active proof and capability on every assessment; neither
+this dependency delivery nor an older plain cache grants eligibility.
 
 ## Agreed product behavior
 
@@ -152,10 +153,12 @@ Keep assessment runs distinct from **Analyze now** in request, result, and cache
 identity. An unchanged evidence snapshot may reuse a prior assessment report
 only; a regular analysis result must never appear as an assessment outcome.
 
-If a next step is proposed, create or update it through the existing
-recommendation store. Preserve the Brain-derived `proactive:v1:` identity and
-current dismissal/lifecycle behavior; knowledge-only changes must not revive a
-dismissed proposal. Do not create a parallel assessment action or completion
+If a next step is proposed, use the existing recommendation store and the
+authoritative [deduplication and successor contract](../../../specs/taskmaster-knowledge.md#manual-brain-guided-next-step-assessment-769). Preserve the
+Brain-derived `proactive:v1:` identity; an existing ordinary lifecycle record
+suppresses the proposal without mutation or relinking. Only an assessment-derived
+predecessor superseded by input invalidation permits one idempotent linked
+successor. Knowledge-only changes must not revive a dismissed proposal. Do not create a parallel assessment action or completion
 path. A proposal accepted through **Fix with AI** still requires the current
 explicit user action and stays bound to the active session/recommendation
 identity.
@@ -206,13 +209,42 @@ focus changes are introduced.
 
 ## Unresolved risks to review
 
-- The signed Brain export and live publication are not yet verified (#529). The
-  mode must remain unavailable until the required reviewed guidance is present.
+- Knowledge delivery is verified in #529/#902. Recheck the active proof and
+  signed assessment capability at admission, dispatch, and result application;
+  do not treat issue closure as runtime proof.
 - Taskmaster's current context bounds may not provide enough evidence to
   distinguish a genuine readiness bottleneck from an undocumented or merely
   omitted file. Insufficient evidence must remain a valid result.
-- The exact retention and deletion contract for local assessment reports needs
-  a bounded implementation decision consistent with workspace lifecycle.
+- Retention is one latest report per canonical workspace, with pending and
+  committed records each capped at 64 KiB. Workspace metadata deletion removes
+  it. Access narrowing redacts all affected snapshots and model prose before
+  settings return, including unopened workspaces; read-only status hides stale
+  data rather than mutating it. These requirements are specified in the
+  authoritative knowledge contract and the proposed protocol ADR.
 - Current provider profiles may impose managed hooks/instructions. Their
   effects remain in force; Taskmaster's read-only request does not claim to
   undo provider-side effects.
+
+## 2026-10-17 investigation and review boundary
+
+The owner reproduced successful ordinary analysis with no visible recommendations.
+A diagnostic native `codex / gpt-6-luna` call, using 21 repository excerpts,
+16 observations and 8 verified guidance pages, returned empty proposal/enrichment
+lists. The old response was not retained, so this reproduction does not establish
+why the historical run returned nothing. The input included several glyph-only
+observation excerpts and mostly old reports. Do not force the model to manufacture
+recommendations or claim that filtering noise guarantees a proposal.
+
+[Issue #909](https://github.com/Rambolarsen/orkworks/issues/909) repairs the existing
+analysis window independently: exclude evidence without Unicode letters or
+numbers before selecting the latest 16 entries, share that selection with knowledge
+retrieval, and include observation kind/time. Preserve history and grounding.
+No age cutoff treats an old report as proof that friction is resolved.
+
+The proposed [protocol ADR](../../adr/0085-taskmaster-assessment-and-analysis-outcomes.md)
+records assessment persistence, compatibility, transaction recovery, and explicit
+ordinary-analysis empty/cache outcomes. The [implementation plan](../plans/2026-10-07-taskmaster-brain-guided-assessment.md)
+reuses the canonical specification's complete input-identity, redaction, and
+consumer revalidation rules. Approval of that concrete protocol and the linked
+written specification is the remaining runtime gate. This review does not open
+#610 orchestration, private Brain access, or configuration-learning execution.

@@ -128,6 +128,13 @@ allowance, which governs background discovery only. At most
 one analysis may run at a time, and the existing evidence cache still suppresses
 a provider call when the evidence and effective settings have not changed.
 
+For ordinary analysis, select up to the latest 16 normalized observations with
+textual evidence containing Unicode letters or numbers. Exclude whitespace and
+terminal-glyph-only evidence before applying that bound, and use the same
+observation window for relevant-guidance retrieval and the model prompt. Include
+observation kind and observation time; an old report is not proof that friction
+still applies. Preserve durable observation history and grounding rules.
+
 Before any Brain-backed provider call, the active bundle must be eligible under
 the strict privacy rules above. Apply this gate to background analysis,
 **Analyze now**, and **Assess workflow**. The #529 delivery requires the reviewed
@@ -409,6 +416,24 @@ recommendation list; Settings polls every five seconds and refreshes on window
 focus. Do not add peer-instance status or analysis coordination. Errors remain
 inline and unobtrusive: no background popups or focus changes. Personal/team
 brain connections and exporting local lessons are deferred.
+
+### Proposed explanatory ordinary-analysis outcomes (2026-10-17)
+
+The owner requested clearer empty and cached outcomes alongside #769. The
+[proposed protocol ADR](../docs/adr/0085-taskmaster-assessment-and-analysis-outcomes.md)
+requires owner written review before implementing these additive status fields.
+New successful ordinary-analysis outcomes include fixed-category counts for
+created and duplicate-suppressed proposals, without model prose or repository
+evidence in the installation-wide ledger. Legacy outcomes without counts stay
+generic success; do not infer an empty provider response from the current card
+list. Preserve the latest actual outcome on a request that never dispatches.
+
+A separate bounded latest-manual-request disposition identifies a confirmed
+cache hit or pre-dispatch skip by request ID/time and fixed reason code. New
+manual admission clears it; background polling does not replace it. The UI
+clears the request banner and distinguishes no new proposals, duplicate
+suppression, unchanged-input reuse, failure and interruption. Cached assessment
+reuse remains distinct and displays only its own current committed report.
 
 ## Validation
 
