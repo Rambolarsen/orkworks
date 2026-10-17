@@ -1,0 +1,538 @@
+---
+type: Design Proposal
+title: Hierarchy projection payload and read boundary
+description: Proposed exact overview DTOs, finite read budgets, authorization and synthetic contract fixtures for hierarchy consumers.
+tags: [orkworks, hierarchy, projection, transport, review]
+status: draft
+---
+
+# Hierarchy projection payload and read boundary
+
+Tracking: [#746](https://github.com/Rambolarsen/orkworks/issues/746), initiative
+[#738](https://github.com/Rambolarsen/orkworks/issues/738).
+Status: proposed specification for written owner/producer review. This supplies
+the `projection` member of the [transport envelope](2026-10-17-hierarchy-projection-transport-design.md).
+It neither accepts the upstream drafts nor authorizes runtime implementation.
+#740's capped evidence work remains deferred until November; no profile is eligible.
+
+## Scope and source ownership
+
+Choose a complete overview DTO with bounded references for later inspection.
+Embedding canonical configuration/evaluation objects would expose instructions
+and require JavaScript to parse large source integers; event deltas would add
+another recovery protocol. This overview instead uses validated display data,
+exact references and complete collection membership. Detail retrieval and
+mutation schemas remain separate contracts, never guessed renderer endpoints.
+
+[#741](2026-10-04-agent-role-configuration-design.md) owns immutable root/child
+configuration. [#742](2026-10-04-orchestrator-preparation-design.md) owns declared
+plans, allocation, run state and authority. [#743](2026-10-04-skill-usage-evidence-design.md)
+owns child evidence. [#744](2026-10-04-assignment-evaluation-design.md) owns results,
+candidates and authoritative evaluation. [The mapping](2026-10-15-hierarchy-projection-mapping.md)
+defines exact joins. Canonical ordinary session data owns lifecycle/attention;
+this DTO copies only a validated display subset, not a second session store.
+
+The source baseline is merged transport PR #912. Current ordinary session enums
+were checked in `apps/desktop/src/api.ts`; legacy `status`/lifecycle-phase aliases
+are not wire inputs here. The proposed sidecar must resolve authoritative
+canonical fields or return unavailable, not apply renderer migration heuristics.
+
+## Common types and strict validation
+
+Every record below has exactly the listed properties. Fields are required;
+`null` is permitted only where stated. Reject unknown properties/tags, duplicate
+JSON keys, duplicate set members, invalid references, non-finite numbers and
+invalid encodings before serving or adopting a complete projection. Values
+are plain UTF-8 text, never HTML, Markdown execution, paths or terminal input.
+
+| Type | Exact meaning |
+| --- | --- |
+| `ID`, `Digest`, `Generation` | #741 ASCII ID (1..128 bytes), lowercase 64-character SHA-256 hex, #742 opaque lowercase 64-character hex respectively |
+| `Label`, `Reason` | Nonempty text, at most 512 / 2,048 UTF-8 bytes |
+| `Counter` | Plain JSON decimal integer `1..2147483647`; no fraction, exponent or coercion |
+| `U64`, `PositiveU64` | Canonical decimal strings `"0".."18446744073709551615"` / same excluding zero; compare losslessly |
+| `Time` | UTC RFC3339 `YYYY-MM-DDTHH:mm:ss[.sss]Z`, at most 32 ASCII bytes, source-validated; absent time is null, never now |
+| `AssignmentIdentity`, `AuthorityGeneration`, `ResultPredecessor`, `EvaluationReference` | Exact tagged #744 records; their bounded numeric revisions stay JSON integers; no added metadata |
+| `ResultRef` | `assignmentIdentity`, `resultRevision` (1..32), `resultDigest: Digest` |
+| `RoleRef` | `role` from `orchestrator/research/implementation/review/verification/remediation`, `templateId: ID`, `templateVersion: Counter`, `templateDigest: Digest` |
+| `NodeRef` | `{kind: "root"}`; `{kind: "stage", planId: ID, planRevision: 1..64}`; or `{kind: "task", planId: ID, planRevision: 1..64, taskId: ID}`; workspace/run come only from the envelope |
+| `Signals` | `decisionRequired`, `blocked`, `reworkRequired`: booleans supplied by the sidecar for current unresolved work, never inferred from historical text |
+
+A `NodeRef` resolves exactly one node in this projection. Configuration references
+and identities must agree with that node, envelope and immutable source. Same
+labels/paths never join records. Duplicate actual session ownership, multiple
+parents or impossible allocation joins make the run `invalid-structure`.
+An explicitly missing ordinary session for a valid owned reference is allowed.
+
+## Run, stage and task records
+
+`RunProjection` has exactly `root`, `coordination`, `capacity`, `stages`, and
+`actions`. Arrays retain the declared orders below; no timestamp sorting.
+
+| Record | Exact properties |
+| --- | --- |
+| `RootNode` | `assignmentIdentity` (root variant), `role: RoleRef`, `label: Label`, `goalDigest: Digest`, `repositoryId: ID`, `runtime: RuntimeBinding`, `session: SessionDisplay`, `skills: SkillDisplay[]`, `evaluation: EvaluationDisplay`, `signals: Signals` |
+| `RunCoordination` | `runVersion: Counter`, `runSequence` (#742 positive decimal string up to `9223372036854775807`), `state` (enum below), `currentStage` (stage NodeRef or null), `pauseReason` (null or #742 pause reason), `stageContinueRequired: boolean`, `terminal: boolean`, `blockers: Blocker[]` |
+| `StageProjection` | `planId: ID`, `planRevision` (1..64), `planDefinitionDigest: Digest`, `preparationRevision` (1..64), `inputDigest: Digest`, `kind` (`research/execution`), `disposition` (`proposed/approved/active/paused/completed/cancelled/rejected/superseded`), `terminal: boolean`, `signals: Signals`, `tasks: TaskProjection[]` |
+| `TaskProjection` | `taskId: ID`, `configurationId: ID`, `configurationDigest: Digest`, `role: RoleRef`, `label: Label`, `batchIndex` (0..127), `declarationIndex` (0..127), `phase` (`planned/starting/session/session-unavailable`), `allocation: AllocationDisplay`, `session: SessionDisplay`, `coordination: TaskCoordination`, `dependencies: NodeRef[]`, `skills: SkillDisplay[]`, `evaluation: EvaluationDisplay`, `signals: Signals` |
+| `TaskCoordination` | `label: Label`, `terminal: boolean`, `waits: WaitReason[]`, `blockers: Blocker[]` |
+| `Blocker` | `code` (`clarification/approval/capacity/dependency/allocation/recovery/evidence/other`), `label: Reason`, `current: boolean`; at most one entry per code per record, preserving all source references in separate details |
+| `WaitReason` | `{kind: "task", target: <task NodeRef>}`; `{kind: "batch", batchIndex: 0..127}`; or `{kind: "approval"}`, `{kind: "capacity"}`, `{kind: "quiescence"}`, `{kind: "recovery"}` |
+
+`coordination` is `RunCoordination`. Its state is exactly one of #742's
+`assessing`, `awaiting_clarification`, `awaiting_research_approval`, `researching`,
+`synthesizing`, `awaiting_execution_approval`, `executing`, `blocked`, `paused`,
+`awaiting_resume_approval`, `complete`, `cancelled`. Only the last two are terminal.
+Pause reason is null except in `paused`, where it is `stage_cancelled`,
+`parent_ended`, `workspace_changed` or `sidecar_replaced`. The independent
+stage-continue gate and all lower-priority blockers remain visible under #742.
+Current stage is the exact #742 current plan/revision when present, resolves
+one stage, and is null only when the source has no current plan. Root runtime
+copies #742's current parent runtime binding, with authoritative absence distinct
+from unknown. Root configuration label/goal/repository/identity come from the
+immutable bootstrap; RoleRef copies role-template id/version/contentDigest.
+Task labels/roles/configuration identities come from that exact #741 assignment.
+Skill identity/version/digest/requirement copy its exact SkillSnapshot; display
+label uses the approved catalog label when available, otherwise the snapshot ID,
+never an instruction excerpt. These copies establish no content delivery.
+Stage/task terminal flags are authoritative coordination dispositions, not PTY
+exit or independent quality. The task label describes that disposition without
+asking the renderer to interpret an upstream private state enum.
+
+Stages contain every retained plan revision in source creation order, including
+superseded unlaunched work and previously launched paths. At most 16 logical plan
+IDs, 64 revisions per plan and 128 tasks per exact revision are allowed. Thus
+1,024 stage records / 131,072 task records are structural maxima, **not** a
+promise they fit the byte budget. Rejected proposals remain identified history;
+no history is copied into another revision. Tasks sort by batch membership then
+original declaration order. Indices are declaration coordinates, not contiguous
+array offsets. Declaration indices are unique within an exact stage; batch
+indices may repeat for tasks in the same batch. Dependencies are
+unique task references in that exact approved plan revision, must resolve, and
+must form the source-declared acyclic graph. They are not parentage edges.
+Wait targets must be declared dependencies. Root role is orchestrator; child
+roles are non-orchestrator. No coding-tool-native subagent becomes a node.
+
+### Allocation, session and capacity
+
+`AllocationDisplay` is exactly one of:
+
+- `{kind: "none"}`: no reservation or launched assignment.
+- `{kind: "reserved", reservationId: ID, taskVersion: Counter}`: no bound child yet.
+- `{kind: "bound", assignmentIdentity: <child AssignmentIdentity>, launchGeneration: Generation, runtime: <RuntimeBinding>}`.
+
+`RuntimeBinding` is `{kind: "current", generation: Generation}` or
+`{kind: "absent"}`. Absent means authoritative absence; unknown/corrupt runtime
+state instead makes the projection unavailable. It never permits replacement.
+A bound child identity matches the stage/task/configuration/root parent exactly.
+`phase` is planned for none, starting for reserved, and session or
+session-unavailable for bound depending on its ordinary session reference.
+Missing started session records remain bound, never revert to planned.
+Bound `launchGeneration` is the latest admitted child launch, retained after it
+ends; a current runtime generation must equal it. Retained evidence may bind
+that terminal launch until a later resume replaces the binding. No write grant
+is implied by retaining a generation.
+
+`SessionDisplay` is exactly `{kind: "none"}` (unallocated task only),
+`{kind: "unavailable", sessionId: ID}`, or:
+
+`{kind: "available", sessionId: ID, lifecycle, attention, memoryState,
+connectivity, terminalOutcome, lastActivityAt}`.
+
+Lifecycle is `creating/alive/stopping/dead`; attention is null or
+`working/idle/needs_you/blocked/failed/capped`, and must be null unless alive.
+Memory state is `live/remembered/resumable/unsupported`; connectivity is
+`online/offline`; terminal outcome is null or `ended/killed/error` and must be
+null unless dead. `lastActivityAt` is Time or null. Copy canonical values;
+missing optional source fields become null only where allowed, never invented
+lifecycle/connectivity. Session IDs match the root/child identity. Root session
+may be unavailable but never none. None/reserved allocations have no evaluation
+identity or ordinary session. Read-only selection/history navigation is separate
+from resume options, which remain in the ordinary session contract.
+
+Capacity is `{kind: "unavailable"}` or exactly
+`{kind: "known", limit: 1..16, liveChildren: 0..16,
+unattachedReservations: 0..16, unresolvedAllocations: 0..16}`.
+Known liveChildren cannot be less than the distinct visibly nonterminal bound
+children in the complete payload; the backend ledger must reconcile missing
+sessions/reservations before claiming known counts. Never derive zero from an
+unavailable session. Known live children plus unattached reservations must not exceed the immutable
+run limit; an ambiguous/excess count yields unavailable capacity, never zero.
+Count all prior-plan nonterminal children and reservations, including outside
+currently active coordination. Root is not a child slot. A complete run payload
+may show unavailable capacity, but cannot claim readiness or auto-collapse from it.
+
+## Evaluation summary and references
+
+`EvaluationDisplay` is `{kind: "not-started"}` only for none/reserved allocation,
+`{kind: "unavailable", reason: <Label>}`, or exactly:
+
+`{kind: "known", assignmentIdentity, accepted, candidates, summary, evaluations}`.
+
+`accepted` is `{kind: "none"}` or `{kind: "result", reference: ResultRef}`.
+`summary` is exactly `{kind: "unavailable"}` or
+`{kind: "known", summaryRevision: <#744 decimal string "1".."2147483647">,
+overall: "meets-requirements" | "needs-rework" | "unassessed"}`.
+The sidecar supplies both current material summary and durable revision under
+#744. Missing/corrupt/exhausted lineage yields unavailable summary, not a token
+or old passing summary. Accepted result/review references may remain inspectable;
+summary unavailability prevents viewed identity and automatic collapse.
+`evaluations` is a unique array of at most 16 exact `EvaluationReference` values
+for the accepted head, sorted by canonical reference bytes. Each reference binds
+this assignment and exact result, including independent reviewer identity.
+With no accepted result, that array is empty and a known summary cannot say meets-requirements.
+Known required failure may still produce needs-rework through #744; the renderer
+never recomputes this from exit, absence, candidate rejection or self-report.
+
+`candidates` contains at most 32 exact records with `candidateDigest: Digest`,
+`authorityGeneration: AuthorityGeneration`, `predecessor: ResultPredecessor`,
+`state` (`staged/rejected/unsupported/superseded/accepted`). Sort by candidate digest;
+include every retained candidate's disposition, not a guessed latest candidate.
+Candidate identity is the enclosing assignment plus its exact digest and generation.
+Candidate success cannot transfer a previous result's review to staged bytes.
+Required failures win over missing evidence; optional-only stale details do not
+downgrade a pass. Source freshness and disputes are validated by #744 before
+projection. Root evaluation uses user review; child references must resolve
+eligible independent reviewers or the user. Reviewer performance is separate.
+Completeness/quality scores, outcomes, findings, evidence and permissions are
+inspection details, resolved from these exact references by separately reviewed
+read operations. This overview intentionally supplies no write/correction route.
+
+## Skills and lossless evidence metadata
+
+Every selected skill is present in immutable configuration order (0..16):
+`SkillDisplay` has exactly `skillSnapshotId: ID`, `skillVersion` (nonempty UTF-8,
+128 bytes), `skillContentDigest: Digest`, `label: Label`, `requirement`
+(`mandatory/optional`), and `evidence`.
+
+Evidence is `{kind: "root-deferred"}` for roots only;
+`{kind: "not-started"}` for none/reserved allocations only;
+`{kind: "unavailable", reason: <Label>}` for a bound child whose optional
+telemetry cannot be validated; or exactly
+`{kind: "current", binding: SkillBinding, delivery, reported, observed, events}`.
+Unavailable evidence renders selected/unconfirmed/unknown, not numeric zero.
+Invalid immutable skill identity fails the run; unavailable optional telemetry
+does not remove an otherwise valid task. Root delivery/usage remains deferred;
+mandatory parent delivery eligibility is still required before launch/resume.
+
+`SkillBinding` copies exactly #743's `runId`, `planId`, `planRevision`, `taskId`,
+`taskVersion`, `reservationId`, `parentSessionId`, `configurationId`,
+`configurationDigest`, `childSessionId`, `sidecarGeneration`, `launchGeneration`,
+`adapterGeneration`, `evidenceStoreGeneration`. Numeric bounds and generation
+namespaces remain #743's; all child assignment members and the latest admitted launch match, including
+retained terminal-launch evidence validated by the sidecar.
+Current binding sidecarGeneration also equals the envelope lifetime; retained
+old-lifetime receipts stay historical in details. It cannot decorate a current
+badge after resume with old-launch evidence.
+
+Delivery is `{state: "selected_unconfirmed"}` or
+`{state: "loaded", eventId: <EventID>, mechanism: Label}`. Loaded requires an
+accepted current verified-adapter delivery receipt for the exact skill closure.
+Reported/observed usage cannot establish delivery. EventID is nonempty UTF-8 text
+up to 128 bytes, validated under #743's event identity contract, not #741's ID regex.
+
+Reported and observed are independent `UsageDisplay` records, each exactly:
+
+- `{state: "unknown", coverage}`; or
+- `{state: "recorded", count: U64, countKind: "recorded" | "lower_bound", lastAt: Time | null, coverage}`.
+
+Coverage is `complete/partial/interrupted/unsupported/unknown`. The field name
+fixes the source: reported means assigned-session self-report (no verified process
+origin), observed means a verified adapter-native recognized invocation with its
+declared coverage. Unsupported has unknown state. Positive counts require a
+server receipt time; zero requires null lastAt and an explicitly counted stream,
+not an absent producer. Partial/interrupted counts are lower bounds. Unknown
+usage never means unused. Full coverage windows/source declarations remain in
+authenticated evidence details, never generalized beyond their source intervals.
+
+`events` is an array of unique current accepted reported/observed usage references,
+each exactly `eventId: EventID`, `workspaceSequence: PositiveU64`, `source`
+(`reported/observed`). Order by durable workspace sequence; at most 256 events
+across all skills of one assignment. It is retained usage references, not complete
+history or delivery receipts. Sidecar alias/correction logic deduplicates logical
+invocations before projecting references/counts. Cross-skill event identities
+include the skill snapshot; the same event is not counted twice for one skill.
+
+The proposed #743 refinement makes workspace sequence a checked positive u64
+source integer and aggregate counts checked nonnegative u64 source integers.
+Display values are decimal strings **before** JavaScript parsing, as in #912;
+producer stream sequences remain bounded JSON integers. Neither source nor
+projection counter wraps. Source exhaustion fences new evidence/aggregation,
+retains authoritative readable history and exposes unavailable current telemetry
+where reconciliation is needed. It cannot reset counts or establish non-use.
+This numeric contract needs #743 owner acceptance; it is not capability evidence.
+
+Initial snapshot/return after a gap sets the local per-binding sequence watermark
+without replaying historical highlights. Later strictly new accepted usage
+references may highlight once; polling/duplicate references and correction-only
+count changes do not. View-state keys include exact assignment, skill and evidence/
+launch generation. No timestamp sorting or count-delta fabrication is permitted.
+A count can remain available after raw event trimming; an empty reference array
+never claims an empty stream or complete coverage.
+
+## Actions, rollups and completeness
+
+`actions` is a unique array of `ActionEntry`, exactly `node: NodeRef` and
+`navigation: <#912 NavigationDescriptor>`. Its descriptor is the exact `kind`,
+`target`, `label` shape in the transport proposal, not an opaque command or URL.
+Run/plan/task targets resolve root/stage/task respectively and agree with envelope,
+current run version and all source bindings. Plan targets copy that stage's
+revision/definition/input/preparation values; task targets copy its complete
+bound identity and latest launch; run targets copy the root parent/runtime.
+The source decides applicability;
+missing decision bytes yield unavailable action state, never an empty array.
+Actions sort root first, then source stage/task order, then descriptor kind bytes.
+They inspect decisions only; commands need their own fresh authorized validation.
+
+No aggregate rollup numbers are sent: derive distinct live needs-you session IDs,
+blocked node references and decision tuples from the complete validated payload;
+these categories overlap and are never summed. `signals` identify only the node
+its record belongs to (not inherited descendant rollups) and current work,
+so superseded historical failures do not become current blockers. All current
+required decisions must have descriptors; if decisionRequired is true but no
+matching action exists, the entire run is unavailable. Relevant live attention
+remains discoverable even without an orchestration descriptor: Show next action
+may reveal its exact node without selecting/acknowledging the session.
+Required-rework signals and local unviewed summaries also reveal their exact
+nodes; they do not manufacture an upstream decision descriptor or command. Local
+unviewed-summary counts use exact #744 summary tokens, independently of unread.
+A complete projection is not approval, readiness, capability eligibility, workspace-
+wide completeness or user acceptance. No actions is only a current run claim.
+
+Auto-collapse consumes coordination terminal flags, all current summary tokens,
+actions/signals, authoritative capacity and canonical nonterminal sessions;
+unavailable evidence needed for these checks prevents collapse. Focus/inspection
+and viewed/reopening suppression remain bounded UI state under #746. The sidecar
+never acknowledges unread by serving a snapshot. A complete payload may contain
+visible unavailable session/evidence/summary fields explicitly allowed above;
+unknown ownership, missing required decisions or partial collection scans cannot.
+
+## Read authorization and finite budgets
+
+Renderer-to-preload request is exactly `{schemaVersion: 1, runId: ID}`.
+Electron main validates the request, its owned application window and main-frame
+sender against the existing app URL/origin boundary, then derives the currently
+selected workspace and owned sidecar lifetime, and sends exactly
+`{schemaVersion: 1, workspaceId: ID, runId: ID, sidecarGeneration: Generation}`
+to the logical `ReadHierarchyProjection` operation. Concrete route/IPC names
+remain implementation-plan decisions. The sidecar requires the existing
+Electron-only UI authority (`ORKWORKS_OPEN_PLAN_TOKEN`) before parsing source
+references, admission lookup or allocating snapshot slots. Parent/child bearers,
+unauthenticated ordinary routes and renderer input cannot authorize this read.
+No new token is introduced, returned, persisted or logged.
+
+Revalidate selected workspace/lease and generation at read publication and in
+Electron before forwarding the result. The renderer additionally checks current
+selection/request context under #912. Denied auth/scope reads expose no run
+existence or partial projection; they are request failures, not not-found
+snapshots. Only an authorized current-workspace read can get not-found/null.
+The existing same-user bearer replay limitation remains; this is not OS
+process-origin proof. Background instances and arbitrary workspace paths cannot
+be selected by this request. Ordinary terminal data/selection remain independent.
+
+| Resource | Proposed version-1 bound |
+| --- | --- |
+| Renderer/main or main/sidecar request | 1 KiB serialized UTF-8; reject duplicate keys/unknown properties |
+| Complete envelope, including projection | 8 MiB serialized UTF-8, maximum nesting depth 32 |
+| Unavailable envelope | 1 KiB serialized UTF-8, fixed reason enum only |
+| Stage/task/skill collections | 16 plan IDs × 64 revisions × 128 tasks, 16 skills per node; byte cap wins |
+| Per-node candidate/evaluation/usage references | 32 / 16 / 256 across skills, with upstream lower limits winning |
+| Dependencies/waits/blockers | 128 unique task dependencies / 133 unique waits / 8 blocker codes per record |
+| Navigation descriptors | At most 7 per node; unique complete kind/target tuples; envelope byte cap wins |
+| In-flight sidecar overview reads | At most 2 per selected workspace; coalesce identical reads in Electron |
+| Attempts | 60 per rolling minute per selected workspace under valid UI authority, including malformed/replayed/failed reads |
+| Assembly | At most 2 coherent assembly attempts, 5-second deadline, byte/depth/count checks while accumulating |
+| Snapshot counter metadata | #912's 1,024 slots / 512 KiB per workspace/lifetime; unknown IDs allocate none |
+
+Reserve a read slot before source assembly and release on completion, cancellation
+or deadline. Check auth, then charge attempt budget before JSON decoding/lookup;
+transport enforces the 1 KiB byte ceiling while reading. Rate/concurrency refusal
+is a request failure and must disable stale decisions. Oversized source structure
+returns versioned limit-exceeded for a tracked run; never truncate, paginate a
+complete claim, drop conflicts/actions, or mutate history to fit. On assembly
+races/deadline return reconciling (or request failure if no valid scope remains).
+Do not return complete once the owned lifetime/workspace lease is invalidated.
+A legitimate maximum source run may exceed 8 MiB and be visibly unavailable;
+future paginated history needs separate completeness/selection semantics.
+
+The response builder counts bytes incrementally; it cannot first allocate an
+unbounded object and check size afterwards. Read size/depth/count budgets also
+apply to Electron/renderer decoding before adoption. Do not read transcript,
+raw prompt/instruction, credential, arbitrary file content, full evidence or
+repository history to build this overview. Permitted labels/receipt metadata
+remain local authorized display data. Log bounded reason codes/counts, not body
+bytes or secrets. Details remain behind an authenticated exact-reference read
+contract; a DTO reference is never a filesystem capability.
+
+## Concrete synthetic fixtures
+
+The JSON below is a shape-valid complete envelope for a synthetic admitted run
+with an unavailable parent session and no plans yet. Hex values are explicit
+fixture identities, not claimed production hashes or capability observations.
+Its synthetic source manifest declares the matching immutable bootstrap/root,
+role template, repository ID, no accepted result/candidate/evaluation, durable
+summary revision 1 and paused/parent-ended coordination. No missing source identity is
+inferred by the fixture. A future executable fixture must materialize that source
+manifest and verify all joins/digests separately from shape validation.
+
+```json
+{
+  "schemaVersion": 1,
+  "workspaceId": "workspace-fixture",
+  "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+  "sidecarGeneration": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "snapshotVersion": 1,
+  "state": {
+    "kind": "complete",
+    "projection": {
+      "root": {
+        "assignmentIdentity": {
+          "kind": "root",
+          "workspaceId": "workspace-fixture",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+          "rootAssignmentId": "root-fixture",
+          "parentSessionId": "parent-fixture",
+          "bootstrapId": "bootstrap-fixture",
+          "bootstrapConfigurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "role": {
+          "role": "orchestrator",
+          "templateId": "role-fixture",
+          "templateVersion": 1,
+          "templateDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        },
+        "label": "Synthetic workflow",
+        "goalDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "repositoryId": "repo-fixture",
+        "runtime": {
+          "kind": "absent"
+        },
+        "session": {
+          "kind": "unavailable",
+          "sessionId": "parent-fixture"
+        },
+        "skills": [
+          {
+            "skillSnapshotId": "skill-fixture",
+            "skillVersion": "v1",
+            "skillContentDigest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "label": "Graph planning",
+            "requirement": "mandatory",
+            "evidence": {
+              "kind": "root-deferred"
+            }
+          }
+        ],
+        "evaluation": {
+          "kind": "known",
+          "assignmentIdentity": {
+            "kind": "root",
+            "workspaceId": "workspace-fixture",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "rootAssignmentId": "root-fixture",
+            "parentSessionId": "parent-fixture",
+            "bootstrapId": "bootstrap-fixture",
+            "bootstrapConfigurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "accepted": {
+            "kind": "none"
+          },
+          "candidates": [],
+          "summary": {
+            "kind": "known",
+            "summaryRevision": "1",
+            "overall": "unassessed"
+          },
+          "evaluations": []
+        },
+        "signals": {
+          "decisionRequired": false,
+          "blocked": false,
+          "reworkRequired": false
+        }
+      },
+      "coordination": {
+        "runVersion": 1,
+        "runSequence": "1",
+        "state": "paused",
+        "currentStage": null,
+        "pauseReason": "parent_ended",
+        "stageContinueRequired": false,
+        "terminal": false,
+        "blockers": []
+      },
+      "capacity": {
+        "kind": "known",
+        "limit": 2,
+        "liveChildren": 0,
+        "unattachedReservations": 0,
+        "unresolvedAllocations": 0
+      },
+      "stages": [],
+      "actions": []
+    }
+  }
+}
+```
+
+Apply each row independently to a fresh copy of the base fixture. Paths are
+JSON Pointers; changing a leaf replaces it, and removing a property means it is
+absent rather than null. Source-validation cases require the stated synthetic
+source change; transport-shape acceptance alone never establishes a valid join.
+
+| Mutation / additional fixture | Required disposition |
+| --- | --- |
+| Base fixture unchanged | Complete paused run; unavailable parent; root skill selected/unconfirmed/unknown; no replacement or automatic resume |
+| `/state/projection/root/evaluation/summary` → `{ "kind": "unavailable" }` | Valid unavailable summary; preserve exact retained references, prevent auto-collapse |
+| `/state/projection/root/skills/0/evidence` → `{ "kind": "current" }` | Reject: root telemetry is deferred and current evidence is missing required fields |
+| `/state/projection/root/assignmentIdentity/runId` → `"another-run"` | Invalid-structure: envelope/root source identity mismatch |
+| `/state/projection/root/evaluation/summary/summaryRevision` → `1` | Reject numeric summary token; decimal string required |
+| `/state/projection/root/evaluation/summary/overall` → `"meets-requirements"` | Reject: no accepted result or current required review supports pass |
+| `/state/projection/root/signals/decisionRequired` → `true` with actions still empty | Run action state unavailable; cannot claim No actions |
+| `/state/projection/capacity/liveChildren` → `3` while limit is 2 | Reject known capacity; source builder must instead emit `{ "kind": "unavailable" }` |
+| `/state/projection/coordination/runSequence` → `"01"` | Reject noncanonical decimal sequence |
+| Add `token` or raw `instructions` to root | Reject unknown properties; never forward secrets/instruction bodies |
+| Remove `/state/projection/stages` or use null | Reject; empty complete collection must be explicit array |
+| Root session becomes available/alive/needs_you in a coherently advanced snapshot | Valid source-backed attention; root needs-you count changes without selection/unread acknowledgement |
+| Exact retained plan has two tasks in batch 0 with declaration indices 0 and 1 | Valid ordering; same batch is allowed, duplicate declaration index/task ID is not |
+| Two retained revisions reuse a task label/ID under distinct planRevision values | Separate nodes and assignment/result/skill/viewed state; never replace the earlier path |
+| Valid bound child has accepted result and staged candidate, but canonical lifecycle is alive | Both result and pending candidate remain distinct; child still consumes capacity and prevents group collapse |
+| Valid bound child's latest launch changes while same session ID remains | Old binding cannot confirm current skills or supply a task navigation target; fresh sidecar snapshot required |
+| Root/stage/task has the same actual session ID as another owner | Invalid-structure, rather than duplicated canonical session or guessed parentage |
+| Child usage count `"9007199254740993"` / sequence `"18446744073709551615"` in valid current binding | Exact strings survive DTO/IPC; narrower source count limits still win; no Number conversion |
+| Same usage fields become numbers, overflow strings or leading-zero strings | Reject before adoption; do not round/coerce |
+| Child has counted zero with null lastAt and explicitly known producer coverage | Display zero for that counted interval only; never infer unused |
+| Partial/interrupted usage supplies countKind recorded | Reject; the known count must be labeled lower_bound |
+| Latest event payload was trimmed, aggregate count remains valid, events is empty | Show authoritative source-labeled count, no manufactured highlight or absence claim |
+| Current action descriptor references another workspace/run/version/node | Invalid-structure; cannot offer stale/foreign decision navigation |
+| Source contains 65 revisions for one plan or duplicate stage keys | Limit-exceeded/invalid-structure respectively; never truncate to 64 |
+| Source-valid complete run exceeds 8 MiB after encoding | Versioned limit-exceeded; preserve history and ordinary session access |
+| Auth fails, stale workspace lease, wrong generation, or parent bearer attempts read | Request failure before run existence disclosure or snapshot-slot allocation |
+| Third concurrent read / 61st attempt in rolling minute | Bounded refusal; release/cancel completed slots; no body scan or stale decision success |
+| Source changes during both allowed assembly attempts | Reconciling or request failure under invalidated scope; no mixed complete result |
+
+These include shape-valid unavailable cases as well as invalid mutations.
+Existing #912 fixtures still govern ordering/exhaustion/failure fences. Existing
+#746 fixtures govern keyboard, return navigation, summaries/collapse and reduced
+motion. Concrete launched-child/evaluation codec fixtures must expand all source
+references in the executable plan; the logical rows above are not production
+observations or a runtime validation claim.
+
+## Review and implementation handoff
+
+This proposal supplies the overview shape, selected-source mapping, finite read
+budgets and authority boundary. Before treating it as accepted, review the exact
+stage/revision membership and allocation/session joins with #741/#742; child
+evidence counters/intervals with #743; accepted/candidate/summary references with
+#744; and rollups/navigation with #746. Source proofs, current-action completeness
+and canonical digest validation are prerequisites to serving complete, not renderer
+heuristics. Root telemetry remains deferred.
+
+Remaining execution decisions are concrete routes and independent Electron-main/
+preload/renderer definitions, coherent-read/invalidation transactions, native
+capability evidence, durable summary material bytes/storage/recovery, and exact
+inspection-detail codecs. Workspace run discovery/paginated-history completeness
+and cross-workspace custody remain separately scoped. This does not create a
+runtime launch plan while #740 remains no-go. Record written owner/producer
+acceptance before reconciling canonical drafts and seeking separately approved
+runtime plans. Keep #746 open; passing documentation checks is not that acceptance.

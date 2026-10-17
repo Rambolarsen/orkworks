@@ -619,6 +619,20 @@ paths or on-disk storage details.
   mode, preserves valid readable records for diagnostics, and rejects new
   evidence until explicit repair; it does not restart at sequence one.
 
+## Proposed hierarchy counter encoding
+
+The [#746 payload proposal](2026-10-17-hierarchy-projection-payload-design.md#skills-and-lossless-evidence-metadata)
+defines durable workspace sequence as a checked positive u64 and aggregate usage
+counts as checked nonnegative u64, separate from bounded producer sequences.
+Persist source integers losslessly; display DTOs encode these values as canonical
+decimal strings before JavaScript parsing. Existing lower event/collection limits
+still apply. Counter exhaustion fences new evidence/aggregate mutation and exposes
+unavailable current telemetry when reconciliation is needed; retain readable
+history, never wrap/reset or infer non-use. This proposed producer refinement
+requires written owner acceptance and establishes no runtime/capability approval.
+The example below is logical source projection notation; #746's transport uses
+its explicit display codec rather than parsing a large integer through Number.
+
 ## UI projections
 
 The renderer receives a typed, read-only projection from the sidecar; it does

@@ -59,7 +59,9 @@ use #741's definitions; generation encodings use #742. Version 1 has exactly:
 
 These are record shapes, not executable JSON fixtures. The run projection
 contains the mapped hierarchy, source-bound details and navigation descriptors;
-its complete field schema remains a producer/consumer review gate. Missing
+its complete field schema is proposed in the
+[payload contract](2026-10-17-hierarchy-projection-payload-design.md) and remains
+a producer/consumer review gate. Missing
 records that the mapping explicitly allows, such as an absent ordinary session
 for a valid retained assignment, are represented visibly inside a complete
 projection. An invalid ownership join is unavailable for the run. Unavailable
@@ -220,9 +222,10 @@ The display conversion is field-specific, not a recursive stringification of
 all numbers. Source canonical objects retain #744 integer tokens and original
 digest bytes. Do not recanonicalize a display DTO to verify a source digest or
 submit it as a canonical candidate/evaluation. Any future canonical artifact
-retrieval needs a separate exact-byte/lossless codec contract. Unlisted source
-counters, including #743 workspace sequences, need an explicit producer bound
-and encoding before inclusion; do not guess a range from example payloads.
+retrieval needs a separate exact-byte/lossless codec contract. The [payload follow-up](2026-10-17-hierarchy-projection-payload-design.md#skills-and-lossless-evidence-metadata)
+proposes explicit u64 source bounds and decimal-string display encoding for
+#743 workspace sequences/counts, pending producer review. Other unlisted source
+counters still require explicit bounds/encoding; do not guess from examples.
 
 ## Required contract cases and remaining gates
 
