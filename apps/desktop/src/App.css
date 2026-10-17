@@ -2490,7 +2490,11 @@ html, body, #root {
   border-color: color-mix(in srgb, var(--accent-focus) 40%, var(--border-subtle));
 }
 .shell-region-header { display: flex; flex-wrap: wrap; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: var(--space-2); min-height: 38px; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border-subtle); }
-.shell-region-header [data-shell-pin] { margin-inline-start: auto; }
+.shell-region--inspector > .shell-region-header { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: start; }
+.shell-region--inspector > .shell-region-header h2 { grid-area: 1 / 1; align-self: center; overflow-wrap: anywhere; }
+.shell-region--inspector > .shell-region-header [data-shell-pin] { grid-area: 1 / 2; }
+.shell-region--inspector > .shell-region-header [data-shell-return] { grid-area: 1 / 3; }
+.shell-region--inspector > .shell-region-header .shell-utility-scope { grid-area: 2 / 1 / auto / -1; }
 .shell-sidebar-top { flex: 0 0 auto; padding: var(--space-3) var(--space-2); border-bottom: 1px solid var(--border-subtle); }
 .shell-workspace { position: relative; padding: var(--space-1) var(--space-1) var(--space-3); }
 .shell-workspace-control { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); min-width: 0; }
