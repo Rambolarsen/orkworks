@@ -23,12 +23,13 @@ import {
 } from "../taskmaster.ts";
 import {
   formatTaskmasterAssessmentAction,
+  formatTaskmasterAnalysisAction,
   formatTaskmasterManualRequest,
   formatTaskmasterProposalCounts,
   formatTaskmasterRunStatus,
   formatTaskmasterRunTimestamp,
   shouldFocusAssessmentRecommendation,
-  taskmasterAnalysisBusy,
+  taskmasterAnalysisRequestBusy,
   taskmasterAssessmentRequestBusy,
   taskmasterAssessmentForWorkspace,
   type TaskmasterRunStatus,
@@ -439,7 +440,7 @@ function RecommendationsPanel({ hasWorkspace, workspacePath, taskmasterReady, ca
   }, [refresh, hasWorkspace, taskmasterReady]);
 
   async function analyzeNow() {
-    if (!hasWorkspace || !taskmasterReady || activityBusy) return;
+    if (!hasWorkspace || !taskmasterReady || analysisRequestBusy) return;
 
     setAnalysisBusy(true);
     setAnalysisError(undefined);
@@ -590,7 +591,7 @@ function RecommendationsPanel({ hasWorkspace, workspacePath, taskmasterReady, ca
 
   const currentRunStatus = runStatus?.workspacePath === workspacePath ? runStatus : null;
   const assessmentStatus = workspacePath ? taskmasterAssessmentForWorkspace(currentRunStatus, workspacePath) : null;
-  const activityBusy = analysisBusy || assessmentBusy || taskmasterAnalysisBusy(currentRunStatus);
+  const analysisRequestBusy = taskmasterAnalysisRequestBusy(currentRunStatus, analysisBusy, assessmentBusy);
   const assessmentRequestBusy = taskmasterAssessmentRequestBusy(currentRunStatus, analysisBusy, assessmentBusy);
   const proposalCountsSummary = formatTaskmasterProposalCounts(currentRunStatus?.activeAttempt ? null : currentRunStatus?.latestOutcome ?? null);
   const visibleRecommendations = hasWorkspace && taskmasterReady && loadedWorkspacePath === workspacePath
@@ -620,8 +621,8 @@ function RecommendationsPanel({ hasWorkspace, workspacePath, taskmasterReady, ca
               </button>
             ))}
           </div>
-          <button type="button" disabled={!hasWorkspace || !taskmasterReady || activityBusy} onClick={() => void analyzeNow()}>
-            {analysisBusy ? "Requesting…" : "Analyze now"}
+          <button type="button" disabled={!hasWorkspace || !taskmasterReady || analysisRequestBusy} onClick={() => void analyzeNow()}>
+            {analysisBusy ? "Requesting…" : formatTaskmasterAnalysisAction(currentRunStatus)}
           </button>
           <button type="button" disabled={!hasWorkspace || !taskmasterReady || assessmentRequestBusy} onClick={() => void assessWorkflow()}>
             {assessmentBusy ? "Assessing…" : formatTaskmasterAssessmentAction(assessmentStatus)}

@@ -415,3 +415,51 @@ accurate; the user guide now documents retry recovery and the canonical
 architecture/spec describe the bounded completion and reconciliation guards.
 The repo-wide worktree warning names an unrelated owner's merged inspector
 worktree and does not authorize cleanup by this session.
+
+
+### PR #913 review cycle 3 (final default cycle)
+
+Current-head Codex review of `850f4228` found two further existing-contract gaps.
+Manual knowledge rechecks, fact/prompt construction failures, and provider errors
+before successful dispatch now use the atomic skip-disposition path and preserve
+the last actual outcome. A successful dispatch still permits a failed actual
+outcome, and failed terminal persistence remains recoverable. Regressions cover
+fact collection, unavailable knowledge, post-dispatch provider failure, and the
+existing terminal-write fault. Ordinary persisted attempts now expose **Retry
+analysis**; local requests remain guarded and the server lease owns admission.
+The recovery control remains reachable when both ordinary and assessment progress
+are persisted. The focused desktop suite passed 78 tests, and integrated evaluator
+tests passed 11 tests before full verification.
+
+The custom automated review reached its 41-turn limit on the first attempt; its
+configured retry succeeded. Its inspector finding was a two-dot comparison of a
+newer main commit against the previous head, not a Taskmaster edit. Rebase onto
+the inspector extension retains that change, and the later docs-only hierarchy
+proposal is also carried forward. Both rebases preserved the existing feature
+commits; the final cycle then receives full verification and current-code manual
+review before one final default current-head Codex re-review. No fourth substantial
+review cycle is authorized by the existing three-cycle budget.
+
+
+The fresh cycle-3 manual review found nested-lock acquisition in custom assessment
+dispatch. Custom inference already holds current-authority guards while invoking
+the dispatch callback; the callback now checks workspace identity, input identity,
+and active recommendations under those existing guards. Native dispatch retains
+its current-evaluation guard. A real approved custom-provider regression failed
+before the fix at a bounded four-second deadline, then passed with process-spawn
+evidence and a persisted successful assessment. The integrated assessment suite,
+full verification, and focused manual re-review are repeated before the final
+cycle-3 push. Owned worker branches and uncommitted sources are backed up before
+cleanup; unrelated worktrees remain under their owners' control.
+
+
+Final cycle-3 integrated verification passed: 2,079 Rust tests (5 ignored), all
+Rust integration executables, 9 OpenCode tests, 1,339 desktop tests (1 skipped),
+type checks, builds, native ABI repair, docs validation/build, diff and currency
+checks. All 24 assessment tests passed in a focused integrated run. The fresh
+medium manual re-review approved the final combined code with no remaining
+findings. Its code-diff SHA-256 is
+`06cf5b814ce2b9cf892b790ececfaf513fdfceb2ad9bc5406a199e6f84d96411`.
+No source changes followed that review. Source documentation remains accurate
+and distinguishes the feature from older installed builds; unrelated owned
+worktree warnings authorize no cleanup by this session.

@@ -92,6 +92,19 @@ export function taskmasterAnalysisBusy(status: TaskmasterRunStatus | null): bool
     || status?.assessment?.state === "queued"
     || status?.assessment?.state === "running");
 }
+export function taskmasterAnalysisRequestBusy(
+  status: TaskmasterRunStatus | null,
+  localAnalysisBusy: boolean,
+  localAssessmentBusy: boolean,
+): boolean {
+  if (localAnalysisBusy || localAssessmentBusy) return true;
+  const assessmentProgress = status?.assessment?.state === "queued"
+    || status?.assessment?.state === "running";
+  return assessmentProgress && !status?.activeAttempt;
+}
+export function formatTaskmasterAnalysisAction(status: TaskmasterRunStatus | null): string {
+  return status?.activeAttempt ? "Retry analysis" : "Analyze now";
+}
 export function taskmasterAssessmentRequestBusy(
   status: TaskmasterRunStatus | null,
   localAnalysisBusy: boolean,

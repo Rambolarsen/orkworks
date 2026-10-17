@@ -467,7 +467,11 @@ fn run_model_evaluation_at_with_workspace(
                     TaskmasterManualRequestReason::Unavailable,
                 ),
             };
-            guard.finish(TaskmasterRunOutcomeState::Interrupted, Some(reason));
+            guard.finish_before_dispatch(
+                manual_workspace.is_some(),
+                TaskmasterRunOutcomeState::Interrupted,
+                reason,
+            );
         }
         return;
     }
@@ -530,7 +534,11 @@ fn run_model_evaluation_with_context_and_workspace(
     });
     if let Err(reason) = runtime.brain_knowledge_availability() {
         if let Some(guard) = run_guard.as_mut() {
-            guard.finish(TaskmasterRunOutcomeState::Interrupted, Some(reason));
+            guard.finish_before_dispatch(
+                manual_workspace.is_some(),
+                TaskmasterRunOutcomeState::Interrupted,
+                reason,
+            );
         }
         return;
     }
@@ -631,14 +639,20 @@ fn run_model_evaluation_with_context_and_workspace(
         Ok(facts) => facts,
         Err(error) => {
             if let Some(guard) = run_guard.as_mut() {
-                guard.finish(TaskmasterRunOutcomeState::Failed, Some(&error));
+                guard.finish_before_dispatch(
+                    manual_workspace.is_some(),
+                    TaskmasterRunOutcomeState::Failed,
+                    &error,
+                );
             }
-            let _ = runtime.record_evaluation_error(
-                &state.harness_store,
-                &workspace_path,
-                &snapshot,
-                Some(error),
-            );
+            if manual_workspace.is_none() {
+                let _ = runtime.record_evaluation_error(
+                    &state.harness_store,
+                    &workspace_path,
+                    &snapshot,
+                    Some(error),
+                );
+            }
             return;
         }
     };
@@ -658,14 +672,20 @@ fn run_model_evaluation_with_context_and_workspace(
         Ok(prompt) => prompt,
         Err(error) => {
             if let Some(guard) = run_guard.as_mut() {
-                guard.finish(TaskmasterRunOutcomeState::Failed, Some(&error));
+                guard.finish_before_dispatch(
+                    manual_workspace.is_some(),
+                    TaskmasterRunOutcomeState::Failed,
+                    &error,
+                );
             }
-            let _ = runtime.record_evaluation_error(
-                &state.harness_store,
-                &workspace_path,
-                &snapshot,
-                Some(error),
-            );
+            if manual_workspace.is_none() {
+                let _ = runtime.record_evaluation_error(
+                    &state.harness_store,
+                    &workspace_path,
+                    &snapshot,
+                    Some(error),
+                );
+            }
             return;
         }
     };
@@ -673,7 +693,11 @@ fn run_model_evaluation_with_context_and_workspace(
         Ok(key) => key,
         Err(error) => {
             if let Some(guard) = run_guard.as_mut() {
-                guard.finish(TaskmasterRunOutcomeState::Failed, Some(&error));
+                guard.finish_before_dispatch(
+                    manual_workspace.is_some(),
+                    TaskmasterRunOutcomeState::Failed,
+                    &error,
+                );
             }
             return;
         }
@@ -752,7 +776,15 @@ fn run_model_evaluation_with_context_and_workspace(
             return;
         }
     }
+    let provider_dispatched = std::cell::Cell::new(false);
     let mut dispatch_gate = |start_dispatch: &mut dyn FnMut() -> std::io::Result<()>| {
+        let mut start_and_mark_dispatch = || {
+            let result = start_dispatch();
+            if result.is_ok() {
+                provider_dispatched.set(true);
+            }
+            result
+        };
         if snapshot.custom_inference.is_none() {
             native_workspace_dispatch_gate(
                 &state,
@@ -761,17 +793,17 @@ fn run_model_evaluation_with_context_and_workspace(
                 &workspace_path,
                 workspace_instance,
                 manual_workspace.is_some(),
-                start_dispatch,
+                &mut start_and_mark_dispatch,
             )
         } else if manual_workspace.is_some() {
             manual_workspace_dispatch_gate(
                 &state,
                 &workspace_path,
                 workspace_instance,
-                start_dispatch,
+                &mut start_and_mark_dispatch,
             )
         } else {
-            Some(start_dispatch())
+            Some(start_and_mark_dispatch())
         }
     };
     let providers = state.providers.clone();
@@ -867,14 +899,20 @@ fn run_model_evaluation_with_context_and_workspace(
             }
             Err(error) => {
                 if let Some(guard) = run_guard.as_mut() {
-                    guard.finish(TaskmasterRunOutcomeState::Failed, Some(&error.message));
+                    guard.finish_provider_error(
+                        manual_workspace.is_some(),
+                        provider_dispatched.get(),
+                        &error.message,
+                    );
                 }
-                let _ = runtime.record_evaluation_error(
-                    &state.harness_store,
-                    &workspace_path,
-                    &snapshot,
-                    Some(error.message),
-                );
+                if manual_workspace.is_none() || provider_dispatched.get() {
+                    let _ = runtime.record_evaluation_error(
+                        &state.harness_store,
+                        &workspace_path,
+                        &snapshot,
+                        Some(error.message),
+                    );
+                }
             }
         }
     }
@@ -897,6 +935,33 @@ impl RunGuard {
         self.runtime
             .mark_run_running(&self.workspace_path, self.id, provider, model)
             .unwrap_or(false)
+    }
+
+    fn finish_before_dispatch(
+        &mut self,
+        manual: bool,
+        state: TaskmasterRunOutcomeState,
+        error: &str,
+    ) {
+        if manual {
+            self.mark_disposition(
+                TaskmasterManualRequestDisposition::Skipped,
+                TaskmasterManualRequestReason::Unavailable,
+            );
+        } else {
+            self.finish(state, Some(error));
+        }
+    }
+
+    fn finish_provider_error(&mut self, manual: bool, dispatched: bool, error: &str) {
+        if manual && !dispatched {
+            self.mark_disposition(
+                TaskmasterManualRequestDisposition::Skipped,
+                TaskmasterManualRequestReason::Unavailable,
+            );
+        } else {
+            self.finish(TaskmasterRunOutcomeState::Failed, Some(error));
+        }
     }
 
     fn finish(&mut self, state: TaskmasterRunOutcomeState, error: Option<&str>) {
@@ -1650,6 +1715,202 @@ mod tests {
     };
     use crate::taskmaster::RepositoryEvidence;
     use sha2::Digest;
+
+    #[test]
+    fn manual_fact_collection_failure_preserves_actual_outcome_and_records_skip() {
+        let directory = tempfile::tempdir().unwrap();
+        let workspace_path = directory.path().join("workspace");
+        std::fs::create_dir_all(&workspace_path).unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(&workspace_path);
+        let root = directory.path().join("runtime");
+        let runtime = Arc::new(TaskmasterRuntime::open_fixture(root.clone()));
+        let mut settings = TaskmasterSettings::default();
+        settings.selection = Some(
+            serde_json::from_value(serde_json::json!({
+                "provider": "codex",
+                "model": "fixture"
+            }))
+            .unwrap(),
+        );
+        runtime.replace_settings(settings).unwrap();
+        runtime
+            .activate_knowledge(&crate::taskmaster::knowledge::test_support::fixture(
+                "valid-activation.json",
+            ))
+            .unwrap();
+
+        let previous = runtime
+            .queue_run(
+                &workspace_path,
+                TaskmasterRunTrigger::Background,
+                "codex",
+                "fixture",
+            )
+            .unwrap();
+        runtime
+            .mark_run_running(&workspace_path, previous, "codex", "fixture")
+            .unwrap();
+        runtime
+            .finish_run(
+                &workspace_path,
+                previous,
+                TaskmasterRunOutcomeState::Succeeded,
+                None,
+            )
+            .unwrap();
+        let previous_outcome = runtime
+            .run_status(Some(&workspace_path))
+            .unwrap()
+            .latest_outcome
+            .unwrap();
+
+        let manual = runtime
+            .queue_run(
+                &workspace_path,
+                TaskmasterRunTrigger::Manual,
+                "codex",
+                "fixture",
+            )
+            .unwrap();
+        let mut collector_called = false;
+        run_model_evaluation_with_context_and_workspace(
+            state,
+            runtime.clone(),
+            |_, _, _, _| {
+                collector_called = true;
+                Err("fact collection unavailable".into())
+            },
+            Some(workspace_path.clone()),
+            None,
+            Some(ScheduledRun {
+                id: manual,
+                workspace_path: workspace_path.clone(),
+                root,
+            }),
+        );
+
+        assert!(collector_called, "test must reach fact collection");
+        let status = runtime.run_status(Some(&workspace_path)).unwrap();
+        assert_eq!(status.latest_outcome, Some(previous_outcome));
+        let request = status.latest_manual_request.unwrap();
+        assert_eq!(request.id, manual.to_string());
+        assert_eq!(
+            request.disposition,
+            TaskmasterManualRequestDisposition::Skipped
+        );
+        assert_eq!(request.reason, TaskmasterManualRequestReason::Unavailable);
+    }
+
+    #[test]
+    fn manual_knowledge_recheck_failure_preserves_actual_outcome_and_records_skip() {
+        let directory = tempfile::tempdir().unwrap();
+        let workspace = directory.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(&workspace);
+        let root = directory.path().join("runtime");
+        let runtime = Arc::new(TaskmasterRuntime::open(root.clone()));
+        let previous = runtime
+            .queue_run(
+                &workspace,
+                TaskmasterRunTrigger::Background,
+                "codex",
+                "fixture",
+            )
+            .unwrap();
+        runtime
+            .finish_run(
+                &workspace,
+                previous,
+                TaskmasterRunOutcomeState::Succeeded,
+                None,
+            )
+            .unwrap();
+        let actual = runtime.run_status(Some(&workspace)).unwrap().latest_outcome;
+        let manual = runtime
+            .queue_run(&workspace, TaskmasterRunTrigger::Manual, "codex", "fixture")
+            .unwrap();
+        run_model_evaluation_with_context_and_workspace(
+            state,
+            runtime.clone(),
+            |_, _, _, _| {
+                panic!("unavailable knowledge must stop before collection or provider dispatch")
+            },
+            Some(workspace.clone()),
+            None,
+            Some(ScheduledRun {
+                id: manual,
+                workspace_path: workspace.clone(),
+                root,
+            }),
+        );
+        let status = runtime.run_status(Some(&workspace)).unwrap();
+        assert_eq!(status.latest_outcome, actual);
+        assert!(status.active_attempt.is_none());
+        let request = status.latest_manual_request.unwrap();
+        assert_eq!(request.id, manual.to_string());
+        assert_eq!(
+            request.disposition,
+            TaskmasterManualRequestDisposition::Skipped
+        );
+        assert_eq!(request.reason, TaskmasterManualRequestReason::Unavailable);
+    }
+
+    #[test]
+    fn manual_provider_error_after_dispatch_replaces_actual_outcome() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("runtime");
+        let runtime = Arc::new(TaskmasterRuntime::open(root));
+        let workspace = directory.path();
+        let previous = runtime
+            .queue_run(
+                workspace,
+                TaskmasterRunTrigger::Background,
+                "codex",
+                "model",
+            )
+            .unwrap();
+        runtime
+            .mark_run_running(workspace, previous, "codex", "model")
+            .unwrap();
+        runtime
+            .finish_run(
+                workspace,
+                previous,
+                TaskmasterRunOutcomeState::Succeeded,
+                None,
+            )
+            .unwrap();
+
+        let attempt = runtime
+            .queue_run(workspace, TaskmasterRunTrigger::Manual, "codex", "model")
+            .unwrap();
+        runtime
+            .mark_run_running(workspace, attempt, "codex", "model")
+            .unwrap();
+        let mut guard = RunGuard {
+            runtime: runtime.clone(),
+            workspace_path: workspace.to_path_buf(),
+            id: attempt,
+            completed: false,
+            terminal_outcome_attempted: false,
+            manual_disposition: (
+                TaskmasterManualRequestDisposition::Skipped,
+                TaskmasterManualRequestReason::Unavailable,
+            ),
+        };
+        guard.finish_provider_error(true, true, "provider failed after dispatch");
+        drop(guard);
+
+        let status = runtime.run_status(Some(workspace)).unwrap();
+        let outcome = status.latest_outcome.unwrap();
+        assert_eq!(outcome.state, TaskmasterRunOutcomeState::Failed);
+        assert_eq!(outcome.trigger, TaskmasterRunTrigger::Manual);
+        assert_eq!(
+            outcome.error_summary.as_deref(),
+            Some("provider failed after dispatch")
+        );
+        assert_eq!(status.latest_manual_request, None);
+    }
 
     #[test]
     fn failed_manual_outcome_write_is_recovered_as_interrupted_not_skipped() {

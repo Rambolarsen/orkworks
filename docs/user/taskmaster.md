@@ -118,6 +118,10 @@ their confidence is evidence to weigh, not a guarantee.
   off, and manual analyses are not limited by the daily analysis allowance —
   that limit governs automatic Background discovery only.
 
+If a saved analysis attempt remains queued or running, **Retry analysis** asks
+the app to recover its status and try again. A live run is not started twice.
+A skipped request keeps the previous actual analysis outcome.
+
 This action does not start a new session. The coding agent in your selected
 session carries out the work under your repository’s normal instructions.
 Taskmaster does not merge changes or accept work on your behalf.

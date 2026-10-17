@@ -824,35 +824,44 @@ fn run_assessment(
     };
     let mut dispatch_gate = |start: &mut dyn FnMut() -> std::io::Result<()>| {
         let mut dispatched = None;
-        let current = runtime.with_current_evaluation(
-            &state.harness_store,
-            &snapshot.workspace_path,
-            &snapshot.evaluation,
-            || {
-                let workspace = state.workspace.lock().expect("workspace lock poisoned");
-                let Some(workspace) = workspace.as_ref().filter(|workspace| {
-                    workspace.path == snapshot.workspace_path
-                        && workspace.workflow_observations.instance_id()
-                            == snapshot.workspace_instance
-                }) else {
-                    return;
-                };
-                let Ok(input) = capture_workspace_input(workspace, &snapshot.evaluation, None)
-                else {
-                    return;
-                };
-                if input.fingerprint != snapshot.fingerprint
-                    || super::active_workflow_recommendation(&input.recommendations).is_some()
-                {
-                    return;
-                }
-                dispatched = Some(start());
-            },
-        );
-        current
-            .ok()
-            .filter(|is_current| *is_current)
-            .and(dispatched)
+        let mut check_workspace = || {
+            let workspace = state.workspace.lock().expect("workspace lock poisoned");
+            let Some(workspace) = workspace.as_ref().filter(|workspace| {
+                workspace.path == snapshot.workspace_path
+                    && workspace.workflow_observations.instance_id() == snapshot.workspace_instance
+            }) else {
+                return;
+            };
+            let Ok(input) = capture_workspace_input(workspace, &snapshot.evaluation, None) else {
+                return;
+            };
+            if input.fingerprint != snapshot.fingerprint
+                || super::active_workflow_recommendation(&input.recommendations).is_some()
+            {
+                return;
+            }
+            dispatched = Some(start());
+        };
+        if snapshot.evaluation.custom_inference.is_some() {
+            // The custom transport already holds the harness, persistence, and
+            // runtime-data guards while invoking this gate. Re-entering
+            // with_current_evaluation here would deadlock on those same locks.
+            // Its outer guard revalidates the captured custom authority; this
+            // closure adds the workspace/input/active-recommendation checks.
+            check_workspace();
+            dispatched
+        } else {
+            let current = runtime.with_current_evaluation(
+                &state.harness_store,
+                &snapshot.workspace_path,
+                &snapshot.evaluation,
+                check_workspace,
+            );
+            current
+                .ok()
+                .filter(|is_current| *is_current)
+                .and(dispatched)
+        }
     };
     let output = if let Some(captured) = snapshot.evaluation.custom_inference.as_ref() {
         runtime.invoke_custom_inference_with_dispatch_gate(
@@ -1508,6 +1517,138 @@ mod tests {
             7,
         ));
         assert!(!workspace_identity_matches(path, 8, path, 7));
+    }
+
+    #[test]
+    fn approved_custom_assessment_provider_reaches_spawn_and_completes() {
+        use crate::harness::{
+            definition::{BuiltinDocument, EMBEDDED_BUILTINS},
+            store::HarnessStore,
+        };
+        use crate::taskmaster::{
+            assessment_report::{AssessmentRecord, AssessmentState},
+            inference_approval::{self, ApprovalAction, ApprovalRequest},
+            inference_trust::InferenceTrustStore,
+            runtime::{TaskmasterRuntime, TaskmasterSettings},
+        };
+        use std::{fs, sync::mpsc, time::Duration};
+
+        let mut fixture = integration_tests::AssessmentFixture::new();
+        let root = fixture.runtime_root.clone();
+        let marker = fixture.dir.path().join("custom-provider-dispatched");
+        let response = fixture.dir.path().join("custom-provider-response.json");
+        let executable = crate::test_support::native_inference::compile(fixture.dir.path());
+        fs::write(
+            &fixture.dir.path().join("harnesses.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "version": 3,
+                "overrides": {},
+                "custom": [{
+                    "id": "custom",
+                    "name": "Approved custom fixture",
+                    "launch": {"kind": "platform-shell", "login": false},
+                    "inference": {
+                        "kind": "command",
+                        "command": executable,
+                        "args": ["activation", "{model}", marker, response, "success"],
+                        "input": "stdin",
+                        "output": "result-json-v1",
+                        "timeoutSecs": 10
+                    }
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let harnesses = Arc::new(HarnessStore::new(
+            fixture.dir.path().join("harnesses.json"),
+            Arc::new(BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap()),
+        ));
+        Arc::get_mut(&mut fixture.state).unwrap().harness_store = harnesses.clone();
+
+        let runtime = TaskmasterRuntime::open(root.clone());
+        let mut settings = TaskmasterSettings::default();
+        settings.enabled = true;
+        settings.selection = Some(
+            serde_json::from_value(serde_json::json!({
+                "provider": "custom",
+                "model": "fixture-model"
+            }))
+            .unwrap(),
+        );
+        runtime.replace_settings(settings).unwrap();
+        let trust = InferenceTrustStore::new(root.clone());
+        let adapter = inference_approval::inspect_adapters(&harnesses, &trust)
+            .unwrap()
+            .into_iter()
+            .find(|adapter| adapter.id == "custom")
+            .unwrap();
+        inference_approval::change_approval(
+            &harnesses,
+            &trust,
+            ApprovalRequest {
+                harness_id: adapter.id,
+                action: ApprovalAction::Approve,
+                expected_revision: adapter.revision,
+            },
+        )
+        .unwrap();
+        let snapshot = capture_current_snapshot(&fixture.state, &root, None).unwrap();
+        let output = serde_json::json!({
+            "version": 1,
+            "outcome": "no_proposal",
+            "summary": "The supplied evidence does not justify a workflow change.",
+            "repositoryFactHashes": [],
+            "knowledgePageIds": [],
+            "unverifiedChecks": [],
+            "proposal": null,
+            "noProposalReason": "The supplied evidence does not identify a grounded change."
+        });
+        fs::write(
+            &fixture.dir.path().join("provider-result"),
+            serde_json::json!({
+                "version": 1,
+                "status": "success",
+                "result": output.to_string()
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let response_path = fixture.dir.path().join("provider-result");
+        fs::write(&response, fs::read(response_path).unwrap()).unwrap();
+
+        let lease = runtime.try_analysis_lease().unwrap().unwrap();
+        let record = AssessmentRecord {
+            format_version: 1,
+            id: "custom-dispatch-test".into(),
+            state: AssessmentState::Queued,
+            started_at: chrono::Utc::now().to_rfc3339(),
+            completed_at: None,
+            report: None,
+            pending_recommendation: None,
+            error_summary: None,
+            reused: false,
+        };
+        let workspace_root = fixture.workspace_root();
+        let store = super::super::assessment_store::AssessmentStore::new(&workspace_root);
+        store.save(&record).unwrap();
+        let (completed_tx, completed_rx) = mpsc::channel();
+        let state = fixture.state.clone();
+        let workspace = snapshot.workspace_path.clone();
+        std::thread::spawn(move || {
+            run_assessment(state, root, workspace, workspace_root, record, lease);
+            let _ = completed_tx.send(());
+        });
+
+        completed_rx
+            .recv_timeout(Duration::from_secs(4))
+            .expect("approved custom assessment should spawn and complete");
+        assert!(marker.exists(), "custom provider reached process spawn");
+        let completed = store
+            .load::<AssessmentRecord>()
+            .unwrap()
+            .expect("assessment record is persisted");
+        assert_eq!(completed.state, AssessmentState::Succeeded);
     }
 }
 

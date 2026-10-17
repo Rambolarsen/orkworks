@@ -11,7 +11,9 @@ import {
   formatTaskmasterProposalCounts,
   formatTaskmasterAssessmentAction,
   taskmasterAnalysisBusy,
+  taskmasterAnalysisRequestBusy,
   taskmasterAssessmentRequestBusy,
+  formatTaskmasterAnalysisAction,
   shouldFocusAssessmentRecommendation,
   taskmasterAssessmentForWorkspace,
   type TaskmasterAssessmentStatus,
@@ -165,6 +167,26 @@ test("analysis-busy status includes ordinary attempts and persisted assessment p
   assert.equal(taskmasterAnalysisBusy({ ...base, activeAttempt: { id: 1, state: "queued", queuedAt: "t0", startedAt: null, trigger: "manual", provider: "codex", model: "gpt-x" } }), true);
   assert.equal(taskmasterAnalysisBusy({ ...base, assessment: { state: "running", report: null, reused: false } }), true);
   assert.equal(taskmasterAnalysisBusy(base), false);
+});
+
+test("persisted ordinary attempts expose an explicit retry while local work and assessment progress stay guarded", () => {
+  const base: TaskmasterRunStatus = { workspacePath: "/workspace/a", activeAttempt: null, latestOutcome: null };
+  const queued = { ...base, activeAttempt: { id: 1, state: "queued" as const, queuedAt: "t0", startedAt: null, trigger: "manual" as const, provider: "codex", model: "gpt-x" } };
+  const running = { ...queued, activeAttempt: { ...queued.activeAttempt, state: "running" as const, startedAt: "t1" } };
+  const assessing = { ...base, assessment: { state: "running" as const, report: null, reused: false } };
+
+  assert.equal(taskmasterAnalysisRequestBusy(queued, false, false), false);
+  assert.equal(taskmasterAnalysisRequestBusy(running, false, false), false);
+  assert.equal(taskmasterAnalysisRequestBusy(queued, true, false), true);
+  assert.equal(taskmasterAnalysisRequestBusy(queued, false, true), true);
+  assert.equal(taskmasterAnalysisRequestBusy(assessing, false, false), true);
+  assert.equal(taskmasterAnalysisRequestBusy({ ...queued, assessment: assessing.assessment }, false, false), false,
+    "ordinary retry remains reachable if both durable recovery records exist");
+  assert.equal(taskmasterAnalysisRequestBusy({ ...queued, assessment: assessing.assessment }, true, false), true,
+    "a locally pending request still blocks retries");
+  assert.equal(formatTaskmasterAnalysisAction(queued), "Retry analysis");
+  assert.equal(formatTaskmasterAnalysisAction(running), "Retry analysis");
+  assert.equal(formatTaskmasterAnalysisAction(base), "Analyze now");
 });
 
 test("persisted assessment progress can be retried while actual local work remains guarded", () => {
