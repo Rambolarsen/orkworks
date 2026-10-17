@@ -243,16 +243,16 @@ export default function ApplicationShell(props: Props) {
   }, [props.workspaceGeneration]);
 
   useEffect(() => {
-    if (!showInspector || props.inspector !== "details" || props.preferences.inspectorPinned) return;
-    const dismissOutsideDetails = (event: PointerEvent) => {
+    if (!showInspector || props.preferences.inspectorPinned) return;
+    const dismissOutsideInspector = (event: PointerEvent) => {
       const target = event.target;
-      if (!(target instanceof Element) || target.closest('.shell-inspector-host, [role="dialog"], [data-shell-command="details"]')) return;
+      if (!(target instanceof Element) || target.closest(`.shell-inspector-host, [role="dialog"], [data-shell-command="${props.inspector}"]`)) return;
       // Let the clicked surface receive focus and perform its own action.
       ++navigationIntent.current;
       props.onInspect(null);
     };
-    document.addEventListener("pointerdown", dismissOutsideDetails, true);
-    return () => document.removeEventListener("pointerdown", dismissOutsideDetails, true);
+    document.addEventListener("pointerdown", dismissOutsideInspector, true);
+    return () => document.removeEventListener("pointerdown", dismissOutsideInspector, true);
   }, [showInspector, props.inspector, props.preferences.inspectorPinned, props.onInspect]);
 
   useLayoutEffect(() => {

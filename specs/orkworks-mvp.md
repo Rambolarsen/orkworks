@@ -689,9 +689,10 @@ The first useful MVP should include:
   layout records. Retain the temporary inspector page below 1180 CSS px. Escape
   within the inspector/page closes it and restores its invoker in either mode;
   Escape outside it does not dismiss it, and nested dialogs own their Escape.
-  Clicking outside an unpinned Details overlay hides it and preserves the clicked
-  surface's action and focus. Pinned Details and responsive temporary pages remain
-  open; the Details toggle and resize handle retain their existing behavior.
+  Clicking outside an unpinned Details, Capacity, or Actions overlay hides it and
+  preserves the clicked surface's action and focus. Pinned inspectors and responsive
+  temporary pages remain open; each content toggle and the resize handle retain
+  their existing behavior.
 - details follow the visible subject; Actions and Capacity are available through
   the optional inspector or a labeled compact page. Recommendations replaces
   central content at every width, preserving the responsive Sessions sidebar.
