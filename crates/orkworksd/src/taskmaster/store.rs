@@ -437,7 +437,15 @@ impl RecommendationStore {
         let Some(mut recommendation) = self.get(id)? else {
             return Ok(None);
         };
-        super::assessment_access::ensure_mutable(&recommendation)?;
+        let redacted_delivered_assessment = recommendation
+            .assessment
+            .as_ref()
+            .is_some_and(|provenance| provenance.access_redacted)
+            && recommendation.status == RecommendationStatus::Accepted
+            && recommendation.target_session_id.is_some();
+        if !redacted_delivered_assessment {
+            super::assessment_access::ensure_mutable(&recommendation)?;
+        }
         if recommendation.recommendation_type != RecommendationType::ImproveWorkflow
             || recommendation.status != RecommendationStatus::Accepted
         {
@@ -459,7 +467,18 @@ impl RecommendationStore {
         let Some(mut recommendation) = self.get(id)? else {
             return Ok(None);
         };
-        super::assessment_access::ensure_mutable(&recommendation)?;
+        let redacted_delivered_assessment = recommendation
+            .assessment
+            .as_ref()
+            .is_some_and(|provenance| provenance.access_redacted)
+            && matches!(
+                recommendation.status,
+                RecommendationStatus::Accepted | RecommendationStatus::Completed
+            )
+            && recommendation.target_session_id.is_some();
+        if !redacted_delivered_assessment {
+            super::assessment_access::ensure_mutable(&recommendation)?;
+        }
         let Some(packet) = recommendation.completion_packet.as_mut() else {
             return Err(StoreError::InvalidTransition);
         };

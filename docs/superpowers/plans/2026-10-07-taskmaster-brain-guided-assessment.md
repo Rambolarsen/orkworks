@@ -378,3 +378,40 @@ recorded on PR #913 for the committed code SHA; external re-review and CI follow
 the feedback-cycle push before merge. Source/user-guide claims were reviewed:
 the corrections refine the documented existing workflow and require no new
 installer-availability claim or homepage wording.
+
+
+### PR #913 review cycle 2
+
+The current-head Codex review of `95416027` identified five additional concrete
+edge cases. Cycle 2 of 3 preserves a user's filter during repeated assessment
+polls, permits an explicit recovery retry for deferred queued/running state,
+rejects executable-style instructions using additional verbs such as “use,”
+advances successor depth from the selected predecessor, and lets the authenticated
+target session record completion after an already-delivered fix is redacted.
+The completion exception grants no new action authority: packet attachment and
+replacement stay blocked, existing approved packet identities remain unchanged,
+matching completed retries remain idempotent, and supplied completion prose is
+replaced by a generic event. Tests cover wrong-target rejection and privacy
+retention. Canonical architecture/user/spec wording now explains these existing
+recovery and completion boundaries. Full verification and fresh medium manual
+review are repeated on the integrated code before pushing cycle 2.
+
+
+The fresh cycle-2 review identified one further privacy race in request/startup
+reconciliation. Both callers now use the existing current-settings persistence
+guard followed by the active-workspace lock and path/metadata identity check.
+A staged regression failed on the old unguarded reconciliation, then passed with
+a concurrent delivered lifecycle update and second access reduction. The fresh
+medium manual re-review approved the final code with no remaining findings;
+full repository verification is repeated after this last guard change.
+
+
+Cycle 2 final integrated `bash scripts/verify-repo.sh` passed: 2,075 Rust tests
+(5 ignored), all Rust integration executables, 9 OpenCode tests, 1,337 desktop
+tests (1 skipped), builds, type checks, native ABI repair, docs validation/build,
+diff and currency checks. Manual medium review approved the identical code diff.
+The README warning was reviewed: its source-build assessment/outcome claims remain
+accurate; the user guide now documents retry recovery and the canonical
+architecture/spec describe the bounded completion and reconciliation guards.
+The repo-wide worktree warning names an unrelated owner's merged inspector
+worktree and does not authorize cleanup by this session.

@@ -92,6 +92,29 @@ export function taskmasterAnalysisBusy(status: TaskmasterRunStatus | null): bool
     || status?.assessment?.state === "queued"
     || status?.assessment?.state === "running");
 }
+export function taskmasterAssessmentRequestBusy(
+  status: TaskmasterRunStatus | null,
+  localAnalysisBusy: boolean,
+  localAssessmentBusy: boolean,
+): boolean {
+  return Boolean(localAnalysisBusy || localAssessmentBusy || status?.activeAttempt);
+}
+export function formatTaskmasterAssessmentAction(
+  assessment: TaskmasterAssessmentStatus | null,
+): string {
+  return assessment?.state === "queued" || assessment?.state === "running"
+    ? "Retry assessment"
+    : "Assess workflow";
+}
+export function shouldFocusAssessmentRecommendation(
+  recommendationId: string,
+  status: string,
+  surfacedIds: Set<string>,
+): boolean {
+  if (surfacedIds.has(recommendationId)) return false;
+  surfacedIds.add(recommendationId);
+  return status === "proposed";
+}
 export function taskmasterAssessmentForWorkspace(
   status: TaskmasterRunStatus | null,
   workspacePath: string,

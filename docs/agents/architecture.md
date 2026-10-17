@@ -274,10 +274,16 @@ publishing success; pending consumers fail closed.
 
 `assessment_access.rs` shares current-input checks across list/detail, manual
 admission, acceptance, and terminal handoff. Access-setting writes reconcile all
-known affected workspace stores before persisting the narrower policy. Redacted
+known affected workspace stores before persisting the narrower policy. Request
+and startup reconciliation use the same settings-persistence/workspace lock order
+and validate the selected workspace identity before reading or replacing metadata.
+Redacted
 completion packets keep audit IDs, fingerprints, approvals, and lifecycle history
-while losing source-derived display text; their provenance marks them audit-only
-and rejects further actions. Other input changes retain audit snapshots. A terminal
+while losing source-derived display text; their provenance rejects new actions
+and packet mutations. The authenticated target session can still record completion
+of an already-delivered accepted fix, with a generic completion event that cannot
+restore redacted prose; an existing packet's matching completion retry remains
+idempotent. Other input changes retain audit snapshots. A terminal
 handoff reserves queue capacity before revalidation through synchronous enqueue,
 then awaits delivery acknowledgement without configuration/workspace locks.
 Already-delivered prompts finalize their audit outcome after a policy change;

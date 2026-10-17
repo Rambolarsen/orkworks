@@ -534,8 +534,7 @@ pub(crate) fn schedule(
             };
         }
     }
-    let effective = runtime.status(Some(&workspace_path)).effective_settings;
-    if super::assessment_access::reconcile_metadata(&workspace_root, &effective).is_err() {
+    if reconcile_current_workspace(&state, &runtime, &workspace_path, &workspace_root).is_err() {
         return unavailable("Assessment access state is unavailable");
     }
     // Recheck after taking the installation-wide lease so a recommendation
@@ -583,6 +582,27 @@ pub(crate) fn schedule(
         recommendation: None,
         message: None,
     }
+}
+
+fn reconcile_current_workspace(
+    state: &Arc<crate::AppState>,
+    runtime: &super::runtime::TaskmasterRuntime,
+    workspace_path: &Path,
+    workspace_root: &Path,
+) -> Result<(), String> {
+    runtime.with_workspace_settings(workspace_path, |settings| {
+        let workspace = state
+            .workspace
+            .lock()
+            .map_err(|_| "Workspace state is unavailable")?;
+        let current = workspace
+            .as_ref()
+            .filter(|workspace| {
+                workspace.path == workspace_path && workspace.metadata.root_path() == workspace_root
+            })
+            .ok_or("Assessment workspace changed; reconciliation deferred")?;
+        super::assessment_access::reconcile_metadata(&current.metadata.root_path(), settings)
+    })?
 }
 
 fn active_recommendation_response(
@@ -698,8 +718,7 @@ pub(crate) fn recover_workspace_record_under_lease(
     if current_workspace_root != workspace_root {
         return Err("Assessment workspace changed; pending recovery preserved".into());
     }
-    let effective = runtime.status(Some(&workspace_path)).effective_settings;
-    super::assessment_access::reconcile_metadata(workspace_root, &effective)?;
+    reconcile_current_workspace(state, &runtime, &workspace_path, workspace_root)?;
     let snapshot = capture_current_snapshot(state, runtime_root, Some(&recommendation_id))
         .map_err(|_| "Assessment context unavailable; pending recovery preserved")?;
     let report = record
@@ -994,6 +1013,10 @@ fn run_assessment(
                 |predecessor| format!("{}:{}:{}", dedupe_key, predecessor, record.id),
             );
             let id = format!("recommendation-{}", short_hash(&id_material));
+            let chain_depth = supersedes
+                .as_ref()
+                .and_then(|id| existing.iter().find(|item| &item.id == id))
+                .map_or(0, |predecessor| predecessor.chain_depth.saturating_add(1));
             let rec = build_assessment_recommendation(
                 &snapshot,
                 &parsed,
@@ -1003,6 +1026,7 @@ fn run_assessment(
                 &id,
                 &record.id,
                 supersedes,
+                chain_depth,
                 &now,
             );
             recommendation = Some(rec);
@@ -1206,6 +1230,7 @@ fn build_assessment_recommendation(
     id: &str,
     assessment_id: &str,
     supersedes: Option<String>,
+    chain_depth: u32,
     now: &str,
 ) -> super::Recommendation {
     use super::{
@@ -1227,7 +1252,7 @@ fn build_assessment_recommendation(
         id: id.into(),
         workspace_id: snapshot.workspace_path.to_string_lossy().to_string(),
         chain_id: dedupe_key.into(),
-        chain_depth: 0,
+        chain_depth,
         recommendation_type: RecommendationType::ImproveWorkflow,
         status: RecommendationStatus::Proposed,
         priority: crate::workflow_observations::Impact::Low,

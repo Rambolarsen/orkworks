@@ -836,6 +836,7 @@ mod tests {
             recommendation.workspace_id = packet.subject.workspace_id.clone();
             recommendation.source_session_ids = vec![packet.source_session_id.clone()];
             recommendation.status = status.clone();
+            recommendation.target_session_id = Some("target-session".into());
             if status != RecommendationStatus::Proposed {
                 packet.approval = Some(CompletionApproval {
                     approved_at: "now".into(),
@@ -874,6 +875,7 @@ mod tests {
                 packet.completion_idempotency_key,
                 original.completion_idempotency_key
             );
+            let redacted_packet = packet.clone();
             let mutation = CompletionMutationRequest {
                 packet_revision: original.revision,
                 evidence_fingerprint: original.evidence_fingerprint.clone(),
@@ -896,9 +898,25 @@ mod tests {
                     "user".into()
                 )
                 .is_err());
-            assert!(store
-                .complete_accepted_checked(&recommendation.id, "now".into(), &mutation)
-                .is_err());
+            let completed =
+                store.complete_accepted_checked(&recommendation.id, "now".into(), &mutation);
+            if status == RecommendationStatus::Accepted {
+                let completed = completed.unwrap().unwrap();
+                assert_eq!(completed.status, RecommendationStatus::Completed);
+                let packet = completed.completion_packet.as_ref().unwrap();
+                assert_eq!(packet.approval, original.approval);
+                assert_eq!(
+                    packet.completion_idempotency_key.as_deref(),
+                    Some("approval-1")
+                );
+                assert_eq!(packet.action.prompt, REDACTED_SUMMARY);
+            } else if status == RecommendationStatus::Completed {
+                let completed = completed.unwrap().unwrap();
+                assert_eq!(completed.status, RecommendationStatus::Completed);
+                assert_eq!(completed.completion_packet, Some(redacted_packet.clone()));
+            } else {
+                assert!(completed.is_err());
+            }
             assert!(store
                 .replace_completion_packet(
                     &recommendation.id,
@@ -908,6 +926,35 @@ mod tests {
                 )
                 .is_err());
         }
+    }
+
+    #[test]
+    fn redacted_accepted_assessment_can_record_delivery_completion() {
+        let (_, mut recommendation) = proposal();
+        recommendation.status = RecommendationStatus::Accepted;
+        recommendation.target_session_id = Some("target-session".into());
+        let directory = tempfile::tempdir().unwrap();
+        let store =
+            crate::taskmaster::store::RecommendationStore::open(directory.path().into()).unwrap();
+        store.put(&recommendation).unwrap();
+
+        redact_recommendation(
+            &mut recommendation,
+            &TaskmasterSettings {
+                context_level: ContextLevel::SessionObservations,
+                ..TaskmasterSettings::default()
+            },
+        );
+        store.put(&recommendation).unwrap();
+
+        let completed = store
+            .complete_accepted(&recommendation.id, "completed-at".into())
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(completed.status, RecommendationStatus::Completed);
+        assert!(completed.assessment.unwrap().access_redacted);
+        assert_eq!(completed.title, "Assessment evidence access changed");
     }
 
     #[test]

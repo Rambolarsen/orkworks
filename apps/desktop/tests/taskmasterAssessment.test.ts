@@ -9,7 +9,10 @@ import {
   formatTaskmasterAssessment,
   formatTaskmasterManualRequest,
   formatTaskmasterProposalCounts,
+  formatTaskmasterAssessmentAction,
   taskmasterAnalysisBusy,
+  taskmasterAssessmentRequestBusy,
+  shouldFocusAssessmentRecommendation,
   taskmasterAssessmentForWorkspace,
   type TaskmasterAssessmentStatus,
   type AssessmentReport,
@@ -157,9 +160,34 @@ test("ordinary outcome summaries use server counts and keep legacy successes gen
   assert.equal(formatTaskmasterManualRequest({ id: 2, requestedAt: "t0", completedAt: "t1", disposition: "cached", reason: "unchanged_inputs" }), "Analysis reused the cached result because its inputs were unchanged.");
 });
 
-test("either analysis or assessment activity disables both recommendation actions", () => {
+test("analysis-busy status includes ordinary attempts and persisted assessment progress", () => {
   const base: TaskmasterRunStatus = { workspacePath: "/workspace/a", activeAttempt: null, latestOutcome: null };
   assert.equal(taskmasterAnalysisBusy({ ...base, activeAttempt: { id: 1, state: "queued", queuedAt: "t0", startedAt: null, trigger: "manual", provider: "codex", model: "gpt-x" } }), true);
   assert.equal(taskmasterAnalysisBusy({ ...base, assessment: { state: "running", report: null, reused: false } }), true);
   assert.equal(taskmasterAnalysisBusy(base), false);
+});
+
+test("persisted assessment progress can be retried while actual local work remains guarded", () => {
+  const base: TaskmasterRunStatus = { workspacePath: "/workspace/a", activeAttempt: null, latestOutcome: null };
+  const queued = { ...base, assessment: { state: "queued" as const, report: null, reused: false } };
+  const running = { ...base, assessment: { state: "running" as const, report: null, reused: false } };
+  assert.equal(taskmasterAnalysisBusy(queued), true, "Analyze now remains blocked during assessment progress");
+  assert.equal(taskmasterAssessmentRequestBusy(queued, false, false), false);
+  assert.equal(taskmasterAssessmentRequestBusy(running, false, false), false);
+  assert.equal(taskmasterAssessmentRequestBusy(base, true, false), true);
+  assert.equal(taskmasterAssessmentRequestBusy(base, false, true), true);
+  assert.equal(taskmasterAssessmentRequestBusy({ ...base, activeAttempt: {
+    id: 1, state: "queued", queuedAt: "t0", startedAt: null, trigger: "manual", provider: "codex", model: "gpt-x",
+  } }, false, false), true);
+  assert.equal(formatTaskmasterAssessmentAction(queued.assessment), "Retry assessment");
+  assert.equal(formatTaskmasterAssessmentAction(running.assessment), "Retry assessment");
+  assert.equal(formatTaskmasterAssessmentAction(null), "Assess workflow");
+});
+
+test("assessment recommendation focus happens only once for a new actionable proposal", () => {
+  const surfaced = new Set<string>();
+  assert.equal(shouldFocusAssessmentRecommendation("rec-1", "proposed", surfaced), true);
+  assert.equal(shouldFocusAssessmentRecommendation("rec-1", "proposed", surfaced), false);
+  assert.equal(shouldFocusAssessmentRecommendation("rec-2", "dismissed", surfaced), false);
+  assert.equal(surfaced.has("rec-2"), true);
 });

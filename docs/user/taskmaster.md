@@ -91,7 +91,8 @@ The report shows cited repository excerpts, Brain page provenance, and checks
 that remain unverified. Bounded excerpts establish what was supplied; omitted
 files remain unknown. A reused report is labeled explicitly. Assess workflow
 works with Background discovery off and does not spend its daily allowance or
-cooldown. An active Brain recommendation must be handled first.
+cooldown. An active Brain recommendation must be handled first. **Retry assessment**
+can recover an interrupted assessment; a live run is not started twice.
 
 A proposed improvement uses the existing recommendation card and **Fix with AI**
 action. Assessment itself does not edit files, run repository checks, or start a

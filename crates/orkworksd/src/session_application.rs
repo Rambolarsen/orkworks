@@ -90,6 +90,18 @@ struct RecommendationDeliveryTarget {
     workspace: RecommendationDeliveryWorkspace,
 }
 
+fn completion_summary(recommendation: &Recommendation, summary: Option<String>) -> String {
+    if recommendation
+        .assessment
+        .as_ref()
+        .is_some_and(|provenance| provenance.access_redacted)
+    {
+        "Taskmaster fix completed.".into()
+    } else {
+        summary.unwrap_or_else(|| "Taskmaster fix completed.".into())
+    }
+}
+
 struct RecommendationDeliveryGuard((PathBuf, String));
 
 impl RecommendationDeliveryGuard {
@@ -1139,6 +1151,8 @@ impl SessionApplication {
         else {
             return Ok(None);
         };
+        crate::taskmaster::assessment_access::ensure_mutable(&existing)
+            .map_err(RecommendationPacketError::Store)?;
         if existing.recommendation_type != RecommendationType::ImproveWorkflow
             || existing.source_session_ids.len() != 1
             || existing.source_session_ids[0] != source_session_id
@@ -1439,7 +1453,7 @@ impl SessionApplication {
                 status: "working".into(),
                 observed_status: Some("working".into()),
                 confidence: None,
-                summary: Some(summary.unwrap_or_else(|| "Taskmaster fix completed.".into())),
+                summary: Some(completion_summary(&existing, summary)),
                 source: Some("agent".into()),
                 recommendation_id: Some(id.to_string()),
             };
@@ -1479,7 +1493,7 @@ impl SessionApplication {
             status: "working".into(),
             observed_status: Some("working".into()),
             confidence: None,
-            summary: Some(summary.unwrap_or_else(|| "Taskmaster fix completed.".into())),
+            summary: Some(completion_summary(&existing, summary)),
             source: Some("agent".into()),
             recommendation_id: Some(id.to_string()),
         };
@@ -14457,6 +14471,103 @@ mod tests {
             completions[0].summary.as_deref(),
             Some("Verified the fix in the target session.")
         );
+    }
+
+    #[test]
+    fn redacted_delivered_assessment_completion_is_target_bound_and_never_persists_supplied_summary(
+    ) {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let recommendation_id = proposed_recommendation_id(&state, "complete-redacted-assessment");
+        let session_id = "complete-redacted-target";
+        write_alive_session(&state, root.path(), session_id);
+
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let store = &workspace.as_ref().unwrap().recommendation_store;
+            store
+                .begin_execution(
+                    &recommendation_id,
+                    session_id.into(),
+                    "2026-09-07T10:00:00Z".into(),
+                )
+                .unwrap();
+            store
+                .complete_execution(&recommendation_id, "2026-09-07T10:00:01Z".into())
+                .unwrap();
+            let mut recommendation = store.get(&recommendation_id).unwrap().unwrap();
+            recommendation.assessment = Some(crate::taskmaster::AssessmentProvenance {
+                access_redacted: false,
+                id: "assessment-redacted-later".into(),
+                input_fingerprint: "sha256:assessment-input".into(),
+                context_level: crate::taskmaster::runtime::ContextLevel::WorkflowContext,
+                excluded_paths: Vec::new(),
+            });
+            crate::taskmaster::assessment_access::redact_recommendation(
+                &mut recommendation,
+                &crate::taskmaster::runtime::TaskmasterSettings {
+                    context_level: crate::taskmaster::runtime::ContextLevel::SessionObservations,
+                    ..crate::taskmaster::runtime::TaskmasterSettings::default()
+                },
+            );
+            recommendation.source_session_ids = vec![session_id.into()];
+            store.put(&recommendation).unwrap();
+        }
+
+        let application = SessionApplication::new(state.clone());
+        assert!(matches!(
+            application.report_completion_packet(
+                &recommendation_id,
+                session_id,
+                crate::taskmaster::completion_tests::test_packet(),
+            ),
+            Err(RecommendationPacketError::Store(
+                crate::taskmaster::store::StoreError::InvalidTransition
+            ))
+        ));
+        assert!(matches!(
+            application.complete_recommendation_with_packet(
+                &recommendation_id,
+                "another-session",
+                Some("private generated completion detail".into()),
+                None,
+            ),
+            Err(RecommendationCompleteError::Conflict)
+        ));
+        let completed = application
+            .complete_recommendation_with_packet(
+                &recommendation_id,
+                session_id,
+                Some("private generated completion detail".into()),
+                None,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(completed.status, RecommendationStatus::Completed);
+        assert!(completed.assessment.unwrap().access_redacted);
+
+        let events = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_events(session_id);
+        let completions: Vec<_> = events
+            .iter()
+            .filter(|event| event.event_type == "taskmaster_fix_completed")
+            .collect();
+        assert_eq!(completions.len(), 1);
+        assert_eq!(
+            completions[0].summary.as_deref(),
+            Some("Taskmaster fix completed.")
+        );
+        assert!(!completions[0]
+            .summary
+            .as_deref()
+            .unwrap()
+            .contains("private generated completion detail"));
     }
 
     #[test]

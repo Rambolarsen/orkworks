@@ -194,6 +194,7 @@ impl AssessmentFixture {
             rec_id,
             id,
             None,
+            0,
             "2026-10-17T00:00:00Z",
         );
         AssessmentRecord {
@@ -1047,6 +1048,9 @@ async fn successive_input_invalidations_extend_the_unique_assessment_chain() {
     let workspace = fixture.state.workspace.lock().unwrap();
     let store = &workspace.as_ref().unwrap().recommendation_store;
     let third = store.get(&third_id).unwrap().unwrap();
+    assert_eq!(store.get(&old_id).unwrap().unwrap().chain_depth, 0);
+    assert_eq!(store.get(&successor_id).unwrap().unwrap().chain_depth, 1);
+    assert_eq!(third.chain_depth, 2);
     assert_eq!(
         third
             .workflow_improvement
@@ -1055,4 +1059,88 @@ async fn successive_input_invalidations_extend_the_unique_assessment_chain() {
         Some(successor_id.as_str())
     );
     assert_ne!(third_id, old_id);
+}
+
+#[test]
+fn recovery_reconciliation_serializes_with_lifecycle_and_a_second_access_reduction() {
+    use crate::taskmaster::runtime::ContextLevel;
+    use crate::taskmaster::{RecommendationStatus, RepositoryEvidence};
+    let directory = tempfile::tempdir().unwrap();
+    let state = crate::test_support::test_app_state_with_workspace(directory.path());
+    let (workspace_path, metadata_root) = {
+        let workspace = state.workspace.lock().unwrap();
+        let workspace = workspace.as_ref().unwrap();
+        (workspace.path.clone(), workspace.metadata.root_path())
+    };
+    let runtime_root = directory.path().join("policy-runtime");
+    let runtime = Arc::new(TaskmasterRuntime::open(runtime_root));
+    let (_, mut recommendation) = crate::taskmaster::assessment_report::tests::proposal();
+    recommendation.status = RecommendationStatus::Accepted;
+    recommendation.target_session_id = Some("delivered-target".into());
+    recommendation.assessment.as_mut().unwrap().context_level = ContextLevel::SourceCode;
+    recommendation.repository_evidence.push(RepositoryEvidence {
+        path: "src/private.rs".into(),
+        sha256: "source-hash".into(),
+        excerpt: "private source".into(),
+        observed_at: "then".into(),
+    });
+    let held_workspace = state.workspace.lock().unwrap();
+    let store = &held_workspace.as_ref().unwrap().recommendation_store;
+    store.put(&recommendation).unwrap();
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (done_tx, done_rx) = std::sync::mpsc::channel();
+    let first_state = state.clone();
+    let first_runtime = runtime.clone();
+    let first_path = workspace_path.clone();
+    let first_root = metadata_root.clone();
+    let first = std::thread::spawn(move || {
+        started_tx.send(()).unwrap();
+        let result =
+            reconcile_current_workspace(&first_state, &first_runtime, &first_path, &first_root);
+        done_tx.send(result).unwrap();
+    });
+    started_rx.recv().unwrap();
+    let finished_while_locked = done_rx.recv_timeout(Duration::from_millis(150)).ok();
+    // A delivered lifecycle change under the same lock must not be replaced
+    // by a reconciliation clone captured before it.
+    store
+        .complete_accepted(&recommendation.id, "completed-at".into())
+        .unwrap();
+    let second_state = state.clone();
+    let second_runtime = runtime.clone();
+    let second = std::thread::spawn(move || {
+        second_runtime.replace_settings_with_reconcile(
+            TaskmasterSettings {
+                context_level: ContextLevel::SessionObservations,
+                ..TaskmasterSettings::default()
+            },
+            |_, current| {
+                crate::taskmaster::assessment_access::reconcile_settings(&second_state, current)
+            },
+        )
+    });
+    drop(held_workspace);
+    first.join().unwrap();
+    second.join().unwrap().unwrap();
+    assert!(
+        finished_while_locked.is_none(),
+        "recovery must wait for the active workspace lock before reading or replacing metadata"
+    );
+    done_rx.recv().unwrap().unwrap();
+    let final_record = state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .recommendation_store
+        .get(&recommendation.id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(final_record.status, RecommendationStatus::Completed);
+    assert!(
+        final_record.repository_evidence.is_empty(),
+        "the second narrower policy must remain durable"
+    );
+    assert!(final_record.assessment.unwrap().access_redacted);
 }

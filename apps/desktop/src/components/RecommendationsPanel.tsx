@@ -22,11 +22,14 @@ import {
   type PanelOriginFilter,
 } from "../taskmaster.ts";
 import {
+  formatTaskmasterAssessmentAction,
   formatTaskmasterManualRequest,
   formatTaskmasterProposalCounts,
   formatTaskmasterRunStatus,
   formatTaskmasterRunTimestamp,
+  shouldFocusAssessmentRecommendation,
   taskmasterAnalysisBusy,
+  taskmasterAssessmentRequestBusy,
   taskmasterAssessmentForWorkspace,
   type TaskmasterRunStatus,
 } from "../taskmasterSettings.ts";
@@ -258,6 +261,7 @@ function RecommendationsPanel({ hasWorkspace, workspacePath, taskmasterReady, ca
   const [runStatusError, setRunStatusError] = useState<string>();
   const refreshGeneration = useRef(0);
   const workspaceGeneration = useRef(0);
+  const surfacedAssessmentRecommendationIds = useRef(new Set<string>());
   const workspacePathRef = useRef(workspacePath);
   const trackedWorkspacePath = useRef(workspacePath);
   const [loadedWorkspacePath, setLoadedWorkspacePath] = useState<string | null>(null);
@@ -281,7 +285,14 @@ function RecommendationsPanel({ hasWorkspace, workspacePath, taskmasterReady, ca
             if (generation !== refreshGeneration.current || workspacePathRef.current !== workspacePath) return;
             setRecommendations((current) => current.some((item) => item.id === recommendation.id)
               ? current : [...current, recommendation]);
-            setOriginFilter("analysis");
+            if (
+              isActiveBrainRecommendation(recommendation)
+              && shouldFocusAssessmentRecommendation(
+                recommendation.id,
+                recommendation.status,
+                surfacedAssessmentRecommendationIds.current,
+              )
+            ) setOriginFilter("analysis");
           }).catch(() => undefined);
         }
       }).catch((cause: unknown) => {
@@ -339,6 +350,7 @@ function RecommendationsPanel({ hasWorkspace, workspacePath, taskmasterReady, ca
     trackedWorkspacePath.current = workspacePath;
     ++refreshGeneration.current;
     ++workspaceGeneration.current;
+    surfacedAssessmentRecommendationIds.current.clear();
     setLoadedWorkspacePath(null);
     setRecommendations([]);
     setDiagnostics([]);
@@ -471,7 +483,7 @@ function RecommendationsPanel({ hasWorkspace, workspacePath, taskmasterReady, ca
   }
 
   async function assessWorkflow() {
-    if (!hasWorkspace || !taskmasterReady || activityBusy) return;
+    if (!hasWorkspace || !taskmasterReady || assessmentRequestBusy) return;
     const generation = workspaceGeneration.current;
     const requestedWorkspacePath = workspacePath;
     setAssessmentBusy(true);
@@ -487,6 +499,7 @@ function RecommendationsPanel({ hasWorkspace, workspacePath, taskmasterReady, ca
         if (workspacePathRef.current !== requestedWorkspacePath || generation !== workspaceGeneration.current) return;
         setRecommendations((current) => current.some((item) => item.id === recommendation.id)
           ? current : [...current, recommendation]);
+        surfacedAssessmentRecommendationIds.current.add(recommendation.id);
         setOriginFilter("analysis");
       }
       const messages = {
@@ -578,6 +591,7 @@ function RecommendationsPanel({ hasWorkspace, workspacePath, taskmasterReady, ca
   const currentRunStatus = runStatus?.workspacePath === workspacePath ? runStatus : null;
   const assessmentStatus = workspacePath ? taskmasterAssessmentForWorkspace(currentRunStatus, workspacePath) : null;
   const activityBusy = analysisBusy || assessmentBusy || taskmasterAnalysisBusy(currentRunStatus);
+  const assessmentRequestBusy = taskmasterAssessmentRequestBusy(currentRunStatus, analysisBusy, assessmentBusy);
   const proposalCountsSummary = formatTaskmasterProposalCounts(currentRunStatus?.activeAttempt ? null : currentRunStatus?.latestOutcome ?? null);
   const visibleRecommendations = hasWorkspace && taskmasterReady && loadedWorkspacePath === workspacePath
     ? filterPanelRecommendations(
@@ -609,8 +623,8 @@ function RecommendationsPanel({ hasWorkspace, workspacePath, taskmasterReady, ca
           <button type="button" disabled={!hasWorkspace || !taskmasterReady || activityBusy} onClick={() => void analyzeNow()}>
             {analysisBusy ? "Requesting…" : "Analyze now"}
           </button>
-          <button type="button" disabled={!hasWorkspace || !taskmasterReady || activityBusy} onClick={() => void assessWorkflow()}>
-            {assessmentBusy || assessmentStatus?.state === "queued" || assessmentStatus?.state === "running" ? "Assessing…" : "Assess workflow"}
+          <button type="button" disabled={!hasWorkspace || !taskmasterReady || assessmentRequestBusy} onClick={() => void assessWorkflow()}>
+            {assessmentBusy ? "Assessing…" : formatTaskmasterAssessmentAction(assessmentStatus)}
           </button>
           <button type="button" disabled={!hasWorkspace || !taskmasterReady || auditBusy} onClick={() => void runAudit()}>
             {auditBusy ? "Auditing…" : "Run audit"}

@@ -256,9 +256,47 @@ fn contains_imperative_command(text: &str) -> bool {
                     words[index - 1],
                     "please" | "then" | "and" | "must" | "should" | "can" | "you" | "to"
                 );
-            imperative_position
-                && matches!(pair[0], "run" | "execute" | "invoke")
-                && pair[1] != "through"
+            if !imperative_position
+                || !matches!(
+                    pair[0],
+                    "run"
+                        | "execute"
+                        | "invoke"
+                        | "use"
+                        | "call"
+                        | "launch"
+                        | "start"
+                        | "try"
+                        | "issue"
+                        | "type"
+                        | "enter"
+                )
+            {
+                return false;
+            }
+            if pair[0] == "run" && pair[1] == "through" {
+                return false;
+            }
+            // 'Use repository evidence' describes grounding, while 'Use TOOL
+            // SUBCOMMAND' is still an executable instruction. Skip an article
+            // without exempting the executable that follows it.
+            let target = if matches!(pair[1], "a" | "an" | "the") {
+                words.get(index + 2).copied().unwrap_or("")
+            } else {
+                pair[1]
+            };
+            !(pair[0] == "use"
+                && matches!(
+                    target,
+                    "repository"
+                        | "evidence"
+                        | "guidance"
+                        | "context"
+                        | "existing"
+                        | "supplied"
+                        | "relevant"
+                        | "current"
+                ))
         })
     })
 }
@@ -597,6 +635,13 @@ mod tests {
             "You should execute unknowncli frobnicate",
             "Run the documentation check after implementation.",
             "Run kubectl apply -f deployment.yaml",
+            "Use kubectl apply -f deployment.yaml",
+            "Please call go test ./...",
+            "You should launch terraform refresh",
+            "Please use unknowncli frobnicate",
+            "Use widget frobnicate",
+            "Use the widget frobnicate",
+            "Try widget frobnicate",
         ] {
             let mut value = proposed();
             value["summary"] = json!(text);
@@ -622,6 +667,7 @@ mod tests {
             "Compare run evidence.",
             "Explain how tests should pass.",
             "Run through the plan.",
+            "Use repository evidence to prioritize the next improvement.",
             "Tests have not been verified.",
             "Check whether tests pass.",
         ] {

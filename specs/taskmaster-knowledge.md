@@ -307,7 +307,12 @@ content, including titles, summaries, reasons, `proposedImprovement`, expected
 benefit, and report summary/proposal text. Clear the affected excerpts and
 source-derived display text, replacing required strings with a generic
 access-redacted placeholder. Preserve record identity, lifecycle transitions,
-dismissal decisions, and outcome history.
+dismissal decisions, and outcome history. The authenticated target session may
+still record completion of an already-delivered accepted fix through the existing
+completion route; this grants no new execution authority. A redacted completion
+records generic outcome text, retains existing packet audit identities, and permits
+only a matching idempotent completion retry. New actions, initial packet attachment,
+and packet replacement remain blocked for redacted records.
 Ordinary evidence, provider, bundle, or recommendation-input changes still
 invalidate reports and supersede proposed recommendations, but do not redact
 audit snapshots unless they also narrow permitted access.
