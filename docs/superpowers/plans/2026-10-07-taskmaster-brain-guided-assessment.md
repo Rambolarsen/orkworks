@@ -67,7 +67,13 @@ tags: ["orkworks", "plans"]
 
 ## Required gates before implementation
 
-1. Obtain written-spec review and record acceptance of the proposed assessment contract.
+The owner approved the intended user outcome on 2026-10-17. This authorizes
+independent evidence-quality repair under #909 and preparation of the concrete
+review artifacts; the explicitly proposed assessment protocol still needs owner
+review before dependent runtime implementation. Do not request approval again
+for unchanged accepted portions after that review.
+
+1. Obtain written-spec review and record acceptance of the proposed assessment contract and [ADR 0085](../../adr/0085-taskmaster-assessment-and-analysis-outcomes.md).
 2. Obtain explicit authorization to begin implementation and approval of the protocol ADR approach.
 3. Recheck live dependencies, including #529's Brain-inference eligibility prerequisite and #745's recommendation-lifecycle alignment. The signed bundle payload from #529 must carry supported `privacyPolicyVersion` and `taskmaster-assessment-v1` capability fields, with the manifest policy value matching the payload. Verify its tracked acceptance criteria cover these fields and the signed packaged-starter envelope/manifest attestation before implementation, and resolve any gap in #529 first.
 4. Only then begin Tasks 1–6. Before #529 supplies an eligible bundle, all Brain-backed inference must fail closed.
@@ -182,3 +188,72 @@ tags: ["orkworks", "plans"]
 - **New review blind spots investigated:** recommendation invalidation must permit a later valid successor without bypassing dismissal/acceptance; access narrowing must redact generated prose as well as evidence excerpts; and live write failure must keep a pending proposal hidden and non-actionable until reconciliation. The spec and plan now define narrow successor identity, full generated-text redaction, and pending-transaction handling across all response/use paths.
 - **Dependency facts:** #529 is open and requires the strict privacy policy, generated starter snapshot, and verified signed publication, but its current acceptance criteria do not name `privacyPolicyVersion`, the assessment capability marker, or a signed starter envelope with matching manifest attestation. Resolve those tracked dependency gaps before runtime implementation; #529 remains a prerequisite for Brain inference availability. #503 is the accepted Taskmaster knowledge baseline. #745 is open and includes a requirement for compatibility with existing `improve_workflow` recommendations; reconcile its lifecycle contract with this assessment-only terminal `superseded` transition before implementation, without waiting for unrelated configuration-history work.
 - **Unresolved external gate:** Brain-backed inference cannot resume until #529 supplies an eligible signed bundle. A proposal also stays on the existing user-approved Fix with AI path; no assessment result grants execution permission.
+
+## 2026-10-17 execution update and scoped review
+
+### Current dependency evidence
+
+- #529 is closed, with #902 recording signed production publication and packaged
+  acceptance. A local diagnostic admitted the active production proof and
+  included the distilled assessment playbook. The runtime eligibility/capability
+  checks in the specification remain mandatory.
+- #745 is closed. Assessment retains the existing `improve_workflow` identity,
+  dedupe/dismissal and Fix with AI seams; no learning, configuration mutation or
+  orchestration runtime is added.
+- Ordinary analysis was reproduced returning empty lists, not losing proposals
+  in the UI. Glyph-only evidence can occupy its newest-observation window.
+  [#909](https://github.com/Rambolarsen/orkworks/issues/909) is the independent
+  bounded fix. It changes only supplied observation selection/context, not
+  durable observation history or lifecycle.
+
+### Delivery order and acceptance mapping
+
+1. Complete #909 with a shared observation selector for prompt and retrieval,
+   filtering before the 16-entry bound and including kind/time. Tests exercise
+   noisy newest entries, Unicode, ordering, empty input and unchanged history.
+2. Obtain one owner review of the current written specification and ADR 0085.
+   This is the remaining dependent-runtime gate. Record approval in the same
+   artifacts; do not reopen approved scope or require another plan approval.
+3. Execute Tasks 1–3 using ADR 0085's exact version-1 response envelope and
+   complete capped report. Add strict output/citation tests, separate cache
+   identity, shared-lease admission, pending-upsert/commit crash recovery and
+   legacy/corrupt/unknown-version cases. Success means either one grounded
+   recommendation or a committed explained no-proposal report.
+4. Carry Task 3's consumer revalidation, global/workspace narrowing across
+   unopened workspaces and stale derived-recommendation successor rules through
+   Task 4's authenticated routes and Task 5's bridge/UI. Add ordinary-analysis created/suppressed counts
+   and fixed manual skip dispositions per ADR 0085; preserve the latest actual
+   outcome on cache hits. Keep all model prose workspace-local. UI tests verify
+   no-proposal reasons, cache reuse, failure, workspace switching and existing
+   Fix with AI behavior.
+5. Complete Task 6 and repository verification, current-code review, PR checks
+   and merge/cleanup only within the reviewed scope. Keep #769 open until all
+   assessment acceptance criteria are implemented and verified; #909 can close
+   independently when its fix lands.
+
+Every original task remains governed by the authoritative specification,
+especially complete-input revalidation, transaction cap, privacy redaction and
+all recommendation-consumer gates. No runtime assessment work starts merely
+because this plan exists.
+
+### Plan review disposition
+
+**Ready for owner protocol review; dependent runtime not started.** The original
+plan covers evaluator, persistence, admission, consumer fencing, transport/UI and
+verification. This update resolves outdated dependency assumptions and adds the
+reported observation-quality and ordinary-outcome gaps without weakening the
+canonical contract. The production code diff currently covers only #909.
+
+| Dimension | Rating | Evidence and treatment |
+| --- | --- | --- |
+| Dependencies | 2 | #529 and #745 are closed; active signed capability still requires runtime proof. |
+| Blast radius | 4 | Recommendation list/get, settings narrowing, admission and handoff consumers all need assessment fencing; exercise every surface. |
+| State changes | 3 | Additive optional capped report/status with pending upsert and redaction; test legacy reads and fail-closed corruption. |
+| Reversibility | 5 | Before any report exists, revert is local. After rollout, keep consumer fences and disable new assessment admission for recovery; forward-fix instead of binary downgrade. Old binaries cannot enforce the new lifecycle. |
+| Uncertainty | 3 | Existing transport/store seams are verified; full assessment crash and access-reduction behavior is not implemented yet. |
+
+Total: 17/25. This records risk and treatment, not approval. Before first report
+creation, ordinary rollback is possible. After report creation, the supported
+recovery is to disable new assessment admission while preserving report consumers,
+then forward-fix; do not downgrade or hand-edit metadata. Confirm this operational
+boundary in the owner review. It does not block independent nonpersistent #909.

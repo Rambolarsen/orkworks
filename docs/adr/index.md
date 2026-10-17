@@ -93,3 +93,5 @@ Decision records and their original rationale and consequences.
 - [Fixed inspector overlay and pin](0083-inspector-overlay-and-pin.md) — Overlay, pin, persistence, and focus-scoped dismissal.
 
 - [Recommendations in the main view](0084-recommendations-main-view.md) — Central Recommendations placement and return behavior.
+
+- [Taskmaster assessment reports and explicit analysis outcomes](0085-taskmaster-assessment-and-analysis-outcomes.md) — Proposed report protocol, recovery and explicit empty/cache outcomes.

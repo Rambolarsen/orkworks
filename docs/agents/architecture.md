@@ -223,6 +223,12 @@ unsupported effort is not ready for evaluation. Settings reject unsupported effo
 instead of silently discarding it. Model and effort string bounds are shared with
 the custom transport: nonempty, at most 256 UTF-8 bytes, no control characters,
 and no model trimming or prefix rewriting.
+Ordinary Taskmaster analysis uses the latest 16 observations whose evidence
+contains Unicode letters or numbers. Filtering precedes the bound, and prompt
+construction and knowledge retrieval share that window. The prompt includes
+kind and observation time without treating historical friction as unresolved.
+The stored observation history remains unchanged.
+
 Taskmaster status exposes the latest analysis outcome per workspace separately
 from provider/configuration availability. Recommendations shows queued or
 running state and the latest result; Settings includes provider/model,
