@@ -3704,6 +3704,12 @@ mod tests {
             .unwrap()
             .unwrap()
             .is_err());
+        // Cancellation signals the owned process synchronously, but the
+        // dedicated reaper thread may not have collected its zombie yet.
+        // Keep cleanup bounded by the same deadline as cancellation itself.
+        while unsafe { libc::kill(pid, 0) } == 0 && tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
         assert_ne!(unsafe { libc::kill(pid, 0) }, 0);
         assert!(!dir.path().join("tui-pid").exists());
         assert!(!super::super::terminal_runtime::has_workflow_report_capability(&id));

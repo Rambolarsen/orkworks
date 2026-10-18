@@ -556,17 +556,38 @@ mod tests {
 
     #[test]
     fn anchors_a_workspace_relative_hook_path_against_the_workspace_root() {
+        const CHILD_ENV: &str = "ORKWORKS_TEST_PLAN_PATH_CWD_CHILD";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            // CWD is process-wide. Keep the alternate CWD in a child so this
+            // test cannot strand concurrent tests in a deleted TempDir.
+            let sibling = tempfile::tempdir().unwrap();
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "plan_handoff::tests::anchors_a_workspace_relative_hook_path_against_the_workspace_root",
+                    "--nocapture",
+                ])
+                .env(CHILD_ENV, "1")
+                .current_dir(sibling.path())
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "workspace-relative path child failed: {output:?}"
+            );
+            return;
+        }
         let workspace = tempfile::tempdir().unwrap();
         let plan_dir = workspace.path().join("docs/superpowers/plans");
         fs::create_dir_all(&plan_dir).unwrap();
         let plan = plan_dir.join("relative.md");
         fs::write(&plan, "# plan").unwrap();
 
-        // A relative hook input must resolve against the workspace, not
-        // orkworksd's process CWD. Switch CWD to a sibling of the workspace
-        // so a CWD-anchored resolve would land outside the workspace.
-        let sibling = tempfile::tempdir().unwrap();
-        std::env::set_current_dir(sibling.path()).unwrap();
+        // The parent starts this child outside the workspace. A CWD-anchored
+        // resolve must fail while the workspace-relative resolve succeeds.
+        assert!(!std::env::current_dir()
+            .unwrap()
+            .starts_with(workspace.path()));
         assert_eq!(
             Path::new(
                 normalize_reported_plan_path(
