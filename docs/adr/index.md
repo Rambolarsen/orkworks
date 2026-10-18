@@ -95,3 +95,5 @@ Decision records and their original rationale and consequences.
 - [Recommendations in the main view](0084-recommendations-main-view.md) — Central Recommendations placement and return behavior.
 
 - [Taskmaster assessment reports and explicit analysis outcomes](0085-taskmaster-assessment-and-analysis-outcomes.md) — Proposed report protocol, recovery and explicit empty/cache outcomes.
+
+- [0086: Repository-led Taskmaster assessment](0086-repository-led-taskmaster-assessment.md) — Proposed two-stage assessment and persisted evidence identity.

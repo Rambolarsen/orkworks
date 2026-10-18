@@ -167,3 +167,5 @@ Dated design records; these do not establish current product behavior.
 - [Hierarchy snapshot and navigation transport](2026-10-17-hierarchy-projection-transport-design.md) — Proposed snapshot ordering, exact navigation targets and lossless display encodings for #746.
 
 - [Hierarchy projection payload and read boundary](2026-10-17-hierarchy-projection-payload-design.md) — Proposed exact overview records, read authority, finite budgets and synthetic payload fixtures.
+
+- [Repository-led Brain workflow assessment](2026-10-18-repository-led-brain-assessment.md) — Proposed bounded evidence selection, input lifecycle and implementation plan.
