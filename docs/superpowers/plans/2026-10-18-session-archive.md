@@ -157,3 +157,11 @@ caught an OKF status vocabulary error; that metadata was corrected and the full
 docs build, diff check, doc-check and worktree-check passed separately. Existing
 VitePress circular/chunk-size warnings are unrelated to this diff. The authenticated
 Taskmaster API returned no active recommendations, so no tie-off was needed.
+
+Final integration verification: merged current `origin/main` (7e6a9264), resolving
+only two documentation index conflicts. The archive code diff remained unchanged
+(SHA-256 `6e19bbceffd2c0149f9ec9d5ccf74949428dde28fe5b0b82186b0b8dab8e1b70`).
+A clean full `bash scripts/verify-repo.sh` run under repository-pinned Node
+22.23.3 passed every stage, including 2,139 Rust unit tests (9 ignored), the
+integration suites, desktop tests/build, docs build, diff, docs and worktree checks.
+The host shell's Node 26 was not used for that final run.

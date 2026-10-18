@@ -273,8 +273,27 @@ Manual workflow assessment uses separate `taskmaster/assessment.rs` scheduling,
 `POST /taskmaster/assess-workflow`. It shares the installation analysis lease and
 selected provider/context, requires signed assessment capability, and bypasses
 background quota/cooldown. Its separate run-status projection exposes only a
-currently revalidated report. One version-1 `assessment.json` beneath workspace
-metadata holds at most 64 KiB, including any pending recommendation upsert.
+currently revalidated report. Manual assessment first supplies repository-led
+workflow seeds and a permitted catalog, then decodes one strict discovery selection
+before at most one final call through the same captured provider/model/effort.
+`assessment_context.rs` owns bounded prefixes, component-by-component safe opens,
+aggregate evidence limits and manifest reconstruction. Every selected target
+includes its governing ancestor AGENTS.md/CLAUDE.md chain under those same limits;
+inaccessible or incompletely enumerated instructions prevent a proposal. Workspace
+and native relative paths must be valid UTF-8 and reconstruct without replacement
+characters or normalization. `assessment_discovery.rs`
+rejects arbitrary paths and unknown references. Progress exposes only fixed
+`discovering`, `reading_evidence` and `assessing` phases.
+One explicitly decoded format-1/2 `assessment.json` beneath workspace metadata
+holds at most 64 KiB, including any pending recommendation upsert. Format 2 stores
+a bounded input manifest with catalog digest/completeness, seed/follow-up prefix
+and excerpt identities, exact selection and discovery digest, without uncited
+contents, catalog listings, discovery prose or full prompts. Every consumer
+re-enumerates current permission data and reconstructs that selection; stale
+uncited inputs and catalog changes fence reuse and recommendations. Legacy reports
+are not reusable, legacy proposed recommendations are superseded on state-changing
+admission, and accepted/executing legacy records block new assessment until resolved
+through existing authorized lifecycle routes. Ordinary analysis is unchanged.
 Startup and immediate commit-error recovery replay the stable upsert before
 publishing success; pending consumers fail closed.
 
@@ -561,13 +580,18 @@ identity. See [ADR 0069](../adr/0069-codex-session-id-hook-report-mailbox.md).
 
 `POST /sessions` now accepts `{ harnessId, model, initialPrompt }`. The renderer's inline New agent session composer labels harness choices as coding tools, can fall back to the default shell session if harness metadata is temporarily unavailable, and still sends the selected harness config id so session rows and remembered-session resume behavior remain compatible. The response returns as soon as the `"creating"` metadata record is persisted, before the harness has actually spawned — the PTY spawn runs as a detached background task, mirroring how `POST /sessions/:id/resume` and daemon-restart reconciliation already leave a session observable in `"creating"`. A spawn failure surfaces asynchronously as `status: "error"`, observed via the existing `GET /sessions` poll, rather than as a synchronous error response (issue #302).
 
-For a new Codex or OpenCode session with an initial prompt, the runtime waits
+For a new Codex, OpenCode, or Claude Code session with an initial prompt, the runtime waits
 for the TUI to enable bracketed paste (`ESC[?2004h`) and for a per-harness
 quiet-time settle before writing the prompt as one bracketed paste. Codex
 keeps a 200ms settle. OpenCode requires 1.5s since paste-enable: its TUI
 enables bracketed paste ~0.1s after spawn but starts reading input only with
 its first real render ~1.1s in, and input written in between is silently
-discarded (opencode v2.0.32). The runtime sends Enter
+discarded (opencode v2.0.32). Claude Code likewise drops input for roughly
+the first 0.5s after paste-enable (measured on 2.1.292) and uses the same 1.5s
+floor. In an untrusted folder Claude first shows a trust chooser (default
+"No, exit") that also enables bracketed paste; the runtime recognizes it and
+holds all delivery, including the hard timeout, until it tears down
+(`ESC[?2004l`) and the editor re-enables paste. The runtime sends Enter
 separately, 200ms after the paste write completes, ahead of later queued input.
 This avoids cooked PTY newline conversion, startup input loss, and Codex's
 paste-burst Enter suppression. Resize and kill controls bypass waiting prompt

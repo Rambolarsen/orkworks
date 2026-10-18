@@ -5,6 +5,7 @@ use super::{ProviderDefinition, ProviderOperationError, ProviderOperationErrorCo
 use serde_json::{json, Value};
 use std::{fs, io::Read, path::Path, process::Command};
 
+mod response_constraints;
 #[cfg(all(test, unix))]
 mod transport_tests;
 
@@ -61,6 +62,33 @@ pub(super) fn prepare(
         Vec::new()
     };
     prepare_with_preferences(definition, model, effort, prompt, &preferences)
+}
+
+pub(super) fn prepare_with_response_shape(
+    definition: &ProviderDefinition,
+    model: &str,
+    effort: Option<&str>,
+    prompt: String,
+    shape: Option<super::native_inference::NativeResponseShape>,
+) -> Result<PreparedInference, ProviderOperationError> {
+    apply_response_shape(prepare(definition, model, effort, prompt)?, shape)
+}
+
+fn apply_response_shape(
+    mut invocation: PreparedInference,
+    shape: Option<super::native_inference::NativeResponseShape>,
+) -> Result<PreparedInference, ProviderOperationError> {
+    if let Some(shape) = shape {
+        if !matches!(invocation.profile, Profile::Codex) {
+            return Err(ProviderOperationError {
+                code: ProviderOperationErrorCode::UnsupportedCapability,
+                message: "native response constraints require the Codex profile".into(),
+            });
+        }
+        let path = response_constraints::write(shape, invocation._directory.path())?;
+        invocation.command.arg("--output-schema").arg(path);
+    }
+    Ok(invocation)
 }
 
 pub(crate) fn valid_native_model(model: &str) -> bool {
@@ -402,6 +430,21 @@ fn prepare_with_preferences(
     })
 }
 
+#[cfg(test)]
+fn prepare_with_preferences_and_shape(
+    definition: &ProviderDefinition,
+    model: &str,
+    effort: Option<&str>,
+    prompt: String,
+    preferences: &[String],
+    shape: Option<super::native_inference::NativeResponseShape>,
+) -> Result<PreparedInference, ProviderOperationError> {
+    apply_response_shape(
+        prepare_with_preferences(definition, model, effort, prompt, preferences)?,
+        shape,
+    )
+}
+
 fn codex_catalog(model: &str) -> Value {
     // Explicit selection only: no other model is present to route/fall back to.
     // This describes an inference task, not a coding-agent tool configuration.
@@ -626,6 +669,219 @@ mod tests {
         ProviderManager::for_tests(ProviderSettingsPayload::default(), vec![])
             .definition(id)
             .unwrap()
+    }
+
+    #[test]
+    #[ignore = "Explicit selected-model response-schema compatibility probe"]
+    fn selected_provider_response_shape_probe() {
+        use crate::providers::native_inference::{NativeProfile, NativeResponseShape};
+        let selection: Value = serde_json::from_slice(
+            &fs::read(std::env::var("ORKWORKS_ASSESSMENT_SELECTION_FILE").unwrap()).unwrap(),
+        )
+        .unwrap();
+        let selection = &selection["selection"];
+        assert_eq!(selection["provider"], "codex");
+        let output =
+            std::path::PathBuf::from(std::env::var("ORKWORKS_RESPONSE_SHAPE_PROBE_DIR").unwrap());
+        assert!(!output.exists(), "use a fresh explicit evidence directory");
+        fs::create_dir_all(&output).unwrap();
+        fs::write(
+            output.join("selection.json"),
+            serde_json::to_vec_pretty(selection).unwrap(),
+        )
+        .unwrap();
+        for (shape, protocol, outcome) in [
+            (
+                NativeResponseShape::DiscoveryV1,
+                "taskmaster-discovery-v1",
+                "no_candidate",
+            ),
+            (
+                NativeResponseShape::AssessmentV1,
+                "taskmaster-assessment-v1",
+                "no_proposal",
+            ),
+        ] {
+            let prompt = json!({"protocol":protocol, "instruction":format!("This isolated compatibility probe supplies no repository facts or knowledge pages. Return exactly the {outcome} outcome with empty citation arrays, no candidate/proposal and an explained lack of evidence. Do not claim that checks were performed. Obey the response schema; all nullable keys must be present.")}).to_string();
+            let mut invocation = super::prepare_with_response_shape(
+                &NativeProfile::Codex.definition(),
+                selection["model"].as_str().unwrap(),
+                selection["reasoningEffort"].as_str(),
+                prompt,
+                Some(shape),
+            )
+            .unwrap();
+            invocation.check_version(&ProcessRunner, "codex").unwrap();
+            let result = ProviderRunner::run_prepared(
+                &ProcessRunner,
+                "codex",
+                &mut invocation.command,
+                &invocation.stdin,
+                90,
+                selection["model"].as_str(),
+            );
+            assert!(result.success, "selected-model schema invocation failed");
+            let text = invocation.decode(&result.stdout).unwrap();
+            fs::write(output.join(format!("{protocol}.json")), &text).unwrap();
+            if shape == NativeResponseShape::DiscoveryV1 {
+                let parsed = crate::taskmaster::assessment_discovery::parse_discovery_response(
+                    &text,
+                    &[],
+                    &[],
+                    0,
+                )
+                .unwrap();
+                assert_eq!(
+                    parsed.outcome,
+                    crate::taskmaster::assessment_discovery::DiscoveryOutcome::NoCandidate
+                );
+            } else {
+                let parsed =
+                    crate::taskmaster::assessment_model::parse_assessment_response(&text, &[], &[])
+                        .unwrap();
+                assert_eq!(
+                    parsed.outcome,
+                    crate::taskmaster::assessment_model::AssessmentOutcome::NoProposal
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn native_codex_response_shapes_are_explicit_static_and_owned() {
+        use crate::providers::native_inference::NativeResponseShape;
+        for (shape, keys, nested, nested_keys) in [
+            (
+                NativeResponseShape::DiscoveryV1,
+                vec![
+                    "candidate",
+                    "knowledgePageIds",
+                    "outcome",
+                    "reason",
+                    "repositoryFactHashes",
+                    "requestedFileIds",
+                    "version",
+                ],
+                "candidate",
+                vec!["hypothesis", "targetSurface", "title"],
+            ),
+            (
+                NativeResponseShape::AssessmentV1,
+                vec![
+                    "knowledgePageIds",
+                    "noProposalReason",
+                    "outcome",
+                    "proposal",
+                    "repositoryFactHashes",
+                    "summary",
+                    "unverifiedChecks",
+                    "version",
+                ],
+                "proposal",
+                vec!["summary", "targetSurface", "title"],
+            ),
+        ] {
+            let invocation = prepare_with_preferences_and_shape(
+                &definition("codex"),
+                "chosen-model",
+                Some("medium"),
+                "untrusted-private-fixture-context".into(),
+                &[],
+                Some(shape),
+            )
+            .unwrap();
+            let args = invocation.command.get_args().collect::<Vec<_>>();
+            let index = args
+                .iter()
+                .position(|arg| *arg == "--output-schema")
+                .expect("explicit shape must constrain the native response");
+            let path = std::path::PathBuf::from(args[index + 1]);
+            assert_eq!(path.parent(), Some(invocation._directory.path()));
+            let raw = fs::read_to_string(&path).unwrap();
+            assert!(raw.len() <= 8192);
+            assert!(!raw.contains("untrusted-private-fixture-context"));
+            assert_eq!(invocation.stdin, "untrusted-private-fixture-context");
+            let schema: Value = serde_json::from_str(&raw).unwrap();
+            assert_eq!(schema["type"], "object");
+            assert_eq!(schema["additionalProperties"], false);
+            assert_eq!(
+                schema["properties"]
+                    .as_object()
+                    .unwrap()
+                    .keys()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>(),
+                keys
+            );
+            let mut required = schema["required"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap())
+                .collect::<Vec<_>>();
+            required.sort();
+            assert_eq!(required, keys);
+            let child = &schema["properties"][nested]["anyOf"][0];
+            assert_eq!(child["type"], "object");
+            assert_eq!(child["additionalProperties"], false);
+            assert_eq!(
+                child["properties"]
+                    .as_object()
+                    .unwrap()
+                    .keys()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>(),
+                nested_keys
+            );
+            let mut required = child["required"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap())
+                .collect::<Vec<_>>();
+            required.sort();
+            assert_eq!(required, nested_keys);
+            assert!(args.iter().any(|arg| *arg == "--model=chosen-model"));
+            assert!(args
+                .iter()
+                .any(|arg| *arg == "model_reasoning_effort=\"medium\""));
+            drop(args);
+            drop(invocation);
+            assert!(!path.exists(), "schema follows owned invocation lifetime");
+        }
+    }
+
+    #[test]
+    fn response_shapes_do_not_apply_to_ordinary_or_other_native_inference() {
+        use crate::providers::native_inference::NativeResponseShape;
+        let ordinary = prepare_with_preferences_and_shape(
+            &definition("codex"),
+            "chosen-model",
+            None,
+            "context".into(),
+            &[],
+            None,
+        )
+        .unwrap();
+        assert!(!ordinary
+            .command
+            .get_args()
+            .any(|arg| arg == "--output-schema"));
+        let result = prepare_with_preferences_and_shape(
+            &definition("claude-code"),
+            "chosen-model",
+            None,
+            "context".into(),
+            &[],
+            Some(NativeResponseShape::DiscoveryV1),
+        );
+        assert!(matches!(
+            result,
+            Err(ProviderOperationError {
+                code: ProviderOperationErrorCode::UnsupportedCapability,
+                ..
+            })
+        ));
     }
 
     #[test]

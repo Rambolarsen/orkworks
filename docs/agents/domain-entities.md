@@ -212,6 +212,19 @@ with `recommendationOrigin` in `apps/desktop/src/taskmaster.ts`, mirroring
   `WorkflowObservation` records by fingerprint, requiring recurrence (two
   distinct qualifying observations) before proposing.
 
+### Manual workflow assessment
+
+An assessment attempt has its own workspace-local ID and report; it is separate
+from ordinary analysis. Running attempts expose only fixed `discovering`,
+`reading_evidence` and `assessing` phases. These phases do not confer execution
+authority and contain no discovery prose. A format-2 input manifest binds the
+permitted catalog, seed/follow-up evidence identities and discovery selection.
+Completed proposals retain the existing `proactive:v1:` recommendation family
+and optional assessment provenance. Restart interrupts queued/running attempts
+without replaying inference; pending publication uses the existing recoverable
+recommendation transaction. See [the assessment architecture](architecture.md)
+and [ADR 0086](../adr/0086-repository-led-taskmaster-assessment.md).
+
 ### Recommendation audit vocabulary
 
 The recommendation audit adds a third `RecommendationType` discriminant,

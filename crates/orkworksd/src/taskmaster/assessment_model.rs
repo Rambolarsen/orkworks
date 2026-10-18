@@ -163,7 +163,7 @@ fn validate_unique_bounded(values: &[String], limit: usize, label: &str) -> Resu
     Ok(())
 }
 
-fn validate_prose(value: &str, limit: usize, required: bool) -> Result<(), String> {
+pub(super) fn validate_prose(value: &str, limit: usize, required: bool) -> Result<(), String> {
     let char_count = value.chars().count();
     if char_count > limit
         || has_control(value)
@@ -198,7 +198,7 @@ fn contains_command_or_verification_claim(value: &str) -> bool {
     {
         return true;
     }
-    has_completed_verification_claim(&words)
+    has_completed_verification_claim(&lower)
 }
 
 fn contains_command_token(words: &[&str]) -> bool {
@@ -210,11 +210,12 @@ fn contains_command_token(words: &[&str]) -> bool {
 }
 
 fn contains_direct_command(text: &str) -> bool {
-    const COMMANDS: [&str; 22] = [
+    const COMMANDS: [&str; 24] = [
         "bash", "sh", "python", "node", "rm", "mkdir", "cd", "curl", "wget", "printf", "echo",
         "cat", "ls", "grep", "sed", "awk", "touch", "chmod", "find", "tar", "docker", "pytest",
+        "make", "just",
     ];
-    text.split(['!', '?', ':', ';', '|']).any(|segment| {
+    text.split(['!', '?', ':', ';', '|', '`']).any(|segment| {
         let mut tokens = segment.split_whitespace();
         let Some(command) = tokens
             .next()
@@ -229,8 +230,10 @@ fn contains_direct_command(text: &str) -> bool {
             return true;
         };
         let argument = argument.trim_matches(['`', '\"', '\'']);
-        matches!(command, "echo" | "mkdir" | "cd" | "rm" | "pytest")
-            || argument.starts_with('-')
+        matches!(
+            command,
+            "echo" | "mkdir" | "cd" | "rm" | "pytest" | "make" | "just"
+        ) || argument.starts_with('-')
             || argument.starts_with('/')
             || argument.starts_with("./")
             || argument.starts_with("../")
@@ -244,8 +247,45 @@ fn contains_direct_command(text: &str) -> bool {
     })
 }
 
+fn prose_clauses(text: &str) -> impl Iterator<Item = &str> {
+    text.split(['.', '!', '?', ':', ';', ','])
+        .flat_map(|clause| clause.split(" but "))
+        .flat_map(|clause| clause.split(" however "))
+        .flat_map(|clause| clause.split(" yet "))
+}
+
+fn contains_embedded_literal_command(text: &str) -> bool {
+    let tokens = text.split_whitespace().collect::<Vec<_>>();
+    if tokens.iter().any(|token| {
+        let quoted = token.contains(['`', '\"'])
+            || token.char_indices().any(|(index, character)| {
+                character == '\''
+                    && (index == 0
+                        || token[..index]
+                            .chars()
+                            .next_back()
+                            .is_some_and(|previous| !previous.is_alphanumeric()))
+            });
+        if quoted {
+            return true;
+        }
+        let token = token.trim_matches(['`', '\"', '\'', '.', ',', ':']);
+        matches!(
+            token,
+            "command" | "commands" | "cli" | "executable" | "invocation"
+        ) || token.starts_with('-')
+            || token.contains('/')
+    }) {
+        return true;
+    }
+    tokens.iter().enumerate().any(|(index, token)| {
+        // English make/just constructions retain their existing separate checks.
+        !matches!(*token, "make" | "just") && contains_direct_command(&tokens[index..].join(" "))
+    })
+}
+
 fn contains_imperative_command(text: &str) -> bool {
-    text.split(['.', '!', '?', ':']).any(|sentence| {
+    prose_clauses(text).any(|sentence| {
         let words = sentence
             .split(|ch: char| !ch.is_ascii_alphanumeric())
             .filter(|word| !word.is_empty())
@@ -277,14 +317,75 @@ fn contains_imperative_command(text: &str) -> bool {
             if pair[0] == "run" && pair[1] == "through" {
                 return false;
             }
-            // 'Use repository evidence' describes grounding, while 'Use TOOL
-            // SUBCOMMAND' is still an executable instruction. Skip an article
-            // without exempting the executable that follows it.
+            // A configuration description or an indirect question is not an
+            // instruction to the reader. Explicit tool syntax is checked separately.
+            let addressed_reader = words[..index].iter().any(|word| {
+                matches!(
+                    *word,
+                    "you" | "your" | "we" | "our" | "i" | "reader" | "user" | "agent" | "assistant"
+                )
+            });
+            let repository_subject = words[..index].iter().any(|word| {
+                matches!(
+                    *word,
+                    "ci" | "configuration"
+                        | "config"
+                        | "script"
+                        | "step"
+                        | "suite"
+                        | "job"
+                        | "workflow"
+                        | "setup"
+                        | "tooling"
+                        | "runner"
+                )
+            });
             let target = if matches!(pair[1], "a" | "an" | "the") {
                 words.get(index + 2).copied().unwrap_or("")
             } else {
                 pair[1]
             };
+            let descriptive_target = matches!(
+                target,
+                "existing"
+                    | "current"
+                    | "package"
+                    | "unit"
+                    | "tests"
+                    | "suite"
+                    | "checks"
+                    | "validation"
+                    | "verification"
+                    | "with"
+                    | "through"
+                    | "in"
+                    | "on"
+                    | "under"
+                    | "its"
+            );
+            if index > 1
+                && !addressed_reader
+                && descriptive_target
+                && !contains_embedded_literal_command(sentence)
+                && ((words[index - 1] == "to"
+                    && repository_subject
+                    && matches!(
+                        words[index - 2],
+                        "configured"
+                            | "designed"
+                            | "intended"
+                            | "expected"
+                            | "scheduled"
+                            | "able"
+                            | "needed"
+                    ))
+                    || (words[index - 1] == "can" && words[..index - 1].contains(&"whether")))
+            {
+                return false;
+            }
+            // 'Use repository evidence' describes grounding, while 'Use TOOL
+            // SUBCOMMAND' is still an executable instruction. Skip an article
+            // without exempting the executable that follows it.
             !(pair[0] == "use"
                 && matches!(
                     target,
@@ -335,12 +436,15 @@ fn contains_tool_invocation(words: &[&str]) -> bool {
         "bash" | "sh" | "python" | "node" => {
             pair[1].starts_with('-') || pair[1].contains('.') || pair[1].contains('/')
         }
-        "make" | "just" => true,
+        // Articles after Make introduce a prose object; "just reports" is
+        // an adverbial description. Literal/quoted command starts stay rejected.
+        "make" => !matches!(pair[1], "a" | "an" | "the" | "sure"),
+        "just" => !matches!(pair[1], "reports" | "prints" | "emits" | "describes"),
         _ => false,
     })
 }
 
-fn has_completed_verification_claim(words: &[&str]) -> bool {
+fn has_completed_verification_claim(text: &str) -> bool {
     const CHECKS: [&str; 11] = [
         "test",
         "tests",
@@ -368,28 +472,67 @@ fn has_completed_verification_claim(words: &[&str]) -> bool {
         "green",
         "completed",
     ];
-    const QUALIFIERS: [&str; 9] = [
-        "not", "never", "no", "without", "whether", "should", "would", "could", "might",
-    ];
-
-    words.iter().enumerate().any(|(index, word)| {
-        if !COMPLETION.contains(word) {
-            return false;
-        }
-        let start = index.saturating_sub(5);
-        let end = (index + 4).min(words.len());
-        let nearby_checks = words[start..end]
-            .iter()
-            .enumerate()
-            .any(|(offset, candidate)| {
-                candidate != word
-                    && CHECKS.contains(candidate)
-                    && (start + offset).abs_diff(index) <= 3
+    prose_clauses(text).any(|clause| {
+        let words = clause
+            .split(|ch: char| !ch.is_ascii_alphanumeric())
+            .filter(|word| !word.is_empty())
+            .collect::<Vec<_>>();
+        words.iter().enumerate().any(|(index, word)| {
+            if !COMPLETION.contains(word) {
+                return false;
+            }
+            let start = index.saturating_sub(3);
+            let end = (index + 4).min(words.len());
+            let nearby_checks = words[start..end]
+                .iter()
+                .any(|candidate| candidate != word && CHECKS.contains(candidate));
+            let before = &words[..index];
+            let local = &words[index.saturating_sub(4)..index];
+            // A modal qualifies this predicate only through auxiliaries;
+            // "can confirm tests passed" still asserts completed verification.
+            let modal_predicate = before.iter().enumerate().any(|(offset, word)| {
+                matches!(
+                    *word,
+                    "should" | "would" | "could" | "might" | "may" | "can"
+                ) && before[offset + 1..].iter().all(|word| {
+                    matches!(
+                        *word,
+                        "have"
+                            | "be"
+                            | "been"
+                            | "being"
+                            | "not"
+                            | "never"
+                            | "yet"
+                            | "ever"
+                            | "already"
+                            | "still"
+                    )
+                })
             });
-        let qualified = words[start..index]
-            .iter()
-            .any(|candidate| QUALIFIERS.contains(candidate));
-        nearby_checks && !qualified
+            let qualified = before.contains(&"whether")
+                || modal_predicate
+                || local.iter().any(|word| {
+                    matches!(
+                        *word,
+                        "not"
+                            | "never"
+                            | "no"
+                            | "without"
+                            | "reject"
+                            | "rejects"
+                            | "rejecting"
+                            | "avoid"
+                            | "avoids"
+                            | "avoiding"
+                    )
+                })
+                || (matches!(
+                    words.first(),
+                    Some(&"validate" | &"confirm" | &"check" | &"determine")
+                ) && before.contains(&"that"));
+            nearby_checks && !qualified
+        })
     })
 }
 
@@ -656,6 +799,73 @@ mod tests {
         description["unverifiedChecks"] =
             json!(["Existing CI configuration includes regression checks."]);
         assert!(parse(&description).is_ok());
+    }
+
+    #[test]
+    fn accepts_grammatical_descriptions_and_unverified_conditions() {
+        for text in [
+            "Make the package test script run the existing arithmetic unit test",
+            "The CI configuration should make the existing test suite meaningful.",
+            "The CI unit step just reports a skipped suite.",
+            "The supplied facts show CI configured to run the package test suite.",
+            "The package's CI script is configured to run the existing unit suite.",
+            "The package script is designed to execute the existing unit suite.",
+            "Whether the existing arithmetic test can run with the available package configuration.",
+            "Whether the current package setup can execute the existing TypeScript test directly.",
+            "The repository requires meaningful unit tests and rejects passing no-ops.",
+            "This suggests CI may pass without exercising arithmetic behavior.",
+            "Whether the current test file runs successfully through the proposed setup remains unverified.",
+            "Whether the package test script and CI succeed after a focused setup change.",
+            "Validate that the test passes and that a deliberately failing assertion is reported as a failure; neither check has been performed.",
+        ] {
+            let mut value = proposed();
+            value["summary"] = json!(text);
+            assert!(parse(&value).is_ok(), "description rejected: {text}");
+        }
+    }
+
+    #[test]
+    fn rejects_commands_and_claims_inside_otherwise_qualified_prose() {
+        for text in [
+            "Whether checks succeed is unknown. All tests passed.",
+            "Tests have not been run; all tests passed.",
+            "No tests failed. All tests passed.",
+            "Tests have not been run, but all tests passed.",
+            "Whether tests pass is unknown; run unknowncli frobnicate.",
+            "The setup is configured to run cargo test.",
+            "The CI script is configured to run rm -rf /.",
+            "The package script is designed to execute python tools/check.py.",
+            "Whether CI can run curl https://example.test remains unverified.",
+            "The workflow is configured to invoke bash -c anything.",
+            "The CI script is configured to run unknowncli frobnicate.",
+            "The CI script is configured to run the existing command rm -rf /.",
+            "The CI script is configured to execute test -e /tmp/output.",
+            "The CI script is configured to run the existing command unknowncli frobnicate.",
+            "The CI script is configured to execute the existing test -e /tmp/output.",
+            "The CI script is configured to run the existing `unknowncli frobnicate`.",
+            "The CI script is configured to execute the current \"unknowncli frobnicate\".",
+            "The CI script is configured to execute the current 'unknowncli frobnicate'.",
+            "The CI script is configured to run the existing (`unknowncli frobnicate`).",
+            "The CI script is configured to execute the current (\"unknowncli frobnicate\").",
+            "The CI script is configured to execute the current ('unknowncli frobnicate').",
+            "Whether CI can run cargo test is unknown.",
+            "You can run unknowncli frobnicate.",
+            "You need to execute unknowncli frobnicate.",
+            "You are expected to run unknowncli frobnicate.",
+            "The reader is configured to execute unknowncli frobnicate.",
+            "We can confirm tests passed.",
+            "Tests can be improved because all checks passed.",
+            "Make test",
+            "Just deploy",
+            "The proposed check is `make the`.",
+            "The proposed check is `just deploy`.",
+            "Tests passed without regressions.",
+            "The CI unit tests passed and may need more coverage.",
+        ] {
+            let mut value = proposed();
+            value["summary"] = json!(text);
+            assert!(parse(&value).is_err(), "unsafe text accepted: {text}");
+        }
     }
 
     #[test]

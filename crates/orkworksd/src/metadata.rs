@@ -1140,6 +1140,12 @@ pub enum AttentionMergeResult {
 /// atomic rename, so readers never observe a partially written file and a
 /// mid-write kill cannot corrupt the previous contents.
 fn write_atomic(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
+    write_atomic_bytes(path, contents.as_bytes())
+}
+
+/// Byte-level variant of [`write_atomic`] for payloads that are not UTF-8,
+/// such as the raw terminal transcript.
+fn write_atomic_bytes(path: &std::path::Path, contents: &[u8]) -> std::io::Result<()> {
     let tmp = tmp_write_path(path);
     fs::write(&tmp, contents)?;
     fs::rename(&tmp, path)
@@ -2666,7 +2672,10 @@ impl MetadataStore {
             .chain(tail.physical)
             .flatten()
             .collect::<Vec<_>>();
-        match fs::write(&path, content) {
+        // Atomic replace, not an in-place rewrite: `fs::write` on the live
+        // transcript would truncate it before the trimmed bytes land, so a
+        // kill or ENOSPC mid-write would lose the session's replay history.
+        match write_atomic_bytes(&path, &content) {
             Ok(_) => {}
             Err(e) => warn!("failed to trim terminal output for {id}: {e}"),
         }
@@ -6065,6 +6074,33 @@ mod tests {
         assert_eq!(after_trim.len(), 50);
         assert_eq!(after_trim[0], "line 150");
         assert_eq!(after_trim[49], "line 199");
+    }
+
+    #[test]
+    fn terminal_output_trim_failure_keeps_original_transcript() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+
+        let lines: Vec<String> = (0..100).map(|i| format!("line {i}")).collect();
+        store.append_terminal_output_lines("trim-failure", &lines);
+
+        let path = dir.path().join("events").join("trim-failure.terminal");
+        let original = fs::read(&path).unwrap();
+
+        // Block the rewrite at its staging step: a directory occupying the
+        // temp path makes the trimmed-content write fail, simulating an
+        // unwritable temp file (full disk, permissions). The live transcript
+        // must survive untouched instead of being truncated in place.
+        let tmp = dir.path().join("events").join("trim-failure.terminal.tmp");
+        fs::create_dir(&tmp).unwrap();
+
+        store.trim_terminal_output("trim-failure", 50);
+
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            original,
+            "a failed trim must leave the persisted transcript intact"
+        );
     }
 
     #[test]
