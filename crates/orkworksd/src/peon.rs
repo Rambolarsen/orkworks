@@ -40,64 +40,29 @@ impl PeonConfig {
             harness: std::env::var("PEON_HARNESS").unwrap_or_else(|_| "opencode".into()),
             harness_args,
             model: std::env::var("PEON_MODEL").ok(),
-            interval_secs: match std::env::var("PEON_INTERVAL") {
-                Ok(raw) => match raw.parse() {
-                    Ok(v) => v,
-                    Err(_) => {
-                        tracing::warn!("PEON_INTERVAL is not a valid number, using default 5");
-                        5
-                    }
-                },
-                Err(_) => 5,
-            },
-            max_lines: match std::env::var("PEON_MAX_LINES") {
-                Ok(raw) => match raw.parse() {
-                    Ok(v) => v,
-                    Err(_) => {
-                        tracing::warn!("PEON_MAX_LINES is not a valid number, using default 200");
-                        200
-                    }
-                },
-                Err(_) => 200,
-            },
-            timeout_secs: match std::env::var("PEON_TIMEOUT") {
-                Ok(raw) => match raw.parse() {
-                    Ok(v) => v,
-                    Err(_) => {
-                        tracing::warn!("PEON_TIMEOUT is not a valid number, using default 30");
-                        30
-                    }
-                },
-                Err(_) => 30,
-            },
-            idle_timeout_secs: match std::env::var("PEON_IDLE_TIMEOUT") {
-                Ok(raw) => match raw.parse() {
-                    Ok(v) => v,
-                    Err(_) => {
-                        tracing::warn!("PEON_IDLE_TIMEOUT is not a valid number, using default 15");
-                        15
-                    }
-                },
-                Err(_) => 15,
-            },
-            final_scan_timeout_secs: match std::env::var("PEON_FINAL_SCAN_TIMEOUT") {
-                Ok(raw) => match raw.parse() {
-                    Ok(v) => v,
-                    Err(_) => {
-                        tracing::warn!(
-                            "PEON_FINAL_SCAN_TIMEOUT is not a valid number, using default 2"
-                        );
-                        2
-                    }
-                },
-                Err(_) => 2,
-            },
+            interval_secs: env_number("PEON_INTERVAL", 5),
+            max_lines: env_number("PEON_MAX_LINES", 200),
+            timeout_secs: env_number("PEON_TIMEOUT", 30),
+            idle_timeout_secs: env_number("PEON_IDLE_TIMEOUT", 15),
+            final_scan_timeout_secs: env_number("PEON_FINAL_SCAN_TIMEOUT", 2),
             enabled: std::env::var("PEON_ENABLED")
                 .ok()
                 .map(|v| v == "true" || v == "1")
                 .unwrap_or(true),
         }
     }
+}
+
+fn env_number<T: std::str::FromStr + Copy + std::fmt::Display>(name: &str, default: T) -> T {
+    std::env::var(name)
+        .ok()
+        .map(|raw| {
+            raw.parse().unwrap_or_else(|_| {
+                tracing::warn!("{name} is not a valid number, using default {default}");
+                default
+            })
+        })
+        .unwrap_or(default)
 }
 
 #[derive(Clone, Debug)]
