@@ -1,0 +1,67 @@
+{
+  "copilotVersion": "1.0.90",
+  "rawOtelSha256": "904fe3bea85295834c97a8b83c7bc8e66b8021d467ef1ba404f776d2a2f43f86",
+  "rawOtelBytes": 38494,
+  "records": [
+    [
+      "span",
+      "chat claude-sonnet-5"
+    ],
+    [
+      "span",
+      "invoke_agent"
+    ],
+    [
+      "metric",
+      "gen_ai.client.operation.duration"
+    ],
+    [
+      "metric",
+      "gen_ai.invoke_agent.duration"
+    ],
+    [
+      "metric",
+      "gen_ai.invoke_agent.inference_calls"
+    ],
+    [
+      "metric",
+      "gen_ai.invoke_agent.tool_calls"
+    ],
+    [
+      "metric",
+      "github.copilot.agent.turn.count"
+    ]
+  ],
+  "modelReported": "claude-sonnet-5",
+  "modelCallOutcome": "quota exhausted (HTTP 402), no response generated",
+  "chatSpanToolNames": [
+    "view",
+    "skill",
+    "grep",
+    "glob"
+  ],
+  "rootRuleMarkerInSystemInstructions": 1,
+  "skillNameListedInSystemInstructions": 1,
+  "skillBodyMarkerInSystemInstructions": 0,
+  "scopeRuleMarkerInSystemInstructions": 0,
+  "identityAttributesPresent": [
+    "enduser.pseudo.id"
+  ],
+  "mcpServersDiscovered": [
+    [
+      "github-mcp-server",
+      "builtin",
+      "discovered"
+    ],
+    [
+      "githubiq",
+      null,
+      "discovered"
+    ]
+  ],
+  "contextSkills": [
+    "orkworks-740-sentinel",
+    "customize-cloud-agent",
+    "github-pr-media"
+  ]
+}

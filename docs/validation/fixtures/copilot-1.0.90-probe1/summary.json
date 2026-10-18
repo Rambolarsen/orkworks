@@ -1,0 +1,110 @@
+{
+  "copilotVersion": "1.0.90",
+  "modelCallOutcome": "quota exhausted (HTTP 402) in all cases; no response generated",
+  "cases": {
+    "c1": {
+      "setup": "cwd=scope/ of fixture, --disable-builtin-mcps",
+      "rawOtelSha256": "ca713a39b0b9cdaa487f29a99b4b7afccc283e7869f8e5e00f8eba53561107e1",
+      "rawOtelBytes": 38763,
+      "markers": {
+        "ORK740_ROOT": 1,
+        "ORK740_SCOPE": 1,
+        "ORK740_SKILL": 0,
+        "ORK740_REF": 0,
+        "reference.md": 0
+      },
+      "toolNames": [
+        "view",
+        "skill",
+        "grep",
+        "glob"
+      ],
+      "contextSkills": [
+        "orkworks-740-sentinel",
+        "customize-cloud-agent",
+        "github-pr-media"
+      ],
+      "mcpLifecycle": [
+        [
+          "github-mcp-server",
+          "builtin",
+          "discovered"
+        ],
+        [
+          "githubiq",
+          null,
+          "discovered"
+        ]
+      ]
+    },
+    "c2": {
+      "setup": "cwd=fixture root, no --disable-builtin-mcps",
+      "rawOtelSha256": "1b312cc1d6088584590a69e64618e2c4622328f2df478266a9a6be28f944d233",
+      "rawOtelBytes": 40824,
+      "markers": {
+        "ORK740_ROOT": 1,
+        "ORK740_SCOPE": 0,
+        "ORK740_SKILL": 0,
+        "ORK740_REF": 0,
+        "reference.md": 0
+      },
+      "toolNames": [
+        "view",
+        "skill",
+        "grep",
+        "glob"
+      ],
+      "contextSkills": [
+        "orkworks-740-sentinel",
+        "customize-cloud-agent",
+        "github-pr-media"
+      ],
+      "mcpLifecycle": [
+        [
+          "github-mcp-server",
+          "builtin",
+          "discovered"
+        ],
+        [
+          "github-mcp-server",
+          "builtin",
+          "initialized"
+        ]
+      ]
+    },
+    "c3": {
+      "setup": "cwd=non-git temp dir, --disable-builtin-mcps",
+      "rawOtelSha256": "299a2c51428f5ceafdec7ec9d8d9559dce372167fb482926f0909033640ad86a",
+      "rawOtelBytes": 37531,
+      "markers": {
+        "ORK740_ROOT": 0,
+        "ORK740_SCOPE": 0,
+        "ORK740_SKILL": 0,
+        "ORK740_REF": 0,
+        "reference.md": 0
+      },
+      "toolNames": [
+        "view",
+        "skill",
+        "grep",
+        "glob"
+      ],
+      "contextSkills": [
+        "customize-cloud-agent",
+        "github-pr-media"
+      ],
+      "mcpLifecycle": [
+        [
+          "github-mcp-server",
+          "builtin",
+          "discovered"
+        ],
+        [
+          "githubiq",
+          null,
+          "discovered"
+        ]
+      ]
+    }
+  }
+}
