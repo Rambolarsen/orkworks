@@ -1130,13 +1130,11 @@ fn run_assessment(
             evidence_limit = true;
         }
         Err(_) => {
-            fail_assessment(
+            interrupt_assessment(
                 &store,
                 &mut record,
                 "Requested assessment evidence changed or was denied",
             );
-            record.state = AssessmentState::Interrupted;
-            let _ = store.save(&record);
             return;
         }
     }
@@ -1472,12 +1470,39 @@ fn run_assessment(
     }
 }
 
+fn interrupt_assessment(
+    store: &super::assessment_store::AssessmentStore,
+    record: &mut super::assessment_report::AssessmentRecord,
+    reason: &str,
+) {
+    finish_unsuccessful_assessment(
+        store,
+        record,
+        super::assessment_report::AssessmentState::Interrupted,
+        reason,
+    );
+}
+
 fn fail_assessment(
     store: &super::assessment_store::AssessmentStore,
     record: &mut super::assessment_report::AssessmentRecord,
     reason: &str,
 ) {
-    record.state = super::assessment_report::AssessmentState::Failed;
+    finish_unsuccessful_assessment(
+        store,
+        record,
+        super::assessment_report::AssessmentState::Failed,
+        reason,
+    );
+}
+
+fn finish_unsuccessful_assessment(
+    store: &super::assessment_store::AssessmentStore,
+    record: &mut super::assessment_report::AssessmentRecord,
+    state: super::assessment_report::AssessmentState,
+    reason: &str,
+) {
+    record.state = state;
     record.completed_at = Some(chrono::Utc::now().to_rfc3339());
     record.error_summary = Some(reason.to_string());
     record.report = None;

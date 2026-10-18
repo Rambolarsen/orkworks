@@ -319,3 +319,31 @@ preserves those supported versions. There is no older supported format-2 schema
 being displaced. Future version changes must explicitly preserve supported
 historical decoding and fence reuse; arbitrary unknown versions remain
 unavailable under the accepted contract. No decoder relaxation was made.
+
+## Terminal interruption and CI contention evidence
+
+The next repository review found an evidence-denial path that first persisted
+`Failed` and then overwrote it with `Interrupted`. A save-fault regression
+reproduced a durable incorrect `Failed` when the second save failed. The path
+now selects `Interrupted` before the shared unsuccessful-terminal cleanup and
+single atomic save. The regression checks the terminal state, completion/error
+metadata, and removal of report, input manifest, phase and pending publication.
+
+The unchanged desktop pin-history contention test failed twice in CI with 18
+revisions instead of its assumed 20. It discarded each attempt's diagnostic,
+although bounded advisory-lock timeouts are an explicit supported outcome.
+Tracked in #961, the test-only correction extends the adjacent IPC-based
+contention harness to pinning, including a real retained-lock timeout followed
+by successful writes. Retaining the old all-20 assertion deterministically
+failed with 19 successful writes after the deliberate timeout. The corrected
+assertions account for all attempts, reject unexpected diagnostics, require
+contiguous successful revisions and compare the exact successful pin set.
+All 41 host workspace-history tests passed, with one Windows-only test skipped.
+No production workspace-history behavior changed.
+
+The first full verification after these corrections passed 2,119 Rust tests but
+failed the existing `unavailable_manual_analysis_retries_deferred_run_recovery`
+case at its active-attempt assertion. That specific recovery flow is unchanged
+by this PR; the exact test passed in isolation. The failed full log is retained
+at `/private/tmp/issue938-cycle5-verify.log`; it is not recorded as a passing run.
+The complete recheck at `/private/tmp/issue938-cycle5-verify-recheck.log` passed: 2,120 Rust unit tests, 9 ignored; all integration/reporter checks; desktop type/native ABI/tests/build; documentation build and close-out checks. No change was made to the nonreproduced deferred-recovery test. The documentation advisory was reviewed: user guidance remains accurate and this correction adds no installer claim.

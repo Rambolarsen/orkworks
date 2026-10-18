@@ -1844,3 +1844,24 @@ async fn unsupported_native_response_schema_fails_once_without_unconstrained_ret
         1
     );
 }
+
+#[test]
+fn evidence_interruption_persists_its_terminal_state_in_one_save() {
+    let fixture = AssessmentFixture::new();
+    let store = AssessmentStore::new(&fixture.runtime_root);
+    let mut record = fixture.pending_record();
+    crate::taskmaster::assessment_store::set_save_failures(&fixture.runtime_root, 1, 1);
+    interrupt_assessment(&store, &mut record, "Requested evidence was denied");
+    crate::taskmaster::assessment_store::set_save_failures(&fixture.runtime_root, 0, 0);
+    let saved: AssessmentRecord = store.load().unwrap().unwrap();
+    assert_eq!(saved.state, AssessmentState::Interrupted);
+    assert!(saved.completed_at.is_some());
+    assert_eq!(
+        saved.error_summary.as_deref(),
+        Some("Requested evidence was denied")
+    );
+    assert!(saved.report.is_none());
+    assert!(saved.input_manifest.is_none());
+    assert!(saved.phase.is_none());
+    assert!(saved.pending_recommendation.is_none());
+}
