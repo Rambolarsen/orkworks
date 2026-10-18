@@ -5,14 +5,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug)]
 pub struct PeonConfig {
     pub harness: String,
-    #[allow(dead_code)]
-    pub harness_args: Vec<String>,
-    #[allow(dead_code)]
-    pub model: Option<String>,
     pub interval_secs: u64,
     pub max_lines: usize,
-    #[allow(dead_code)]
-    pub timeout_secs: u64,
     pub idle_timeout_secs: u64,
     pub final_scan_timeout_secs: u64,
     pub enabled: bool,
@@ -20,29 +14,10 @@ pub struct PeonConfig {
 
 impl PeonConfig {
     pub fn from_env() -> Self {
-        let harness_args = std::env::var("PEON_HARNESS_ARGS_JSON")
-            .ok()
-            .and_then(|raw| match serde_json::from_str::<Vec<String>>(&raw) {
-                Ok(args) => Some(args),
-                Err(e) => {
-                    tracing::warn!(error = %e, "PEON_HARNESS_ARGS_JSON is not a valid JSON string array");
-                    None
-                }
-            })
-            .or_else(|| {
-                std::env::var("PEON_HARNESS_ARGS")
-                    .ok()
-                    .map(|raw| raw.split_whitespace().map(|arg| arg.to_string()).collect())
-            })
-            .unwrap_or_else(|| vec!["run".into(), "--pure".into()]);
-
         Self {
             harness: std::env::var("PEON_HARNESS").unwrap_or_else(|_| "opencode".into()),
-            harness_args,
-            model: std::env::var("PEON_MODEL").ok(),
             interval_secs: env_number("PEON_INTERVAL", 5),
             max_lines: env_number("PEON_MAX_LINES", 200),
-            timeout_secs: env_number("PEON_TIMEOUT", 30),
             idle_timeout_secs: env_number("PEON_IDLE_TIMEOUT", 15),
             final_scan_timeout_secs: env_number("PEON_FINAL_SCAN_TIMEOUT", 2),
             enabled: std::env::var("PEON_ENABLED")
@@ -1389,22 +1364,16 @@ mod tests {
 
         std::env::remove_var("PEON_ENABLED");
         std::env::remove_var("PEON_HARNESS");
-        std::env::remove_var("PEON_HARNESS_ARGS");
-        std::env::remove_var("PEON_MODEL");
         std::env::remove_var("PEON_INTERVAL");
         std::env::remove_var("PEON_MAX_LINES");
-        std::env::remove_var("PEON_TIMEOUT");
         std::env::remove_var("PEON_IDLE_TIMEOUT");
         std::env::remove_var("PEON_FINAL_SCAN_TIMEOUT");
 
         let config = PeonConfig::from_env();
         assert!(config.enabled);
         assert_eq!(config.harness, "opencode");
-        assert_eq!(config.harness_args, vec!["run", "--pure"]);
-        assert!(config.model.is_none());
         assert_eq!(config.interval_secs, 5);
         assert_eq!(config.max_lines, 200);
-        assert_eq!(config.timeout_secs, 30);
         assert_eq!(config.idle_timeout_secs, 15);
         assert_eq!(config.final_scan_timeout_secs, 2);
     }
@@ -1415,33 +1384,23 @@ mod tests {
 
         std::env::set_var("PEON_ENABLED", "false");
         std::env::set_var("PEON_HARNESS", "claude");
-        std::env::set_var("PEON_HARNESS_ARGS_JSON", r#"["-p","--print"]"#);
-        std::env::set_var("PEON_MODEL", "haiku");
         std::env::set_var("PEON_INTERVAL", "10");
         std::env::set_var("PEON_MAX_LINES", "100");
-        std::env::set_var("PEON_TIMEOUT", "60");
         std::env::set_var("PEON_IDLE_TIMEOUT", "10");
         std::env::set_var("PEON_FINAL_SCAN_TIMEOUT", "7");
 
         let config = PeonConfig::from_env();
         assert!(!config.enabled);
         assert_eq!(config.harness, "claude");
-        assert_eq!(config.harness_args, vec!["-p", "--print"]);
-        assert_eq!(config.model, Some("haiku".into()));
         assert_eq!(config.interval_secs, 10);
         assert_eq!(config.max_lines, 100);
-        assert_eq!(config.timeout_secs, 60);
         assert_eq!(config.idle_timeout_secs, 10);
         assert_eq!(config.final_scan_timeout_secs, 7);
 
         std::env::remove_var("PEON_ENABLED");
         std::env::remove_var("PEON_HARNESS");
-        std::env::remove_var("PEON_HARNESS_ARGS");
-        std::env::remove_var("PEON_HARNESS_ARGS_JSON");
-        std::env::remove_var("PEON_MODEL");
         std::env::remove_var("PEON_INTERVAL");
         std::env::remove_var("PEON_MAX_LINES");
-        std::env::remove_var("PEON_TIMEOUT");
         std::env::remove_var("PEON_IDLE_TIMEOUT");
         std::env::remove_var("PEON_FINAL_SCAN_TIMEOUT");
     }
@@ -1869,19 +1828,6 @@ mod tests {
         assert!(!is_terminal_observed_status(Some("working")));
         assert!(!is_terminal_observed_status(None));
         assert!(!is_terminal_observed_status(Some("unknown")));
-    }
-
-    #[test]
-    fn test_peon_config_uses_json_argv_env() {
-        let _guard = ENV_LOCK.lock().unwrap();
-
-        std::env::remove_var("PEON_HARNESS_ARGS");
-        std::env::set_var("PEON_HARNESS_ARGS_JSON", r#"["--print","--model","haiku"]"#);
-
-        let config = PeonConfig::from_env();
-        assert_eq!(config.harness_args, vec!["--print", "--model", "haiku"]);
-
-        std::env::remove_var("PEON_HARNESS_ARGS_JSON");
     }
 
     #[test]
