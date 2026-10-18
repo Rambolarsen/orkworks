@@ -1,3 +1,10 @@
+---
+type: "Validation Record"
+title: "Copilot 1.0.90 Probe 0 OTel transport qualification"
+description: "Validation evidence and context: Copilot 1.0.90 Probe 0 OTel transport qualification."
+tags: ["orkworks", "validation"]
+---
+
 # Copilot 1.0.90 Probe 0: OTel transport qualification
 
 Date: 2026-10-06. Tracks [#740](https://github.com/Rambolarsen/orkworks/issues/740),
