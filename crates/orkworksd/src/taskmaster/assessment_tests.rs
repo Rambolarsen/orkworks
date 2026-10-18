@@ -34,6 +34,12 @@ impl AssessmentFixture {
         fs::write(&driver, r#"import json,pathlib,sys
 response, prompt_path = map(pathlib.Path, sys.argv[1:])
 prompt = json.loads(prompt_path.read_text())
+args = prompt_path.with_name('provider-args').read_text().splitlines()
+stage = 'discovery' if prompt.get('protocol') == 'taskmaster-discovery-v1' else 'final'
+schema_path = pathlib.Path(args[args.index('--output-schema') + 1]) if '--output-schema' in args else None
+response.with_suffix('.' + stage + '-schema').write_text(schema_path.read_text() if schema_path else 'null')
+response.with_suffix('.' + stage + '-schema-path').write_text(str(schema_path) if schema_path else '')
+response.with_suffix('.' + stage + '-constraint').write_text(json.dumps(prompt.get('nativeResponseConstraint')))
 if prompt.get('protocol') != 'taskmaster-discovery-v1' and response.with_suffix('.block-final').exists():
     import time
     response.with_suffix('.final-started').write_text('started')
@@ -52,8 +58,13 @@ print(json.dumps({'type':'turn.started'}))
 print(json.dumps({'type':'item.completed','item':{'type':'agent_message','text':output}}))
 print(json.dumps({'type':'turn.completed'}))
 "#).unwrap();
+        let args_file = dir.path().join("provider-args").display().to_string();
+        let reject_schema = response
+            .with_extension("reject-schema")
+            .display()
+            .to_string();
         let script = format!(
-            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then printf 'codex-cli 0.153.4\\n'; exit 0; fi\ncat > '{}'\nprintf dispatched > '{}'\nprintf x >> '{}.count'\nwhile [ ! -f '{}.release' ]; do sleep 0.01; done\npython3 '{}' '{}' '{}' 2> '{}.stderr' | tee '{}'\n",
+            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then printf 'codex-cli 0.153.4\\n'; exit 0; fi\nprintf '%s\\n' \"$@\" > '{args_file}'\ncat > '{}'\nprintf dispatched > '{}'\nprintf x >> '{}.count'\nwhile [ ! -f '{}.release' ]; do sleep 0.01; done\nif [ -f '{reject_schema}' ]; then for arg in \"$@\"; do if [ \"$arg\" = '--output-schema' ]; then printf 'unsupported response schema' >&2; exit 2; fi; done; fi\npython3 '{}' '{}' '{}' 2> '{}.stderr' | tee '{}'\n",
             dir.path().join("provider-prompt").display(), marker.display(), marker.display(), marker.display(),
             driver.display(), response.display(), dir.path().join("provider-prompt").display(),
             dir.path().join("provider-output").display(), dir.path().join("provider-output").display(),
@@ -1685,4 +1696,102 @@ async fn partial_ancestor_or_instruction_only_budget_overflow_publishes_no_propo
             1
         );
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn native_assessment_binds_static_stage_shapes_and_contract_identity() {
+    let fixture = AssessmentFixture::new();
+    fixture.prepare_response("no_proposal");
+    assert_eq!(
+        schedule(fixture.state.clone(), fixture.runtime_root.clone()).status,
+        AssessmentRequestStatus::Scheduled
+    );
+    let record = fixture.wait_for_terminal().await;
+    assert_eq!(
+        record.state,
+        AssessmentState::Succeeded,
+        "{:?}",
+        record.error_summary
+    );
+    for (stage, property) in [("discovery", "candidate"), ("final", "proposal")] {
+        let schema: serde_json::Value = serde_json::from_slice(
+            &fs::read(fixture.response.with_extension(format!("{stage}-schema"))).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            schema["properties"][property].is_object(),
+            "missing {stage} native constraint"
+        );
+        let path = fs::read_to_string(
+            fixture
+                .response
+                .with_extension(format!("{stage}-schema-path")),
+        )
+        .unwrap();
+        assert!(
+            !std::path::Path::new(&path).exists(),
+            "schema retained after process cleanup"
+        );
+        let marker: serde_json::Value = serde_json::from_slice(
+            &fs::read(
+                fixture
+                    .response
+                    .with_extension(format!("{stage}-constraint")),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(marker, "taskmaster-response-shapes-v1");
+    }
+    let snapshot = capture_current_snapshot(&fixture.state, &fixture.runtime_root, None).unwrap();
+    let mut legacy_prompt: serde_json::Value = serde_json::from_str(&snapshot.prompt).unwrap();
+    assert!(legacy_prompt
+        .as_object_mut()
+        .unwrap()
+        .remove("nativeResponseConstraint")
+        .is_some());
+    assert_ne!(
+        snapshot.evaluation.cache_key(&snapshot.prompt).unwrap(),
+        snapshot
+            .evaluation
+            .cache_key(&legacy_prompt.to_string())
+            .unwrap(),
+        "the constraint contract must participate in reconstructed input identity"
+    );
+    assert_eq!(record.format_version, 2);
+    assert_eq!(
+        record.input_manifest.unwrap().prompt_version,
+        "taskmaster-assessment-v2"
+    );
+    assert_eq!(
+        fs::read_to_string(fixture.marker.with_extension("count"))
+            .unwrap()
+            .len(),
+        2
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unsupported_native_response_schema_fails_once_without_unconstrained_retry() {
+    let fixture = AssessmentFixture::new();
+    fs::write(fixture.response.with_extension("reject-schema"), "reject").unwrap();
+    fixture.prepare_response("no_proposal");
+    assert_eq!(
+        schedule(fixture.state.clone(), fixture.runtime_root.clone()).status,
+        AssessmentRequestStatus::Scheduled
+    );
+    let record = fixture.wait_for_terminal().await;
+    assert_eq!(
+        record.state,
+        AssessmentState::Failed,
+        "schema failure did not stop inference"
+    );
+    assert!(record.report.is_none());
+    assert!(record.pending_recommendation.is_none());
+    assert_eq!(
+        fs::read_to_string(fixture.marker.with_extension("count"))
+            .unwrap()
+            .len(),
+        1
+    );
 }

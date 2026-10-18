@@ -3,6 +3,15 @@
 use crate::harness::{definition::DefinitionOrigin, store::HarnessSnapshot};
 use serde::Serialize;
 
+/// Code-owned response shapes; neither user JSON nor evidence can define one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum NativeResponseShape {
+    DiscoveryV1,
+    AssessmentV1,
+}
+
+pub(crate) const ASSESSMENT_RESPONSE_CONSTRAINT_VERSION: &str = "taskmaster-response-shapes-v1";
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub(crate) enum NativeProfile {
     Codex,

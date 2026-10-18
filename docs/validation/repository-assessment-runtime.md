@@ -107,16 +107,108 @@ English `make` phrases and validation requirements encountered prose rejection;
 other responses contained malformed or duplicate/unknown fields, and at least
 one final title remained an execution-style imperative. An attempted broader
 grammar expansion exposed literal-command and completed-claim bypasses in review
-and was removed; it is not part of the retained correction. These are unresolved
+and was removed; it is not part of the retained correction. At that revision these were unresolved
 compatibility failures, not evidence of a useful or completed implementation.
 The targeted correction does not resolve general prose classification or the
 selected model's strict-envelope compliance. No acceptance thresholds were
 weakened and no inference retries, fallback or response repair were added.
 
-**Disposition: the usefulness gate remains failed.** Do not claim that this solves
-proposal usefulness or mark #931 complete. Keep the runtime PR in draft pending
-resolution and a fresh complete matrix. The harness requires explicit retained
-semantic adjudication for every surfaced proposal, covering factual grounding,
-the designed gap, bounded change, validation and rollback; merely counting
-`proposed` is insufficient. `quality_verdict_from_recorded_reviews` checks those
-adjudications without dispatching another provider call.
+## Native response constraints
+
+The owner approved the [native Codex shape design](../superpowers/specs/2026-10-18-assessment-response-constraints.md)
+before integration. Codex CLI 0.163.0 accepted both static stage schemas with the
+unchanged `gpt-6-luna` / medium selection in an isolated synthetic compatibility
+probe. Both final messages passed the real strict application decoders. The
+probe preceded production opt-in; evidence is retained at
+`/private/tmp/issue938-response-shape-probe`.
+
+Paired regressions failed before production wiring and passed afterward for the
+stage-specific constraint marker and unsupported-schema failure without another
+invocation. The scoped assessment suite passed 90 tests with 2 explicit live tests
+ignored. A separate read-only review approved the protocol integration. Static
+schema files stay in the existing inference temporary directory through cleanup;
+ordinary analysis, custom adapters and other native profiles stay unconstrained.
+Record format 2 and accepted manifest versions remain unchanged.
+
+The first constrained matrix, retained at
+`/private/tmp/orkworks-931-quality-structured`, produced closed JSON throughout.
+Healthy and refuted fixtures each completed 3/3 valid no-proposal results.
+Positive completed 0/3 valid assessments; positive-with-old-noise completed 1/3.
+That one surfaced proposal received explicit semantic adjudication against the
+cited no-op package script, CI invocation, required unit-test evidence and existing
+arithmetic test. It addressed the designed gap with bounded scope, concrete
+unverified validation and restoration of the prior script as rollback. The
+retained verdict still failed the positive threshold. Remaining rejections were
+prose classification failures; shape constraints alone did not establish
+usefulness.
+
+Review identified conflicting prompt guidance that requested validation inside
+proposal summaries, encouraging phrases rejected as completion claims. Subsequent
+guidance keeps the bounded change, benefit, validation scope and rollback in the
+proposal summary, with detailed conditions in explicitly unverified checks. The strict decoder, model,
+effort, two-call cap and quality criteria remain unchanged. A discovery-description
+scope leak found during review was corrected before the final fresh evaluation.
+
+Two intermediate guidance matrices remain diagnostic evidence. The first,
+`/private/tmp/orkworks-931-quality-guided`, completed all 12 trials, but semantic
+review marked its six proposals deficient because their summaries omitted the
+required validation scope. The corrected-scope matrix at
+`/private/tmp/orkworks-931-quality-constrained-final` completed positive 0/3,
+positive-with-old-noise 2/3, healthy 1/3 and refuted 3/3. Both surfaced proposals
+passed explicit grounding, scope, validation and rollback review; the overall
+verdict still failed. No rejected response was counted as a valid no-proposal.
+
+An isolated experiment added static prose patterns to provider schemas. Its
+selected-model compatibility invocation failed, so the pattern was removed;
+that log does not establish the underlying rejection reason. No pattern is
+retained in the implementation. The final bounded wording experiment asks for
+prospective declarative descriptions and nouns for execution concerns, while
+preserving validation scope in summaries and detailed unverified conditions.
+
+## Final reviewed evaluation
+
+The final fresh matrix at `/private/tmp/orkworks-931-quality-prospective` uses the
+same Codex `gpt-6-luna`, medium effort and signed `brain-1` selection. The exact
+reviewed source hashes are retained in `code-identity.json`; no code changed
+during this evaluation. All 12 trials used distinct canonical workspaces,
+actually dispatched discovery and retained non-reused results. Each positive
+trial also dispatched the final stage; negative discovery-only conclusions
+correctly avoid another call.
+
+| Fixed fixture | Valid assessments | Adjudicated designed gaps | Invented proposals |
+| --- | --- | --- | --- |
+| Positive no-op test script | 3/3 | 3/3 | 0 |
+| Same gap with old observations | 3/3 | 3/3 | 0 |
+| Healthy linked tooling and CI | 3/3 | Not applicable | 0 |
+| Refuted candidate | 3/3 | Not applicable | 0 |
+
+An independent reviewer checked every cited repository hash and excerpt against
+its actual trial files and every Brain citation against the signed starter
+bundle. Each of the six proposals identifies the no-op test-script gap, a bounded
+change to connect the existing arithmetic test, expected CI benefit, validation
+scope and restoration of prior configuration. Detailed conditions remain
+explicitly unverified. Each retained `review.json` records grounding, designed
+gap, boundedness, validation, rollback and a per-trial rationale. Healthy results
+recognize aligned configuration without inventing execution evidence; refuted
+results either inspect the related verifier or conservatively decline a proposal
+from bounded seed evidence.
+
+**Disposition: the selected-provider usefulness gate passes.** The zero-dispatch
+`quality_verdict_from_recorded_reviews` check passed with those adjudications and
+an empty failure list. Earlier failed matrices remain failures. This establishes
+the approved synthetic threshold, not a guarantee for arbitrary repositories or
+future model behavior; assessment did not execute fixture tests or CI. Validation
+wording remains descriptive scope rather than executable commands. One proposal
+unnecessarily mentions test changes; wiring the existing test is the narrower
+first step, but the recommendation remains within the bounded test target.
+
+Full repository verification passed for the protocol integration: 2,115 Rust unit
+tests plus integration checks, 1,350 desktop tests passed with one skip, desktop
+build and docs build. After final wording clarification, 90 assessment tests and
+20 inference tests passed, with explicit live probes ignored in those scoped
+runs; formatting, documentation metadata/index and close-out checks also passed.
+Read-only reviews approved the protocol integration and current prose guidance.
+The documentation-currency advisory needs no further user-doc edit: the existing
+source-build assessment guide describes this bounded behavior and makes no new
+published-installer claim. PR CI and current-head review remain separate merge
+gates.
