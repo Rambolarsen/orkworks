@@ -95,6 +95,7 @@ impl SessionApplication {
                     id,
                     &meta.created_at,
                     closed,
+                    !runtime_closed(handle, has_pid),
                     &runtime_key(handle),
                 );
                 if projected.session_action_token.as_deref() != Some(request.token.as_str()) {
@@ -105,7 +106,12 @@ impl SessionApplication {
                 let (current, revision) = ws
                     .metadata
                     .organization
-                    .state(id, &meta.created_at, closed)
+                    .state(
+                        id,
+                        &meta.created_at,
+                        closed,
+                        !runtime_closed(handle, has_pid),
+                    )
                     .map_err(|_| SessionError::ConflictWithMessage("Session state unavailable"))?;
                 match (current, request.action) {
                     (SessionState::Archived, SessionAction::Restore | SessionAction::Delete) => {}
@@ -202,7 +208,7 @@ impl SessionApplication {
         let (_, revision) = ws
             .metadata
             .organization
-            .state(id, &meta.created_at, true)
+            .state(id, &meta.created_at, true, false)
             .map_err(|_| SessionError::Conflict)?;
         if revision != captured.revision {
             return Err(SessionError::Conflict);
@@ -364,13 +370,112 @@ mod tests {
         assert_eq!(
             ws.metadata
                 .organization
-                .state("one", &meta.created_at, true)
+                .state("one", &meta.created_at, true, false)
                 .unwrap()
                 .0,
             SessionState::Closed
         );
         assert!(!state.sessions.lock().unwrap().contains_key("one"));
     }
+    async fn archived_with_regressed_metadata() -> (tempfile::TempDir, Arc<crate::AppState>) {
+        let (dir, state, _) = fixture(false);
+        SessionApplication::new(state.clone())
+            .session_action("one", request(&state, SessionAction::Archive))
+            .await
+            .unwrap();
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let ws = workspace.as_ref().unwrap();
+            let mut meta = ws.metadata.read_session("one").unwrap();
+            meta.status = "running".into();
+            meta.lifecycle_phase = "alive".into();
+            meta.lifecycle = "alive".into();
+            ws.metadata.write_session(&meta);
+        }
+        let info = SessionProjection::new(state.clone())
+            .list()
+            .unwrap()
+            .remove(0);
+        assert_eq!(
+            info.organization.session_state,
+            Some(SessionState::Archived)
+        );
+        (dir, state)
+    }
+
+    fn assert_regressed_archive_unchanged(state: &Arc<crate::AppState>) {
+        let workspace = state.workspace.lock().unwrap();
+        let ws = workspace.as_ref().unwrap();
+        let meta = ws.metadata.read_session("one").unwrap();
+        assert_eq!(meta.lifecycle_phase, "alive");
+        assert_eq!(meta.last_activity, "2024-01-01T00:00:00Z");
+        assert_eq!(
+            ws.metadata
+                .organization
+                .state("one", &meta.created_at, false, false)
+                .unwrap()
+                .0,
+            SessionState::Archived
+        );
+    }
+
+    fn restore_persisted_ending(state: &Arc<crate::AppState>) {
+        let workspace = state.workspace.lock().unwrap();
+        let ws = workspace.as_ref().unwrap();
+        let mut meta = ws.metadata.read_session("one").unwrap();
+        meta.status = "ended".into();
+        meta.lifecycle_phase = "ended".into();
+        meta.lifecycle = "dead".into();
+        ws.metadata.write_session(&meta);
+    }
+
+    #[tokio::test]
+    async fn archived_actions_require_current_persisted_finalization_after_producer_regression() {
+        for action in [SessionAction::Restore, SessionAction::Delete] {
+            let (_dir, state) = archived_with_regressed_metadata().await;
+            let app = SessionApplication::new(state.clone());
+            assert!(app
+                .session_action("one", request(&state, action))
+                .await
+                .is_err());
+            assert_regressed_archive_unchanged(&state);
+            restore_persisted_ending(&state);
+            app.session_action("one", request(&state, action))
+                .await
+                .unwrap();
+            let infos = SessionProjection::new(state.clone()).list().unwrap();
+            if action == SessionAction::Restore {
+                assert_eq!(
+                    infos[0].organization.session_state,
+                    Some(SessionState::Closed)
+                );
+                assert!(!state.sessions.lock().unwrap().contains_key("one"));
+                app.session_action("one", request(&state, SessionAction::Archive))
+                    .await
+                    .unwrap();
+                app.forget_session("one").await.unwrap();
+            } else {
+                assert!(infos.is_empty());
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn archived_forget_requires_current_persisted_finalization_after_producer_regression() {
+        let (_dir, state) = archived_with_regressed_metadata().await;
+        assert!(SessionApplication::new(state.clone())
+            .forget_session("one")
+            .await
+            .is_err());
+        assert_regressed_archive_unchanged(&state);
+        restore_persisted_ending(&state);
+        SessionApplication::new(state.clone())
+            .forget_session("one")
+            .await
+            .unwrap();
+        assert!(SessionProjection::new(state).list().unwrap().is_empty());
+    }
+
     #[tokio::test]
     async fn active_archive_waits_for_persisted_finalization() {
         let (_dir, state, mut killed) = fixture(true);

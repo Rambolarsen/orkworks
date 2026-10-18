@@ -5210,7 +5210,7 @@ impl SessionApplication {
                 workspace
                     .metadata
                     .organization
-                    .state(id, &record.metadata.created_at, true)
+                    .state(id, &record.metadata.created_at, true, false)
                     .map_err(|_| SessionError::ConflictWithMessage("Session state unavailable"))?;
             }
         }
@@ -5463,7 +5463,7 @@ pub(crate) fn try_install_claimed_resume_handle(
         || ws
             .metadata
             .organization
-            .state(id, &record.metadata.created_at, true)
+            .state(id, &record.metadata.created_at, true, false)
             .map_err(|_| ())?
             .0
             == crate::session_archive::SessionState::Archived

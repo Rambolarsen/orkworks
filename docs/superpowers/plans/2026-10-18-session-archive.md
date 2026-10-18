@@ -212,3 +212,31 @@ tests, type-check, ABI checks, desktop/docs builds and repository checks.
 Fresh focused manual medium review approves this code; its optional lock
 comment clarification was applied. The existing user docs already describe
 source archive behavior and release availability; no onboarding claim changed.
+
+## PR feedback cycle 3/3
+
+Native Codex on `c62f51dc` identified producer lifecycle regression overriding
+archive projection, a missing creation-identity recheck in retention, and late
+create/resume responses overwriting completed row actions. Focused regressions
+reproduced all three. Organization derivation now separates actual runtime
+authority from producer lifecycle evidence: a matching archive remains Archived
+without a live admitted runtime, while real runtime authority still wins.
+Retention retains the captured candidate identity across age/count selection and
+compares the final metadata reread before deletion. Row-action admission fences
+older foreground responses without changing its workspace/admission guards.
+Four deferred frontend tests cover create/resume against both Archive and Delete.
+This is the final permitted substantial review cycle; further substantial
+feedback requires an explicit finite owner extension before another review.
+
+The focused backend review also tested recovery after a regressed snapshot.
+Archived remains visible, but Restore/Delete/legacy forget preserve the existing
+current persisted-finalization gate and fail without mutating state/evidence
+until ended/dead is restored; recovery is covered by explicit action tests.
+A stored Closed choice can predate a resumed run and is not substituted for
+current finalization proof. No producer-owned JSON is rewritten by organization.
+
+Cycle 3 full Node 22 verification passed: 2,144 Rust unit tests (9 ignored),
+6 integrations, 1,361 desktop tests (1 skipped), reporter tests, native ABI,
+type-check, builds/docs and repository checks. The two additional conservative
+recovery regressions then passed, as did the final storage suite. Existing
+user documentation already covers the unchanged close-first/failure behavior.

@@ -250,8 +250,8 @@ impl SessionProjection {
     }
 
     pub(crate) fn project_organization(&self, infos: &mut [SessionInfo]) {
-        self.project_organization_with(infos, |store, info, closed, key| {
-            store.project(&info.id, &info.created_at, closed, key)
+        self.project_organization_with(infos, |store, info, closed, active, key| {
+            store.project(&info.id, &info.created_at, closed, active, key)
         });
     }
 
@@ -261,6 +261,7 @@ impl SessionProjection {
         mut read: impl FnMut(
             &crate::session_archive::OrganizationStore,
             &SessionInfo,
+            bool,
             bool,
             &str,
         ) -> crate::session_archive::OrganizationProjection,
@@ -284,15 +285,19 @@ impl SessionProjection {
                                 pids.contains_key(&info.id),
                             );
                         let key = crate::session_application::session_actions::runtime_key(handle);
-                        (closed, key)
+                        let active = !crate::session_application::session_actions::runtime_closed(
+                            handle,
+                            pids.contains_key(&info.id),
+                        );
+                        (closed, active, key)
                     })
                     .collect::<Vec<_>>();
                 (ws.metadata.organization.clone(), inputs)
             })
         };
         if let Some((store, inputs)) = inputs {
-            for (info, (closed, key)) in infos.iter_mut().zip(inputs) {
-                info.organization = read(&store, info, closed, &key);
+            for (info, (closed, active, key)) in infos.iter_mut().zip(inputs) {
+                info.organization = read(&store, info, closed, active, &key);
             }
         }
     }
@@ -707,7 +712,7 @@ mod tests {
         )];
         SessionProjection::new(state.clone()).project_organization_with(
             &mut infos,
-            |store, info, closed, key| {
+            |store, info, closed, active, key| {
                 assert!(
                     state.workspace.try_lock().is_ok(),
                     "workspace locked during archive read"
@@ -720,7 +725,7 @@ mod tests {
                     state.session_pids.try_lock().is_ok(),
                     "PIDs locked during archive read"
                 );
-                store.project(&info.id, &info.created_at, closed, key)
+                store.project(&info.id, &info.created_at, closed, active, key)
             },
         );
         assert!(infos[0].organization.session_action_token.is_some());

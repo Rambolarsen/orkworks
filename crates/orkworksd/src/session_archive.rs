@@ -110,13 +110,18 @@ impl OrganizationStore {
         id: &str,
         created_at: &str,
         closed: bool,
+        runtime_active: bool,
     ) -> io::Result<(SessionState, u64)> {
         let record = self.read(id, created_at)?;
         let revision = record.as_ref().map_or(0, |r| r.revision);
-        let state = if !closed {
+        let stored_state = record.map(|record| record.state);
+        let state = if stored_state == Some(SessionState::Archived) && !runtime_active {
+            // Producer lifecycle snapshots cannot revoke sidecar organization.
+            SessionState::Archived
+        } else if runtime_active || !closed {
             SessionState::Active
         } else {
-            record.map_or(SessionState::Closed, |r| r.state)
+            stored_state.unwrap_or(SessionState::Closed)
         };
         Ok((state, revision))
     }
@@ -172,9 +177,10 @@ impl OrganizationStore {
         id: &str,
         created_at: &str,
         closed: bool,
+        runtime_active: bool,
         runtime_key: &str,
     ) -> OrganizationProjection {
-        match self.state(id, created_at, closed) {
+        match self.state(id, created_at, closed, runtime_active) {
             Ok((state, revision)) => {
                 // Length-delimited JSON avoids ambiguous concatenations. This is
                 // a stale-action precondition, never a credential.
@@ -323,7 +329,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = OrganizationStore::new(dir.path());
         assert_eq!(
-            store.state("old", "created", true).unwrap(),
+            store.state("old", "created", true, false).unwrap(),
             (SessionState::Closed, 0)
         );
         store
@@ -331,18 +337,18 @@ mod tests {
             .unwrap();
         let reopened = OrganizationStore::new(dir.path());
         assert_eq!(
-            reopened.state("old", "created", true).unwrap(),
+            reopened.state("old", "created", true, false).unwrap(),
             (SessionState::Archived, 1)
         );
         assert_eq!(
-            reopened.state("old", "replacement", true).unwrap(),
+            reopened.state("old", "replacement", true, false).unwrap(),
             (SessionState::Closed, 0)
         );
         reopened
             .write("old", "created", SessionState::Closed)
             .unwrap();
         assert_eq!(
-            reopened.state("old", "created", true).unwrap(),
+            reopened.state("old", "created", true, false).unwrap(),
             (SessionState::Closed, 2)
         );
     }
@@ -353,7 +359,7 @@ mod tests {
         fs::create_dir_all(&store.root).unwrap();
         for bytes in [b"bad".to_vec(), vec![b' '; 4097]] {
             fs::write(store.path("old").unwrap(), &bytes).unwrap();
-            let projected = store.project("old", "created", true, "none");
+            let projected = store.project("old", "created", true, false, "none");
             assert_eq!(projected.session_state, None);
             assert_eq!(projected.session_action_token, None);
             assert!(store
@@ -375,19 +381,39 @@ mod tests {
             .write("old", &"x".repeat(5000), SessionState::Closed)
             .is_err());
         assert_eq!(fs::read(store.path("old").unwrap()).unwrap(), before);
-        assert!(store.state("../escape", "created", true).is_err());
+        assert!(store.state("../escape", "created", true, false).is_err());
     }
+    #[test]
+    fn archive_survives_lifecycle_regression_but_real_runtime_wins() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = OrganizationStore::new(dir.path());
+        store
+            .write("old", "created", SessionState::Archived)
+            .unwrap();
+        assert_eq!(
+            store.state("old", "created", false, false).unwrap().0,
+            SessionState::Archived
+        );
+        assert_eq!(
+            store.state("old", "created", false, true).unwrap().0,
+            SessionState::Active
+        );
+        store.write("old", "created", SessionState::Closed).unwrap();
+        assert_eq!(store.state("old", "created", false, false).unwrap().0, SessionState::Active,
+            "a stored Closed choice can predate a resumed run and cannot prove current finalization");
+    }
+
     #[test]
     fn reservations_release_on_cancellation_and_tokens_bind_store_runtime_revision() {
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(OrganizationStore::new(dir.path()));
         let first = store
-            .project("old", "created", true, "generation1")
+            .project("old", "created", true, false, "generation1")
             .session_action_token;
         assert_ne!(
             first,
             store
-                .project("old", "created", true, "generation2")
+                .project("old", "created", true, false, "generation2")
                 .session_action_token
         );
         let reservation = store.reserve("old").unwrap();
@@ -400,13 +426,13 @@ mod tests {
         assert_ne!(
             first,
             store
-                .project("old", "created", true, "generation1")
+                .project("old", "created", true, false, "generation1")
                 .session_action_token
         );
         assert_ne!(
             first,
             OrganizationStore::new(dir.path())
-                .project("old", "created", true, "generation1")
+                .project("old", "created", true, false, "generation1")
                 .session_action_token
         );
     }

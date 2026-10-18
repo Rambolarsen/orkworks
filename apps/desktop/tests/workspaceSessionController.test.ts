@@ -539,3 +539,38 @@ test("partial Delete preserves selection changed while the request was pending",
   assert.deepEqual(disposed, ["one"]);
   controller.dispose();
 });
+
+for (const pending of ["create", "resume"] as const) {
+  for (const action of ["archive", "delete"] as const) {
+    test(`row ${action} fences a pending ${pending} response already exposed by polling`, async () => {
+      const response = deferred<SessionInfo>();
+      const original = { ...session("one"), sessionState: "active" as const, sessionActionToken: "active-token" };
+      const archived = { ...session("one", "dead", "ended"), sessionState: "archived" as const, sessionActionToken: "archived-token" };
+      let serverRows: SessionInfo[] = [original, session("other")];
+      let latest: readonly SessionInfo[] = [];
+      const active: Array<string | null> = [];
+      const controller = createWorkspaceSessionController({
+        deps: deps({
+          createSession: () => response.promise,
+          resumeSession: () => response.promise,
+          listSessions: async () => serverRows,
+          sessionAction: async () => { serverRows = action === "delete" ? [session("other")] : [archived, session("other")]; },
+        }),
+        onSessions: rows => { latest = rows; },
+        onActiveSession: id => active.push(id),
+        scheduler: scheduler().scheduler,
+      });
+      const operation = pending === "create" ? controller.createSession({}) : controller.resumeSession("one");
+      await new Promise(resolve => setImmediate(resolve));
+      await controller.refreshSessions();
+      controller.selectSession("other");
+      await controller.sessionAction("one", action, "active-token");
+      active.length = 0;
+      response.resolve(original);
+      await operation;
+      assert.deepEqual(active, [], "the older completion must not select its row");
+      assert.equal(latest.find(row => row.id === "one")?.sessionState, action === "delete" ? undefined : "archived");
+      controller.dispose();
+    });
+  }
+}

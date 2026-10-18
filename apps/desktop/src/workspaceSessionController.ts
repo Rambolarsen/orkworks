@@ -308,6 +308,7 @@ export function createWorkspaceSessionController(
     const pendingKey = `${workspaceToken}:${id}`;
     if (pendingActions.has(pendingKey)) throw new Error("A session action is already running.");
     pendingActions.add(pendingKey);
+    foregroundGeneration += 1;
     const current = () => isCurrentAdmission(admissionToken) && workspaceToken === workspaceGeneration;
     const disposeDeletedRow = () => {
       deps.disposeTerminal(id);
