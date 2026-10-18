@@ -1613,12 +1613,6 @@ impl MetadataStore {
         self.load_session_file(&path)
     }
 
-    pub fn session_modified_secs_ago(&self, id: &str) -> Option<u64> {
-        let path = self.sessions_dir().join(format!("{}.json", id));
-        let modified = fs::metadata(path).ok()?.modified().ok()?;
-        modified.elapsed().ok().map(|elapsed| elapsed.as_secs())
-    }
-
     pub fn append_event(&self, id: &str, event: &Event) {
         if let Err(error) = self.try_append_event(id, event) {
             warn!("failed to append event for {id}: {error}");
@@ -2207,7 +2201,7 @@ impl MetadataStore {
         provider: Option<&crate::providers::ProviderObservation>,
         history_summary: Option<&str>,
     ) -> std::io::Result<PeonMergeOutcome> {
-        self.merge_peon_inference_with_history_policy(
+        self.merge_peon_inference_with_history_policy_scoped(
             id,
             inf,
             timestamp,
@@ -2215,20 +2209,7 @@ impl MetadataStore {
             history_summary,
             PeonAttentionPolicy::Infer,
         )
-    }
-
-    /// Merges descriptive Peon fields with the caller's live harness attention policy.
-    pub fn merge_peon_inference_with_history_policy(
-        &self,
-        id: &str,
-        inf: &crate::peon::PeonInference,
-        timestamp: &str,
-        provider: Option<&crate::providers::ProviderObservation>,
-        history_summary: Option<&str>,
-        policy: PeonAttentionPolicy<'_>,
-    ) -> std::io::Result<PeonMergeOutcome> {
-        self.merge_peon_inference_inner(id, inf, timestamp, provider, history_summary, policy)
-            .map(|(outcome, _)| outcome)
+        .map(|(outcome, _)| outcome)
     }
 
     /// Returns whether the committed inference accepted the attention scope.
@@ -3405,8 +3386,8 @@ mod tests {
             store.write_session(&meta);
             let mut inference = peon_inference_with_summary(Some("Fresh summary"), 0.8);
             inference.observed_status = incoming_status.map(str::to_string);
-            let outcome = store
-                .merge_peon_inference_with_history_policy(
+            let (outcome, _) = store
+                .merge_peon_inference_with_history_policy_scoped(
                     id,
                     &inference,
                     "later",
@@ -3445,8 +3426,8 @@ mod tests {
             meta.suggested_options = Some(vec!["Old option".into()]);
             store.write_session(&meta);
 
-            let outcome = store
-                .merge_peon_inference_with_history_policy(
+            let (outcome, _) = store
+                .merge_peon_inference_with_history_policy_scoped(
                     id,
                     &peon_inference_with_summary(Some("Fresh summary"), 0.8),
                     "later",
@@ -3481,7 +3462,7 @@ mod tests {
         meta.suggested_options = Some(vec!["Hook option".into()]);
         store.write_session(&meta);
         store
-            .merge_peon_inference_with_history_policy(
+            .merge_peon_inference_with_history_policy_scoped(
                 id,
                 &peon_inference_with_summary(Some("New diagnostic"), 0.8),
                 "later",
