@@ -561,13 +561,15 @@ identity. See [ADR 0069](../adr/0069-codex-session-id-hook-report-mailbox.md).
 
 `POST /sessions` now accepts `{ harnessId, model, initialPrompt }`. The renderer's inline New agent session composer labels harness choices as coding tools, can fall back to the default shell session if harness metadata is temporarily unavailable, and still sends the selected harness config id so session rows and remembered-session resume behavior remain compatible. The response returns as soon as the `"creating"` metadata record is persisted, before the harness has actually spawned — the PTY spawn runs as a detached background task, mirroring how `POST /sessions/:id/resume` and daemon-restart reconciliation already leave a session observable in `"creating"`. A spawn failure surfaces asynchronously as `status: "error"`, observed via the existing `GET /sessions` poll, rather than as a synchronous error response (issue #302).
 
-For a new Codex or OpenCode session with an initial prompt, the runtime waits
+For a new Codex, OpenCode, or Claude Code session with an initial prompt, the runtime waits
 for the TUI to enable bracketed paste (`ESC[?2004h`) and for a per-harness
 quiet-time settle before writing the prompt as one bracketed paste. Codex
 keeps a 200ms settle. OpenCode requires 1.5s since paste-enable: its TUI
 enables bracketed paste ~0.1s after spawn but starts reading input only with
 its first real render ~1.1s in, and input written in between is silently
-discarded (opencode v2.0.32). The runtime sends Enter
+discarded (opencode v2.0.32). Claude Code likewise drops input for roughly
+the first 0.5s after paste-enable (measured on 2.1.292) and uses the same 1.5s
+floor. The runtime sends Enter
 separately, 200ms after the paste write completes, ahead of later queued input.
 This avoids cooked PTY newline conversion, startup input loss, and Codex's
 paste-burst Enter suppression. Resize and kill controls bypass waiting prompt

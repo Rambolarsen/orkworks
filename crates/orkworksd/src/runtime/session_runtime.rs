@@ -1498,7 +1498,7 @@ fn initial_prompt_command(prompt: &str) -> RuntimeCommand {
     }
 }
 
-// Codex and OpenCode enable bracketed paste after configuring terminal input.
+// Codex, OpenCode, and Claude Code enable bracketed paste after configuring terminal input.
 // Sending before that can lose input or turn CR into LF in the cooked PTY.
 // Keep the initial paste and its Enter ahead of subsequently queued commands.
 const INITIAL_EDITOR_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
@@ -1513,10 +1513,17 @@ const INITIAL_EDITOR_SETTLE: std::time::Duration = std::time::Duration::from_mil
 // fire the paste inside that dead window. Measured against OpenCode v2.0.32.
 const INITIAL_EDITOR_OPENCODE_PASTE_SETTLE: std::time::Duration =
     std::time::Duration::from_millis(1500);
+// Claude Code enables bracketed paste ~0.3s after spawn but discards input
+// written for a while afterwards (measured against Claude Code 2.1.292:
+// writes <=0.5s after paste-enable vanish, >=0.6s arrive). Use the same
+// conservative floor as OpenCode.
+const INITIAL_EDITOR_CLAUDE_PASTE_SETTLE: std::time::Duration =
+    std::time::Duration::from_millis(1500);
 
 fn initial_editor_paste_settle(harness: Option<&str>) -> std::time::Duration {
     match harness {
         Some("opencode") => INITIAL_EDITOR_OPENCODE_PASTE_SETTLE,
+        Some("claude-code") => INITIAL_EDITOR_CLAUDE_PASTE_SETTLE,
         _ => INITIAL_EDITOR_SETTLE,
     }
 }
@@ -1794,7 +1801,7 @@ async fn start_session_runtime_inner(
                 handle.runtime.run_generation(),
                 handle.info.harness.as_deref() == Some("codex")
                     || handle.info.harness_id.as_deref() == Some("codex"),
-                matches!(harness, Some("codex" | "opencode")),
+                matches!(harness, Some("codex" | "opencode" | "claude-code")),
                 harness.map(str::to_string),
             )
         })
@@ -2804,6 +2811,34 @@ mod tests {
             now,
             now,
             initial_editor_paste_settle(Some("opencode")),
+        );
+        initial.observe_output(b"\x1b[?2004h", now);
+        assert!(
+            initial
+                .next_command(now + Duration::from_millis(300), false)
+                .is_none(),
+            "quiet output inside the dead window must not trigger the paste"
+        );
+        let RuntimeCommand::Input { data, .. } = initial
+            .next_command(now + Duration::from_millis(1600), false)
+            .expect("paste must fire once the floor has passed")
+        else {
+            panic!("initial paste must be terminal input");
+        };
+        assert_eq!(data, "\x1b[200~find new work\x1b[201~");
+    }
+
+    #[test]
+    fn claude_initial_paste_waits_past_the_tui_input_drop_window() {
+        // Claude Code enables bracketed paste ~0.3s after spawn but drops
+        // input written for a while afterwards (measured: sends <=0.5s after
+        // paste-enable vanish). Without waiting, the prompt never arrives.
+        let now = tokio::time::Instant::now();
+        let mut initial = InitialEditorPrompt::new(
+            "find new work".into(),
+            now,
+            now,
+            initial_editor_paste_settle(Some("claude-code")),
         );
         initial.observe_output(b"\x1b[?2004h", now);
         assert!(
