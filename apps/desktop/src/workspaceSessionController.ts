@@ -309,23 +309,27 @@ export function createWorkspaceSessionController(
     if (pendingActions.has(pendingKey)) throw new Error("A session action is already running.");
     pendingActions.add(pendingKey);
     const current = () => isCurrentAdmission(admissionToken) && workspaceToken === workspaceGeneration;
+    const disposeDeletedRow = () => {
+      deps.disposeTerminal(id);
+      if (activeSessionId === id) {
+        activeSessionId = null;
+        options.onActiveSession?.(null, { deliberate: true });
+      }
+    };
     try {
       const baseUrl = await deps.getBackendUrl();
       if (!current()) return;
       await deps.sessionAction(baseUrl, id, action, actionToken);
       if (!current()) return;
-      if (action === "delete") {
-        deps.disposeTerminal(id);
-        if (activeSessionId === id) {
-          activeSessionId = null;
-          options.onActiveSession?.(null, { deliberate: true });
-        }
-      }
+      if (action === "delete") disposeDeletedRow();
       await refreshSessions();
     } catch (error) {
       if (current()) {
-        await refreshSessions();
-        if (current()) throw error;
+        const refreshed = await refreshSessions();
+        if (current()) {
+          if (action === "delete" && refreshed !== null && !refreshed.some(session => session.id === id)) disposeDeletedRow();
+          throw error;
+        }
       }
     } finally {
       pendingActions.delete(pendingKey);

@@ -165,3 +165,31 @@ A clean full `bash scripts/verify-repo.sh` run under repository-pinned Node
 22.23.3 passed every stage, including 2,139 Rust unit tests (9 ignored), the
 integration suites, desktop tests/build, docs build, diff, docs and worktree checks.
 The host shell's Node 26 was not used for that final run.
+
+## PR feedback cycle 1/3
+
+Native Codex review on `f637566a` identified four concrete gaps despite passing
+CI: directory-entry durability after rename; selected-row cleanup after a
+partial Delete; keyboard menu targeting when selection is filtered out; and
+plain-text sidecar error parsing. Each was reproduced by a focused failing
+regression, then corrected. Archive publication now syncs the metadata parent
+and session-state directory on Unix, propagating sync failures. Failed Delete
+reconciles a row proven absent by a successful refresh while preserving the
+cleanup error and any different current selection. Keyboard invocation requires
+a visible selected row. State-action transport preserves text or JSON errors.
+Fresh focused reviews and full Node 22 verification precede the next push.
+
+Focused review additionally required the real in-flight selection race test and
+Windows publication durability. The regression now changes selection while a
+Delete request is pending. Windows publication uses `MoveFileExW` with
+`MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH`, after closing and syncing
+the staged file; Unix syncs the containing directories. The existing Windows
+Rust job also runs the archive storage suite to exercise native create/replace
+and restore behavior. See the [Microsoft API contract](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-movefileexw).
+
+Cycle 1 verification: full Node 22 repository script passed (2,140 Rust tests,
+9 ignored; 1,357 desktop tests, 1 skipped; integration/build/docs/check stages).
+The final platform-aware publication helper then passed the focused storage and
+state-action suites; the added deferred selection race passed under Node 22.
+Both focused manual review seats approve the final cycle changes. Windows native
+publication execution is additionally gated by the new existing-job CI step.

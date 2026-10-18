@@ -136,7 +136,7 @@ function SessionListPanel({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLUListElement>) => {
     if (e.target !== e.currentTarget) return;
     if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
-      const target = orderedSessions.find(session => session.id === activeSessionId) ?? orderedSessions[0];
+      const target = orderedSessions.find(session => session.id === activeSessionId);
       if (target) {
         e.preventDefault();
         const row = itemRefs.current.get(target.id)?.getBoundingClientRect();

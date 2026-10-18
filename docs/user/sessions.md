@@ -48,8 +48,9 @@ try again. Closed sessions can be archived or deleted directly.
 Archived sessions retain history and are protected from automatic age/count
 cleanup. Choose **Restore to Closed** before resuming one. Restoring does not
 start a process, and normal retention settings apply to it again. Archive and
-Restore preserve activity timestamps. Only successfully deleting the selected
-session clears the selection.
+Restore preserve activity timestamps. Only deleting the selected session record clears the selection. If later
+evidence cleanup fails after record removal, the missing row is reconciled while
+the cleanup error remains visible.
 
 Archive is organization in OrkWorks; it does not archive the conversation in
 the coding tool or accept its work. Older installers may lack these actions.

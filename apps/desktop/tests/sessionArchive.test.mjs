@@ -31,6 +31,10 @@ if (process.versions.electron) {
         await wait('!document.querySelector("[role=menu]")');
       };
       assert.deepEqual(await evaluate('Array.from(document.querySelectorAll("[data-session-id]")).map(e=>e.dataset.sessionId)'), ['live','closed']);
+      await evaluate('fixture.selectHidden()');
+      await evaluate('document.getElementById("sessions-list").focus();document.getElementById("sessions-list").dispatchEvent(new KeyboardEvent("keydown",{key:"F10",shiftKey:true,bubbles:true}))');
+      assert.equal(await evaluate('!!document.querySelector("[role=menu]")'),false,'a hidden selection cannot target another visible row');
+      await evaluate('fixture.selectLive()');
       await more('closed');
       assert.equal(await evaluate('fixture.selections.length'),0,'More does not select or acknowledge');
       assert.equal(await evaluate('document.activeElement.textContent'),'Archive');
@@ -114,7 +118,7 @@ if (process.versions.electron) {
         window.addEventListener('error',e=>fixture.errors.push(e.message));
         window.confirm=message=>{fixture.confirmations.push(message);return false};
         const row=(id,state)=>({id,label:id,sessionState:state,sessionActionToken:'token-'+id,lifecycle:state==='active'?'alive':'dead',lifecyclePhase:state==='active'?'active':'ended',status:state==='active'?'running':'ended',created_at:'2026-10-18T10:00:00Z',cwd:'/tmp',memoryState:'remembered',resumeStrategy:'none'});
-        function Harness(){const[rows,setRows]=useState([row('live','active'),row('closed','closed'),row('saved','archived')]);const[selected,setSelected]=useState('live');const[enabled,setEnabled]=useState(true);fixture.setActionsEnabled=setEnabled;
+        function Harness(){const[rows,setRows]=useState([row('live','active'),row('closed','closed'),row('saved','archived')]);const[selected,setSelected]=useState('live');const[enabled,setEnabled]=useState(true);fixture.setActionsEnabled=setEnabled;fixture.selectHidden=()=>setSelected('saved');fixture.selectLive=()=>setSelected('live');
           return <SessionListPanel workspace={{path:'/tmp',workspaceIdentity:'test'}} sessions={rows} activeSessionId={selected} unreadIds={new Set()} acknowledgedIds={new Set()} harnesses={[]}
             actionsEnabled={enabled} onSelectSession={id=>{fixture.selections.push(id);fixture.selected=id;setSelected(id)}} onFocusTerminal={()=>{}} onOpenWorkspace={()=>{}}
             onSessionAction={async(id,action,token)=>{fixture.calls.push([id,action,token]);if(fixture.pauseAction)await new Promise(resolve=>fixture.finishAction=resolve);setRows(rows=>action==='delete'?rows.filter(r=>r.id!==id):rows.map(r=>r.id===id?{...r,sessionState:action==='archive'?'archived':'closed',sessionActionToken:r.sessionActionToken+'-next',lifecycle:'dead',lifecyclePhase:'ended'}:r))}}/>}

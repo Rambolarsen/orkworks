@@ -144,13 +144,9 @@ impl OrganizationStore {
         if bytes.len() as u64 > MAX_RECORD_BYTES {
             return Err(io::Error::other("Session identity exceeds limit"));
         }
-        fs::create_dir_all(&self.root)?;
-        let mut staging = tempfile::NamedTempFile::new_in(&self.root)?;
-        staging.write_all(&bytes)?;
-        staging.as_file().sync_all()?;
-        staging.persist(self.path(id)?).map_err(|e| e.error)?;
-        Ok(())
+        publish_record(&self.root, &self.path(id)?, &bytes, sync_directory)
     }
+
     pub(crate) fn remove(&self, id: &str) -> io::Result<()> {
         match fs::remove_file(self.path(id)?) {
             Ok(()) => Ok(()),
@@ -207,9 +203,121 @@ impl OrganizationStore {
     }
 }
 
+fn sync_directory(path: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        fs::File::open(path)?.sync_all()
+    }
+    #[cfg(windows)]
+    {
+        // The write-through move in publish_staged_file provides the Windows
+        // publication barrier; directory handles do not use Unix fsync.
+        let _ = path;
+        Ok(())
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = path;
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "Durable session state is unsupported on this platform",
+        ))
+    }
+}
+
+fn publish_record(
+    root: &Path,
+    target: &Path,
+    bytes: &[u8],
+    sync: impl Fn(&Path) -> io::Result<()>,
+) -> io::Result<()> {
+    fs::create_dir_all(root)?;
+    // Persist creation of session-state itself before publishing a record.
+    if let Some(parent) = root.parent() {
+        sync(parent)?;
+    }
+    let mut staging = tempfile::NamedTempFile::new_in(root)?;
+    staging.write_all(bytes)?;
+    staging.as_file().sync_all()?;
+    // Closing the staged handle also supports native Windows rename rules.
+    let staged_path = staging.into_temp_path();
+    publish_staged_file(&staged_path, target)?;
+    // File sync alone does not persist the renamed directory entry on Unix.
+    // Never acknowledge an archive decision before this durability barrier.
+    sync(root)
+}
+
+fn publish_staged_file(source: &Path, target: &Path) -> io::Result<()> {
+    #[cfg(not(windows))]
+    {
+        fs::rename(source, target)
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Storage::FileSystem::{
+            MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+        };
+        let source: Vec<u16> = source
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let target: Vec<u16> = target
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        if source[..source.len() - 1].contains(&0) || target[..target.len() - 1].contains(&0) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Invalid session state path",
+            ));
+        }
+        // SAFETY: both paths are validated, nul-terminated UTF-16 buffers,
+        // retained for the complete API call. Same-directory staging avoids a
+        // cross-volume copy. WRITE_THROUGH waits for publication on disk.
+        let result = unsafe {
+            MoveFileExW(
+                source.as_ptr(),
+                target.as_ptr(),
+                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+            )
+        };
+        if result == 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(())
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn publication_cannot_acknowledge_a_failed_directory_sync() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("session-state");
+        let target = root.join("one.json");
+        let result = publish_record(&root, &target, b"record", |path| {
+            if path == root {
+                Err(io::Error::other("directory sync failed"))
+            } else {
+                sync_directory(path)
+            }
+        });
+        assert!(
+            result.is_err(),
+            "archive success must include directory-entry durability"
+        );
+        assert_eq!(
+            fs::read(target).unwrap(),
+            b"record",
+            "failure can occur after rename and must still be reported"
+        );
+    }
+
     #[test]
     fn archive_survives_restart_and_restore_preserves_identity() {
         let dir = tempfile::tempdir().unwrap();

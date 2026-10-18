@@ -976,3 +976,8 @@ and await cleanup plus persisted ending first. Restore returns to Closed.
 Archived history is retained outside automatic age/count cleanup. Archive and
 Restore preserve activity timestamps and native tool identity. This is OrkWorks
 organization only; native archive synchronization is outside this increment.
+
+Archive publication syncs the staged file and, on Unix, the metadata parent and
+state directory entries before success. Windows publishes through a same-directory
+write-through replacement. A durability barrier failure is returned to the caller;
+it cannot be reported as a successful archive decision.

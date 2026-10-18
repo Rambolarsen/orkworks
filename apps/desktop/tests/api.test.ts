@@ -640,3 +640,14 @@ test("session actions send captured intent and token and retain conflict diagnos
     await assert.rejects(sessionAction("http://backend", "one", "archive", "captured-token"), /Session changed; refresh and try again/);
   } finally { globalThis.fetch = original; }
 });
+
+
+test("session actions preserve the sidecar's plain-text close and stale-token errors", async () => {
+  const original = globalThis.fetch;
+  try {
+    for (const message of ["Close is still finishing; refresh and try again", "Session changed; refresh and try again"]) {
+      globalThis.fetch = async () => new Response(message, { status: 409 });
+      await assert.rejects(sessionAction("http://backend", "one", "archive", "old-token"), error => error instanceof Error && error.message === message);
+    }
+  } finally { globalThis.fetch = original; }
+});

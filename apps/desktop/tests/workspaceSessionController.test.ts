@@ -484,3 +484,58 @@ test("an old workspace action cannot clear a new workspace selection", async () 
   assert.deepEqual(disposed, []);
   controller.dispose();
 });
+
+
+test("failed Delete reconciles a removed row while preserving the cleanup error", async () => {
+  const active: Array<string | null> = [];
+  const disposed: string[] = [];
+  const controller = createWorkspaceSessionController({
+    deps: deps({
+      sessionAction: async () => { throw new Error("Recommendation cleanup failed"); },
+      listSessions: async () => [],
+      disposeTerminal: id => disposed.push(id),
+    }),
+    onActiveSession: id => active.push(id),
+  });
+  controller.selectSession("one");
+  await assert.rejects(controller.sessionAction("one", "delete", "token"), /Recommendation cleanup failed/);
+  assert.deepEqual(active, ["one", null]);
+  assert.deepEqual(disposed, ["one"]);
+  controller.dispose();
+});
+
+test("failed Delete keeps a retained row and any newer selection", async () => {
+  const active: Array<string | null> = [];
+  const disposed: string[] = [];
+  const controller = createWorkspaceSessionController({
+    deps: deps({ sessionAction: async () => { throw new Error("Close is still finishing"); },
+      listSessions: async () => [session("one")], disposeTerminal: id => disposed.push(id) }),
+    onActiveSession: id => active.push(id),
+  });
+  controller.selectSession("other");
+  await assert.rejects(controller.sessionAction("one", "delete", "token"), /Close is still finishing/);
+  assert.deepEqual(active, ["other"]);
+  assert.deepEqual(disposed, []);
+  controller.dispose();
+});
+
+
+test("partial Delete preserves selection changed while the request was pending", async () => {
+  const operation = deferred<void>();
+  const active: Array<string | null> = [];
+  const disposed: string[] = [];
+  const controller = createWorkspaceSessionController({
+    deps: deps({ sessionAction: async () => operation.promise,
+      listSessions: async () => [session("other")], disposeTerminal: id => disposed.push(id) }),
+    onActiveSession: id => active.push(id),
+  });
+  controller.selectSession("one");
+  const deleting = controller.sessionAction("one", "delete", "token");
+  await new Promise(resolve => setImmediate(resolve));
+  controller.selectSession("other");
+  operation.reject(new Error("Recommendation cleanup failed"));
+  await assert.rejects(deleting, /Recommendation cleanup failed/);
+  assert.deepEqual(active, ["one", "other"]);
+  assert.deepEqual(disposed, ["one"]);
+  controller.dispose();
+});

@@ -398,8 +398,14 @@ export async function sessionAction(baseUrl: string, id: string, action: Session
     body: JSON.stringify({ action, token }),
   });
   if (!resp.ok) {
-    const body = await resp.json().catch(() => null);
-    throw new Error(typeof body?.error === "string" ? body.error : `Session action failed (${resp.status}); refresh and try again.`);
+    const fallback = `Session action failed (${resp.status}); refresh and try again.`;
+    const text = (await resp.text().catch(() => "")).trim();
+    let message = text || fallback;
+    try {
+      const body = JSON.parse(text);
+      message = typeof body?.error === "string" ? body.error : fallback;
+    } catch { /* The sidecar's application errors use plain text. */ }
+    throw new Error(message);
   }
 }
 
