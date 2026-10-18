@@ -5200,19 +5200,25 @@ impl SessionApplication {
                     "Close must finish before deleting a session",
                 ));
             }
-            if let Ok(Some(record)) = workspace.metadata.try_read_revisioned_session(id) {
-                if record.metadata.lifecycle_phase != "ended" || record.metadata.lifecycle != "dead"
-                {
-                    return Err(SessionError::ConflictWithMessage(
-                        "Close must finish before deleting a session",
-                    ));
-                }
-                workspace
-                    .metadata
-                    .organization
-                    .state(id, &record.metadata.created_at, true, false)
-                    .map_err(|_| SessionError::ConflictWithMessage("Session state unavailable"))?;
+            let record = workspace
+                .metadata
+                .try_read_revisioned_session(id)
+                .map_err(|_| {
+                    SessionError::ConflictWithMessage(
+                        "Session metadata unavailable; deletion was not performed",
+                    )
+                })?
+                .ok_or(SessionError::NotFound)?;
+            if record.metadata.lifecycle_phase != "ended" || record.metadata.lifecycle != "dead" {
+                return Err(SessionError::ConflictWithMessage(
+                    "Close must finish before deleting a session",
+                ));
             }
+            workspace
+                .metadata
+                .organization
+                .state(id, &record.metadata.created_at, true, false)
+                .map_err(|_| SessionError::ConflictWithMessage("Session state unavailable"))?;
         }
         if !workspace.metadata.session_file_exists(id) {
             return Err(SessionError::NotFound);
@@ -11376,7 +11382,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn forget_session_application_maps_session_deletion_failure() {
+    async fn forget_session_application_rejects_unreadable_metadata() {
         let root = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "forget-failure-application";
@@ -11400,7 +11406,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(SessionError::Internal("application operation failed"))
+            Err(SessionError::ConflictWithMessage(
+                "Session metadata unavailable; deletion was not performed"
+            ))
         );
     }
 

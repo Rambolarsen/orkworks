@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { SessionAction, SessionInfo } from "../api";
 import { resumeChoices } from "../labels";
@@ -12,6 +12,7 @@ interface Props {
 }
 
 export default function SessionContextMenu({ anchor, disabled, onDismiss, onAction }: Props) {
+  const restoreWarningId = useId();
   const ref = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ left: anchor.x, top: anchor.y });
   const session = anchor.session;
@@ -49,7 +50,9 @@ export default function SessionContextMenu({ anchor, disabled, onDismiss, onActi
       items[next].focus();
     }}>
     {actions.map(({ action, label }) => <button type="button" role="menuitem" key={action} tabIndex={-1} disabled={disabled || !session.sessionActionToken}
+      aria-describedby={action === "restore" ? restoreWarningId : undefined}
       onClick={() => onAction(action)}>{label}</button>)}
+    {state === "archived" && <p id={restoreWarningId} className="session-menu-diagnostic">Restoring re-enables automatic cleanup. Older history may be deleted by your retention settings.</p>}
     {(!state || disabled) && <p className="session-menu-diagnostic">{session.sessionStateError ?? "Session changed or an action is running. Refresh and try again."}</p>}
   </div>, document.body);
 }

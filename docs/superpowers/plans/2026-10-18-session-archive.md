@@ -240,3 +240,28 @@ Cycle 3 full Node 22 verification passed: 2,144 Rust unit tests (9 ignored),
 type-check, builds/docs and repository checks. The two additional conservative
 recovery regressions then passed, as did the final storage suite. Existing
 user documentation already covers the unchanged close-first/failure behavior.
+
+## Owner-approved extension: PR feedback cycle 4/4
+
+The owner approved one additional substantial review cycle after the three-cycle
+cap. The owner also approved manual review plus native Codex as the alternative
+to unavailable Copilot; no further Copilot request is required for this path.
+
+The final cycle-3 review found eight actionable gaps. Red/green regressions now
+cover unreadable metadata blocking legacy forget, final-guard deadline expiry,
+protected metadata-only rows not consuming count-deletion slots, archived stale
+rows not affecting live Git guidance or current Actions/attention, same-path
+generation resets, and Delete/Restore consequence copy in real Electron.
+The implementation retains current-finalization and identity guards. Both fresh
+focused manual medium review seats approve these changes. Further substantial
+automated review beyond cycle 4 requires a new finite owner authorization.
+
+Cycle 4 verification passed the full repository script under Node 22.23.3
+with RUST_TEST_THREADS=4: 2,149 Rust unit tests (9 ignored), 6 integrations,
+1,367 desktop tests (1 skipped), reporter/native ABI/type-check, builds/docs
+and repository checks. The initial run exposed two legacy expectations for
+deleting unreadable metadata; those tests now require a conflict and retained
+history. A subsequent unconstrained parallel run hit three unrelated native
+Codex fixture-probe failures; each passed in isolation, and the complete run
+with four workers passed without modifying those tests or production code.
+Fresh focused backend/UI review approves the final code and amended regressions.

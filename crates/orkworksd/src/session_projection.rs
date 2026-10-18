@@ -236,16 +236,9 @@ impl SessionProjection {
         let lock_state = self.state.clone();
         let _projection_lock = lock_state.projection_lock.lock().unwrap();
         let infos = self.project_capacity(self.snapshot()?)?;
-        let mut infos = self.enrich_workspace(infos);
+        let mut infos = infos;
         self.project_organization(&mut infos);
-        for info in &mut infos {
-            if info.organization.session_state
-                == Some(crate::session_archive::SessionState::Archived)
-            {
-                info.recommendation = None;
-                info.conflict_warning = None;
-            }
-        }
+        let infos = self.enrich_workspace(infos);
         Ok(infos)
     }
 
@@ -610,7 +603,9 @@ pub(crate) fn enrich_sessions_with_git_context<F>(
     };
     let mut cwd_counts: HashMap<String, usize> = HashMap::new();
     for info in infos.iter() {
-        if info.status == "running" || info.status == "creating" {
+        if info.organization.session_state != Some(crate::session_archive::SessionState::Archived)
+            && (info.status == "running" || info.status == "creating")
+        {
             *cwd_counts.entry(cwd_for(info)).or_default() += 1;
         }
     }
@@ -624,7 +619,13 @@ pub(crate) fn enrich_sessions_with_git_context<F>(
             .entry(git_cwd.clone())
             .or_insert_with(|| detect_git(std::path::Path::new(&git_cwd)));
         let count = cwd_counts.get(&cwd).copied().unwrap_or(1);
-        info.recommendation = session_recommendation(ctx, count);
+        info.recommendation = if info.organization.session_state
+            == Some(crate::session_archive::SessionState::Archived)
+        {
+            None
+        } else {
+            session_recommendation(ctx, count)
+        };
         info.repo_root = ctx.repo_root.clone();
         info.branch = ctx.branch.clone();
         info.dirty = Some(ctx.dirty);
@@ -770,7 +771,28 @@ mod tests {
                 )
                 .unwrap();
         }
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let ws = workspace.as_ref().unwrap();
+            let mut stale = ws.metadata.read_session("archived").unwrap();
+            stale.status = "running".into();
+            stale.lifecycle = "alive".into();
+            stale.lifecycle_phase = "alive".into();
+            ws.metadata.write_session(&stale);
+            stale.id = "live".into();
+            ws.metadata.write_session(&stale);
+        }
         let infos = SessionProjection::new(state).list().unwrap();
+        let live = infos.iter().find(|info| info.id == "live").unwrap();
+        assert!(
+            !live
+                .recommendation
+                .as_deref()
+                .unwrap_or("")
+                .contains("Multiple sessions"),
+            "archived stale metadata must not count as a second current session"
+        );
+        assert!(live.conflict_warning.is_none());
         let archived = infos.iter().find(|info| info.id == "archived").unwrap();
         let closed = infos.iter().find(|info| info.id == "closed").unwrap();
         assert!(

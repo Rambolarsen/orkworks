@@ -7413,7 +7413,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn forget_session_deletes_session_with_unparseable_metadata_file() {
+    async fn forget_session_preserves_unparseable_metadata_and_terminal_history() {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
         let (json_path, corrupt_path) = {
@@ -7421,6 +7421,13 @@ mod tests {
             let store = &ws.as_ref().unwrap().metadata;
             std::fs::create_dir_all(store.sessions_dir()).unwrap();
             let json_path = store.sessions_dir().join("corrupt-forget.json");
+            store.append_terminal_output_records(
+                "corrupt-forget",
+                &[crate::metadata::TerminalOutputRecord::raw(
+                    "retained history",
+                    "",
+                )],
+            );
             std::fs::write(&json_path, "{\"id\": \"corrupt-forget\",").unwrap();
             (
                 json_path,
@@ -7428,16 +7435,27 @@ mod tests {
             )
         };
 
-        let response = forget_session(State(state), Path("corrupt-forget".into()))
+        let response = forget_session(State(state.clone()), Path("corrupt-forget".into()))
             .await
             .into_response();
 
         assert_eq!(
             response.status(),
-            axum::http::StatusCode::OK,
-            "a corrupt-but-present session file must be forgettable, not 404"
+            axum::http::StatusCode::CONFLICT,
+            "unknown finalization must block deletion"
         );
-        assert!(!json_path.exists());
+        assert!(json_path.exists());
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_terminal_output("corrupt-forget", 10),
+            vec!["retained history"]
+        );
         assert!(!corrupt_path.exists());
     }
 

@@ -33,7 +33,7 @@ export function buildActionsOverview(
   const sessionRows: ActionRow[] = [];
   for (const session of sessions) {
     // Remembered attention is historical, and capacity has its own destination.
-    if (session.lifecycle === "dead" || seen.has(session.id)) continue;
+    if (session.lifecycle === "dead" || session.sessionState === "archived" || seen.has(session.id)) continue;
     seen.add(session.id);
     const group = GROUPS[sessionAttentionStatus(session)];
     if (!group) continue;

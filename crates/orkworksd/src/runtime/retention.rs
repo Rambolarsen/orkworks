@@ -340,12 +340,18 @@ pub(crate) async fn retention_cleanup_once(
         let ws_guard = state.workspace.lock().unwrap();
         if let Some(ref ws) = *ws_guard {
             let mut sessions = state.sessions.lock().unwrap();
-            let protected_ids = sessions
+            let protected_ids = candidates
                 .iter()
-                .filter(|(id, handle)| {
-                    retention_protected(state, ws, id, Some(handle), &handle.info.created_at)
+                .filter(|candidate| {
+                    retention_protected(
+                        state,
+                        ws,
+                        &candidate.id,
+                        sessions.get(&candidate.id),
+                        &candidate.created_at,
+                    )
                 })
-                .map(|(id, _)| id.clone())
+                .map(|candidate| candidate.id.clone())
                 .collect();
             let eligible =
                 select_count_candidates(&candidates, config.max_sessions, &protected_ids);
@@ -463,6 +469,41 @@ mod tests {
             );
         }
         assert!(ws.metadata.session_file_exists("reused"));
+    }
+
+    #[tokio::test]
+    async fn count_retention_skips_protected_metadata_without_handles_before_selection() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let ws = workspace.as_ref().unwrap();
+            let mut active = retention_test_session("old-active", "2024-01-01T00:00:00Z");
+            active.lifecycle_phase = "creating".into();
+            active.lifecycle = "creating".into();
+            active.status = "creating".into();
+            ws.metadata.write_session(&active);
+            for (id, time) in [
+                ("closed-old", "2024-02-01T00:00:00Z"),
+                ("closed-new", "2024-03-01T00:00:00Z"),
+            ] {
+                ws.metadata.write_session(&retention_test_session(id, time));
+            }
+        }
+        {
+            let mut config = state.retention_config.write().await;
+            config.max_age_days = 0;
+            config.max_sessions = 2;
+        }
+        retention_cleanup_once(&state, chrono::Utc::now()).await;
+        let workspace = state.workspace.lock().unwrap();
+        let ws = workspace.as_ref().unwrap();
+        assert!(ws.metadata.session_file_exists("old-active"));
+        assert!(
+            !ws.metadata.session_file_exists("closed-old"),
+            "protected metadata must not consume the deletion slot"
+        );
+        assert!(ws.metadata.session_file_exists("closed-new"));
     }
 
     fn spam_observation_key(index: usize) -> String {

@@ -153,7 +153,12 @@ impl SessionApplication {
             // that it has drained output, cleaned up, and persisted its ending.
             let deadline = tokio::time::Instant::now() + wait;
             loop {
-                if self.finish_session_action(id, &captured, request.action)? {
+                if tokio::time::Instant::now() >= deadline {
+                    return Err(SessionError::ConflictWithMessage(
+                        "Close is still finishing; refresh and try again",
+                    ));
+                }
+                if self.finish_session_action(id, &captured, request.action, Some(deadline))? {
                     return Ok(());
                 }
                 if tokio::time::Instant::now() >= deadline {
@@ -170,7 +175,7 @@ impl SessionApplication {
                 .await;
             }
         }
-        if self.finish_session_action(id, &captured, request.action)? {
+        if self.finish_session_action(id, &captured, request.action, None)? {
             Ok(())
         } else {
             Err(SessionError::ConflictWithMessage(
@@ -184,6 +189,7 @@ impl SessionApplication {
         id: &str,
         captured: &CapturedAction,
         action: SessionAction,
+        deadline: Option<tokio::time::Instant>,
     ) -> Result<bool, SessionError> {
         let _projection = self.state.projection_lock.lock().unwrap();
         let workspace = self.state.workspace.lock().unwrap();
@@ -221,6 +227,13 @@ impl SessionApplication {
             )
         {
             return Ok(false);
+        }
+        // Recheck after acquiring locks and reading state: waiting for either
+        // may have exhausted the close-first budget.
+        if deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
+            return Err(SessionError::ConflictWithMessage(
+                "Close is still finishing; refresh and try again",
+            ));
         }
         let mut deleted = false;
         let mut deletion_failed = false;
@@ -474,6 +487,76 @@ mod tests {
             .await
             .unwrap();
         assert!(SessionProjection::new(state).list().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn forget_preserves_unreadable_metadata() {
+        for directory in [false, true] {
+            let (_dir, state, _) = fixture(false);
+            let root = state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .root_path();
+            let path = root.join("sessions/one.json");
+            if directory {
+                std::fs::remove_file(&path).unwrap();
+                std::fs::create_dir(&path).unwrap();
+            } else {
+                std::fs::write(&path, "{malformed").unwrap();
+            }
+            let result = SessionApplication::new(state).forget_session("one").await;
+            assert!(result.is_err(), "unknown finalization must block forget");
+            assert!(path.exists());
+            if !directory {
+                assert_eq!(std::fs::read_to_string(path).unwrap(), "{malformed");
+            }
+        }
+    }
+
+    #[test]
+    fn expired_followup_cannot_archive_or_delete_after_waiting_for_guard() {
+        for action in [SessionAction::Archive, SessionAction::Delete] {
+            let (_dir, state, _) = fixture(false);
+            let captured = CapturedAction {
+                store: state
+                    .workspace
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .metadata
+                    .organization
+                    .clone(),
+                created_at: "2024-01-01T00:00:00Z".into(),
+                revision: 0,
+                generation: None,
+            };
+            let guard = state.projection_lock.lock().unwrap();
+            let deadline = tokio::time::Instant::now() + Duration::from_millis(20);
+            let app = SessionApplication::new(state.clone());
+            let (started_tx, started_rx) = std::sync::mpsc::channel();
+            let thread = std::thread::spawn(move || {
+                started_tx.send(()).unwrap();
+                app.finish_session_action("one", &captured, action, Some(deadline))
+            });
+            started_rx.recv().unwrap();
+            std::thread::sleep(Duration::from_millis(40));
+            drop(guard);
+            assert!(
+                thread.join().unwrap().is_err(),
+                "expired guard acquisition must not mutate"
+            );
+            let infos = SessionProjection::new(state).list().unwrap();
+            assert_eq!(infos.len(), 1);
+            assert_eq!(
+                infos[0].organization.session_state,
+                Some(SessionState::Closed)
+            );
+        }
     }
 
     #[tokio::test]

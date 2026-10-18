@@ -30,6 +30,37 @@ if (process.versions.electron) {
         await evaluate(`Array.from(document.querySelectorAll('[role=menuitem]')).find(b=>b.textContent.startsWith(${JSON.stringify(prefix)})).click()`);
         await wait('!document.querySelector("[role=menu]")');
       };
+      const scenario = process.env.ORKWORKS_ARCHIVE_CASE;
+      if (scenario) {
+        if (scenario === 'delete-copy') {
+          await more('live'); await action('Delete');
+          assert.match(await evaluate('fixture.confirmations[0]'), /native.*session.*retained/i);
+          assert.match(await evaluate('fixture.confirmations[0]'), /Git worktree.*retained/i);
+        } else if (scenario === 'restore-warning') {
+          await filter('archived'); await more('saved');
+          assert.match(await evaluate('document.querySelector("[role=menu]").innerText'), /restor.*automatic.*cleanup/i);
+        } else if (scenario === 'archived-attention') {
+          await evaluate('fixture.setRows(rows=>rows.map(r=>r.id==="saved"?{...r,lifecycle:"alive",status:"running",attention:"needs_you"}:r))');
+          await filter('archived'); await wait('document.querySelector("[data-session-id=saved]")');
+          assert.equal(await evaluate('document.querySelector("[data-session-id=saved]").classList.contains("session-row--loud")'), false);
+          assert.equal(await evaluate('!!document.querySelector("[data-session-id=saved] .session-row-attention")'), false);
+          assert.equal(await evaluate('document.querySelector("[data-session-id=saved]").classList.contains("session-row--unread")'), false);
+        } else if (scenario === 'generation-menu') {
+          await more('closed');
+          await evaluate('fixture.nextGeneration()');
+          await evaluate('new Promise(resolve=>requestAnimationFrame(()=>resolve(true)))');
+          assert.equal(await evaluate('!!document.querySelector("[role=menu]")'), false, 'same-path generation dismisses old menu');
+        } else if (scenario === 'generation-pending') {
+          await evaluate('fixture.pauseAction=true');
+          await more('closed'); await action('Archive'); await wait('fixture.finishAction');
+          await evaluate('fixture.nextGeneration()');
+          await evaluate('new Promise(resolve=>requestAnimationFrame(()=>resolve(true)))');
+          assert.equal(await evaluate('document.querySelector("[data-session-id=closed] .session-row-more").disabled'), false);
+          await evaluate('fixture.finishAction()');
+        }
+        console.log('archive scenario passed: '+scenario);
+        return;
+      }
       assert.deepEqual(await evaluate('Array.from(document.querySelectorAll("[data-session-id]")).map(e=>e.dataset.sessionId)'), ['live','closed']);
       await evaluate('fixture.selectHidden()');
       await evaluate('document.getElementById("sessions-list").focus();document.getElementById("sessions-list").dispatchEvent(new KeyboardEvent("keydown",{key:"F10",shiftKey:true,bubbles:true}))');
@@ -106,7 +137,7 @@ if (process.versions.electron) {
   const { join } = await import('node:path');
   const { spawnSync } = await import('node:child_process');
   const require = createRequire(import.meta.url);
-  test('session state filters and exact-row menu preserve selection and confirm before deletion', async () => {
+  for (const scenario of ['', 'delete-copy', 'restore-warning', 'archived-attention', 'generation-menu', 'generation-pending']) test('archive UI '+(scenario || 'workflow'), async () => {
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-archive-'));
     try {
       const { build } = await import('esbuild');
@@ -118,8 +149,8 @@ if (process.versions.electron) {
         window.addEventListener('error',e=>fixture.errors.push(e.message));
         window.confirm=message=>{fixture.confirmations.push(message);return false};
         const row=(id,state)=>({id,label:id,sessionState:state,sessionActionToken:'token-'+id,lifecycle:state==='active'?'alive':'dead',lifecyclePhase:state==='active'?'active':'ended',status:state==='active'?'running':'ended',created_at:'2026-10-18T10:00:00Z',cwd:'/tmp',memoryState:'remembered',resumeStrategy:'none'});
-        function Harness(){const[rows,setRows]=useState([row('live','active'),row('closed','closed'),row('saved','archived')]);const[selected,setSelected]=useState('live');const[enabled,setEnabled]=useState(true);fixture.setActionsEnabled=setEnabled;fixture.selectHidden=()=>setSelected('saved');fixture.selectLive=()=>setSelected('live');
-          return <SessionListPanel workspace={{path:'/tmp',workspaceIdentity:'test'}} sessions={rows} activeSessionId={selected} unreadIds={new Set()} acknowledgedIds={new Set()} harnesses={[]}
+        function Harness(){const[rows,setRows]=useState([row('live','active'),row('closed','closed'),row('saved','archived')]);const[selected,setSelected]=useState('live');const[enabled,setEnabled]=useState(true);const[generation,setGeneration]=useState(0);fixture.nextGeneration=()=>setGeneration(g=>g+1);fixture.setRows=setRows;fixture.setActionsEnabled=setEnabled;fixture.selectHidden=()=>setSelected('saved');fixture.selectLive=()=>setSelected('live');
+          return <SessionListPanel workspaceGeneration={generation} workspace={{path:'/tmp',workspaceIdentity:'test'}} sessions={rows} activeSessionId={selected} unreadIds={new Set(['saved'])} acknowledgedIds={new Set()} harnesses={[]}
             actionsEnabled={enabled} onSelectSession={id=>{fixture.selections.push(id);fixture.selected=id;setSelected(id)}} onFocusTerminal={()=>{}} onOpenWorkspace={()=>{}}
             onSessionAction={async(id,action,token)=>{fixture.calls.push([id,action,token]);if(fixture.pauseAction)await new Promise(resolve=>fixture.finishAction=resolve);setRows(rows=>action==='delete'?rows.filter(r=>r.id!==id):rows.map(r=>r.id===id?{...r,sessionState:action==='archive'?'archived':'closed',sessionActionToken:r.sessionActionToken+'-next',lifecycle:'dead',lifecyclePhase:'ended'}:r))}}/>}
         createRoot(document.getElementById('root')).render(<Harness/>);
@@ -127,7 +158,7 @@ if (process.versions.electron) {
       const fixture = join(directory, 'index.html');
       writeFileSync(fixture, '<style>'+(bundle.outputFiles.find(f=>f.path.endsWith('.css'))?.text||'')+'</style><div id="root"></div><script>'+bundle.outputFiles.find(f=>f.path.endsWith('.js')).text+'</script>');
       const electron = require('electron');
-      const env = { ...process.env, ORKWORKS_ARCHIVE_FIXTURE: fixture }; delete env.ELECTRON_RUN_AS_NODE;
+      const env = { ...process.env, ORKWORKS_ARCHIVE_FIXTURE: fixture, ORKWORKS_ARCHIVE_CASE: scenario }; delete env.ELECTRON_RUN_AS_NODE;
       const args = [fileURLToPath(import.meta.url)];
       if (process.platform === 'linux') args.unshift('--no-sandbox');
       const headless = process.platform === 'linux' && !env.DISPLAY;

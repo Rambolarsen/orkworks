@@ -391,7 +391,7 @@ export default function ApplicationShell(props: Props) {
         <header className="shell-region-header shell-sessions-header"><h2 data-shell-sessions-heading tabIndex={-1}>Sessions</h2>
           {showSessionsPage && <button type="button" data-shell-command="sessions" data-shell-return onClick={closePage}>{reviewing ? "Back to Review" : "Back to Terminal"}</button>}
         </header>
-        <SessionListPanel workspace={props.workspace} sessions={props.sessions} activeSessionId={props.activeSessionId}
+        <SessionListPanel workspaceGeneration={props.workspaceGeneration} workspace={props.workspace} sessions={props.sessions} activeSessionId={props.activeSessionId}
           unreadIds={props.unreadIds} acknowledgedIds={props.acknowledgedIds} harnesses={props.harnesses}
           onSelectSession={id => {
             creationReturn.current = null;

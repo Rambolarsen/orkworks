@@ -23,6 +23,7 @@ import SessionContextMenu, { type SessionMenuAnchor } from "./SessionContextMenu
 
 interface SessionListPanelProps {
   workspace: WorkspaceInfo | null;
+  workspaceGeneration?: number;
   sessions: SessionInfo[];
   activeSessionId: string | null;
   unreadIds: ReadonlySet<string>;
@@ -38,6 +39,7 @@ interface SessionListPanelProps {
 
 function SessionListPanel({
   workspace,
+  workspaceGeneration: workspaceEpoch = 0,
   sessions,
   activeSessionId,
   unreadIds,
@@ -59,7 +61,7 @@ function SessionListPanel({
   const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const workspaceIdentity = workspace?.workspaceIdentity ?? workspace?.path;
-  useEffect(() => { workspaceGeneration.current += 1; actionInvoker.current = null; menuRef.current = null; setMenu(null); setFilter("all"); setError(null); setPending(new Set()); }, [workspaceIdentity]);
+  useEffect(() => { workspaceGeneration.current += 1; actionInvoker.current = null; menuRef.current = null; setMenu(null); setFilter("all"); setError(null); setPending(new Set()); }, [workspaceIdentity, workspaceEpoch]);
   const listRef = useRef<HTMLUListElement | null>(null);
   const itemRefs = useRef<Map<string, HTMLLIElement>>(new Map());
   useLayoutEffect(() => {
@@ -109,7 +111,7 @@ function SessionListPanel({
     actionInvoker.current = menu?.invoker ?? null;
     dismissMenu();
     if (action === "resume") { onResumeSession?.(target.id); return; }
-    if (action === "delete" && !window.confirm(`Permanently delete “${target.label}”? ${target.sessionState === "active" ? "The session will be closed first. " : ""}The session record, events, and saved terminal scrollback cannot be restored.`)) return;
+    if (action === "delete" && !window.confirm(`Permanently delete “${target.label}”? ${target.sessionState === "active" ? "The session will be closed first. " : ""}The session record, events, and saved terminal scrollback cannot be restored. The coding tool's native saved session is retained. The Git worktree is retained.`)) return;
     const generation = workspaceGeneration.current;
     setPending(current => new Set(current).add(target.id));
     try { await onSessionAction?.(target.id, action, target.sessionActionToken); }
@@ -200,7 +202,7 @@ function SessionListPanel({
               {group.items.map((s) => {
                 const attn = sessionAttentionStatus(s);
                 const tone = attentionTone(attn);
-                const remembered = s.lifecycle === "dead";
+                const remembered = s.lifecycle === "dead" || s.sessionState === "archived";
                 // Unread is "changed since you looked" — a remembered session
                 // can't change under you, so the signal is suppressed there.
                 const unread = unreadIds.has(s.id) && !remembered;
