@@ -33,6 +33,7 @@ export default defineConfig({
     'CLAUDE.md',
     'apps/**',
     'crates/**',
+    'tests/fixtures/copilot-1.0.90-probe0/**',
     'skills/**',
     '.agents/**',
     '.claude/**',

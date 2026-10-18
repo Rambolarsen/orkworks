@@ -1,3 +1,10 @@
+---
+type: Validation Evidence
+title: "Copilot 1.0.90 Probe 0: OTel transport qualification"
+description: Retained Copilot transport observations and outstanding qualification gates.
+tags: [copilot, harnesses, validation, role-profiles]
+---
+
 # Copilot 1.0.90 Probe 0: OTel transport qualification
 
 Date: 2026-10-06. Tracks [#740](https://github.com/Rambolarsen/orkworks/issues/740),
@@ -22,8 +29,10 @@ native runtime evidence for the questions the static research left open.
 
 One process, no retry, exit 0, under the approved budget. Exact environment,
 argv and limits are in [`argv.txt`](fixtures/copilot-1.0.90-probe0/argv.txt);
-synthetic inputs and the capture settings are in
-`fixtures/copilot-1.0.90-probe0/inputs/`. Settings enabled
+synthetic inputs and the capture settings are retained unchanged under
+[`tests/fixtures/copilot-1.0.90-probe0/inputs/`](https://github.com/Rambolarsen/orkworks/tree/main/tests/fixtures/copilot-1.0.90-probe0/inputs).
+This keeps the captured `AGENTS.md` files outside the documentation bundle;
+the input filenames, relative layout and bytes are preserved. Settings enabled
 `telemetry.capture.prompts` and `telemetry.capture.toolArguments`; responses,
 tool output, policy detail and identity were disabled. No existing user
 configuration, authentication or policy was changed.

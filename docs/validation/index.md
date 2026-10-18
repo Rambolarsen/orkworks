@@ -13,6 +13,7 @@ Capability research, validation results, and evidence fixtures.
 - [Copilot 1.0.90 runtime and receipt qualification](copilot-native-receipt-qualification.md) — Validation evidence and context: Copilot 1.0.90 runtime and receipt qualification.
 - [Copilot role observation transport research](copilot-role-observation-transport.md) — Validation evidence and context: Copilot role observation transport research.
 - [Copilot 1.0.90 selective-capture research](copilot-selective-capture-research.md) — Validation evidence and context: Copilot 1.0.90 selective-capture research.
+- [Copilot Probe 0 transport qualification](copilot-probe0-transport-qualification.md) — Observed OTel transport behavior and remaining qualification gates.
 - [Master-session runner native confinement gate](master-session-runner-confinement.md) — Validation evidence and context: Master-session runner native confinement gate.
 - [Independent workspace instance validation plan](multi-workspace.md) — Validation evidence and context: Independent workspace instance validation plan.
 
