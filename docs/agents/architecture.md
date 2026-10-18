@@ -569,7 +569,10 @@ enables bracketed paste ~0.1s after spawn but starts reading input only with
 its first real render ~1.1s in, and input written in between is silently
 discarded (opencode v2.0.32). Claude Code likewise drops input for roughly
 the first 0.5s after paste-enable (measured on 2.1.292) and uses the same 1.5s
-floor. The runtime sends Enter
+floor. In an untrusted folder Claude first shows a trust chooser (default
+"No, exit") that also enables bracketed paste; the runtime recognizes it and
+holds all delivery, including the hard timeout, until it tears down
+(`ESC[?2004l`) and the editor re-enables paste. The runtime sends Enter
 separately, 200ms after the paste write completes, ahead of later queued input.
 This avoids cooked PTY newline conversion, startup input loss, and Codex's
 paste-burst Enter suppression. Resize and kill controls bypass waiting prompt

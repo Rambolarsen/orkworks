@@ -1520,6 +1520,40 @@ const INITIAL_EDITOR_OPENCODE_PASTE_SETTLE: std::time::Duration =
 const INITIAL_EDITOR_CLAUDE_PASTE_SETTLE: std::time::Duration =
     std::time::Duration::from_millis(1500);
 
+// Whitespace-free, lowercase text of Claude Code's trust chooser (cursor
+// movement replaces its spaces, so compare with whitespace removed).
+const CLAUDE_TRUST_PROMPT_MARKER: &str = "itrustthisfolder";
+
+fn strip_terminal_escapes(data: &[u8]) -> String {
+    let text = String::from_utf8_lossy(data);
+    let mut out = String::new();
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\x1b' => match chars.next() {
+                Some('[') => {
+                    for n in chars.by_ref() {
+                        if ('@'..='~').contains(&n) {
+                            break;
+                        }
+                    }
+                }
+                Some(']') => {
+                    while let Some(n) = chars.next() {
+                        if n == '\x07' || (n == '\x1b' && chars.next_if_eq(&'\\').is_some()) {
+                            break;
+                        }
+                    }
+                }
+                _ => {}
+            },
+            c if c.is_whitespace() || c.is_control() => {}
+            c => out.extend(c.to_lowercase()),
+        }
+    }
+    out
+}
+
 fn initial_editor_paste_settle(harness: Option<&str>) -> std::time::Duration {
     match harness {
         Some("opencode") => INITIAL_EDITOR_OPENCODE_PASTE_SETTLE,
@@ -1542,6 +1576,10 @@ struct InitialEditorPrompt {
     qualifying_work_output: bool,
     work_utf8: Vec<u8>,
     startup_grace_ends_at: tokio::time::Instant,
+    /// Hold delivery while a first-run trust chooser owns the terminal.
+    hold_for_trust_prompt: bool,
+    awaiting_trust_decision: bool,
+    screen_tail: String,
 }
 
 enum InitialEditorPromptPhase {
@@ -1573,6 +1611,31 @@ impl InitialEditorPrompt {
             qualifying_work_output: false,
             work_utf8: Vec::new(),
             startup_grace_ends_at,
+            hold_for_trust_prompt: false,
+            awaiting_trust_decision: false,
+            screen_tail: String::new(),
+        }
+    }
+
+    /// Claude Code asks "Is this a project you trust?" in untrusted folders.
+    /// That chooser also enables bracketed paste, defaults to "No, exit", and
+    /// would take our Enter as the user's decision, so never deliver into it.
+    fn with_trust_prompt_hold(mut self) -> Self {
+        self.hold_for_trust_prompt = true;
+        self
+    }
+
+    fn observe_trust_prompt(&mut self, data: &[u8]) {
+        let visible = strip_terminal_escapes(data);
+        self.screen_tail.push_str(&visible);
+        let excess = self.screen_tail.len().saturating_sub(256);
+        if excess > 0 {
+            let cut = (excess..).find(|i| self.screen_tail.is_char_boundary(*i));
+            self.screen_tail
+                .drain(..cut.unwrap_or(self.screen_tail.len()));
+        }
+        if self.screen_tail.contains(CLAUDE_TRUST_PROMPT_MARKER) {
+            self.awaiting_trust_decision = true;
         }
     }
 
@@ -1594,6 +1657,9 @@ impl InitialEditorPrompt {
         if !matches!(self.phase, InitialEditorPromptPhase::Waiting(_)) {
             return;
         }
+        if self.hold_for_trust_prompt {
+            self.observe_trust_prompt(data);
+        }
         for byte in data {
             self.marker.rotate_left(1);
             self.marker[7] = *byte;
@@ -1601,6 +1667,14 @@ impl InitialEditorPrompt {
                 self.paste_enabled = true;
             } else if &self.marker == b"\x1b[?2004l" {
                 self.paste_enabled = false;
+                if self.awaiting_trust_decision {
+                    // The chooser tore down: the user decided. Give the real
+                    // editor a fresh startup bound and wait for its own
+                    // paste-enable before delivering.
+                    self.awaiting_trust_decision = false;
+                    self.screen_tail.clear();
+                    self.timeout = now + INITIAL_EDITOR_TIMEOUT;
+                }
             }
         }
         self.phase = InitialEditorPromptPhase::Waiting(if self.paste_enabled {
@@ -1611,6 +1685,10 @@ impl InitialEditorPrompt {
     }
 
     fn deadline(&self) -> Option<tokio::time::Instant> {
+        if self.awaiting_trust_decision {
+            // The user's trust decision has no deadline.
+            return None;
+        }
         match self.phase {
             InitialEditorPromptPhase::Waiting(at) | InitialEditorPromptPhase::Submit(at) => {
                 Some(at)
@@ -1631,6 +1709,9 @@ impl InitialEditorPrompt {
         // Recheck the reader queue after a timer or unrelated branch wakes
         // us. Already queued output must reset quiet-time readiness first.
         // The hard startup bound still applies under continuous output.
+        if self.awaiting_trust_decision {
+            return None;
+        }
         if output_pending && now < self.timeout {
             return None;
         }
@@ -2226,12 +2307,16 @@ async fn start_session_runtime_inner(
                 {
                     handle.pending_work_signal = None;
                 }
-                initial_editor = Some(InitialEditorPrompt::new(
+                let mut editor = InitialEditorPrompt::new(
                     prompt,
                     tokio::time::Instant::now(),
                     startup_grace_ends_at,
                     initial_editor_paste_settle(initial_editor_harness.as_deref()),
-                ));
+                );
+                if initial_editor_harness.as_deref() == Some("claude-code") {
+                    editor = editor.with_trust_prompt_hold();
+                }
+                initial_editor = Some(editor);
             } else {
                 pending_commands.push_front(initial_prompt_command(&prompt));
             }
@@ -2850,6 +2935,48 @@ mod tests {
         let RuntimeCommand::Input { data, .. } = initial
             .next_command(now + Duration::from_millis(1600), false)
             .expect("paste must fire once the floor has passed")
+        else {
+            panic!("initial paste must be terminal input");
+        };
+        assert_eq!(data, "\x1b[200~find new work\x1b[201~");
+    }
+
+    #[test]
+    fn claude_initial_paste_never_enters_the_trust_chooser() {
+        // Captured from Claude Code 2.1.292 in an untrusted folder: the
+        // chooser enables bracketed paste, defaults to "No, exit", and
+        // tears down with ESC[?2004l once the user decides.
+        let now = tokio::time::Instant::now();
+        let mut initial = InitialEditorPrompt::new(
+            "find new work".into(),
+            now,
+            now,
+            initial_editor_paste_settle(Some("claude-code")),
+        )
+        .with_trust_prompt_hold();
+        initial.observe_output(
+            b"\x1b[?2004h\x1b[1mQuick\x1b[1Csafety\x1b[1Ccheck\x1b[0m: Is this a project you created or one you trust?\r\n\xe2\x9d\xaf No, exit\r\nYes, I\x1b[1Ctrust\x1b[1Cthis\x1b[1Cfolder",
+            now,
+        );
+        // Neither the settle nor the 10s hard timeout may deliver into it.
+        for secs in [2u64, 11, 120] {
+            assert!(
+                initial
+                    .next_command(now + Duration::from_secs(secs), false)
+                    .is_none(),
+                "no delivery while the trust chooser is showing ({secs}s)"
+            );
+        }
+        // User decides; the real editor starts and enables paste again.
+        let decided = now + Duration::from_secs(130);
+        initial.observe_output(b"\x1b[?2004l", decided);
+        initial.observe_output(b"\x1b[?2004h", decided + Duration::from_millis(500));
+        assert!(initial
+            .next_command(decided + Duration::from_millis(1000), false)
+            .is_none());
+        let RuntimeCommand::Input { data, .. } = initial
+            .next_command(decided + Duration::from_millis(2100), false)
+            .expect("paste must fire in the real editor")
         else {
             panic!("initial paste must be terminal input");
         };
