@@ -103,4 +103,6 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 
 | [0085](./0085-taskmaster-assessment-and-analysis-outcomes.md) | Taskmaster assessment reports and explicit analysis outcomes | accepted |
 
-| [0086](./0086-repository-led-taskmaster-assessment.md) | Repository-led Taskmaster assessment with bounded evidence selection | proposed |
+| [0086](./0086-repository-led-taskmaster-assessment.md) | Repository-led Taskmaster assessment with bounded evidence selection | accepted |
+
+| [0087](./0087-native-codex-assessment-response-constraints.md) | Native Codex assessment uses code-owned response constraints | accepted; compatibility and runtime evidence pending |

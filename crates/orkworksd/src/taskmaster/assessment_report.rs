@@ -49,6 +49,10 @@ pub(crate) struct AssessmentReport {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct AssessmentRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_manifest: Option<super::assessment_context::InputManifest>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<AssessmentPhase>,
     pub format_version: u8,
     pub id: String,
     pub state: AssessmentState,
@@ -58,6 +62,68 @@ pub(crate) struct AssessmentRecord {
     pub pending_recommendation: Option<Recommendation>,
     pub error_summary: Option<String>,
     pub reused: bool,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum AssessmentPhase {
+    Discovering,
+    ReadingEvidence,
+    Assessing,
+}
+
+impl AssessmentRecord {
+    pub(crate) fn validate_format(&self) -> Result<(), String> {
+        match self.format_version {
+            1 if self.input_manifest.is_none() && self.phase.is_none() => Ok(()),
+            2 => {
+                match self.state {
+                    AssessmentState::Succeeded
+                        if self.report.is_none() || self.pending_recommendation.is_some() =>
+                    {
+                        return Err("Completed assessment is invalid".into())
+                    }
+                    AssessmentState::PendingRecommendation
+                        if self.report.is_none() || self.pending_recommendation.is_none() =>
+                    {
+                        return Err("Pending assessment is invalid".into())
+                    }
+                    AssessmentState::Queued | AssessmentState::Running
+                        if self.report.is_some() || self.pending_recommendation.is_some() =>
+                    {
+                        return Err("Running assessment is invalid".into())
+                    }
+                    _ => {}
+                }
+                if let (Some(report), Some(manifest)) = (&self.report, &self.input_manifest) {
+                    if report.outcome == "proposed" && !manifest.instruction_coverage_complete {
+                        return Err("Assessment proposal lacks governing instructions".into());
+                    }
+                    if report.context_level != manifest.context_level
+                        || report.excluded_paths != manifest.excluded_paths
+                    {
+                        return Err("Assessment manifest policy is inconsistent".into());
+                    }
+                }
+                if let Some(manifest) = &self.input_manifest {
+                    manifest.validate()?;
+                }
+                if self.report.is_some() && self.input_manifest.is_none() {
+                    return Err("Assessment manifest is missing".into());
+                }
+                if self.report.is_some()
+                    && self
+                        .input_manifest
+                        .as_ref()
+                        .is_some_and(|m| !m.redacted && m.discovery_digest.is_none())
+                {
+                    return Err("Assessment discovery identity is missing".into());
+                }
+                Ok(())
+            }
+            _ => Err("Assessment record version is invalid".into()),
+        }
+    }
 }
 
 /// Stages the complete capped report before the recommendation, then commits it.
@@ -115,7 +181,13 @@ fn validate_publication(record: &AssessmentRecord) -> Result<(), String> {
         .report
         .as_ref()
         .ok_or("Assessment publication report is missing")?;
-    if record.format_version != 1 || record.id != report.id {
+    if let Some(manifest) = &record.input_manifest {
+        manifest.validate()?;
+    }
+    if !matches!(record.format_version, 1 | 2)
+        || record.id != report.id
+        || record.input_manifest.as_ref().is_some_and(|m| m.redacted)
+    {
         return Err("Assessment publication identity is invalid".into());
     }
     if let Some(recommendation) = &record.pending_recommendation {
@@ -213,6 +285,8 @@ pub(super) mod tests {
         });
         let record = AssessmentRecord {
             format_version: 1,
+            input_manifest: None,
+            phase: None,
             id: "assessment-1".into(),
             state: AssessmentState::Succeeded,
             started_at: "then".into(),

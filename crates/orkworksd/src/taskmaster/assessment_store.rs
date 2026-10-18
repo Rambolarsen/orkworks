@@ -63,12 +63,21 @@ fn validate_bytes(bytes: &[u8]) -> Result<(), String> {
     }
     let value: serde_json::Value =
         serde_json::from_slice(bytes).map_err(|_| "Assessment report is invalid")?;
-    if value
+    match value
         .get("formatVersion")
         .and_then(serde_json::Value::as_u64)
-        != Some(1)
     {
-        return Err("Assessment report version is unsupported".into());
+        Some(1) => {
+            if value.get("inputManifest").is_some() || value.get("phase").is_some() {
+                return Err("Legacy assessment contains unsupported fields".into());
+            }
+        }
+        Some(2) => {
+            let record: super::assessment_report::AssessmentRecord = serde_json::from_slice(bytes)
+                .map_err(|_| "Assessment record has an invalid shape")?;
+            record.validate_format()?;
+        }
+        _ => return Err("Assessment report version is unsupported".into()),
     }
     Ok(())
 }
@@ -203,5 +212,54 @@ mod tests {
             store.load::<Record>().unwrap().unwrap().summary,
             "replacement"
         );
+    }
+}
+
+#[cfg(test)]
+mod format_tests {
+    use super::*;
+    #[test]
+    fn format_two_requires_a_bounded_manifest_and_legacy_rejects_new_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        std::fs::write(workspace.path().join("README.md"), "current workflow").unwrap();
+        let context = crate::taskmaster::assessment_context::RepositoryContext::collect(
+            workspace.path(),
+            crate::taskmaster::runtime::ContextLevel::WorkflowContext,
+            &[],
+            "now",
+        )
+        .unwrap();
+        let (record, _) = crate::taskmaster::assessment_report::tests::proposal();
+        let mut value = serde_json::to_value(record).unwrap();
+        value["formatVersion"] = serde_json::json!(2);
+        value["state"] = serde_json::json!("pending_recommendation");
+        let mut manifest = serde_json::to_value(context.manifest()).unwrap();
+        manifest["discoveryDigest"] = serde_json::json!("a".repeat(64));
+        value["inputManifest"] = manifest.clone();
+        let store = AssessmentStore::new(dir.path());
+        assert!(
+            store.save(&value).is_ok(),
+            "valid format two must be supported"
+        );
+        assert!(store
+            .load::<crate::taskmaster::assessment_report::AssessmentRecord>()
+            .unwrap()
+            .is_some());
+        value["formatVersion"] = serde_json::json!(1);
+        assert!(
+            store.save(&value).is_err(),
+            "legacy must not silently accept new semantics"
+        );
+        value["formatVersion"] = serde_json::json!(2);
+        value.as_object_mut().unwrap().remove("inputManifest");
+        assert!(
+            store.save(&value).is_err(),
+            "completed format two requires manifest"
+        );
+        value["inputManifest"] = manifest;
+        value["inputManifest"]["files"] =
+            serde_json::json!(vec![value["inputManifest"]["files"][0].clone(); 33]);
+        assert!(store.save(&value).is_err());
     }
 }

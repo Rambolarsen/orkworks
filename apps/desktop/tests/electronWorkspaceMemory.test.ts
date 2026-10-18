@@ -755,129 +755,103 @@ test("a single path that cannot fit returns a diagnostic without a silent no-op"
     assert.equal(existsSync(workspaceMemoryPath(directory)), false);
   }));
 
-for (const forceInitialTimeout of [false, true]) {
-  test(`two process writers preserve successful writes${forceInitialTimeout ? " after a surfaced timeout" : " under contention"}`, { timeout: 30_000 }, () =>
-    withTemporaryUserData(async (directory) => {
-      const moduleUrl = new URL("../electron/workspaceMemory.ts", import.meta.url).href;
-      const script = `import { once } from "node:events";
-import { rememberWorkspacePath } from ${JSON.stringify(moduleUrl)};
-const directory = process.argv[1];
-const prefix = process.argv[2];
-const forceInitialTimeout = process.argv[3] === "true";
-const start = once(process, "message");
-process.send({ type: "ready" });
-await start;
-for (let index = 0; index < 40; index += 1) {
-  const path = \`/repo/\${prefix}-\${index}\`;
-  const result = rememberWorkspacePath(directory, path);
-  const resume = forceInitialTimeout && prefix === "b" && index === 0
-    ? once(process, "message") : null;
-  process.send({ type: "result", path, revision: result.revision, diagnostic: result.diagnostic });
-  if (resume) await resume;
-}
-process.disconnect();`;
-      // Hold the real retained OS lock until b reports its first attempt.
-      // This exercises bounded contention without a guessed sleep duration.
-      let lock: number | null = null;
-      if (forceInitialTimeout) {
-        lock = openSync(join(directory, ".workspace-memory.lock"), "a+", 0o600);
-        fsExt.flockSync(lock, "exnb");
-      }
-      interface WriteResult {
-        type: "result";
-        path: string;
-        revision: number;
-        diagnostic: { code: string; message: string } | null;
-      }
-      const results: WriteResult[] = [];
-      const children = ["a", "b"].map((prefix) => {
-        const child = spawn(process.execPath, [
-          "--experimental-strip-types", "--input-type=module", "--eval",
-          script, directory, prefix, String(forceInitialTimeout),
-        ], { stdio: ["ignore", "ignore", "pipe", "ipc"] });
-        let stderr = "";
-        child.stderr.on("data", (chunk) => { stderr += chunk; });
-        const ready = once(child, "message", { signal: AbortSignal.timeout(20_000) });
-        const closed = once(child, "close");
-        child.on("message", (message: WriteResult) => {
-          if (message.type === "result") results.push(message);
-        });
-        return { child, ready, closed, stderr: () => stderr };
-      });
-      try {
-        const readyMessages = await Promise.all(children.map(({ ready }) => ready));
-        readyMessages.forEach(([message]) => assert.equal(message.type, "ready"));
+for (const operation of ["remember", "pin"] as const) {
+  for (const forceInitialTimeout of [false, true]) {
+    test(`two process writers ${operation} preserve successful writes${forceInitialTimeout ? " after a surfaced timeout" : " under contention"}`, { timeout: 30_000 }, () =>
+      withTemporaryUserData(async (directory) => {
+        const moduleUrl = new URL("../electron/workspaceMemory.ts", import.meta.url).href;
+        const script = `import { once } from "node:events";
+  import { ${operation === "pin" ? "pinWorkspacePath" : "rememberWorkspacePath"} as writePath } from ${JSON.stringify(moduleUrl)};
+  const directory = process.argv[1];
+  const prefix = process.argv[2];
+  const forceInitialTimeout = process.argv[3] === "true";
+  const start = once(process, "message");
+  process.send({ type: "ready" });
+  await start;
+  for (let index = 0; index < ${operation === "pin" ? 10 : 40}; index += 1) {
+    const path = \`/repo/\${prefix}-\${index}\`;
+    const result = writePath(directory, path);
+    const resume = forceInitialTimeout && prefix === "b" && index === 0
+      ? once(process, "message") : null;
+    process.send({ type: "result", path, revision: result.revision, diagnostic: result.diagnostic });
+    if (resume) await resume;
+  }
+  process.disconnect();`;
+        // Hold the real retained OS lock until b reports its first attempt.
+        // This exercises bounded contention without a guessed sleep duration.
+        let lock: number | null = null;
         if (forceInitialTimeout) {
-          const firstResult = once(children[1].child, "message", { signal: AbortSignal.timeout(20_000) });
-          children[1].child.send("start");
-          const [first] = await firstResult;
-          assert.equal(first.diagnostic?.code, "history_lock_timeout");
-          assert.equal(first.revision, 0);
-          assert.equal(existsSync(workspaceMemoryPath(directory)), false);
-          closeSync(lock!);
-          lock = null;
+          lock = openSync(join(directory, ".workspace-memory.lock"), "a+", 0o600);
+          fsExt.flockSync(lock, "exnb");
         }
-        children.forEach(({ child }) => child.send("continue"));
-        const codes = await Promise.all(children.map(async ({ closed }) => (await closed)[0]));
-        assert.deepEqual(codes, [0, 0], children.map(({ stderr }) => stderr()).join("\n"));
-        assert.equal(results.length, 80);
-        assert.equal(new Set(results.map(({ path }) => path)).size, 80);
-        const evidence = JSON.stringify(results);
-        for (const result of results) {
-          if (result.diagnostic !== null) {
-            assert.equal(result.diagnostic.code, "history_lock_timeout", evidence);
+        interface WriteResult {
+          type: "result";
+          path: string;
+          revision: number;
+          diagnostic: { code: string; message: string } | null;
+        }
+        const results: WriteResult[] = [];
+        const children = ["a", "b"].map((prefix) => {
+          const child = spawn(process.execPath, [
+            "--experimental-strip-types", "--input-type=module", "--eval",
+            script, directory, prefix, String(forceInitialTimeout),
+          ], { stdio: ["ignore", "ignore", "pipe", "ipc"] });
+          let stderr = "";
+          child.stderr.on("data", (chunk) => { stderr += chunk; });
+          const ready = once(child, "message", { signal: AbortSignal.timeout(20_000) });
+          const closed = once(child, "close");
+          child.on("message", (message: WriteResult) => {
+            if (message.type === "result") results.push(message);
+          });
+          return { child, ready, closed, stderr: () => stderr };
+        });
+        try {
+          const readyMessages = await Promise.all(children.map(({ ready }) => ready));
+          readyMessages.forEach(([message]) => assert.equal(message.type, "ready"));
+          if (forceInitialTimeout) {
+            const firstResult = once(children[1].child, "message", { signal: AbortSignal.timeout(20_000) });
+            children[1].child.send("start");
+            const [first] = await firstResult;
+            assert.equal(first.diagnostic?.code, "history_lock_timeout");
+            assert.equal(first.revision, 0);
+            assert.equal(existsSync(workspaceMemoryPath(directory)), false);
+            closeSync(lock!);
+            lock = null;
           }
+          children.forEach(({ child }) => child.send("continue"));
+          const codes = await Promise.all(children.map(async ({ closed }) => (await closed)[0]));
+          assert.deepEqual(codes, [0, 0], children.map(({ stderr }) => stderr()).join("\n"));
+          assert.equal(results.length, operation === "pin" ? 20 : 80);
+          assert.equal(new Set(results.map(({ path }) => path)).size, results.length);
+          const evidence = JSON.stringify(results);
+          for (const result of results) {
+            if (result.diagnostic !== null) {
+              assert.equal(result.diagnostic.code, "history_lock_timeout", evidence);
+            }
+          }
+          const successful = results.filter(({ diagnostic }) => diagnostic === null)
+            .sort((left, right) => left.revision - right.revision);
+          assert.ok(successful.length > 0, evidence);
+          assert.deepEqual(successful.map(({ revision }) => revision),
+            Array.from({ length: successful.length }, (_, index) => index + 1), evidence);
+          const memory = readWorkspaceMemory(directory);
+          assert.equal(memory.revision, successful.length, evidence);
+          const newestFirst = successful.map(({ path }) => path).reverse();
+          if (operation === "pin") {
+            assert.equal(memory.lastWorkspacePath, null);
+            assert.deepEqual(memory.recentWorkspacePaths, []);
+            assert.deepEqual([...memory.pinnedWorkspacePaths].sort(), [...newestFirst].sort(), evidence);
+          } else {
+            assert.equal(memory.lastWorkspacePath, newestFirst[0], evidence);
+            assert.deepEqual(memory.recentWorkspacePaths, newestFirst.slice(0, 20), evidence);
+            assert.deepEqual(memory.pinnedWorkspacePaths, []);
+          }
+          assert.equal(memory.diagnostic, null);
+        } finally {
+          if (lock !== null) closeSync(lock);
+          children.forEach(({ child }) => { if (child.exitCode === null) child.kill("SIGKILL"); });
+          await Promise.all(children.map(({ closed }) => closed));
         }
-        const successful = results.filter(({ diagnostic }) => diagnostic === null)
-          .sort((left, right) => left.revision - right.revision);
-        assert.ok(successful.length > 0, evidence);
-        assert.deepEqual(successful.map(({ revision }) => revision),
-          Array.from({ length: successful.length }, (_, index) => index + 1), evidence);
-        const memory = readWorkspaceMemory(directory);
-        assert.equal(memory.revision, successful.length, evidence);
-        const newestFirst = successful.map(({ path }) => path).reverse();
-        assert.equal(memory.lastWorkspacePath, newestFirst[0], evidence);
-        assert.deepEqual(memory.recentWorkspacePaths, newestFirst.slice(0, 20), evidence);
-        assert.deepEqual(memory.pinnedWorkspacePaths, []);
-        assert.equal(memory.diagnostic, null);
-      } finally {
-        if (lock !== null) closeSync(lock);
-        children.forEach(({ child }) => { if (child.exitCode === null) child.kill("SIGKILL"); });
-        await Promise.all(children.map(({ closed }) => closed));
-      }
-    }));
+      }));
+  }
 }
-
-test("two process writers pinning under the history lock without losing revisions", () =>
-  withTemporaryUserData(async (directory) => {
-    const moduleUrl = new URL("../electron/workspaceMemory.ts", import.meta.url).href;
-    const script = `import { pinWorkspacePath } from ${JSON.stringify(moduleUrl)};
-const directory = process.argv[1];
-const prefix = process.argv[2];
-const startAt = Number(process.argv[3]);
-while (Date.now() < startAt) {}
-for (let index = 0; index < 10; index += 1) {
-  pinWorkspacePath(directory, \`/repo/\${prefix}-\${index}\`);
-}`;
-    const startAt = Date.now() + 250;
-    const children = ["a", "b"].map((prefix) => spawn(process.execPath, [
-      "--experimental-strip-types",
-      "--input-type=module",
-      "--eval",
-      script,
-      directory,
-      prefix,
-      String(startAt),
-    ]));
-    const codes = await Promise.all(children.map(async (child) => {
-      const [code] = await once(child, "close");
-      return code;
-    }));
-
-    assert.deepEqual(codes, [0, 0]);
-    const memory = readWorkspaceMemory(directory);
-    assert.equal(memory.revision, 20);
-    assert.equal(memory.pinnedWorkspacePaths.length, 20);
-    assert.equal(new Set(memory.pinnedWorkspacePaths).size, 20);
-    assert.equal(memory.diagnostic, null);
-  }));

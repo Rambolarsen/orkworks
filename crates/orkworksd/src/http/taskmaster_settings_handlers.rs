@@ -352,6 +352,8 @@ mod tests {
             let metadata_root = workspace.metadata.root_path();
             let record = crate::taskmaster::assessment_report::AssessmentRecord {
                 format_version: 1,
+                input_manifest: None,
+                phase: None,
                 id: "assessment-settings-test".into(),
                 state: crate::taskmaster::assessment_report::AssessmentState::Succeeded,
                 started_at: "2026-10-17T10:00:00Z".into(),

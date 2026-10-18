@@ -213,3 +213,36 @@ test("assessment recommendation focus happens only once for a new actionable pro
   assert.equal(shouldFocusAssessmentRecommendation("rec-2", "dismissed", surfaced), false);
   assert.equal(surfaced.has("rec-2"), true);
 });
+
+
+test("running assessment shows only its fixed current phase and keeps legacy progress compatible", () => {
+  const base = { state: "running" as const, report: null, reused: false };
+  for (const [phase, expected] of [
+    ["discovering", "Discovering repository evidence…"],
+    ["reading_evidence", "Reading selected repository evidence…"],
+    ["assessing", "Assessing this workspace…"],
+  ] as const) {
+    assert.equal(formatTaskmasterAssessment({ ...base, phase }), expected);
+    const markup = renderToStaticMarkup(createElement(TaskmasterAssessmentSummary, {
+      assessment: { ...base, phase },
+    }));
+    assert.ok(markup.includes(expected));
+  }
+  assert.equal(formatTaskmasterAssessment(base), "Assessing this workspace…");
+  assert.equal(formatTaskmasterAssessment({ ...base, phase: null }), "Assessing this workspace…");
+  assert.equal(formatTaskmasterAssessment({ ...base, state: "queued", phase: "discovering" }), "Workflow assessment queued.");
+  assert.equal(formatTaskmasterAssessment({ ...base, state: "failed", phase: "reading_evidence", errorSummary: "Assessment stopped." }), "Assessment stopped.");
+});
+
+
+test("run-status accepts only fixed assessment phases, including absent legacy progress", async () => {
+  const read = (assessment: unknown) => taskmasterRequest(4321, "test-authority", "run-status", undefined,
+    async () => new Response(JSON.stringify({ assessment })));
+  for (const phase of ["discovering", "reading_evidence", "assessing", null, undefined]) {
+    const result = await read({ state: "running", phase, report: null, reused: false });
+    assert.equal((result.assessment as TaskmasterAssessmentStatus).phase, phase);
+  }
+  for (const phase of ["discovery prose", {}, [], 1]) {
+    await assert.rejects(read({ state: "running", phase, reused: false }), /Invalid Taskmaster assessment phase/);
+  }
+});

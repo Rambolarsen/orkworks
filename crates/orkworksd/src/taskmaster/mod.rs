@@ -1,6 +1,8 @@
 // Used by the following Taskmaster admission integration.
 pub(crate) mod assessment;
 pub(crate) mod assessment_access;
+pub(crate) mod assessment_context;
+pub(crate) mod assessment_discovery;
 pub(crate) mod assessment_model;
 pub(crate) mod assessment_report;
 pub(crate) mod assessment_store;

@@ -114,7 +114,13 @@ provider configuration, or verified knowledge invalidate it before display or us
 Interrupted publication is recovered before a pending recommendation becomes
 visible or actionable. After an assessment report exists, recovery uses a fixed
 newer build while keeping privacy and freshness checks enabled. Binary downgrade
-cannot enforce those checks and is unsupported. These source behaviors do not
+cannot enforce those checks and is unsupported. Repository-led assessments write
+format-2 records with bounded file and selection identities. Older builds cannot
+interpret that format: recovery requires a forward fix with new assessments
+disabled while existing privacy and freshness fences remain active. Do not
+downgrade or hand-edit assessment metadata. Queued/running attempts interrupted
+by restart are marked interrupted; provider calls are never replayed.
+These source behaviors do not
 establish availability in an older installed release.
 
 ## Custom inference executable approvals

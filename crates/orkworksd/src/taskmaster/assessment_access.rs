@@ -88,6 +88,11 @@ pub(crate) fn redact_recommendation(
 }
 
 pub(crate) fn redact_record(record: &mut AssessmentRecord, settings: &TaskmasterSettings) {
+    if let Some(manifest) = record.input_manifest.as_mut() {
+        if access_narrowed(manifest.context_level, &manifest.excluded_paths, settings) {
+            manifest.redact();
+        }
+    }
     if let Some(report) = record.report.as_mut() {
         if access_narrowed(report.context_level, &report.excluded_paths, settings) {
             report.repository_evidence.retain(|fact| {
@@ -97,6 +102,9 @@ pub(crate) fn redact_record(record: &mut AssessmentRecord, settings: &Taskmaster
                     &settings.excluded_paths,
                 )
             });
+            if let Some(manifest) = record.input_manifest.as_mut() {
+                manifest.redact();
+            }
             report.summary = REDACTED_SUMMARY.into();
             report.proposal = None;
             report.no_proposal_reason = None;
@@ -169,7 +177,8 @@ pub(crate) fn fence_recommendation(
     }
     let fresh = !provenance.access_redacted
         && record.is_some_and(|record| {
-            record.state == AssessmentState::Succeeded
+            record.format_version == 2
+                && record.state == AssessmentState::Succeeded
                 && record.pending_recommendation.is_none()
                 && record.id == provenance.id
                 && record.report.as_ref().is_some_and(|report| {
@@ -554,7 +563,10 @@ pub(crate) fn status_for(
             AssessmentState::Interrupted => Some("Assessment was interrupted before completion."),
             _ => None,
         };
-        return serde_json::json!({"state":state,"report":null,"errorSummary":error,"reused":false});
+        return serde_json::json!({"state":state,"phase": if record.state == AssessmentState::Running { record.phase } else { None },"report":null,"errorSummary":error,"reused":false});
+    }
+    if record.format_version != 2 {
+        return unavailable();
     }
     let Some(report) = record
         .report
@@ -784,6 +796,7 @@ mod tests {
         ));
         assert_eq!(pending.status, RecommendationStatus::Proposed);
         record.state = AssessmentState::Succeeded;
+        record.format_version = 2;
         record.pending_recommendation = None;
         assert!(fence_recommendation(
             &mut pending,
@@ -1170,5 +1183,38 @@ mod tests {
                 .status,
             RecommendationStatus::Superseded
         );
+    }
+}
+
+#[cfg(test)]
+mod manifest_redaction_tests {
+    use super::*;
+    #[test]
+    fn access_narrowing_redacts_manifest_even_before_a_report_exists() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("README.md"), "workflow evidence").unwrap();
+        let mut context = crate::taskmaster::assessment_context::RepositoryContext::collect(
+            directory.path(),
+            ContextLevel::WorkflowContext,
+            &[],
+            "now",
+        )
+        .unwrap();
+        context.bind_discovery("validated discovery");
+        let (mut record, _) = crate::taskmaster::assessment_report::tests::proposal();
+        record.format_version = 2;
+        record.report = None;
+        record.pending_recommendation = None;
+        record.state = crate::taskmaster::assessment_report::AssessmentState::Running;
+        record.input_manifest = Some(context.manifest());
+        let mut settings = TaskmasterSettings::default();
+        settings.context_level = ContextLevel::SessionObservations;
+        redact_record(&mut record, &settings);
+        let manifest = record.input_manifest.unwrap();
+        assert!(manifest.redacted);
+        assert!(manifest.files.is_empty());
+        assert!(manifest.catalog_digest.is_empty());
+        assert!(manifest.discovery_digest.is_none());
+        assert!(manifest.validate().is_ok());
     }
 }

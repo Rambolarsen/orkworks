@@ -2205,6 +2205,7 @@ impl ProviderManager {
             ollama_base_url,
             prompt,
             None,
+            None,
         )
     }
 
@@ -2241,6 +2242,29 @@ impl ProviderManager {
         prompt: String,
         dispatch_gate: &mut ProviderDispatchGate<'_>,
     ) -> Result<String, ProviderOperationError> {
+        self.invoke_native_taskmaster_prompt_with_response_shape(
+            profile,
+            model,
+            reasoning_effort,
+            ollama_base_url,
+            prompt,
+            None,
+            dispatch_gate,
+        )
+    }
+
+    /// Explicit code-owned shape; arbitrary schemas and prompt-derived selection
+    /// never cross this interface. Other consumers keep the unconstrained entry.
+    pub(crate) fn invoke_native_taskmaster_prompt_with_response_shape(
+        &self,
+        profile: native_inference::NativeProfile,
+        model: &str,
+        reasoning_effort: Option<&str>,
+        ollama_base_url: Option<&str>,
+        prompt: String,
+        response_shape: Option<native_inference::NativeResponseShape>,
+        dispatch_gate: &mut ProviderDispatchGate<'_>,
+    ) -> Result<String, ProviderOperationError> {
         self.invoke_taskmaster_definition(
             &profile.definition(),
             model,
@@ -2248,6 +2272,7 @@ impl ProviderManager {
             ollama_base_url,
             prompt,
             Some(dispatch_gate),
+            response_shape,
         )
     }
 
@@ -2259,8 +2284,15 @@ impl ProviderManager {
         ollama_base_url: Option<&str>,
         prompt: String,
         mut dispatch_gate: Option<&mut ProviderDispatchGate<'_>>,
+        response_shape: Option<native_inference::NativeResponseShape>,
     ) -> Result<String, ProviderOperationError> {
         let provider = definition.id.as_str();
+        if response_shape.is_some() && provider != "codex" {
+            return Err(ProviderOperationError {
+                code: ProviderOperationErrorCode::UnsupportedCapability,
+                message: "native response constraints require the Codex profile".into(),
+            });
+        }
         if model.trim().is_empty() || model.len() > 256 {
             return Err(ProviderOperationError {
                 code: ProviderOperationErrorCode::Malformed,
@@ -2268,7 +2300,13 @@ impl ProviderManager {
             });
         }
         if provider != "ollama" {
-            let mut invocation = inference::prepare(&definition, model, reasoning_effort, prompt)?;
+            let mut invocation = inference::prepare_with_response_shape(
+                &definition,
+                model,
+                reasoning_effort,
+                prompt,
+                response_shape,
+            )?;
             invocation.check_version(self.runner.as_ref(), provider)?;
             let result = if let Some(gate) = dispatch_gate.as_deref_mut() {
                 self.runner.run_prepared_with_dispatch_gate(

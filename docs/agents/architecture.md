@@ -273,8 +273,27 @@ Manual workflow assessment uses separate `taskmaster/assessment.rs` scheduling,
 `POST /taskmaster/assess-workflow`. It shares the installation analysis lease and
 selected provider/context, requires signed assessment capability, and bypasses
 background quota/cooldown. Its separate run-status projection exposes only a
-currently revalidated report. One version-1 `assessment.json` beneath workspace
-metadata holds at most 64 KiB, including any pending recommendation upsert.
+currently revalidated report. Manual assessment first supplies repository-led
+workflow seeds and a permitted catalog, then decodes one strict discovery selection
+before at most one final call through the same captured provider/model/effort.
+`assessment_context.rs` owns bounded prefixes, component-by-component safe opens,
+aggregate evidence limits and manifest reconstruction. Every selected target
+includes its governing ancestor AGENTS.md/CLAUDE.md chain under those same limits;
+inaccessible or incompletely enumerated instructions prevent a proposal. Workspace
+and native relative paths must be valid UTF-8 and reconstruct without replacement
+characters or normalization. `assessment_discovery.rs`
+rejects arbitrary paths and unknown references. Progress exposes only fixed
+`discovering`, `reading_evidence` and `assessing` phases.
+One explicitly decoded format-1/2 `assessment.json` beneath workspace metadata
+holds at most 64 KiB, including any pending recommendation upsert. Format 2 stores
+a bounded input manifest with catalog digest/completeness, seed/follow-up prefix
+and excerpt identities, exact selection and discovery digest, without uncited
+contents, catalog listings, discovery prose or full prompts. Every consumer
+re-enumerates current permission data and reconstructs that selection; stale
+uncited inputs and catalog changes fence reuse and recommendations. Legacy reports
+are not reusable, legacy proposed recommendations are superseded on state-changing
+admission, and accepted/executing legacy records block new assessment until resolved
+through existing authorized lifecycle routes. Ordinary analysis is unchanged.
 Startup and immediate commit-error recovery replay the stable upsert before
 publishing success; pending consumers fail closed.
 

@@ -3,18 +3,20 @@ type: Design Proposal
 title: Repository-led Brain workflow assessment
 description: A bounded two-stage assessment that selects related repository evidence before judging one workflow improvement.
 tags: [orkworks, taskmaster, brain, assessment]
-status: draft
-workflow_status: proposed
+status: stable
+workflow_status: approved
 ---
 
 # Repository-led Brain workflow assessment
 
-Tracking: [#929](https://github.com/Rambolarsen/orkworks/issues/929).
-Owner approved the direction on 2026-10-18; this concrete design is proposed.
-Runtime implementation requires owner approval of this document and
-[ADR 0086](../../adr/0086-repository-led-taskmaster-assessment.md).
-The accepted [assessment contract](../../../specs/taskmaster-knowledge.md#manual-brain-guided-next-step-assessment-769)
-and ADR 0085 remain authoritative until then.
+Tracking: [#931](https://github.com/Rambolarsen/orkworks/issues/931), following #929 and merged PR #930.
+The owner approved this concrete design, ADR 0086 and the embedded implementation
+plan at `432a3249ad9b8c6e5559a888b92a4944ec94d7fc` on 2026-10-18
+and authorized runtime implementation, as recorded in #931. Merged PR #934
+clarifies native path identity, governing instructions and independent trials
+within the existing access, execution and evidence limits.
+This extends the accepted [assessment contract](../../../specs/taskmaster-knowledge.md#manual-brain-guided-next-step-assessment-769)
+and ADR 0085 within the boundaries below.
 
 ## Outcome and evidence
 
@@ -215,7 +217,7 @@ Existing inference-adapter managed-policy limitations still apply.
 
 ## Implementation plan
 
-All deliverables depend on owner approval of this concrete proposal.
+Owner approval covers all deliverables below; implementation is tracked in #931.
 
 1. **Repository evidence owner and discovery contract.** Extend
    `taskmaster/context.rs` and add a focused discovery decoder beside
@@ -276,7 +278,7 @@ A failed quality threshold blocks claiming that this solves proposal usefulness.
 
 ## Plan review and investigated risks
 
-Disposition: **Ready for owner design review; runtime execution remains gated.**
+Disposition: **Approved for runtime implementation on 2026-10-18; tracked in #931.**
 
 The main agent uncertainty was how to revalidate model-selected files without
 saving the full prompt. Existing assessment consumers reconstruct the complete
