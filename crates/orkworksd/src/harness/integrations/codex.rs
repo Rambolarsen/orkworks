@@ -39,7 +39,6 @@ fn base_platform_invocation(
     } else {
         "-Event"
     };
-    invocation.args.extend([event_flag.into(), event.into()]);
     invocation.shell_command.push(' ');
     invocation.shell_command.push_str(event_flag);
     invocation.shell_command.push(' ');
@@ -77,9 +76,6 @@ fn platform_invocation(
     } else {
         "-HookFingerprint"
     };
-    invocation
-        .args
-        .extend([fingerprint_flag.into(), fingerprint.clone()]);
     invocation.shell_command.push(' ');
     invocation.shell_command.push_str(fingerprint_flag);
     invocation.shell_command.push(' ');
