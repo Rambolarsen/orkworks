@@ -496,3 +496,15 @@ reuse remains distinct and displays only its own current committed report.
   apply to symlinks, ignored files, credentials, caches, and model requests.
 - Changing Taskmaster selection leaves Peon configuration and inference intact.
 - Settings, packaging, and explicit handoff integration have regression coverage.
+
+### Native Codex assessment response constraints (#931)
+
+The owner-approved [response-constraint design](../docs/superpowers/specs/2026-10-18-assessment-response-constraints.md)
+and [ADR 0087](../docs/adr/0087-native-codex-assessment-response-constraints.md)
+authorize code-owned static response shapes for native Codex assessment stages.
+Preserve the existing envelopes, strict application decoder, selected model and
+effort, at-most-two-call limit and inference-only authority. Other transports
+and ordinary analysis do not gain schema enforcement. Selected-model compatibility
+gates production integration; the usefulness matrix remains required before
+claiming usefulness or marking the runtime ready. Implementation evidence is
+tracked in #931/#938; approval is not a runtime-completion claim.

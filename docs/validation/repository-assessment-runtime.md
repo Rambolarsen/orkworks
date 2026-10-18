@@ -84,6 +84,35 @@ manifest reconstruction; genuine instruction-only overflow still returns an
 explained no-proposal result. The scoped assessment suite passed 86 tests, with
 2 explicit live-evaluation tests ignored.
 
+A subsequent parser replay separated model wire failures from validator false
+positives. The prose guard confused English “Make the package…” with a tool
+invocation, configuration descriptions with execution instructions, and indirect
+questions or rejected no-ops with completed-check claims. Paired regressions
+reproduced these errors and also caught an older qualifier leak across sentence
+and semicolon boundaries. The correction scopes prose to clauses, distinguishes
+repository descriptions from reader instructions, and attaches capability modals
+to their verification predicate. Independent review reproduced two bypasses in
+the first correction; both received failing regressions and were corrected before
+re-review approval. Strict JSON, duplicate/unknown-field, citation, size and raw
+command checks remain in force. Final-stage guidance now includes the exact-key
+and declarative-style rules already present in discovery, with generic examples.
+The scoped suite passed 88 assessment tests, with 2 explicit live tests ignored.
+
+The fresh complete matrix after that correction still failed. Evidence is retained
+at `/private/tmp/orkworks-931-quality-prose-fixed` and its selected provider remains
+Codex `gpt-6-luna`, medium effort. Both positive fixtures completed 0/3 valid
+assessments; healthy completed 2/3 valid no-proposal assessments and refuted
+completed 1/3. No proposal surfaced for semantic adjudication. Further ordinary
+English `make` phrases and validation requirements encountered prose rejection;
+other responses contained malformed or duplicate/unknown fields, and at least
+one final title remained an execution-style imperative. An attempted broader
+grammar expansion exposed literal-command and completed-claim bypasses in review
+and was removed; it is not part of the retained correction. These are unresolved
+compatibility failures, not evidence of a useful or completed implementation.
+The targeted correction does not resolve general prose classification or the
+selected model's strict-envelope compliance. No acceptance thresholds were
+weakened and no inference retries, fallback or response repair were added.
+
 **Disposition: the usefulness gate remains failed.** Do not claim that this solves
 proposal usefulness or mark #931 complete. Keep the runtime PR in draft pending
 resolution and a fresh complete matrix. The harness requires explicit retained
