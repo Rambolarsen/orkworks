@@ -24,12 +24,34 @@ SOURCE_ROOTS = ('apps/desktop/src/', 'apps/desktop/electron/', 'crates/orkworksd
 GENERATED = {'node_modules', 'target', 'dist', 'dist-electron', 'out', 'release', '.sonar', '.scannerwork'}
 EXTENSIONS = {'.rs', '.toml', '.lock', '.ts', '.tsx', '.js', '.mjs', '.cjs', '.json',
               '.yaml', '.yml', '.html', '.css', '.svg', '.md', '.sh', '.ps1', '.patch'}
+SNAPSHOT_FILES = {'sonar-project.properties', 'rust-toolchain.toml', '.nvmrc',
+                  'apps/desktop/resources/knowledge/public-key.pem'}
 SCANNER_VERSION = '5.0.1'
 
 
 def run(*args, cwd=ROOT, capture=False, env=None, encoding="utf-8"):
     return subprocess.run(args, cwd=cwd, env=env, check=True,
                           text=True, encoding=encoding, stdout=subprocess.PIPE if capture else None).stdout
+
+
+def run_scanner(*args):
+    # The scanner can exit zero after a sensor fails. Keep its errors alongside
+    # the server report; compute-engine warnings do not include these failures.
+    errors = []
+    with subprocess.Popen(args, cwd=ROOT, text=True, encoding='utf-8',
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as process:
+        for line in process.stdout:
+            print(line, end='', flush=True)
+            if '[ERROR]' in line:
+                errors.append(line.strip())
+        if process.wait():
+            raise subprocess.CalledProcessError(process.returncode, args)
+    return errors
+
+
+def verify_scanner(report):
+    if report.get('scannerErrors') != []:
+        raise ValueError('Analysis has incomplete or unverified scanner evidence; inspect scannerErrors and rescan')
 
 
 def digest(value):
@@ -48,7 +70,7 @@ def snapshot(root, destination):
     count = 0
     for name in sorted(set(filter(None, names))):
         relative = Path(name)
-        if name not in ('sonar-project.properties', 'rust-toolchain.toml', '.nvmrc'):
+        if name not in SNAPSHOT_FILES:
             if not name.startswith(COPY_ROOTS) or relative.suffix not in EXTENSIONS:
                 continue
         if GENERATED.intersection(relative.parts) or relative.name.startswith('.env'):
@@ -97,6 +119,8 @@ def verify_analysis(expected_id, payload):
 
 
 def compare(before, after):
+    verify_scanner(before)
+    verify_scanner(after)
     if before['configuration'] != after['configuration']:
         raise ValueError('Cannot compare different analysis configuration, scope or analyzers')
     result = {}
@@ -337,6 +361,7 @@ def save_report(report, label, overwrite=False):
     with target.open('w' if overwrite else 'x', encoding='utf-8') as stream:
         stream.write(json.dumps(report, indent=2) + '\n')
     print(str(target))
+    verify_scanner(report)
 
 
 def scan(label, overwrite=False):
@@ -371,7 +396,7 @@ def scan(label, overwrite=False):
                                           ('clippy', ('cargo', 'clippy', '--version')))}
                 state['analyzerIdentity'] = analysis_identity(api, project, state['properties'],
                                                             state['scannerImage'], state['toolchain'])
-                run('podman', 'exec', container, 'bash', '-c',
+                state['scannerErrors'] = run_scanner('podman', 'exec', container, 'bash', '-c',
                     'cd apps/desktop && pnpm install --frozen-lockfile && '
                     'cd /workspace && sonar-scanner-npm "$@"', 'scan',
                     '-Dsonar.projectKey=' + project,

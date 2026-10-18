@@ -47,6 +47,22 @@ class SnapshotTests(unittest.TestCase):
         self.assertTrue((destination / 'apps/desktop/patches/dependency.patch').exists())
         self.assertTrue(info['dirty'])
 
+    def test_snapshot_includes_required_public_key_but_excludes_other_pem_files(self):
+        public_key = 'apps/desktop/resources/knowledge/public-key.pem'
+        self.write(public_key, 'public verification key\n')
+        self.write('apps/desktop/resources/knowledge/private-key.pem', 'private key\n')
+        self.write('apps/desktop/.env.pem', 'private environment\n')
+        self.git('add', public_key)
+        destination = self.root / 'snapshot'
+        before = sonar.snapshot(self.root, destination)
+        self.assertTrue((destination / public_key).exists(), 'missing compile-time public key')
+        self.assertEqual((destination / public_key).read_text(), 'public verification key\n')
+        self.assertFalse((destination / 'apps/desktop/resources/knowledge/private-key.pem').exists())
+        self.assertFalse((destination / 'apps/desktop/.env.pem').exists())
+        self.write(public_key, 'rotated verification key\n')
+        after = sonar.snapshot(self.root, self.root / 'rotated')
+        self.assertNotEqual(before['fingerprint'], after['fingerprint'])
+
     def test_fingerprint_changes_when_source_changes_and_ignores_generated_files(self):
         before = sonar.snapshot(self.root, self.root / 'first')['fingerprint']
         self.write('apps/desktop/node_modules/generated.ts', 'generated\n')
@@ -68,6 +84,26 @@ class SnapshotTests(unittest.TestCase):
             self.skipTest('Symlink creation unavailable: ' + str(error))
         with self.assertRaisesRegex(ValueError, 'symlink'):
             sonar.snapshot(self.root, self.root / 'snapshot')
+
+
+class ScannerTests(unittest.TestCase):
+    def test_zero_exit_scanner_errors_from_either_stream_are_retained(self):
+        script = ('import sys; print("[INFO] analysis started"); '
+                  'print("[ERROR] ScannerEngine: Failed to run Clippy"); '
+                  'print("[ERROR] another sensor failed", file=sys.stderr); '
+                  'print("[INFO] ANALYSIS SUCCESSFUL")')
+        with mock.patch('builtins.print'):
+            errors = sonar.run_scanner(sys.executable, '-c', script)
+        self.assertCountEqual(errors, ['[ERROR] ScannerEngine: Failed to run Clippy',
+                                       '[ERROR] another sensor failed'])
+
+    def test_clean_scanner_has_no_errors_and_nonzero_exit_is_not_success(self):
+        with mock.patch('builtins.print'):
+            self.assertEqual(sonar.run_scanner(sys.executable, '-c',
+                'print("[WARN] encoding warning"); print("[INFO] ANALYSIS SUCCESSFUL")'), [])
+            with self.assertRaises(subprocess.CalledProcessError) as raised:
+                sonar.run_scanner(sys.executable, '-c', 'raise SystemExit(7)')
+        self.assertEqual(raised.exception.returncode, 7)
 
 
 class PortabilityTests(unittest.TestCase):
@@ -182,12 +218,12 @@ class LifecycleTests(unittest.TestCase):
     def test_baseline_cannot_be_overwritten_without_explicit_flag(self):
         with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
                 sonar, 'ROOT', Path(temporary)), mock.patch('builtins.print'):
-            sonar.save_report({'metrics': {'ncloc': 100}}, 'baseline')
+            sonar.save_report({'metrics': {'ncloc': 100}, 'scannerErrors': []}, 'baseline')
             path = Path(temporary) / '.sonar/reports/baseline.json'
             with self.assertRaises(FileExistsError):
-                sonar.save_report({'metrics': {'ncloc': 80}}, 'baseline')
+                sonar.save_report({'metrics': {'ncloc': 80}, 'scannerErrors': []}, 'baseline')
             self.assertEqual(json.loads(path.read_text())['metrics']['ncloc'], 100)
-            sonar.save_report({'metrics': {'ncloc': 80}}, 'baseline', overwrite=True)
+            sonar.save_report({'metrics': {'ncloc': 80}, 'scannerErrors': []}, 'baseline', overwrite=True)
             self.assertEqual(json.loads(path.read_text())['metrics']['ncloc'], 80)
 
 
@@ -243,20 +279,38 @@ class ReportTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'pagination'):
                     api.pages('issues', 'issues', {})
 
+    def test_failed_scanner_report_is_saved_but_rejected(self):
+        error = '[ERROR] ScannerEngine: Failed to run Clippy'
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
+                sonar, 'ROOT', Path(temporary)), mock.patch('builtins.print'):
+            with self.assertRaisesRegex(ValueError, 'incomplete'):
+                sonar.save_report({'scannerErrors': [error]}, 'incomplete')
+            saved = json.loads((Path(temporary) / '.sonar/reports/incomplete.json').read_text())
+            self.assertEqual(saved['scannerErrors'], [error])
+
+    def test_comparison_rejects_incomplete_and_legacy_scanner_evidence(self):
+        complete = {'configuration': 'same', 'metrics': {'ncloc': 100}, 'scannerErrors': []}
+        for diagnostics in ({'scannerErrors': ['[ERROR] ScannerEngine: Failed to run Clippy']}, {}):
+            incomplete = {'configuration': 'same', 'metrics': {'ncloc': 100}, **diagnostics}
+            for before, after in ((complete, incomplete), (incomplete, complete)):
+                with self.subTest(before=before, after=after):
+                    with self.assertRaisesRegex(ValueError, 'scanner'):
+                        sonar.compare(before, after)
+
     def test_missing_metric_stays_unknown(self):
         result = sonar.metric_values([{'metric': 'ncloc', 'value': '42'}])
         self.assertEqual(result['ncloc'], 42)
         self.assertIsNone(result['cognitive_complexity'])
 
     def test_comparison_rejects_changed_scope(self):
-        before = {'configuration': 'a', 'metrics': {'ncloc': 100}}
-        after = {'configuration': 'b', 'metrics': {'ncloc': 80}}
+        before = {'configuration': 'a', 'metrics': {'ncloc': 100}, 'scannerErrors': []}
+        after = {'configuration': 'b', 'metrics': {'ncloc': 80}, 'scannerErrors': []}
         with self.assertRaisesRegex(ValueError, 'configuration'):
             sonar.compare(before, after)
 
     def test_comparison_keeps_unknowns_and_reports_measured_deltas(self):
-        before = {'configuration': 'a', 'metrics': {'ncloc': 100}}
-        after = {'configuration': 'a', 'metrics': {'ncloc': 80, 'complexity': 5}}
+        before = {'configuration': 'a', 'metrics': {'ncloc': 100}, 'scannerErrors': []}
+        after = {'configuration': 'a', 'metrics': {'ncloc': 80, 'complexity': 5}, 'scannerErrors': []}
         result = sonar.compare(before, after)
         self.assertEqual(result['ncloc'], {'before': 100, 'after': 80, 'delta': -20})
         self.assertIsNone(result['complexity']['delta'])
