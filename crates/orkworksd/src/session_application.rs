@@ -5819,13 +5819,15 @@ async fn resume_session_workflow(
             ));
         }
     }
-    let info = state
+    let mut info = state
         .sessions
         .lock()
         .unwrap()
         .get(&id)
         .map(|handle| handle.info.clone())
         .expect("resumed session remains registered");
+    crate::session_projection::SessionProjection::new(state.clone())
+        .project_organization(std::slice::from_mut(&mut info));
 
     {
         let ws_guard = state.workspace.lock().unwrap();
@@ -6162,7 +6164,7 @@ async fn create_session_workflow(
     // Persist the creating record before the PTY reader exists. The runtime
     // promotes it to alive immediately after spawn, before it can classify
     // output, so the first output cannot be lost between memory and metadata.
-    let created_at = iso_now();
+    let created_at = info.created_at.clone();
     {
         if let Some(ref ws) = *creation_workspace {
             ws.metadata.write_session(&metadata::SessionMetadata {
@@ -6231,6 +6233,8 @@ async fn create_session_workflow(
     }
 
     drop(creation_workspace);
+    crate::session_projection::SessionProjection::new(state.clone())
+        .project_organization(std::slice::from_mut(&mut info));
     if let (Some(prompt), Some(_)) = (initial_prompt.as_deref(), initial_prompt_label.as_ref()) {
         crate::runtime::terminal_runtime::queue_initial_prompt_label_hint(
             &state,
@@ -9826,6 +9830,24 @@ mod tests {
             .unwrap();
 
         assert_eq!(info.status, "creating");
+        assert_eq!(
+            info.organization.session_state,
+            Some(crate::session_archive::SessionState::Active)
+        );
+        assert!(info.organization.session_action_token.is_some());
+        assert_eq!(
+            info.created_at,
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(&info.id)
+                .unwrap()
+                .created_at,
+        );
         assert!(state
             .workspace
             .lock()

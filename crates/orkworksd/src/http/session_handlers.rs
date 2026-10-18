@@ -3289,6 +3289,10 @@ mod tests {
         })
         .await
         .expect("terminal finalization clears the runtime claim");
+        assert_eq!(body["sessionState"], "active");
+        assert!(body["sessionActionToken"]
+            .as_str()
+            .is_some_and(|token| !token.is_empty()));
     }
 
     #[tokio::test]

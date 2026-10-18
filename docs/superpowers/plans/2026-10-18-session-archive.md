@@ -193,3 +193,22 @@ The final platform-aware publication helper then passed the focused storage and
 state-action suites; the added deferred selection race passed under Node 22.
 Both focused manual review seats approve the final cycle changes. Windows native
 publication execution is additionally gated by the new existing-job CI step.
+
+## PR feedback cycle 2/3
+
+Native Codex on `a3828bf6` identified filesystem reads while application state
+locks were held, fresh workspace guidance on archived history, and missing
+organization state/action tokens in successful create/resume responses.
+Focused regressions reproduced all three, then passed after correction.
+Organization projection now snapshots the retained store and runtime authority
+under locks, releases those locks before storage reads, and is shared with
+create/resume response construction. Creation uses one identity timestamp for
+the returned info, runtime handle and durable metadata. Archived projections
+keep read-only Git context but suppress current recommendations/conflict warnings.
+
+Cycle 2 full verification passed under Node 22.23.3: 2,142 Rust unit tests
+(9 ignored), 6 integration tests, 1,357 desktop tests (1 skipped), reporter
+tests, type-check, ABI checks, desktop/docs builds and repository checks.
+Fresh focused manual medium review approves this code; its optional lock
+comment clarification was applied. The existing user docs already describe
+source archive behavior and release availability; no onboarding claim changed.
