@@ -286,8 +286,26 @@ pub(crate) async fn analyze_taskmaster(
     if let Err(reason) = runtime.brain_knowledge_availability() {
         // Manual admission must retry deferred stale-status recovery too. The
         // shared analysis lease prevents interrupting another live instance.
-        if let Ok(Some(lease)) = runtime.try_analysis_lease() {
-            let _ = runtime.recover_workspace_run(&workspace_path, &lease);
+        // Contention (another live instance holds the lease) skips recovery
+        // by contract; an acquisition or recovery error must not silently
+        // strand the deferred attempt, which would block every future run
+        // behind "already has an active attempt".
+        match runtime.try_analysis_lease() {
+            Ok(Some(lease)) => {
+                if let Err(error) = runtime.recover_workspace_run(&workspace_path, &lease) {
+                    tracing::warn!(
+                        path = %workspace_path.display(),
+                        %error,
+                        "failed to recover the deferred Taskmaster analysis status"
+                    );
+                }
+            }
+            Ok(None) => {}
+            Err(error) => tracing::warn!(
+                path = %workspace_path.display(),
+                %error,
+                "could not acquire the Taskmaster analysis lease for deferred run recovery"
+            ),
         }
         return manual_analysis_response("unavailable", None, Some(reason));
     }
@@ -572,6 +590,102 @@ mod tests {
             "taskmaster-test-token".parse().unwrap(),
         );
         headers
+    }
+
+    #[derive(Clone, Default)]
+    struct LogCapture {
+        output: Arc<std::sync::Mutex<Vec<u8>>>,
+    }
+
+    impl std::io::Write for LogCapture {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.output.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for LogCapture {
+        type Writer = Self;
+
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    fn captured(capture: &LogCapture) -> String {
+        String::from_utf8_lossy(&capture.output.lock().unwrap().clone()).into_owned()
+    }
+
+    /// Configures the runtime with a model selection so `analyze_taskmaster`
+    /// reaches the knowledge-availability recovery branch, and queues a
+    /// deferred run whose attempt the analyzed workspace then carries.
+    fn queue_deferred_run(state: &Arc<AppState>, workspace: &std::path::Path) {
+        let runtime = crate::http::taskmaster_settings_handlers::runtime_for(state);
+        let mut settings = crate::taskmaster::runtime::TaskmasterSettings::default();
+        settings.enabled = false;
+        settings.selection = Some(
+            serde_json::from_value(serde_json::json!({
+                "provider":"ollama", "model":"test-model"
+            }))
+            .unwrap(),
+        );
+        runtime.replace_settings(settings).unwrap();
+        runtime
+            .queue_run(
+                workspace,
+                crate::taskmaster::runtime::TaskmasterRunTrigger::Background,
+                "ollama",
+                "test-model",
+            )
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn analyze_logs_a_failed_deferred_recovery_lease_acquisition() {
+        let _token = crate::test_support::open_plan_token::set("taskmaster-test-token").await;
+        let directory = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(directory.path());
+        queue_deferred_run(&state, directory.path());
+
+        // Occupy the lease path with a directory, so acquiring it fails with
+        // an error rather than reporting ordinary contention.
+        let taskmaster_root = directory.path().join(".orkworks-test").join("taskmaster");
+        std::fs::create_dir_all(&taskmaster_root).unwrap();
+        std::fs::create_dir(taskmaster_root.join(".analysis.lock")).unwrap();
+
+        let capture = LogCapture::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_writer(capture.clone())
+            .finish();
+        let _default = tracing::subscriber::set_default(subscriber);
+
+        let response = analyze_taskmaster(State(state), assessment_authorized_headers()).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["status"], "unavailable");
+        assert!(body["message"]
+            .as_str()
+            .unwrap()
+            .contains("verified reference knowledge"));
+
+        // The failed acquisition is diagnosable, not silently swallowed: a
+        // stranded deferred attempt would block every future run behind
+        // "already has an active attempt".
+        let logs = captured(&capture);
+        assert!(
+            logs.contains(
+                "could not acquire the Taskmaster analysis lease for deferred run recovery"
+            ),
+            "expected the lease-acquisition failure to be logged, got: {logs}"
+        );
     }
 
     fn recommendation_fixture(
