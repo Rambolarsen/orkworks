@@ -56,7 +56,13 @@ export interface ResumeOption {
   reason?: string;
 }
 
+export type SessionState = "active" | "closed" | "archived";
+export type SessionAction = "close" | "archive" | "restore" | "delete";
+
 export interface SessionInfo {
+  sessionState?: SessionState | null;
+  sessionActionToken?: string | null;
+  sessionStateError?: string;
   id: string;
   label: string;
   harnessId?: string;
@@ -383,6 +389,18 @@ export async function deleteSession(
     method: "DELETE",
   });
   if (!resp.ok) throw new Error(`delete session failed: ${resp.status}`);
+}
+
+export async function sessionAction(baseUrl: string, id: string, action: SessionAction, token: string): Promise<void> {
+  const resp = await fetch(`${baseUrl}/sessions/${encodeURIComponent(id)}/state`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, token }),
+  });
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => null);
+    throw new Error(typeof body?.error === "string" ? body.error : `Session action failed (${resp.status}); refresh and try again.`);
+  }
 }
 
 export async function forgetSession(

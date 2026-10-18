@@ -1,15 +1,16 @@
 ---
 type: Design
 title: Active, Closed and Archived sessions
-description: Proposed session archive state and close-first context-menu actions for issue 439.
+description: Approved session archive state and close-first context-menu actions for issue 439.
 tags: [orkworks, sessions, archive, lifecycle]
-status: draft
+status: stable
+workflow_status: accepted
 ---
 
 # Active, Closed and Archived sessions
 
-Status: proposed for owner review. Issue: [#439](https://github.com/Rambolarsen/orkworks/issues/439).
-This document does not authorize runtime implementation until the concrete design is approved.
+Status: owner approved on 2026-10-18. Issue: [#439](https://github.com/Rambolarsen/orkworks/issues/439).
+The owner approved this concrete design for runtime implementation.
 
 ## User outcome
 

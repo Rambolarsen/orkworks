@@ -532,6 +532,20 @@ pub(crate) async fn delete_session(
         .unwrap_or_else(application_error_response)
 }
 
+pub(crate) async fn session_action(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(request): Json<crate::session_application::session_actions::SessionActionRequest>,
+) -> Response {
+    match SessionApplication::new(state)
+        .session_action(&id, request)
+        .await
+    {
+        Ok(()) => axum::http::StatusCode::OK.into_response(),
+        Err(error) => application_error_response(error),
+    }
+}
+
 pub(crate) async fn forget_session(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -4076,16 +4090,17 @@ mod tests {
             std::thread::yield_now();
         }
 
+        // Resume admission now also checks organization under the workspace
+        // lock. Inject the competing generation at the registry seam here:
+        // re-entering admission while this fixture owns workspace would block
+        // instead of exercising the rollback's generation revalidation.
         let newer_handle = attention_test_handle(session_id, dir.path());
-        let newer_admission = try_install_claimed_resume_handle(
-            &state,
-            session_id,
-            newer_handle,
-            true,
-            Some(old_generation),
-        )
-        .unwrap();
-        let newer_generation = newer_admission.generation();
+        let newer_generation = newer_handle.runtime.run_generation();
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(session_id.into(), newer_handle);
         let ws = ws_guard.as_ref().unwrap();
         let mut newer_metadata = old_metadata.clone();
         newer_metadata.label = "Newer Runtime".into();
@@ -4094,7 +4109,6 @@ mod tests {
         newer_metadata.lifecycle = "alive".into();
         ws.metadata.write_session(&newer_metadata);
         ws.metadata.write_terminal_size(session_id, 150, 50);
-        newer_admission.commit();
         drop(ws_guard);
         drop_thread.join().unwrap();
 

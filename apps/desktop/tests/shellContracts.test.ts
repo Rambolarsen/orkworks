@@ -355,17 +355,7 @@ test("dead session rows use the dimmed remembered treatment", () => {
   assert.match(styles, /\.session-row--remembered \{ opacity: 0\.62; \}/);
 });
 
-test("session list only offers kill for alive sessions", () => {
-  const source = readFileSync(
-    new URL("../src/components/SessionListPanel.tsx", import.meta.url),
-    "utf8",
-  );
 
-  assert.match(source, /const\s+canKill\s*=\s*s\.lifecycle\s*===\s*"alive"/);
-  assert.match(source, /\{canKill && \(\s*<button[\s\S]*session-row-kill/);
-  const deadBlock = source.match(/\{remembered && \([\s\S]*?\)\s*\}/)?.[0] ?? "";
-  assert.doesNotMatch(deadBlock, /session-row-kill/);
-});
 
 test("session list uses one status slot and keeps tool/time metadata separate from destructive controls", () => {
   const panel = readFileSync(
@@ -402,15 +392,7 @@ test("unread rows keep their tint without making the label bold", () => {
   assert.match(css, /\.session-row--loud\s+\.session-row-label\s*\{\s*font-weight:\s*var\(--weight-semibold\);\s*\}/);
 });
 
-test("session list destructive controls still stop row selection propagation", () => {
-  const panel = readFileSync(
-    new URL("../src/components/SessionListPanel.tsx", import.meta.url),
-    "utf8",
-  );
 
-  assert.match(panel, /className="session-row-kill"[\s\S]*e\.stopPropagation\(\)/);
-  assert.match(panel, /className="session-row-forget"[\s\S]*e\.stopPropagation\(\)/);
-});
 
 test("session list routes attention through the labels module instead of raw enums", () => {
   const source = readFileSync(

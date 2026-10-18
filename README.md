@@ -104,6 +104,7 @@ orkworks/
 - The retained Review component renders Markdown via `react-markdown`/`remark-gfm`; its new shell destination is deferred to #780
 - Current source builds create agent sessions in the main pane, also used for empty workspaces, with a selected coding tool, optional model override, and optional initial prompt; harness definitions resolve from embedded built-ins plus sparse versioned overrides in `~/.orkworks/harnesses.json`
 - Antigravity CLI is the supported Google coding tool (`agy`); retired Gemini CLI records and settings remain readable for compatibility but cannot start new sessions
+- Current source builds organize sessions as Active, Closed or Archived, with close-first row actions and archived retention protection; see [the session guide](docs/user/sessions.md#close-archive-or-delete-a-session) and [ADR 0088](docs/adr/0088-session-archive-state.md).
 - Session labels are stable topics, re-seeded only after a harness-declared fresh-conversation command; delayed old-topic inference cannot overwrite the reset placeholder (ADR 0040)
 - The installation remembers canonical workspace paths in path-only history; the last path is a startup hint, while repo-local session restore remains scoped to the one workspace adopted by that instance
 - The Electron main process owns app-level settings in `userData`, including canonical default hotkeys and persisted hotkeys that drive native menu accelerators

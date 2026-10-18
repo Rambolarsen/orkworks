@@ -3,14 +3,15 @@ type: Implementation Plan
 title: Session archive and context-menu implementation
 description: Deliver the approved three-state session model with safe close-first archive and delete actions.
 tags: [orkworks, sessions, archive, implementation]
-status: draft
+status: stable
+workflow_status: in_progress
 ---
 
 # Session archive and context-menu implementation
 
 Issue: [#439](https://github.com/Rambolarsen/orkworks/issues/439).
 Design: [Active, Closed and Archived sessions](../specs/2026-10-18-session-archive.md).
-State: reviewed draft, awaiting owner design approval; runtime work is gated.
+State: owner approved on 2026-10-18; implementation in progress.
 
 Pass condition: the real app supports Active/Closed/Archived, Archive/Restore and
 row context-menu commands, and no history mutation runs before a requested
@@ -42,23 +43,23 @@ runtime/session_runtime.rs and terminal_runtime.rs only for the minimal
 finalization completion signal; runtime/retention.rs; http/session_handlers.rs
 and main.rs routes. Keep detailed lifecycle and cleanup owners intact.
 
-- [ ] Record the next available ADR and synchronize MVP, domain entities and
+- [x] Record the next available ADR and synchronize MVP, domain entities and
   metadata/retention architecture descriptions with the approved design before
   runtime code. Index the ADR and changed documentation correctly.
-- [ ] Write failing storage/state tests for legacy missing state, identity-bound
+- [x] Write failing storage/state tests for legacy missing state, identity-bound
   archive/restore, malformed/read failure and atomic publication failures. Implement
   bounded sidecar-owned records and additive sessionState/actionToken projection.
-- [ ] Write deterministic failing close-first tests using controlled finalizer
+- [x] Write deterministic failing close-first tests using controlled finalizer
   completion. Implement per-session operation fencing and a bounded wait for the
   captured runtime's completed cleanup/finalization, with locks released while
   awaiting. No stale token can stop or mutate a replacement runtime.
-- [ ] Add state-command handler tests, archived resume rejection and direct-forget
+- [x] Add state-command application/API tests, archived resume rejection and direct-forget
   eligibility tests. Preserve compatibility meanings of legacy close/forget routes;
   update their shared guards rather than relying solely on UI sequencing.
-- [ ] Add retention/delete failure/race tests. Exclude archived/unknown records
+- [x] Add retention/delete failure/race tests. Exclude archived/unknown records
   from automatic deletion/count budget, preserve last activity, and remove orphan
   organization data only through identity-safe deletion without resurrection.
-- [ ] Verify targeted backend/storage/runtime tests and normal resume/close/retention
+- [x] Verify targeted backend/storage/runtime tests and normal resume/close/retention
   coverage. Pin the no-prompt/no-native-tool-archive/no-Git-effects boundary.
 
 Interface: the list exposes sessionState and an opaque stale-action token plus
@@ -74,33 +75,33 @@ SessionListPanel.tsx; a focused SessionContextMenu component and pure action/sta
 helpers as justified; App.css and existing token styles. Electron files only
 if required by current transport contracts; preserve the import boundary.
 
-- [ ] Add failing controller/API tests for command/token transport, pending state,
+- [x] Add failing controller/API tests for command/token transport, pending state,
   stale workspace responses and refresh after success. Implement targeted handlers
   without optimistic state changes or fallback to destructive legacy commands.
-- [ ] Add renderer state-filter tests retaining current grouping and exact selection.
+- [x] Add renderer state-filter tests retaining current grouping and exact selection.
   Provide All unarchived/Active/Closed/Archived in the existing Sessions header;
   changing filters never acknowledges/selects a session.
-- [ ] Add row-action tests for the three states. Implement right-click, visible
+- [x] Add row-action tests for the three states. Implement right-click, visible
   More actions and keyboard invocation with exact row identity, menu focus/return,
   outside/Escape dismissal and conflict disabling. Resolve listbox/interactive-row
   structure accessibly; do not add a generic menu framework.
-- [ ] Require destructive confirmation before Active close/delete; show Archive
+- [x] Require Delete confirmation before any Active close/delete; show Archive
   close-first semantics, progress and useful failure states. Wire Archived Restore
   to Closed without resume. Preserve selected history across Archive/Restore and
   clear only a successfully deleted selection.
-- [ ] Add a real Electron workflow fixture exercising state transitions and menu
+- [x] Add a real Electron workflow fixture exercising state transitions and menu
   behavior, including finalization delay/error, keyboard actions, narrow/zoom and
   archived history. Distinguish controlled runtime fixtures from live tool evidence.
-- [ ] Update session/archive/retention user docs with native-tool and downgrade
+- [x] Update session/archive/retention user docs with native-tool and downgrade
   limitations. Mark handled remains unimplemented/out of this feature.
 
 ## Delivery 3: verify, review and land
 
-- [ ] Run focused checks after each changed behavior. Run bash scripts/verify-repo.sh
+- [x] Run focused checks after each changed behavior. Run bash scripts/verify-repo.sh
   after implementation; inspect all warnings against the diff. Run doc-check and
   worktree-check at close-out. Test manual native menu/focus behavior where fixtures
   do not establish it; record exact build and results.
-- [ ] Complete the applicable diff-scoped /code-review effort for current code;
+- [x] Complete the applicable diff-scoped /code-review effort for current code;
   use medium if the final diff retains concurrency/schema/runtime changes. Tie off
   an active matching Taskmaster recommendation through the authenticated API if any.
 - [ ] Commit/push the owned branch, open/update the PR, run bounded PR monitoring
@@ -109,8 +110,7 @@ if required by current transport contracts; preserve the import boundary.
 
 ## Planning review
 
-Disposition: **Ready for owner design review**, not ready for runtime execution
-until that approval. No subagent work or separate coding harness is required.
+Disposition: **Approved for implementation** by the owner on 2026-10-18. No subagent work or separate coding harness is required.
 
 | Dimension | Rating | Evidence and treatment |
 | --- | --- | --- |
@@ -124,3 +124,36 @@ Total: 16. This is a review aid, not permission. Key failure treatment: request
 acceptance is not cleanup completion; timeout preserves data; archive/retention
 serialize; stale workspace/runtime tokens cannot mutate replacements. Required
 manual approval covers the concrete state/retention/protocol design once.
+
+## Implementation evidence — 2026-10-18
+
+The owner approved the concrete design. ADR 0088 records it; 0087 was taken by
+concurrently merged work. The implementation reuses persisted `ended` plus the
+runtime command-closure/attachment/PID guards, checking the captured generation
+in a bounded 25 ms state-based wait. This avoids adding a parallel lifecycle
+completion signal. No application lock survives an await.
+
+The initial projection and retention tests were observed failing, then passing.
+Backend fixtures cover close-first finalizer delay, timeout/cancellation,
+stale workspace/runtime tokens, archived resume admission, count/age retention,
+and partial deletion failure after metadata removal. Renderer/controller/API
+checks cover captured token transport, conflict diagnostics, stale workspace
+settlement and selection preservation. The real Electron fixture uses the real
+SessionListPanel/menu with controlled session data and a delayed action callback;
+it does not run a live coding-tool process. It exercises filters, exact-row
+pointer/keyboard actions, cancellation, successful Delete, focus return, disabled
+admission and 150% zoom. Visual capture was inspected at narrow width.
+
+Diff-scoped medium reviews used separate read-only backend and UI seats. UI
+focus/removal and availability findings were fixed and re-reviewed; backend
+partial-deletion cleanup was additionally tested and re-reviewed. Both reviews
+approve the current code. Full repository verification and PR checks remain
+required before landing.
+
+Repository verification passed Rust formatting/build, 2,098 unit tests (5 ignored),
+6 integration tests, 9 OpenCode reporter tests, desktop type-check, native ABI
+repair, 1,350 desktop tests (1 skipped), and the desktop build. Its docs stage
+caught an OKF status vocabulary error; that metadata was corrected and the full
+docs build, diff check, doc-check and worktree-check passed separately. Existing
+VitePress circular/chunk-size warnings are unrelated to this diff. The authenticated
+Taskmaster API returned no active recommendations, so no tie-off was needed.

@@ -68,6 +68,7 @@ function deps(overrides: Partial<WorkspaceSessionControllerDeps> = {}): Workspac
     resumeSession: async (_baseUrl, id) => session(id),
     deleteSession: async () => {},
     forgetSession: async () => {},
+    sessionAction: async () => {},
     setActiveWorkspaceSession: async () => {},
     pruneTerminals: () => {},
     disposeTerminal: () => {},
@@ -441,5 +442,45 @@ test("session source availability follows successful polls, failures, and admiss
   await controller.refreshSessions();
   controller.setAdmissionEnabled(false);
   assert.deepEqual(statuses, ["ready", "unavailable", "ready", "unavailable"]);
+  controller.dispose();
+});
+
+test("archive refreshes exact-row state without disposing or selecting a terminal", async () => {
+  const active: Array<string | null> = [];
+  const disposed: string[] = [];
+  const calls: unknown[] = [];
+  const controller = createWorkspaceSessionController({
+    deps: deps({
+      sessionAction: async (...args) => { calls.push(args); },
+      listSessions: async () => [{ ...session("one", "dead", "ended"), sessionState: "archived", sessionActionToken: "new" }],
+      disposeTerminal: id => disposed.push(id),
+    }),
+    onActiveSession: id => active.push(id),
+  });
+  controller.selectSession("one");
+  await controller.sessionAction("one", "archive", "captured");
+  assert.deepEqual(calls, [["http://backend", "one", "archive", "captured"]]);
+  assert.deepEqual(disposed, []);
+  assert.deepEqual(active, ["one"]);
+  controller.dispose();
+});
+
+test("an old workspace action cannot clear a new workspace selection", async () => {
+  const operation = deferred<void>();
+  const active: Array<string | null> = [];
+  const disposed: string[] = [];
+  const controller = createWorkspaceSessionController({
+    deps: deps({ sessionAction: async () => operation.promise, disposeTerminal: id => disposed.push(id) }),
+    onActiveSession: id => active.push(id),
+  });
+  controller.selectSession("one");
+  const deleting = controller.sessionAction("one", "delete", "captured");
+  await new Promise(resolve => setImmediate(resolve));
+  await controller.openWorkspace("/new");
+  controller.selectSession("one");
+  operation.resolve();
+  await deleting;
+  assert.equal(active.at(-1), "one");
+  assert.deepEqual(disposed, []);
   controller.dispose();
 });

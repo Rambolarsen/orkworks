@@ -21,6 +21,7 @@ import { VOCAB } from "./labels";
 import { pushToast } from "./feedback";
 import { activeNewSessionHarnesses } from "./newSessionDialogState";
 import {
+  type SessionAction,
   type SessionInfo,
   type SessionAttention,
   type WorkspaceInfo,
@@ -636,6 +637,11 @@ function App() {
     setUnreadState((prev) => trackUnread(prev, sessions, activeSessionId));
   }, [sessions, activeSessionId]);
 
+  const handleSessionAction = useCallback(
+    (id: string, action: SessionAction, token: string) => workspaceSessionController.sessionAction(id, action, token),
+    [workspaceSessionController],
+  );
+
   const handleKillSession = useCallback(
     async (id: string) => {
       try {
@@ -703,6 +709,16 @@ function App() {
       pushToast("error", "Couldn't resume session.");
     }
   }, [workspaceSessionController]);
+
+  const handleRowResumeSession = useCallback((id: string) => {
+    const target = sessions.find(session => session.id === id);
+    if (!target || target.sessionState === "archived") return;
+    if (target.resumeStrategy === "exact") void handleResumeSession(id);
+    else {
+      handleSelectSession(id);
+      requestShellCommand("details", true);
+    }
+  }, [sessions, handleResumeSession, handleSelectSession, requestShellCommand]);
 
   const handleApplyDebugAttention = useCallback(async (id: string, attention: SessionAttention, message?: string) => {
     if (!workspaceSessionController.isAdmissionEnabled()) return;
@@ -917,9 +933,11 @@ function App() {
           onConfirm={handleConfirmNewSession} onCancel={() => requestShellCommand("cancel-new-session")} /> : null}
         onCancelNewSession={cancelNewSession}
         onCreateSession={handleCreateSession}
+        onSessionAction={handleSessionAction}
         onKillSession={handleKillSession}
         onForgetSession={handleForgetSession}
         onResumeSession={handleResumeSession}
+        onRowResumeSession={handleRowResumeSession}
         onApplyDebugAttention={handleApplyDebugAttention}
         onFocusTerminal={handleFocusTerminal}
         onOpenSettings={section => openSettings(section ?? "tools")}

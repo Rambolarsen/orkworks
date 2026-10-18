@@ -26,6 +26,7 @@ mod procfs;
 mod providers;
 mod runtime;
 mod session_application;
+mod session_archive;
 mod session_projection;
 mod session_types;
 mod session_view;
@@ -55,8 +56,8 @@ use crate::http::session_handlers::{
     apply_debug_attention, create_session, delete_session, forget_session,
     get_session_plan_content, list_sessions, report_attention_route,
     report_harness_session_envelope_with_headers, report_session_plan_path,
-    request_session_plan_review, resume_session, select_terminal_plan, set_active_harnesses,
-    set_active_session, set_workspace,
+    request_session_plan_review, resume_session, select_terminal_plan, session_action,
+    set_active_harnesses, set_active_session, set_workspace,
 };
 use crate::http::taskmaster_handlers::{
     accept_recommendation, analyze_taskmaster, assess_workflow, complete_recommendation,
@@ -389,6 +390,7 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
         .route("/sessions", get(list_sessions))
         .route("/sessions/:id", delete(delete_session))
         .route("/sessions/:id/forget", delete(forget_session))
+        .route("/sessions/:id/state", post(session_action))
         .route("/sessions/:id/resume", post(resume_session))
         .route(
             "/sessions/:id/harness-session",
@@ -715,6 +717,7 @@ pub(crate) mod test_support {
         let created_at = created_at.into();
 
         SessionInfo {
+            organization: Default::default(),
             provenance: Default::default(),
             id: id.into(),
             label: label.into(),

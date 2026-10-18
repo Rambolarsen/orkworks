@@ -299,6 +299,10 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, onResumeSes
               <span className="session-detail-value-sub">{voice.detail}</span>
             </DetailField>
           )}
+          {active.sessionState !== undefined && <DetailField className="detail-fact" label="Session state">
+            {active.sessionState === "archived" ? "Archived" : active.sessionState === "closed" ? "Closed" : active.sessionState === "active" ? "Active" : "Unavailable"}
+            {active.sessionStateError && <span className="session-detail-value-sub">{active.sessionStateError}</span>}
+          </DetailField>}
           {showDebugMetadata && (
             <>
               <DetailField className="detail-fact" label="Work phase">

@@ -104,3 +104,5 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0085](./0085-taskmaster-assessment-and-analysis-outcomes.md) | Taskmaster assessment reports and explicit analysis outcomes | accepted |
 
 | [0086](./0086-repository-led-taskmaster-assessment.md) | Repository-led Taskmaster assessment with bounded evidence selection | proposed |
+
+| [0088](./0088-session-archive-state.md) | Durable session archive state | accepted |

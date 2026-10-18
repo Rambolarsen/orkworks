@@ -236,7 +236,29 @@ impl SessionProjection {
         let lock_state = self.state.clone();
         let _projection_lock = lock_state.projection_lock.lock().unwrap();
         let infos = self.project_capacity(self.snapshot()?)?;
-        Ok(self.enrich_workspace(infos))
+        let mut infos = self.enrich_workspace(infos);
+        let workspace = self.state.workspace.lock().unwrap();
+        let sessions = self.state.sessions.lock().unwrap();
+        let pids = self.state.session_pids.lock().unwrap();
+        if let Some(ws) = workspace.as_ref() {
+            for info in &mut infos {
+                let handle = sessions.get(&info.id);
+                let closed = info.lifecycle_phase == "ended"
+                    && info.lifecycle == "dead"
+                    && crate::session_application::session_actions::runtime_closed(
+                        handle,
+                        pids.contains_key(&info.id),
+                    );
+                let runtime_key = crate::session_application::session_actions::runtime_key(handle);
+                info.organization = ws.metadata.organization.project(
+                    &info.id,
+                    &info.created_at,
+                    closed,
+                    &runtime_key,
+                );
+            }
+        }
+        Ok(infos)
     }
 
     pub(crate) fn enrich_workspace(&self, mut infos: Vec<SessionInfo>) -> Vec<SessionInfo> {
@@ -608,6 +630,33 @@ mod tests {
     use crate::test_support::test_session_metadata;
     use crate::AppState;
     use std::sync::Arc;
+
+    #[test]
+    fn legacy_closed_session_exposes_organization_and_action_precondition() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        {
+            let workspace = state.workspace.lock().unwrap();
+            workspace
+                .as_ref()
+                .unwrap()
+                .metadata
+                .write_session(&test_session_metadata(
+                    "old",
+                    "Old",
+                    dir.path().display().to_string(),
+                    "ended",
+                    "2024-01-01T00:00:00Z",
+                    "2024-01-01T00:00:00Z",
+                ));
+        }
+        let sessions = SessionProjection::new(state).list().unwrap();
+        let json = serde_json::to_value(&sessions[0]).unwrap();
+        assert_eq!(json["sessionState"], "closed");
+        assert!(json["sessionActionToken"]
+            .as_str()
+            .is_some_and(|token| !token.is_empty()));
+    }
 
     #[test]
     fn exposes_a_constructor_for_shared_app_state() {

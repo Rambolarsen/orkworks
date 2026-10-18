@@ -4,6 +4,8 @@ Decision records and their original rationale and consequences.
 
 ## Documents
 
+- [Durable session archive state](0088-session-archive-state.md) — Identity-bound organization and close-first actions.
+
 - [Record architecture decisions](0001-record-architecture-decisions.md) — Architecture decision record: Record architecture decisions.
 - [Electron + React + TypeScript desktop shell](0002-electron-react-typescript-desktop.md) — Architecture decision record: Electron + React + TypeScript desktop shell.
 - [Rust backend sidecar with Axum over localhost HTTP/WebSocket](0003-rust-backend-axum-localhost.md) — Architecture decision record: Rust backend sidecar with Axum over localhost HTTP/WebSocket.

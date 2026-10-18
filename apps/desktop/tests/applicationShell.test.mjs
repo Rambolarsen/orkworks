@@ -57,7 +57,7 @@ if (process.versions.electron) {
         await waitFor('document.querySelector("[data-shell-region=terminal]")');
         await evaluate('fixture.command("recommendations",true)');
         await waitFor('document.querySelector("[data-shell-page-heading]")');
-        await evaluate('Array.from(document.querySelectorAll("[role=option]")).find(el=>el.textContent.includes("other")).click()');
+        await evaluate('Array.from(document.querySelectorAll("[data-session-id]")).find(el=>el.textContent.includes("other")).click()');
         await waitFor('document.querySelector("[data-shell-region=terminal]")');
         assert.equal(await evaluate('fixture.activeSessionId'),'other');
         await evaluate('fixture.command("recommendations",true)');
@@ -218,8 +218,8 @@ if (process.versions.electron) {
           await evaluate('fixture.cancelNavigationRebuild=false;fixture.deferNavigationRebuild=true;document.querySelector("[data-rebuild-navigation]").click()');
           await waitFor('!!fixture.finishNavigationRebuild');
           await evaluate('fixture.releaseSessions()');
-          await waitFor('document.querySelector("[role=option]")');
-          await evaluate(`Array.from(document.querySelectorAll('[role=option]')).find(row=>row.textContent.includes('created')).click()`);
+          await waitFor('document.querySelector("[data-session-id]")');
+          await evaluate(`Array.from(document.querySelectorAll('[data-session-id]')).find(row=>row.textContent.includes('created')).click()`);
           await waitFor('!!fixture.resolveNewNavigation');
           await evaluate('fixture.finishNavigationRebuild()');
           await waitFor('!document.querySelector("[data-rebuild-navigation]")');
@@ -234,8 +234,8 @@ if (process.versions.electron) {
           if (outcome==='reject') await fresh();
           await waitFor('!!fixture.resolveOldNavigation && !!fixture.releaseSessions');
           await evaluate('fixture.releaseSessions()');
-          await waitFor('document.querySelector("[role=option]")');
-          await evaluate(`Array.from(document.querySelectorAll('[role=option]')).find(row=>row.textContent.includes('created')).click()`);
+          await waitFor('document.querySelector("[data-session-id]")');
+          await evaluate(`Array.from(document.querySelectorAll('[data-session-id]')).find(row=>row.textContent.includes('created')).click()`);
           await waitFor('document.querySelector("[data-rebuild-navigation]")');
           await evaluate('fixture.navigationBeforeRecovery=fixture.navigation.length');
           await evaluate('fixture.cancelNavigationRebuild=false;document.querySelector("[data-rebuild-navigation]").click()');
@@ -395,7 +395,7 @@ if (process.versions.electron) {
         return;
       } else if (scenario === 'app-review-history') {
         await waitFor('fixture.runtime()?.terminal.element?.isConnected');
-        await evaluate(`Array.from(document.querySelectorAll('[role=option]')).find(row=>row.textContent.includes('other')).click()`);
+        await evaluate(`Array.from(document.querySelectorAll('[data-session-id]')).find(row=>row.textContent.includes('other')).click()`);
         await waitFor(`document.querySelector('[aria-label="Saved terminal output"]')`);
         await click('review');
         await waitFor('document.querySelector(".review-plan-content")');
@@ -517,7 +517,7 @@ if (process.versions.electron) {
         await click('details');
         await evaluate('fixture.deferRead=false;fixture.menu({action:"focus",panelId:"review"})');
         await waitFor('document.querySelector("[data-shell-region=review]")');
-        await evaluate(`Array.from(document.querySelectorAll('[role=option]')).find(row=>row.textContent.includes('other')).click()`);
+        await evaluate(`Array.from(document.querySelectorAll('[data-session-id]')).find(row=>row.textContent.includes('other')).click()`);
         await waitFor('document.querySelector("[data-shell-region=terminal]")');
         assert.equal(await evaluate('!!document.querySelector(".review-plan-content")'),false,'selection removes the previous subject');
         await evaluate('fixture.menu({action:"focus",panelId:"review"})');

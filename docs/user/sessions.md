@@ -27,6 +27,35 @@ process: other sessions keep running while the backend remains alive. Recent
 terminal history is replayed when you return. Closing the application is
 different; live processes do not survive a backend restart.
 
+## Close, archive or delete a session
+
+Current source builds have three session states: **Active**, **Closed** and
+**Archived**. Use the Sessions **State** filter to show All unarchived (the
+default), Active, Closed or Archived. Filtering preserves your selected terminal
+or saved history, even when its row is hidden.
+
+Right-click a row or choose its **More actions** button. With the Sessions list
+focused, use the context-menu key or **Shift+F10** for the selected row. Arrow
+keys move through the menu; Escape returns focus.
+
+**Close** stops an Active session. **Archive (close first)** stops it and waits
+for saved ending/history to finish before archiving. **Delete… (close first)**
+asks for confirmation before stopping anything, then permanently deletes the
+record, events and saved terminal scrollback only after Close finishes. If
+Close fails or is still finishing, the second step does not run; refresh and
+try again. Closed sessions can be archived or deleted directly.
+
+Archived sessions retain history and are protected from automatic age/count
+cleanup. Choose **Restore to Closed** before resuming one. Restoring does not
+start a process, and normal retention settings apply to it again. Archive and
+Restore preserve activity timestamps. Only successfully deleting the selected
+session clears the selection.
+
+Archive is organization in OrkWorks; it does not archive the conversation in
+the coding tool or accept its work. Older installers may lack these actions.
+Downgrading to a binary without archive-aware retention removes the automatic
+cleanup protection, so keep a compatible build when relying on that protection.
+
 ## Resume an ended session
 
 In current source builds, select an ended session and use **Resume session**

@@ -159,6 +159,11 @@ pub(crate) fn delete_session_evidence(
         .metadata
         .delete_session(session_id)
         .map_err(|error| error.to_string())?;
+    workspace
+        .metadata
+        .organization
+        .remove(session_id)
+        .map_err(|error| error.to_string())?;
     // Recommendation cleanup is last: if deleting the session metadata fails,
     // the session remains retryable and its evidence-backed recommendations
     // are preserved for that retry. Orphan cleanup handles the inverse case.
@@ -217,6 +222,32 @@ pub(crate) async fn retention_cleanup_task(state: Arc<AppState>) {
     }
 }
 
+fn retention_protected(
+    state: &AppState,
+    ws: &crate::WorkspaceState,
+    id: &str,
+    handle: Option<&crate::SessionHandle>,
+) -> bool {
+    if ws.metadata.organization.pending(id)
+        || !crate::session_application::session_actions::runtime_closed(
+            handle,
+            state.session_pids.lock().unwrap().contains_key(id),
+        )
+    {
+        return true;
+    }
+    let Ok(Some(record)) = ws.metadata.try_read_revisioned_session(id) else {
+        return true;
+    };
+    let meta = record.metadata;
+    meta.lifecycle_phase != "ended"
+        || meta.lifecycle != "dead"
+        || !matches!(
+            ws.metadata.organization.state(id, &meta.created_at, true),
+            Ok((crate::session_archive::SessionState::Closed, _))
+        )
+}
+
 pub(crate) async fn retention_cleanup_once(
     state: &Arc<AppState>,
     now: chrono::DateTime<chrono::Utc>,
@@ -226,10 +257,23 @@ pub(crate) async fn retention_cleanup_once(
         return;
     }
 
+    let _projection = state.projection_lock.lock().unwrap();
     let all_sessions = {
         let ws_guard = state.workspace.lock().unwrap();
         match &*ws_guard {
-            Some(ws) => ws.metadata.read_all_sessions(),
+            Some(ws) => ws
+                .metadata
+                .read_all_sessions()
+                .into_iter()
+                .filter(|meta| {
+                    matches!(
+                        ws.metadata
+                            .organization
+                            .state(&meta.id, &meta.created_at, true),
+                        Ok((crate::session_archive::SessionState::Closed, _))
+                    )
+                })
+                .collect::<Vec<_>>(),
             None => return,
         }
     };
@@ -253,11 +297,7 @@ pub(crate) async fn retention_cleanup_once(
             if let Some(ref ws) = *ws_guard {
                 let mut sessions = state.sessions.lock().unwrap();
                 for id in &expired {
-                    if sessions.get(id).is_some_and(|h| {
-                        h.info.status == "live"
-                            || h.info.status == "creating"
-                            || h.info.status == "running"
-                    }) {
+                    if retention_protected(state, ws, id, sessions.get(id)) {
                         continue;
                     }
                     tracing::info!(session_id = %id, "retention: deleting expired session");
@@ -288,21 +328,13 @@ pub(crate) async fn retention_cleanup_once(
             let mut sessions = state.sessions.lock().unwrap();
             let protected_ids = sessions
                 .iter()
-                .filter(|(_, handle)| {
-                    handle.info.status == "live"
-                        || handle.info.status == "creating"
-                        || handle.info.status == "running"
-                })
+                .filter(|(id, handle)| retention_protected(state, ws, id, Some(handle)))
                 .map(|(id, _)| id.clone())
                 .collect();
             let eligible =
                 select_count_candidates(&candidates, config.max_sessions, &protected_ids);
             for id in eligible {
-                if sessions.get(&id).is_some_and(|h| {
-                    h.info.status == "live"
-                        || h.info.status == "creating"
-                        || h.info.status == "running"
-                }) {
+                if retention_protected(state, ws, &id, sessions.get(&id)) {
                     continue;
                 }
                 tracing::info!(
@@ -787,6 +819,96 @@ mod tests {
 
         assert!(result.is_err());
         assert!(ws.metadata.session_file_exists("session-a"));
+    }
+
+    #[tokio::test]
+    async fn archived_sessions_do_not_consume_the_unarchived_count_budget() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let ws = workspace.as_ref().unwrap();
+            for (id, activity) in [
+                ("saved", "2024-01-03T00:00:00Z"),
+                ("old", "2024-01-01T00:00:00Z"),
+                ("new", "2024-01-02T00:00:00Z"),
+            ] {
+                ws.metadata.write_session(&test_session_metadata(
+                    id,
+                    id,
+                    dir.path().display().to_string(),
+                    "ended",
+                    "2024-01-01T00:00:00Z",
+                    activity,
+                ));
+            }
+            ws.metadata
+                .organization
+                .write(
+                    "saved",
+                    "2024-01-01T00:00:00Z",
+                    crate::session_archive::SessionState::Archived,
+                )
+                .unwrap();
+        }
+        {
+            let mut config = state.retention_config.write().await;
+            config.max_age_days = 0;
+            config.max_sessions = 1;
+        }
+        retention_cleanup_once(&state, chrono::Utc::now()).await;
+        let workspace = state.workspace.lock().unwrap();
+        let ws = workspace.as_ref().unwrap();
+        assert!(ws.metadata.session_file_exists("saved"));
+        assert!(ws.metadata.session_file_exists("new"));
+        assert!(!ws.metadata.session_file_exists("old"));
+    }
+
+    #[tokio::test]
+    async fn archived_and_unreadable_sessions_survive_age_and_count_cleanup() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let ws = workspace.as_ref().unwrap();
+            for id in ["archived", "unreadable", "old-closed", "new-closed"] {
+                ws.metadata.write_session(&test_session_metadata(
+                    id,
+                    id,
+                    dir.path().display().to_string(),
+                    "ended",
+                    "2024-01-01T00:00:00Z",
+                    "2024-01-01T00:00:00Z",
+                ));
+            }
+            ws.metadata
+                .organization
+                .write(
+                    "archived",
+                    "2024-01-01T00:00:00Z",
+                    crate::session_archive::SessionState::Archived,
+                )
+                .unwrap();
+            std::fs::write(
+                ws.metadata
+                    .root_path()
+                    .join("session-state/unreadable.json"),
+                "bad",
+            )
+            .unwrap();
+        }
+        {
+            let mut config = state.retention_config.write().await;
+            config.max_age_days = 1;
+            config.max_sessions = 1;
+        }
+        retention_cleanup_once(&state, chrono::Utc::now()).await;
+        let workspace = state.workspace.lock().unwrap();
+        let ws = workspace.as_ref().unwrap();
+        assert!(ws.metadata.session_file_exists("archived"));
+        assert!(ws.metadata.session_file_exists("unreadable"));
+        assert!(!ws.metadata.session_file_exists("old-closed"));
+        assert!(!ws.metadata.session_file_exists("new-closed"));
     }
 
     #[tokio::test]

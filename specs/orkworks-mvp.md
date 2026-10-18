@@ -766,6 +766,14 @@ The first useful MVP should include:
 - explicit kill (or the process exiting on its own) is what ends a session — not losing the WebSocket
 - app-restart PTY persistence is out of scope for the initial implementation: after a sidecar restart, sessions reconcile through existing metadata/lifecycle rules rather than being treated as live detached PTYs
 
+Session organization has three states: Active, Closed and Archived. Active
+Archive and Delete close first; Delete confirmation precedes Close. Only completed
+Closed or Archived sessions may be permanently deleted. Restore returns Archived
+to Closed without resuming. Archived sessions are protected from age/count
+retention. State filters and exact-row menus preserve selection and history.
+See [ADR 0088](../docs/adr/0088-session-archive-state.md) and the
+[approved archive design](../docs/superpowers/specs/2026-10-18-session-archive.md).
+
 #### Session Metadata Protocol
 
 - create `.orkworks/` structure under `~/.orkworks/workspaces/<path-hash>/` when enabled:
