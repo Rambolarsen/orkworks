@@ -271,6 +271,19 @@ mod tests {
         assert!(parse(&value));
     }
     #[test]
+    fn accepts_descriptive_node_prose_in_discovery() {
+        let text = "Node package management is required; desktop guidance differs.";
+        for field in ["title", "hypothesis"] {
+            let mut value = inspect();
+            value["candidate"][field] = json!(text);
+            assert!(parse(&value), "description rejected in {field}");
+        }
+        let mut value = no_candidate();
+        value["reason"] = json!(text);
+        assert!(parse(&value));
+    }
+
+    #[test]
     fn bounds_prose_by_unicode_scalars_and_rejects_unsafe_text() {
         for (field, limit) in [("title", 240), ("hypothesis", 1000)] {
             let mut value = inspect();

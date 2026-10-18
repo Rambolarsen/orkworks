@@ -347,3 +347,50 @@ case at its active-attempt assertion. That specific recovery flow is unchanged
 by this PR; the exact test passed in isolation. The failed full log is retained
 at `/private/tmp/issue938-cycle5-verify.log`; it is not recorded as a passing run.
 The complete recheck at `/private/tmp/issue938-cycle5-verify-recheck.log` passed: 2,120 Rust unit tests, 9 ignored; all integration/reporter checks; desktop type/native ABI/tests/build; documentation build and close-out checks. No change was made to the nonreproduced deferred-recovery test. The documentation advisory was reviewed: user guidance remains accurate and this correction adds no installer claim.
+
+## Descriptive platform names with semicolons
+
+Issue #964 reproduced an assessment prose false positive: the synthetic sentence
+“Node package management is required; desktop guidance differs.” failed both
+strict discovery and final decoding because a semicolon anywhere in the field
+was combined with a lowercased command-name word anywhere else. The regressions
+failed against the merged implementation before correction.
+
+The bounded correction recognizes the capitalized Node platform noun phrases
+for package management and package configuration in this semicolon check. It
+retains the existing explicit invocation, quoted command, flag/path, completion
+claim and other shell-operator guards. Bare executable spellings remain
+conservative, including capitalized commands with extensionless arguments.
+Independent review caught a broader case-sensitive exemption that would admit
+those commands; it was narrowed before handoff, with regression coverage.
+This does not add a general natural-language parser or exempt lowercase
+executable text. It changes no response shape, prompt, model selection, tool
+authority, dispatch limit, retry/fallback behavior, or assessment lifecycle.
+
+The descriptive exemption requires separate words; punctuation-joined executable
+names remain rejected. That boundary regression also failed before correction.
+All 98 scoped assessment tests then passed, with 3 explicit live/evidence tests
+ignored. A zero-dispatch replay of the original local rejected discovery response
+also passed the corrected decoder with its retained fact hashes, pages and
+catalog IDs. Replay-only timestamp metadata was reconstructed from the trial's
+start time because the discovery prompt omits it; reference decoding does not
+consume that field. The original pilot record remains failed, with no added
+quality credit and no new provider trial. These checks do not prove that the
+candidate would survive follow-up or produce a useful recommendation.
+
+The first full repository check passed before the final token-boundary correction.
+A later check failed in the Electron knowledge-cache transport fixture because a
+shared Cargo target reused the offline replay binary's embedded manifest path;
+its temporary source archive had no desktop dependencies. That failed log is
+retained as `/private/tmp/issue964-verify-final.log`. The final check uses a
+dedicated worktree target directory; no unrelated transport behavior or tests
+were changed to address this evaluation setup error. Documentation claims were
+reviewed and remain accurate; the merged `taskmaster-parallel-flake` worktree
+advisory concerns another owner and needs no action from this task.
+
+Final isolated `bash scripts/verify-repo.sh` passed: 2,127 Rust unit tests, 9
+explicitly ignored; integration and reporter checks; desktop type/native ABI,
+1,351 tests plus one platform skip, and build; docs build and close-out checks.
+The transport fixture affected by the shared-target setup also passed. The log
+is retained at `/private/tmp/issue964-verify-isolated.log`. Current-diff manual
+`/code-review low` approved the final implementation and boundary regressions.

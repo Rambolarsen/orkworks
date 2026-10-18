@@ -189,12 +189,34 @@ fn contains_command_or_verification_claim(value: &str) -> bool {
     {
         return true;
     }
-    let shell_operator =
-        lower.contains(';') || lower.contains('|') || lower.contains('>') || lower.contains('<');
+    let shell_operator = lower.contains('|') || lower.contains('>') || lower.contains('<');
+    // A semicolon also joins ordinary prose. Only the capitalized platform
+    // noun phrases below disambiguate Node from an executable name. All other
+    // bare command names remain conservative, including capitalized spellings.
+    let semicolon_command = lower.contains(';') && contains_command_token(&words) && {
+        let original_words: Vec<&str> = value.split_whitespace().collect();
+        let bare_command = original_words.iter().enumerate().any(|(index, word)| {
+            let node_package_description = *word == "Node"
+                && original_words.get(index + 1) == Some(&"package")
+                && original_words.get(index + 2).is_some_and(|word| {
+                    matches!(
+                        word.trim_end_matches(['.', ',', ':', ';', '!', '?']),
+                        "management" | "configuration"
+                    )
+                });
+            let lower_word = word.to_ascii_lowercase();
+            !node_package_description
+                && lower_word
+                    .split(|character: char| !character.is_ascii_alphanumeric())
+                    .any(|token| contains_command_token(&[token]))
+        });
+        bare_command || contains_embedded_literal_command(&lower)
+    };
     if contains_imperative_command(&lower)
         || contains_tool_invocation(&words)
         || contains_direct_command(value)
         || (shell_operator && contains_command_token(&words))
+        || semicolon_command
     {
         return true;
     }
@@ -821,6 +843,44 @@ mod tests {
             let mut value = proposed();
             value["summary"] = json!(text);
             assert!(parse(&value).is_ok(), "description rejected: {text}");
+        }
+    }
+
+    #[test]
+    fn accepts_descriptive_node_prose_with_semicolons() {
+        for text in [
+            "Node package management is required; desktop guidance differs.",
+            "The Node package configuration differs from the stated workflow. Current guidance needs review; its intended scope remains unverified.",
+        ] {
+            let mut value = proposed();
+            value["summary"] = json!(text);
+            assert!(parse(&value).is_ok(), "description rejected: {text}");
+        }
+    }
+
+    #[test]
+    fn rejects_shell_commands_separated_by_semicolons() {
+        for text in [
+            "cat fixture; remaining evidence is unknown.",
+            "Cat fixture; remaining evidence is unknown.",
+            "Bash script; remaining evidence is unknown.",
+            "Node script; remaining evidence is unknown.",
+            "Node-package-management; remaining evidence is unknown.",
+            "Node.package.configuration; remaining evidence is unknown.",
+            "The validation scope includes cat fixture; remaining evidence is unknown.",
+            "Node tools/check.js; remaining evidence is unknown.",
+            "Node --version; remaining evidence is unknown.",
+            "The validation scope includes node tools/check.js; remaining evidence is unknown.",
+            "The guidance mentions Node; rm output.",
+            "The fallback is printf hello; remaining evidence is unknown.",
+            "The fallback is bash script; remaining evidence is unknown.",
+            "The fallback is ls src; remaining evidence is unknown.",
+            "The scope includes Node --version; remaining evidence is unknown.",
+            "The guidance mentions Node; `unknowncli frobnicate`.",
+        ] {
+            let mut value = proposed();
+            value["summary"] = json!(text);
+            assert!(parse(&value).is_err(), "command accepted: {text}");
         }
     }
 
