@@ -169,3 +169,4 @@ Dated design records; these do not establish current product behavior.
 - [Hierarchy projection payload and read boundary](2026-10-17-hierarchy-projection-payload-design.md) — Proposed exact overview records, read authority, finite budgets and synthetic payload fixtures.
 
 - [Repository-led Brain workflow assessment](2026-10-18-repository-led-brain-assessment.md) — Proposed bounded evidence selection, input lifecycle and implementation plan.
+- [Active, Closed and Archived sessions](2026-10-18-session-archive.md) — Proposed archive state and close-first session context-menu design.
