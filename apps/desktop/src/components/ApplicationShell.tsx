@@ -1,7 +1,8 @@
+import { isSessionAlive } from "../sessionRuntimeState";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { PanelLeft, PanelRight, Plus, ChevronDown, Play, Gauge, Lightbulb, Settings, Pin, PinOff, X } from "lucide-react";
 import type { CentralSurface } from "../shellNavigation";
-import type { SessionAttention, SessionInfo, WorkflowRecommendation, WorkspaceInfo } from "../api";
+import type { SessionAction, SessionAttention, SessionInfo, WorkflowRecommendation, WorkspaceInfo } from "../api";
 import type { HarnessConfig } from "../harnessTypes";
 import type { DebugSettings } from "../appSettingsTypes";
 import type { ShellPreferences } from "../orkworksWindow";
@@ -66,9 +67,11 @@ interface Props {
   newSessionContent?: ReactNode;
   onCancelNewSession?: () => void;
   onCreateSession: () => void;
+  onSessionAction?: (id: string, action: SessionAction, token: string) => Promise<void>;
   onKillSession: (id: string) => void;
   onForgetSession: (id: string) => void;
   onResumeSession: (id: string) => void;
+  onRowResumeSession?: (id: string) => void;
   onApplyDebugAttention: (id: string, attention: SessionAttention, message?: string) => void;
   onFocusTerminal: () => void;
   onOpenSettings: (section?: "tools" | "providers") => void;
@@ -112,7 +115,7 @@ export default function ApplicationShell(props: Props) {
   const showSessions = showSessionsPage || layout.sessionsVisible;
   const showInspector = !showSessionsPage && !recommendationsPage && layout.inspectorWidth > 0 && props.inspector !== null;
   const session = props.sessions.find(s => s.id === props.activeSessionId) ?? null;
-  const canResume = session?.lifecycle === "dead"
+  const canResume = session?.lifecycle === "dead" && session.sessionState !== "archived"
     && props.backendStatus === "connected" && !props.isSwitchingWorkspace
     && resumeChoices(session).some(option => !option.unavailable);
 
@@ -329,7 +332,7 @@ export default function ApplicationShell(props: Props) {
       }} onOpenRecommendation={props.onOpenRecommendation} />;
     return <RecommendationsPanel hasWorkspace={!!props.workspace && !props.isSwitchingWorkspace}
       workspacePath={props.workspace?.path ?? null}
-      taskmasterReady={props.taskmasterReady} canFixWithAi={props.canFixWithAi && session?.lifecycle === "alive"}
+      taskmasterReady={props.taskmasterReady} canFixWithAi={props.canFixWithAi && isSessionAlive(session)}
       onSelectSession={props.onSelectSession} onFixWithAi={props.onFixWithAi} onRunCleanup={props.onRunCleanup}
       focusedRecommendationId={props.focusedRecommendationId} />;
   };
@@ -389,13 +392,14 @@ export default function ApplicationShell(props: Props) {
         <header className="shell-region-header shell-sessions-header"><h2 data-shell-sessions-heading tabIndex={-1}>Sessions</h2>
           {showSessionsPage && <button type="button" data-shell-command="sessions" data-shell-return onClick={closePage}>{reviewing ? "Back to Review" : "Back to Terminal"}</button>}
         </header>
-        <SessionListPanel workspace={props.workspace} sessions={props.sessions} activeSessionId={props.activeSessionId}
+        <SessionListPanel workspaceGeneration={props.workspaceGeneration} workspace={props.workspace} sessions={props.sessions} activeSessionId={props.activeSessionId}
           unreadIds={props.unreadIds} acknowledgedIds={props.acknowledgedIds} harnesses={props.harnesses}
           onSelectSession={id => {
             creationReturn.current = null;
             props.onSelectSession(id);
           }}
-          onKillSession={props.onKillSession} onForgetSession={props.onForgetSession}
+          actionsEnabled={props.backendStatus === "connected" && !props.isSwitchingWorkspace}
+          onSessionAction={props.onSessionAction} onResumeSession={props.onRowResumeSession ?? props.onResumeSession}
           onFocusTerminal={() => runCommand("terminal")} onOpenWorkspace={props.onOpenWorkspace} />
         <footer className="shell-sidebar-footer">{settingsAndStatus}</footer>
       </section>}

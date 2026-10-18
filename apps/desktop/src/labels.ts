@@ -332,6 +332,7 @@ function resumeStrategySub(strategy: ResumeStrategy, session: SessionInfo): stri
 
 /** Maps the backend's resumeOptions (or a synthesized fallback) into chooser rows. */
 export function resumeChoices(session: SessionInfo): ResumeChoice[] {
+  if (session.sessionState === "archived" || session.sessionState === null) return [];
   const options: ResumeOption[] = session.resumeOptions?.length
     ? session.resumeOptions
     : session.resumeStrategy !== "none"

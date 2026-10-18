@@ -1503,8 +1503,8 @@ html, body, #root {
 /* Unread tint outranks hover; selection outranks both. */
 .session-row--unread,
 .session-row--unread:hover { background: var(--surface-2); }
-.session-row[aria-selected="true"] { background: var(--surface-active); }
-.session-row[aria-selected="true"]:hover { background: var(--surface-active); }
+.session-row[data-selected="true"] { background: var(--surface-active); }
+.session-row[data-selected="true"]:hover { background: var(--surface-active); }
 .session-row--remembered { opacity: 0.62; }
 
 /* Which tones are "loud" lives in labels.ts (isLoudTone) — the component
@@ -1513,7 +1513,7 @@ html, body, #root {
    drop back to regular weight — the attention color/label still shows the
    need is unresolved, but the row shouldn't keep shouting at its own viewer. */
 .session-row--loud .session-row-label { font-weight: var(--weight-semibold); }
-.session-row--loud[aria-selected="true"] .session-row-label { font-weight: var(--weight-regular); }
+.session-row--loud[data-selected="true"] .session-row-label { font-weight: var(--weight-regular); }
 
 .session-row-leading {
   display: flex;
@@ -2971,3 +2971,16 @@ html, body, #root {
 .recommendation-assessment-details { margin-bottom: var(--space-4); color: var(--text-secondary); font-size: 0.9rem; }
 .recommendation-assessment-details summary { cursor: pointer; }
 @media (prefers-reduced-motion: no-preference) { .taskmaster-analysis-indicator--busy { animation: provider-verify-spin 1s linear infinite; } }
+
+/* Selection and More are sibling buttons in a native list. */
+.session-row-select { display: flex; flex: 1; align-items: center; gap: var(--space-3); min-width: 0; border: 0; padding: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.session-row-more { display: inline-flex; align-items: center; justify-content: center; border: 0; padding: 2px; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.session-row-more:hover { color: var(--text-primary); }
+.session-state-filter { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2); font-size: var(--text-xs); }
+.session-state-filter select { min-width: 0; flex: 1; color: var(--text-primary); background: var(--surface-1); border: 1px solid var(--border-subtle); border-radius: 4px; padding: 4px; }
+.session-context-menu { z-index: 1000; display: flex; flex-direction: column; width: max-content; max-height: calc(100vh - 16px); overflow-y: auto; max-width: calc(100vw - 16px); padding: 4px; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--surface-1); color: var(--text-primary); box-shadow: var(--shadow-toast); }
+.session-context-menu button { border: 0; border-radius: 3px; text-align: left; padding: 8px 12px; color: inherit; background: transparent; cursor: pointer; }
+.session-context-menu button:hover, .session-context-menu button:focus { background: var(--surface-active); }
+.session-context-menu button:disabled { opacity: .5; cursor: default; }
+.session-menu-diagnostic, .session-action-error, .session-action-progress { max-width: 28ch; margin: 4px; padding: 4px; font-size: var(--text-xs); }
+.session-action-error { color: var(--state-error); }

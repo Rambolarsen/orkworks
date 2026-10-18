@@ -56,7 +56,13 @@ export interface ResumeOption {
   reason?: string;
 }
 
+export type SessionState = "active" | "closed" | "archived";
+export type SessionAction = "close" | "archive" | "restore" | "delete";
+
 export interface SessionInfo {
+  sessionState?: SessionState | null;
+  sessionActionToken?: string | null;
+  sessionStateError?: string;
   id: string;
   label: string;
   harnessId?: string;
@@ -383,6 +389,24 @@ export async function deleteSession(
     method: "DELETE",
   });
   if (!resp.ok) throw new Error(`delete session failed: ${resp.status}`);
+}
+
+export async function sessionAction(baseUrl: string, id: string, action: SessionAction, token: string): Promise<void> {
+  const resp = await fetch(`${baseUrl}/sessions/${encodeURIComponent(id)}/state`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, token }),
+  });
+  if (!resp.ok) {
+    const fallback = `Session action failed (${resp.status}); refresh and try again.`;
+    const text = (await resp.text().catch(() => "")).trim();
+    let message = text || fallback;
+    try {
+      const body = JSON.parse(text);
+      message = typeof body?.error === "string" ? body.error : fallback;
+    } catch { /* The sidecar's application errors use plain text. */ }
+    throw new Error(message);
+  }
 }
 
 export async function forgetSession(

@@ -532,6 +532,20 @@ pub(crate) async fn delete_session(
         .unwrap_or_else(application_error_response)
 }
 
+pub(crate) async fn session_action(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(request): Json<crate::session_application::session_actions::SessionActionRequest>,
+) -> Response {
+    match SessionApplication::new(state)
+        .session_action(&id, request)
+        .await
+    {
+        Ok(()) => axum::http::StatusCode::OK.into_response(),
+        Err(error) => application_error_response(error),
+    }
+}
+
 pub(crate) async fn forget_session(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -3275,6 +3289,10 @@ mod tests {
         })
         .await
         .expect("terminal finalization clears the runtime claim");
+        assert_eq!(body["sessionState"], "active");
+        assert!(body["sessionActionToken"]
+            .as_str()
+            .is_some_and(|token| !token.is_empty()));
     }
 
     #[tokio::test]
@@ -4076,16 +4094,17 @@ mod tests {
             std::thread::yield_now();
         }
 
+        // Resume admission now also checks organization under the workspace
+        // lock. Inject the competing generation at the registry seam here:
+        // re-entering admission while this fixture owns workspace would block
+        // instead of exercising the rollback's generation revalidation.
         let newer_handle = attention_test_handle(session_id, dir.path());
-        let newer_admission = try_install_claimed_resume_handle(
-            &state,
-            session_id,
-            newer_handle,
-            true,
-            Some(old_generation),
-        )
-        .unwrap();
-        let newer_generation = newer_admission.generation();
+        let newer_generation = newer_handle.runtime.run_generation();
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(session_id.into(), newer_handle);
         let ws = ws_guard.as_ref().unwrap();
         let mut newer_metadata = old_metadata.clone();
         newer_metadata.label = "Newer Runtime".into();
@@ -4094,7 +4113,6 @@ mod tests {
         newer_metadata.lifecycle = "alive".into();
         ws.metadata.write_session(&newer_metadata);
         ws.metadata.write_terminal_size(session_id, 150, 50);
-        newer_admission.commit();
         drop(ws_guard);
         drop_thread.join().unwrap();
 
@@ -7395,7 +7413,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn forget_session_deletes_session_with_unparseable_metadata_file() {
+    async fn forget_session_preserves_unparseable_metadata_and_terminal_history() {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
         let (json_path, corrupt_path) = {
@@ -7403,6 +7421,13 @@ mod tests {
             let store = &ws.as_ref().unwrap().metadata;
             std::fs::create_dir_all(store.sessions_dir()).unwrap();
             let json_path = store.sessions_dir().join("corrupt-forget.json");
+            store.append_terminal_output_records(
+                "corrupt-forget",
+                &[crate::metadata::TerminalOutputRecord::raw(
+                    "retained history",
+                    "",
+                )],
+            );
             std::fs::write(&json_path, "{\"id\": \"corrupt-forget\",").unwrap();
             (
                 json_path,
@@ -7410,16 +7435,27 @@ mod tests {
             )
         };
 
-        let response = forget_session(State(state), Path("corrupt-forget".into()))
+        let response = forget_session(State(state.clone()), Path("corrupt-forget".into()))
             .await
             .into_response();
 
         assert_eq!(
             response.status(),
-            axum::http::StatusCode::OK,
-            "a corrupt-but-present session file must be forgettable, not 404"
+            axum::http::StatusCode::CONFLICT,
+            "unknown finalization must block deletion"
         );
-        assert!(!json_path.exists());
+        assert!(json_path.exists());
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_terminal_output("corrupt-forget", 10),
+            vec!["retained history"]
+        );
         assert!(!corrupt_path.exists());
     }
 

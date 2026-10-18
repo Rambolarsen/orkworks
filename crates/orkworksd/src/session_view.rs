@@ -92,7 +92,9 @@ pub(crate) fn detect_conflicts(
 ) -> Vec<(String, String)> {
     let mut cwd_groups: HashMap<&str, Vec<&SessionInfo>> = HashMap::new();
     for s in sessions {
-        if s.status == "running" || s.status == "creating" {
+        if s.organization.session_state != Some(crate::session_archive::SessionState::Archived)
+            && (s.status == "running" || s.status == "creating")
+        {
             let cwd = effective_cwds
                 .get(&s.id)
                 .map(|c| c.as_str())
@@ -260,6 +262,7 @@ pub(crate) fn project_session_info(
         .unwrap_or_default();
 
     SessionInfo {
+        organization: Default::default(),
         provenance,
         id: info.id,
         label: meta.map(|m| m.label.clone()).unwrap_or(info.label),
@@ -479,6 +482,7 @@ mod tests {
         let status = status.into();
         let created_at = created_at.into();
         SessionInfo {
+            organization: Default::default(),
             provenance: Default::default(),
             id: id.into(),
             label: label.into(),

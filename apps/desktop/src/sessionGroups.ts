@@ -1,3 +1,4 @@
+import { isHistoricalSession } from "./sessionRuntimeState.ts";
 import type { SessionInfo } from "./api";
 import { DAY_MS, delayUntil, lastActivityTimestamp } from "./labels.ts";
 
@@ -48,8 +49,8 @@ export function groupSessions(sessions: SessionInfo[], now: Date): SessionGroup[
 }
 
 export function groupSessionList(sessions: SessionInfo[], now: Date): SessionGroup[] {
-  const active = sessions.filter((session) => session.lifecycle !== "dead");
-  const dead = sessions.filter((session) => session.lifecycle === "dead");
+  const active = sessions.filter((session) => !isHistoricalSession(session));
+  const dead = sessions.filter((session) => isHistoricalSession(session));
   return [
     ...(active.length > 0 ? [{ key: "active" as const, label: "Active", items: active }] : []),
     ...groupSessions(dead, now),

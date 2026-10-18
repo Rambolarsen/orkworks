@@ -1,3 +1,4 @@
+import { isSessionAlive } from "./sessionRuntimeState";
 import orkworksIcon from "../build/icon-dark.svg?no-inline";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import ApplicationShell, { type ShellCommand, type ShellCommandRequest, type ShellDestination } from "./components/ApplicationShell";
@@ -21,6 +22,7 @@ import { VOCAB } from "./labels";
 import { pushToast } from "./feedback";
 import { activeNewSessionHarnesses } from "./newSessionDialogState";
 import {
+  type SessionAction,
   type SessionInfo,
   type SessionAttention,
   type WorkspaceInfo,
@@ -141,7 +143,7 @@ function App() {
       },
       onError: ({ message }) => pushToast("error", message),
       deps: {
-        // Controller pruning keeps terminal attachments for sessions whose lifecycle !== "dead".
+        // Controller pruning retains only non-historical runtime attachments.
         pruneTerminals: (ids) => pruneTerminals(ids),
         disposeTerminal,
       },
@@ -337,6 +339,10 @@ function App() {
   };
 
   const requestIndependentReview = useCallback((sessionId: string) => {
+    const target = sessions.find(session => session.id === sessionId);
+    if (!workspaceSessionController.isAdmissionEnabled() || !isSessionAlive(target)) {
+      return Promise.reject(new Error("Independent review requires an active session."));
+    }
     const key = `${workspaceLifecycleRef.current.generation}:${sessionId}`;
     const pending = reviewRequests.current.get(key);
     if (pending) return pending;
@@ -345,7 +351,7 @@ function App() {
     const settled = () => { reviewRequests.current.delete(key); };
     void request.then(settled, settled);
     return request;
-  }, []);
+  }, [sessions, workspaceSessionController]);
 
   const acceptReviewResult = (generation: number, persist: boolean) =>
     workspaceLifecycleRef.current.generation === generation
@@ -563,7 +569,7 @@ function App() {
   const handleFixWithAi = useCallback((recommendation: WorkflowRecommendation) => {
     if (!workspaceSessionController.isAdmissionEnabled()) return;
     const activeSession = sessions.find((session) => session.id === activeSessionId);
-    if (activeSession?.lifecycle !== "alive") return;
+    if (!isSessionAlive(activeSession)) return;
     setFixRecommendation(recommendation);
   }, [activeSessionId, sessions, workspaceSessionController]);
 
@@ -595,7 +601,7 @@ function App() {
       pushToast("error", "Couldn't send the fix — no session is active.");
       return;
     }
-    if (activeSession?.lifecycle !== "alive" || !workspaceSessionController.isAdmissionEnabled()) {
+    if (!isSessionAlive(activeSession) || !workspaceSessionController.isAdmissionEnabled()) {
       pushToast("error", "Couldn't send the fix — no session is active.");
       return;
     }
@@ -635,6 +641,11 @@ function App() {
   useEffect(() => {
     setUnreadState((prev) => trackUnread(prev, sessions, activeSessionId));
   }, [sessions, activeSessionId]);
+
+  const handleSessionAction = useCallback(
+    (id: string, action: SessionAction, token: string) => workspaceSessionController.sessionAction(id, action, token),
+    [workspaceSessionController],
+  );
 
   const handleKillSession = useCallback(
     async (id: string) => {
@@ -703,6 +714,16 @@ function App() {
       pushToast("error", "Couldn't resume session.");
     }
   }, [workspaceSessionController]);
+
+  const handleRowResumeSession = useCallback((id: string) => {
+    const target = sessions.find(session => session.id === id);
+    if (!target || target.sessionState === "archived") return;
+    if (target.resumeStrategy === "exact") void handleResumeSession(id);
+    else {
+      handleSelectSession(id);
+      requestShellCommand("details", true);
+    }
+  }, [sessions, handleResumeSession, handleSelectSession, requestShellCommand]);
 
   const handleApplyDebugAttention = useCallback(async (id: string, attention: SessionAttention, message?: string) => {
     if (!workspaceSessionController.isAdmissionEnabled()) return;
@@ -892,7 +913,7 @@ function App() {
         onCloseReview={closeReview}
         reviewContent={activeSessionId ? <ReviewPanel key={`${shellNavigation.workspaceGeneration}-${activeSessionId}`}
           sessionId={activeSessionId} content={review.document?.content ?? null} loading={review.loading || isSwitchingWorkspace}
-          error={review.error} changed={review.changed} canRequest={sessionAdmissionEnabled && activeSession?.lifecycle === "alive"}
+          error={review.error} changed={review.changed} canRequest={sessionAdmissionEnabled && isSessionAlive(activeSession)}
           onRefresh={refreshReview} onRequest={requestIndependentReview} /> : null}
         workspaceGeneration={shellNavigation.workspaceGeneration}
         visibleSubjectId={shellNavigation.inspectedSubject && shellNavigation.inspectedSubject.kind !== "workspace"
@@ -900,7 +921,7 @@ function App() {
           : shellNavigation.centralSurface.kind === "terminal"
             ? shellNavigation.centralSurface.sessionId
             : shellNavigation.centralSurface.sessionId}
-        canFixWithAi={sessionAdmissionEnabled && activeSession?.lifecycle === "alive"}
+        canFixWithAi={sessionAdmissionEnabled && isSessionAlive(activeSession)}
         taskmasterReady={sessionAdmissionEnabled}
         unreadIds={unreadState.unreadIds}
         acknowledgedIds={unreadState.acknowledgedIds}
@@ -917,9 +938,11 @@ function App() {
           onConfirm={handleConfirmNewSession} onCancel={() => requestShellCommand("cancel-new-session")} /> : null}
         onCancelNewSession={cancelNewSession}
         onCreateSession={handleCreateSession}
+        onSessionAction={handleSessionAction}
         onKillSession={handleKillSession}
         onForgetSession={handleForgetSession}
         onResumeSession={handleResumeSession}
+        onRowResumeSession={handleRowResumeSession}
         onApplyDebugAttention={handleApplyDebugAttention}
         onFocusTerminal={handleFocusTerminal}
         onOpenSettings={section => openSettings(section ?? "tools")}

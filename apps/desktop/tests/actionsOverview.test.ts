@@ -57,3 +57,11 @@ test("session and recommendation identities are distinct and duplicate source en
   assert.equal(model.sessionCount, 1);
   assert.equal(model.recommendationCount, 1);
 });
+
+test("archived stale lifecycle never becomes a current action obligation", () => {
+  const model = buildActionsOverview([
+    session("saved", {sessionState:"archived", lifecycle:"alive", attention:"needs_you"}),
+    session("live", {sessionState:"active", attention:"working"}),
+  ], "ready", [], "ready");
+  assert.deepEqual(model.rows.map(row => row.id), ["live"]);
+});

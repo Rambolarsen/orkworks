@@ -171,3 +171,5 @@ Dated design records; these do not establish current product behavior.
 - [Repository-led Brain workflow assessment](2026-10-18-repository-led-brain-assessment.md) — Approved bounded evidence selection, input lifecycle and implementation plan; runtime tracked in #931.
 
 - [Native Codex assessment response constraints](2026-10-18-assessment-response-constraints.md) — Approved static native response shapes, unchanged inference authority and selected-model verification gates for #931.
+
+- [Active, Closed and Archived sessions](2026-10-18-session-archive.md) — Approved archive state and close-first session context-menu design.

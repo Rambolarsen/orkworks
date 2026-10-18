@@ -236,7 +236,63 @@ impl SessionProjection {
         let lock_state = self.state.clone();
         let _projection_lock = lock_state.projection_lock.lock().unwrap();
         let infos = self.project_capacity(self.snapshot()?)?;
-        Ok(self.enrich_workspace(infos))
+        let mut infos = infos;
+        self.project_organization(&mut infos);
+        let infos = self.enrich_workspace(infos);
+        Ok(infos)
+    }
+
+    pub(crate) fn project_organization(&self, infos: &mut [SessionInfo]) {
+        self.project_organization_with(infos, |store, info, closed, active, key| {
+            store.project(&info.id, &info.created_at, closed, active, key)
+        });
+    }
+
+    fn project_organization_with(
+        &self,
+        infos: &mut [SessionInfo],
+        mut read: impl FnMut(
+            &crate::session_archive::OrganizationStore,
+            &SessionInfo,
+            bool,
+            bool,
+            &str,
+        ) -> crate::session_archive::OrganizationProjection,
+    ) {
+        // Snapshot runtime authority under the workspace, sessions and PID
+        // mutexes; release all three before filesystem reads. List projection
+        // retains its existing outer projection gate for write-back ordering.
+        let inputs = {
+            let workspace = self.state.workspace.lock().unwrap();
+            let sessions = self.state.sessions.lock().unwrap();
+            let pids = self.state.session_pids.lock().unwrap();
+            workspace.as_ref().map(|ws| {
+                let inputs = infos
+                    .iter()
+                    .map(|info| {
+                        let handle = sessions.get(&info.id);
+                        let closed = info.lifecycle_phase == "ended"
+                            && info.lifecycle == "dead"
+                            && crate::session_application::session_actions::runtime_closed(
+                                handle,
+                                pids.contains_key(&info.id),
+                            );
+                        let key = crate::session_application::session_actions::runtime_key(handle);
+                        let active = !crate::session_application::session_actions::runtime_closed(
+                            handle,
+                            pids.contains_key(&info.id),
+                        );
+                        (closed, active, key)
+                    })
+                    .collect::<Vec<_>>();
+                (ws.metadata.organization.clone(), inputs)
+            })
+        };
+        if let Some((store, inputs)) = inputs {
+            for (info, (closed, active, key)) in infos.iter_mut().zip(inputs) {
+                info.organization = read(&store, info, closed, active, &key);
+            }
+        }
     }
 
     pub(crate) fn enrich_workspace(&self, mut infos: Vec<SessionInfo>) -> Vec<SessionInfo> {
@@ -547,7 +603,9 @@ pub(crate) fn enrich_sessions_with_git_context<F>(
     };
     let mut cwd_counts: HashMap<String, usize> = HashMap::new();
     for info in infos.iter() {
-        if info.status == "running" || info.status == "creating" {
+        if info.organization.session_state != Some(crate::session_archive::SessionState::Archived)
+            && (info.status == "running" || info.status == "creating")
+        {
             *cwd_counts.entry(cwd_for(info)).or_default() += 1;
         }
     }
@@ -561,7 +619,13 @@ pub(crate) fn enrich_sessions_with_git_context<F>(
             .entry(git_cwd.clone())
             .or_insert_with(|| detect_git(std::path::Path::new(&git_cwd)));
         let count = cwd_counts.get(&cwd).copied().unwrap_or(1);
-        info.recommendation = session_recommendation(ctx, count);
+        info.recommendation = if info.organization.session_state
+            == Some(crate::session_archive::SessionState::Archived)
+        {
+            None
+        } else {
+            session_recommendation(ctx, count)
+        };
         info.repo_root = ctx.repo_root.clone();
         info.branch = ctx.branch.clone();
         info.dirty = Some(ctx.dirty);
@@ -608,6 +672,141 @@ mod tests {
     use crate::test_support::test_session_metadata;
     use crate::AppState;
     use std::sync::Arc;
+
+    #[test]
+    fn legacy_closed_session_exposes_organization_and_action_precondition() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        {
+            let workspace = state.workspace.lock().unwrap();
+            workspace
+                .as_ref()
+                .unwrap()
+                .metadata
+                .write_session(&test_session_metadata(
+                    "old",
+                    "Old",
+                    dir.path().display().to_string(),
+                    "ended",
+                    "2024-01-01T00:00:00Z",
+                    "2024-01-01T00:00:00Z",
+                ));
+        }
+        let sessions = SessionProjection::new(state).list().unwrap();
+        let json = serde_json::to_value(&sessions[0]).unwrap();
+        assert_eq!(json["sessionState"], "closed");
+        assert!(json["sessionActionToken"]
+            .as_str()
+            .is_some_and(|token| !token.is_empty()));
+    }
+
+    #[test]
+    fn organization_reads_release_application_state_locks() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let mut infos = vec![crate::test_support::test_session_info(
+            "one",
+            "One",
+            dir.path().display().to_string(),
+            "ended",
+            "before",
+        )];
+        SessionProjection::new(state.clone()).project_organization_with(
+            &mut infos,
+            |store, info, closed, active, key| {
+                assert!(
+                    state.workspace.try_lock().is_ok(),
+                    "workspace locked during archive read"
+                );
+                assert!(
+                    state.sessions.try_lock().is_ok(),
+                    "sessions locked during archive read"
+                );
+                assert!(
+                    state.session_pids.try_lock().is_ok(),
+                    "PIDs locked during archive read"
+                );
+                store.project(&info.id, &info.created_at, closed, active, key)
+            },
+        );
+        assert!(infos[0].organization.session_action_token.is_some());
+    }
+
+    #[test]
+    fn archived_history_does_not_receive_live_workspace_guidance() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = git2::Repository::init(dir.path()).unwrap();
+        let tree_id = repo.index().unwrap().write_tree().unwrap();
+        let tree = repo.find_tree(tree_id).unwrap();
+        let signature = git2::Signature::now("Test", "test@example.com").unwrap();
+        let commit_id = repo
+            .commit(Some("HEAD"), &signature, &signature, "initial", &tree, &[])
+            .unwrap();
+        repo.branch("feature", &repo.find_commit(commit_id).unwrap(), false)
+            .unwrap();
+        repo.set_head("refs/heads/feature").unwrap();
+        std::fs::write(dir.path().join("dirty.txt"), "uncommitted").unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let ws = workspace.as_ref().unwrap();
+            for id in ["archived", "closed"] {
+                let mut meta = test_session_metadata(
+                    id,
+                    id,
+                    dir.path().display().to_string(),
+                    "ended",
+                    "before",
+                    "before",
+                );
+                meta.cwd = dir.path().display().to_string();
+                ws.metadata.write_session(&meta);
+            }
+            ws.metadata
+                .organization
+                .write(
+                    "archived",
+                    "before",
+                    crate::session_archive::SessionState::Archived,
+                )
+                .unwrap();
+        }
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let ws = workspace.as_ref().unwrap();
+            let mut stale = ws.metadata.read_session("archived").unwrap();
+            stale.status = "running".into();
+            stale.lifecycle = "alive".into();
+            stale.lifecycle_phase = "alive".into();
+            ws.metadata.write_session(&stale);
+            stale.id = "live".into();
+            ws.metadata.write_session(&stale);
+        }
+        let infos = SessionProjection::new(state).list().unwrap();
+        let live = infos.iter().find(|info| info.id == "live").unwrap();
+        assert!(
+            !live
+                .recommendation
+                .as_deref()
+                .unwrap_or("")
+                .contains("Multiple sessions"),
+            "archived stale metadata must not count as a second current session"
+        );
+        assert!(live.conflict_warning.is_none());
+        let archived = infos.iter().find(|info| info.id == "archived").unwrap();
+        let closed = infos.iter().find(|info| info.id == "closed").unwrap();
+        assert!(
+            closed.recommendation.is_some(),
+            "fixture must derive current guidance"
+        );
+        assert!(archived.recommendation.is_none());
+        assert!(archived.conflict_warning.is_none());
+        assert_eq!(
+            archived.dirty,
+            Some(true),
+            "read-only Git context remains available"
+        );
+    }
 
     #[test]
     fn exposes_a_constructor_for_shared_app_state() {

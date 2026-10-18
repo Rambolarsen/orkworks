@@ -223,6 +223,8 @@ jobs:
           }
       - name: Run native custom inference transport
         run: cargo test --locked --manifest-path crates/orkworksd/Cargo.toml custom_inference
+      - name: Test durable archive storage on Windows
+        run: cargo test --locked --manifest-path crates/orkworksd/Cargo.toml session_archive::tests
       - name: Test approval-gated evaluation
         run: cargo test --locked --manifest-path crates/orkworksd/Cargo.toml activation_tests
       - name: Test inference trust persistence and identity

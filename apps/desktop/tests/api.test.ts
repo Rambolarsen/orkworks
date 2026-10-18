@@ -10,6 +10,7 @@ import {
   dismissTaskmasterRecommendation,
   duplicateHarness,
   forgetSession,
+  sessionAction,
   getSessionWorkflowObservations,
   getTaskmasterRecommendations,
   getTaskmasterRecommendation,
@@ -624,4 +625,29 @@ test("App routes a scoped active-harness save through the single-row immediate-e
     source,
     /const result = scope\s*\n\s*\? await window\.orkworks\.enableHarnessIntegrationImmediate\(ids, scope\.adapterId, scope\.targetId\)\s*\n\s*: await window\.orkworks\.saveActiveHarnessesWithIntegrations\(ids\);/,
   );
+});
+
+
+test("session actions send captured intent and token and retain conflict diagnostics", async () => {
+  const original = globalThis.fetch;
+  try {
+    globalThis.fetch = async (url, init) => {
+      assert.equal(url, "http://backend/sessions/one/state");
+      assert.equal(init?.method, "POST");
+      assert.deepEqual(JSON.parse(init?.body as string), { action: "archive", token: "captured-token" });
+      return new Response(JSON.stringify({ error: "Session changed; refresh and try again" }), { status: 409 });
+    };
+    await assert.rejects(sessionAction("http://backend", "one", "archive", "captured-token"), /Session changed; refresh and try again/);
+  } finally { globalThis.fetch = original; }
+});
+
+
+test("session actions preserve the sidecar's plain-text close and stale-token errors", async () => {
+  const original = globalThis.fetch;
+  try {
+    for (const message of ["Close is still finishing; refresh and try again", "Session changed; refresh and try again"]) {
+      globalThis.fetch = async () => new Response(message, { status: 409 });
+      await assert.rejects(sessionAction("http://backend", "one", "archive", "old-token"), error => error instanceof Error && error.message === message);
+    }
+  } finally { globalThis.fetch = original; }
 });

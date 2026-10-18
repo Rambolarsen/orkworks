@@ -963,3 +963,21 @@ Update this file when:
 - Port-discovery mechanism changes in `electron/main.ts`
 - Panel layout changes (new panels, library swap)
 - A major npm or Cargo dependency is added or removed
+
+## Session organization
+
+The accepted [archive design](../superpowers/specs/2026-10-18-session-archive.md)
+and [ADR 0088](../adr/0088-session-archive-state.md) add Active, Closed and Archived
+as organization states, independently of runtime status and attention. The
+sidecar owns bounded identity-bound `session-state/<id>.json` records. Missing
+legacy records derive Active or Closed; unreadable state disables mutations and
+protects retention. Active Archive and Delete close the exact captured runtime
+and await cleanup plus persisted ending first. Restore returns to Closed.
+Archived history is retained outside automatic age/count cleanup. Archive and
+Restore preserve activity timestamps and native tool identity. This is OrkWorks
+organization only; native archive synchronization is outside this increment.
+
+Archive publication syncs the staged file and, on Unix, the metadata parent and
+state directory entries before success. Windows publishes through a same-directory
+write-through replacement. A durability barrier failure is returned to the caller;
+it cannot be reported as a successful archive decision.

@@ -1,3 +1,6 @@
+#[path = "session_actions.rs"]
+pub(crate) mod session_actions;
+
 use crate::metadata::session_transactions::{SessionTransactionError, WriteScope};
 use crate::plan_handoff::{
     normalize_reported_plan_path, resolve_openable_plan_reference, resolve_printed_plan_path,
@@ -2270,6 +2273,7 @@ impl SessionApplication {
             };
             if entered_terminal {
                 state.peon.last_output.write().unwrap().remove(&id);
+                state.peon.input_buf.write().unwrap().remove(&id);
                 // Authoritative final size for dead-session replay. Goes through the
                 // same lock-serialized helper live-resize persistence uses
                 // (`SessionApplication::persist_terminal_size`) so a live-resize write
@@ -5153,34 +5157,69 @@ impl SessionApplication {
     }
 
     pub(crate) async fn delete_session(&self, id: &str) -> Result<(), SessionError> {
-        let kill_tx = self
-            .state
-            .sessions
-            .lock()
-            .unwrap()
-            .get(id)
-            .map(|handle| handle.kill_tx.clone())
-            .ok_or(SessionError::NotFound)?;
-        kill_tx.send_replace(true);
-        crate::runtime::terminal_runtime::set_session_status(&self.state, id, "killed").await;
-        self.clear_ended_session_tracking(id);
+        let (_reservation, generation) = {
+            let _projection = self.state.projection_lock.lock().unwrap();
+            let workspace = self.state.workspace.lock().unwrap();
+            let ws = workspace.as_ref().ok_or(SessionError::Conflict)?;
+            let reservation = ws
+                .metadata
+                .organization
+                .reserve(id)
+                .ok_or(SessionError::Conflict)?;
+            let sessions = self.state.sessions.lock().unwrap();
+            let handle = sessions.get(id).ok_or(SessionError::NotFound)?;
+            handle.kill_tx.send_replace(true);
+            (reservation, handle.runtime.run_generation())
+        };
+        crate::runtime::terminal_runtime::set_session_status_for_generation(
+            &self.state,
+            id,
+            generation,
+            "killed",
+        )
+        .await;
         Ok(())
     }
 
     pub(crate) async fn forget_session(&self, id: &str) -> Result<(), SessionError> {
-        {
-            let sessions = self.state.sessions.lock().unwrap();
-            if let Some(handle) = sessions.get(id) {
-                if matches!(handle.info.status.as_str(), "live" | "creating" | "running") {
-                    return Err(SessionError::ConflictWithMessage(
-                        "Cannot forget a live session. Kill it first.",
-                    ));
-                }
-            }
-        }
-
+        let _projection = self.state.projection_lock.lock().unwrap();
         let workspace_guard = self.state.workspace.lock().unwrap();
         let workspace = workspace_guard.as_ref().ok_or(SessionError::Conflict)?;
+        let _reservation = workspace
+            .metadata
+            .organization
+            .reserve(id)
+            .ok_or(SessionError::Conflict)?;
+        {
+            let sessions = self.state.sessions.lock().unwrap();
+            if !session_actions::runtime_closed(
+                sessions.get(id),
+                self.state.session_pids.lock().unwrap().contains_key(id),
+            ) {
+                return Err(SessionError::ConflictWithMessage(
+                    "Close must finish before deleting a session",
+                ));
+            }
+            let record = workspace
+                .metadata
+                .try_read_revisioned_session(id)
+                .map_err(|_| {
+                    SessionError::ConflictWithMessage(
+                        "Session metadata unavailable; deletion was not performed",
+                    )
+                })?
+                .ok_or(SessionError::NotFound)?;
+            if record.metadata.lifecycle_phase != "ended" || record.metadata.lifecycle != "dead" {
+                return Err(SessionError::ConflictWithMessage(
+                    "Close must finish before deleting a session",
+                ));
+            }
+            workspace
+                .metadata
+                .organization
+                .state(id, &record.metadata.created_at, true, false)
+                .map_err(|_| SessionError::ConflictWithMessage("Session state unavailable"))?;
+        }
         if !workspace.metadata.session_file_exists(id) {
             return Err(SessionError::NotFound);
         }
@@ -5419,6 +5458,24 @@ pub(crate) fn try_install_claimed_resume_handle(
     expected_generation: Option<crate::runtime::session_runtime::RuntimeGeneration>,
 ) -> Result<ResumeAdmission, ()> {
     let _projection = state.projection_lock.lock().unwrap();
+    let workspace = state.workspace.lock().unwrap();
+    let ws = workspace.as_ref().ok_or(())?;
+    let record = ws
+        .metadata
+        .try_read_revisioned_session(id)
+        .map_err(|_| ())?
+        .ok_or(())?;
+    if ws.metadata.organization.pending(id)
+        || ws
+            .metadata
+            .organization
+            .state(id, &record.metadata.created_at, true, false)
+            .map_err(|_| ())?
+            .0
+            == crate::session_archive::SessionState::Archived
+    {
+        return Err(());
+    }
     let mut sessions = state.sessions.lock().unwrap();
     let current_generation = sessions
         .get(id)
@@ -5557,6 +5614,7 @@ async fn resume_session_workflow(
 
     let (kill_tx, _kill_rx) = tokio::sync::watch::channel(false);
     let info = SessionInfo {
+        organization: Default::default(),
         provenance: Default::default(),
         id: id.clone(),
         label: meta.label.clone(),
@@ -5767,13 +5825,15 @@ async fn resume_session_workflow(
             ));
         }
     }
-    let info = state
+    let mut info = state
         .sessions
         .lock()
         .unwrap()
         .get(&id)
         .map(|handle| handle.info.clone())
         .expect("resumed session remains registered");
+    crate::session_projection::SessionProjection::new(state.clone())
+        .project_organization(std::slice::from_mut(&mut info));
 
     {
         let ws_guard = state.workspace.lock().unwrap();
@@ -5973,6 +6033,7 @@ async fn create_session_workflow(
     let git_ctx = scan_git(PathBuf::from(&cwd)).await?;
     let now = iso_now();
     let mut info = SessionInfo {
+        organization: Default::default(),
         provenance: Default::default(),
         id: id.clone(),
         label: crate::session_types::placeholder_label(&id),
@@ -6109,7 +6170,7 @@ async fn create_session_workflow(
     // Persist the creating record before the PTY reader exists. The runtime
     // promotes it to alive immediately after spawn, before it can classify
     // output, so the first output cannot be lost between memory and metadata.
-    let created_at = iso_now();
+    let created_at = info.created_at.clone();
     {
         if let Some(ref ws) = *creation_workspace {
             ws.metadata.write_session(&metadata::SessionMetadata {
@@ -6178,6 +6239,8 @@ async fn create_session_workflow(
     }
 
     drop(creation_workspace);
+    crate::session_projection::SessionProjection::new(state.clone())
+        .project_organization(std::slice::from_mut(&mut info));
     if let (Some(prompt), Some(_)) = (initial_prompt.as_deref(), initial_prompt_label.as_ref()) {
         crate::runtime::terminal_runtime::queue_initial_prompt_label_hint(
             &state,
@@ -9773,6 +9836,24 @@ mod tests {
             .unwrap();
 
         assert_eq!(info.status, "creating");
+        assert_eq!(
+            info.organization.session_state,
+            Some(crate::session_archive::SessionState::Active)
+        );
+        assert!(info.organization.session_action_token.is_some());
+        assert_eq!(
+            info.created_at,
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(&info.id)
+                .unwrap()
+                .created_at,
+        );
         assert!(state
             .workspace
             .lock()
@@ -11241,12 +11322,7 @@ mod tests {
 
         let result = SessionApplication::new(state).forget_session(id).await;
 
-        assert_eq!(
-            result,
-            Err(SessionError::ConflictWithMessage(
-                "Cannot forget a live session. Kill it first."
-            ))
-        );
+        assert!(matches!(result, Err(SessionError::ConflictWithMessage(_))));
     }
 
     #[tokio::test]
@@ -11306,7 +11382,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn forget_session_application_maps_session_deletion_failure() {
+    async fn forget_session_application_rejects_unreadable_metadata() {
         let root = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "forget-failure-application";
@@ -11330,7 +11406,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(SessionError::Internal("application operation failed"))
+            Err(SessionError::ConflictWithMessage(
+                "Session metadata unavailable; deletion was not performed"
+            ))
         );
     }
 

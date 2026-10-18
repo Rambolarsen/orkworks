@@ -68,6 +68,7 @@ function deps(overrides: Partial<WorkspaceSessionControllerDeps> = {}): Workspac
     resumeSession: async (_baseUrl, id) => session(id),
     deleteSession: async () => {},
     forgetSession: async () => {},
+    sessionAction: async () => {},
     setActiveWorkspaceSession: async () => {},
     pruneTerminals: () => {},
     disposeTerminal: () => {},
@@ -441,5 +442,191 @@ test("session source availability follows successful polls, failures, and admiss
   await controller.refreshSessions();
   controller.setAdmissionEnabled(false);
   assert.deepEqual(statuses, ["ready", "unavailable", "ready", "unavailable"]);
+  controller.dispose();
+});
+
+test("archive refreshes exact-row state without disposing or selecting a terminal", async () => {
+  const active: Array<string | null> = [];
+  const disposed: string[] = [];
+  const calls: unknown[] = [];
+  const controller = createWorkspaceSessionController({
+    deps: deps({
+      sessionAction: async (...args) => { calls.push(args); },
+      listSessions: async () => [{ ...session("one", "dead", "ended"), sessionState: "archived", sessionActionToken: "new" }],
+      disposeTerminal: id => disposed.push(id),
+    }),
+    onActiveSession: id => active.push(id),
+  });
+  controller.selectSession("one");
+  await controller.sessionAction("one", "archive", "captured");
+  assert.deepEqual(calls, [["http://backend", "one", "archive", "captured"]]);
+  assert.deepEqual(disposed, []);
+  assert.deepEqual(active, ["one"]);
+  controller.dispose();
+});
+
+test("an old workspace action cannot clear a new workspace selection", async () => {
+  const operation = deferred<void>();
+  const active: Array<string | null> = [];
+  const disposed: string[] = [];
+  const controller = createWorkspaceSessionController({
+    deps: deps({ sessionAction: async () => operation.promise, disposeTerminal: id => disposed.push(id) }),
+    onActiveSession: id => active.push(id),
+  });
+  controller.selectSession("one");
+  const deleting = controller.sessionAction("one", "delete", "captured");
+  await new Promise(resolve => setImmediate(resolve));
+  await controller.openWorkspace("/new");
+  controller.selectSession("one");
+  operation.resolve();
+  await deleting;
+  assert.equal(active.at(-1), "one");
+  assert.deepEqual(disposed, []);
+  controller.dispose();
+});
+
+
+test("failed Delete reconciles a removed row while preserving the cleanup error", async () => {
+  const active: Array<string | null> = [];
+  const disposed: string[] = [];
+  const controller = createWorkspaceSessionController({
+    deps: deps({
+      sessionAction: async () => { throw new Error("Recommendation cleanup failed"); },
+      listSessions: async () => [],
+      disposeTerminal: id => disposed.push(id),
+    }),
+    onActiveSession: id => active.push(id),
+  });
+  controller.selectSession("one");
+  await assert.rejects(controller.sessionAction("one", "delete", "token"), /Recommendation cleanup failed/);
+  assert.deepEqual(active, ["one", null]);
+  assert.deepEqual(disposed, ["one"]);
+  controller.dispose();
+});
+
+test("failed Delete keeps a retained row and any newer selection", async () => {
+  const active: Array<string | null> = [];
+  const disposed: string[] = [];
+  const controller = createWorkspaceSessionController({
+    deps: deps({ sessionAction: async () => { throw new Error("Close is still finishing"); },
+      listSessions: async () => [session("one")], disposeTerminal: id => disposed.push(id) }),
+    onActiveSession: id => active.push(id),
+  });
+  controller.selectSession("other");
+  await assert.rejects(controller.sessionAction("one", "delete", "token"), /Close is still finishing/);
+  assert.deepEqual(active, ["other"]);
+  assert.deepEqual(disposed, []);
+  controller.dispose();
+});
+
+
+test("partial Delete preserves selection changed while the request was pending", async () => {
+  const operation = deferred<void>();
+  const active: Array<string | null> = [];
+  const disposed: string[] = [];
+  const controller = createWorkspaceSessionController({
+    deps: deps({ sessionAction: async () => operation.promise,
+      listSessions: async () => [session("other")], disposeTerminal: id => disposed.push(id) }),
+    onActiveSession: id => active.push(id),
+  });
+  controller.selectSession("one");
+  const deleting = controller.sessionAction("one", "delete", "token");
+  await new Promise(resolve => setImmediate(resolve));
+  controller.selectSession("other");
+  operation.reject(new Error("Recommendation cleanup failed"));
+  await assert.rejects(deleting, /Recommendation cleanup failed/);
+  assert.deepEqual(active, ["one", "other"]);
+  assert.deepEqual(disposed, ["one"]);
+  controller.dispose();
+});
+
+for (const pending of ["create", "resume"] as const) {
+  for (const action of ["archive", "delete"] as const) {
+    test(`row ${action} fences a pending ${pending} response already exposed by polling`, async () => {
+      const response = deferred<SessionInfo>();
+      const original = { ...session("one"), sessionState: "active" as const, sessionActionToken: "active-token" };
+      const archived = { ...session("one", "dead", "ended"), sessionState: "archived" as const, sessionActionToken: "archived-token" };
+      let serverRows: SessionInfo[] = [original, session("other")];
+      let latest: readonly SessionInfo[] = [];
+      const active: Array<string | null> = [];
+      const controller = createWorkspaceSessionController({
+        deps: deps({
+          createSession: () => response.promise,
+          resumeSession: () => response.promise,
+          listSessions: async () => serverRows,
+          sessionAction: async () => { serverRows = action === "delete" ? [session("other")] : [archived, session("other")]; },
+        }),
+        onSessions: rows => { latest = rows; },
+        onActiveSession: id => active.push(id),
+        scheduler: scheduler().scheduler,
+      });
+      const operation = pending === "create" ? controller.createSession({}) : controller.resumeSession("one");
+      await new Promise(resolve => setImmediate(resolve));
+      await controller.refreshSessions();
+      controller.selectSession("other");
+      await controller.sessionAction("one", action, "active-token");
+      active.length = 0;
+      response.resolve(original);
+      await operation;
+      assert.deepEqual(active, [], "the older completion must not select its row");
+      assert.equal(latest.find(row => row.id === "one")?.sessionState, action === "delete" ? undefined : "archived");
+      controller.dispose();
+    });
+  }
+}
+
+test("pruning excludes archived stale runtime rows and restoration does not select them", async () => {
+  const kept: string[][] = [];
+  const active: Array<string|null> = [];
+  const rows = [{...session("saved"),sessionState:"archived" as const}, session("live")];
+  const controller = createWorkspaceSessionController({
+    deps:deps({listSessions:async()=>rows,pruneTerminals:ids=>kept.push([...ids])}),
+    onActiveSession:id=>active.push(id),
+  });
+  await controller.adoptRestoredWorkspace(workspace("/same", "saved"));
+  assert.deepEqual(kept, [["live"]]);
+  assert.deepEqual(active, [null]);
+  controller.dispose();
+});
+
+for (const outcome of ["success","error"] as const) {
+  for (const changedSelection of [false,true]) {
+    test(`Restore ${outcome} reconciles retention removal with changed selection=${changedSelection}`, async () => {
+      const refreshed = deferred<SessionInfo[]>();
+      const active: Array<string|null> = [];
+      const disposed: string[] = [];
+      const controller = createWorkspaceSessionController({
+        deps:deps({
+          sessionAction:async()=>{if(outcome==="error")throw new Error("state save failed");},
+          listSessions:()=>refreshed.promise,
+          disposeTerminal:id=>disposed.push(id),
+        }),
+        onActiveSession:id=>active.push(id),
+      });
+      controller.selectSession("one");
+      const restoring = controller.sessionAction("one","restore","token");
+      const settled = outcome==="error" ? assert.rejects(restoring,/state save failed/) : restoring;
+      await new Promise(resolve=>setImmediate(resolve));
+      if(changedSelection) controller.selectSession("other");
+      refreshed.resolve([session("other")]);
+      await settled;
+      assert.deepEqual(disposed, ["one"]);
+      assert.deepEqual(active, changedSelection ? ["one","other"] : ["one",null]);
+      controller.dispose();
+    });
+  }
+}
+
+test("Restore makes no missing-row inference from an unavailable refresh", async () => {
+  const active: Array<string|null> = [];
+  const disposed: string[] = [];
+  const controller=createWorkspaceSessionController({
+    deps:deps({listSessions:async()=>{throw new Error("offline");},disposeTerminal:id=>disposed.push(id)}),
+    onActiveSession:id=>active.push(id),
+  });
+  controller.selectSession("one");
+  await controller.sessionAction("one","restore","token");
+  assert.deepEqual(active,["one"]);
+  assert.deepEqual(disposed,[]);
   controller.dispose();
 });

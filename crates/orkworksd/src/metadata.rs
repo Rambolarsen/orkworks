@@ -1205,6 +1205,7 @@ pub(crate) struct SessionWriteToken {
 }
 
 pub struct MetadataStore {
+    pub(crate) organization: Arc<crate::session_archive::OrganizationStore>,
     root: PathBuf,
     session_writes: Mutex<HashMap<String, crate::runtime::observed_status::AttentionOwner>>,
     session_write_locks: Mutex<HashMap<String, Weak<Mutex<()>>>>,
@@ -1217,6 +1218,7 @@ impl MetadataStore {
     pub fn new(root: &Path) -> Self {
         Self {
             root: root.to_path_buf(),
+            organization: Arc::new(crate::session_archive::OrganizationStore::new(root)),
             session_writes: Mutex::new(HashMap::new()),
             session_write_locks: Mutex::new(HashMap::new()),
             summary_checkpoints: Mutex::new(HashMap::new()),

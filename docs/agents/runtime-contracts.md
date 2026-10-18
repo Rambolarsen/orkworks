@@ -85,3 +85,16 @@ full protocol detail.
 - `~/.orkworks/harnesses.json` — global harness definitions
 - `~/.orkworks/hook-scripts/` — stable copies of harness reporter scripts (e.g. the Claude Code Notification hook), installed hook commands always point here rather than at the packaged/dev source, so they keep working across app updates and packaging schemes whose own paths aren't stable at runtime (Linux AppImage's per-launch mount point, in particular). The workspace-local harness hook configuration that invokes these reporters is gitignored and must not be committed.
 - `GET /sessions/:id/summary-log` exposes checkpoints in append order as timestamp, summary, source, and nullable confidence; missing data returns `{ "entries": [] }`. Rendered in the session detail panel as "Task history," distinct from the session's `label` (title), which carries provenance and is separate from this turn-by-turn activity log (ADR 0063).
+
+## Session organization
+
+The accepted [archive design](../superpowers/specs/2026-10-18-session-archive.md)
+and [ADR 0088](../adr/0088-session-archive-state.md) add Active, Closed and Archived
+as organization states, independently of runtime status and attention. The
+sidecar owns bounded identity-bound `session-state/<id>.json` records. Missing
+legacy records derive Active or Closed; unreadable state disables mutations and
+protects retention. Active Archive and Delete close the exact captured runtime
+and await cleanup plus persisted ending first. Restore returns to Closed.
+Archived history is retained outside automatic age/count cleanup. Archive and
+Restore preserve activity timestamps and native tool identity. This is OrkWorks
+organization only; native archive synchronization is outside this increment.
