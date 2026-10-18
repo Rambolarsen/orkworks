@@ -1,10 +1,10 @@
 ---
 type: Validation Evidence
 title: Repository assessment runtime validation
-description: Deterministic safety checks and the unresolved selected-model usefulness gate for issue 931.
+description: Deterministic safety checks and the passed synthetic selected-model usefulness threshold for issue 931.
 tags: [orkworks, taskmaster, assessment, validation]
-status: draft
-workflow_status: blocked
+status: stable
+workflow_status: complete
 ---
 
 # Repository assessment runtime validation
@@ -165,7 +165,7 @@ retained in the implementation. The final bounded wording experiment asks for
 prospective declarative descriptions and nouns for execution concerns, while
 preserving validation scope in summaries and detailed unverified conditions.
 
-## Final reviewed evaluation
+## First passing evaluation
 
 The final fresh matrix at `/private/tmp/orkworks-931-quality-prospective` uses the
 same Codex `gpt-6-luna`, medium effort and signed `brain-1` selection. The exact
@@ -193,7 +193,7 @@ recognize aligned configuration without inventing execution evidence; refuted
 results either inspect the related verifier or conservatively decline a proposal
 from bounded seed evidence.
 
-**Disposition: the selected-provider usefulness gate passes.** The zero-dispatch
+**At this revision, the selected-provider usefulness gate passed.** The zero-dispatch
 `quality_verdict_from_recorded_reviews` check passed with those adjudications and
 an empty failure list. Earlier failed matrices remain failures. This establishes
 the approved synthetic threshold, not a guarantee for arbitrary repositories or
@@ -212,3 +212,73 @@ The documentation-currency advisory needs no further user-doc edit: the existing
 source-build assessment guide describes this bounded behavior and makes no new
 published-installer claim. PR CI and current-head review remain separate merge
 gates.
+
+## Final review corrections
+
+Current-head Codex review reproduced a literal-command bypass inside a
+configuration-description exemption. Paired regressions failed on embedded
+commands before correction. Descriptive exemptions now require a descriptive
+target and reject command introductions, literal flag/path syntax and embedded
+known command forms. Independent review found two additional forms hidden behind
+an “existing” prefix; both received failing regressions before correction.
+Ordinary configuration descriptions and indirect unverified conditions retain
+paired acceptance coverage. No broader prose exemption was added.
+
+A separate read-observation regression reproduced 702 prefix reads for a
+512-entry catalog. Entry and encoded-byte capacity are now checked before
+opening contents. Lightweight permitted-path metadata still covers all traversed
+paths for governing-instruction closure. The regression covers both short-name
+entry limits and long-name byte limits, asserting no out-of-catalog source
+prefix is read and required instructions remain supplied. Validation metadata
+and the README now reflect the passed synthetic threshold rather than the
+obsolete blocked label.
+
+The first fresh recheck of those corrections, retained at
+`/private/tmp/orkworks-931-quality-review-final`, failed: positive and noisy
+fixtures each surfaced 2/3 adjudicated designed-gap proposals; healthy produced
+one valid abstention, one unsupported test-breadth proposal and one rejected
+response; refuted produced 3/3 valid abstentions. Independent review marked the
+healthy proposal ungrounded: one assertion does not establish an unmet coverage
+requirement. All five surfaced proposals have retained explicit adjudications;
+the negative proposal and failed negative remain failures. An inconsistent noisy
+abstention admitted sufficient gap evidence but still published no proposal and
+therefore counts as no designed-gap success.
+
+The harness also imposed an undocumented all-three-positive-completions rule.
+A regression failed before reconciling it with the approved
+[two-of-three contract](../superpowers/specs/2026-10-18-repository-led-brain-assessment.md).
+Only positive decoder rejections with a retained corresponding response, no
+report and no pending recommendation count as zero of the fixed three samples.
+Missing dispatch evidence, reuse, interruption, provider failures, failed
+negatives and every ungrounded or unscoped surfaced proposal remain hard failures.
+Paired evidence-boundary tests pass. This correction did not make the failed
+healthy-case recheck pass and does not retroactively relabel earlier outcomes.
+
+Grounding guidance now explicitly requires a concrete observed mismatch with a
+supplied requirement or expected behavior. Optional breadth, style preferences,
+limited examples and unknown behavior alone do not justify a proposal. This
+clarifies the existing grounded-improvement boundary without changing provider,
+model, effort, response envelopes or application validation.
+
+## Post-review evaluation
+
+The final current-code matrix at
+`/private/tmp/orkworks-931-quality-grounded-final` passes the approved threshold.
+Positive surfaced 2/3 independently adjudicated designed-gap proposals; the third
+trial failed discovery validation and receives zero credit. Noisy positive
+surfaced 3/3 adjudicated designed gaps. Healthy and refuted each returned 3/3 valid
+abstentions, with no invented proposals. All 12 used distinct workspaces and
+non-reused records with retained actual discovery responses. Refuted trials
+conservatively abstained from seed evidence; they did not prove unseen verifier
+behavior. The five surfaced proposals each have explicit grounding, scope,
+validation, rollback and designed-gap review against actual files and signed
+Brain evidence. The zero-dispatch verdict passed with an empty failure list.
+
+**Current disposition: the synthetic usefulness threshold passes.** This is
+2/3 positive success, not three valid positive responses or guaranteed model
+compliance. Previous failed matrices remain failed. Runtime source hashes are
+retained in `code-identity.json`. Full repository verification passed after the
+reviewed runtime corrections; the final prompt and harness refinements passed all
+92 assessment tests, with 2 explicit live tests ignored. The current code review
+approved command/catalog corrections and the separate grounding/threshold diff.
+PR checks and current-head review remain merge gates.

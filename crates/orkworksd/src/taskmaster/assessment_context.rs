@@ -194,14 +194,20 @@ impl RepositoryContext {
                 continue;
             }
             permitted.insert(relative.clone());
-            // A catalog entry is permission data, not proof of absence. Vet the
-            // bounded prefix without retaining or supplying unselected contents.
-            if read_prefix(&root, &relative, level, excluded).is_err() {
+            // Keep permission metadata for governing instructions after the cap,
+            // but never open contents that cannot enter the catalog.
+            if catalog.len() == 512 {
+                complete = false;
                 continue;
             }
             let encoded = serde_json::to_string(&relative).map_err(|_| "Invalid catalog path")?;
-            if catalog.len() == 512 || size + encoded.len() + 1 > 16384 {
+            if size + encoded.len() + 1 > 16384 {
                 complete = false;
+                continue;
+            }
+            // A catalog entry is permission data, not proof of absence. Vet the
+            // bounded prefix without retaining or supplying unselected contents.
+            if read_prefix(&root, &relative, level, excluded).is_err() {
                 continue;
             }
             size += encoded.len() + 1;
@@ -532,6 +538,11 @@ fn canonical_relative_path(path: &Path) -> Option<String> {
         .collect::<Option<Vec<_>>>()
         .map(|parts| parts.join("/"))
 }
+#[cfg(test)]
+thread_local! {
+    static OBSERVED_PREFIX_READS: std::cell::RefCell<Option<Vec<String>>> = const { std::cell::RefCell::new(None) };
+}
+
 fn read_prefix(
     root: &Path,
     relative: &str,
@@ -551,6 +562,12 @@ fn read_prefix(
     }) {
         return Err("Assessment evidence is ignored".into());
     }
+    #[cfg(test)]
+    OBSERVED_PREFIX_READS.with(|reads| {
+        if let Some(reads) = reads.borrow_mut().as_mut() {
+            reads.push(relative.to_owned());
+        }
+    });
     let mut bytes = Vec::new();
     context::open_context_file(&path)
         .map_err(|_| "Assessment evidence cannot be safely opened")?
@@ -754,6 +771,41 @@ mod tests {
 mod safety_tests {
     use super::*;
     use std::fs;
+    #[test]
+    fn catalog_capacity_does_not_read_unsupplied_source_prefixes() {
+        for long_names in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            fs::write(dir.path().join("AGENTS.md"), "Required unit coverage").unwrap();
+            fs::create_dir(dir.path().join("src")).unwrap();
+            for index in 0..700 {
+                let padding = if long_names {
+                    "x".repeat(110)
+                } else {
+                    String::new()
+                };
+                fs::write(
+                    dir.path().join(format!("src/{index:03}{padding}.ts")),
+                    "export const value = 1;",
+                )
+                .unwrap();
+            }
+            OBSERVED_PREFIX_READS.with(|reads| *reads.borrow_mut() = Some(Vec::new()));
+            let collected =
+                RepositoryContext::collect(dir.path(), ContextLevel::SourceCode, &[], "now");
+            let reads = OBSERVED_PREFIX_READS.with(|reads| reads.borrow_mut().take().unwrap());
+            let collected = collected.unwrap();
+            assert!(!collected.manifest().catalog_complete);
+            assert!(collected.manifest().instruction_coverage_complete);
+            assert!(
+                reads.iter().all(|path| collected.catalog.contains(path)),
+                "read prefixes outside capped catalog: {} reads, {} entries",
+                reads.len(),
+                collected.catalog.len()
+            );
+            assert!(collected.facts.iter().any(|fact| fact.path == "AGENTS.md"));
+        }
+    }
+
     #[test]
     fn catalog_and_seed_caps_keep_root_workflow_ahead_of_history() {
         let dir = tempfile::tempdir().unwrap();

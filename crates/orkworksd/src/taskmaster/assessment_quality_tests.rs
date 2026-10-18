@@ -184,7 +184,21 @@ fn check_retained_quality_evidence(output: &Path) {
                 ));
             }
             if record.state != AssessmentState::Succeeded {
-                failures.push(format!("{case}-{run}: did not complete"));
+                // The approved contract requires two of three positive findings,
+                // not three valid positive responses. A retained decoder rejection
+                // is zero in that fixed denominator; incomplete evidence is not.
+                let rejected_response = record.state == AssessmentState::Failed
+                    && record.report.is_none()
+                    && record.pending_recommendation.is_none()
+                    && record.error_summary.as_deref().is_some_and(|error| {
+                        (error.starts_with("Taskmaster returned invalid discovery output:")
+                            && directory.join("discovery-output.json").is_file())
+                            || (error == "Taskmaster returned an invalid assessment"
+                                && directory.join("final-output.json").is_file())
+                    });
+                if !case.starts_with("positive") || !rejected_response {
+                    failures.push(format!("{case}-{run}: did not complete"));
+                }
                 continue;
             }
             if !record
@@ -241,4 +255,85 @@ fn quality_verdict_from_recorded_reviews() {
         std::env::var("ORKWORKS_ASSESSMENT_QUALITY_DIR").expect("explicit evidence destination"),
     );
     check_retained_quality_evidence(&output);
+}
+
+#[test]
+fn rejected_positive_is_zero_of_three_without_excusing_other_evidence_failures() {
+    let dir = tempfile::tempdir().unwrap();
+    for case in ["positive", "positive_old_noise", "healthy", "refuted"] {
+        for run in 1..=3 {
+            let path = dir.path().join(format!("{case}-{run}"));
+            fs::create_dir(&path).unwrap();
+            fs::write(path.join("discovery-output.json"), "{}").unwrap();
+            let proposed = case.starts_with("positive");
+            let record = serde_json::json!({
+                "formatVersion":1,"id":format!("{case}-{run}"),"state":"succeeded",
+                "startedAt":"now","completedAt":"now","pendingRecommendation":null,
+                "errorSummary":null,"reused":false,
+                "report":{"id":"fixture","workspacePath":"fixture","workspaceInstance":1,
+                    "observedAt":"now","provider":"codex","model":"selected","bundleVersion":"brain",
+                    "knowledgeIdentity":{},"inputFingerprint":"fixture","contextLevel":"source_code",
+                    "excludedPaths":[],"outcome":if proposed {"proposed"} else {"no_proposal"},
+                    "summary":"Fixture","proposal":null,"noProposalReason":null,"unverifiedChecks":[],
+                    "repositoryEvidence":[],"knowledgeEvidence":[],"recommendationId":null}
+            });
+            fs::write(
+                path.join("result.json"),
+                serde_json::to_vec(&record).unwrap(),
+            )
+            .unwrap();
+            fs::write(path.join("review.json"), serde_json::to_vec(&serde_json::json!({
+                "grounded":true,"designedGap":true,"bounded":true,"validation":true,"rollback":true,"rationale":"Adjudicated fixture"
+            })).unwrap()).unwrap();
+        }
+    }
+    let path = dir.path().join("positive-2/result.json");
+    let original: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    let mut rejected = original.clone();
+    rejected["state"] = serde_json::json!("failed");
+    rejected["report"] = serde_json::Value::Null;
+    rejected["errorSummary"] =
+        serde_json::json!("Taskmaster returned invalid discovery output: invalid envelope");
+    fs::write(&path, serde_json::to_vec(&rejected).unwrap()).unwrap();
+    assert!(std::panic::catch_unwind(|| check_retained_quality_evidence(dir.path())).is_ok());
+    let mut final_rejection = rejected.clone();
+    final_rejection["errorSummary"] =
+        serde_json::json!("Taskmaster returned an invalid assessment");
+    fs::write(&path, serde_json::to_vec(&final_rejection).unwrap()).unwrap();
+    assert!(std::panic::catch_unwind(|| check_retained_quality_evidence(dir.path())).is_err());
+    fs::write(dir.path().join("positive-2/final-output.json"), "{}").unwrap();
+    assert!(std::panic::catch_unwind(|| check_retained_quality_evidence(dir.path())).is_ok());
+    fs::write(&path, serde_json::to_vec(&rejected).unwrap()).unwrap();
+    for (key, value) in [
+        ("report", original["report"].clone()),
+        ("reused", serde_json::json!(true)),
+        ("state", serde_json::json!("interrupted")),
+        ("errorSummary", serde_json::json!("provider failed")),
+    ] {
+        let mut invalid = rejected.clone();
+        invalid[key] = value;
+        fs::write(&path, serde_json::to_vec(&invalid).unwrap()).unwrap();
+        assert!(std::panic::catch_unwind(|| check_retained_quality_evidence(dir.path())).is_err());
+    }
+    fs::write(&path, serde_json::to_vec(&rejected).unwrap()).unwrap();
+    fs::remove_file(dir.path().join("positive-2/discovery-output.json")).unwrap();
+    assert!(std::panic::catch_unwind(|| check_retained_quality_evidence(dir.path())).is_err());
+    fs::write(dir.path().join("positive-2/discovery-output.json"), "{}").unwrap();
+    fs::write(
+        dir.path().join("positive-1/result.json"),
+        serde_json::to_vec(&rejected).unwrap(),
+    )
+    .unwrap();
+    assert!(std::panic::catch_unwind(|| check_retained_quality_evidence(dir.path())).is_err());
+    fs::write(
+        dir.path().join("positive-1/result.json"),
+        serde_json::to_vec(&original).unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("healthy-1/result.json"),
+        serde_json::to_vec(&rejected).unwrap(),
+    )
+    .unwrap();
+    assert!(std::panic::catch_unwind(|| check_retained_quality_evidence(dir.path())).is_err());
 }

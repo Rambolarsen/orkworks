@@ -254,6 +254,36 @@ fn prose_clauses(text: &str) -> impl Iterator<Item = &str> {
         .flat_map(|clause| clause.split(" yet "))
 }
 
+fn contains_embedded_literal_command(text: &str) -> bool {
+    let tokens = text.split_whitespace().collect::<Vec<_>>();
+    if tokens.iter().any(|token| {
+        let quoted = token.contains(['`', '\"'])
+            || token.char_indices().any(|(index, character)| {
+                character == '\''
+                    && (index == 0
+                        || token[..index]
+                            .chars()
+                            .next_back()
+                            .is_some_and(|previous| !previous.is_alphanumeric()))
+            });
+        if quoted {
+            return true;
+        }
+        let token = token.trim_matches(['`', '\"', '\'', '.', ',', ':']);
+        matches!(
+            token,
+            "command" | "commands" | "cli" | "executable" | "invocation"
+        ) || token.starts_with('-')
+            || token.contains('/')
+    }) {
+        return true;
+    }
+    tokens.iter().enumerate().any(|(index, token)| {
+        // English make/just constructions retain their existing separate checks.
+        !matches!(*token, "make" | "just") && contains_direct_command(&tokens[index..].join(" "))
+    })
+}
+
 fn contains_imperative_command(text: &str) -> bool {
     prose_clauses(text).any(|sentence| {
         let words = sentence
@@ -310,8 +340,33 @@ fn contains_imperative_command(text: &str) -> bool {
                         | "runner"
                 )
             });
+            let target = if matches!(pair[1], "a" | "an" | "the") {
+                words.get(index + 2).copied().unwrap_or("")
+            } else {
+                pair[1]
+            };
+            let descriptive_target = matches!(
+                target,
+                "existing"
+                    | "current"
+                    | "package"
+                    | "unit"
+                    | "tests"
+                    | "suite"
+                    | "checks"
+                    | "validation"
+                    | "verification"
+                    | "with"
+                    | "through"
+                    | "in"
+                    | "on"
+                    | "under"
+                    | "its"
+            );
             if index > 1
                 && !addressed_reader
+                && descriptive_target
+                && !contains_embedded_literal_command(sentence)
                 && ((words[index - 1] == "to"
                     && repository_subject
                     && matches!(
@@ -331,11 +386,6 @@ fn contains_imperative_command(text: &str) -> bool {
             // 'Use repository evidence' describes grounding, while 'Use TOOL
             // SUBCOMMAND' is still an executable instruction. Skip an article
             // without exempting the executable that follows it.
-            let target = if matches!(pair[1], "a" | "an" | "the") {
-                words.get(index + 2).copied().unwrap_or("")
-            } else {
-                pair[1]
-            };
             !(pair[0] == "use"
                 && matches!(
                     target,
@@ -758,6 +808,7 @@ mod tests {
             "The CI configuration should make the existing test suite meaningful.",
             "The CI unit step just reports a skipped suite.",
             "The supplied facts show CI configured to run the package test suite.",
+            "The package's CI script is configured to run the existing unit suite.",
             "The package script is designed to execute the existing unit suite.",
             "Whether the existing arithmetic test can run with the available package configuration.",
             "Whether the current package setup can execute the existing TypeScript test directly.",
@@ -782,6 +833,21 @@ mod tests {
             "Tests have not been run, but all tests passed.",
             "Whether tests pass is unknown; run unknowncli frobnicate.",
             "The setup is configured to run cargo test.",
+            "The CI script is configured to run rm -rf /.",
+            "The package script is designed to execute python tools/check.py.",
+            "Whether CI can run curl https://example.test remains unverified.",
+            "The workflow is configured to invoke bash -c anything.",
+            "The CI script is configured to run unknowncli frobnicate.",
+            "The CI script is configured to run the existing command rm -rf /.",
+            "The CI script is configured to execute test -e /tmp/output.",
+            "The CI script is configured to run the existing command unknowncli frobnicate.",
+            "The CI script is configured to execute the existing test -e /tmp/output.",
+            "The CI script is configured to run the existing `unknowncli frobnicate`.",
+            "The CI script is configured to execute the current \"unknowncli frobnicate\".",
+            "The CI script is configured to execute the current 'unknowncli frobnicate'.",
+            "The CI script is configured to run the existing (`unknowncli frobnicate`).",
+            "The CI script is configured to execute the current (\"unknowncli frobnicate\").",
+            "The CI script is configured to execute the current ('unknowncli frobnicate').",
             "Whether CI can run cargo test is unknown.",
             "You can run unknowncli frobnicate.",
             "You need to execute unknowncli frobnicate.",
