@@ -7551,7 +7551,10 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
         buffer.push(0xAC);
         assert_eq!(
             drain_persist_records(&mut buffer),
-            vec![format!("�{}", "x".repeat(MAX_PARTIAL_PERSIST_BYTES - 3))],
+            vec![format!(
+                "\u{fffd}{}",
+                "x".repeat(MAX_PARTIAL_PERSIST_BYTES - 3)
+            )],
         );
         assert_eq!(String::from_utf8(buffer).unwrap(), "€");
     }
