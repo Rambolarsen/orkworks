@@ -684,7 +684,9 @@ fn active_assessment_recommendation(
     record: Option<&super::assessment_report::AssessmentRecord>,
     exclude_id: Option<&str>,
 ) -> Result<Option<super::Recommendation>, String> {
-    if record.is_some_and(|r| r.format_version == 1) {
+    // Accepted work owns admission independently of evidence freshness and format.
+    // This does not authorize stale evidence for display or execution.
+    {
         let workspace = state
             .workspace
             .lock()

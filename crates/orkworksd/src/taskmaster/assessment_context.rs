@@ -772,6 +772,32 @@ mod safety_tests {
     use super::*;
     use std::fs;
     #[test]
+    fn exactly_full_root_traversal_preserves_instruction_coverage() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("AGENTS.md"), "Required repository checks").unwrap();
+        fs::write(dir.path().join("README.md"), "Current workflow").unwrap();
+        for index in 0..1998 {
+            fs::write(
+                dir.path().join(format!("source-{index:04}.ts")),
+                "export const value = 1;",
+            )
+            .unwrap();
+        }
+        let exact =
+            RepositoryContext::collect(dir.path(), ContextLevel::SourceCode, &[], "now").unwrap();
+        assert!(exact.manifest().instruction_coverage_complete);
+        assert!(exact.facts.iter().any(|fact| fact.path == "AGENTS.md"));
+        assert!(
+            !exact.manifest().catalog_complete,
+            "catalog still has its own smaller cap"
+        );
+        fs::write(dir.path().join("one-more.ts"), "export const value = 2;").unwrap();
+        let partial =
+            RepositoryContext::collect(dir.path(), ContextLevel::SourceCode, &[], "now").unwrap();
+        assert!(!partial.manifest().instruction_coverage_complete);
+    }
+
+    #[test]
     fn catalog_capacity_does_not_read_unsupplied_source_prefixes() {
         for long_names in [false, true] {
             let dir = tempfile::tempdir().unwrap();

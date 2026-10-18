@@ -282,3 +282,40 @@ reviewed runtime corrections; the final prompt and harness refinements passed al
 92 assessment tests, with 2 explicit live tests ignored. The current code review
 approved command/catalog corrections and the separate grounding/threshold diff.
 PR checks and current-head review remain merge gates.
+
+## Additional lifecycle and traversal review
+
+A later current-head review found two further defects. The exact traversal-cap
+regression failed because a fully enumerated 2,000-entry root was treated as
+partial, preventing its seeds from obtaining governing-instruction coverage.
+The collector now peeks for iterator exhaustion without examining or admitting
+an extra entry. Exactly 2,000 entries preserve instruction coverage; 2,001 remain
+partial, and the independent catalog cap still applies.
+
+A format-2 accepted-work regression failed with `Scheduled` instead of
+`ActiveRecommendation` after an input change. The durable accepted/executing gate
+now applies across record formats before the generic freshness filter. Both
+states retain their recommendation/session identity and saved report, with zero
+provider calls; stale-evidence display and execution fences remain active.
+Existing legacy admission and stale-proposed supersession cases still pass.
+
+Independent review approved both runtime fixes. All 94 scoped assessment tests
+passed, followed by full repository verification with 2,119 Rust unit tests,
+integration checks, desktop tests/build and docs build. The unrelated merged
+`session-archive` worktree advisory concerns another owner and needs no action
+from this task.
+
+The retained usefulness matrix remains the measurement for the unchanged
+assessment prompts, schemas and response decoders. An explicit zero-dispatch
+collector recheck reconstructed all 11 successful records' retained repository
+manifests under the corrected collector. The failed positive trial has no saved
+manifest, so its inputs are explicitly unverifiable and still receive zero
+credit. The same retained adjudication verdict passes; this recheck establishes
+collector/manifest compatibility, not a new provider trial or full prompt replay.
+
+A version-decoding review note concerns a future migration: this PR introduces
+format 2 with collector 2 and prompt v2, and the native response-constraint change
+preserves those supported versions. There is no older supported format-2 schema
+being displaced. Future version changes must explicitly preserve supported
+historical decoding and fence reuse; arbitrary unknown versions remain
+unavailable under the accepted contract. No decoder relaxation was made.

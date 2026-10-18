@@ -345,15 +345,20 @@ pub(super) fn collect_paths(
         *complete = false;
         return Ok(());
     }
-    let mut entries = fs::read_dir(directory)
-        .map_err(|error| error.to_string())?
+    let mut reader = fs::read_dir(directory).map_err(|error| error.to_string())?;
+    let mut entries = reader
+        .by_ref()
         .take(*remaining_entries)
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| error.to_string())?;
-    if entries.len() < *remaining_entries {
+    // An exactly full budget may still have enumerated the whole directory.
+    // Peek only for exhaustion; never inspect or admit the extra entry.
+    if reader.next().is_none() {
         coverage
             .complete_directories
             .insert(directory.to_path_buf());
+    } else {
+        *complete = false;
     }
     *remaining_entries = remaining_entries.saturating_sub(entries.len());
     entries.sort_by_cached_key(|entry| {

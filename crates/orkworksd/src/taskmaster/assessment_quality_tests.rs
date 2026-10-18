@@ -337,3 +337,41 @@ fn rejected_positive_is_zero_of_three_without_excusing_other_evidence_failures()
     .unwrap();
     assert!(std::panic::catch_unwind(|| check_retained_quality_evidence(dir.path())).is_err());
 }
+
+#[test]
+#[ignore = "Explicit zero-dispatch recheck of retained synthetic repository inputs"]
+fn retained_quality_inputs_match_current_collector() {
+    let output = PathBuf::from(
+        std::env::var("ORKWORKS_ASSESSMENT_QUALITY_DIR").expect("explicit evidence destination"),
+    );
+    let mut checked = 0;
+    let mut unavailable = 0;
+    for case in ["positive", "positive_old_noise", "healthy", "refuted"] {
+        for run in 1..=3 {
+            let directory = output.join(format!("{case}-{run}"));
+            let record: AssessmentRecord =
+                serde_json::from_slice(&fs::read(directory.join("result.json")).unwrap()).unwrap();
+            let Some(manifest) = record.input_manifest.as_ref() else {
+                assert_eq!(record.state, AssessmentState::Failed);
+                assert!(record.report.is_none());
+                unavailable += 1;
+                eprintln!("{case}-{run}: failed sample has no retained manifest; collector inputs unverifiable, zero quality credit");
+                continue;
+            };
+            let repository = super::super::assessment_context::RepositoryContext::collect(
+                &directory.join("workspace"),
+                manifest.context_level,
+                &manifest.excluded_paths,
+                "retained input recheck",
+            )
+            .unwrap();
+            repository
+                .restore(manifest)
+                .unwrap_or_else(|error| panic!("{case}-{run}: {error}"));
+            checked += 1;
+        }
+    }
+    assert!(checked > 0);
+    eprintln!("{checked} retained manifests match current collector; {unavailable} failed samples lack retained manifests");
+    check_retained_quality_evidence(&output);
+}

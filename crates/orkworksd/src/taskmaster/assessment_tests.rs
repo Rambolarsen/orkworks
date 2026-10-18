@@ -1377,6 +1377,55 @@ async fn legacy_accepted_assessments_block_admission_without_mutating_their_stat
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn current_accepted_or_executing_assessments_block_admission_after_input_changes() {
+    for status in [
+        crate::taskmaster::RecommendationStatus::Accepted,
+        crate::taskmaster::RecommendationStatus::Executing,
+    ] {
+        let fixture = AssessmentFixture::new();
+        let mut record = fixture.pending_record();
+        record.state = AssessmentState::Succeeded;
+        let mut recommendation = record.pending_recommendation.take().unwrap();
+        recommendation.status = status;
+        recommendation.target_session_id = Some("protected-session".into());
+        let before = recommendation.clone();
+        let workspace_path = {
+            let workspace = fixture.state.workspace.lock().unwrap();
+            let workspace = workspace.as_ref().unwrap();
+            workspace.recommendation_store.put(&recommendation).unwrap();
+            workspace.path.clone()
+        };
+        let store = AssessmentStore::new(&fixture.workspace_root());
+        store.save(&record).unwrap();
+        fs::write(
+            workspace_path.join("UNCITED.md"),
+            "Changed repository workflow input.",
+        )
+        .unwrap();
+        assert_eq!(
+            schedule(fixture.state.clone(), fixture.runtime_root.clone()).status,
+            AssessmentRequestStatus::ActiveRecommendation
+        );
+        assert!(!fixture.marker.exists());
+        assert_eq!(store.load::<AssessmentRecord>().unwrap().unwrap(), record);
+        assert_eq!(
+            fixture
+                .state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .recommendation_store
+                .get(&before.id)
+                .unwrap()
+                .unwrap(),
+            before
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn selected_uncited_followup_reaches_final_prompt_and_fences_consumers_after_change() {
     let fixture = AssessmentFixture::new();
     let workspace = fixture
