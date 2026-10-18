@@ -98,6 +98,28 @@ fn custom_spawn_rechecks_definition_and_unreadable_trust() {
 
 #[test]
 fn custom_spawn_releases_trust_locks_while_process_runs() {
+    const CHILD: &str = "ORKWORKS_TRUST_LOCK_TEST_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        // Other fixture roots share this process mutex. Hold it here to ensure
+        // the child measures its own inference locks, independent of that work.
+        let _unrelated = crate::taskmaster::runtime::PERSISTENCE_LOCK.lock().unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "taskmaster::runtime::inference::tests::spawn_tests::custom_spawn_releases_trust_locks_while_process_runs",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
     let fixture = executable_fixture(true);
     let captured = fixture.capture();
     std::thread::scope(|scope| {
