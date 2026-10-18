@@ -163,7 +163,7 @@ fn validate_unique_bounded(values: &[String], limit: usize, label: &str) -> Resu
     Ok(())
 }
 
-fn validate_prose(value: &str, limit: usize, required: bool) -> Result<(), String> {
+pub(super) fn validate_prose(value: &str, limit: usize, required: bool) -> Result<(), String> {
     let char_count = value.chars().count();
     if char_count > limit
         || has_control(value)

@@ -56,7 +56,9 @@ export interface AssessmentReport {
   knowledgeEvidence: KnowledgeEvidence[];
   recommendationId: string | null;
 }
+export type TaskmasterAssessmentPhase = "discovering" | "reading_evidence" | "assessing";
 export interface TaskmasterAssessmentStatus {
+  phase?: TaskmasterAssessmentPhase | null;
   state: TaskmasterAssessmentState;
   report?: AssessmentReport | null;
   errorSummary?: string | null;
@@ -140,7 +142,11 @@ export function taskmasterAssessmentForWorkspace(
 export function formatTaskmasterAssessment(assessment: TaskmasterAssessmentStatus): string {
   if (assessment.state === "idle") return "No assessment has run for this workspace.";
   if (assessment.state === "queued") return "Workflow assessment queued.";
-  if (assessment.state === "running") return "Assessing this workspace…";
+  if (assessment.state === "running") {
+    if (assessment.phase === "discovering") return "Discovering repository evidence…";
+    if (assessment.phase === "reading_evidence") return "Reading selected repository evidence…";
+    return "Assessing this workspace…";
+  }
   if (assessment.state === "unavailable") return assessment.errorSummary ?? "Workflow assessment is unavailable.";
   if (assessment.state === "failed" || assessment.state === "interrupted") {
     return assessment.errorSummary ?? `Workflow assessment ${assessment.state}.`;

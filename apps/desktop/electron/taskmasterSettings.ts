@@ -1,3 +1,7 @@
+// Defined independently of renderer types to preserve the process boundary.
+export type TaskmasterAssessmentPhase = "discovering" | "reading_evidence" | "assessing";
+const assessmentPhases: readonly TaskmasterAssessmentPhase[] = ["discovering", "reading_evidence", "assessing"];
+
 /** Narrow privileged transport: renderer input never selects a URL or authority. */
 export async function taskmasterRequest(
   port: number, token: string, resource: "settings" | "knowledge" | "inference" | "models" | "run-status" | "assess-workflow", payload?: unknown,
@@ -37,5 +41,12 @@ export async function taskmasterRequest(
       ? (error as Record<string, string>).message
       : `Taskmaster request failed (${response.status})`;
   if (!response.ok) throw new Error(message);
+  if (resource === "run-status" && value.assessment && typeof value.assessment === "object") {
+    const phase = (value.assessment as Record<string, unknown>).phase;
+    if (phase !== undefined && phase !== null
+      && (typeof phase !== "string" || !assessmentPhases.includes(phase as TaskmasterAssessmentPhase))) {
+      throw new Error("Invalid Taskmaster assessment phase");
+    }
+  }
   return value;
 }

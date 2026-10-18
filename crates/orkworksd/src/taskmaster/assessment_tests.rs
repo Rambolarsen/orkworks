@@ -30,15 +30,33 @@ impl AssessmentFixture {
         let marker = dir.path().join("provider-dispatched");
         let response = dir.path().join("provider-response.json");
         let codex = fake_bin.join("codex");
+        let driver = dir.path().join("driver.py");
+        fs::write(&driver, r#"import json,pathlib,sys
+response, prompt_path = map(pathlib.Path, sys.argv[1:])
+prompt = json.loads(prompt_path.read_text())
+if prompt.get('protocol') != 'taskmaster-discovery-v1' and response.with_suffix('.block-final').exists():
+    import time
+    response.with_suffix('.final-started').write_text('started')
+    while not response.with_suffix('.final-release').exists(): time.sleep(0.01)
+if prompt.get('protocol') == 'taskmaster-discovery-v1':
+    override = response.with_suffix('.discovery')
+    if override.exists():
+        output = override.read_text()
+    else:
+        page = next(p for p in prompt['knowledgePages'] if p['type'] == 'playbook')
+        output = json.dumps({'version':1,'outcome':'inspect','candidate':{'targetSurface':'documentation','title':'Clarify workflow evidence','hypothesis':'The current workflow guide may need more specific validation guidance.'},'repositoryFactHashes':[prompt['repositoryFacts'][0]['sha256']],'knowledgePageIds':[page['id']],'requestedFileIds':[],'reason':None})
+else:
+    output = response.read_text()
+print(json.dumps({'type':'thread.started'}))
+print(json.dumps({'type':'turn.started'}))
+print(json.dumps({'type':'item.completed','item':{'type':'agent_message','text':output}}))
+print(json.dumps({'type':'turn.completed'}))
+"#).unwrap();
         let script = format!(
-            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then printf 'codex-cli 0.153.4\\n'; exit 0; fi\ncat > '{}'\nprintf dispatched > '{}'\nprintf x >> '{}.count'\nwhile [ ! -f '{}.release' ]; do sleep 0.01; done\npython3 -c 'import json,pathlib,sys; print(json.dumps({{\"type\":\"thread.started\"}})); print(json.dumps({{\"type\":\"turn.started\"}})); print(json.dumps({{\"type\":\"item.completed\",\"item\":{{\"type\":\"agent_message\",\"text\":pathlib.Path(sys.argv[1]).read_text()}}}})); print(json.dumps({{\"type\":\"turn.completed\"}}))' '{}' 2> '{}.stderr' | tee '{}'\n",
-            dir.path().join("provider-prompt").display(),
-            marker.display(),
-            marker.display(),
-            marker.display(),
-            response.display(),
-            dir.path().join("provider-output").display(),
-            dir.path().join("provider-output").display(),
+            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then printf 'codex-cli 0.153.4\\n'; exit 0; fi\ncat > '{}'\nprintf dispatched > '{}'\nprintf x >> '{}.count'\nwhile [ ! -f '{}.release' ]; do sleep 0.01; done\npython3 '{}' '{}' '{}' 2> '{}.stderr' | tee '{}'\n",
+            dir.path().join("provider-prompt").display(), marker.display(), marker.display(), marker.display(),
+            driver.display(), response.display(), dir.path().join("provider-prompt").display(),
+            dir.path().join("provider-output").display(), dir.path().join("provider-output").display(),
         );
         fs::write(&codex, script).unwrap();
         crate::test_support::make_test_executable(&codex);
@@ -135,7 +153,19 @@ impl AssessmentFixture {
     }
 
     fn pending_record(&self) -> AssessmentRecord {
-        let snapshot = capture_current_snapshot(&self.state, &self.runtime_root, None).unwrap();
+        let mut snapshot = capture_current_snapshot(&self.state, &self.runtime_root, None).unwrap();
+        let mut repository = snapshot.repository.clone();
+        repository.bind_discovery("fixture discovery identity");
+        let input = build_workspace_input(
+            &snapshot.workspace_path,
+            &snapshot.evaluation,
+            snapshot.observations.clone(),
+            snapshot.recommendations.clone(),
+            repository,
+        )
+        .unwrap();
+        snapshot.repository = input.repository;
+        snapshot.fingerprint = input.fingerprint;
         let fact = snapshot.facts.first().unwrap().clone();
         let page = snapshot
             .prompt_snapshot
@@ -198,7 +228,9 @@ impl AssessmentFixture {
             "2026-10-17T00:00:00Z",
         );
         AssessmentRecord {
-            format_version: 1,
+            format_version: 2,
+            input_manifest: Some(snapshot.repository.manifest()),
+            phase: None,
             id: id.into(),
             state: AssessmentState::PendingRecommendation,
             started_at: "2026-10-17T00:00:00Z".into(),
@@ -248,7 +280,9 @@ impl AssessmentFixture {
             if let Some(record) = store.load::<AssessmentRecord>().unwrap() {
                 if matches!(
                     record.state,
-                    AssessmentState::Succeeded | AssessmentState::Failed
+                    AssessmentState::Succeeded
+                        | AssessmentState::Failed
+                        | AssessmentState::Interrupted
                 ) {
                     return record;
                 }
@@ -388,7 +422,7 @@ async fn scheduled_assessment_publishes_a_grounded_no_proposal_report() {
         fs::read_to_string(fixture.marker.with_extension("count"))
             .unwrap()
             .len(),
-        1
+        2
     );
 }
 
@@ -427,9 +461,9 @@ async fn final_commit_failure_is_reconciled_before_the_analysis_lease_is_release
     let fixture = AssessmentFixture::new();
     fixture.prepare_response("proposed");
     let root = fixture.workspace_root();
-    // Queued, Running, and PendingRecommendation writes succeed; only the
+    // Queued, Running, ReadingEvidence, Assessing, and Pending writes succeed; only the
     // final committed-state write fails once.
-    crate::taskmaster::assessment_store::set_save_failures(&root, 3, 1);
+    crate::taskmaster::assessment_store::set_save_failures(&root, 5, 1);
     assert_eq!(
         schedule(fixture.state.clone(), fixture.runtime_root.clone()).status,
         AssessmentRequestStatus::Scheduled
@@ -464,7 +498,7 @@ async fn repeated_final_commit_failure_keeps_pending_publication_for_later_recov
     fixture.prepare_response("proposed");
     let root = fixture.workspace_root();
     // The final commit and the immediate in-lease reconciliation commit fail.
-    crate::taskmaster::assessment_store::set_save_failures(&root, 3, 2);
+    crate::taskmaster::assessment_store::set_save_failures(&root, 5, 2);
     assert_eq!(
         schedule(fixture.state.clone(), fixture.runtime_root.clone()).status,
         AssessmentRequestStatus::Scheduled
@@ -548,9 +582,16 @@ async fn repeated_final_commit_failure_keeps_pending_publication_for_later_recov
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn fact_provider_and_context_changes_before_apply_reject_the_provider_result() {
-    for change in ["cited_fact", "uncited_fact", "provider", "context"] {
+    for change in [
+        "cited_fact",
+        "uncited_fact",
+        "provider",
+        "context",
+        "workspace",
+    ] {
         let fixture = AssessmentFixture::new();
         fixture.write_response("proposed");
+        let original_root = fixture.workspace_root();
         assert_eq!(
             schedule(fixture.state.clone(), fixture.runtime_root.clone()).status,
             AssessmentRequestStatus::Scheduled,
@@ -589,10 +630,35 @@ async fn fact_provider_and_context_changes_before_apply_reject_the_provider_resu
                     crate::taskmaster::runtime::ContextLevel::SessionObservations;
                 runtime.replace_settings(settings).unwrap();
             }
+            "workspace" => {
+                let next = fixture.dir.path().join("other-workspace");
+                fs::create_dir(&next).unwrap();
+                crate::test_support::swap_workspace(&fixture.state, &next);
+            }
             _ => unreachable!(),
         }
         fixture.release_provider();
-        let record = fixture.wait_for_terminal().await;
+        let record = if change == "workspace" {
+            let store = AssessmentStore::new(&original_root);
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+            loop {
+                let record = store.load::<AssessmentRecord>().unwrap().unwrap();
+                if record.state == AssessmentState::Failed {
+                    break record;
+                }
+                assert!(tokio::time::Instant::now() < deadline);
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        } else {
+            fixture.wait_for_terminal().await
+        };
+        assert_eq!(
+            fs::read_to_string(fixture.marker.with_extension("count"))
+                .unwrap()
+                .len(),
+            1,
+            "stale second dispatch for {change}"
+        );
         assert_eq!(
             record.state,
             AssessmentState::Failed,
@@ -759,6 +825,8 @@ fn recovery_under_another_instances_lease_preserves_queued_and_running_records()
         let store = AssessmentStore::new(&root);
         let record = AssessmentRecord {
             format_version: 1,
+            input_manifest: None,
+            phase: None,
             id: format!("assessment-{state:?}"),
             state,
             started_at: "2026-10-17T00:00:00Z".into(),
@@ -1143,4 +1211,478 @@ fn recovery_reconciliation_serializes_with_lifecycle_and_a_second_access_reducti
         "the second narrower policy must remain durable"
     );
     assert!(final_record.assessment.unwrap().access_redacted);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn discovery_no_candidate_uses_one_call_and_malformed_selection_never_retries() {
+    for malformed in [false, true] {
+        let fixture = AssessmentFixture::new();
+        fixture.prepare_response("proposed");
+        let mut discovery = serde_json::json!({"version":1,"outcome":"no_candidate","candidate":null,"repositoryFactHashes":[],"knowledgePageIds":[],"requestedFileIds":[],"reason":"Current repository evidence identifies no justified workflow change."});
+        if malformed {
+            discovery["requestedFileIds"] = serde_json::json!([99999]);
+        }
+        fs::write(
+            fixture.response.with_extension("discovery"),
+            discovery.to_string(),
+        )
+        .unwrap();
+        assert_eq!(
+            schedule(fixture.state.clone(), fixture.runtime_root.clone()).status,
+            AssessmentRequestStatus::Scheduled
+        );
+        let record = fixture.wait_for_terminal().await;
+        assert_eq!(
+            record.state,
+            if malformed {
+                AssessmentState::Failed
+            } else {
+                AssessmentState::Succeeded
+            }
+        );
+        assert_eq!(
+            fs::read_to_string(fixture.marker.with_extension("count"))
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(fixture
+            .state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .list()
+            .unwrap()
+            .is_empty());
+        if !malformed {
+            assert_eq!(record.report.unwrap().outcome, "no_proposal");
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn observation_only_access_dispatches_zero_calls() {
+    let fixture = AssessmentFixture::new();
+    let runtime = TaskmasterRuntime::open(fixture.runtime_root.clone());
+    let mut settings = runtime.status(None).settings;
+    settings.context_level = crate::taskmaster::runtime::ContextLevel::SessionObservations;
+    runtime.replace_settings(settings).unwrap();
+    assert_eq!(
+        schedule(fixture.state.clone(), fixture.runtime_root.clone()).status,
+        AssessmentRequestStatus::Unavailable
+    );
+    assert!(!fixture.marker.exists());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn catalog_change_after_publication_fences_uncited_inputs_and_allows_new_assessment() {
+    let fixture = AssessmentFixture::new();
+    fixture.prepare_response("proposed");
+    assert_eq!(
+        schedule(fixture.state.clone(), fixture.runtime_root.clone()).status,
+        AssessmentRequestStatus::Scheduled
+    );
+    let record = fixture.wait_for_terminal().await;
+    assert_eq!(record.state, AssessmentState::Succeeded);
+    let id = record.report.unwrap().recommendation_id.unwrap();
+    let workspace = fixture
+        .state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .path
+        .clone();
+    fs::write(
+        workspace.join("UNCITED.md"),
+        "New current workflow guidance.",
+    )
+    .unwrap();
+    let application = crate::session_application::SessionApplication::new(fixture.state.clone());
+    assert!(application.get_recommendation(&id).unwrap().is_none());
+    let runtime = TaskmasterRuntime::open(fixture.runtime_root.clone());
+    assert_eq!(
+        crate::taskmaster::assessment_access::status_for(&fixture.state, &runtime)["state"],
+        "unavailable"
+    );
+    fixture.write_response("no_proposal");
+    assert_eq!(
+        schedule(fixture.state.clone(), fixture.runtime_root.clone()).status,
+        AssessmentRequestStatus::Scheduled
+    );
+    assert_eq!(
+        fixture.wait_for_terminal().await.state,
+        AssessmentState::Succeeded
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn legacy_accepted_assessments_block_admission_without_mutating_their_state() {
+    let fixture = AssessmentFixture::new();
+    let mut legacy = fixture.pending_record();
+    legacy.format_version = 1;
+    legacy.input_manifest = None;
+    legacy.state = AssessmentState::Succeeded;
+    let mut recommendation = legacy.pending_recommendation.take().unwrap();
+    recommendation.status = crate::taskmaster::RecommendationStatus::Accepted;
+    recommendation.target_session_id = Some("legacy-session".into());
+    let before = recommendation.clone();
+    fixture
+        .state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .recommendation_store
+        .put(&recommendation)
+        .unwrap();
+    AssessmentStore::new(&fixture.workspace_root())
+        .save(&legacy)
+        .unwrap();
+    assert_eq!(
+        schedule(fixture.state.clone(), fixture.runtime_root.clone()).status,
+        AssessmentRequestStatus::ActiveRecommendation
+    );
+    assert!(!fixture.marker.exists());
+    assert_eq!(
+        fixture
+            .state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .get(&before.id)
+            .unwrap()
+            .unwrap(),
+        before
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn selected_uncited_followup_reaches_final_prompt_and_fences_consumers_after_change() {
+    let fixture = AssessmentFixture::new();
+    let workspace = fixture
+        .state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .path
+        .clone();
+    fs::create_dir(workspace.join("src")).unwrap();
+    fs::write(
+        workspace.join("src/coverage.ts"),
+        "export const uncitedCoverageMarker = true;",
+    )
+    .unwrap();
+    let runtime = TaskmasterRuntime::open(fixture.runtime_root.clone());
+    let mut settings = runtime.status(None).settings;
+    settings.context_level = crate::taskmaster::runtime::ContextLevel::SourceCode;
+    runtime.replace_settings(settings).unwrap();
+    fixture.prepare_response("proposed");
+    let snapshot = capture_current_snapshot(&fixture.state, &fixture.runtime_root, None).unwrap();
+    let id = snapshot
+        .repository
+        .catalog
+        .iter()
+        .position(|p| p == "src/coverage.ts")
+        .unwrap();
+    let page = snapshot.prompt_snapshot.knowledge.as_ref().unwrap().pages[0]
+        .id
+        .clone();
+    fs::write(fixture.response.with_extension("discovery"), serde_json::json!({"version":1,"outcome":"inspect","candidate":{"targetSurface":"test","title":"Check unit coverage","hypothesis":"The current unit coverage may need a bounded improvement."},"repositoryFactHashes":[snapshot.facts[0].sha256],"knowledgePageIds":[page],"requestedFileIds":[id],"reason":null}).to_string()).unwrap();
+    assert_eq!(
+        schedule(fixture.state.clone(), fixture.runtime_root.clone()).status,
+        AssessmentRequestStatus::Scheduled
+    );
+    let record = fixture.wait_for_terminal().await;
+    assert_eq!(
+        record.state,
+        AssessmentState::Succeeded,
+        "{:?}",
+        record.error_summary
+    );
+    assert_eq!(
+        fs::read_to_string(fixture.marker.with_extension("count"))
+            .unwrap()
+            .len(),
+        2
+    );
+    assert!(
+        fs::read_to_string(fixture.dir.path().join("provider-prompt"))
+            .unwrap()
+            .contains("uncitedCoverageMarker")
+    );
+    assert!(!serde_json::to_string(&record)
+        .unwrap()
+        .contains("uncitedCoverageMarker"));
+    assert!(record
+        .input_manifest
+        .as_ref()
+        .unwrap()
+        .files
+        .iter()
+        .any(|f| !f.seed && f.path == "src/coverage.ts"));
+    let id = record.report.unwrap().recommendation_id.unwrap();
+    fs::write(
+        workspace.join("src/coverage.ts"),
+        "export const changedUncitedCoverage = false;",
+    )
+    .unwrap();
+    let app = crate::session_application::SessionApplication::new(fixture.state.clone());
+    assert!(app.get_recommendation(&id).unwrap().is_none());
+    assert_eq!(
+        crate::taskmaster::assessment_access::status_for(&fixture.state, &runtime)["state"],
+        "unavailable"
+    );
+}
+
+#[test]
+fn pending_recovery_after_narrowing_never_restores_source_manifest_paths_or_hashes() {
+    let fixture = AssessmentFixture::new();
+    let workspace = fixture
+        .state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .path
+        .clone();
+    fs::create_dir(workspace.join("src")).unwrap();
+    fs::write(
+        workspace.join("src/coverage.ts"),
+        "export const coverageMarker = true;",
+    )
+    .unwrap();
+    let runtime = TaskmasterRuntime::open(fixture.runtime_root.clone());
+    let mut settings = runtime.status(None).settings;
+    settings.context_level = crate::taskmaster::runtime::ContextLevel::SourceCode;
+    runtime.replace_settings(settings.clone()).unwrap();
+    let snapshot = capture_current_snapshot(&fixture.state, &fixture.runtime_root, None).unwrap();
+    let mut context = snapshot.repository.clone();
+    let id = context
+        .catalog
+        .iter()
+        .position(|p| p == "src/coverage.ts")
+        .unwrap();
+    context.follow_up(&[id], "coverage").unwrap();
+    context.bind_discovery("validated discovery identity");
+    let input = build_workspace_input(
+        &workspace,
+        &snapshot.evaluation,
+        snapshot.observations,
+        snapshot.recommendations,
+        context,
+    )
+    .unwrap();
+    let source_hash = input
+        .repository
+        .manifest()
+        .files
+        .iter()
+        .find(|f| !f.seed)
+        .unwrap()
+        .sha256
+        .clone();
+    let mut record = fixture.pending_record();
+    record.input_manifest = Some(input.repository.manifest());
+    record.report.as_mut().unwrap().input_fingerprint = input.fingerprint.clone();
+    record
+        .pending_recommendation
+        .as_mut()
+        .unwrap()
+        .assessment
+        .as_mut()
+        .unwrap()
+        .input_fingerprint = input.fingerprint;
+    let root = fixture.workspace_root();
+    let store = AssessmentStore::new(&root);
+    store.save(&record).unwrap();
+    settings.context_level = crate::taskmaster::runtime::ContextLevel::WorkflowContext;
+    runtime.replace_settings(settings).unwrap();
+    recover_workspace_record(&fixture.state, &fixture.runtime_root, &root).unwrap();
+    let saved = fs::read_to_string(root.join("assessment.json")).unwrap();
+    assert!(
+        !saved.contains("src/coverage.ts"),
+        "recovery restored a disallowed path"
+    );
+    assert!(
+        !saved.contains(&source_hash),
+        "recovery restored a disallowed hash"
+    );
+    assert_eq!(
+        store.load::<AssessmentRecord>().unwrap().unwrap().state,
+        AssessmentState::Interrupted
+    );
+    assert!(!fixture.marker.exists());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn changes_during_final_call_prevent_publication_without_retry() {
+    for change in ["file", "settings", "workspace"] {
+        let fixture = AssessmentFixture::new();
+        fixture.prepare_response("proposed");
+        fs::write(fixture.response.with_extension("block-final"), "hold").unwrap();
+        let root = fixture.workspace_root();
+        assert_eq!(
+            schedule(fixture.state.clone(), fixture.runtime_root.clone()).status,
+            AssessmentRequestStatus::Scheduled
+        );
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        while !fixture.response.with_extension("final-started").exists() {
+            assert!(tokio::time::Instant::now() < deadline);
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        match change {
+            "file" => {
+                let path = fixture
+                    .state
+                    .workspace
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .path
+                    .clone();
+                fs::write(path.join("README.md"), "changed final evidence").unwrap();
+            }
+            "settings" => {
+                let runtime = TaskmasterRuntime::open(fixture.runtime_root.clone());
+                let mut settings = runtime.status(None).settings;
+                settings.selection.as_mut().unwrap().model = "changed-model".into();
+                runtime.replace_settings(settings).unwrap();
+            }
+            "workspace" => {
+                let next = fixture.dir.path().join("other-workspace");
+                fs::create_dir(&next).unwrap();
+                crate::test_support::swap_workspace(&fixture.state, &next);
+            }
+            _ => unreachable!(),
+        }
+        fs::write(fixture.response.with_extension("final-release"), "release").unwrap();
+        let store = AssessmentStore::new(&root);
+        loop {
+            let record = store.load::<AssessmentRecord>().unwrap().unwrap();
+            if record.state == AssessmentState::Failed {
+                assert!(record.report.is_none());
+                break;
+            }
+            assert!(tokio::time::Instant::now() < deadline);
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(
+            fs::read_to_string(fixture.marker.with_extension("count"))
+                .unwrap()
+                .len(),
+            2,
+            "unexpected retry for {change}"
+        );
+    }
+}
+
+#[test]
+fn format_two_queued_and_running_restart_never_replays_discovery() {
+    let fixture = AssessmentFixture::new();
+    let root = fixture.workspace_root();
+    let store = AssessmentStore::new(&root);
+    for state in [AssessmentState::Queued, AssessmentState::Running] {
+        let mut record = fixture.pending_record();
+        record.state = state;
+        record.report = None;
+        record.pending_recommendation = None;
+        record.phase = Some(crate::taskmaster::assessment_report::AssessmentPhase::ReadingEvidence);
+        store.save(&record).unwrap();
+        recover_workspace_record(&fixture.state, &fixture.runtime_root, &root).unwrap();
+        let saved = store.load::<AssessmentRecord>().unwrap().unwrap();
+        assert_eq!(saved.state, AssessmentState::Interrupted);
+        assert!(saved.report.is_none());
+        assert!(saved.input_manifest.is_none());
+        assert!(!fixture.marker.exists());
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn partial_ancestor_or_instruction_only_budget_overflow_publishes_no_proposal() {
+    for partial in [false, true] {
+        let fixture = AssessmentFixture::new();
+        let workspace = fixture
+            .state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .path
+            .clone();
+        if partial {
+            for n in 0..2005 {
+                fs::write(
+                    workspace.join(format!("bounded-{n:04}.md")),
+                    "bounded workflow evidence",
+                )
+                .unwrap();
+            }
+            fs::write(fixture.response.with_extension("discovery"), serde_json::json!({"version":1,"outcome":"no_candidate","candidate":null,"repositoryFactHashes":[],"knowledgePageIds":[],"requestedFileIds":[],"reason":"The supplied repository coverage is insufficient for a justified candidate."}).to_string()).unwrap();
+            fixture.release_provider();
+        } else {
+            fs::write(workspace.join("AGENTS.md"), "Root guidance. ".repeat(700)).unwrap();
+            fs::write(workspace.join("CLAUDE.md"), "Root constraint. ".repeat(700)).unwrap();
+            fs::create_dir(workspace.join("scoped")).unwrap();
+            fs::write(
+                workspace.join("scoped/AGENTS.md"),
+                "Scoped guidance. ".repeat(700),
+            )
+            .unwrap();
+            fs::write(
+                workspace.join("scoped/CLAUDE.md"),
+                "Scoped constraint. ".repeat(700),
+            )
+            .unwrap();
+            fs::write(workspace.join("scoped/README.md"), "Small selected target").unwrap();
+            fixture.prepare_response("proposed");
+        }
+        let snapshot =
+            capture_current_snapshot(&fixture.state, &fixture.runtime_root, None).unwrap();
+        assert!(!snapshot.repository.manifest().instruction_coverage_complete);
+        assert!(
+            snapshot
+                .facts
+                .iter()
+                .all(|f| !f.path.starts_with("scoped/")),
+            "no target without its full governing closure"
+        );
+        assert_eq!(
+            schedule(fixture.state.clone(), fixture.runtime_root.clone()).status,
+            AssessmentRequestStatus::Scheduled
+        );
+        let record = fixture.wait_for_terminal().await;
+        assert_eq!(
+            record.state,
+            AssessmentState::Succeeded,
+            "partial={partial}: {:?}",
+            record.error_summary
+        );
+        let report = record.report.unwrap();
+        assert_eq!(report.outcome, "no_proposal");
+        assert!(report
+            .no_proposal_reason
+            .unwrap()
+            .contains("governing-instruction closure"));
+        assert!(report.recommendation_id.is_none());
+        assert_eq!(
+            fs::read_to_string(fixture.marker.with_extension("count"))
+                .unwrap()
+                .len(),
+            1
+        );
+    }
 }

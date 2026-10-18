@@ -85,14 +85,21 @@ Current source builds offer **Assess workflow** beside **Analyze now**. It uses
 your selected Taskmaster model, current context settings, and signed assessment
 guidance to assess one next workflow improvement. Its report explains the
 observed state and presents one grounded proposal or a reason why the supplied
-evidence does not justify a proposal.
+evidence does not justify a proposal. It starts with current instructions,
+manifests, workflow guidance and CI, then may select one bounded set of related
+permitted files before judging the candidate. It makes at most two calls through
+the same selected model, without retries. Progress shows discovery, reading
+evidence and assessment. Workflow-context access supplies workflow files;
+source-code access also permits related code and tests. Observation-only access
+cannot supply the repository facts this action requires.
 
 The report shows cited repository excerpts, Brain page provenance, and checks
 that remain unverified. Bounded excerpts establish what was supplied; omitted
 files remain unknown. A reused report is labeled explicitly. Assess workflow
 works with Background discovery off and does not spend its daily allowance or
 cooldown. An active Brain recommendation must be handled first. **Retry assessment**
-can recover an interrupted assessment; a live run is not started twice.
+starts a fresh attempt after interruption; discovery is never replayed after
+restart, and a live run is not started twice.
 
 A proposed improvement uses the existing recommendation card and **Fix with AI**
 action. Assessment itself does not edit files, run repository checks, or start a

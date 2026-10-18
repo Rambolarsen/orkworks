@@ -41,6 +41,8 @@ pub(crate) fn collect_repository_facts(
         &mut paths,
         &mut remaining_entries,
         &terms,
+        &mut true,
+        &mut TraversalCoverage::default(),
     )?;
     paths.sort_by_cached_key(|path| {
         context_priority(path.strip_prefix(&root).unwrap_or(path), &terms)
@@ -166,7 +168,7 @@ fn relevance_score(text: &str, terms: &[String]) -> usize {
 
 /// Return a contiguous verbatim span, retaining the bounded read's identity.
 /// Score lines so a useful section after a long introduction remains visible.
-fn relevant_excerpt(text: &str, terms: &[String]) -> String {
+pub(super) fn relevant_excerpt(text: &str, terms: &[String]) -> String {
     let mut best_start = 0;
     let mut best_score = 0;
     let mut offset = 0;
@@ -181,7 +183,10 @@ fn relevant_excerpt(text: &str, terms: &[String]) -> String {
     text[best_start..].chars().take(2_000).collect()
 }
 
-fn context_priority(path: &Path, terms: &[String]) -> (u8, std::cmp::Reverse<usize>, PathBuf) {
+pub(super) fn context_priority(
+    path: &Path,
+    terms: &[String],
+) -> (u8, std::cmp::Reverse<usize>, PathBuf) {
     let name = path
         .file_name()
         .and_then(|name| name.to_str())
@@ -228,7 +233,7 @@ fn context_priority(path: &Path, terms: &[String]) -> (u8, std::cmp::Reverse<usi
     (priority, std::cmp::Reverse(score), path.to_path_buf())
 }
 
-fn open_context_file(path: &Path) -> std::io::Result<fs::File> {
+pub(super) fn open_context_file(path: &Path) -> std::io::Result<fs::File> {
     let file = open_without_links(path)?;
     if !file.metadata()?.is_file() {
         return Err(std::io::Error::other("context file is not regular"));
@@ -317,7 +322,13 @@ fn open_without_links(_: &Path) -> std::io::Result<fs::File> {
     ))
 }
 
-fn collect_paths(
+#[derive(Default, Clone)]
+pub(super) struct TraversalCoverage {
+    pub complete_directories: std::collections::HashSet<PathBuf>,
+    pub instruction_entries: std::collections::HashSet<PathBuf>,
+}
+
+pub(super) fn collect_paths(
     root: &Path,
     directory: &Path,
     depth: usize,
@@ -327,8 +338,11 @@ fn collect_paths(
     output: &mut Vec<PathBuf>,
     remaining_entries: &mut usize,
     terms: &[String],
+    complete: &mut bool,
+    coverage: &mut TraversalCoverage,
 ) -> Result<(), String> {
     if depth > MAX_DEPTH || output.len() >= MAX_PATHS {
+        *complete = false;
         return Ok(());
     }
     let mut entries = fs::read_dir(directory)
@@ -336,6 +350,11 @@ fn collect_paths(
         .take(*remaining_entries)
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| error.to_string())?;
+    if entries.len() < *remaining_entries {
+        coverage
+            .complete_directories
+            .insert(directory.to_path_buf());
+    }
     *remaining_entries = remaining_entries.saturating_sub(entries.len());
     entries.sort_by_cached_key(|entry| {
         context_priority(
@@ -345,6 +364,9 @@ fn collect_paths(
     });
     for entry in entries {
         let path = entry.path();
+        if matches!(entry.file_name().to_str(), Some("AGENTS.md" | "CLAUDE.md")) {
+            coverage.instruction_entries.insert(path.clone());
+        }
         let file_type = entry.file_type().map_err(|error| error.to_string())?;
         if file_type.is_symlink() {
             continue;
@@ -386,6 +408,8 @@ fn collect_paths(
                 output,
                 remaining_entries,
                 terms,
+                complete,
+                coverage,
             )?;
         } else if file_type.is_file() && allowed_file(relative, level) {
             // Preserve the traversed path: canonicalizing here could conceal a

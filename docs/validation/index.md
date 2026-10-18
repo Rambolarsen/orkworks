@@ -17,3 +17,5 @@ Capability research, validation results, and evidence fixtures.
 - [Independent workspace instance validation plan](multi-workspace.md) — Validation evidence and context: Independent workspace instance validation plan.
 
 - [Fixed shell native validation](shell-native-validation.md) — Partial macOS walkthrough evidence and remaining release gates.
+
+- [Repository assessment runtime validation](repository-assessment-runtime.md) — Deterministic safety evidence and the failed selected-model usefulness gate for #931.

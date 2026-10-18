@@ -1,14 +1,14 @@
 ---
 type: Architecture Decision
 title: Repository-led Taskmaster assessment with bounded evidence selection
-description: Proposed two-stage manual assessment with confined follow-up reads and complete persisted input identity.
+description: Approved two-stage manual assessment with confined follow-up reads and complete persisted input identity.
 tags: [orkworks, architecture, taskmaster, assessment]
-status: draft
+status: stable
 ---
 
 # Repository-led Taskmaster assessment with bounded evidence selection
 
-- Status: proposed; concrete owner approval pending
+- Status: accepted; owner approved the concrete design and implementation plan on 2026-10-18 (#931)
 - Deciders: repository owner
 - Date: 2026-10-18
 - Tracking: [#929](https://github.com/Rambolarsen/orkworks/issues/929)
@@ -17,11 +17,11 @@ status: draft
 
 The one-shot assessment can return no proposal because its supplied snippets
 cannot resolve a concrete candidate. Source-code access expands permitted file
-types but does not allow a follow-up. The owner approved repository-led
-assessment as the direction; that approval does not settle the new protocol,
-data format and evidence access details below.
+types but does not allow a follow-up. The owner approved this concrete repository-led design, including its protocol,
+data format, evidence access rules and embedded implementation plan, on 2026-10-18.
+Issue #931 records that approval and the runtime handoff.
 
-## Proposed decision
+## Decision
 
 Extend the manual assessment from [ADR 0085](0085-taskmaster-assessment-and-analysis-outcomes.md)
 with repository-first seed collection, one strict discovery response selecting
@@ -33,7 +33,8 @@ No commands, edits, new sessions or provider fallback are introduced.
 The [concrete design and implementation plan](../superpowers/specs/2026-10-18-repository-led-brain-assessment.md)
 defines catalog/seed bounds, strict stage contracts, selected-model execution,
 format-2 manifests, revalidation, redaction, legacy gates, recovery and quality
-acceptance. Those contracts must be approved before dependent runtime work.
+acceptance. The owner approved those contracts at `432a3249ad9b8c6e5559a888b92a4944ec94d7fc`;
+#931 records approval and authorizes runtime implementation.
 
 Keep the existing final assessment envelope, signed knowledge eligibility,
 recommendation family, completion path and crash-consistent pending transaction.
