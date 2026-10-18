@@ -1502,13 +1502,31 @@ fn initial_prompt_command(prompt: &str) -> RuntimeCommand {
 // Sending before that can lose input or turn CR into LF in the cooked PTY.
 // Keep the initial paste and its Enter ahead of subsequently queued commands.
 const INITIAL_EDITOR_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+// Quiet-time gap between the paste-enable escape and the paste itself, and
+// between the paste write and its Enter (Codex's burst suppression lasts
+// 120ms).
 const INITIAL_EDITOR_SETTLE: std::time::Duration = std::time::Duration::from_millis(200);
+// OpenCode's TUI enables bracketed paste ~0.1s after spawn but starts reading
+// input only with its first real render ~1.1s in; everything written in
+// between is silently discarded (not echoed, not submitted, no session
+// created). Require a floor after paste-enable so quiet startup output cannot
+// fire the paste inside that dead window. Measured against OpenCode v2.0.32.
+const INITIAL_EDITOR_OPENCODE_PASTE_SETTLE: std::time::Duration =
+    std::time::Duration::from_millis(1500);
+
+fn initial_editor_paste_settle(harness: Option<&str>) -> std::time::Duration {
+    match harness {
+        Some("opencode") => INITIAL_EDITOR_OPENCODE_PASTE_SETTLE,
+        _ => INITIAL_EDITOR_SETTLE,
+    }
+}
 
 struct InitialEditorPrompt {
     prompt: String,
     phase: InitialEditorPromptPhase,
     marker: [u8; 8],
     paste_enabled: bool,
+    paste_settle: std::time::Duration,
     timeout: tokio::time::Instant,
     submitted: Option<tokio::sync::oneshot::Receiver<Result<(), ()>>>,
     paste_result: Option<tokio::sync::oneshot::Receiver<Result<(), ()>>>,
@@ -1531,6 +1549,7 @@ impl InitialEditorPrompt {
         prompt: String,
         now: tokio::time::Instant,
         startup_grace_ends_at: tokio::time::Instant,
+        paste_settle: std::time::Duration,
     ) -> Self {
         let timeout = now + INITIAL_EDITOR_TIMEOUT;
         Self {
@@ -1538,6 +1557,7 @@ impl InitialEditorPrompt {
             phase: InitialEditorPromptPhase::Waiting(timeout),
             marker: [0; 8],
             paste_enabled: false,
+            paste_settle,
             timeout,
             submitted: None,
             paste_result: None,
@@ -1577,7 +1597,7 @@ impl InitialEditorPrompt {
             }
         }
         self.phase = InitialEditorPromptPhase::Waiting(if self.paste_enabled {
-            (now + INITIAL_EDITOR_SETTLE).min(self.timeout)
+            (now + self.paste_settle).min(self.timeout)
         } else {
             self.timeout
         });
@@ -1759,24 +1779,23 @@ async fn start_session_runtime_inner(
         Vec<(String, String)>,
     )>,
 ) -> Result<(), String> {
-    let (run_generation, is_codex_session, has_initial_editor) = state
+    let (run_generation, is_codex_session, has_initial_editor, initial_editor_harness) = state
         .sessions
         .lock()
         .unwrap()
         .get(&id)
         .map(|handle| {
+            let harness = handle
+                .info
+                .harness_id
+                .as_deref()
+                .or(handle.info.harness.as_deref());
             (
                 handle.runtime.run_generation(),
                 handle.info.harness.as_deref() == Some("codex")
                     || handle.info.harness_id.as_deref() == Some("codex"),
-                matches!(
-                    handle
-                        .info
-                        .harness_id
-                        .as_deref()
-                        .or(handle.info.harness.as_deref()),
-                    Some("codex" | "opencode")
-                ),
+                matches!(harness, Some("codex" | "opencode")),
+                harness.map(str::to_string),
             )
         })
         .ok_or_else(|| "session runtime handle is not installed".to_string())?;
@@ -2204,6 +2223,7 @@ async fn start_session_runtime_inner(
                     prompt,
                     tokio::time::Instant::now(),
                     startup_grace_ends_at,
+                    initial_editor_paste_settle(initial_editor_harness.as_deref()),
                 ));
             } else {
                 pending_commands.push_front(initial_prompt_command(&prompt));
@@ -2772,6 +2792,54 @@ mod tests {
         }
     }
 
+    #[test]
+    fn opencode_initial_paste_waits_past_the_tui_input_reader_startup_window() {
+        // OpenCode v2.0.32 enables bracketed paste ~0.1s after spawn but does
+        // not start reading input until the first real render ~1.1s in; every
+        // byte written in between is silently discarded. The paste must not
+        // fire during that dead window even when startup output is quiet.
+        let now = tokio::time::Instant::now();
+        let mut initial = InitialEditorPrompt::new(
+            "find new work".into(),
+            now,
+            now,
+            initial_editor_paste_settle(Some("opencode")),
+        );
+        initial.observe_output(b"\x1b[?2004h", now);
+        assert!(
+            initial
+                .next_command(now + Duration::from_millis(300), false)
+                .is_none(),
+            "quiet output inside the dead window must not trigger the paste"
+        );
+        let RuntimeCommand::Input { data, .. } = initial
+            .next_command(now + Duration::from_millis(1600), false)
+            .expect("paste must fire once the floor has passed")
+        else {
+            panic!("initial paste must be terminal input");
+        };
+        assert_eq!(data, "\x1b[200~find new work\x1b[201~");
+    }
+
+    #[test]
+    fn codex_initial_paste_keeps_the_200ms_quiet_settle() {
+        let now = tokio::time::Instant::now();
+        let mut initial = InitialEditorPrompt::new(
+            "find new work".into(),
+            now,
+            now,
+            initial_editor_paste_settle(Some("codex")),
+        );
+        initial.observe_output(b"\x1b[?2004h", now);
+        let RuntimeCommand::Input { data, .. } = initial
+            .next_command(now + Duration::from_millis(300), false)
+            .expect("codex has no input-drop window; quiet settle applies")
+        else {
+            panic!("initial paste must be terminal input");
+        };
+        assert_eq!(data, "\x1b[200~find new work\x1b[201~");
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn initial_prompt_waits_for_editor_and_precedes_queued_input() {
@@ -2795,10 +2863,13 @@ mod tests {
             handle.kill_tx = kill_tx;
         }
         // Model a TUI which starts in cooked mode, then enables raw paste input.
-        // Fragment the readiness escape to exercise PTY chunk boundaries.
+        // Fragment the readiness escape to exercise PTY chunk boundaries. The
+        // editor must be ready well inside the two-second startup grace so the
+        // accepted submission lands on the signal-replacement path: OpenCode's
+        // 1.5s paste floor already consumes most of it.
         let expected = b"\x1b[200~first\nsecond\x1b[201~\rnext\r";
         let script = format!(
-            "sleep 0.5; stty raw -echo; printf '\\033[?20'; printf '04h'; printf 'DELIVERED:'; dd bs=1 count={} 2>/dev/null | od -An -tx1",
+            "sleep 0.1; stty raw -echo; printf '\\033[?20'; printf '04h'; printf 'DELIVERED:'; dd bs=1 count={} 2>/dev/null | od -An -tx1",
             expected.len()
         );
         start_session_runtime(
@@ -2884,7 +2955,7 @@ mod tests {
     #[test]
     fn initial_editor_paste_has_separate_enter_after_write_and_no_retry() {
         let now = tokio::time::Instant::now();
-        let mut initial = InitialEditorPrompt::new("hello".into(), now, now);
+        let mut initial = InitialEditorPrompt::new("hello".into(), now, now, INITIAL_EDITOR_SETTLE);
         assert!(initial.next_command(now, false).is_none());
         initial.observe_output(b"banner\x1b[?20", now);
         assert!(initial
@@ -2922,7 +2993,8 @@ mod tests {
     fn initial_editor_falls_back_once_if_paste_mode_is_disabled_or_absent() {
         for output in [b"banner".as_slice(), b"\x1b[?2004h\x1b[?2004l".as_slice()] {
             let now = tokio::time::Instant::now();
-            let mut initial = InitialEditorPrompt::new("hello".into(), now, now);
+            let mut initial =
+                InitialEditorPrompt::new("hello".into(), now, now, INITIAL_EDITOR_SETTLE);
             initial.observe_output(output, now);
             assert!(initial
                 .next_command(now + Duration::from_secs(9), false)
@@ -2965,7 +3037,7 @@ mod tests {
         }
         let before = state.sessions.lock().unwrap()[id].info.attention.clone();
         let now = tokio::time::Instant::now();
-        let mut initial = InitialEditorPrompt::new("hello".into(), now, now);
+        let mut initial = InitialEditorPrompt::new("hello".into(), now, now, INITIAL_EDITOR_SETTLE);
         initial.submission_accepted = true;
         initial.qualifying_work_output = true;
         assert!(!complete_initial_editor_prompt(
@@ -3026,6 +3098,7 @@ mod tests {
                 prompt.into(),
                 now - Duration::from_secs(20),
                 now - Duration::from_secs(1),
+                INITIAL_EDITOR_SETTLE,
             );
             let Some(RuntimeCommand::Input {
                 accepted: Some(acknowledge),
@@ -3094,7 +3167,7 @@ mod tests {
             }
         }
         let now = tokio::time::Instant::now();
-        let mut initial = InitialEditorPrompt::new("hello".into(), now, now);
+        let mut initial = InitialEditorPrompt::new("hello".into(), now, now, INITIAL_EDITOR_SETTLE);
         initial.observe_output(b"\x1b[?2004h", now);
         let Some(RuntimeCommand::Input { data, accepted }) =
             initial.next_command(now + Duration::from_millis(201), false)
@@ -3125,7 +3198,7 @@ mod tests {
     #[test]
     fn initial_settle_deadline_waits_for_queued_output_before_dispatch() {
         let now = tokio::time::Instant::now();
-        let mut initial = InitialEditorPrompt::new("hello".into(), now, now);
+        let mut initial = InitialEditorPrompt::new("hello".into(), now, now, INITIAL_EDITOR_SETTLE);
         initial.observe_output(b"\x1b[?2004h", now);
         assert!(initial.next_command(now + Duration::from_millis(201), true).is_none(), "queued startup output must be observed before the expired settle timer can dispatch paste");
         initial.observe_output(b"still rendering", now + Duration::from_millis(201));
@@ -3135,7 +3208,8 @@ mod tests {
         assert!(initial
             .next_command(now + Duration::from_millis(402), false)
             .is_some());
-        let mut fallback = InitialEditorPrompt::new("hello".into(), now, now);
+        let mut fallback =
+            InitialEditorPrompt::new("hello".into(), now, now, INITIAL_EDITOR_SETTLE);
         assert!(
             fallback
                 .next_command(now + Duration::from_secs(11), true)
@@ -3148,7 +3222,8 @@ mod tests {
     fn initial_final_write_rejection_is_a_delivery_failure_in_both_modes() {
         for paste_mode in [false, true] {
             let now = tokio::time::Instant::now();
-            let mut initial = InitialEditorPrompt::new("hello".into(), now, now);
+            let mut initial =
+                InitialEditorPrompt::new("hello".into(), now, now, INITIAL_EDITOR_SETTLE);
             if paste_mode {
                 initial.observe_output(b"\x1b[?2004h", now);
                 let Some(RuntimeCommand::Input {
