@@ -235,7 +235,8 @@ impl RepositoryContext {
         let mut seeds = result.catalog.clone();
         seeds.sort_by_cached_key(|p| context::context_priority(Path::new(p), &[]));
         for path in seeds {
-            if result.facts.len() == 16 {
+            let total: usize = result.prefixes.values().map(Vec::len).sum();
+            if result.facts.len() == 16 || total == 24576 {
                 break;
             }
             if !context::fact_is_permitted(&path, ContextLevel::WorkflowContext, excluded) {
@@ -259,13 +260,39 @@ impl RepositoryContext {
                     }
                 }
             }
-            let total: usize = result.prefixes.values().map(Vec::len).sum();
-            if denied
-                || result.facts.len() + pending.len() > 16
-                || total + pending.iter().map(|(_, b)| b.len()).sum::<usize>() > 24576
-            {
+            if denied {
                 result.manifest.instruction_coverage_complete = false;
                 continue;
+            }
+            if result.facts.len() + pending.len() > 16
+                || total + pending.iter().map(|(_, b)| b.len()).sum::<usize>() > 24576
+            {
+                let instructions: Vec<_> = pending
+                    .iter()
+                    .filter(|(candidate, _)| {
+                        candidate != &path
+                            || matches!(
+                                Path::new(candidate)
+                                    .file_name()
+                                    .and_then(|name| name.to_str()),
+                                Some("AGENTS.md" | "CLAUDE.md")
+                            )
+                    })
+                    .collect();
+                if result.facts.len() + instructions.len() > 16
+                    || total
+                        + instructions
+                            .iter()
+                            .map(|(_, bytes)| bytes.len())
+                            .sum::<usize>()
+                        > 24576
+                {
+                    result.manifest.instruction_coverage_complete = false;
+                    continue;
+                }
+                // Ordinary seed truncation does not leave a supplied target
+                // without its instructions. Follow-up still has its shared budget.
+                break;
             }
             for (path, bytes) in pending {
                 result.add_file(path, bytes, true, &[])?;
@@ -599,6 +626,53 @@ mod tests {
             "now"
         )
         .is_err());
+    }
+
+    #[test]
+    fn normal_seed_byte_truncation_preserves_instruction_coverage_and_followup() {
+        for workflow_bytes in [8192, 8000] {
+            let dir = tempfile::tempdir().unwrap();
+            fs::write(dir.path().join("AGENTS.md"), "a".repeat(8192)).unwrap();
+            fs::write(dir.path().join("README.md"), "r".repeat(workflow_bytes)).unwrap();
+            fs::write(dir.path().join("package.json"), "p".repeat(workflow_bytes)).unwrap();
+            fs::create_dir_all(dir.path().join(".github/workflows")).unwrap();
+            fs::write(
+                dir.path().join(".github/workflows/ci.yml"),
+                "c".repeat(1024),
+            )
+            .unwrap();
+            fs::create_dir(dir.path().join("src")).unwrap();
+            fs::write(dir.path().join("src/check.ts"), "related test evidence").unwrap();
+            let mut context =
+                RepositoryContext::collect(dir.path(), ContextLevel::SourceCode, &[], "now")
+                    .unwrap();
+            assert!(
+                context.manifest().instruction_coverage_complete,
+                "ordinary seed truncation is not a missing governing instruction"
+            );
+            assert!(!context
+                .facts
+                .iter()
+                .any(|f| f.path == ".github/workflows/ci.yml"));
+            let id = context
+                .catalog
+                .iter()
+                .position(|p| p == "src/check.ts")
+                .unwrap();
+            assert_eq!(
+                context.follow_up(&[id], "test evidence").unwrap(),
+                FollowUp::Read
+            );
+            assert!(context.manifest().instruction_coverage_complete);
+            context.bind_discovery("validated selection after bounded seeding");
+            let saved = context.manifest();
+            let restored =
+                RepositoryContext::collect(dir.path(), ContextLevel::SourceCode, &[], "later")
+                    .unwrap()
+                    .restore(&saved)
+                    .unwrap();
+            assert_eq!(restored.manifest(), saved);
+        }
     }
 
     #[test]

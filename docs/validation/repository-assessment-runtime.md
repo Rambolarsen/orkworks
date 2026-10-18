@@ -68,6 +68,22 @@ Prompt clarification did not establish the quality threshold. No retries or
 fallback models were added to an assessment; diagnostic evaluations were fresh
 explicit attempts using the same selection.
 
+A fresh complete matrix on PR #938 head `44a60f5808` after the #934 collector
+hardening also failed. Both positive fixtures completed 0/3 valid assessments;
+healthy and refuted each completed 1/3 valid no-proposal assessments. No proposals
+surfaced, so no semantic adjudications were applicable. Sanitized evidence is
+retained at `/private/tmp/orkworks-931-quality-pr938-current`; the selection remained
+Codex `gpt-6-luna`, medium effort. This precedes the subsequent normal seed-budget
+truncation correction and establishes no quality claim for that correction.
+
+PR review separately exposed ordinary seed-byte truncation being mistaken for
+incomplete governing-instruction coverage. A regression reproduced this before
+the correction and passed afterward for an exactly full 24-KiB seed and a next
+target larger than remaining seed capacity. Both permit bounded follow-up and
+manifest reconstruction; genuine instruction-only overflow still returns an
+explained no-proposal result. The scoped assessment suite passed 86 tests, with
+2 explicit live-evaluation tests ignored.
+
 **Disposition: the usefulness gate remains failed.** Do not claim that this solves
 proposal usefulness or mark #931 complete. Keep the runtime PR in draft pending
 resolution and a fresh complete matrix. The harness requires explicit retained
