@@ -110,8 +110,10 @@ python3 scripts/sonar.py compare .sonar/reports/baseline.json .sonar/reports/aft
 
 `scan` copies Git-listed working source into a temporary snapshot, including
 unstaged edits and new nonignored source. It excludes known credential files,
-generated output, host dependency caches and symlinks. It installs desktop
-dependencies with pnpm in the scanner, and runs Clippy for
+generated output, host dependency caches and symlinks. The snapshot includes
+the specific public verification key required by the Rust build; other PEM
+files remain excluded. It installs desktop dependencies with pnpm in the
+scanner, and runs Clippy for
 `crates/orkworksd/Cargo.toml`. Scanner dependencies, build output and server
 data use named volumes. The source snapshot lives in the disposable scanner
 container, separate from the host's Node/Electron dependencies.
@@ -127,11 +129,12 @@ are not Sonar-native branch or pull-request analysis.
 
 Reports in ignored `.sonar/reports/` contain the staged source fingerprint,
 commit/dirty state, completed analysis ID, configuration identity, project/file
-metrics, open issue inventory, analysis warnings and quality gate. They become available only
-after the submitted server task succeeds. Retrieval checks the latest analysis
+metrics, open issue inventory, analysis warnings, scanner errors and quality
+gate. They become available only after the submitted server task succeeds. Retrieval checks the latest analysis
 before and after collection. `compare` refuses different scope, profiles, effective server settings, quality
 gate conditions or analyzer versions (including the actual scanner image ID and runtime Rust/Cargo/Clippy versions) and preserves missing
-values as unknown.
+values as unknown. It also refuses incomplete scanner evidence and older
+reports without recorded scanner diagnostics; rescan those sources before comparison.
 
 ```bash
 python3 scripts/sonar.py report --label current
@@ -145,7 +148,10 @@ explicitly permits replacement when you intend to discard a saved report.
 
 ### Interpreting metrics
 
-- Inspect `analysisWarnings` before interpreting metrics or calling an analysis clean.
+- Inspect `analysisWarnings` and `scannerErrors` before interpreting metrics or
+  calling an analysis clean. A sensor can fail even when the scanner exits zero.
+  Such errors remain in the saved report and latest snapshot state; `scan` and
+  `report` exit nonzero after saving the evidence, and `compare` refuses it.
 - Complexity and duplication identify candidates for inspection; assess the
   whole affected call path to detect complexity merely moved into helpers.
 - Rust inline test modules are analyzed with source. The `ncloc` total is not
