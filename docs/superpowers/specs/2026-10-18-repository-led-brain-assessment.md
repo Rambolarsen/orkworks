@@ -59,6 +59,12 @@ no access. Never accept arbitrary model paths, commands, URLs or glob patterns.
 
 - Preserve the traversal limit of 2,000 entries and depth 5. Build the catalog
   from that same traversal, with deterministic ordering and an explicit partial flag.
+- Require valid UTF-8 for the canonical workspace path and every native
+  relative path component before assigning IDs or computing persisted identity.
+  An unrepresentable workspace is unavailable; omit unrepresentable file paths
+  and mark coverage partial. Never use replacement characters or Unicode
+  normalization. Join validated components using canonical separators so catalog
+  paths, digests and saved rosters reconstruct exactly the same native path.
 - Catalog at most 512 permitted regular-file paths and 16 KiB of serialized
   path data. Omit paths longer than 512 UTF-8 bytes. Catalog IDs are stable
   indices in this run's ordered catalog. A partial catalog proves no absence.
@@ -71,6 +77,17 @@ no access. Never accept arbitrary model paths, commands, URLs or glob patterns.
   Integrity revalidation rereads those same bounded prefixes; it cannot add
   context beyond this shared evidence allowance.
   Reuse already-read bytes; remaining capacity is not a fresh allowance.
+- Automatically include the governing ancestor AGENTS.md/CLAUDE.md chain for
+  every seed and follow-up target, from the workspace root to its parent.
+  These files need not consume model-selected IDs, but do count against the
+  same traversal, file, per-file, byte and prompt limits. Reuse shared ancestors.
+  The seed's 16-file/24-KiB cap includes its instruction closure; follow-up
+  closure uses remaining capacity. If an ancestor directory was only partially
+  enumerated, governing instructions are inaccessible, or this closure cannot
+  fit, return insufficient evidence rather than finalizing a proposal without it.
+  Bounded instruction excerpts retain their truncation/unknown-text limitations;
+  a candidate requiring an unsupplied governing section or linked constraint
+  remains unverified and cannot justify a proposal.
 - Keep each supplied excerpt a verbatim span of at most 2,000 characters within
   the permitted 8 KiB prefix. Select seed spans from workflow purpose; follow-up
   spans may use the bounded candidate hypothesis as relevance data.
@@ -138,7 +155,8 @@ Introduce assessment record format 2, explicitly decoded alongside legacy
 format 1. Retain the existing final response schema and recommendation family.
 
 Persist a bounded input manifest with the final report: collector/prompt versions,
-ordered catalog digest and completeness, seed/follow-up path roster and bounded
+ordered catalog digest and completeness, seed/follow-up path roster including
+the governing instruction closure and bounded
 byte hashes, stage/excerpt identities, discovery-response digest, selected page
 identities and the remaining existing full-input identities. Store no uncited
 file contents, catalog listing, discovery prose or full prompts. Manifest entries
@@ -204,7 +222,8 @@ All deliverables depend on owner approval of this concrete proposal.
    `taskmaster/assessment_model.rs`. Test repository-first selection despite
    hundreds of noisy observations, related instruction/CI/test files, catalog
    determinism/partiality, aggregate limits, credential exclusion, symlink
-   replacement, forbidden IDs and context narrowing. Every requested file
+   replacement, non-UTF-8 path exclusion, governing-instruction closure, forbidden
+   IDs and context narrowing. Every requested file
    must remain confined at open time.
 2. **Two-stage assessment and durable identity.** Integrate through
    `assessment.rs`, `assessment_report.rs`, `assessment_store.rs` and
@@ -233,6 +252,8 @@ Complete the current-diff code-review gate before runtime PR merge.
 | Candidate gap already addressed in a related file | Follow-up refutes it; no duplicate recommendation |
 | Old/glyph-heavy observations plus a current repository gap | Repository evidence remains selected; no recurrence requirement |
 | Healthy linked instructions, tooling and checks | No invented gap; an explained no-proposal result is valid |
+| More governing instruction files than fit the initial seed | Include each selected target's ancestor chain within the shared budget or return insufficient evidence |
+| Non-UTF-8 file paths or invalid workspace encoding | Exclude invalid file paths without collisions; invalid workspace is unavailable |
 | Excluded, ignored, secret-bearing or substituted symlink target | No forbidden content enters either prompt or saved result |
 | Candidate requires unseen text or running a command | Explain the missing evidence; never claim verification |
 | Provider failure, malformed output or changed settings between calls | Explicit failure/interruption; no second call under stale authority and no proposal publication |
@@ -240,7 +261,13 @@ Complete the current-diff code-review gate before runtime PR merge.
 
 Use deterministic transport fixtures for protocol/lifecycle guarantees.
 For usefulness, run each positive and healthy case three times with the selected
-provider/model and fixed fixtures. Require every surfaced proposal to be grounded
+provider/model and identical fixture contents. Give every trial a fresh,
+distinct canonical temporary workspace path and fresh workspace-local metadata,
+report/cache identity and recommendation store. Confirm an actual provider
+dispatch and a non-reused result for each trial; a cache hit or active-record
+admission response is not a sample. Preserve normal production admission and
+cache rules. Never reset, delete or hand-edit a user's workspace metadata to
+obtain independent trials. Require every surfaced proposal to be grounded
 and scoped, at least two of three positive-case runs to find the designed gap,
 and zero invented proposals on healthy/refuted cases. Record model, effort,
 bundle and outputs in local sanitized evaluation evidence. This evaluates the
@@ -273,3 +300,11 @@ this first extension makes no deeper-code-review claim.
 | Uncertainty | 3 | Collection/protocol can be fixture-tested; usefulness requires the recorded model evaluations |
 
 Total: 16/25. Ratings describe risk, not implementation approval.
+
+Review update after Codex feedback: path reconstruction now excludes non-UTF-8
+paths explicitly; quality trials require distinct canonical temporary workspaces
+and proven uncached dispatches; instruction closure is automatic and counted in
+the existing budget. These changes resolve ambiguity without expanding access,
+execution authority or the aggregate evidence limit. The same disposition and
+risk ratings apply. Runtime delivery and approval-status reconciliation are
+tracked separately in [#931](https://github.com/Rambolarsen/orkworks/issues/931).
