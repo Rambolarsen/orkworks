@@ -52,8 +52,9 @@ checks are skipped; this is expected when the desktop app is not running.
    observation loop only. If timeouts persist across passes, preserve the
    helper output and the exact diagnostic message for follow-up.
 
-`PEON_TIMEOUT` is retained only as a legacy environment variable and does not
-control current session inference. Do not set `PEON_TIMEOUT` as a timeout fix.
+`PEON_TIMEOUT` is a legacy environment variable ignored by the current sidecar;
+provider configuration controls session inference timeouts.
+Do not set `PEON_TIMEOUT` as a timeout fix.
 `PEON_IDLE_TIMEOUT` controls when terminal silence is classified as idle; it
 does not increase the provider request timeout.
 
