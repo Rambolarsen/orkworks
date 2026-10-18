@@ -511,7 +511,7 @@ mod tests {
             "production probes must still reject spawn errors without retrying"
         );
 
-        let readiness = await_fixture_executable(&bin);
+        let readiness = await_fixture_executable(&bin, Duration::from_secs(30));
         tokio::pin!(readiness);
         poll_fn(|cx| {
             assert!(readiness.as_mut().poll(cx).is_pending());
@@ -532,8 +532,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let bin = dir.path().join("fake-tool");
         write_silent_exit_fixture(&bin);
+        let fixture_budget = Duration::from_secs(30);
         #[cfg(unix)]
-        await_fixture_executable(&bin).await.unwrap();
+        await_fixture_executable(&bin, fixture_budget)
+            .await
+            .unwrap();
 
         // A silent nonzero exit is a parse-failure case for the caller,
         // not a spawn failure. First establish fixture readiness so a fork
@@ -541,7 +544,7 @@ mod tests {
         // This is a short, local fixture; don't make its correctness depend
         // on satisfying the production spawn timeout under suite load.
         let started = std::time::Instant::now();
-        let output = probe_tool_version_with_timeout(&bin, Duration::from_secs(30)).await;
+        let output = probe_tool_version_with_timeout(&bin, fixture_budget).await;
         let elapsed = started.elapsed();
         assert_eq!(
             output,
@@ -552,12 +555,12 @@ mod tests {
     }
 
     #[cfg(unix)]
-    async fn await_fixture_executable(bin: &Path) -> std::io::Result<()> {
+    async fn await_fixture_executable(bin: &Path, budget: Duration) -> std::io::Result<()> {
         // A concurrently forked process can briefly retain the descriptor used to
         // write this script, even after the parent closes it. Linux then rejects
         // exec with ETXTBSY before the fixture can write its PID. Establish that
         // exact inode is executable before starting the production timeout probe.
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+        let deadline = tokio::time::Instant::now() + budget;
         loop {
             let spawn = tokio::process::Command::new(bin)
                 .arg("--fixture-ready")
@@ -611,9 +614,12 @@ mod tests {
         )).unwrap();
         make_test_executable(&bin);
         let writer = std::fs::OpenOptions::new().write(true).open(&bin).unwrap();
-        let result = tokio::time::timeout(Duration::from_secs(4), await_fixture_executable(&bin))
-            .await
-            .expect("retained-writer readiness rejection must remain bounded");
+        let result = tokio::time::timeout(
+            Duration::from_secs(4),
+            await_fixture_executable(&bin, Duration::from_secs(3)),
+        )
+        .await
+        .expect("retained-writer readiness rejection must remain bounded");
         assert!(
             result.is_err(),
             "readiness must not treat an unspawned fixture as success"
@@ -621,7 +627,9 @@ mod tests {
         assert_eq!(result.unwrap_err().raw_os_error(), Some(libc::ETXTBSY));
         assert!(!pidfile.exists());
         drop(writer);
-        await_fixture_executable(&bin).await.unwrap();
+        await_fixture_executable(&bin, Duration::from_secs(3))
+            .await
+            .unwrap();
         assert!(
             !pidfile.exists(),
             "readiness must not start the hanging body"
@@ -650,7 +658,9 @@ mod tests {
         )
         .unwrap();
         make_test_executable(&bin);
-        await_fixture_executable(&bin).await.unwrap();
+        await_fixture_executable(&bin, Duration::from_secs(3))
+            .await
+            .unwrap();
 
         let start = std::time::Instant::now();
         let result = probe_tool_version(&bin).await;
