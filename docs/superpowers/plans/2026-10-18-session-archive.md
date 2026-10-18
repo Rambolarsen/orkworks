@@ -265,3 +265,26 @@ history. A subsequent unconstrained parallel run hit three unrelated native
 Codex fixture-probe failures; each passed in isolation, and the complete run
 with four workers passed without modifying those tests or production code.
 Fresh focused backend/UI review approves the final code and amended regressions.
+
+## Owner-approved extension: PR feedback cycle 5/5
+
+The owner authorized the two cycle-4 findings and one additional cycle.
+A shared archive-aware historical/alive predicate now governs terminal replay,
+attachment pruning, workspace selection restoration, independent-review and
+Fix with AI entry points, Details live controls, grouping and unread/attention.
+Archived rows keep read-only plan/history access even if producer metadata
+claims alive. Actual App Electron and TerminalPanel regressions reproduce the
+live-attachment bug and verify historical rendering and disabled live controls.
+Post-action refresh reconciles any confirmed-absent target, including retention
+following Restore, without disturbing a newer selection or inferring absence
+from an unavailable refresh. Deferred success/error/selection regressions were
+observed failing then passing. The already-approved manual-plus-Codex path
+continues; no sixth cycle is assumed.
+
+Cycle 5 full verification passed under Node 22.23.3 with four Rust workers:
+2,149 Rust unit tests (9 ignored), 6 integrations, 1,375 desktop tests
+(1 skipped), reporter/native ABI/type-check, desktop/docs builds and repository
+checks. Existing source-contract assertions now verify the shared predicate;
+Electron generation tests wait for observable reset rather than a single frame.
+Fresh focused backend/UI medium reviews approve the code. The documentation
+currency warning is covered by the existing archive user-guide/home updates.

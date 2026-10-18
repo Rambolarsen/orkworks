@@ -1,3 +1,4 @@
+import { isHistoricalSession } from "./sessionRuntimeState.ts";
 import {
   sessionAction as apiSessionAction,
   type SessionAction,
@@ -131,7 +132,7 @@ export function createWorkspaceSessionController(
         || (!allowDuringTransition && !isCurrentAdmission(admissionToken))
         || (epoch !== undefined && epoch !== pollingEpoch)) return null;
 
-      deps.pruneTerminals(new Set(list.filter((session) => session.lifecycle !== "dead").map((session) => session.id)));
+      deps.pruneTerminals(new Set(list.filter((session) => !isHistoricalSession(session)).map((session) => session.id)));
       const resolution = resolvePendingCreates(pendingCreateIds, list);
       pendingCreateIds = resolution.ids;
       if (resolution.erroredIds.length > 0) publishError("create", "Couldn't start a new session.");
@@ -198,7 +199,7 @@ export function createWorkspaceSessionController(
       if (!refreshed || !isCurrent(token)) return;
       const restored = info.lastActiveSessionId;
       const match = restored && sessions.find((session) => session.id === restored);
-      if (match && match.lifecycle !== "dead") {
+      if (match && !isHistoricalSession(match)) {
         activeSessionId = match.id;
         options.onActiveSession?.(match.id);
       }
@@ -223,7 +224,7 @@ export function createWorkspaceSessionController(
     if (!refreshed || !isCurrent(token)) return;
     const restored = workspace.lastActiveSessionId;
     const match = restored && sessions.find((session) => session.id === restored);
-    if (match && match.lifecycle !== "dead") {
+    if (match && !isHistoricalSession(match)) {
       activeSessionId = match.id;
       options.onActiveSession?.(match.id);
     }
@@ -310,7 +311,10 @@ export function createWorkspaceSessionController(
     pendingActions.add(pendingKey);
     foregroundGeneration += 1;
     const current = () => isCurrentAdmission(admissionToken) && workspaceToken === workspaceGeneration;
+    let targetDisposed = false;
     const disposeDeletedRow = () => {
+      if (targetDisposed) return;
+      targetDisposed = true;
       deps.disposeTerminal(id);
       if (activeSessionId === id) {
         activeSessionId = null;
@@ -323,12 +327,13 @@ export function createWorkspaceSessionController(
       await deps.sessionAction(baseUrl, id, action, actionToken);
       if (!current()) return;
       if (action === "delete") disposeDeletedRow();
-      await refreshSessions();
+      const refreshed = await refreshSessions();
+      if (current() && refreshed !== null && !refreshed.some(session => session.id === id)) disposeDeletedRow();
     } catch (error) {
       if (current()) {
         const refreshed = await refreshSessions();
         if (current()) {
-          if (action === "delete" && refreshed !== null && !refreshed.some(session => session.id === id)) disposeDeletedRow();
+          if (refreshed !== null && !refreshed.some(session => session.id === id)) disposeDeletedRow();
           throw error;
         }
       }

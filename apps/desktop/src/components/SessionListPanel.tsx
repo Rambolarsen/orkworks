@@ -1,3 +1,4 @@
+import { isHistoricalSession } from "../sessionRuntimeState";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { MoreHorizontal } from "lucide-react";
 import type { SessionAction, SessionInfo, WorkspaceInfo } from "../api";
@@ -202,7 +203,7 @@ function SessionListPanel({
               {group.items.map((s) => {
                 const attn = sessionAttentionStatus(s);
                 const tone = attentionTone(attn);
-                const remembered = s.lifecycle === "dead" || s.sessionState === "archived";
+                const remembered = isHistoricalSession(s);
                 // Unread is "changed since you looked" — a remembered session
                 // can't change under you, so the signal is suppressed there.
                 const unread = unreadIds.has(s.id) && !remembered;

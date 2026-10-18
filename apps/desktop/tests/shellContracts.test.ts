@@ -343,7 +343,7 @@ test("session list marks dead sessions separately from alive sessions", () => {
     "utf8",
   );
 
-  assert.match(source, /const\s+remembered\s*=\s*s\.lifecycle\s*===\s*"dead"/);
+  assert.match(source, /const\s+remembered\s*=\s*isHistoricalSession\(s\)/);
   assert.match(source, /remembered\s*\?\s*"session-row--remembered"/);
 });
 
@@ -514,7 +514,7 @@ test("TerminalPanel replays dead sessions without retaining their interactive ha
   const controller = readFileSync(new URL("../src/workspaceSessionController.ts", import.meta.url), "utf8");
   assert.match(terminalPanel, /HistoricalTerminal/);
   assert.match(controller, /pruneTerminals\(/);
-  assert.match(controller, /session\.lifecycle !== "dead"/);
+  assert.match(controller, /!isHistoricalSession\(session\)/);
 });
 
 test("App routes user-facing error catches through the toast feedback primitive", () => {

@@ -1,3 +1,4 @@
+import { isSessionAlive } from "../sessionRuntimeState";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { FileText, GitBranch, MessageCircle } from "lucide-react";
@@ -199,7 +200,7 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, onResumeSes
                   <span className="resume-option-label">Review plan</span>
                 </span>
               </button>
-              {active.lifecycle === "alive" && (
+              {isSessionAlive(active) && (
                 <button
                   type="button"
                   className={`resume-option${reviewingSessionId === active.id ? " resume-option--unavailable" : ""}`}
@@ -317,7 +318,7 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, onResumeSes
               <DetailField className="detail-fact detail-fact--id" label="Harness session ID">
                 {active.resume?.harnessSessionId ?? "Not captured"}
               </DetailField>
-              {active.lifecycle === "alive" && (
+              {isSessionAlive(active) && (
                 <DetailField className="detail-fact" label="Debug attention injection">
                   <div className="debug-injection">
                     <select

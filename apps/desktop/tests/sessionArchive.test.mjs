@@ -48,13 +48,13 @@ if (process.versions.electron) {
         } else if (scenario === 'generation-menu') {
           await more('closed');
           await evaluate('fixture.nextGeneration()');
-          await evaluate('new Promise(resolve=>requestAnimationFrame(()=>resolve(true)))');
+          await wait('!document.querySelector("[role=menu]")');
           assert.equal(await evaluate('!!document.querySelector("[role=menu]")'), false, 'same-path generation dismisses old menu');
         } else if (scenario === 'generation-pending') {
           await evaluate('fixture.pauseAction=true');
           await more('closed'); await action('Archive'); await wait('fixture.finishAction');
           await evaluate('fixture.nextGeneration()');
-          await evaluate('new Promise(resolve=>requestAnimationFrame(()=>resolve(true)))');
+          await wait('!document.querySelector("[data-session-id=closed] .session-row-more").disabled');
           assert.equal(await evaluate('document.querySelector("[data-session-id=closed] .session-row-more").disabled'), false);
           await evaluate('fixture.finishAction()');
         }

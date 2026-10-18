@@ -1,3 +1,4 @@
+import { isHistoricalSession } from "./sessionRuntimeState.ts";
 import type { SessionInfo } from "./api.ts";
 import { lastActivityTimestamp } from "./labels.ts";
 
@@ -14,6 +15,7 @@ export function sessionAttentionStatus(session: SessionInfo): string {
   // here. Once lifecycle settles to alive, nothing sets attention to
   // "working" on its own — the fallback below reads idle immediately unless
   // the harness has actually reported otherwise.
+  if (isHistoricalSession(session)) return session.terminalOutcome ?? "neutral";
   if (session.lifecycle === "creating" || session.lifecycle === "stopping") return "working";
   // Dead sessions: the backend already knows how the run finished
   // ("ended" | "killed" | "error") — surface it instead of erasing it.

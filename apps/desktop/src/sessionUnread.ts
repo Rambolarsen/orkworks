@@ -1,3 +1,4 @@
+import { isSessionAlive } from "./sessionRuntimeState.ts";
 import type { SessionInfo } from "./api.ts";
 import { sessionAttentionStatus } from "./sessionSort.ts";
 
@@ -49,7 +50,7 @@ export function trackUnread(
     if (s.id === activeSessionId) continue; // being looked at right now
     const prevSig = prev.signatures.get(s.id);
     const becameResult = prevSig === "working" && WORKING_RESULTS.has(sig);
-    if (s.lifecycle === "alive" && (becameResult || prev.unreadIds.has(s.id))) {
+    if (isSessionAlive(s) && (becameResult || prev.unreadIds.has(s.id))) {
       unreadIds.add(s.id);
     }
     if (becameResult) acknowledgedIds.delete(s.id);

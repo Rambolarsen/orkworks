@@ -17,6 +17,7 @@ const { outputText } = transpileModule(source, {
 const component = { exports: {} };
 new Function("require", "module", "exports", outputText)((id) => {
   if (id in children) return { default: children[id] };
+  if (id === "../sessionRuntimeState") return require("../src/sessionRuntimeState.ts");
   if (id === "../terminalPresentation") return require("../src/terminalPresentation.ts");
   return require(id);
 }, component, component.exports);
@@ -46,3 +47,9 @@ for (const lifecycle of [undefined, "creating", "alive", "stopping"]) {
     });
   }
 }
+
+test("archived session with stale alive metadata selects read-only history", () => {
+  const view = TerminalPanel({...props, session:{id:"saved",sessionState:"archived",lifecycle:"alive",status:"running"}});
+  assert.equal(view.type, children["./HistoricalTerminal"]);
+  assert.deepEqual(view.props, {sessionId:"saved"});
+});

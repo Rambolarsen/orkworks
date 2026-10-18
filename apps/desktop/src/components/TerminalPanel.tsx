@@ -1,3 +1,4 @@
+import { isHistoricalSession } from "../sessionRuntimeState";
 import CenterPanel from "./CenterPanel";
 import HistoricalTerminal from "./HistoricalTerminal";
 import EmptyState from "./EmptyState";
@@ -15,7 +16,7 @@ function TerminalPanel({ backendStatus, session, onBackendUnavailable, onRetryBa
   if (!session) {
     return <EmptyState message="Select a session to open its terminal." />;
   }
-  return session.lifecycle === "dead" ? (
+  return isHistoricalSession(session) ? (
     <HistoricalTerminal sessionId={session.id} />
   ) : (
     <CenterPanel

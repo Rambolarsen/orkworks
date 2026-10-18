@@ -1,3 +1,4 @@
+import { isHistoricalSession } from "./sessionRuntimeState.ts";
 import type { SessionInfo, WorkflowRecommendation } from "./api.ts";
 import { sessionAttentionStatus } from "./sessionSort.ts";
 import { filterPanelRecommendations } from "./taskmaster.ts";
@@ -33,7 +34,7 @@ export function buildActionsOverview(
   const sessionRows: ActionRow[] = [];
   for (const session of sessions) {
     // Remembered attention is historical, and capacity has its own destination.
-    if (session.lifecycle === "dead" || session.sessionState === "archived" || seen.has(session.id)) continue;
+    if (isHistoricalSession(session) || seen.has(session.id)) continue;
     seen.add(session.id);
     const group = GROUPS[sessionAttentionStatus(session)];
     if (!group) continue;

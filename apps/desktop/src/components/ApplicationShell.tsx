@@ -1,3 +1,4 @@
+import { isSessionAlive } from "../sessionRuntimeState";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { PanelLeft, PanelRight, Plus, ChevronDown, Play, Gauge, Lightbulb, Settings, Pin, PinOff, X } from "lucide-react";
 import type { CentralSurface } from "../shellNavigation";
@@ -331,7 +332,7 @@ export default function ApplicationShell(props: Props) {
       }} onOpenRecommendation={props.onOpenRecommendation} />;
     return <RecommendationsPanel hasWorkspace={!!props.workspace && !props.isSwitchingWorkspace}
       workspacePath={props.workspace?.path ?? null}
-      taskmasterReady={props.taskmasterReady} canFixWithAi={props.canFixWithAi && session?.lifecycle === "alive"}
+      taskmasterReady={props.taskmasterReady} canFixWithAi={props.canFixWithAi && isSessionAlive(session)}
       onSelectSession={props.onSelectSession} onFixWithAi={props.onFixWithAi} onRunCleanup={props.onRunCleanup}
       focusedRecommendationId={props.focusedRecommendationId} />;
   };

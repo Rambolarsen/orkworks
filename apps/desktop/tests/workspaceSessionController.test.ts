@@ -574,3 +574,59 @@ for (const pending of ["create", "resume"] as const) {
     });
   }
 }
+
+test("pruning excludes archived stale runtime rows and restoration does not select them", async () => {
+  const kept: string[][] = [];
+  const active: Array<string|null> = [];
+  const rows = [{...session("saved"),sessionState:"archived" as const}, session("live")];
+  const controller = createWorkspaceSessionController({
+    deps:deps({listSessions:async()=>rows,pruneTerminals:ids=>kept.push([...ids])}),
+    onActiveSession:id=>active.push(id),
+  });
+  await controller.adoptRestoredWorkspace(workspace("/same", "saved"));
+  assert.deepEqual(kept, [["live"]]);
+  assert.deepEqual(active, [null]);
+  controller.dispose();
+});
+
+for (const outcome of ["success","error"] as const) {
+  for (const changedSelection of [false,true]) {
+    test(`Restore ${outcome} reconciles retention removal with changed selection=${changedSelection}`, async () => {
+      const refreshed = deferred<SessionInfo[]>();
+      const active: Array<string|null> = [];
+      const disposed: string[] = [];
+      const controller = createWorkspaceSessionController({
+        deps:deps({
+          sessionAction:async()=>{if(outcome==="error")throw new Error("state save failed");},
+          listSessions:()=>refreshed.promise,
+          disposeTerminal:id=>disposed.push(id),
+        }),
+        onActiveSession:id=>active.push(id),
+      });
+      controller.selectSession("one");
+      const restoring = controller.sessionAction("one","restore","token");
+      const settled = outcome==="error" ? assert.rejects(restoring,/state save failed/) : restoring;
+      await new Promise(resolve=>setImmediate(resolve));
+      if(changedSelection) controller.selectSession("other");
+      refreshed.resolve([session("other")]);
+      await settled;
+      assert.deepEqual(disposed, ["one"]);
+      assert.deepEqual(active, changedSelection ? ["one","other"] : ["one",null]);
+      controller.dispose();
+    });
+  }
+}
+
+test("Restore makes no missing-row inference from an unavailable refresh", async () => {
+  const active: Array<string|null> = [];
+  const disposed: string[] = [];
+  const controller=createWorkspaceSessionController({
+    deps:deps({listSessions:async()=>{throw new Error("offline");},disposeTerminal:id=>disposed.push(id)}),
+    onActiveSession:id=>active.push(id),
+  });
+  controller.selectSession("one");
+  await controller.sessionAction("one","restore","token");
+  assert.deepEqual(active,["one"]);
+  assert.deepEqual(disposed,[]);
+  controller.dispose();
+});

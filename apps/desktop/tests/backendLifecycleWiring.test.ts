@@ -30,7 +30,7 @@ test("App makes the coordinator lifecycle the renderer admission authority", () 
   assert.match(appSource, /workspaceSessionController\.setAdmissionEnabled\(event\.state === "ready"\)/);
   assert.match(appSource, /workspaceSessionController\.submitActiveSession\(sid\)/);
   assert.match(appSource, /sessionAdmissionEnabled/);
-  assert.match(appSource, /canFixWithAi=\{sessionAdmissionEnabled && activeSession\?\.lifecycle === "alive"\}/);
+  assert.match(appSource, /canFixWithAi=\{sessionAdmissionEnabled && isSessionAlive\(activeSession\)\}/);
 });
 
 test("App exposes a retry action that resets status and invokes the lifecycle bridge", () => {

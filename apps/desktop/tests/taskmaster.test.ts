@@ -580,7 +580,7 @@ test("Fix with AI is gated on the active session actually being alive, not merel
 
   assert.match(panel, /canFixWithAi: boolean/);
   assert.doesNotMatch(panel, /activeSessionId/);
-  assert.match(shell, /\.lifecycle === "alive"/);
+  assert.match(shell, /isSessionAlive\(session\)/);
 });
 
 test("Recommendations polls authenticated Taskmaster run status without coupling it to recommendation errors", () => {

@@ -26,7 +26,24 @@ if (process.versions.electron) {
       await fresh();
       const scenario = process.env.ORKWORKS_SHELL_SCENARIO;
       const click = async command => evaluate('(()=>{const b=document.querySelector("[data-shell-command=' + command + ']");b.focus();b.click()})()');
-      if (scenario === 'recommendations-main') {
+      if (scenario === 'app-review-archived-stale') {
+        await waitFor('fixture.runtime()?.terminal.element?.isConnected');
+        const sockets = await evaluate('fixture.socketCount');
+        await evaluate('(()=>{const select=document.querySelector(".session-state-filter select");select.value="archived";select.dispatchEvent(new Event("change",{bubbles:true}))})()');
+        await waitFor('document.querySelector("[data-session-id=other]")');
+        await evaluate('document.querySelector("[data-session-id=other] .session-row-select").click()');
+        await waitFor('document.querySelector(".historical-terminal-size")');
+        assert.equal(await evaluate('fixture.socketCount'), sockets, 'archived history must not attach a live terminal');
+        await click('details');
+        await waitFor('document.querySelector("[data-shell-region=inspector]")');
+        assert.equal(await evaluate('Array.from(document.querySelectorAll("button")).some(button=>button.textContent.includes("Request independent review"))'), false);
+        await click('review');
+        await waitFor('document.querySelector(".review-plan-content")');
+        assert.equal(await evaluate('!!document.querySelector("[data-review-request]")'), false);
+        assert.equal(await evaluate('fixture.prompts'),0);
+        assert.deepEqual(await evaluate('fixture.errors'),[]);
+        return;
+      } else if (scenario === 'recommendations-main') {
         for (const width of [1280,1000,640]) {
           await win.setContentSize(width,700);
           await waitFor(`document.querySelector(".shell-layout").dataset.mode==="${width>=1180?'wide':width>=860?'medium':'compact'}"`);
@@ -1311,7 +1328,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['recommendations-main','inspector-dismissal','inspector-overlay','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['app-review-archived-stale','recommendations-main','inspector-dismissal','inspector-overlay','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
@@ -1362,6 +1379,7 @@ if (process.versions.electron) {
             if(${JSON.stringify(scenario)}==='app-review-stale-read-restore')fixture.deferRead=true;
             if(${JSON.stringify(scenario)}==='app-review-unreadable-restore')fixture.unreadable=true;
             if(${JSON.stringify(scenario)}==='app-review-missing-restore')fixture.sessionList[0].hasOpenablePlan=false;
+            if(${JSON.stringify(scenario)}==='app-review-archived-stale')fixture.sessionList[1].sessionState='archived';
             if(${JSON.stringify(scenario)}==='app-review-history'){fixture.sessionList[1].lifecycle='dead';fixture.sessionList[1].status='ended';}
             fixture.runtime=()=>getTerminal('created');
             Object.assign(window.orkworks,{
