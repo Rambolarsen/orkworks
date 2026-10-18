@@ -179,6 +179,20 @@ No additional raw terminal replay is read. Background collection is read-only
 and never runs repository scripts or commands. Model output is schema-validated;
 it can only cite evidence and knowledge supplied in the request.
 
+### Proposed repository-led assessment extension (#929)
+
+Status: proposed 2026-10-18; concrete design approval required before runtime implementation.
+
+The owner approved repository-led assessment as a direction. The
+[concrete design and implementation plan](../docs/superpowers/specs/2026-10-18-repository-led-brain-assessment.md)
+and [ADR 0086](../docs/adr/0086-repository-led-taskmaster-assessment.md)
+propose repository-first discovery followed by one bounded, sidecar-authorized
+evidence selection and final assessment. They specify aggregate collection
+bounds, strict selection IDs, full input identity, format-2 compatibility,
+redaction/recovery and grounded-proposal quality checks. This proposal does
+not change the accepted one-shot contract below or authorize runtime work
+until the concrete architecture is approved.
+
 ### Manual Brain-guided next-step assessment (#769)
 
 Status: accepted 2026-10-17 with ADR 0085; runtime implementation remains tracked in #769.
