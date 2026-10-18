@@ -100,16 +100,6 @@ impl RingBuffer {
             .map(|(_, line)| line.clone())
             .collect()
     }
-
-    #[allow(dead_code)]
-    pub fn is_empty(&self) -> bool {
-        self.lines.is_empty()
-    }
-
-    #[allow(dead_code)]
-    pub fn len(&self) -> usize {
-        self.lines.len()
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1346,14 +1336,11 @@ mod tests {
         buf.push("c".into());
         let snapshot = buf.snapshot();
         assert_eq!(snapshot, vec!["b", "c"]);
-        assert_eq!(buf.len(), 2);
     }
 
     #[test]
     fn test_ring_buffer_empty() {
         let buf = RingBuffer::new(5);
-        assert!(buf.is_empty());
-        assert_eq!(buf.len(), 0);
         let snapshot = buf.snapshot();
         assert!(snapshot.is_empty());
     }
