@@ -480,18 +480,64 @@ mod tests {
         );
     }
 
+    fn write_silent_exit_fixture(bin: &Path) {
+        std::fs::write(
+            bin,
+            "#!/bin/sh\nif [ \"$1\" = --fixture-ready ]; then printf 'fixture-ready\\n'; exit 0; fi\nexit 1\n",
+        )
+        .unwrap();
+        crate::test_support::make_test_executable(bin);
+    }
+
+    #[cfg(target_os = "linux")]
     #[tokio::test]
-    async fn probe_tool_version_returns_empty_text_for_a_silent_nonzero_exit() {
-        use crate::test_support::make_test_executable;
+    async fn silent_exit_fixture_waits_for_a_retained_writer_before_probing() {
+        use std::future::{poll_fn, Future};
+        use std::task::Poll;
 
         let dir = tempfile::tempdir().unwrap();
-        let bin = dir.path().join("fake-tool");
-        std::fs::write(&bin, "#!/bin/sh\nexit 1\n").unwrap();
-        make_test_executable(&bin);
+        let bin = dir.path().join("silent-exit");
+        write_silent_exit_fixture(&bin);
+        let writer = std::fs::OpenOptions::new().write(true).open(&bin).unwrap();
+        let spawn_error = tokio::process::Command::new(&bin)
+            .arg("--version")
+            .spawn()
+            .unwrap_err();
+        assert_eq!(spawn_error.raw_os_error(), Some(libc::ETXTBSY));
+        eprintln!("retained-writer spawn error: {spawn_error}");
+        assert_eq!(
+            probe_tool_version_with_timeout(&bin, Duration::from_secs(30)).await,
+            None,
+            "production probes must still reject spawn errors without retrying"
+        );
 
-        // .output() succeeds regardless of exit code — it only fails if the
-        // process can't be spawned at all. A silent nonzero exit is a
-        // parse-failure case for the *caller*, not a spawn failure here.
+        let readiness = await_fixture_executable(&bin);
+        tokio::pin!(readiness);
+        poll_fn(|cx| {
+            assert!(readiness.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        drop(writer);
+        readiness.await.unwrap();
+
+        assert_eq!(
+            probe_tool_version_with_timeout(&bin, Duration::from_secs(30)).await,
+            Some(String::new())
+        );
+    }
+
+    #[tokio::test]
+    async fn probe_tool_version_returns_empty_text_for_a_silent_nonzero_exit() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("fake-tool");
+        write_silent_exit_fixture(&bin);
+        #[cfg(unix)]
+        await_fixture_executable(&bin).await.unwrap();
+
+        // A silent nonzero exit is a parse-failure case for the caller,
+        // not a spawn failure. First establish fixture readiness so a fork
+        // retaining its writer cannot turn this into ETXTBSY (issue #714).
         // This is a short, local fixture; don't make its correctness depend
         // on satisfying the production spawn timeout under suite load.
         let started = std::time::Instant::now();
@@ -506,7 +552,7 @@ mod tests {
     }
 
     #[cfg(unix)]
-    async fn await_hanging_fixture_executable(bin: &Path) -> std::io::Result<()> {
+    async fn await_fixture_executable(bin: &Path) -> std::io::Result<()> {
         // A concurrently forked process can briefly retain the descriptor used to
         // write this script, even after the parent closes it. Linux then rejects
         // exec with ETXTBSY before the fixture can write its PID. Establish that
@@ -536,7 +582,10 @@ mod tests {
                     {
                         Ok(())
                     } else {
-                        Err(std::io::Error::other("fixture readiness failed"))
+                        Err(std::io::Error::other(format!(
+                            "fixture readiness failed: status={}, stdout={:?}, stderr={:?}",
+                            output.status, output.stdout, output.stderr
+                        )))
                     };
                 }
                 Err(error)
@@ -562,12 +611,9 @@ mod tests {
         )).unwrap();
         make_test_executable(&bin);
         let writer = std::fs::OpenOptions::new().write(true).open(&bin).unwrap();
-        let result = tokio::time::timeout(
-            Duration::from_secs(4),
-            await_hanging_fixture_executable(&bin),
-        )
-        .await
-        .expect("retained-writer readiness rejection must remain bounded");
+        let result = tokio::time::timeout(Duration::from_secs(4), await_fixture_executable(&bin))
+            .await
+            .expect("retained-writer readiness rejection must remain bounded");
         assert!(
             result.is_err(),
             "readiness must not treat an unspawned fixture as success"
@@ -575,7 +621,7 @@ mod tests {
         assert_eq!(result.unwrap_err().raw_os_error(), Some(libc::ETXTBSY));
         assert!(!pidfile.exists());
         drop(writer);
-        await_hanging_fixture_executable(&bin).await.unwrap();
+        await_fixture_executable(&bin).await.unwrap();
         assert!(
             !pidfile.exists(),
             "readiness must not start the hanging body"
@@ -604,7 +650,7 @@ mod tests {
         )
         .unwrap();
         make_test_executable(&bin);
-        await_hanging_fixture_executable(&bin).await.unwrap();
+        await_fixture_executable(&bin).await.unwrap();
 
         let start = std::time::Instant::now();
         let result = probe_tool_version(&bin).await;
