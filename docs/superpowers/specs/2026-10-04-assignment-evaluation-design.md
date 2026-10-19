@@ -806,8 +806,11 @@ evaluations.
 
 ## Product boundaries and verification
 
-Assignment evaluation is separate from Taskmaster `CoordinationResult` and the
-`CompletionPacket` for `ImproveWorkflow`. It cannot launch/retry work, widen
+Assignment evaluation is separate from the Taskmaster parent coordination
+result (an exact version-bound parent outcome per the
+[authoritative Taskmaster spec](../../../specs/taskmaster.md)) and from the
+`CompletionPacket` that completes an `ImproveWorkflow` recommendation. It
+cannot launch/retry work, widen
 permissions, advance undeclared dependencies, accept work, declare merge
 readiness or authorize integration. #746 may show the overall result with
 details on request; distinguish Unassessed from failure. #745 defines learning
