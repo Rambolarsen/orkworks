@@ -275,8 +275,15 @@ pub(crate) struct AttentionSignal {
 
 fn opencode_event_allows_status(event: &str, status: &str) -> bool {
     match event {
-        "session.created" | "session.idle" => status == "idle",
-        "session.status" => status == "working",
+        // `session.capture` is the reporter's normalized name for the
+        // capture-time attention POST (the first session-scoped event, or a
+        // defensive `session.created` re-capture — no dedicated V2 event
+        // was observed for session creation in OpenCode 2 run mode).
+        "session.capture" => status == "idle",
+        "session.step.started" => status == "working",
+        "session.execution.succeeded"
+        | "session.execution.failed"
+        | "session.execution.interrupted" => status == "idle",
         "permission.asked" | "question.asked" => status == "waiting_for_input",
         "permission.replied" | "question.replied" | "question.rejected" => {
             matches!(status, "waiting_for_input" | "working" | "idle")
@@ -7654,7 +7661,10 @@ mod tests {
                     .last_hook_attention_at = Some(timestamp);
             }
             let result = SessionApplication::new(state.clone())
-                .report_attention(id, opencode_attention_signal("session.status", "working"))
+                .report_attention(
+                    id,
+                    opencode_attention_signal("session.step.started", "working"),
+                )
                 .await;
             assert_eq!(result, Ok(()));
             assert!(!state.sessions.lock().unwrap()[id].active_work_hook);
@@ -7803,7 +7813,10 @@ mod tests {
         .unwrap();
 
         let result = SessionApplication::new(state.clone())
-            .report_attention(id, opencode_attention_signal("session.status", "working"))
+            .report_attention(
+                id,
+                opencode_attention_signal("session.step.started", "working"),
+            )
             .await;
 
         assert_eq!(
@@ -7882,7 +7895,10 @@ mod tests {
         application.report_attention(id, generic).await.unwrap();
         assert!(!state.sessions.lock().unwrap()[id].active_work_hook);
         application
-            .report_attention(id, opencode_attention_signal("session.status", "working"))
+            .report_attention(
+                id,
+                opencode_attention_signal("session.step.started", "working"),
+            )
             .await
             .unwrap();
         assert!(state.sessions.lock().unwrap()[id].active_work_hook);
@@ -7923,7 +7939,7 @@ mod tests {
         let state = opencode_attention_state(root.path(), id);
         let application = SessionApplication::new(state.clone());
         application
-            .report_attention(id, opencode_attention_signal("session.created", "idle"))
+            .report_attention(id, opencode_attention_signal("session.capture", "idle"))
             .await
             .unwrap();
         assert!(state.sessions.lock().unwrap()[id].active_work_hook);
@@ -7943,9 +7959,11 @@ mod tests {
         );
 
         for (event, allowed) in [
-            ("session.created", vec!["idle"]),
-            ("session.status", vec!["working"]),
-            ("session.idle", vec!["idle"]),
+            ("session.capture", vec!["idle"]),
+            ("session.step.started", vec!["working"]),
+            ("session.execution.succeeded", vec!["idle"]),
+            ("session.execution.failed", vec!["idle"]),
+            ("session.execution.interrupted", vec!["idle"]),
             ("permission.asked", vec!["waiting_for_input"]),
             ("question.asked", vec!["waiting_for_input"]),
             (
@@ -7969,6 +7987,11 @@ mod tests {
                 );
             }
         }
+        // V1 event names are dead under the V2-only reporter: they must not
+        // re-enter the matrix.
+        assert!(!opencode_event_allows_status("session.created", "idle"));
+        assert!(!opencode_event_allows_status("session.idle", "idle"));
+        assert!(!opencode_event_allows_status("session.status", "working"));
         assert!(!opencode_event_allows_status("session.deleted", "idle"));
     }
 

@@ -5784,7 +5784,7 @@ mod tests {
                 observed_at: Some("2026-09-26T12:00:00.123456Z".into()),
                 cwd: None,
                 source: Some("opencode_hook".into()),
-                event: Some("session.created".into()),
+                event: Some("session.capture".into()),
                 hook_fingerprint: None,
             }),
         )
