@@ -29,26 +29,18 @@ The APM lifecycle in `apm.yml` removes the incompatible Superpowers `SessionStar
 
 ## Superpowers
 
-[obra/superpowers](https://github.com/obra/superpowers) — agentic skills framework & software development methodology. Installed per-harness. OpenCode is configured through the repo-root `opencode.json`:
+[obra/superpowers](https://github.com/obra/superpowers) — agentic skills framework & software development methodology. Installed per-harness. OpenCode loads its skills through the repo-root `opencode.json` `skills.paths` entry `.agents/skills` — the plugin file itself is **not wired into OpenCode 2**:
 
-```json
-{
-  "plugin": ["apm_modules/obra/superpowers/.opencode/plugins/superpowers.js"]
-}
-```
+OpenCode 2 intentionally broke the V1 plugin API ("V1 plugin implementations do not run in V2") and requires `plugins` config entries to be plugin directories, while the vendored `superpowers.js` is a single V1-style file. Loading it as a config entry logs `configured plugin path must be a directory` and never runs its hooks. Until upstream ships an OpenCode 2 plugin (or the repo maintains a V2 adapter), OpenCode gets the Superpowers skills but not the plugin's bootstrap message injection; Claude Code and other targets are unaffected.
 
 ## Ponytail
 
-[DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) — minimalist ruleset that enforces YAGNI: check necessity, stdlib, platform feature, dependency, one-liner before writing code. OpenCode is configured through the repo-root `opencode.json`:
+[DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) — minimalist ruleset that enforces YAGNI: check necessity, stdlib, platform feature, dependency, one-liner before writing code.
 
 Ponytail is intentionally deployed for the Copilot and OpenCode targets in
 `apm.yml`; other APM targets do not receive this plugin.
 
-```json
-{
-  "plugin": ["apm_modules/DietrichGebert/ponytail/.opencode/plugins/ponytail.mjs"]
-}
-```
+Same OpenCode 2 blocker as Superpowers: the vendored `ponytail.mjs` is a single V1-style plugin file, and OpenCode 2 only loads plugin directories through config with the V2 plugin API. It is **not wired into OpenCode 2** until upstream ships a V2 plugin (or the repo maintains a V2 adapter); the Copilot target keeps working.
 
 Ponytail also ships its own `AGENTS.md` — if cross-referenced from this repo's clone, OpenCode loads both automatically.
 
@@ -146,7 +138,7 @@ OpenCode must load the project-level `opencode.json` at the repo root. Start Ope
 opencode /Users/froomiebot/workspace/orkworks
 ```
 
-Do not use `--pure` for development work in this repo; it disables external plugins. The root `opencode.json` loads the APM-managed Superpowers and Ponytail plugins and exposes both `.agents/skills` and committed repo skills from `skills/`.
+Do not use `--pure` for development work in this repo; it disables external plugins. The root `opencode.json` exposes both `.agents/skills` and committed repo skills from `skills/`. The APM-managed Superpowers and Ponytail plugin files are not wired into OpenCode 2 — see the blockers under each section above.
 
 Before OpenCode implementation work, verify that the skill tool lists Superpowers skills such as `superpowers/using-superpowers` and `superpowers/brainstorming`. If they are missing, stop, run `apm install` from the repo root, restart OpenCode from the repo root, and verify again before editing code.
 

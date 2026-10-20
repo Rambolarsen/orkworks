@@ -5,9 +5,5 @@
       ".agents/skills",
       "skills"
     ]
-  },
-  "plugin": [
-    "apm_modules/obra/superpowers/.opencode/plugins/superpowers.js",
-    "apm_modules/DietrichGebert/ponytail/.opencode/plugins/ponytail.mjs"
-  ]
+  }
 }
