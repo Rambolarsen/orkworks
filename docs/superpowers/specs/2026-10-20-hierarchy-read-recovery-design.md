@@ -228,8 +228,9 @@ snapshotVersion, record, canonicalUtf8, freshness}`. `record` echoes the exact
 request selector. `canonicalUtf8` is a JSON string containing the exact canonical
 UTF-8 source object (without its domain prefix). `freshness` is exactly
 `{kind: "current"}` or `{kind: "historical"}`. It describes the record as a
-whole under #744's source-currentness rules; current requires every cited outcome's
-source to be current and no invalidation/supersession. Historical does not mean
+whole under #744's source-currentness rules; current requires every evidence
+reference in the record, including outcome, rating, finding and finding-dispute
+references, to resolve current sources, with no invalidation/supersession. Historical does not mean
 the entire aggregate failed; optional-only stale evidence still follows #744.
 Missing freshness proof is a request failure, never current. Display the immutable
 record's claims with that annotation; do not derive current aggregate pass or
@@ -285,6 +286,7 @@ executed crash tests or current support:
 | Purge races new incoming dependency or inspection | Same boundary orders protection/deletion; no dangling current summary |
 | Record contains sizeBytes 9007199254740993 or maximum u64 | Original canonical token/digest preserved; display gets exact decimal string |
 | Record bytes have duplicate keys, noncanonical escaping, wrong domain or foreign reviewer | Reject before display, even when JSON is parseable |
+| Only finding/dispute evidence becomes stale, while outcome evidence stays current | Detail is historical; stale disputes are ineffective and stale findings cannot establish failure under #744 |
 | Snapshot changes during detail read or old request arrives after selection change | Stale failure/drop; no implicit retarget, viewed token or authority |
 | 512 KiB record dominated by escaped control text | Respect encoded 4 MiB cap and source text limits; no truncation or unbounded allocation |
 
