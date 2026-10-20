@@ -216,3 +216,11 @@ wire schemas, numerical projection-version/summary bounds and recovery behavior
 must be reviewed before code; #740 eligibility and #610 approvals remain runtime
 gates. Keep #746 open. Merging this handoff records a proposal, not owner or
 component-owner acceptance, new runtime authority, or completion of the initiative.
+
+## Proposed read and recovery follow-up
+
+The [coherent-read, summary-recovery and detail-codec proposal](2026-10-20-hierarchy-read-recovery-design.md)
+supplies a proposed joint publication boundary, explicit summary material and
+storage budgets, crash/purge cases, and exact-byte result/evaluation inspection.
+These decisions remain pending written owner/producer acceptance; runtime storage
+implementation, capability evidence and executable-plan gates remain open.

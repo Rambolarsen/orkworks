@@ -633,3 +633,11 @@ and cross-workspace custody remain separately scoped. This does not create a
 runtime launch plan while #740 remains no-go. Record written owner/producer
 acceptance before reconciling canonical drafts and seeking separately approved
 runtime plans. Keep #746 open; passing documentation checks is not that acceptance.
+
+## Proposed read and recovery follow-up
+
+The [coherent-read, summary-recovery and detail-codec proposal](2026-10-20-hierarchy-read-recovery-design.md)
+supplies a proposed joint publication boundary, explicit summary material and
+storage budgets, crash/purge cases, and exact-byte result/evaluation inspection.
+These decisions remain pending written owner/producer acceptance; runtime storage
+implementation, capability evidence and executable-plan gates remain open.

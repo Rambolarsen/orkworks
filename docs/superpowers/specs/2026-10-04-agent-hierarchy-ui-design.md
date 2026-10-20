@@ -48,6 +48,13 @@ child evidence from explicitly deferred root telemetry, and propose
 cases. This is a written consumer proposal; upstream mapping agreement and
 owner acceptance remain pending. It adds no runtime API or eligibility.
 
+## Proposed read/recovery follow-up: 2026-10-20
+
+The [coherent-read, summary-recovery and detail-codec proposal](2026-10-20-hierarchy-read-recovery-design.md)
+addresses joint publication, durable summary material/lineage and exact-byte
+result/evaluation inspection. Written owner/producer acceptance, concrete storage
+qualification and separately approved runtime plans remain pending.
+
 ## Scope and status
 
 Specify workflow nodes, evidence, action discovery and renderer projection
