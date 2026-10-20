@@ -281,7 +281,9 @@ fn opencode_event_allows_status(event: &str, status: &str) -> bool {
         // was observed for session creation in OpenCode 2 run mode).
         "session.capture" => status == "idle",
         "session.step.started" => status == "working",
-        "session.execution.succeeded" | "session.execution.failed" => status == "idle",
+        "session.execution.succeeded"
+        | "session.execution.failed"
+        | "session.execution.interrupted" => status == "idle",
         "permission.asked" | "question.asked" => status == "waiting_for_input",
         "permission.replied" | "question.replied" | "question.rejected" => {
             matches!(status, "waiting_for_input" | "working" | "idle")
@@ -7961,6 +7963,7 @@ mod tests {
             ("session.step.started", vec!["working"]),
             ("session.execution.succeeded", vec!["idle"]),
             ("session.execution.failed", vec!["idle"]),
+            ("session.execution.interrupted", vec!["idle"]),
             ("permission.asked", vec!["waiting_for_input"]),
             ("question.asked", vec!["waiting_for_input"]),
             (

@@ -265,6 +265,27 @@ test('teardown events of a dead session cannot bind the capture', async () => {
   });
 });
 
+test('an interrupted turn ends the turn, but a shutdown interruption does not', async () => {
+  await withReporter(async ({ push, posts }) => {
+    await push(created());
+    await push(sessionEvent('session.step.started'));
+    // User cancel: V2 projects a non-shutdown interruption to idle.
+    await push(sessionEvent('session.execution.interrupted', { reason: 'user' }));
+    assert.deepEqual(attention(posts).map(({ status, event }) => [status, event]), [
+      ['idle', 'session.capture'],
+      ['working', 'session.step.started'],
+      ['idle', 'session.execution.interrupted'],
+    ]);
+    // A shutdown interruption keeps the execution claim; the resumed drain
+    // continues the turn, so the reporter neither changes nor posts state.
+    const before = attention(posts).length;
+    await push(sessionEvent('session.step.started'));
+    await push(sessionEvent('session.execution.interrupted', { reason: 'shutdown' }));
+    assert.equal(attention(posts).length, before + 1); // only the step.start
+    assert.equal(attention(posts).at(-1).status, 'working');
+  });
+});
+
 test('without a report token, the reporter omits claimed hook attention', async () => {
   await withReporter(async ({ push, posts }) => {
     delete process.env.ORKWORKS_REPORT_TOKEN;

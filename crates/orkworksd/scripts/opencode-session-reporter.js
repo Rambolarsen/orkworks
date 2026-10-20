@@ -142,6 +142,13 @@ export default {
         case 'session.execution.failed':
           turnStatus = 'idle';
           break;
+        case 'session.execution.interrupted':
+          // A shutdown interruption keeps OpenCode's execution claim — the
+          // resumed drain continues the turn — so only a non-shutdown
+          // interruption (user cancel) is a turn boundary.
+          if (data.reason === 'shutdown') return;
+          turnStatus = 'idle';
+          break;
         case 'session.step.started':
           turnStatus = 'working';
           break;
