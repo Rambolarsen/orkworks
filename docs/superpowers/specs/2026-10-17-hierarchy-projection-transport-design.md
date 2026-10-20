@@ -262,3 +262,11 @@ then prepare separately approved runtime plans only when their capability and
 #610 gates permit. Keep #746 open. Documentation validation and synthetic cases
 do not establish an eligible profile, native usability/accessibility evidence,
 or runtime delivery.
+
+## Proposed read and recovery follow-up
+
+The [coherent-read, summary-recovery and detail-codec proposal](2026-10-20-hierarchy-read-recovery-design.md)
+supplies a proposed joint publication boundary, explicit summary material and
+storage budgets, crash/purge cases, and exact-byte result/evaluation inspection.
+These decisions remain pending written owner/producer acceptance; runtime storage
+implementation, capability evidence and executable-plan gates remain open.

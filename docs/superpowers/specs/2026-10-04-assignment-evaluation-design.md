@@ -902,6 +902,11 @@ workspace byte/count limits, transaction/recovery fixtures, deletion ordering
 and lossless transport require review in the scoped runtime plan. See the
 [mapping fixtures](2026-10-15-hierarchy-projection-mapping.md#summary-revision-and-action-freshness).
 
+The [read/recovery follow-up](2026-10-20-hierarchy-read-recovery-design.md#durable-summary-material)
+proposes exact material bytes, row/workspace limits and transaction/recovery cases
+for joint #744/#746 review. This supplements the open decisions above; it does
+not establish producer or owner acceptance.
+
 ### Proposed hierarchy display encoding
 
 The [hierarchy transport proposal](2026-10-17-hierarchy-projection-transport-design.md#lossless-display-encoding)
