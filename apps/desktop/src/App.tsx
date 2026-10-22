@@ -995,17 +995,17 @@ function App() {
         />
       )}
       {noProvidersPrompt && (
-        <div className="settings-backdrop" role="presentation">
-          <section className="settings-modal" role="dialog" aria-modal="true">
-            <header className="settings-modal-header">
-              <h2>No active coding tools</h2>
+        <div className="new-session-backdrop" role="presentation">
+          <section className="new-session-dialog" role="dialog" aria-modal="true" aria-labelledby="no-coding-tools-title" aria-describedby="no-coding-tools-description">
+            <header className="new-session-header">
+              <h2 id="no-coding-tools-title">No active coding tools</h2>
             </header>
-            <div className="settings-section">
-              <p>No coding tools are active in this workspace. Open settings to enable at least one.</p>
+            <div className="new-session-body">
+              <p id="no-coding-tools-description">No coding tools are active in this workspace. Open settings to enable at least one.</p>
             </div>
-            <footer className="settings-modal-footer">
-              <button type="button" onClick={() => setNoProvidersPrompt(false)}>Later</button>
-              <button type="button" className="settings-primary-button" onClick={() => { setNoProvidersPrompt(false); openSettings(); }}>Open Settings</button>
+            <footer className="new-session-footer">
+              <button type="button" className="new-session-cancel" onClick={() => setNoProvidersPrompt(false)}>Later</button>
+              <button type="button" className="new-session-confirm" onClick={() => { setNoProvidersPrompt(false); openSettings(); }}>Open Settings</button>
             </footer>
           </section>
         </div>
