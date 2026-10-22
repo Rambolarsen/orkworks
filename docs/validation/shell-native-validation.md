@@ -160,3 +160,69 @@ is not human acceptance, exact-200% qualification, or a completed platform gate.
 - Windows/Linux chrome, spoken screen-reader announcements, exact 200%,
   minimize/restore, close lifecycle, full keyboard coverage and live
   reduced-motion attention transitions remain unaccepted. Keep #836 open.
+
+
+## October 22 continuation
+
+This agent-operated run adds live reduced-motion and inspector-keyboard evidence.
+It does not complete #836 or establish human, screen-reader or release acceptance.
+
+### Build and conditions
+
+- Source: `e40889d7552d90c4c8d7bd3aad677f26fd3298c9`; no runtime source edits.
+- Host: macOS 26.6.2, build 25G83, arm64; Electron 44.6.0;
+  desktop dependency installation used pnpm 11.24.0.
+- Owned checkout: `orkworks-shell-native-validation-836-oct22`; launched from
+  `apps/desktop/` with `ORKWORKS_DEV_PORT=5573 pnpm dev`, using checkout-scoped
+  settings. The observed renderer URL was `http://localhost:5573/`.
+- Disposable Git workspace: `/private/tmp/orkworks-836-native-20261022`.
+  One ordinary Shell session was created; no coding-agent harness was launched
+  and no coding-tool integration was enabled.
+- Read-only DevTools measurement: native outer size 1400 × 876, position
+  `(56, 33)`, `devicePixelRatio=2` at 100% on the 2× display. DevTools was closed
+  for ordinary shell screenshots and docked at the bottom for status measurement.
+  Docked viewport dimensions are not breakpoint-acceptance evidence.
+- Native AX and screenshots were inspected in the session, not retained in the
+  repository. Reduce motion and VoiceOver both started off and were verified
+  off again after their respective checks. VoiceOver Utility's caption-panel
+  option was already enabled and was not changed.
+
+### Observed results
+
+| Conditions | Action and expected result | Actual result / disposition |
+| --- | --- | --- |
+| 100%, OS Reduce motion on | Run a bounded Shell loop producing one output line per second; retain Working meaning without the spinning status animation | The live row exposed Working. Read-only computed-style measurement returned `reduce: true`, animation name `none`, duration `1e-05s`, and accessible label `Working`. This establishes the sampled live Working indicator, not Needs You/Blocked/Done transitions or every motion cue. |
+| Same workload, OS preference restored off | Original animation returns without losing its label | Measurement returned `reduce: false`, animation name `status-indicator-spin`, duration `1s`. System Settings separately showed Reduce motion off. |
+| 1400 × 876, 100%, Details inspector | Shift+Tab from the Details heading reaches Inspector width; Home/End and arrows resize while retaining focus | Inspector width changed 320 → 280 with Home, 280 → 420 with End, 420 → 404 with Right, and 404 → 420 with Left. AX retained splitter focus and reported each pixel value. |
+| Same inspector | Tab reaches Pin inspector, then Close inspector; Enter closes and restores the invoker | Focus reached both controls in that order. Enter removed the inspector and focused Details. This is a sampled keyboard path, not the complete tab-order gate. |
+| 100%, Sessions sidebar visible | Separator exposes its current range and orientation | Read-only DOM inspection returned label `Sessions width`, orientation `vertical`, minimum 200, maximum 320, current value 240. This is semantic-property evidence, not a spoken announcement. |
+| 100%, terminal owns input | Escape and Up reach a Shell `cat -v` process | Terminal output displayed `^[^[[A`. An initial attempt to keep Details beside it was invalidated by expected unpinned-inspector outside-click dismissal; inspection confirmed that dismissal happened when focusing the terminal, before Escape. This does not qualify the pinned-inspector or compact-page interaction. |
+| 100%, native close and subsequent automation reactivation | Observe window reconstruction and retained terminal content | A new renderer appeared with no selected session and the same existing Shell row. Explicitly selecting it replayed the `836-motion-live-1` through `836-motion-live-30` output. Later the dev process exited with code 0, and automation relaunched Electron's default app without project arguments. This mixed sequence is not a controlled close/quit acceptance test. |
+
+### Inconclusive checks and remaining gates
+
+- A title-region drag left measured position `(56, 33)` unchanged. As in the
+  earlier runs, the automation path does not qualify native title dragging.
+  Keep a human drag check open; no product defect is established by this result.
+- The minimize control did not yield a distinguishable minimized state through
+  the app-bound observation path. Native minimize/restore remains unaccepted.
+- Exact 200% was not established. DevTools' Electron isolated context returned
+  `typeof require === "undefined"`; no native zoom API, CSS zoom, device
+  emulation or source instrumentation was substituted for the required check.
+  This run adds no narrow/high-zoom acceptance evidence.
+- System Settings showed VoiceOver on during an attempted walkthrough and off
+  after restoration. No audible output or readable caption panel was exposed
+  through the available app-bound observations, so no spoken-announcement or
+  screen-reader usability result is claimed. No reader-version qualification
+  was completed. A human VoiceOver walkthrough remains required.
+- The dev launch again detected Node ABI 147 versus Electron ABI 149 for
+  `fs-ext`, rebuilt it automatically and verified the module before launch.
+  The historical native-build root cause is not established here.
+- The host's pre-existing missing `.zshrc` completion-file warning appeared.
+  One read-only JavaScript measurement was accidentally sent to the disposable
+  Shell during focus routing and produced a shell pattern error; it was rerun
+  through a verified DevTools prompt. Neither observation is a product defect.
+- Keep #836 open and its broad checkboxes unchanged. Pending work includes
+  human title drag, minimize/restore and controlled close/quit, exact 200% and
+  narrow layout, complete keyboard/saved-shortcut coverage, spoken screen-reader
+  announcements, remaining live attention transitions, and Windows/Linux checks.
