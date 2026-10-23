@@ -175,3 +175,5 @@ Dated design records; these do not establish current product behavior.
 - [Active, Closed and Archived sessions](2026-10-18-session-archive.md) — Approved archive state and close-first session context-menu design.
 
 - [Hierarchy coherent reads, summary recovery and detail codec](2026-10-20-hierarchy-read-recovery-design.md) — Proposed joint publication, durable summary lineage and exact-byte record inspection for #746.
+
+- [Codex permission waits resolved by exact tool completion](2026-10-23-codex-hook-completion-mitigation-design.md) — Proposed partial mitigation with explicit producer, serial-correlation and sandbox qualification gates.
