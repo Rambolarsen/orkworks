@@ -222,5 +222,8 @@ component-owner acceptance, new runtime authority, or completion of the initiati
 The [coherent-read, summary-recovery and detail-codec proposal](2026-10-20-hierarchy-read-recovery-design.md)
 supplies a proposed joint publication boundary, explicit summary material and
 storage budgets, crash/purge cases, and exact-byte result/evaluation inspection.
-These decisions remain pending written owner/producer acceptance; runtime storage
-implementation, capability evidence and executable-plan gates remain open.
+The owner [accepted four recovery-contract choices on 2026-10-23](2026-10-20-hierarchy-read-recovery-design.md#owner-acceptance--2026-10-23).
+Producer agreement remains pending for all four choices, including material
+fields/classifications, summary budgets, publication/recovery semantics and
+narrow detail scope. Broader projection acceptance, runtime storage
+qualification, capability evidence and executable-plan gates remain open.

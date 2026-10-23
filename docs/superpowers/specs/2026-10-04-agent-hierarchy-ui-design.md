@@ -52,7 +52,9 @@ owner acceptance remain pending. It adds no runtime API or eligibility.
 
 The [coherent-read, summary-recovery and detail-codec proposal](2026-10-20-hierarchy-read-recovery-design.md)
 addresses joint publication, durable summary material/lineage and exact-byte
-result/evaluation inspection. Written owner/producer acceptance, concrete storage
+result/evaluation inspection. The owner [accepted four recovery-contract choices
+on 2026-10-23](2026-10-20-hierarchy-read-recovery-design.md#owner-acceptance--2026-10-23).
+Broader interaction/projection acceptance, producer integration, concrete storage
 qualification and separately approved runtime plans remain pending.
 
 ## Scope and status

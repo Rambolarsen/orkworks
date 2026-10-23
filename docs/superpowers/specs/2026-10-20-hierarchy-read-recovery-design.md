@@ -10,11 +10,39 @@ status: draft
 
 Tracking: [#746](https://github.com/Rambolarsen/orkworks/issues/746), initiative
 [#738](https://github.com/Rambolarsen/orkworks/issues/738).
-Status: proposed owner/producer review artifact, 2026-10-20. This refines the
+Status: the four recovery-contract choices have owner acceptance recorded below;
+producer integration and implementation qualification remain pending. This refines the
 [transport](2026-10-17-hierarchy-projection-transport-design.md) and
 [payload](2026-10-17-hierarchy-projection-payload-design.md) proposals; it accepts
 neither those drafts nor runtime implementation. #740 evidence remains deferred
 until November and all role profiles remain unverified/no-go.
+
+## Owner acceptance — 2026-10-23
+
+The owner [accepted the four reviewed recovery-contract choices](https://github.com/Rambolarsen/orkworks/issues/746#issuecomment-6367630698)
+after reviewing this proposal at main
+`e40889d7552d90c4c8d7bd3aad677f26fd3298c9` against #744's accepted evaluation
+behavior and the report, telemetry and projection contracts. The focused review
+found no corrections needed to those choices. The owner explicitly replied
+“yes, go ahead” to:
+
+- Consistent reads: source changes and dependent summaries publish together;
+  incomplete recovery shows unavailable.
+- Durable summary history: committed material changes advance the revision,
+  including pass → unassessed → pass. Optional-only details and time/cost changes
+  do not advance it.
+- Bounded storage: 2 MiB per summary material/row, 4,096 summary rows and 256 MiB
+  aggregate serialized summary rows per workspace. Exhaustion preserves history
+  and makes affected summaries unavailable.
+- Narrow inspection: exact result/evaluation records with current/historical
+  labels and lossless integer handling. Inspection grants no action authority.
+
+This accepts those written choices, not the full upstream interaction/projection
+contracts or a storage implementation. Concrete writer/producer mappings,
+transaction integration, storage/durability qualification and crash fixtures,
+shared-learning custody and separately approved runtime plans remain gates.
+#740 evidence stays deferred until November; no role eligibility, runtime code
+or launch is authorized. Keep #746 open.
 
 ## Decisions and boundaries
 
@@ -290,10 +318,12 @@ executed crash tests or current support:
 | Snapshot changes during detail read or old request arrives after selection change | Stale failure/drop; no implicit retarget, viewed token or authority |
 | 512 KiB record dominated by escaped control text | Respect encoded 4 MiB cap and source text limits; no truncation or unbounded allocation |
 
-Owner/producer review must accept material fields/classifications, finite summary
-budgets, joint publication/recovery semantics and the intentionally narrow detail
-scope. After acceptance, reconcile #742/#743/#744 contracts and prepare separate
-runtime plans identifying every writer, storage adapter and shared codec/crash
-fixture. Required native capability evidence, architecture/ADR review and scoped
-implementation approval remain open. Keep #746 open; a docs merge is neither
-written acceptance nor runtime availability.
+Owner acceptance of the four choices is recorded above. Producer agreement
+remains pending for the full set: exact material fields/classifications, finite
+summary budgets, joint publication/recovery semantics and narrow detail scope,
+including writer mappings and transaction integration. Reconcile #742/#743/#744
+contracts and prepare separate runtime
+plans identifying every writer, storage adapter and shared codec/crash fixture
+when their upstream gates permit. Required native capability evidence,
+architecture/ADR review and scoped implementation approval remain open. Keep
+#746 open; recording accepted written choices does not establish runtime availability.
