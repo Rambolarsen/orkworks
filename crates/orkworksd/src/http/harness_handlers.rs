@@ -1118,10 +1118,10 @@ mod tests {
         assert!(inactive_delete["documentRevision"].is_string());
         assert!(state
             .harness_store
-            .snapshot()
+            .load()
             .unwrap()
-            .compatibility_profiles
-            .get("copilot-local")
+            .document
+            .compatibility_profile("copilot-local")
             .is_none());
         assert!(!state
             .providers
