@@ -44,6 +44,27 @@ shared-learning custody and separately approved runtime plans remain gates.
 #740 evidence stays deferred until November; no role eligibility, runtime code
 or launch is authorized. Keep #746 open.
 
+### Owner confirmation of capacity and recovery tradeoffs
+
+In a subsequent review at main `ff345d5c75b0c259f7c6352ec254e1d57f9959c5`,
+the owner [explicitly confirmed the capacity and recovery tradeoffs](https://github.com/Rambolarsen/orkworks/issues/746#issuecomment-6368609380):
+
+- A subject admitted without capacity for its initial summary remains summary-
+  unavailable; a later read cannot invent its missing revision history.
+- Under summary-capacity exhaustion, source corrections may continue only with
+  durable protection that marks affected summaries unavailable. If that protection
+  cannot commit, reject the transaction.
+  Exhaustion cannot evict history or leave an old pass current.
+- Crash recovery requires proven ordered history. Pass → Unassessed → Pass counts
+  twice; optional-only changes do not advance the material revision.
+- Detail inspection verifies the exact selected version, identity and digest,
+  preserving lossless integers. Stale selections require a fresh overview and
+  explicit reselection, without implicit retargeting.
+
+This confirms the written behavior, including the capacity tradeoff. The producer,
+transaction-integration, storage/crash, shared-custody and runtime-plan gates above
+remain open; this confirmation supplies no implementation or launch authority.
+
 ## Decisions and boundaries
 
 Propose one workspace publication boundary for source revision capture, dependent
