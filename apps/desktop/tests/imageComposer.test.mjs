@@ -56,6 +56,8 @@ if (process.versions.electron) {
       await wait('!!document.querySelector(".new-session-composer")');
       await evaluate('fixture.delayedDrop()');
       await wait('document.querySelector(".new-session-confirm").disabled');
+      assert.equal(await evaluate('fixture.paste(fixture.file("retry.png"),"keep this text")'),false,'Busy image ingestion must leave native text paste enabled');
+      await wait('document.querySelector("[role=alert]")?.textContent.includes("Paste the image again")');
       await evaluate('fixture.hide();fixture.finishRead();fixture.show()');
       await wait('!!document.querySelector(".new-session-composer")');
       await new Promise(resolve=>setTimeout(resolve,200));
@@ -84,7 +86,7 @@ if (process.versions.electron) {
         window.fetch=async()=>new Response(JSON.stringify({version:1,supportedHarnesses:['codex']}));
         fixture.file=name=>new File([Uint8Array.from(atob(fixture.png),char=>char.charCodeAt(0))],name,{type:'image/png'});
         fixture.drop=files=>{const data=new DataTransfer();files.forEach(file=>data.items.add(file));document.querySelector('.new-session-composer').dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:data}))};
-        fixture.paste=(file,text)=>{const data=new DataTransfer();data.items.add(file);if(text)data.setData('text/plain',text);const prompt=document.querySelector('#nsd-prompt');prompt.focus();prompt.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:data}))};
+        fixture.paste=(file,text)=>{const data=new DataTransfer();data.items.add(file);if(text)data.setData('text/plain',text);const prompt=document.querySelector('#nsd-prompt');prompt.focus();const event=new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:data});prompt.dispatchEvent(event);return event.defaultPrevented};
         fixture.picker=files=>{const data=new DataTransfer();files.forEach(file=>data.items.add(file));const input=document.querySelector('input[type=file]');input.files=data.files;input.dispatchEvent(new Event('change',{bubbles:true}))};
         fixture.delayedDrop=()=>{const file=fixture.file('late.png');const read=file.arrayBuffer.bind(file);file.arrayBuffer=()=>new Promise(resolve=>{fixture.finishRead=async()=>resolve(await read())});fixture.drop([file])};
         function App(){const[visible,setVisible]=useState(true);const[generation,setGeneration]=useState(0);fixture.hide=()=>setVisible(false);fixture.show=()=>{setGeneration(n=>n+1);setVisible(true)};return visible?<Composer key={generation} workspacePath='/tmp/image-workspace' harnesses={[{id:'codex',name:'Codex',launch:{command:'codex',args:[]}},{id:'generic-shell',name:'Shell',launch:{command:'sh',args:[]}}]} providerRuntime={null} onCancel={()=>setVisible(false)} onConfirm={async options=>{if(fixture.fail)throw new Error('fixture creation failed');fixture.submitted.push(options)}}/>:<p>Closed</p>}

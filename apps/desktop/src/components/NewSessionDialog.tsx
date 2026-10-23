@@ -238,8 +238,12 @@ export default function NewSessionDialog({ workspacePath = "", harnesses, provid
       onPaste={(event) => {
         const files = Array.from(event.clipboardData.items).filter((item) => item.kind === "file").map((item) => item.getAsFile()).filter((file): file is File => file !== null);
         if (!files.length) return;
+        if (confirmBusy) { event.preventDefault(); return; }
+        if (imageBusyRef.current) {
+          setImageError("An image is still loading. Paste the image again when it finishes.");
+          return; // Preserve the browser's normal text paste while images are busy.
+        }
         event.preventDefault();
-        if (confirmBusy || imageBusyRef.current) return;
         const text = event.clipboardData.getData("text/plain");
         if (text) { const prompt = promptRef.current; if (prompt && event.target === prompt) { const start = prompt.selectionStart; const end = prompt.selectionEnd; setInitialPrompt((current) => current.slice(0,start) + text + current.slice(end)); } else setInitialPrompt((current) => current + text); }
         void addImages(files);
