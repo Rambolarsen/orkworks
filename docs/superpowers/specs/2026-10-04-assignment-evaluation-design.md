@@ -220,8 +220,9 @@ lossless, nonnegative and never encoded as floats. Sort by UTF-8 `kind`, then
 The complete array participates in the result digest and 512 KiB result cap.
 Missing evidence is absence, never zero. Metrics remain alongside both scores,
 do not affect completeness/quality, and are compared only under #745's matching
-provider/model/pricing/cohort rules. #745 must reconcile its now-stale exclusion
-of #744 metrics before consuming them; this spec does not enable shared learning.
+provider/model/pricing/cohort rules in the [aligned learning contract](2026-10-04-configuration-learning-design.md#optional-elapsed-time-and-cost-observations).
+This alignment does not enable shared learning; consumption remains subject to
+the shared-learning gate below.
 
 ## Criteria, completeness, and quality
 
