@@ -845,8 +845,10 @@ mod tests {
                 "2024-01-01T00:00:00Z",
                 "2024-01-01T00:00:00Z",
             ));
-            ws.metadata
-                .append_terminal_output_lines(id, &["terminal".into()]);
+            ws.metadata.append_terminal_output_records(
+                id,
+                &[metadata::TerminalOutputRecord::raw("terminal", "")],
+            );
             record_test_observation(&ws.workflow_observations, id, id);
         }
         ws.metadata
