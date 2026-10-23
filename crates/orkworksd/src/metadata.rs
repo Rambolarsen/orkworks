@@ -1907,28 +1907,6 @@ impl MetadataStore {
     /// authoritative source are turn boundaries that must apply immediately (e.g.
     /// `working` -> `waiting_for_input` as soon as the model finishes), not gated
     /// behind a staleness window.
-    #[cfg(test)]
-    pub fn merge_agent_attention_signal(
-        &self,
-        id: &str,
-        status: &str,
-        message: Option<&str>,
-        timestamp: &str,
-        source: &str,
-        confidence: f64,
-    ) -> AttentionMergeResult {
-        self.merge_agent_attention_signal_with_plan(
-            id,
-            status,
-            message,
-            &PlanPathUpdate::Unchanged,
-            timestamp,
-            source,
-            confidence,
-            false,
-        )
-    }
-
     pub fn merge_agent_attention_signal_with_plan(
         &self,
         id: &str,
@@ -2568,15 +2546,6 @@ impl MetadataStore {
 
     fn terminal_output_path(&self, id: &str) -> PathBuf {
         self.events_dir().join(format!("{}.terminal", id))
-    }
-
-    #[cfg(test)]
-    pub fn append_terminal_output_lines(&self, id: &str, lines: &[String]) {
-        let records = lines
-            .iter()
-            .map(|line| TerminalOutputRecord::raw(line, ""))
-            .collect::<Vec<_>>();
-        self.append_terminal_output_records(id, &records);
     }
 
     pub fn append_terminal_output_records(&self, id: &str, records: &[TerminalOutputRecord]) {
@@ -5077,13 +5046,15 @@ mod tests {
         meta.metadata_source = "process".into();
         store.write_session(&meta);
 
-        let result = store.merge_agent_attention_signal(
+        let result = store.merge_agent_attention_signal_with_plan(
             "attention-accept-test",
             "waiting_for_input",
             None,
+            &PlanPathUpdate::Unchanged,
             "2026-06-26T12:00:00Z",
             "agent",
             1.0,
+            false,
         );
 
         assert_eq!(result, AttentionMergeResult::Accepted);
@@ -5107,13 +5078,15 @@ mod tests {
         let meta = test_metadata("attention-message-test");
         store.write_session(&meta);
 
-        store.merge_agent_attention_signal(
+        store.merge_agent_attention_signal_with_plan(
             "attention-message-test",
             "waiting_for_input",
             Some("Needs approval to proceed"),
+            &PlanPathUpdate::Unchanged,
             "2026-06-26T12:00:00Z",
             "agent",
             1.0,
+            false,
         );
 
         let updated = store.read_session("attention-message-test").unwrap();
@@ -5160,13 +5133,15 @@ mod tests {
             ("t5", Some("A"), "agent", 0.8),
         ] {
             assert_eq!(
-                store.merge_agent_attention_signal(
+                store.merge_agent_attention_signal_with_plan(
                     "attention-checkpoints",
                     "waiting_for_input",
                     message,
+                    &PlanPathUpdate::Unchanged,
                     timestamp,
                     source,
                     confidence,
+                    false,
                 ),
                 AttentionMergeResult::Accepted
             );
@@ -5213,13 +5188,15 @@ mod tests {
         );
 
         assert_eq!(
-            store.merge_agent_attention_signal(
+            store.merge_agent_attention_signal_with_plan(
                 id,
                 "waiting_for_input",
                 Some("unrelated"),
+                &PlanPathUpdate::Unchanged,
                 "t3",
                 "agent",
                 1.0,
+                false,
             ),
             AttentionMergeResult::Accepted
         );
@@ -5317,13 +5294,15 @@ mod tests {
         meta.observed_status = Some("working".into());
         store.write_session(&meta);
 
-        let result = store.merge_agent_attention_signal(
+        let result = store.merge_agent_attention_signal_with_plan(
             "attention-user-test",
             "waiting_for_input",
             Some("ignored summary"),
+            &PlanPathUpdate::Unchanged,
             "2026-06-26T12:00:00Z",
             "agent",
             1.0,
+            false,
         );
 
         assert_eq!(result, AttentionMergeResult::Ignored);
@@ -5372,13 +5351,15 @@ mod tests {
         meta.observed_status = Some("working".into());
         store.write_session(&meta);
 
-        let result = store.merge_agent_attention_signal(
+        let result = store.merge_agent_attention_signal_with_plan(
             "attention-debug-vs-agent-test",
             "blocked",
             Some("ignored summary"),
+            &PlanPathUpdate::Unchanged,
             "2026-06-26T12:00:00Z",
             "debug",
             0.0,
+            false,
         );
 
         assert_eq!(result, AttentionMergeResult::Ignored);
@@ -5398,13 +5379,15 @@ mod tests {
         meta.metadata_source = "peon".into();
         store.write_session(&meta);
 
-        let result = store.merge_agent_attention_signal(
+        let result = store.merge_agent_attention_signal_with_plan(
             "attention-debug-vs-peon-test",
             "blocked",
             None,
+            &PlanPathUpdate::Unchanged,
             "2026-06-26T12:00:00Z",
             "debug",
             0.0,
+            false,
         );
 
         assert_eq!(result, AttentionMergeResult::Accepted);
@@ -5428,13 +5411,15 @@ mod tests {
         // A second hook report landing seconds later (well inside the old
         // 5-minute staleness window) must still apply: it is a fresh turn
         // boundary from the same authoritative hook, not a stale duplicate.
-        let result = store.merge_agent_attention_signal(
+        let result = store.merge_agent_attention_signal_with_plan(
             "attention-agent-refresh-test",
             "waiting_for_input",
             None,
+            &PlanPathUpdate::Unchanged,
             "2026-06-26T12:00:00Z",
             "agent",
             1.0,
+            false,
         );
 
         assert_eq!(result, AttentionMergeResult::Accepted);
@@ -5455,13 +5440,15 @@ mod tests {
         meta.provenance.work_metadata_updated_at = Some("2020-01-01T00:00:00Z".into());
         store.write_session(&meta);
         assert_eq!(
-            store.merge_agent_attention_signal(
+            store.merge_agent_attention_signal_with_plan(
                 "attention-scope-only",
                 "working",
                 None,
+                &PlanPathUpdate::Unchanged,
                 "2026-10-15T00:00:00Z",
                 "agent",
                 1.0,
+                false,
             ),
             AttentionMergeResult::Accepted
         );
@@ -5512,13 +5499,15 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(dir.path());
 
-        let result = store.merge_agent_attention_signal(
+        let result = store.merge_agent_attention_signal_with_plan(
             "missing-session",
             "waiting_for_input",
             None,
+            &PlanPathUpdate::Unchanged,
             "2026-06-26T12:00:00Z",
             "agent",
             1.0,
+            false,
         );
 
         assert_eq!(result, AttentionMergeResult::NotFound);
@@ -6056,8 +6045,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(dir.path());
 
-        let lines: Vec<String> = (0..100).map(|i| format!("line {}", i)).collect();
-        store.append_terminal_output_lines("test-session", &lines);
+        let lines: Vec<_> = (0..100)
+            .map(|i| TerminalOutputRecord::raw(format!("line {}", i), ""))
+            .collect();
+        store.append_terminal_output_records("test-session", &lines);
 
         let read = store.read_terminal_output("test-session", 50);
         assert_eq!(read.len(), 50);
@@ -6065,8 +6056,10 @@ mod tests {
         assert_eq!(read[49], "line 99");
 
         // Write more lines, trigger inline trim
-        let more: Vec<String> = (100..200).map(|i| format!("line {}", i)).collect();
-        store.append_terminal_output_lines("test-session", &more);
+        let more: Vec<_> = (100..200)
+            .map(|i| TerminalOutputRecord::raw(format!("line {}", i), ""))
+            .collect();
+        store.append_terminal_output_records("test-session", &more);
 
         // trim to 50
         store.trim_terminal_output("test-session", 50);
@@ -6081,8 +6074,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(dir.path());
 
-        let lines: Vec<String> = (0..100).map(|i| format!("line {i}")).collect();
-        store.append_terminal_output_lines("trim-failure", &lines);
+        let lines: Vec<_> = (0..100)
+            .map(|i| TerminalOutputRecord::raw(format!("line {i}"), ""))
+            .collect();
+        store.append_terminal_output_records("trim-failure", &lines);
 
         let path = dir.path().join("events").join("trim-failure.terminal");
         let original = fs::read(&path).unwrap();
@@ -6288,7 +6283,10 @@ mod tests {
     fn clear_terminal_size_removes_only_the_size_sidecar_and_is_idempotent() {
         let dir = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(dir.path());
-        store.append_terminal_output_lines("clear-test", &["line kept after size clear".into()]);
+        store.append_terminal_output_records(
+            "clear-test",
+            &[TerminalOutputRecord::raw("line kept after size clear", "")],
+        );
         store.write_terminal_size("clear-test", 120, 40);
         let terminal_path = store.terminal_output_path("clear-test");
         assert!(terminal_path.exists());
@@ -6326,12 +6324,12 @@ mod tests {
     fn terminal_output_append_physically_trims_short_lines_over_line_limit() {
         let dir = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(dir.path());
-        let lines: Vec<String> = (0..=TERMINAL_OUTPUT_MAX_LINES)
-            .map(|i| format!("line-{i}"))
+        let lines: Vec<_> = (0..=TERMINAL_OUTPUT_MAX_LINES)
+            .map(|i| TerminalOutputRecord::raw(format!("line-{i}"), ""))
             .collect();
 
-        store.append_terminal_output_lines("line-limited", &lines[..TERMINAL_OUTPUT_MAX_LINES]);
-        store.append_terminal_output_lines("line-limited", &lines[TERMINAL_OUTPUT_MAX_LINES..]);
+        store.append_terminal_output_records("line-limited", &lines[..TERMINAL_OUTPUT_MAX_LINES]);
+        store.append_terminal_output_records("line-limited", &lines[TERMINAL_OUTPUT_MAX_LINES..]);
 
         let path = dir.path().join("events").join("line-limited.terminal");
         assert!(fs::metadata(&path).unwrap().len() < TERMINAL_OUTPUT_MAX_BYTES);
@@ -6353,10 +6351,10 @@ mod tests {
         // so only the byte budget can bound this on disk.
         let record_count = 20;
         let big_record = "x".repeat(64 * 1024);
-        let lines: Vec<String> = (0..record_count)
-            .map(|i| format!("{big_record}-{i}"))
+        let lines: Vec<_> = (0..record_count)
+            .map(|i| TerminalOutputRecord::raw(format!("{big_record}-{i}"), ""))
             .collect();
-        store.append_terminal_output_lines("big-session", &lines);
+        store.append_terminal_output_records("big-session", &lines);
 
         store.trim_terminal_output("big-session", TERMINAL_OUTPUT_MAX_LINES);
 
@@ -6387,8 +6385,10 @@ mod tests {
         // chatty session that keeps emitting output after trim first fires.
         let line = "y".repeat(200);
         let line_count = (TERMINAL_OUTPUT_MAX_BYTES as usize / line.len()) + 1000;
-        let lines: Vec<String> = (0..line_count).map(|i| format!("{line}-{i}")).collect();
-        store.append_terminal_output_lines("chatty-session", &lines);
+        let lines: Vec<_> = (0..line_count)
+            .map(|i| TerminalOutputRecord::raw(format!("{line}-{i}"), ""))
+            .collect();
+        store.append_terminal_output_records("chatty-session", &lines);
 
         let path = dir.path().join("events").join("chatty-session.terminal");
         let on_disk_bytes = fs::metadata(&path).unwrap().len();
@@ -6436,7 +6436,13 @@ mod tests {
                 recommendation_id: None,
             },
         );
-        store.append_terminal_output_lines("del-test", &["line 1".into(), "line 2".into()]);
+        store.append_terminal_output_records(
+            "del-test",
+            &[
+                TerminalOutputRecord::raw("line 1", ""),
+                TerminalOutputRecord::raw("line 2", ""),
+            ],
+        );
         store.write_terminal_size("del-test", 120, 40);
 
         let ndjson_path = store.events_dir().join("del-test.ndjson");
@@ -6652,13 +6658,15 @@ mod tests {
         // while the session itself remains readable.
         std::fs::create_dir_all(store.sessions_dir().join("att-fail.json.tmp")).unwrap();
 
-        let result = store.merge_agent_attention_signal(
+        let result = store.merge_agent_attention_signal_with_plan(
             "att-fail",
             "waiting_for_input",
             Some("not persisted"),
+            &PlanPathUpdate::Unchanged,
             "now",
             "agent",
             1.0,
+            false,
         );
         assert_eq!(result, AttentionMergeResult::PersistFailed);
         // The stored metadata must not claim the signal landed.
@@ -6679,13 +6687,15 @@ mod tests {
         let before = std::fs::read(&session_path).unwrap();
         std::fs::write(store.events_dir(), "not a directory").unwrap();
 
-        let result = store.merge_agent_attention_signal(
+        let result = store.merge_agent_attention_signal_with_plan(
             "att-event-fail",
             "waiting_for_input",
             Some("checkpoint not persisted"),
+            &PlanPathUpdate::Unchanged,
             "now",
             "agent",
             1.0,
+            false,
         );
 
         assert_eq!(result, AttentionMergeResult::PersistFailed);
