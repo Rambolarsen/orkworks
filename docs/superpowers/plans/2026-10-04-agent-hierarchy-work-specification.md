@@ -696,6 +696,16 @@ rtk git commit -m "docs: specify repository-scoped configuration learning and sk
 
 **Tracker:** [#746](https://github.com/Rambolarsen/orkworks/issues/746)
 
+**Recovery review disposition — 2026-10-23:** The owner accepted consistent
+publication/reads, durable material-summary history, the proposed 2 MiB / 4,096-row /
+256 MiB summary storage bounds, and narrow exact-record inspection. See the
+[canonical acceptance record](../specs/2026-10-20-hierarchy-read-recovery-design.md#owner-acceptance--2026-10-23)
+and [issue evidence](https://github.com/Rambolarsen/orkworks/issues/746#issuecomment-6367630698).
+This settles those four choices only. Broader interaction/projection acceptance,
+producer integration, concrete storage and crash qualification, shared-learning
+custody and the approved execution handoff remain pending. Keep #746 open; no
+runtime implementation or launch is approved.
+
 **Files and ownership:**
 - Create: `docs/superpowers/specs/2026-10-04-agent-hierarchy-ui-design.md`.
 - Own its reviewed specification/research handoff and subsequent scoped execution
