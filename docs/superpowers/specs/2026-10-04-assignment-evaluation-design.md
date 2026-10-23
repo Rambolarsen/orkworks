@@ -992,21 +992,28 @@ includes it in the canonical child `AssignmentIdentity`. Reading the latest task
 counter for each result, correction or review would therefore create different
 subjects for one approved assignment and could strand existing references.
 
-The proposed compatibility rule is to capture the task version at the successful
-durable child reservation transition, retain it with that allocation, and
-copy that frozen value into every #744 child identity, including reviewer
-identities. Later task-state changes and exact resumes do not rewrite it.
+The [proposed #742 admission-version contract](2026-10-04-orchestrator-preparation-design.md#proposed-evaluation-admission-version-snapshot)
+now defines durable reservation metadata `assignmentTaskVersion`: the resulting
+task version committed with the successful child reservation, before child
+attachment/spawn. Copy that exact value into every #744 child identity's
+`taskVersion`, including reviewer identities. Resolve the remaining members from
+the same reservation/configuration and its uniquely verified child attachment;
+a reservation without that proof cannot supply a complete child identity.
+
+Later task-state changes and exact resumes do not rewrite the frozen identity.
 Current task-version CAS, where an operation requires it, stays separate request
 metadata and is checked against current #742 state; it is never taken from the
 frozen identity. #743's task-state evidence binding retains its own semantics.
+The #742 amendment supplies capture, exact-retry, overflow, attachment, retention
+and crash/recovery rules; #741's consumer boundary links the same proposal.
 
-This requires explicit #742 agreement on the capture point, durable field and
-recovery proof; #742 does not yet define that immutable snapshot. Until then,
-the child identity mapping is blocked. Missing historical admission evidence
-cannot be reconstructed from today's counter or a report timestamp. Removing
-`taskVersion` from #744 identity instead would change canonical objects and every
-consumer reference; it needs a coordinated schema/fixture revision, not a local
-serializer workaround. This proposal retains the current shape pending review.
+Written owner acceptance of this cross-contract amendment remains pending;
+merging it does not make the mapping eligible for implementation. Missing
+historical admission evidence cannot be reconstructed from today's counter or a
+report timestamp. Already-hashed #744 objects must match the proven snapshot;
+never rewrite their identity/digest. Removing `taskVersion` instead would change
+canonical objects and every consumer reference, requiring a coordinated
+schema/fixture revision. This proposal retains the current canonical shape.
 
 ### Output declarations and reviewer inputs
 
@@ -1033,6 +1040,16 @@ paths, byte caps or reporting permission. The required amendment is:
 - Validate the rubric's evaluator role, independence and exact read access
   before issuing review authority. A server-artifact reporting permission does
   not require product-file write access or permit arbitrary artifact retrieval.
+
+**Review-target timing remains unresolved.** A plan may declare a worker and
+its reviewer before that worker has an accepted result. The exact result digest
+required above then does not yet exist. Neither #741 nor #742 currently defines
+an approved deferred-target selector or a result-binding approval transition.
+Do not fill the target with a predicted/latest result or silently alter an
+approved configuration. The executable handoff must distinguish review of an
+already accepted result from review of future output, and obtain agreement on
+the latter's exact approval/binding lifecycle before claiming it supported.
+This identity amendment selects no new approval flow or automatic retargeting.
 
 These are proposed upstream schema requirements, not fields already present in
 #741. Required output authorization or target binding that cannot be represented
@@ -1091,8 +1108,9 @@ or adapter tests:
 | Report correction changes cited evidence | Preserve immutable evaluation bytes; atomically stale affected outcomes or fence current reads under the joint publication contract |
 
 Existing joins and the discrepancy inventory are recorded here; the frozen
-admission version, typed output/target schemas and reporting-action projection
-remain proposals for #741/#742 owner agreement. Aggregate artifact/rehash/worker,
+admission version now has a matching proposed #742 producer/#741 consumer
+contract. Its owner acceptance, typed output/target schemas and approval timing,
+and reporting-action projection remain gates for #741/#742 agreement. Aggregate artifact/rehash/worker,
 request/receipt and run/workspace limits still need exact values. #740 eligibility,
 #745 shared custody, #746 producer/storage qualification and separately approved
 runtime plans remain independent gates. Keep #744 open; this reconciliation does

@@ -167,6 +167,69 @@ new immutable version with that binding. Existing
 report versions retain their original generation as historical evidence, never
 rewritten or silently promoted to the resumed runtime's current delivery.
 
+### Proposed evaluation admission-version snapshot
+
+For #744's immutable child identity, propose a durable reservation metadata field
+`assignmentTaskVersion`: a plain decimal JSON integer from 1 through 2^31−1.
+It is not a configuration field, a runtime generation, a reporting capability or
+a new mutable counter. The [evaluation reconciliation](2026-10-04-assignment-evaluation-design.md#configuration-and-reporting-reconciliation--2026-10-23)
+uses it only as the frozen source of `AssignmentIdentity.taskVersion`.
+This amendment remains proposed for written owner acceptance; it authorizes no
+runtime implementation or eligible adapter.
+
+1. At the baseline's successful child reservation transition, capture the
+   **resulting** task-state `taskVersion` after that transition's normal version
+   update. Commit the reservation, exact workspace/run/plan/revision/task/
+   configuration binding, `launching` state and `assignmentTaskVersion` together,
+   before child metadata attachment or PTY creation. Capturing the value causes
+   no additional counter increment. Overflow, invalid version or failed durable
+   commit rejects reservation; no child may start from a partial record.
+2. Resolve an authenticated exact launch retry using its existing durable
+   reservation and original snapshot, even if the live task counter has since
+   advanced. Never recapture the current counter or make another reservation.
+   Conflicting requests and revoked/stale authority follow the existing launch
+   protocol; this metadata supplies no retry or launch permission.
+3. Child metadata attachment and recovery must prove the exact reservation and
+   configuration binding. Only its uniquely attached child session may complete
+   the #744 child identity. A reservation without a verified attached child is
+   not an evaluable assignment identity; never guess a child from a worktree or
+   timestamp. Interrupted allocation retains the original snapshot; a separately
+   approved replacement plan revision has its own reservation and snapshot.
+4. Later task results, reports, pause/completion transitions, runtime resumes
+   and sidecar restarts never rewrite `assignmentTaskVersion`. Exact authorized
+   resume preserves the reservation/assignment identity but establishes fresh
+   runtime authority. Current `expectedTaskVersion` checks still compare live
+   task state, not this snapshot. #743's task-state evidence binding is unchanged.
+5. Recover the snapshot only from the proven committed reservation history.
+   Missing, corrupt, mismatched or ambiguous snapshot evidence blocks #744
+   identity resolution; do not backfill from the latest counter, an old report
+   or a child claim. Legacy records without this snapshot remain unsupported for
+   #744, without changing ordinary-session behavior or treating valid #742
+   reports as nonexistent. Retain the snapshot and exact attachment proof while
+   any retained #744 identity/reference depends on them. Revocation/namespace
+   rotation does not rewrite historical identity or restore old write authority.
+
+The root bootstrap has no child reservation/task version and uses no synthetic
+snapshot. The field is bounded reservation metadata, retained with that record
+and included in its storage accounting; it is never hashed into the approved
+#741 configuration, #742 plan definition or a `ResearchReport` descriptor.
+Its value is hashed through #744's already-defined child identity. This proposal
+introduces no alternate identity encoding or migration of previously hashed
+#744 records. Such records must match the proven admission snapshot or remain
+unsupported; do not relabel them in place.
+
+Required synthetic verification cases, before any implementation qualification:
+
+| Case | Required outcome |
+| --- | --- |
+| Crash before reservation commit | No admitted snapshot or child; no inferred identity |
+| Crash after reservation commit, before child attachment | Recover one reservation and frozen version; no complete #744 child identity or automatic spawn |
+| Concurrent duplicate launch requests | One reservation/snapshot; exact retry returns it without recapturing the live counter |
+| Task advances then child resumes | #744 identity retains the snapshot; live CAS and runtime authority use their current independent values |
+| Attachment points to another reservation/configuration | Reject identity resolution; no child/session-name fallback |
+| Task-version transition exhausts its range | Reject reservation without partial allocation or wrapping |
+| Recovery has only a current task counter or report | #744 identity unavailable; no historical backfill |
+
 ### Authenticated report submission
 
 The proposed `submitResearchReport` child tool uses
