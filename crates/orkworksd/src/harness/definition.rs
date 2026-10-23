@@ -201,6 +201,7 @@ impl HarnessUserDocument {
         self.compatibility_profiles.get(id).copied()
     }
 
+    #[cfg(test)]
     pub(crate) fn compatibility_profiles(
         &self,
     ) -> &BTreeMap<String, super::compatibility::CompatibilityProfile> {
