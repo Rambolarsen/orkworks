@@ -938,6 +938,22 @@ Producer agreement remains pending for the full material/classification, budget,
 publication/recovery and narrow-detail scope. Storage qualification and separately
 approved runtime plans remain gates.
 
+### Proposed hierarchy producer mappings
+
+The [producer reconciliation](2026-10-20-hierarchy-read-recovery-design.md#producer-reconciliation--2026-10-23)
+maps this contract's exact identities, accepted head, snapshot digests,
+current required outcomes/findings and immutable detail bytes to the recovery
+material. This contract remains the aggregate authority; the projection copies
+its classifications rather than scoring independently. Result/evaluation
+publication, user invalidation/replacement, source-currentness changes and purge
+must publish dependency and summary transitions or unavailable fences coherently.
+Optional-only corrections may change detail references without changing material;
+#743 telemetry alone supplies no evaluation evidence. Source quotas remain
+independent of the additional summary storage caps. Producer agreement remains
+pending for all material/classification, budget, recovery and detail choices;
+concrete writer/storage/crash qualification and runtime approval are not delivered
+by this proposed mapping.
+
 ### Proposed hierarchy display encoding
 
 The [hierarchy transport proposal](2026-10-17-hierarchy-projection-transport-design.md#lossless-display-encoding)

@@ -139,6 +139,90 @@ when a work/space budget is exhausted. Conservative run-wide reconciling is
 allowed until exact affected membership is proven. This does not add a new
 source correction or user approval operation.
 
+## Producer reconciliation — 2026-10-23
+
+This proposed reconciliation maps the producer contracts at
+`b9bbce69a43a858ea9ba7cf5d89e965007dbee6e` to the accepted recovery choices.
+It adds no canonical source fields, reporting operation, storage engine or
+runtime authority. The existing [exact identity joins](2026-10-15-hierarchy-projection-mapping.md#source-ownership-and-exact-joins)
+and [overview payload](2026-10-17-hierarchy-projection-payload-design.md)
+remain the consumer shapes. Written producer agreement for the full
+material/classification, budget, publication/recovery and detail scope remains
+pending; this table is a reconciliation artifact, not that acceptance.
+
+### Source ownership and publication participation
+
+| Producer | Authoritative inputs | Publication responsibility |
+| --- | --- | --- |
+| #741 immutable configuration | Exact approved child configuration or root bootstrap, criteria/rubric snapshots and canonical serializer | Validate the existing assignment/configuration joins; never replace immutable bytes from a later plan or mutable catalog. Catalog labels copied into the overview participate separately in snapshot invalidation |
+| #742 coordination and reports | Admitted run/plan membership, allocation/task/runtime bindings, capacity, blockers, clarification and exact report stream/head | Publish visible coordination changes under the common boundary. Report correction commits its descriptor/head, request receipt, dependent freshness fences and affected preparation changes together; dependent #744 material is either reconciled or fenced before the new head is exposed |
+| #743 skill evidence | Exact child binding, evidence-store generation, event/replay receipts, aggregates, coverage and source health | Publish evidence and its deduplication/high-water/aggregate effects atomically or recover them before serving projection. Corrections, clear, retention and detected degradation invalidate affected visible skill data under the same boundary; no telemetry event directly changes #744 quality/completeness |
+| #744 results and evaluation | Accepted result head, candidates/finalization dispositions, evaluation stream heads, user invalidations, source-currentness and dependency index | Publish authoritative aggregate state, retained references, summary material/lineage or unavailable fences with source/dependency changes. Include user-stream replacement, purge and detected source-health changes; events cannot substitute for committed currentness |
+| Ordinary sessions and projection owner | Canonical session lifecycle/attention and copied display values; tracked run slots and snapshot versions | Capture values under the boundary and invalidate every affected tracked run before another complete read. Durable summary ownership remains #744; ordinary session transitions acquire no new persistence obligation |
+
+These are logical participants, not new source record names or finalized Rust
+interfaces. The runtime plan must identify concrete writers, locks, journals,
+source-health transitions and restart reconciliation for every row. Retention or
+clear is a writer even when it runs outside a reporting request. Current source
+health, full membership and dependency fences must be captured/revalidated;
+matching immutable object bytes alone do not prove a coherent read.
+
+An exact report retry follows #742's receipt-before-head-CAS order; it cannot
+advance either summary or snapshot again. #743 keeps its own replay, alias,
+coverage and generation rules: a replay that changes no visible data does not
+advance a snapshot, while a real visible coverage change does. Neither owner
+may borrow the other's retry or authority rules. Parent/child reporting bearers
+never authorize the Electron-only overview/detail read.
+
+### Exact material and detail mappings
+
+| Recovery value | Producer mapping and preservation rule |
+| --- | --- |
+| `assignmentIdentity` and `accepted` | Copy the complete #744 root/child identity; assemble `ResultRef` from that identity and the accepted `AssignmentResult.resultRevision` plus stored `resultDigest`. No accepted head maps to `kind: none`, never a candidate or latest timestamp |
+| Snapshot digests | #744 derives criteria/rubric digests from the exact #741 approved assignment criteria and rubric, including before an accepted result exists. Require evaluation snapshot digests to match; missing source snapshots make material unavailable |
+| `requiredOutcomes` | Select required criteria, every rubric dimension and rating from #744's authoritative aggregation of eligible current evaluations. Apply only the display classifications below; retain #744's unassessed/conflict and independent-failure precedence |
+| `requiredFindings` | Select current `requiresRework` findings for the exact accepted result. Copy reviewer identity, finding ID/text/location/severity/targets and derive current/disputed state under #744; exclude stale/invalidated findings. Preserve exact revision/digest provenance in detail references, outside material |
+| `summaryRevision` | #744-owned durable row for that complete assignment. Accepted result identity and material changes advance it; source-generation or optional-only changes alone do not. Missing lineage cannot be initialized by a read |
+| Detail selector/bytes | Resolve only an exact overview `ResultRef` or #744 `EvaluationReference`. Return the original canonical `AssignmentResult` or `AssignmentEvaluation` bytes and verify its own domain digest, never a converted display DTO |
+| Detail currentness | #744 validates result/evaluation heads, dispositions, eligibility and every cited source. Resolve report evidence through the exact #742 stream/head and original provenance, never a newer report substituted for the reference. Whole-record historical detail does not recompute the aggregate |
+
+#743 telemetry is not an `EvidenceSource` variant in #744. Its delivery/usage
+state cannot be used as a scoring shortcut, change a summary merely because a
+badge changes, or populate root telemetry. An optional user assessment of a
+reviewer's performance affects its own result only; it never changes the
+original worker review's eligibility. These existing boundaries remain intact.
+
+The 49-outcome bound derives from 32 criteria + 16 dimensions + one rating;
+only required criteria are selected. The 512-finding ceiling derives from at
+most 16 evaluation revisions per result and 32 findings per evaluation; current
+eligible heads and narrower limits still govern inclusion. The 2 MiB row/material,
+4,096-row and 256 MiB workspace limits are additional projection bounds, not
+increases to #741/#742/#743/#744 source admission or byte limits. A source quota
+failure still rejects that source transaction. Summary-capacity exhaustion alone
+uses the summary-unavailable rules below; it grants no source-quota bypass.
+
+### Cross-contract verification cases
+
+These are synthetic review obligations, not executed runtime evidence:
+
+| Source transition | Snapshot/detail result | Durable summary result |
+| --- | --- | --- |
+| #742 corrects a report cited only by an optional outcome | Snapshot reflects stale cited evidence; retained evaluation reference is unchanged and whole-record detail may be historical | Unchanged material keeps its revision; no required-result downgrade |
+| #742 corrects required evidence while another uncontested failure remains | Fence/recompute affected dependencies; show authoritative Needs rework | Advance if required outcome/finding material changes even when overall stays Needs rework |
+| Exact report retry after a newer correction | Return original receipt; current head and projection stay at newer state | No replayed transition or extra revision |
+| #743 source-event alias replay with unchanged visible coverage | Preserve original event/count and current snapshot content | No material change |
+| #743 coverage correction, trimming, evidence clear or degraded recovery | Coherently update/fence the affected skill display with existing provenance/unknown rules | Telemetry alone cannot change result material or score |
+| #744 optional-only evaluation correction changes its digest | Overview/detail references change; old bytes remain historical | Unchanged material keeps its revision, including stable required-finding keys |
+| #744 user invalidation/replacement changes a required finding or target outcome | Publish exact disposition/head and dependencies together | Count each committed material transition; no old passing summary during recovery |
+| A source quota fails versus summary storage alone being full | Source rejection preserves its prior head; summary-only pressure cannot bypass source rules | Rejection creates no material transition; otherwise authorized source change may fence summary as specified below |
+| Child resume changes runtime with accepted material unchanged | Invalidate runtime/action/skill joins; retained evaluation requires fresh authoritative validation | Preserve the revalidated durable revision; restore no reporting/approval grant |
+
+Producer agreement must cover the entire shared boundary and all four accepted
+choices, including these mappings, bounds and detail semantics. Concrete storage
+qualification, complete writer inventory and crash/codec fixtures remain later
+implementation-plan work; #740 eligibility and separate runtime approvals remain
+closed gates. No shared-learning admission or custody protocol is supplied here.
+
 ## Durable summary material
 
 [#744 owns the summary revision](2026-10-04-assignment-evaluation-design.md#hierarchy-summary-revision-ownership).
