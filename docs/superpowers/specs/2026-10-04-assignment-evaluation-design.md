@@ -64,8 +64,10 @@ from #741/#742 approved state; those documents do not currently define a tagged
 assignment-identity schema. Display labels and reporter claims cannot supply
 identity. Changing an identity member or rubric requires a new approved
 assignment. Runtime generations fence authority without changing the assignment
-subject. Root results use explicit user review; v1 child reviewers evaluate only
-child results.
+subject. The [configuration/reporting reconciliation](#configuration-and-reporting-reconciliation--2026-10-23)
+records the pending mapping of mutable upstream `taskVersion` to this immutable
+identity; a current counter must not silently replace a stored identity member.
+Root results use explicit user review; v1 child reviewers evaluate only child results.
 
 ### Declared outputs and authorized sources
 
@@ -963,13 +965,147 @@ proposed consumer codec does not finalize artifact retrieval, summary storage,
 or the joint recovery boundary. The recovery-choice owner acceptance is linked
 above; producer agreement and broader display-encoding acceptance remain open.
 
+## Configuration and reporting reconciliation — 2026-10-23
+
+This is the proposed #744 handoff to #741 configuration and #742 authority,
+reviewed against source at `907decdf9769b6c0551d192ac96d897c9a481c4d`.
+It preserves the accepted evaluation defaults. The tables distinguish existing
+source mappings from proposed additions; they do not claim upstream acceptance,
+new routes, adapter eligibility or runtime implementation. Hierarchy writer,
+storage and crash qualification under #746 remains a separate work item.
+
+### Identity and approved snapshots
+
+| #744 value | Source and exact join |
+| --- | --- |
+| Child workspace, parent, plan/revision, task and configuration ID/digest | Copy #741's approved `AssignmentConfiguration`; join its workspace/parent to #742's admitted run, and its exact plan/revision/task to the successful allocation. All members must agree; a matching task label is insufficient |
+| Child `runId`, `reservationId`, `childSessionId` | Resolve #742's admitted run and exact allocation/runtime records. These are not #741 configuration fields and must not be added to its configuration digest after approval |
+| Root workspace, run, root assignment, parent and bootstrap ID/digest | Copy #741's `OrchestratorBootstrapConfiguration` and join #742's run definition to its exact bootstrap digest. A later `ParentPlanBinding` cannot replace the root subject with a plan/task identity |
+| Child `AuthorityGeneration` | Use `kind: child-launch`, the authenticated sidecar generation and that child's current launch generation. A resumed session ID alone cannot establish the runtime |
+| Root `AuthorityGeneration` | Use `kind: parent-runtime`, the current sidecar generation and #742's current parent runtime generation; use #742's same opaque 64-character hex encoding, not the adapter generation |
+| Criteria/rubric digests | Derive from the approved child configuration or root bootstrap using this document's snapshot domains. #741 preserves meaningful criteria order in its configuration digest; #744 separately sorts criteria by stable ID for its criteria-snapshot digest. Neither digest replaces the other |
+| Report evidence identity | Copy the immutable #742 report's exact run/plan/revision/task/allocation/configuration/runtime/report version; derive workspace from stored ownership. User replacements preserve their stored child lineage and explicit user provenance; they are not a new child runtime |
+
+**Task-state version discrepancy.** #741 explicitly excludes `taskVersion` from
+immutable configuration and #742 defines it as mutable state. #744 currently
+includes it in the canonical child `AssignmentIdentity`. Reading the latest task
+counter for each result, correction or review would therefore create different
+subjects for one approved assignment and could strand existing references.
+
+The proposed compatibility rule is to capture the task version at the successful
+durable child reservation transition, retain it with that allocation, and
+copy that frozen value into every #744 child identity, including reviewer
+identities. Later task-state changes and exact resumes do not rewrite it.
+Current task-version CAS, where an operation requires it, stays separate request
+metadata and is checked against current #742 state; it is never taken from the
+frozen identity. #743's task-state evidence binding retains its own semantics.
+
+This requires explicit #742 agreement on the capture point, durable field and
+recovery proof; #742 does not yet define that immutable snapshot. Until then,
+the child identity mapping is blocked. Missing historical admission evidence
+cannot be reconstructed from today's counter or a report timestamp. Removing
+`taskVersion` from #744 identity instead would change canonical objects and every
+consumer reference; it needs a coordinated schema/fixture revision, not a local
+serializer workaround. This proposal retains the current shape pending review.
+
+### Output declarations and reviewer inputs
+
+#741 currently describes an expected output contract inside `assignment`, with
+a 2 KiB output-contract **text** bound; it does not define #744's structured
+`OutputDeclaration` array or rehash-work cap. Prose cannot supply missing IDs,
+paths, byte caps or reporting permission. The required amendment is:
+
+- Bind the exact structured declarations and finite total rehash-work cap into
+  the approved child configuration or root bootstrap, and thus its canonical
+  digest. Preserve the existing declaration schema above; validate unique IDs,
+  all-required semantics, the 32-output limit, authorized roots/read scopes and
+  required worker write scopes before approval.
+- Specify the structured manifest's field placement, canonical declaration
+  ordering and aggregate byte accounting in #741. Do not silently overload its
+  text field or exempt the manifest from configuration/plan bounds. Exact
+  per-output/server/rehash limits remain explicit acceptance decisions before
+  code; this handoff supplies no invented default.
+- Bind a reviewer's exact target `(assignmentIdentity, resultRevision,
+  resultDigest)` as an approved immutable input and its `assignment_evaluation`
+  server-artifact declaration to one reviewer stream. #741's current general
+  input references do not yet define this typed target. Result drift requires
+  a separately approved assignment; it cannot retarget an existing capability.
+- Validate the rubric's evaluator role, independence and exact read access
+  before issuing review authority. A server-artifact reporting permission does
+  not require product-file write access or permit arbitrary artifact retrieval.
+
+These are proposed upstream schema requirements, not fields already present in
+#741. Required output authorization or target binding that cannot be represented
+blocks admission. A bare #742 `ResearchReport` remains evidence only: it lacks
+an assignment/declaration-bound immutable output wrapper. No report-to-result
+conversion or cross-assignment artifact reuse is introduced.
+
+### Reporting actions and lifecycle boundaries
+
+The operation labels here describe #744 semantics, not implemented routes or
+adapter action IDs. #741/#742 must agree their exact allowed-action projection,
+request envelopes, transport delivery, finite request/receipt quotas and
+revocation integration before an executable plan. Neither the parent's run
+bearer nor `ResearchReportCapability` is an evaluation/result capability.
+
+| Operation | Required authority and atomic boundary |
+| --- | --- |
+| Submit candidate / read own receipt | Distinct `AssignmentResultCapability` bound to exact worker/root assignment and current runtime generation. Authenticate current authority before retry lookup; resolve an exact receipt before predecessor CAS. Candidate acceptance consumes the assignment's 32-candidate budget, not a result revision |
+| Finalize candidate | Sidecar-owned operation over a durable candidate, not a post-exit producer call. Recheck predecessor and immutable outputs; path sources additionally require exact terminal/revocation/quiescence proof. Atomically publish accepted result, retained objects/dependencies and finalization receipt, or a durable rejection |
+| Submit/correct child evaluation / read own receipt or artifact | Distinct `AssignmentEvaluationCapability` bound to reviewer assignment/current generation, exact worker result and evaluation declaration. Authenticate before retry; resolve receipt before stream-head CAS. Commit evaluation, declared immutable artifact, dependency edges and revision-budget use together |
+| Create/correct/replace user evaluation | Electron-authorized user path; derive user provenance and review-stream identity. Serialize stream-slot CAS, predecessor/disposition checks, evaluation publication, dependencies and user budget; never modify child provenance |
+| Invalidate evaluation | Electron-authorized user path only; exact stream-head revision/digest CAS atomically records the disposition, freezes the stream and removes its current influence. Exact retry returns its receipt; a later unrelated write cannot reopen the stream |
+| Correct a cited research report | #742 owns authority, report-head CAS and retry semantics. #744 participates in dependent freshness publication; it cannot issue a report correction or select a head independently |
+
+Child reporting grants follow #742's runtime-end/resume, sidecar/workspace,
+run-cancellation/final-completion and namespace-rotation fences. A parent result
+grant additionally ends with that parent runtime or run authority. A paused or
+completed stage alone does not restore launch authority or revoke a still-valid
+reporting grant while the run remains active. A resumed producer needs fresh
+credentials/generation; old credentials cannot replay even an accepted request.
+Receipts remain durable provenance, not an authorization bypass.
+
+Revocation stops producer writes; it does not delete accepted records or pending
+candidates. Sidecar finalization continues only with this document's recovered
+proofs. Run completion alone neither accepts a candidate nor makes its subject
+purgeable. User operations remain separate after producer authority ends and
+cannot resume/reopen the run. No runtime user-review path is implemented merely
+because its provenance contract is defined here.
+
+### Cross-contract verification cases and disposition
+
+These are required synthetic cases for contract fixtures, not executed runtime
+or adapter tests:
+
+| Case | Required outcome |
+| --- | --- |
+| Task state advances after admission | Same frozen #744 subject; current CAS uses separate live metadata. Missing admission snapshot blocks mapping |
+| Child resumes with unchanged approved configuration | Same subject, fresh runtime authority; pending old candidate superseded, accepted immutable results retained |
+| Root moves from research to execution | Same bootstrap/root identity; a plan binding supplies no replacement criteria or result authority |
+| Same criterion set arrives in another order | #744 sorted snapshot digest is stable; the full #741 configuration remains bound to its originally approved array order |
+| Worker can write output but cannot authorize snapshot read | Reject configuration before approval; file existence grants no read |
+| Reviewer target changes while its capability remains live | Reject retargeting; no latest-result substitution or new evaluation stream on an undeclared subject |
+| Report token or parent planning bearer submits an evaluation | Deny wrong capability class even if assignment IDs match |
+| Exact evaluation retry arrives after revocation | Reject authentication; a stored receipt cannot revive authority |
+| Producer ends with a staged path candidate | No final producer submission required; finalize only after exact terminal/revocation/quiescence proof, otherwise retain pending/rejected disposition |
+| Report correction changes cited evidence | Preserve immutable evaluation bytes; atomically stale affected outcomes or fence current reads under the joint publication contract |
+
+Existing joins and the discrepancy inventory are recorded here; the frozen
+admission version, typed output/target schemas and reporting-action projection
+remain proposals for #741/#742 owner agreement. Aggregate artifact/rehash/worker,
+request/receipt and run/workspace limits still need exact values. #740 eligibility,
+#745 shared custody, #746 producer/storage qualification and separately approved
+runtime plans remain independent gates. Keep #744 open; this reconciliation does
+not mark its remaining definition criteria or implementation handoff complete.
+
 ## Implementation gate
 
 The evaluation behavior/defaults have the owner acceptance recorded above.
 Technical reconciliation and the scoped execution handoff remain pending; this
 is not runtime implementation approval.
-Before a runtime plan, review #741/#742 mappings, output declarations and the
-new scoped candidate/evaluation reporting actions; reconcile #740's capability
+Before a runtime plan, agree the proposed [#741/#742 identity, declaration and
+reporting mappings](#configuration-and-reporting-reconciliation--2026-10-23), including
+the frozen admission task version and typed output/target schemas; reconcile #740's capability
 evidence, #610, authoritative specs/ADRs, #745 retention/custody and #746
 projection. The parent scope supplies independent review and optional terminal
 user performance assessment; this contract adds no recursive review or mandatory
