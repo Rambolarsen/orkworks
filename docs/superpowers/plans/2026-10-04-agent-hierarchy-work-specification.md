@@ -535,6 +535,15 @@ rtk git commit -m "docs: specify skill delivery and usage evidence protocol"
 
 **Tracker:** [#744](https://github.com/Rambolarsen/orkworks/issues/744)
 
+**Owner review disposition — 2026-10-23:** The owner accepted the evaluation
+behavior/defaults, including the 12-child/four-user revision partition and
+at-most-two revisions per user stream. See the [canonical acceptance record](../specs/2026-10-04-assignment-evaluation-design.md#owner-acceptance--2026-10-23)
+and [issue evidence](https://github.com/Rambolarsen/orkworks/issues/744#issuecomment-6367492079).
+This satisfies owner acceptance of those choices, not the complete consuming-
+interface review or Step 6. Cross-contract mappings, #740 eligibility, the joint
+#745 custody boundary, separate #744/#746 recovery agreement and an approved
+scoped execution handoff remain gates. Keep #744 open; no runtime work is approved.
+
 **Files and ownership:**
 - Create: `docs/superpowers/specs/2026-10-04-assignment-evaluation-design.md`.
 - Own its reviewed specification/research handoff and subsequent scoped execution

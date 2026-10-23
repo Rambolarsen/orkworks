@@ -27,6 +27,33 @@ quality standard?** It cannot approve or launch work, retry a task, widen
 permissions, advance an undeclared dependency, accept work for the user, or
 authorize a merge. It does not change ordinary Peon behavior.
 
+## Owner acceptance — 2026-10-23
+
+The owner [accepted the reviewed evaluation behavior and defaults](https://github.com/Rambolarsen/orkworks/issues/744#issuecomment-6367492079)
+after reviewing the contract at main `bb6e480a02da1fbce33b5d0cae9bdfc781bb00e6`.
+The accepted choices are:
+
+- One overall result: Meets requirements, Needs rework, or Unassessed.
+- A completeness percentage only when all required criteria are assessed, and
+  the fixed 0–3 quality meanings below. Unknown evidence remains unknown;
+  established required failures produce Needs rework. Conflicting or unassessed
+  required outcomes block a pass rather than being averaged.
+- Independent review, separate worker self-assessment, and optional user-only
+  terminal assessment of reviewer performance, without recursive review.
+- Exact result-version binding and provenance-preserving correction history.
+- Descriptive-only time/cost evidence that cannot affect quality or optional-skill
+  preference, and retention of evidence needed by retained consumers. Deletion
+  remains pending when safe custody cannot be established.
+- Per result, 12 child and four user evaluation revisions, with at most two
+  revisions per user stream. Exhaustion blocks writes rather than evicting history.
+
+This acceptance settles those evaluation choices. It does not establish an
+eligible adapter, approve a billing source, accept the separate hierarchy
+read/recovery proposal, or satisfy the joint shared-learning custody contract.
+Cross-contract mappings, technical recovery agreements and the scoped execution
+handoff remain open. Runtime implementation and launches require their separate
+approvals; #740 capability-evidence work remains deferred until November.
+
 ## Assignment and result identity
 
 An evaluation binds one approved assignment identity, the exact accepted result
@@ -918,7 +945,9 @@ or the joint recovery boundary; written producer/owner acceptance remains open.
 
 ## Implementation gate
 
-This is a proposed written contract, not runtime implementation approval.
+The evaluation behavior/defaults have the owner acceptance recorded above.
+Technical reconciliation and the scoped execution handoff remain pending; this
+is not runtime implementation approval.
 Before a runtime plan, review #741/#742 mappings, output declarations and the
 new scoped candidate/evaluation reporting actions; reconcile #740's capability
 evidence, #610, authoritative specs/ADRs, #745 retention/custody and #746
