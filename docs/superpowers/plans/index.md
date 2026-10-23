@@ -213,3 +213,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Session archive and context-menu implementation](2026-10-18-session-archive.md) — Implementation plan awaiting archive design approval.
 
 - [New-session image context implementation](2026-10-23-session-image-context.md) — Approved attachment delivery implementation and qualification.
+
+- [Codex completion mitigation implementation](2026-10-23-codex-hook-completion.md) — Implement the approved local core while preserving rollout qualification gates.

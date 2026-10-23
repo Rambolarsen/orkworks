@@ -50,6 +50,15 @@ handshake. The embedded capability and launch marker remain absent pending migra
 and installed-context verification; native startup/clearing gates remain unchanged.
 
 
+The owner approved a separate [non-native completion mitigation](../superpowers/specs/2026-10-23-codex-hook-completion-mitigation-design.md)
+on 2026-10-23. Its dormant correlation/storage core uses immediate permission
+waits and one-use exact-completion proofs with live and durable attention
+ownership. No launch or relay currently calls it: coordinated producers,
+actual child-context API access, complete ordered delivery and a single-root
+configuration still lack installed qualification. No completion capability,
+metadata launch marker or shipping row is enabled. Current hook behavior below
+is unchanged; this core alone does not fix #690.
+
 The #690 serial capture gate has passed; current behavior below is unchanged.
 [Accepted ADR 0076](../adr/0076-codex-owned-native-approval-observer.md) and its
 [written design](../superpowers/specs/2026-10-03-codex-native-approval-status-design.md)

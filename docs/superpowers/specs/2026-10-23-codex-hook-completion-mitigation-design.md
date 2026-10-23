@@ -1,20 +1,21 @@
 ---
-type: Design Proposal
+type: Design
 title: Codex permission waits resolved by exact tool completion
-description: Propose conservative completion-based resolution without enabling the gated native Codex runtime.
+description: Define conservative completion-based resolution without enabling the gated native Codex runtime.
 tags: [orkworks, codex, attention, hooks, metadata]
 status: draft
 ---
 
 # Codex permission waits resolved by exact tool completion
 
-Status: **proposed; preparation authorized, behavior not approved or implemented**.
+Status: **owner-approved for implementation on 2026-10-23; rollout qualification remains gated**.
 Tracks [#690](https://github.com/Rambolarsen/orkworks/issues/690), with the
 coordinated-producer prerequisite in
 [#789](https://github.com/Rambolarsen/orkworks/issues/789).
 The owner requested this smaller mitigation after the native route's blockers
-were reproduced on 2026-10-23. Approval of this document would authorize its
-scoped implementation, not removal of the rollout evidence gates below.
+were reproduced on 2026-10-23, then approved implementation with “go ahead” after
+PR #992 stored the proposal. This authorizes scoped implementation, not removal
+of the rollout evidence gates below.
 
 ## Outcome and limits
 
@@ -103,8 +104,8 @@ There is no live-session upgrade: an existing session retains its launch
 contract. Disabling the completion feature stops future clears but does not
 restore direct-file writes to an API-only running session. A new launch may
 choose the unchanged legacy contract. Native eligibility and native clear
-remain separate and disabled. This non-native marker extension needs explicit
-MVP/ADR approval; it is not authorized by the earlier native-only design.
+remain separate and disabled. This non-native marker extension was owner-approved with this design on
+2026-10-23; it was not authorized by the earlier native-only design.
 
 ## Correlation and transition contract
 
@@ -204,8 +205,8 @@ guarantee merely to ship this mitigation is outside this proposal.
   version/configuration rows never enter the completion path.
 
 Future code uses TDD, full verify-repo and scoped sidecar checks plus the required
-current-diff code review before merge. This proposal changes documentation only;
-no session is resumed, edited, approved, or reconfigured by preparing it.
+current-diff code review before merge. The design approval does not qualify a session or permit resuming, editing,
+approving, or reconfiguring another session.
 
 ## Design review
 
@@ -214,8 +215,8 @@ contract review found no substantive conflict with the MVP or accepted native
 and metadata designs. Both reviewed the proposed document, not runtime code.
 No shipping qualification or implementation approval is inferred from review.
 
-Approval is requested for this bounded mitigation and its non-native metadata
-eligibility extension. The blocked sandbox, real transport ordering/loss,
+The owner approved this bounded mitigation and its non-native metadata
+eligibility extension on 2026-10-23. The blocked sandbox, real transport ordering/loss,
 effective single-root configuration and installed qualification remain explicit
 release prerequisites. If any cannot be proved, retain the empty qualification
 table rather than shipping an unsafe clear.

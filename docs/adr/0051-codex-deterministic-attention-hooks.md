@@ -126,3 +126,21 @@ remains proposed, with the next behavior decision captured in
 design. PreToolUse and PostToolUse remain capture-only in the current bundle;
 PermissionRequest still uses the accepted mapping until that proposal is
 reviewed and implemented.
+
+## Amendment 2026-10-23: independently gated completion mitigation
+
+The owner approved the [completion mitigation design](../superpowers/specs/2026-10-23-codex-hook-completion-mitigation-design.md)
+with “go ahead” after PR #992 stored the proposal. For separately qualified
+non-native launches, a serial exact invocation completion may conditionally
+clear only its acknowledged, still-owned permission wait. PermissionRequest
+still reports waiting immediately; long automatic tools can remain falsely
+Needs You during execution. Generic completion, missing/reordered/overlapping
+events, uncertain children, and uncoordinated metadata writers never qualify.
+
+The API-only metadata marker may be advertised for such a launch only after
+source-owned producer/version/platform/configuration qualification. Actual
+child-context metadata bootstrap is a separate clear gate. This extends the
+written native-only eligibility contract without enabling the native runtime
+or weakening ADR 0076. No completion shipping row is yet qualified; current
+PreToolUse/PostToolUse behavior stays capture-only until qualification and
+integration pass. This is a partial mitigation, not closure of #690/#789.

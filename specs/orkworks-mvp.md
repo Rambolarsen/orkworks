@@ -223,12 +223,14 @@ Valid metadata sources:
 
 Peon must not overwrite higher-priority metadata unless the higher-priority metadata is stale or explicitly cleared.
 
-For feature-gated Codex native approval sessions, the owner-approved written
+For feature-gated Codex native approval sessions and independently qualified
+non-native completion-mitigation sessions, the owner-approved written
 contract keeps the complete attention tuple in the canonical session JSON. A
 migrated integration sets
 `ORKWORKS_SESSION_METADATA_API_VERSION=1` only for launches that also pass the
 explicit native configuration and exact version/platform/protocol compatibility
-gates; unsupported and non-native launches retain direct JSON behavior. Its
+gates, or the independently qualified non-native completion contract below;
+unsupported launches retain direct JSON behavior. Its
 agents must use the
 authenticated versioned sidecar read/patch API for all metadata mutations,
 with no direct JSON fallback. The marker declares the API-required write
@@ -270,6 +272,16 @@ Native clearing remains gated pending implementation, producer migration,
 behavioral verification, and the separate #690/#763 gates. The specification
 approval does not authorize runtime changes under #761. See the
 [approved mediated metadata design](../docs/superpowers/specs/2026-10-08-codex-native-attention-layer-design.md).
+
+The owner approved the [non-native completion mitigation](../docs/superpowers/specs/2026-10-23-codex-hook-completion-mitigation-design.md)
+on 2026-10-23. It extends marker eligibility only for source-owned exact
+version/platform/configuration rows with migrated producers and qualified
+complete, ordered, single-root hook delivery. It still requires actual
+child-context API bootstrap before any conditional clear. Permission waits are
+immediate; only the exact serial completed invocation can clear its own wait.
+Uncertain delivery/children, other prompts and competing attention writes stay
+conservative. No such row is yet qualified, so existing direct launches remain
+unchanged. Native startup/clearing gates remain independent and closed.
 
 ### Resolved harness capabilities and integrations
 

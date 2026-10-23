@@ -1403,7 +1403,61 @@ impl MetadataStore {
         id: &str,
         mutate: impl FnOnce(&mut SessionMetadata) -> std::io::Result<bool>,
     ) -> std::io::Result<Option<SessionWriteToken>> {
+        self.mutate_owned_attention_inner(id, None, mutate)
+            .map(|accepted| accepted.and_then(|(_, token)| token))
+    }
+
+    /// Snapshot the current attention proof and record in the same session lane.
+    pub(crate) fn read_owned_attention(
+        &self,
+        id: &str,
+    ) -> std::io::Result<Option<(SessionMetadata, SessionWriteToken)>> {
         self.with_session_write_lock(id, || {
+            let Some(record) = self.try_read_revisioned_session(id)? else {
+                return Ok(None);
+            };
+            let token = self
+                .session_writes
+                .lock()
+                .unwrap()
+                .get(id)
+                .and_then(|owner| owner.snapshot())
+                .map(|write| SessionWriteToken {
+                    session: id.to_owned(),
+                    write,
+                });
+            Ok(token.map(|token| (record.metadata, token)))
+        })
+    }
+
+    /// Conditional attention mutation. The returned record is exactly what was
+    /// persisted; None ownership after exhaustion still reports the accepted write.
+    pub(crate) fn mutate_owned_attention(
+        &self,
+        id: &str,
+        expected: &SessionWriteToken,
+        mutate: impl FnOnce(&mut SessionMetadata) -> std::io::Result<bool>,
+    ) -> std::io::Result<Option<(SessionMetadata, Option<SessionWriteToken>)>> {
+        self.mutate_owned_attention_inner(id, Some(expected), mutate)
+    }
+
+    fn mutate_owned_attention_inner(
+        &self,
+        id: &str,
+        expected: Option<&SessionWriteToken>,
+        mutate: impl FnOnce(&mut SessionMetadata) -> std::io::Result<bool>,
+    ) -> std::io::Result<Option<(SessionMetadata, Option<SessionWriteToken>)>> {
+        self.with_session_write_lock(id, || {
+            if let Some(expected) = expected {
+                let owners = self.session_writes.lock().unwrap();
+                if expected.session != id
+                    || !owners
+                        .get(id)
+                        .is_some_and(|owner| owner.owns(&expected.write))
+                {
+                    return Ok(None);
+                }
+            }
             let mut latest = self.try_read_revisioned_session(id)?.ok_or_else(|| {
                 std::io::Error::new(std::io::ErrorKind::NotFound, "session record missing")
             })?;
@@ -1423,7 +1477,8 @@ impl MetadataStore {
             let json = serde_json::to_string_pretty(&latest)
                 .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
             write_atomic(&path, &json)?;
-            Ok(self.accept_session_write(id))
+            let token = self.accept_session_write(id);
+            Ok(Some((latest.metadata, token)))
         })
     }
 
