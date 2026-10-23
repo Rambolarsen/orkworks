@@ -1,4 +1,4 @@
-import { sidecarSend, parseErrorBody, type SidecarFetchImpl } from "./sidecarClient.ts";
+import { sidecarSend, errorFromBody, type SidecarFetchImpl } from "./sidecarClient.ts";
 export interface ImageCreation {
   harnessId: string; model?: string; initialPrompt?: string; expectedWorkspacePath: string;
   initialImages: Array<{name: string; mimeType: string; dataBase64: string}>;
@@ -30,7 +30,13 @@ export async function submitImageSession(port: number, token: string, request: I
   const capability = await response.json() as {version?:unknown; supportedHarnesses?:unknown};
   if (capability.version !== 1 || !Array.isArray(capability.supportedHarnesses) || !capability.supportedHarnesses.includes(request.harnessId)) throw new Error("Image context is not verified for this coding tool/version/platform.");
   signal?.throwIfAborted();
-  const created = await sidecarSend(port,"sessions",{method:"POST",jsonBody:request,token,signal,timeoutMs:30000,fetchImpl});
-  if (!created.ok) throw new Error(await parseErrorBody(created, `Could not start the image session (${created.status}).`));
+  const created = await sidecarSend(port,"sessions",{method:"POST",jsonBody:request,token,signal,fetchImpl});
+  if (!created.ok) {
+    const fallback = `Could not start the image session (${created.status}).`;
+    const text = await created.text().catch(() => "");
+    let message = text.trim() || fallback;
+    try { message = errorFromBody(JSON.parse(text), fallback); } catch { /* Sidecar BadRequest uses plain text. */ }
+    throw new Error(message);
+  }
   return created.json();
 }

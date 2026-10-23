@@ -30,3 +30,22 @@ test("main negotiates support then sends only bounded creation data with authent
   assert.equal((calls[1].init?.headers as Record<string,string>)["x-orkworks-open-plan-token"],"secret");
   assert.equal(JSON.parse(calls[1].init?.body as string).expectedWorkspacePath,"/tmp/work");
 });
+
+test("image submission has no acceptance-ambiguous timeout", async () => {
+  const controller = new AbortController();
+  let postSignal: AbortSignal | null | undefined;
+  const fetchImpl = async (_url: string, init?: RequestInit) => {
+    if (init?.method === "POST") postSignal = init.signal;
+    return new Response(JSON.stringify(init?.method === "POST" ? {id:"created"} : {version:1,supportedHarnesses:["codex"]}));
+  };
+  await submitImageSession(1234,"secret",normalizeImageCreation(request()),controller.signal,fetchImpl);
+  assert.equal(postSignal, controller.signal, "Only backend-generation cancellation may abort acceptance");
+});
+test("image rejection preserves plain-text and JSON correction messages", async () => {
+  for (const body of ["Image is corrupt.", JSON.stringify({error:"Image is corrupt."})]) {
+    const fetchImpl = async (_url: string, init?: RequestInit) => init?.method === "POST"
+      ? new Response(body, {status:400})
+      : new Response(JSON.stringify({version:1,supportedHarnesses:["codex"]}));
+    await assert.rejects(() => submitImageSession(1234,"secret",normalizeImageCreation(request()),undefined,fetchImpl), /Image is corrupt\./);
+  }
+});

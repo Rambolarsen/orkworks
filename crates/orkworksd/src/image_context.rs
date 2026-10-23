@@ -365,6 +365,45 @@ mod tests {
         assert!(!ws.metadata.session_file_exists(&id));
         assert!(!image.exists());
     }
+    #[test]
+    #[cfg(unix)]
+    fn failed_bundle_removal_preserves_metadata_for_retry() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let workspace = state.workspace.lock().unwrap();
+        let ws = workspace.as_ref().unwrap();
+        let id = uuid::Uuid::new_v4().to_string();
+        ws.metadata
+            .write_session(&crate::test_support::test_session_metadata(
+                &id,
+                "image session",
+                root.path().display().to_string(),
+                "ended",
+                "2026-01-01T00:00:00Z",
+                "2026-01-01T00:00:00Z",
+            ));
+        let mut bundle = ImageBundle::publish(
+            &ws.metadata.root_path(),
+            &id,
+            validate(&[png()], "inspect").unwrap(),
+        )
+        .unwrap();
+        let directory = bundle.paths()[0].parent().unwrap().to_path_buf();
+        bundle.accept();
+        drop(bundle);
+        // Removal deliberately refuses to recurse into unexpected child directories.
+        let obstruction = directory.join("unexpected-directory");
+        std::fs::create_dir(&obstruction).unwrap();
+        assert!(crate::runtime::retention::delete_session_evidence(ws, &id, |_| Ok(())).is_err());
+        assert!(
+            ws.metadata.session_file_exists(&id),
+            "I/O failure must preserve durable cleanup ownership"
+        );
+        std::fs::remove_dir(obstruction).unwrap();
+        crate::runtime::retention::delete_session_evidence(ws, &id, |_| Ok(())).unwrap();
+        assert!(!ws.metadata.session_file_exists(&id));
+        assert!(!directory.exists());
+    }
     /// Explicitly opt in: uses the installed tool/account for a tiny visual task.
     #[tokio::test]
     #[ignore = "requires an installed, authenticated coding tool and a trusted checkout"]

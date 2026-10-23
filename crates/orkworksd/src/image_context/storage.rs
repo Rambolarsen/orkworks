@@ -254,7 +254,7 @@ mod unix {
         _lock: File,
     }
     impl ImageCleanup {
-        pub(crate) fn remove(self) -> std::io::Result<()> {
+        pub(crate) fn remove(&self) -> std::io::Result<()> {
             self.root.remove(&self.name)
         }
     }
@@ -343,7 +343,7 @@ impl ImageBundle {
 pub(crate) struct ImageCleanup;
 #[cfg(not(unix))]
 impl ImageCleanup {
-    pub(crate) fn remove(self) -> std::io::Result<()> {
+    pub(crate) fn remove(&self) -> std::io::Result<()> {
         Ok(())
     }
 }

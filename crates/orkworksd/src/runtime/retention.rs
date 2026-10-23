@@ -163,13 +163,16 @@ pub(crate) fn delete_session_evidence(
         .metadata
         .clear_last_active_session_if_matches(session_id)
         .map_err(|error| error.to_string())?;
+    // Keep durable ownership until private file removal succeeds, including
+    // partial removals and directory-sync failures. Retain the lease through
+    // metadata deletion so recovery/publication cannot interleave this cleanup.
+    if let Some(cleanup) = image_cleanup.as_ref() {
+        cleanup.remove().map_err(|error| error.to_string())?;
+    }
     workspace
         .metadata
         .delete_session(session_id)
         .map_err(|error| error.to_string())?;
-    if let Some(cleanup) = image_cleanup {
-        cleanup.remove().map_err(|error| error.to_string())?;
-    }
     workspace
         .metadata
         .organization
