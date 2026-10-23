@@ -318,9 +318,11 @@ executed crash tests or current support:
 | Snapshot changes during detail read or old request arrives after selection change | Stale failure/drop; no implicit retarget, viewed token or authority |
 | 512 KiB record dominated by escaped control text | Respect encoded 4 MiB cap and source text limits; no truncation or unbounded allocation |
 
-Owner acceptance of the four choices is recorded above. Producer agreement on
-exact material fields/classifications, writer mappings and transaction integration
-remains pending. Reconcile #742/#743/#744 contracts and prepare separate runtime
+Owner acceptance of the four choices is recorded above. Producer agreement
+remains pending for the full set: exact material fields/classifications, finite
+summary budgets, joint publication/recovery semantics and narrow detail scope,
+including writer mappings and transaction integration. Reconcile #742/#743/#744
+contracts and prepare separate runtime
 plans identifying every writer, storage adapter and shared codec/crash fixture
 when their upstream gates permit. Required native capability evidence,
 architecture/ADR review and scoped implementation approval remain open. Keep
