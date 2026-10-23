@@ -947,7 +947,13 @@ Preparation #742 consumes role/assignment/configuration identities and
 eligibility, defines multi-plan parent authority, and owns the mutable
 `taskVersion` state counter. `taskVersion` is not an
 `AssignmentConfiguration` field or part of its immutable digest; #743 consumes
-the exact #742 task-state version in its evidence binding. Usage #743 also
+the exact #742 task-state version in its evidence binding. For #744, the
+[proposed admission-version snapshot](2026-10-04-orchestrator-preparation-design.md#proposed-evaluation-admission-version-snapshot)
+adds `assignmentTaskVersion` to durable reservation metadata, not to this
+configuration or its approved digest. #744 copies that frozen value into its
+child identity's `taskVersion`; mutable task-state CAS remains separate.
+This proposed mapping does not change #743 evidence bindings or imply owner
+acceptance of the amendment. Usage #743 also
 consumes configuration and skill digests, the immutable `adapterGeneration`, and
 adapter delivery/observation coverage; producer-process restarts are fenced by
 `producerStreamId`. Evidence records are not part of the immutable
