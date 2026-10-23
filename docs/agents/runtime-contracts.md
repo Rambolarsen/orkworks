@@ -57,6 +57,14 @@ version-specific production verification gates pass. Native startup and the
 installed diagnostic also remain closed pending the owned-listener contract
 in [#763](https://github.com/Rambolarsen/orkworks/issues/763).
 
+The owner-approved [completion mitigation](../superpowers/specs/2026-10-23-codex-hook-completion-mitigation-design.md)
+extends the written API-only eligibility contract to independently qualified
+non-native Codex launches. The correlation/storage core remains dormant with
+no production caller, capability, marker or qualified launch. Its conditional
+mutation checks ownership and edits the latest record under the same storage
+lane as revisioned patches, preserving unrelated descriptive updates. This
+does not relax native startup/clearing or the producer/child-context gates.
+
 ## Metadata protocol
 
 The detailed paths, bounds, lifecycle, authentication, and ADR reference are in the [architecture concept](architecture.md#metadata-protocol).
