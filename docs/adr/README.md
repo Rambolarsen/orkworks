@@ -110,3 +110,5 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0088](./0088-session-archive-state.md) | Durable session archive state | accepted |
 
 | [0089](./0089-new-session-image-context.md) | New sessions own bounded local image context | accepted; implementation in progress |
+
+| [0090](./0090-workspace-hierarchy-sqlite-transactions.md) | Workspace hierarchy transactions use one SQLite store | proposed; owner acceptance and native qualification pending |
