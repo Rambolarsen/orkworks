@@ -277,7 +277,10 @@ currently revalidated report. Manual assessment first supplies repository-led
 workflow seeds and a permitted catalog, then decodes one strict discovery selection
 before at most one final call through the same captured provider/model/effort.
 `assessment_context.rs` owns bounded prefixes, component-by-component safe opens,
-aggregate evidence limits and manifest reconstruction. Every selected target
+aggregate evidence limits and manifest reconstruction. Manifests and CI lead seed
+selection; scoped instructions accompany selected targets rather than independently
+consuming the seed budget. Discovery considers grounded problems or opportunities,
+then the final assessment challenges the hypothesis before a proposal. Every selected target
 includes its governing ancestor AGENTS.md/CLAUDE.md chain under those same limits;
 inaccessible or incompletely enumerated instructions prevent a proposal. Workspace
 and native relative paths must be valid UTF-8 and reconstruct without replacement

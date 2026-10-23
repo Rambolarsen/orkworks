@@ -173,9 +173,7 @@ impl RepositoryContext {
             &mut complete,
             &mut coverage,
         )?;
-        paths.sort_by_cached_key(|p| {
-            context::context_priority(p.strip_prefix(&root).unwrap_or(p), &[])
-        });
+        paths.sort_by_cached_key(|p| seed_priority(p.strip_prefix(&root).unwrap_or(p)));
         let mut catalog = Vec::new();
         let mut permitted = HashSet::new();
         let mut size = 2;
@@ -239,8 +237,19 @@ impl RepositoryContext {
             },
         };
         let mut seeds = result.catalog.clone();
-        seeds.sort_by_cached_key(|p| context::context_priority(Path::new(p), &[]));
+        seeds.sort_by_cached_key(|p| seed_priority(Path::new(p)));
         for path in seeds {
+            // Scoped instructions accompany their selected workflow targets through
+            // instruction_closure; unrelated instruction files cannot consume the
+            // seed allowance or make coverage incomplete for supplied targets.
+            if Path::new(&path).components().count() > 1
+                && matches!(
+                    Path::new(&path).file_name().and_then(|n| n.to_str()),
+                    Some("AGENTS.md" | "CLAUDE.md")
+                )
+            {
+                continue;
+            }
             let total: usize = result.prefixes.values().map(Vec::len).sum();
             if result.facts.len() == 16 || total == 24576 {
                 break;
@@ -529,6 +538,26 @@ impl RepositoryContext {
         Ok(self)
     }
 }
+/// Operational configuration supplies discovery with evidence to investigate;
+/// governing instructions are added atomically before each selected target.
+fn seed_priority(path: &Path) -> (u8, PathBuf) {
+    let (priority, _, relative) = context::context_priority(path, &[]);
+    let name = path.file_name().and_then(|name| name.to_str());
+    let priority = if priority == 5 {
+        7 // Historical guidance remains last.
+    } else if matches!(
+        name,
+        Some("Cargo.toml" | "package.json" | "pyproject.toml" | "go.mod")
+    ) {
+        0
+    } else if path.starts_with(".github/workflows") {
+        1
+    } else {
+        priority + 2
+    };
+    (priority, relative)
+}
+
 fn canonical_relative_path(path: &Path) -> Option<String> {
     path.components()
         .map(|part| match part {
@@ -646,6 +675,50 @@ mod tests {
     }
 
     #[test]
+    fn scoped_instructions_do_not_starve_operational_workflow_seeds() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("AGENTS.md"), "a".repeat(8192)).unwrap();
+        fs::write(dir.path().join("README.md"), "r".repeat(8192)).unwrap();
+        for component in ["apps/desktop", "crates/service", "tests/fixtures"] {
+            fs::create_dir_all(dir.path().join(component)).unwrap();
+            fs::write(
+                dir.path().join(component).join("AGENTS.md"),
+                "Scoped instructions. ".repeat(160),
+            )
+            .unwrap();
+        }
+        fs::write(
+            dir.path().join("apps/desktop/package.json"),
+            format!(
+                r#"{{"scripts":{{"test":"echo skipped"}},"description":"{}"}}"#,
+                "x".repeat(4000)
+            ),
+        )
+        .unwrap();
+        fs::create_dir_all(dir.path().join(".github/workflows")).unwrap();
+        fs::write(dir.path().join(".github/workflows/ci.yml"), "unit checks").unwrap();
+
+        let context =
+            RepositoryContext::collect(dir.path(), ContextLevel::SourceCode, &[], "now").unwrap();
+        for expected in [
+            "AGENTS.md",
+            "apps/desktop/AGENTS.md",
+            "apps/desktop/package.json",
+            ".github/workflows/ci.yml",
+        ] {
+            assert!(
+                context.facts.iter().any(|fact| fact.path == expected),
+                "missing operational seed or governing instructions: {expected}"
+            );
+        }
+        let manifest = context.manifest();
+        assert!(manifest.instruction_coverage_complete);
+        assert!(manifest.files.len() <= 16);
+        assert!(manifest.files.iter().map(|file| file.bytes).sum::<usize>() <= 24576);
+        context.clone().restore(&manifest).unwrap();
+    }
+
+    #[test]
     fn normal_seed_byte_truncation_preserves_instruction_coverage_and_followup() {
         for workflow_bytes in [8192, 8000] {
             let dir = tempfile::tempdir().unwrap();
@@ -667,10 +740,11 @@ mod tests {
                 context.manifest().instruction_coverage_complete,
                 "ordinary seed truncation is not a missing governing instruction"
             );
-            assert!(!context
+            assert!(context
                 .facts
                 .iter()
                 .any(|f| f.path == ".github/workflows/ci.yml"));
+            assert!(!context.facts.iter().any(|f| f.path == "README.md"));
             let id = context
                 .catalog
                 .iter()
