@@ -1,6 +1,6 @@
 # New-session image context
 
-Status: proposed; awaiting owner approval. No runtime behavior is enabled by this document.
+Status: approved by the repository owner on 2026-10-23 (“go ahead”). Implementation and delivery qualification are in progress.
 Issue: [#979](https://github.com/Rambolarsen/orkworks/issues/979).
 Decision: [ADR 0089](../docs/adr/0089-new-session-image-context.md).
 
@@ -115,7 +115,7 @@ that the model can distinguish the image content:
 
 | Coding tool | Delivery route | Current evidence and remaining gate |
 | --- | --- | --- |
-| Codex | Generated file arguments through native `--image`; text uses the existing initial-prompt delivery owner | [Official CLI documentation](https://learn.chatgpt.com/docs/codex/cli) documents image context; installed `codex --help` advertises `--image <FILE>...` on 2026-10-23. Verify images and queued text form exactly one initial turn, including image-only starts; help alone does not establish that behavior. |
+| Codex | Generated file arguments through native `--image` and the text as one positional argv prompt; disable queued PTY submission for this route | [Official CLI documentation](https://learn.chatgpt.com/docs/codex/cli) documents image context; installed `codex --help` advertises `--image <FILE>...` on 2026-10-23. Verify images and queued text form exactly one initial turn, including image-only starts; help alone does not establish that behavior. |
 | Claude Code | Explicit local image references in the initial prompt, instructing the agent to inspect each image | [Official image workflow](https://code.claude.com/docs/en/common-workflows#work-with-images) supports image paths. Verify private-storage reads under ordinary permissions and paths with spaces. |
 | OpenCode 2 | Explicit local image references and image-capable `read` in the initial prompt | [Official attachments documentation](https://dev.opencode.ai/v2/docs/attachments/) documents image processing by `read`. Verify the installed V2 runtime reads private files and passes their images to the model. |
 | Copilot | Interactive image file references using documented `@` syntax | [Official CLI workflow](https://docs.github.com/en/copilot/how-tos/copilot-cli/use-copilot-cli/overview) documents image references. Verify bracketed-paste interpretation and filenames with spaces before enabling. Do not use its noninteractive-only attachment flag for an interactive session. |
@@ -162,7 +162,7 @@ unknown optional JSON field, so main must positively negotiate image support
 before submitting images and refuse a sidecar without it. Implement this as an
 explicit additive capability in the existing sidecar handshake, not a version guess.
 
-Preparation review: Ready for owner review, not implementation approval.
+Preparation review: Ready for execution; the owner approved the contract on 2026-10-23.
 Dependencies 3 (renderer, Electron, sidecar, and known tool adapters); blast radius
 3 (session startup, with a separate optional path); state changes 3 (additive
 private bundles and optional API field); reversibility 3 (disable submission,
@@ -171,8 +171,7 @@ fixtures still required). Total 15/25; these ratings do not grant approval.
 
 Material review checks: user requirements all covered; no generic upload service
 or new agent runtime; capability evidence remains an implementation gate; local
-storage and sandbox permissions must be proven together. Runtime implementation
-requires the owner's approval of this proposed contract under root AGENTS.md.
+storage and sandbox permissions must be proven together. The owner approved runtime implementation on 2026-10-23.
 
 Builder review: a fresh read-only reviewer identified missing aggregate decoded
 image bounds, name/prompt overhead bounds, crash publication ordering, and exact

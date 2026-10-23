@@ -211,3 +211,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 - [Codex API-only metadata producer](./2026-10-16-codex-metadata-producer.md) — Prepare the authenticated agent helper without enabling migration or clearing.
 - [Session archive and context-menu implementation](2026-10-18-session-archive.md) — Implementation plan awaiting archive design approval.
+
+- [New-session image context implementation](2026-10-23-session-image-context.md) — Approved attachment delivery implementation and qualification.

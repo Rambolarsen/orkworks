@@ -146,6 +146,7 @@ declare global {
     orkworks: {
       platform: string;
       getBackendUrl: () => Promise<string>;
+      createSessionWithImages: (baseUrl: string, options: import("./harnessTypes").CreateSessionOptions) => Promise<import("./api").SessionInfo>;
       retryBackend: () => Promise<BackendRetryResult>;
       getUpdateStatus: () => Promise<UpdateStatus>;
       checkForUpdates: () => Promise<UpdateStatus>;

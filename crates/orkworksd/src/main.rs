@@ -18,6 +18,7 @@ mod git;
 mod harness;
 mod harness_integration_application;
 mod http;
+mod image_context;
 mod metadata;
 mod migration;
 mod peon;
@@ -318,6 +319,7 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
 
     Router::new()
         .route("/health", get(health_check))
+        .route("/session-image-context", get(image_context::capabilities))
         .route("/providers", get(get_providers))
         .route("/settings/providers", post(set_provider_settings))
         .route(
@@ -386,7 +388,10 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
             "/workspace/integrations/:adapter_id/:target_id/uninstall",
             post(uninstall_grouped_integration),
         )
-        .route("/sessions", post(create_session))
+        .route(
+            "/sessions",
+            post(create_session).layer(DefaultBodyLimit::max(image_context::BODY_LIMIT)),
+        )
         .route("/sessions", get(list_sessions))
         .route("/sessions/:id", delete(delete_session))
         .route("/sessions/:id/forget", delete(forget_session))

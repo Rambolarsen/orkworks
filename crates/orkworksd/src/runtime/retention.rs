@@ -159,6 +159,10 @@ pub(crate) fn delete_session_evidence(
         .metadata
         .delete_session(session_id)
         .map_err(|error| error.to_string())?;
+    if uuid::Uuid::parse_str(session_id).is_ok() {
+        crate::image_context::remove_bundle(&workspace.metadata.root_path(), session_id)
+            .map_err(|error| error.to_string())?;
+    }
     workspace
         .metadata
         .organization

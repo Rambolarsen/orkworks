@@ -36,6 +36,7 @@ const packagedUpdater = process.argv.includes("--orkworks-packaged=true");
 contextBridge.exposeInMainWorld("orkworks", {
   platform: process.platform,
   getBackendUrl: (): Promise<string> => ipcRenderer.invoke("get-backend-url"),
+  createSessionWithImages: (baseUrl: string, options: unknown): Promise<unknown> => ipcRenderer.invoke("create-session-with-images", baseUrl, options),
   retryBackend: (): Promise<BackendRetryResult> => ipcRenderer.invoke("retry-backend"),
   getUpdateStatus: (): Promise<UpdateStatus> => !packagedUpdater
     ? Promise.resolve(developmentUpdateStatus)

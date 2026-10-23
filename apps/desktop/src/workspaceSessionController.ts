@@ -246,8 +246,9 @@ export function createWorkspaceSessionController(
         options.onActiveSession?.(created.id);
       }
       return true;
-    } catch {
-      if (isCurrent(token)) publishError("create", "Couldn't start a new session.");
+    } catch (error) {
+      if (isCurrent(token)) publishError("create", error instanceof Error && optionsForCreate.initialImages?.length ? error.message : "Couldn't start a new session.");
+      if (optionsForCreate.initialImages?.length) throw error;
       return false;
     }
   }

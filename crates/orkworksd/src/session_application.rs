@@ -256,6 +256,8 @@ fn ensure_recommendation_handoff_contract(
 }
 
 pub(crate) struct CreateSessionCommand {
+    pub(crate) initial_images: Vec<crate::image_context::ImageInput>,
+    pub(crate) expected_workspace_path: Option<String>,
     pub(crate) harness_id: Option<String>,
     pub(crate) model: Option<String>,
     pub(crate) initial_prompt: Option<String>,
@@ -3895,6 +3897,16 @@ impl SessionApplication {
         }
         crate::taskmaster::evaluator::schedule_evaluation(self.state.clone());
 
+        {
+            let workspace = self.state.workspace.lock().unwrap();
+            if let Some(ws) = workspace.as_ref() {
+                if let Err(error) =
+                    crate::image_context::recover(&ws.metadata.root_path(), &ws.metadata)
+                {
+                    tracing::warn!(%error, "Image context recovery deferred");
+                }
+            }
+        }
         let git_context = git::detect(&path);
         Ok(WorkspaceSnapshot {
             canonical_path: path.display().to_string(),
@@ -5974,6 +5986,32 @@ async fn create_session_workflow(
         ));
     }
     let mut resolved_launch = resolve_session_launch(&registry, &req, cwd.clone());
+    if !req.initial_images.is_empty()
+        && req.expected_workspace_path.as_deref() != Some(cwd.as_str())
+    {
+        return Err(SessionError::Conflict);
+    }
+    let image_route = if req.initial_images.is_empty() {
+        None
+    } else {
+        Some(crate::image_context::delivery(
+            resolved_launch.session_harness_id.as_deref().unwrap_or_default(),
+            &resolved_launch.command.program,
+        ).await.ok_or(SessionError::BadRequest("Image context is not verified for this coding tool/version/platform. Choose a supported tool or remove the images."))?)
+    };
+    let image_inputs = req.initial_images.clone();
+    let image_prompt = req.initial_prompt.clone().unwrap_or_default();
+    let validated_images = if image_route.is_some() {
+        tokio::task::spawn_blocking(move || {
+            crate::image_context::validate(&image_inputs, &image_prompt)
+        })
+        .await
+        .map_err(|_| SessionError::Internal("Image validation failed"))?
+        .map_err(SessionError::BadRequest)?
+    } else {
+        Vec::new()
+    };
+
     let integration_enabled = if let Some(harness) = resolved_launch
         .session_harness_id
         .as_deref()
@@ -6103,8 +6141,44 @@ async fn create_session_workflow(
         provider_state: None,
     };
 
+    let mut image_bundle = if image_route.is_some() {
+        let root = workspace_metadata_root
+            .clone()
+            .ok_or(SessionError::BadRequest(
+                "Open a workspace before attaching images.",
+            ))?;
+        let image_id = id.clone();
+        Some(
+            tokio::task::spawn_blocking(move || {
+                crate::image_context::ImageBundle::publish(&root, &image_id, validated_images)
+            })
+            .await
+            .map_err(|_| SessionError::Internal("Image storage failed"))?
+            .map_err(|_| {
+                SessionError::Internal("Cannot store private image context. Please retry.")
+            })?,
+        )
+    } else {
+        None
+    };
+    let initial_prompt = match (image_route, image_bundle.as_ref()) {
+        (Some(route), Some(bundle)) => Some(crate::image_context::apply_delivery(
+            route,
+            &mut resolved_launch.command,
+            req.initial_prompt.as_deref().unwrap_or_default(),
+            bundle.paths(),
+        )),
+        _ => req.initial_prompt.clone(),
+    };
     let command = resolved_launch.command.clone();
-    let initial_prompt = req.initial_prompt.clone();
+    // Native Codex submits its initial image+text argv as one turn. The PTY
+    // queue must not submit the same prompt again after the TUI becomes ready.
+    let runtime_initial_prompt =
+        if image_route == Some(crate::image_context::ImageDelivery::NativeCodex) {
+            None
+        } else {
+            initial_prompt.clone()
+        };
     let initial_prompt_label = initial_prompt
         .as_deref()
         .map(|prompt| prompt.chars().take(100).collect::<String>())
@@ -6151,7 +6225,13 @@ async fn create_session_workflow(
         let next_cwd = {
             let workspace = state.workspace.lock().unwrap();
             match workspace.as_ref() {
-                Some(ws) if ws.path != metadata_git_cwd => ws.path.clone(),
+                Some(ws) if ws.path != metadata_git_cwd => {
+                    if image_bundle.is_some() {
+                        return Err(SessionError::Conflict);
+                    }
+                    ws.path.clone()
+                }
+                None if image_bundle.is_some() => return Err(SessionError::Conflict),
                 _ => break workspace,
             }
         };
@@ -6180,7 +6260,7 @@ async fn create_session_workflow(
     let created_at = info.created_at.clone();
     {
         if let Some(ref ws) = *creation_workspace {
-            ws.metadata.write_session(&metadata::SessionMetadata {
+            let record = metadata::SessionMetadata {
                 provenance: Default::default(),
                 id: id.clone(),
                 label: info.label.clone(),
@@ -6241,9 +6321,23 @@ async fn create_session_workflow(
                 harness_session_id_confidence: None,
                 harness_session_id_captured_at: None,
                 resumed_from: info.resumed_from.clone(),
-            });
+            };
+            if image_bundle.is_some() {
+                if ws.metadata.try_write_session(&record).is_err() {
+                    state.sessions.lock().unwrap().remove(&id);
+                    return Err(SessionError::Internal(
+                        "Cannot persist the session owning image context.",
+                    ));
+                }
+                if let Some(bundle) = image_bundle.as_mut() {
+                    bundle.accept();
+                }
+            } else {
+                ws.metadata.write_session(&record);
+            }
         }
     }
+    drop(image_bundle);
 
     drop(creation_workspace);
     crate::session_projection::SessionProjection::new(state.clone())
@@ -6281,7 +6375,7 @@ async fn create_session_workflow(
                     startup_state.clone(),
                     startup_id.clone(),
                     command,
-                    initial_prompt,
+                    runtime_initial_prompt,
                     control_rx,
                     output_tx,
                     kill_tx.subscribe(),
@@ -6401,6 +6495,8 @@ mod tests {
             })
             .unwrap();
         CreateSessionCommand {
+            initial_images: Vec::new(),
+            expected_workspace_path: None,
             harness_id: Some("opencode".into()),
             model: None,
             initial_prompt: Some("Investigate Git scan responsiveness".into()),
@@ -9851,6 +9947,8 @@ mod tests {
 
         let info = application
             .create_session(CreateSessionCommand {
+                initial_images: Vec::new(),
+                expected_workspace_path: None,
                 harness_id: Some("generic-shell".into()),
                 model: None,
                 initial_prompt: None,

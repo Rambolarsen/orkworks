@@ -5,7 +5,10 @@ import type { ProviderRuntimeResponse } from "../api";
 import { getHarnessDetectionStatus } from "../harnessDetection";
 import { canStartNewSession, detectedSelectableHarnesses, syncDraftWithHarnesses, type NewSessionDraft } from "../newSessionDialogState";
 
+import { IMAGE_ACCEPT, prepareImageBatch, releaseImages, type DraftImage } from "../sessionImages";
+
 interface NewSessionDialogProps {
+  workspacePath?: string;
   harnesses: HarnessConfig[];
   providerRuntime: ProviderRuntimeResponse | null;
   onConfirm: (opts: CreateSessionOptions) => Promise<void>;
@@ -42,7 +45,7 @@ function resolveInitialDraft(harnesses: HarnessConfig[]) {
   );
 }
 
-export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm, onCancel }: NewSessionDialogProps) {
+export default function NewSessionDialog({ workspacePath = "", harnesses, providerRuntime, onConfirm, onCancel }: NewSessionDialogProps) {
   const harnessesKey = useMemo(
     () => JSON.stringify(harnesses.map((harness) => [harness.id, harness.name, harness.retired, harness.launch, harness.integration])),
     [harnesses],
@@ -61,6 +64,13 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
   );
   const [draft, setDraft] = useState(() => resolveInitialDraft(harnesses));
   const [initialPrompt, setInitialPrompt] = useState("");
+  const [images, setImages] = useState<DraftImage[]>([]);
+  const imagesRef = useRef<DraftImage[]>([]);
+  const [imageBusy, setImageBusy] = useState(false);
+  const imageBusyRef = useRef(false);
+  const [imageError, setImageError] = useState("");
+  const [imageTools, setImageTools] = useState<string[]>([]);
+  const fileInput = useRef<HTMLInputElement>(null);
   const [models, setModels] = useState<string[]>([]);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const promptRef = useRef<HTMLTextAreaElement>(null);
@@ -72,6 +82,32 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
   const pendingHarness = !detectionComplete && draft.harnessId
     ? harnesses.find((harness) => harness.id === draft.harnessId && !harness.retired && !selectable.some((entry) => entry.id === harness.id))
     : undefined;
+
+  useEffect(() => {
+    let cancelled = false;
+    window.orkworks.getBackendUrl().then((url) => fetch(`${url}/session-image-context`))
+      .then(async (response) => response.ok ? response.json() : null)
+      .then((capability) => { if (!cancelled && capability?.version === 1 && Array.isArray(capability.supportedHarnesses)) setImageTools(capability.supportedHarnesses.filter((id: unknown): id is string => typeof id === "string")); })
+      .catch(() => {});
+    return () => { cancelled = true; confirmationGeneration.current += 1; releaseImages(imagesRef.current); imagesRef.current = []; };
+  }, []);
+
+  async function addImages(files: File[]) {
+    if (!files.length || imageBusyRef.current || confirmBusy) return;
+    imageBusyRef.current = true; setImageBusy(true); setImageError("");
+    const generation = confirmationGeneration.current;
+    try {
+      const added = await prepareImageBatch(imagesRef.current, files);
+      if (generation !== confirmationGeneration.current) { releaseImages(added); return; }
+      imagesRef.current = [...imagesRef.current, ...added]; setImages(imagesRef.current);
+    } catch (error) {
+      if (generation === confirmationGeneration.current) setImageError(error instanceof Error ? error.message : "Cannot attach these images.");
+    } finally {
+      imageBusyRef.current = false;
+      if (generation === confirmationGeneration.current) setImageBusy(false);
+    }
+  }
+  const imageUnsupported = images.length > 0 && !imageTools.includes(draft.harnessId);
 
   useEffect(() => {
     let cancelled = false;
@@ -137,7 +173,7 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
   }
 
   const handleConfirm = useCallback(async () => {
-    if (confirmBusy) return;
+    if (confirmBusy || imageBusyRef.current || (imagesRef.current.length > 0 && !imageTools.includes(draft.harnessId))) return;
     if (!canStartNewSession(selectable, draft.harnessId, detectedHarnessIds)) return;
     const selectedHarness = selectable.find((harness) => harness.id === draft.harnessId);
     const generation = confirmationGeneration.current;
@@ -167,13 +203,20 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
       if (harnessId) localStorage.setItem(LS_HARNESS_KEY, harnessId);
       if (model) localStorage.setItem(LS_MODEL_KEY, model);
       else localStorage.removeItem(LS_MODEL_KEY);
-      await onConfirm({ harnessId, model, initialPrompt: initialPrompt.trim() || undefined });
+      setImageError("");
+      await onConfirm({ harnessId, model, initialPrompt: initialPrompt.trim() || undefined,
+        ...(imagesRef.current.length ? {imageWorkspacePath: workspacePath, initialImages: imagesRef.current.map(({name,mimeType,dataBase64}) => ({name,mimeType,dataBase64}))} : {}),
+      });
+    } catch (error) {
+      if (generation === confirmationGeneration.current) setImageError(error instanceof Error ? error.message : "Could not start this session.");
     } finally {
       if (generation === confirmationGeneration.current) setConfirmBusy(false);
     }
-  }, [confirmBusy, detectedHarnessIds, draft.harnessId, draft.model, initialPrompt, onConfirm, selectable]);
+  }, [confirmBusy, detectedHarnessIds, draft.harnessId, draft.model, imageTools, initialPrompt, onConfirm, selectable, workspacePath]);
 
   function handleKeyDown(e: React.KeyboardEvent) {
+    // Buttons own Enter so keyboard attachment/removal/cancellation cannot submit.
+    if (e.key === "Enter" && e.target instanceof HTMLElement && e.target.closest("button")) return;
     if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && !e.nativeEvent.isComposing) {
       if (canStartNewSession(selectable, draft.harnessId, detectedHarnessIds)) {
         e.preventDefault();
@@ -189,7 +232,18 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
   }
 
   return (
-    <section className="new-session-composer" aria-labelledby="new-session-title" onKeyDown={handleKeyDown}>
+    <section className="new-session-composer" aria-labelledby="new-session-title" onKeyDown={handleKeyDown}
+      onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; } }}
+      onDrop={(event) => { event.preventDefault(); if (confirmBusy || imageBusyRef.current) return; const files = Array.from(event.dataTransfer.files); if (files.length) void addImages(files); else setImageError("Drop PNG, JPEG, or WebP image files."); }}
+      onPaste={(event) => {
+        const files = Array.from(event.clipboardData.items).filter((item) => item.kind === "file").map((item) => item.getAsFile()).filter((file): file is File => file !== null);
+        if (!files.length) return;
+        event.preventDefault();
+        if (confirmBusy || imageBusyRef.current) return;
+        const text = event.clipboardData.getData("text/plain");
+        if (text) { const prompt = promptRef.current; if (prompt && event.target === prompt) { const start = prompt.selectionStart; const end = prompt.selectionEnd; setInitialPrompt((current) => current.slice(0,start) + text + current.slice(end)); } else setInitialPrompt((current) => current + text); }
+        void addImages(files);
+      }}>
       <div className="new-session-composer-card">
         <header className="new-session-header">
           <h2 id="new-session-title">New agent session</h2>
@@ -206,7 +260,20 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
               onChange={(e) => setInitialPrompt(e.target.value)}
               placeholder="Optional - sent when the agent session starts"
               rows={7}
+              disabled={confirmBusy}
             />
+          </div>
+          <div className="new-session-images">
+            <input ref={fileInput} type="file" accept={IMAGE_ACCEPT} multiple hidden aria-label="Choose image files" onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ""; void addImages(files); }} />
+            <button type="button" className="new-session-attach" disabled={confirmBusy || imageBusy} onClick={() => fileInput.current?.click()}>Attach images</button>
+            <span className="new-session-image-hint">Paste or drop images · PNG, JPEG, WebP · 5 MiB each</span>
+            {imageBusy && <span role="status">Preparing images…</span>}
+            {images.length > 0 && <ul className="new-session-image-list" aria-label="Attached images">{images.map((image) => <li key={image.id}>
+              <img src={image.previewUrl} alt={image.name} /><span title={image.name}>{image.name}</span>
+              <button type="button" aria-label={`Remove ${image.name}`} disabled={confirmBusy || imageBusy} onClick={() => { releaseImages([image]); imagesRef.current = imagesRef.current.filter((entry) => entry.id !== image.id); setImages(imagesRef.current); }}>Remove</button>
+            </li>)}</ul>}
+            {imageUnsupported && <p role="status">Image context is not verified for this coding tool/version/platform. Choose a supported tool or remove the images.</p>}
+            {imageError && <p className="new-session-image-error" role="alert">{imageError}</p>}
           </div>
           <div className="new-session-controls">
             <div className="new-session-row">
@@ -243,6 +310,7 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
                 id="nsd-model"
                 className="new-session-input"
                 type="text"
+                disabled={confirmBusy}
                 list="nsd-model-suggestions"
                 defaultValue={draft.model}
                 onChange={(e) => setDraft((current) => ({ ...current, model: e.target.value }))}
@@ -263,7 +331,7 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
             type="button"
             className="new-session-confirm"
             onClick={handleConfirm}
-            disabled={confirmBusy || !canStartNewSession(selectable, draft.harnessId, detectedHarnessIds)}
+            disabled={confirmBusy || imageBusy || imageUnsupported || !canStartNewSession(selectable, draft.harnessId, detectedHarnessIds)}
           >
             {confirmBusy ? "Starting…" : "Start"}
           </button>

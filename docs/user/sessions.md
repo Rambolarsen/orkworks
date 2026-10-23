@@ -20,6 +20,15 @@ automatically; no session starts until you choose **Start**. **Cancel** returns
 to the previous view. Existing sessions keep running while you compose.
 Published installers may still show the earlier creation popup.
 
+Current source builds can include images when starting a verified Codex version
+(currently Codex 0.163.0 on macOS arm64). Paste a screenshot, drop image files
+into the composer, or choose **Attach images**. Review the thumbnails and use
+**Remove** before starting. PNG, JPEG, and WebP are supported, up to eight images,
+5 MiB each and 20 MiB total. An image-only start asks the agent to describe them.
+Unsupported coding tools retain the draft and explain why Start is disabled.
+Published installers may not include image attachments yet.
+
+
 ## Switch without stopping the work
 
 Select a session to return to its terminal. Switching away does not stop its

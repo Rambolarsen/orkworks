@@ -1,15 +1,15 @@
 ---
 type: Architecture Decision
 title: New sessions own bounded local image context
-description: Proposed attachment ingestion, authenticated creation, storage lifetime, and coding-tool delivery.
+description: Approved attachment ingestion, authenticated creation, storage lifetime, and coding-tool delivery.
 tags: [orkworks, sessions, images, protocol]
-status: draft
+status: stable
 ---
 
 # New sessions own bounded local image context
 
-- Status: proposed
-- Deciders: repository owner; approval pending
+- Status: accepted
+- Deciders: repository owner, approved 2026-10-23
 - Date: 2026-10-23
 
 ## Context
@@ -21,7 +21,7 @@ ownership rather than assuming a filename is visible to the selected model.
 
 ## Decision
 
-Propose the [image-context contract](../../specs/session-image-context.md),
+Use the approved [image-context contract](../../specs/session-image-context.md),
 tracked by [#979](https://github.com/Rambolarsen/orkworks/issues/979).
 The composer owns transient previews. Electron main validates bounded bytes
 and captures the selected workspace. Authenticated additive session creation
@@ -37,4 +37,4 @@ through remembered-session resume and are deleted with their owning session.
 Creation gains bounded binary data handling, main-only authorization for images,
 and an explicit sidecar capability handshake. Tool/provider support requires
 real launch evidence; documentation and synthetic fixtures alone cannot enable
-an adapter. The proposal does not authorize runtime implementation until approved.
+an adapter. The owner approved dependent implementation on 2026-10-23.

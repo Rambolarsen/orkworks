@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from "electron";
 import { spawn } from "child_process";
+import { normalizeImageCreation, submitImageSession } from "./sessionImages";
 import { createHash, randomBytes } from "crypto";
 import { existsSync, readFileSync } from "fs";
 import type { AppUpdater, NsisUpdater, UpdateInfo } from "electron-updater";
@@ -1305,6 +1306,15 @@ app.whenReady().then(async () => {
   ipcMain.handle("get-backend-url", async () => {
     const port = await restoration.getReadiness();
     return `http://127.0.0.1:${port}`;
+  });
+
+  ipcMain.handle("create-session-with-images", async (_event, expectedBackendUrl: unknown, value: unknown) => {
+    const request = normalizeImageCreation(value);
+    if (request.expectedWorkspacePath !== workspacePath) throw new Error(STALE_BACKEND_GENERATION_MESSAGE);
+    return withReadyBackendGeneration((port, token, signal) => {
+      if (expectedBackendUrl !== sidecarUrl(port) || request.expectedWorkspacePath !== workspacePath) throw new Error(STALE_BACKEND_GENERATION_MESSAGE);
+      return submitImageSession(port, token, request, signal);
+    });
   });
 
   ipcMain.handle("analyze-taskmaster", async () => withReadyBackendGeneration(

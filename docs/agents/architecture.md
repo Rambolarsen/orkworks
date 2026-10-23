@@ -578,6 +578,21 @@ identity. See [ADR 0069](../adr/0069-codex-session-id-hook-report-mailbox.md).
 
 `POST /sessions/:id/debug-injection` accepts `{attention, message?}` from the dev-only Details-panel picker (gated behind `showDebugMetadata`) and writes through the same merge path as `report_attention`, tagged `attentionSource: "debug"`, `attentionConfidence: 0.0`. Both merges gate through the shared `source_priority::can_overwrite` ladder (see [ADR 0005](../adr/0005-metadata-source-priority.md)): a `debug`-sourced write is ignored if the session currently carries `user`- or `agent`-sourced metadata (the live-signal tiers), and is otherwise accepted — including over `process`/`peon` state, which is what keeps debug injection usable on live sessions; any subsequent real signal reclaims the session on its next update. Rejects with 400 if the session's `lifecycle` isn't `alive`. `capped` injections route a non-empty `message` to the in-memory `usageLimitResetHint` handle field rather than the persisted `summary`, matching how the `Capped · <hint>` badge reads it; omitting `message` leaves any existing hint untouched.
 
+`POST /sessions` also accepts optional `initialImages` (`name`, `mimeType`,
+`dataBase64`) and `expectedWorkspacePath`. Nonempty images require the main-only
+secret and a matching workspace identity. Electron's generation-bound
+`create-session-with-images` IPC validates bounds and positively negotiates
+`GET /session-image-context` version 1 before forwarding. The sidecar decodes
+supported images with bounded allocation, publishes private session-owned files
+before metadata admission, and retains them until Forget/retention. Unix storage
+operations are relative to retained directory handles. Native Codex image starts
+pass both image paths and the text in argv, and skip PTY prompt submission because
+Codex automatically submits startup images. Other qualified image readers receive
+explicit file references through the existing readiness-gated prompt owner.
+Unqualified tool/version/platform routes remain disabled. See
+[image context](../../specs/session-image-context.md) and
+[ADR 0089](../adr/0089-new-session-image-context.md).
+
 `POST /sessions` now accepts `{ harnessId, model, initialPrompt }`. The renderer's inline New agent session composer labels harness choices as coding tools, can fall back to the default shell session if harness metadata is temporarily unavailable, and still sends the selected harness config id so session rows and remembered-session resume behavior remain compatible. The response returns as soon as the `"creating"` metadata record is persisted, before the harness has actually spawned — the PTY spawn runs as a detached background task, mirroring how `POST /sessions/:id/resume` and daemon-restart reconciliation already leave a session observable in `"creating"`. A spawn failure surfaces asynchronously as `status: "error"`, observed via the existing `GET /sessions` poll, rather than as a synchronous error response (issue #302).
 
 For a new Codex, OpenCode, or Claude Code session with an initial prompt, the runtime waits

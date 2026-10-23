@@ -388,11 +388,19 @@ fn active_harness_revision_conflict_response(state: &Arc<AppState>) -> axum::res
 
 pub(crate) async fn create_session(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(req): Json<CreateSessionRequest>,
 ) -> axum::response::Response {
+    if !req.initial_images.is_empty() {
+        if let Err(status) = authorize_plan_request(&headers) {
+            return status.into_response();
+        }
+    }
     let projection_state = state.clone();
     SessionApplication::new(state)
         .create_session(crate::session_application::CreateSessionCommand {
+            initial_images: req.initial_images,
+            expected_workspace_path: req.expected_workspace_path,
             harness_id: req.harness_id,
             model: req.model,
             initial_prompt: req.initial_prompt,
@@ -1014,6 +1022,10 @@ pub(crate) async fn apply_debug_attention(
 
 #[derive(Deserialize, Default)]
 pub(crate) struct CreateSessionRequest {
+    #[serde(rename = "expectedWorkspacePath", default)]
+    pub(crate) expected_workspace_path: Option<String>,
+    #[serde(rename = "initialImages", default)]
+    pub(crate) initial_images: Vec<crate::image_context::ImageInput>,
     #[serde(rename = "harnessId", default)]
     pub(crate) harness_id: Option<String>,
     #[serde(default)]
@@ -6568,7 +6580,10 @@ mod tests {
 
         let response = create_session(
             State(state.clone()),
+            HeaderMap::new(),
             Json(CreateSessionRequest {
+                initial_images: Vec::new(),
+                expected_workspace_path: None,
                 harness_id: Some("generic-shell".into()),
                 model: None,
                 initial_prompt: None,
@@ -6708,7 +6723,10 @@ mod tests {
 
         let response = create_session(
             State(state.clone()),
+            HeaderMap::new(),
             Json(CreateSessionRequest {
+                initial_images: Vec::new(),
+                expected_workspace_path: None,
                 harness_id: Some("generic-shell".into()),
                 model: None,
                 initial_prompt: None,
@@ -6773,7 +6791,10 @@ mod tests {
 
         let response = create_session(
             State(state.clone()),
+            HeaderMap::new(),
             Json(CreateSessionRequest {
+                initial_images: Vec::new(),
+                expected_workspace_path: None,
                 harness_id: Some("generic-shell".into()),
                 model: None,
                 initial_prompt: None,
@@ -6858,7 +6879,10 @@ mod tests {
 
         let response = create_session(
             State(state.clone()),
+            HeaderMap::new(),
             Json(CreateSessionRequest {
+                initial_images: Vec::new(),
+                expected_workspace_path: None,
                 harness_id: Some("generic-shell".into()),
                 model: None,
                 initial_prompt: None,
@@ -6921,7 +6945,10 @@ mod tests {
         let state = test_app_state_with_workspace(dir.path());
         let response = create_session(
             State(state.clone()),
+            HeaderMap::new(),
             Json(CreateSessionRequest {
+                initial_images: Vec::new(),
+                expected_workspace_path: None,
                 harness_id: Some("generic-shell".into()),
                 model: None,
                 initial_prompt: None,
@@ -6979,7 +7006,10 @@ mod tests {
         let state = test_app_state_with_workspace(dir.path());
         let response = create_session(
             State(state.clone()),
+            HeaderMap::new(),
             Json(CreateSessionRequest {
+                initial_images: Vec::new(),
+                expected_workspace_path: None,
                 harness_id: Some("generic-shell".into()),
                 model: None,
                 initial_prompt: Some("fix the login redirect bug".into()),
@@ -7029,7 +7059,10 @@ mod tests {
         let state = test_app_state_with_workspace(dir.path());
         let response = create_session(
             State(state.clone()),
+            HeaderMap::new(),
             Json(CreateSessionRequest {
+                initial_images: Vec::new(),
+                expected_workspace_path: None,
                 harness_id: Some("generic-shell".into()),
                 model: None,
                 initial_prompt: Some("shared startup context".into()),
@@ -7092,7 +7125,10 @@ mod tests {
         let display: String = prompt.chars().take(100).collect();
         let response = create_session(
             State(state.clone()),
+            HeaderMap::new(),
             Json(CreateSessionRequest {
+                initial_images: Vec::new(),
+                expected_workspace_path: None,
                 harness_id: Some("generic-shell".into()),
                 model: None,
                 initial_prompt: Some(prompt.clone()),
@@ -7126,7 +7162,10 @@ mod tests {
         let state = test_app_state_with_workspace(dir.path());
         let response = create_session(
             State(state.clone()),
+            HeaderMap::new(),
             Json(CreateSessionRequest {
+                initial_images: Vec::new(),
+                expected_workspace_path: None,
                 harness_id: Some("generic-shell".into()),
                 model: None,
                 initial_prompt: Some("y".into()),
@@ -9164,6 +9203,8 @@ mod tests {
         let launch = resolve_session_launch(
             &registry,
             &CreateSessionCommand {
+                initial_images: Vec::new(),
+                expected_workspace_path: None,
                 harness_id: Some("codex".into()),
                 model: None,
                 initial_prompt: None,
@@ -9181,7 +9222,10 @@ mod tests {
         let state = test_app_state_with_workspace(dir.path());
         let response = create_session(
             State(state),
+            HeaderMap::new(),
             Json(CreateSessionRequest {
+                initial_images: Vec::new(),
+                expected_workspace_path: None,
                 harness_id: Some("gemini".into()),
                 model: None,
                 initial_prompt: Some("do not send this to a shell".into()),
@@ -9235,7 +9279,10 @@ mod tests {
 
         let response = create_session(
             State(state.clone()),
+            HeaderMap::new(),
             Json(CreateSessionRequest {
+                initial_images: Vec::new(),
+                expected_workspace_path: None,
                 harness_id: Some("generic-shell".into()),
                 model: None,
                 initial_prompt: None,
@@ -9285,7 +9332,10 @@ mod tests {
 
         let response = create_session(
             State(state.clone()),
+            HeaderMap::new(),
             Json(CreateSessionRequest {
+                initial_images: Vec::new(),
+                expected_workspace_path: None,
                 harness_id: Some("opencode".into()),
                 model: None,
                 initial_prompt: None,
@@ -9314,6 +9364,8 @@ mod tests {
         let launch = resolve_session_launch(
             &registry,
             &CreateSessionCommand {
+                initial_images: Vec::new(),
+                expected_workspace_path: None,
                 harness_id: Some("opencode".into()),
                 model: None,
                 initial_prompt: None,
@@ -9336,6 +9388,8 @@ mod tests {
         let launch = resolve_session_launch(
             &registry,
             &CreateSessionCommand {
+                initial_images: Vec::new(),
+                expected_workspace_path: None,
                 harness_id: Some("opencode".into()),
                 model: Some("qwen2.5-coder:latest".into()),
                 initial_prompt: None,
@@ -9354,6 +9408,8 @@ mod tests {
         let launch = resolve_session_launch(
             &registry,
             &CreateSessionCommand {
+                initial_images: Vec::new(),
+                expected_workspace_path: None,
                 harness_id: Some("codex".into()),
                 model: Some("gpt-5".into()),
                 initial_prompt: None,
