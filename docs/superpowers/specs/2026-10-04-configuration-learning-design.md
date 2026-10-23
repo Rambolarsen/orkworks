@@ -693,25 +693,34 @@ instructions are not candidates for removal or bypass.
 
 ### Optional elapsed-time and cost observations
 
-The current #744 draft excludes time/cost fields. This section defines units
-only for a future compatible amendment; v1 learning does not accept or consume
-these observations until #744 explicitly adds a source, provenance, and record
-binding for them. If accepted later, elapsed time is an unsigned canonical
-`elapsedMilliseconds` integer in `[0, 604800000]` measured by the sidecar's
-monotonic clock for the assignment's active runtime; unavailable or
-cross-restart intervals are `unknown`, never estimated from timestamps. Cost
-is an unsigned canonical `costMicroUsd` integer in `[0, 1000000000000]` with
-an exact provider/model identity and bounded `pricingSnapshotId` (1–128 ASCII
-bytes). It represents a provider-reported USD amount normalized to one
-micro-dollar; unconvertible or unattributed costs are unknown. The upper bound
-is USD 1,000,000 per assignment.
+The proposed [#744 descriptive time and cost evidence contract](2026-10-04-assignment-evaluation-design.md#descriptive-time-and-cost-evidence)
+defines source provenance and accepted-result binding in `timeCostEvidence`.
+Learning must consume those exact sidecar-resolved records and their provenance,
+without redefining units or deriving metrics from timestamps or estimates. The
+complete array participates in the accepted result digest; it contains at most
+32 records of at most 512 bytes each and is empty when no evidence is available.
 
-If later enabled, time and cost remain separate descriptive dimensions. Cost
-may only be compared under the same provider, model, pricing snapshot, and
-cohort; neither metric changes a quality/completeness outcome or establishes
-skill causality. Missing, unknown, or incomparable values are omitted from
-that metric's denominator and shown as unknown counts. #744 review must
-explicitly accept or revise this encoding before any producer persists it.
+There is at most one elapsed record: an unsigned canonical `elapsedMilliseconds`
+integer in `[0, 604800000]`, bound to the result's `authorityGeneration` and
+measured by the sidecar's monotonic clock from that generation's accepted start
+to terminal event. Unavailable, cross-restart or over-limit durations are
+omitted. Cost records use unsigned canonical `costMicroUsd` integers in
+`[0, 1000000000000]` with exact provider/model identities, `pricingSnapshotId`,
+and authenticated immutable provider USD usage-record IDs/digests. The upper
+bound is USD 1,000,000 per record. Duplicate usage sources, estimates and
+unverifiable or unconvertible amounts are rejected. Cost remains absent until
+the implementation plan identifies and approves that usage source; #742 supplies
+no provider-billing contract, and this proposal grants no new collection authority.
+
+Time and cost remain separate descriptive dimensions. Cost may only be compared
+under the same provider, model, pricing snapshot, and cohort; neither metric
+changes a quality/completeness outcome, optional-skill preference or tie-breaker,
+or establishes skill causality. Missing, unknown, or incomparable values are
+omitted from that metric's denominator and shown as unknown counts, never zero.
+This alignment does not enable shared learning: input admission and
+cross-workspace source custody remain subject to [#744's jointly reviewed
+ownership, publication, locking and crash-recovery gate](2026-10-04-assignment-evaluation-design.md#bounds-retention-and-deletion),
+as well as written contract acceptance and separate implementation approval.
 
 ## Versioned history and correction invalidation
 
