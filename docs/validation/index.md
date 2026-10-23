@@ -20,3 +20,5 @@ Capability research, validation results, and evidence fixtures.
 - [Fixed shell native validation](shell-native-validation.md) — Partial macOS walkthrough evidence and remaining release gates.
 
 - [Repository assessment runtime validation](repository-assessment-runtime.md) — Deterministic safety evidence and the failed selected-model usefulness gate for #931.
+
+- [Hierarchy writer and storage qualification](hierarchy-writer-storage-qualification.md) — Inspected persistence seams, missing writer coverage and required crash evidence.

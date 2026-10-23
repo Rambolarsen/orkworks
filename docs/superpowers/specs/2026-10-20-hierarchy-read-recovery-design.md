@@ -223,6 +223,16 @@ qualification, complete writer inventory and crash/codec fixtures remain later
 implementation-plan work; #740 eligibility and separate runtime approvals remain
 closed gates. No shared-learning admission or custody protocol is supplied here.
 
+## Writer and storage qualification handoff
+
+The [writer/storage qualification register](../../validation/hierarchy-writer-storage-qualification.md)
+records concrete existing persistence seams at PR #987, distinguishes missing
+hierarchy owners from ordinary-session/data-only stores, and maps transaction
+coverage and crash acceptance oracles. It is static inspection evidence, not
+producer agreement, a selected storage architecture or executed native qualification.
+Complete writer coverage, an approved transaction/storage design and scoped
+runtime/qualification plans remain required before claiming this boundary works.
+
 ## Durable summary material
 
 [#744 owns the summary revision](2026-10-04-assignment-evaluation-design.md#hierarchy-summary-revision-ownership).
