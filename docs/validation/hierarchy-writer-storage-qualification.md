@@ -154,3 +154,7 @@ missing owners and durable unit, maps every writer, and fixes finite journal and
 checkpoint limits. Review the architecture/ADR and obtain owner approval before
 dependent runtime code. Qualification execution needs its own scoped approved
 plan; these tables are not executed tests or that plan. Keep #744/#746 open.
+
+A [candidate transaction/storage design](../superpowers/specs/2026-10-23-hierarchy-transaction-storage-design.md)
+now proposes the durable unit, writer routes and finite limits. This is a proposal
+for owner review, not closure of the qualification gaps above.

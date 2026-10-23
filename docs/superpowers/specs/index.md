@@ -177,3 +177,4 @@ Dated design records; these do not establish current product behavior.
 - [Hierarchy coherent reads, summary recovery and detail codec](2026-10-20-hierarchy-read-recovery-design.md) — Proposed joint publication, durable summary lineage and exact-byte record inspection for #746.
 
 - [Codex permission waits resolved by exact tool completion](2026-10-23-codex-hook-completion-mitigation-design.md) — Proposed partial mitigation with explicit producer, serial-correlation and sandbox qualification gates.
+- [Workspace hierarchy transaction/storage proposal](2026-10-23-hierarchy-transaction-storage-design.md) — Proposed durable unit, writer integration and bounded SQLite recovery.

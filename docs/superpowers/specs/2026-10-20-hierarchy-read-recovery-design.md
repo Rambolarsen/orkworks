@@ -233,6 +233,12 @@ producer agreement, a selected storage architecture or executed native qualifica
 Complete writer coverage, an approved transaction/storage design and scoped
 runtime/qualification plans remain required before claiming this boundary works.
 
+The [transaction/storage proposal](2026-10-23-hierarchy-transaction-storage-design.md)
+and proposed [ADR 0090](../../adr/0090-workspace-hierarchy-sqlite-transactions.md)
+now describe a candidate single SQLite durable unit, ordinary-writer fencing,
+lineage checkpoints and finite limits. These new choices await owner acceptance;
+they are neither runtime authorization nor executed storage qualification.
+
 ## Durable summary material
 
 [#744 owns the summary revision](2026-10-04-assignment-evaluation-design.md#hierarchy-summary-revision-ownership).
