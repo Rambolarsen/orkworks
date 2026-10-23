@@ -66,3 +66,15 @@ support. Failures preserve drafts; accepted sessions retain complete image bundl
   support and its qualified tool/platform limits. docs/home.md has no conflicting
   attachment claim. Root AGENTS needs no update for a private decoder dependency;
   this change introduces no universal policy or routing entry.
+
+- Manual `/code-review medium` of e6abea2941a26a835fcb6b4444129ad56d2ba6db
+  found one required cleanup race: metadata deletion preceded a contended image
+  lock, losing retry ownership. A new regression failed on the lost metadata;
+  cleanup now reserves a nonblocking pinned lease before destructive effects and
+  removes images under that lease after metadata deletion. The image-context
+  module passes nine tests after the fix. Current-code re-review remains required.
+- Qualification evidence distinction: the opt-in fixture asserts color presence.
+  The captured terminal replay was also inspected: the corrected two-image run
+  returned “Red, green, blue, orange” to the same text/image prompt, and the
+  image-only run described the visual. Order/one-turn claims rely on that inspected
+  replay, not solely the fixture's presence assertion.

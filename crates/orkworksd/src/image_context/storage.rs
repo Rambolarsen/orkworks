@@ -248,14 +248,35 @@ mod unix {
             .map(|_| ())
             .map_err(|_| std::io::Error::other("Invalid image bundle owner"))
     }
-    pub(crate) fn remove_bundle(root: &Path, id: &str) -> std::io::Result<()> {
+    pub(crate) struct ImageCleanup {
+        root: Directory,
+        name: OsString,
+        _lock: File,
+    }
+    impl ImageCleanup {
+        pub(crate) fn remove(self) -> std::io::Result<()> {
+            self.root.remove(&self.name)
+        }
+    }
+    /// Reserve cleanup without blocking a caller that holds the workspace lock.
+    /// The caller must retain this lease while deleting the owning metadata.
+    pub(crate) fn prepare_cleanup(root: &Path, id: &str) -> std::io::Result<Option<ImageCleanup>> {
         valid_id(id)?;
         if !root.join("session-images").try_exists()? {
-            return Ok(());
+            return Ok(None);
         }
         let root = Directory::root(root)?;
-        let _lock = root.lock()?;
-        root.remove(OsStr::new(id))
+        match root.child(OsStr::new(id), false) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error),
+            Ok(_) => {}
+        }
+        let lock = root.lock()?;
+        Ok(Some(ImageCleanup {
+            root,
+            name: OsString::from(id),
+            _lock: lock,
+        }))
     }
     pub(crate) fn recover(
         root: &Path,
@@ -303,7 +324,7 @@ mod unix {
     }
 }
 #[cfg(unix)]
-pub(crate) use unix::{recover, remove_bundle, ImageBundle};
+pub(crate) use unix::{prepare_cleanup, recover, ImageBundle};
 #[cfg(not(unix))]
 pub(crate) struct ImageBundle;
 #[cfg(not(unix))]
@@ -319,9 +340,17 @@ impl ImageBundle {
     pub(crate) fn accept(&mut self) {}
 }
 #[cfg(not(unix))]
-pub(crate) fn remove_bundle(_: &Path, id: &str) -> std::io::Result<()> {
+pub(crate) struct ImageCleanup;
+#[cfg(not(unix))]
+impl ImageCleanup {
+    pub(crate) fn remove(self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+#[cfg(not(unix))]
+pub(crate) fn prepare_cleanup(_: &Path, id: &str) -> std::io::Result<Option<ImageCleanup>> {
     uuid::Uuid::parse_str(id)
-        .map(|_| ())
+        .map(|_| None)
         .map_err(|_| std::io::Error::other("Invalid image bundle owner"))
 }
 #[cfg(not(unix))]

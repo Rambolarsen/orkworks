@@ -78,7 +78,7 @@ pub(crate) fn validate(
 
 mod storage;
 pub(crate) use storage::recover;
-pub(crate) use storage::{remove_bundle, ImageBundle};
+pub(crate) use storage::{prepare_cleanup, ImageBundle};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ImageDelivery {
@@ -143,6 +143,12 @@ pub(crate) fn apply_delivery(
 mod tests {
     use super::*;
     use base64::Engine;
+    fn remove_bundle(root: &std::path::Path, id: &str) -> std::io::Result<()> {
+        if let Some(cleanup) = prepare_cleanup(root, id)? {
+            cleanup.remove()?;
+        }
+        Ok(())
+    }
     fn png() -> ImageInput {
         // Real 1x1 PNG, used independently of the decoder under test.
         ImageInput { name: "../a.png".into(), mime_type: "image/png".into(), data_base64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=".into() }
@@ -318,6 +324,46 @@ mod tests {
                 "--literal prompt; $(touch forbidden)"
             ]
         );
+    }
+    #[test]
+    #[cfg(unix)]
+    fn contended_cleanup_preserves_metadata_and_can_be_retried() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let workspace = state.workspace.lock().unwrap();
+        let ws = workspace.as_ref().unwrap();
+        let id = uuid::Uuid::new_v4().to_string();
+        let storage = ws.metadata.root_path();
+        ws.metadata
+            .write_session(&crate::test_support::test_session_metadata(
+                &id,
+                "image session",
+                root.path().display().to_string(),
+                "ended",
+                "2026-01-01T00:00:00Z",
+                "2026-01-01T00:00:00Z",
+            ));
+        let mut old =
+            ImageBundle::publish(&storage, &id, validate(&[png()], "inspect").unwrap()).unwrap();
+        let image = old.paths()[0].clone();
+        old.accept();
+        drop(old);
+        let publishing = ImageBundle::publish(
+            &storage,
+            &uuid::Uuid::new_v4().to_string(),
+            validate(&[png()], "inspect").unwrap(),
+        )
+        .unwrap();
+        assert!(crate::runtime::retention::delete_session_evidence(ws, &id, |_| Ok(())).is_err());
+        assert!(
+            ws.metadata.session_file_exists(&id),
+            "Cleanup contention must preserve the owning metadata"
+        );
+        assert!(image.exists());
+        drop(publishing);
+        crate::runtime::retention::delete_session_evidence(ws, &id, |_| Ok(())).unwrap();
+        assert!(!ws.metadata.session_file_exists(&id));
+        assert!(!image.exists());
     }
     /// Explicitly opt in: uses the installed tool/account for a tiny visual task.
     #[tokio::test]
