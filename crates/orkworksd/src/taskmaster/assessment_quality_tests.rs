@@ -38,7 +38,13 @@ fn selected_provider_quality_matrix() {
         serde_json::to_vec_pretty(&selection).unwrap(),
     )
     .unwrap();
-    for case in ["positive", "positive_old_noise", "healthy", "refuted"] {
+    for case in [
+        "positive",
+        "positive_old_noise",
+        "positive_scoped",
+        "healthy",
+        "refuted",
+    ] {
         if std::env::var("ORKWORKS_ASSESSMENT_QUALITY_CASE").is_ok_and(|filter| filter != case) {
             continue;
         }
@@ -70,6 +76,28 @@ fn selected_provider_quality_matrix() {
             if case == "refuted" {
                 fs::create_dir_all(workspace.join("scripts")).unwrap();
                 fs::write(workspace.join("scripts/verify.ts"), "// This entry point runs the real unit suite and propagates failures.\nimport { spawnSync } from 'node:child_process';\nconst result = spawnSync('pnpm', ['exec', 'node', '--experimental-strip-types', '--test', 'src/add.test.ts'], { stdio: 'inherit' });\nprocess.exit(result.status ?? 1);\n").unwrap();
+            }
+            if case == "positive_scoped" {
+                fs::write(workspace.join("AGENTS.md"), format!("{}{}", "# Workflow\nEvery change requires meaningful unit tests and CI must execute the unit suite. A passing no-op is not test evidence.\n", "Workflow context. ".repeat(600))).unwrap();
+                fs::write(
+                    workspace.join("README.md"),
+                    "Project overview. ".repeat(600),
+                )
+                .unwrap();
+                for scope in ["apps/client", "crates/service", "tests/fixtures"] {
+                    fs::create_dir_all(workspace.join(scope)).unwrap();
+                    fs::write(
+                        workspace.join(scope).join("AGENTS.md"),
+                        "Scoped workflow guidance. ".repeat(140),
+                    )
+                    .unwrap();
+                }
+                fs::rename(
+                    workspace.join("package.json"),
+                    workspace.join("apps/client/package.json"),
+                )
+                .unwrap();
+                fs::write(workspace.join(".github/workflows/ci.yml"), "name: CI\non: [push, pull_request]\njobs:\n  unit:\n    runs-on: ubuntu-latest\n    defaults:\n      run:\n        working-directory: apps/client\n    steps:\n      - uses: actions/checkout@v4\n      - run: pnpm test\n").unwrap();
             }
             let state = crate::test_support::test_app_state_with_workspace(&workspace);
             if case == "positive_old_noise" {
@@ -167,7 +195,13 @@ fn selected_provider_quality_matrix() {
 
 fn check_retained_quality_evidence(output: &Path) {
     let mut failures = Vec::new();
-    for case in ["positive", "positive_old_noise", "healthy", "refuted"] {
+    for case in [
+        "positive",
+        "positive_old_noise",
+        "positive_scoped",
+        "healthy",
+        "refuted",
+    ] {
         let mut designed_gaps = 0;
         for run in 1..=3 {
             let directory = output.join(format!("{case}-{run}"));
@@ -260,7 +294,13 @@ fn quality_verdict_from_recorded_reviews() {
 #[test]
 fn rejected_positive_is_zero_of_three_without_excusing_other_evidence_failures() {
     let dir = tempfile::tempdir().unwrap();
-    for case in ["positive", "positive_old_noise", "healthy", "refuted"] {
+    for case in [
+        "positive",
+        "positive_old_noise",
+        "positive_scoped",
+        "healthy",
+        "refuted",
+    ] {
         for run in 1..=3 {
             let path = dir.path().join(format!("{case}-{run}"));
             fs::create_dir(&path).unwrap();
@@ -346,7 +386,13 @@ fn retained_quality_inputs_match_current_collector() {
     );
     let mut checked = 0;
     let mut unavailable = 0;
-    for case in ["positive", "positive_old_noise", "healthy", "refuted"] {
+    for case in [
+        "positive",
+        "positive_old_noise",
+        "positive_scoped",
+        "healthy",
+        "refuted",
+    ] {
         for run in 1..=3 {
             let directory = output.join(format!("{case}-{run}"));
             let record: AssessmentRecord =

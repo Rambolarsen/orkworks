@@ -384,7 +384,9 @@ fn contains_imperative_command(text: &str) -> bool {
                     | "on"
                     | "under"
                     | "its"
-            );
+            ) || (pair[0] == "use"
+                && pair[1] == "that"
+                && words.get(index + 2) == Some(&"script"));
             if index > 1
                 && !addressed_reader
                 && descriptive_target
@@ -832,6 +834,8 @@ mod tests {
             "The supplied facts show CI configured to run the package test suite.",
             "The package's CI script is configured to run the existing unit suite.",
             "The package script is designed to execute the existing unit suite.",
+            "The client test script reports a skipped suite, while CI is configured to use that script; related test coverage remains unknown.",
+            "The CI unit job is configured to use that script, consistent with the repository requirement.",
             "Whether the existing arithmetic test can run with the available package configuration.",
             "Whether the current package setup can execute the existing TypeScript test directly.",
             "The repository requires meaningful unit tests and rejects passing no-ops.",
@@ -894,6 +898,9 @@ mod tests {
             "Whether tests pass is unknown; run unknowncli frobnicate.",
             "The setup is configured to run cargo test.",
             "The CI script is configured to run rm -rf /.",
+            "The CI job is configured to use that script; rm output.",
+            "The CI job is configured to use that script to run unknowncli frobnicate.",
+            "The CI job is configured to use that script rm output.",
             "The package script is designed to execute python tools/check.py.",
             "Whether CI can run curl https://example.test remains unverified.",
             "The workflow is configured to invoke bash -c anything.",
