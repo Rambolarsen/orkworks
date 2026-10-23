@@ -226,3 +226,61 @@ It does not complete #836 or establish human, screen-reader or release acceptanc
   human title drag, minimize/restore and controlled close/quit, exact 200% and
   narrow layout, complete keyboard/saved-shortcut coverage, spoken screen-reader
   announcements, remaining live attention transitions, and Windows/Linux checks.
+
+
+## October 23 continuation
+
+This agent-operated run adds saved-shortcut, pinned-inspector input, and native
+Quit/restart evidence. It does not complete the broader native chrome, keyboard,
+screen-reader or release gates in #836.
+
+### Build and conditions
+
+- Source: `2fec992117c516671dfa8a93a70fafbc3dc6de1d`, including PR #977;
+  no runtime source edits or test instrumentation.
+- Host: macOS 26.6.2, build 25G83, arm64; Electron 44.6.0; desktop dependencies
+  installed with pnpm 11.24.0.
+- Owned checkout: `orkworks-shell-validation-836-oct23`; launched from
+  `apps/desktop/` with `ORKWORKS_DEV_PORT=5673 pnpm dev`. The renderer URL was
+  `http://localhost:5673/`; settings were scoped to this checkout/port.
+- Disposable Git workspace: `/private/tmp/orkworks-836-native-20261023`.
+  One ordinary Shell session was created. No coding-agent harness was launched
+  and no coding-tool integration was enabled.
+- Read-only DevTools measurement returned native outer size 1400 × 877,
+  position `(56, 33)`, and `devicePixelRatio=2` at 100% on the 2× display.
+  DevTools was closed for keyboard/inspector and replay screenshots. Its docked
+  viewport dimensions are not breakpoint evidence.
+- Native AX and screenshots were inspected in the session, not retained in the
+  repository. No screen reader or OS accessibility setting was used or changed.
+
+### Observed results
+
+| Conditions | Action and expected result | Actual result / disposition |
+| --- | --- | --- |
+| 100%, Settings → Hotkeys | Capture a custom Details chord, save it, and use the saved native command | Detail Panel changed from `CmdOrCtrl+Shift+D` to `CmdOrCtrl+Shift+I`. Capture ended with that value and enabled Save; Save displayed Saved. After closing Settings and dismissing the no-active-tools reminder, the custom chord toggled Details. Closing returned AX focus to the Details button. This is one custom-command sample, not complete shortcut/conflict coverage. |
+| 100%, pinned Details beside a live Shell | Escape and Up go to terminal input without closing pinned Details | After pinning Details, focused Terminal input ran `cat -v`. Escape, Up and Return produced visible `^[^[[A` output; pinned Details remained visible and AX retained terminal-input focus. Control+C ended the bounded input check. |
+| 100%, pinned Details heading focused | Escape closes the inspector and restores its invoker | Reopened Details through the saved chord; AX focused its heading. Escape removed the inspector and focused Details. This complements terminal-owned Escape above. |
+| 100%, live Shell, native Quit | Quit the owned dev app without an automation-triggered relaunch | Command+Q ended the tracked `pnpm dev` process with exit code 0. No subsequent app observation was made until an explicit new dev launch. This qualifies this Quit path, not red-button close, minimize/restore or other platforms. |
+| Same source, explicit restart with port 5673 | Saved shortcut persists; ended history remains inspectable without resume | Explicitly reopened the disposable workspace. Initially no session was selected. Selected the existing Shell row, then the custom chord opened Details and focused its heading. Details showed ENDED / Closed with unsupported resume routes; the screenshot retained `836-oct23-before-keyboard` and the `cat -v` output. No new session or resume was requested. |
+| After restart inspection | Stop the owned app | Command+Q again ended the tracked dev process with exit code 0. |
+
+### Diagnostics and limits
+
+- Fresh startup again detected the `fs-ext` ABI 147/149 mismatch, rebuilt it
+  automatically for Electron 44.6.0, verified it, and launched. The restart
+  verified the module without another repair. Existing build warnings do not
+  establish a new native-build defect.
+- Each collected launch log included a `get-backend-url` handler error,
+  `Backend generation has not started`. The log chunk had no timing information
+  sufficient to attribute it to startup or shutdown. Workspace connection,
+  session/history inspection and Quit still completed. No root cause or fix is
+  claimed by this run.
+- The host's existing missing `.zshrc` completion-file warning remained visible;
+  the Shell marker and input check worked. No host configuration was changed.
+- Native folder-picker input needed a coordinate click before typed text took
+  effect; this is automation-path evidence, not a demonstrated product defect.
+- Keep #836 open and its broad checkboxes unchanged. Exact 200% zoom, human
+  title dragging/minimize/restore/red-button close, spoken screen-reader output,
+  remaining keyboard/modal/shortcut variants, remaining live attention motion,
+  and Windows/Linux qualification are still pending. The successful 100% Quit
+  path above does not complete the native chrome checkbox.
