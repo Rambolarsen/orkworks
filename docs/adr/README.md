@@ -108,3 +108,5 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0087](./0087-native-codex-assessment-response-constraints.md) | Native Codex assessment uses code-owned response constraints | accepted; compatibility and runtime evidence pending |
 
 | [0088](./0088-session-archive-state.md) | Durable session archive state | accepted |
+
+| [0089](./0089-new-session-image-context.md) | New sessions own bounded local image context | accepted; implementation in progress |

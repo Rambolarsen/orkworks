@@ -545,7 +545,8 @@ function App() {
       cancelNewSession();
       requestShellCommand("terminal");
       void saveNavigation("terminal");
-    } catch {
+    } catch (error) {
+      if (opts.initialImages?.length) throw error;
       pushToast("error", "Couldn't start a new session.");
     }
   }, [workspaceSessionController, requestShellCommand, cancelNewSession, saveNavigation]);
@@ -933,6 +934,7 @@ function App() {
         onFixWithAi={handleFixWithAi}
         onRunCleanup={handleRunCleanup}
         newSessionContent={showNewSession ? <NewSessionDialog
+          workspacePath={workspace?.workspaceIdentity ?? ""}
           key={shellNavigation.workspaceGeneration}
           harnesses={filteredHarnesses} providerRuntime={providerRuntime}
           onConfirm={handleConfirmNewSession} onCancel={() => requestShellCommand("cancel-new-session")} /> : null}

@@ -2985,3 +2985,13 @@ html, body, #root {
 .session-context-menu button:disabled { opacity: .5; cursor: default; }
 .session-menu-diagnostic, .session-action-error, .session-action-progress { max-width: 28ch; margin: 4px; padding: 4px; font-size: var(--text-xs); }
 .session-action-error { color: var(--state-error); }
+
+.new-session-images { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0 18px; }
+.new-session-attach { border: 1px solid var(--border, #48505c); border-radius: 6px; padding: 6px 10px; background: transparent; color: inherit; cursor: pointer; }
+.new-session-image-hint { opacity: .65; font-size: 12px; }
+.new-session-image-list { list-style: none; display: flex; flex-wrap: wrap; gap: 10px; width: 100%; margin: 4px 0; padding: 0; }
+.new-session-image-list li { display: grid; grid-template-columns: 64px minmax(0, 130px); gap: 4px 8px; padding: 8px; border: 1px solid var(--border, #48505c); border-radius: 8px; font-size: 12px; }
+.new-session-image-list img { width: 64px; height: 64px; object-fit: contain; grid-row: span 2; }
+.new-session-image-list span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.new-session-image-list button { justify-self: start; border: 0; color: inherit; background: transparent; text-decoration: underline; cursor: pointer; }
+.new-session-image-error { color: var(--error, #dc6464); width: 100%; }

@@ -101,3 +101,5 @@ Decision records and their original rationale and consequences.
 - [0086: Repository-led Taskmaster assessment](0086-repository-led-taskmaster-assessment.md) — Proposed two-stage assessment and persisted evidence identity.
 
 - [Native Codex assessment uses code-owned response constraints](0087-native-codex-assessment-response-constraints.md) — Accepted static response shapes with unchanged inference authority and strict application decoding.
+
+- [New sessions own bounded local image context](0089-new-session-image-context.md) — Proposed ingestion, storage, and evidence-gated delivery.

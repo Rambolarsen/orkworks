@@ -302,3 +302,25 @@ verified; primary schema + fixture without version evidence is feature-probed;
 a documented event without stable payload schema is limited with unknown
 activation; and a target that is not local-only or already ignored/untracked is
 unsupported for installation.
+
+## New-session image delivery
+
+[ADR 0089](../adr/0089-new-session-image-context.md) and the
+[image-context contract](../../specs/session-image-context.md) gate image delivery
+separately from hooks/attention. On 2026-10-23, the opt-in
+`image_context::tests::qualify_installed_image_delivery` fixture used the ordinary
+OrkWorks session workflow, real PTY, and installed Codex 0.163.0 on macOS arm64
+(configured GPT-6.1-Sol). A two-image prompt returned the circle/rectangle colors
+red, green, blue, orange in order; an image-only prompt described the red circle
+and green square. Storage paths included spaces and non-ASCII characters.
+
+Native Codex `--image` auto-submits startup content. Supplying only image argv and
+then using the queued PTY text creates two turns. The qualified route passes image
+paths and literal text together in argv and disables the queued prompt for that
+start. No shell interpolation or permission changes are used.
+
+Claude Code 2.1.292 reached its external CLAUDE.md-import approval chooser and did
+not qualify; the fixture did not automate that approval. Claude, OpenCode, Copilot,
+custom tools, other platforms, and unqualified versions remain unsupported for
+new-session image context. Existing text-only startup is unchanged. A capability
+response or synthetic argv test alone cannot qualify another row.

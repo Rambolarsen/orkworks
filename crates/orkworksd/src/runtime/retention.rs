@@ -143,6 +143,14 @@ pub(crate) fn delete_session_evidence(
     session_id: &str,
     mut delete_recommendations: impl FnMut(&str) -> Result<(), String>,
 ) -> Result<(), String> {
+    // Acquire before any destructive effects. A concurrent publisher makes
+    // this deletion retryable without losing the session that owns its files.
+    let image_cleanup = if uuid::Uuid::parse_str(session_id).is_ok() {
+        crate::image_context::prepare_cleanup(&workspace.metadata.root_path(), session_id)
+            .map_err(|error| error.to_string())?
+    } else {
+        None
+    };
     workspace
         .workflow_observations
         .delete_session_observations(session_id)
@@ -155,6 +163,12 @@ pub(crate) fn delete_session_evidence(
         .metadata
         .clear_last_active_session_if_matches(session_id)
         .map_err(|error| error.to_string())?;
+    // Keep durable ownership until private file removal succeeds, including
+    // partial removals and directory-sync failures. Retain the lease through
+    // metadata deletion so recovery/publication cannot interleave this cleanup.
+    if let Some(cleanup) = image_cleanup.as_ref() {
+        cleanup.remove().map_err(|error| error.to_string())?;
+    }
     workspace
         .metadata
         .delete_session(session_id)

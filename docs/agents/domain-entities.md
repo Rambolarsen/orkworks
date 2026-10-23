@@ -268,3 +268,15 @@ and await cleanup plus persisted ending first. Restore returns to Closed.
 Archived history is retained outside automatic age/count cleanup. Archive and
 Restore preserve activity timestamps and native tool identity. This is OrkWorks
 organization only; native archive synchronization is outside this increment.
+
+## Session image context
+
+[Image context](../../specs/session-image-context.md) is a private local bundle,
+not a new attention or session lifecycle state. Its ownership manifest binds it
+to the generated session ID under workspace metadata `session-images/<id>/`.
+Image bytes never enter SessionInfo, summaries, or Peon input. A complete bundle
+precedes the creating metadata record. Runtime exit and renderer detachment keep
+it available for remembered-session resume; Forget/retention removes it only
+before deleting the owning record, while retaining the cleanup lease through
+metadata deletion. Failed image removal preserves that record for retry. Recovery
+retains uncertain metadata or ownership.

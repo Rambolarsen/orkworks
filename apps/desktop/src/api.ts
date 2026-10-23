@@ -128,8 +128,9 @@ export interface SessionInfo {
 
 export async function createSession(
   baseUrl: string,
-  opts?: { harnessId?: string; model?: string; initialPrompt?: string },
+  opts?: import("./harnessTypes").CreateSessionOptions,
 ): Promise<SessionInfo> {
+  if (opts?.initialImages?.length) return window.orkworks.createSessionWithImages(baseUrl, opts);
   const resp = await fetch(`${baseUrl}/sessions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
