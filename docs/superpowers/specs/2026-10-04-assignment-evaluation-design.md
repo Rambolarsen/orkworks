@@ -932,8 +932,11 @@ and lossless transport require review in the scoped runtime plan. See the
 
 The [read/recovery follow-up](2026-10-20-hierarchy-read-recovery-design.md#durable-summary-material)
 proposes exact material bytes, row/workspace limits and transaction/recovery cases
-for joint #744/#746 review. This supplements the open decisions above; it does
-not establish producer or owner acceptance.
+for joint #744/#746 review. The owner [accepted four recovery-contract choices
+on 2026-10-23](2026-10-20-hierarchy-read-recovery-design.md#owner-acceptance--2026-10-23).
+Producer agreement remains pending for the full material/classification, budget,
+publication/recovery and narrow-detail scope. Storage qualification and separately
+approved runtime plans remain gates.
 
 ### Proposed hierarchy display encoding
 
@@ -941,7 +944,8 @@ The [hierarchy transport proposal](2026-10-17-hierarchy-projection-transport-des
 uses explicit display DTOs with decimal strings for u64 metadata/artifact fields.
 Canonical records above retain their integer tokens and digest bytes. This
 proposed consumer codec does not finalize artifact retrieval, summary storage,
-or the joint recovery boundary; written producer/owner acceptance remains open.
+or the joint recovery boundary. The recovery-choice owner acceptance is linked
+above; producer agreement and broader display-encoding acceptance remain open.
 
 ## Implementation gate
 
