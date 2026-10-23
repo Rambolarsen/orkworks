@@ -1017,6 +1017,21 @@ records. Its target/source mapping and invalidation coverage remain pending
 producer and owner review; no new decision authority or runtime route is
 established by that draft.
 
+### Proposed hierarchy producer reconciliation
+
+The [producer responsibility and field mapping](2026-10-20-hierarchy-read-recovery-design.md#producer-reconciliation--2026-10-23)
+connects this contract's run/plan/allocation/runtime sources and exact report
+stream/head to the shared hierarchy publication boundary. A report correction
+must durably publish its existing descriptor/head, receipt, preparation effects
+and dependent freshness fences before an affected summary can be current.
+Exact retries preserve this contract's receipt-before-head-CAS semantics and
+cannot republish a summary transition. No hierarchy read creates a run grant,
+changes a report source identity or substitutes a newer version as reviewed
+content. Writer/storage integration and producer agreement on the full
+material, budget, recovery and detail scope remain pending; the recorded owner
+acceptance of four recovery choices does not accept this whole lifecycle or
+approve runtime work.
+
 ## Execution plan and implementation gate
 
 Keep #742 open: this is a concrete proposed contract, not a reviewed executable

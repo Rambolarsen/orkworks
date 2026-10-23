@@ -718,6 +718,23 @@ such extension is introduced here. The
 [#746 mapping](2026-10-15-hierarchy-projection-mapping.md#generation-and-root-evidence-boundaries)
 consumes this limitation explicitly; it does not widen this protocol's scope.
 
+### Proposed hierarchy publication participation
+
+The [producer reconciliation](2026-10-20-hierarchy-read-recovery-design.md#producer-reconciliation--2026-10-23)
+places event/receipt/high-water/aggregate publication, correction, retention,
+evidence clear and detected store degradation under the hierarchy read boundary
+when they change visible skill data. Recover their existing atomic state before
+serving it; no event notification proves completion. An exact replay with no
+visible change creates no new snapshot content, while changed visible coverage
+must invalidate the snapshot. Existing source quotas, replay-only authority,
+launch/store generation fencing and degraded-store behavior remain unchanged.
+
+Skill telemetry is not a #744 evidence-source variant and cannot directly alter
+quality/completeness or durable result material. Root telemetry remains deferred.
+Producer agreement on the full recovery material/budget/publication/detail scope
+and concrete storage/writer qualification remain pending. The four owner-accepted
+recovery choices do not establish an eligible adapter or runtime implementation.
+
 ## Contract verification and implementation gates
 
 Before runtime planning, written review must resolve field compatibility with
