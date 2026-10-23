@@ -1,5 +1,6 @@
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { Archive, ArchiveRestore, Play, Trash2, X } from "lucide-react";
 import type { SessionAction, SessionInfo } from "../api";
 import { resumeChoices } from "../labels";
 
@@ -10,6 +11,8 @@ interface Props {
   onDismiss: () => void;
   onAction: (action: SessionAction | "resume") => void;
 }
+
+const actionIcons = { close: X, archive: Archive, restore: ArchiveRestore, delete: Trash2, resume: Play };
 
 export default function SessionContextMenu({ anchor, disabled, onDismiss, onAction }: Props) {
   const restoreWarningId = useId();
@@ -49,9 +52,12 @@ export default function SessionContextMenu({ anchor, disabled, onDismiss, onActi
       const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (index + (event.key === "ArrowUp" ? -1 : 1) + items.length) % items.length;
       items[next].focus();
     }}>
-    {actions.map(({ action, label }) => <button type="button" role="menuitem" key={action} tabIndex={-1} disabled={disabled || !session.sessionActionToken}
+    {actions.map(({ action, label }) => {
+      const Icon = actionIcons[action];
+      return <button type="button" role="menuitem" key={action} tabIndex={-1} disabled={disabled || !session.sessionActionToken}
       aria-describedby={action === "restore" ? restoreWarningId : undefined}
-      onClick={() => onAction(action)}>{label}</button>)}
+      onClick={() => onAction(action)}><Icon size={16} aria-hidden="true" /><span>{label}</span></button>;
+    })}
     {state === "archived" && <p id={restoreWarningId} className="session-menu-diagnostic">Restoring re-enables automatic cleanup. Older history may be deleted by your retention settings.</p>}
     {(!state || disabled) && <p className="session-menu-diagnostic">{session.sessionStateError ?? "Session changed or an action is running. Refresh and try again."}</p>}
   </div>, document.body);
