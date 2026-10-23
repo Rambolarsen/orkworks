@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { validateImageSelection, validateImageDimensions, imageDimensions } from "../src/sessionImages.ts";
+import { validateImageSelection, validateImageDimensions, imageDimensions, prepareImageBatch } from "../src/sessionImages.ts";
 
 // Catches admitting oversized batches before file reads or image decoding.
 test("selection rejects a whole batch when it would exceed count or byte limits", () => {
@@ -31,4 +31,21 @@ test("image container dimensions are inspected before pixel allocation", () => {
   assert.deepEqual(imageDimensions(jpeg,"image/jpeg"),{width:40,height:30});
   const webp = new Uint8Array(30); webp.set(new TextEncoder().encode("VP8X"),12); webp[24]=39; webp[27]=29;
   assert.deepEqual(imageDimensions(webp,"image/webp"),{width:40,height:30});
+});
+
+test("atomic batch errors identify unsupported, oversized, and undecodable files", async () => {
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+  const oversized = Buffer.from(png); oversized.writeUInt32BE(4001,16); oversized.writeUInt32BE(4000,20);
+  const previous = globalThis.createImageBitmap;
+  globalThis.createImageBitmap = async () => { throw new Error("Cannot decode image."); };
+  try {
+    for (const [name,bytes,reason] of [
+      ["wrong.gif", Buffer.from("GIF89a"), "PNG"],
+      ["truncated.png", png.subarray(0,20), "dimensions"],
+      ["huge.png", oversized, "16 megapixels"],
+      ["broken.png", png, "Cannot decode"],
+    ] as const) {
+      await assert.rejects(() => prepareImageBatch([], [new File([bytes],name)]), (error: Error) => error.message.includes(name) && error.message.includes(reason));
+    }
+  } finally { globalThis.createImageBitmap = previous; }
 });

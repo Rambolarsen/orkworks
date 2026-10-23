@@ -277,4 +277,6 @@ to the generated session ID under workspace metadata `session-images/<id>/`.
 Image bytes never enter SessionInfo, summaries, or Peon input. A complete bundle
 precedes the creating metadata record. Runtime exit and renderer detachment keep
 it available for remembered-session resume; Forget/retention removes it only
-after deleting the owning record. Recovery retains uncertain metadata or ownership.
+before deleting the owning record, while retaining the cleanup lease through
+metadata deletion. Failed image removal preserves that record for retry. Recovery
+retains uncertain metadata or ownership.

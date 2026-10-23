@@ -71,7 +71,8 @@ support. Failures preserve drafts; accepted sessions retain complete image bundl
   found one required cleanup race: metadata deletion preceded a contended image
   lock, losing retry ownership. A new regression failed on the lost metadata;
   cleanup now reserves a nonblocking pinned lease before destructive effects and
-  removes images under that lease after metadata deletion. The image-context
+  removes images before metadata deletion while retaining that lease through both.
+  Failed bundle removal preserves durable session ownership for retry. The image-context
   module passes nine tests after the fix. Current-code re-review remains required.
 - Qualification evidence distinction: the opt-in fixture asserts color presence.
   The captured terminal replay was also inspected: the corrected two-image run

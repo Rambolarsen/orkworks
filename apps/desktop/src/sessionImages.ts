@@ -7,7 +7,7 @@ export function validateImageSelection(count: number, bytes: number, files: read
   let total = bytes;
   for (const file of files) {
     if (!file.size) throw new Error(`${file.name}: image is empty.`);
-    if (new TextEncoder().encode(file.name).length > 255) throw new Error("Image name is too long.");
+    if (new TextEncoder().encode(file.name).length > 255) throw new Error(`${file.name}: image name is too long.`);
     if (file.size > 5 * MiB) throw new Error(`${file.name}: maximum image size is 5 MiB.`);
     total += file.size;
   }
@@ -70,25 +70,29 @@ export async function prepareImageBatch(existing: readonly DraftImage[], files: 
   let totalPixels = existing.reduce((n,i) => n + i.pixels, 0);
   try {
     for (const file of files) {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      const mimeType = imageType(bytes);
-      const {width, height} = imageDimensions(bytes, mimeType);
-      const pixels = validateImageDimensions(width, height, totalPixels);
-      const scale = Math.min(1, 512 / Math.max(width, height));
-      const bitmap = await createImageBitmap(new Blob([bytes], {type: mimeType}), {resizeWidth: Math.max(1, Math.round(width * scale)), resizeHeight: Math.max(1, Math.round(height * scale))});
-      let preview: Blob;
       try {
-        const canvas = document.createElement("canvas"); canvas.width = bitmap.width; canvas.height = bitmap.height;
-        const context = canvas.getContext("2d");
-        if (!context) throw new Error("Image preview is unavailable.");
-        context.drawImage(bitmap, 0, 0);
-        preview = await new Promise<Blob>((resolve,reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("Cannot preview image.")), "image/png"));
-        canvas.width = 0; canvas.height = 0;
-      } finally { bitmap.close(); }
-      let binary = "";
-      for (let offset = 0; offset < bytes.length; offset += 8192) binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
-      added.push({id: crypto.randomUUID(), name: file.name, mimeType, dataBase64: btoa(binary), previewUrl: URL.createObjectURL(preview), bytes: bytes.length, pixels});
-      totalPixels += pixels;
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const mimeType = imageType(bytes);
+        const {width, height} = imageDimensions(bytes, mimeType);
+        const pixels = validateImageDimensions(width, height, totalPixels);
+        const scale = Math.min(1, 512 / Math.max(width, height));
+        const bitmap = await createImageBitmap(new Blob([bytes], {type: mimeType}), {resizeWidth: Math.max(1, Math.round(width * scale)), resizeHeight: Math.max(1, Math.round(height * scale))});
+        let preview: Blob;
+        try {
+          const canvas = document.createElement("canvas"); canvas.width = bitmap.width; canvas.height = bitmap.height;
+          const context = canvas.getContext("2d");
+          if (!context) throw new Error("Image preview is unavailable.");
+          context.drawImage(bitmap, 0, 0);
+          preview = await new Promise<Blob>((resolve,reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("Cannot preview image.")), "image/png"));
+          canvas.width = 0; canvas.height = 0;
+        } finally { bitmap.close(); }
+        let binary = "";
+        for (let offset = 0; offset < bytes.length; offset += 8192) binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
+        added.push({id: crypto.randomUUID(), name: file.name, mimeType, dataBase64: btoa(binary), previewUrl: URL.createObjectURL(preview), bytes: bytes.length, pixels});
+        totalPixels += pixels;
+      } catch (error) {
+        throw new Error(`${file.name}: ${error instanceof Error ? error.message : "Cannot read image."}`);
+      }
     }
     return added;
   } catch (error) { releaseImages(added); throw error; }
