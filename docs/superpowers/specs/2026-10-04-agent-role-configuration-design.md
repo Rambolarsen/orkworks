@@ -186,8 +186,10 @@ source binding changes the configuration digest and needs new approval.
    `renderedInstructionsDigest` likewise hashes exact rendered UTF-8 bytes.
    Resolve files once before approval and retain their exact bytes.
 2. Build the definition object without `configurationDigest`. No bearer tokens,
-   launch reservations, child IDs, timestamps of execution, telemetry, evaluator
-   outcomes, or mutable support state are included.
+   this assignment's launch reservations/child IDs, timestamps of execution,
+   telemetry, evaluator outcomes, or mutable support state are included.
+   A v2 review input includes the completed source assignment's immutable IDs
+   as approved input identity; these are not the reviewer's runtime metadata.
 3. Normalize only collections declared as sets (skills and skillResources by ID,
    each skill resourceIds list by ID; tool/action and
    permission path entries by their full validated identity) before rendering.
@@ -643,7 +645,7 @@ Proposed version-1 limits, measured as UTF-8 bytes unless stated otherwise:
 
 | Subject | Limit / behavior |
 | --- | --- |
-| IDs/digests | 128-byte IDs; 64-character digests; `schemaVersion` exactly 1 |
+| IDs/digests | 128-byte IDs; 64-character digests; v1 `schemaVersion` exactly 1; the separately proposed typed-review extension uses configuration version 2 |
 | Generation identities | `adapterGeneration` is a nonempty ASCII ID within 128 bytes; runtime `launchGeneration` follows the preparation contract's opaque generation encoding, never a JSON numeric counter |
 | Numeric revisions | `planRevision` and `preparationRevision` are integers 1–64, matching #742; `RoleTemplateSnapshot.version` and `RubricSnapshot.version` are integers 1 through 2^31−1; source revision identities retain their declared string representation |
 | Version labels | `SkillSnapshot.version` is a nonempty UTF-8 string at most 128 bytes, compared byte-for-byte without normalization; `AdapterBinding.adapterVersion` and `toolVersion` are nonempty labels within the 512-byte label bound, not numeric revisions |
@@ -987,3 +989,91 @@ separate explicitly UI-created review run and exact-plan approval, retaining
 ADR 0077's terminal-run fences. Same-workspace retained-result read/custody
 mappings need explicit agreement; no old worktree is adopted. The timing/user-flow choice is accepted; producer reconciliation remains
 pending. This supplies no adapter eligibility or runtime schema amendment. Keep #741 and the existing implementation gates open.
+
+## Proposed typed reviewer input — 2026-10-24
+
+This is the proposed #741 producer contract for #744's
+[accepted exact-result timing](2026-10-04-assignment-evaluation-design.md#proposed-exact-result-review-approval).
+The timing choice is accepted; the wire schema, read authority and custody
+amendment below need written owner acceptance and joint producer review. They
+supply no runtime implementation, endpoint, adapter eligibility or migration.
+
+### Configuration version and placement
+
+Introduce `ReviewAssignmentConfiguration` with exactly the fields of the v1
+child `AssignmentConfiguration`, except `schemaVersion` is `2` and one required
+top-level `reviewInput` contains the `ReviewTargetInput` below. Its role is
+`review` or rubric-eligible `verification`, its assignment kind is `child`, and
+its declared evaluation output is required. It is used for child assignments
+that publish #744 evaluations, not for research-report review or reviewer
+performance assessment. A v1 configuration cannot carry `reviewInput` or obtain
+an evaluation capability. Other child configurations and the run bootstrap
+remain v1 under this scoped amendment.
+
+Apply the existing canonical serializer, configuration/plan byte bounds,
+required-rule/skill/model/permission checks and snapshot retention. Hash the
+complete v2 definition excluding `configurationDigest` with
+`orkworks.assignment-configuration.v2\n` (one literal LF), including the entire
+inline `reviewInput`. Its bytes count within the existing 1 MiB configuration
+and 2 MiB plan caps, not the 2 KiB output-contract text allowance. Version is
+explicit at every configuration consumer; do not relabel, rehash or silently
+upgrade stored v1 definitions. Shared byte fixtures and consumer-version
+support remain executable-handoff gates. The v1 digest/domain is unchanged.
+
+`ReviewTargetInput` has exactly these properties, all required:
+
+| Property | Exact value / bound |
+| --- | --- |
+| `schemaVersion` | Integer `1`, independently versioning this input record |
+| `kind` | Exactly `accepted-child-result` |
+| `target` | Exactly `assignmentIdentity` (the complete #744 child variant), `resultRevision` (1–32) and `resultDigest` (64 lowercase hex characters) |
+| `outputDeclarationIds` | Set of 0–32 unique worker output declaration IDs, sorted by UTF-8 bytes; each resolves in the exact target result |
+| `evidenceSources` | Set of 0–113 complete canonical #744 `EvidenceSource` records, sorted by their #744 source-key digest; reject duplicate keys and require each descriptor's identity/size/digest to resolve exactly |
+| `evaluationOutputDeclarationId` | One ID resolving to this reviewer's own required `assignment_evaluation` server-artifact declaration; one target, declaration and reviewer stream |
+| `maxReadBytes` | Positive lossless JSON u64; approved finite total size of the readable input set, subject to lower server/adapter limits |
+
+The `target` must be workspace-local and have the same registered repository
+identity as the review run. Its run may differ; its identity comes from the
+worker's accepted result and retained reservation/configuration proof, never
+from the reviewer. Root subjects and reviewer-performance subjects are denied.
+Every selected output and evidence source must also resolve to the same
+workspace and registered repository through retained ownership/configuration
+proof; an ID or source-key digest alone grants no access. Only existing #744
+eligible evidence variants are admitted; selection cannot bypass their
+source authorization, freshness or content-safety rules.
+No selector, nullable target, future worker, `latest`, free path or arbitrary
+artifact ID is an input variant. The frozen task-version mapping retains its
+separate acceptance gate; the new schema cannot manufacture missing proof.
+
+### Exact retained read scope
+
+The input authorizes reading the exact accepted result manifest, its verified
+frozen criteria/rubric snapshots, the present immutable output objects selected
+by `outputDeclarationIds`, and the explicitly enumerated immutable evidence.
+It grants no worker configuration/prompt transcript read, source worktree access,
+artifact listing, source-run coordination access or transitive evidence crawl.
+Missing output entries expose manifest metadata only; they supply no bytes.
+A selected output/evidence object's stored path is provenance, never a locator
+for live filesystem reads. Authorizing reads does not let another assignment's
+artifact satisfy the reviewer's own output declaration.
+
+Before proposal publication, compute a checked conservative sum of the complete
+canonical manifest and criteria/rubric snapshot bytes, every selected present
+output size, and every evidence-source size. Count each listed occurrence even
+when storage deduplicates bytes. Reject overflow, unresolved objects or a sum
+above `maxReadBytes`, server limits or verified delivery limits; no truncation
+or external-fetch fallback. This is a bound on the approved input set, not an
+unlimited retry/transfer budget. Request/rate/response/aggregate storage limits
+and transport-specific action IDs still need separate agreement before code.
+An empty selection does not waive the scope needed to assess required criteria:
+validate that the declared review can access its required evidence before
+approval, or block the proposal rather than requesting broader access at launch.
+
+Requested/effective profile mapping must demonstrate delivery of this exact
+read scope and deny other sources. Existing `readPaths`, `connectors`, shell
+access and `coordinationActions` do not imply server-snapshot access. The
+[proposed #742 review-read binding](2026-10-04-orchestrator-preparation-design.md#proposed-retained-review-input-admission)
+issues only the scoped read authority after approval/admission; an inline
+reference alone is not a bearer. Unknown mapping keeps the profile no-go.
+The input grants no result/evaluation write operation; those remain separate
+capability classes and reporting-action gates.
