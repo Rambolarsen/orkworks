@@ -1,3 +1,8 @@
+// Completion transport is dormant until independent launch qualification.
+#[cfg(unix)]
+#[allow(dead_code)]
+pub(super) mod completion;
+
 use super::codex_approval_application::{self, HookReportOutcome, NativeHookReport};
 use crate::http::session_handlers::{
     report_harness_session_from_local_relay, HarnessSessionReportRequest,

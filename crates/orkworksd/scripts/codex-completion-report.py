@@ -346,26 +346,35 @@ def publish(directory, event, fingerprint):
         os.fsync(dir_fd)
         if "poison" in _list_names_bounded(dir_fd):
             raise Invalid()
-        marker_created = False
-        succeeded = True
         fcntl.flock(lock_fd, fcntl.LOCK_UN)
         lock_held = False
+        marker_created = False
+        succeeded = True
     finally:
+        if not succeeded:
+            # Failure must be visible before releasing a publication lock,
+            # especially after unlink succeeded but its directory sync failed.
+            _poison(dir_fd)
+            if marker_created:
+                try:
+                    os.stat(marker, dir_fd=dir_fd, follow_symlinks=False)
+                except FileNotFoundError:
+                    if not lock_held and lock_fd is not None:
+                        try:
+                            _lock(lock_fd)
+                            lock_held = True
+                        except (OSError, Invalid):
+                            pass
+                    if lock_held:
+                        try:
+                            _create_marker(dir_fd, marker)
+                        except OSError:
+                            pass
         if lock_held and lock_fd is not None:
             try:
                 fcntl.flock(lock_fd, fcntl.LOCK_UN)
             except OSError:
                 pass
-        if marker_created:
-            try:
-                os.stat(marker, dir_fd=dir_fd, follow_symlinks=False)
-            except FileNotFoundError:
-                try:
-                    _create_marker(dir_fd, marker)
-                except OSError:
-                    pass
-        if not succeeded:
-            _poison(dir_fd)
         if lock_fd is not None:
             os.close(lock_fd)
         os.close(dir_fd)

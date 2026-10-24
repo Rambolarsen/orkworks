@@ -690,4 +690,61 @@ mod tests {
             Some("working")
         );
     }
+    #[cfg(unix)]
+    #[test]
+    fn ordered_publisher_queue_applies_only_its_persisted_permission_completion() {
+        use super::super::codex_hook_report_relay::{
+            completion::{tests::publish_native, CompletionQueue, Poll},
+            CodexHookReportRelay,
+        };
+        let (_dir, store, mut handle, mut app) = fixture();
+        let relay = CodexHookReportRelay::new().unwrap();
+        let mut queue =
+            CompletionQueue::create(&relay, handle.runtime.run_generation(), &"a".repeat(64))
+                .unwrap();
+        publish_native(queue.path(), "UserPromptSubmit", None);
+        publish_native(queue.path(), "PreToolUse", Some("tool-1"));
+        publish_native(queue.path(), "PermissionRequest", None);
+        assert_eq!(
+            queue
+                .consume("root", |event| app
+                    .event(&store, &mut handle, event)
+                    .map(|_| ()))
+                .unwrap(),
+            Poll::Consumed(3)
+        );
+        assert_eq!(
+            store
+                .read_session("completion")
+                .unwrap()
+                .attention
+                .as_deref(),
+            Some("needs_you")
+        );
+        assert_eq!(handle.info.attention.as_deref(), Some("needs_you"));
+        publish_native(queue.path(), "PostToolUse", Some("tool-1"));
+        assert_eq!(
+            queue
+                .consume("root", |event| app
+                    .event(&store, &mut handle, event)
+                    .map(|_| ()))
+                .unwrap(),
+            Poll::Consumed(1)
+        );
+        assert_eq!(
+            store
+                .read_session("completion")
+                .unwrap()
+                .attention
+                .as_deref(),
+            Some("working")
+        );
+        assert_eq!(handle.info.attention.as_deref(), Some("working"));
+        assert_eq!(
+            queue
+                .consume("root", |_| panic!("acknowledged clear replayed"))
+                .unwrap(),
+            Poll::Consumed(0)
+        );
+    }
 }

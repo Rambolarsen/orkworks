@@ -217,3 +217,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Codex completion mitigation implementation](2026-10-23-codex-hook-completion.md) — Implement the approved local core while preserving rollout qualification gates.
 
 - [Explicit metadata HTTP proxy implementation](2026-10-24-sandbox-metadata-proxy.md) — Implement and verify the approved opt-in sandbox proxy transport for the metadata helper.
+
+- [Ordered completion relay implementation](2026-10-24-ordered-completion-relay.md) — Build and verify the approved bounded completion queue and source publisher while preserving rollout gates.
