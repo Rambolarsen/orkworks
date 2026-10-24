@@ -188,3 +188,21 @@ probe/implementation plan. The architecture direction is now accepted only for
 further design/qualification; detailed default acceptance, artifact/payload
 placement, producer agreement, #740 eligibility and all existing custody/runtime
 gates remain independent.
+
+
+## Caller and strict-row preparation — 2026-10-24
+
+The [detailed storage preparation](../superpowers/specs/2026-10-24-hierarchy-storage-contract-design.md)
+traces ordinary callers/direct writes at `0ed5de99`, proposes strict storage
+metadata and nonrecursive commit commitments, supplies two synthetic byte/hash
+vectors and calculates complete-command budget exclusions. It explicitly does
+not certify complete external-producer coverage, all domain row schemas or an
+eligible maximum profile. Its authority/commit counterexample rejects a volatile
+precheck as proof of revocation-before-persistence denial.
+
+Retain that race in the future ordering packet alongside source-health, quota,
+proof-retention and missing-registry fixtures. A hidden committed write followed
+by a fence or compensating deletion does not pass the accepted cutoff oracle.
+No SQL/native fixture ran; every platform remains unqualified. Complete domain
+schemas, exact profile budgets, qualified ordering and enforcement evidence plus
+a separately approved execution plan remain necessary before runtime work.

@@ -469,3 +469,15 @@ This acceptance executes no probe, qualifies no adapter, approves no executable
 plan, and authorizes no runtime implementation or migration. Broader component
 decisions, #745/#746 custody/producer agreement and #740's November capability
 gate remain separate. Keep the component issues open.
+
+
+## Detailed storage preparation — 2026-10-24
+
+The [caller/schema/publication-budget pass](2026-10-24-hierarchy-storage-contract-design.md)
+proposes closed storage metadata/commit commitments, inline payload placement
+and whole-command accounting against a source-traced baseline. It identifies
+missing domain registry entries, worst-case profile proof and a concrete
+revocation-between-precheck-and-SQL-commit race. These remain no-go conditions;
+the pass is neither an accepted detailed contract nor an executable handoff.
+The scoped direction acceptance and all numerical/default/native/runtime gates
+above remain unchanged.
