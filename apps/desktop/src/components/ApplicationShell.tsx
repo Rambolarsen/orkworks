@@ -364,7 +364,10 @@ export default function ApplicationShell(props: Props) {
     <button type="button" data-shell-command="capacity" aria-label="Capacity" title={iconOnly ? "Capacity" : undefined} aria-expanded={props.inspector === "capacity"} onClick={() => runCommand("capacity")}><Gauge size={16} aria-hidden="true" />{!iconOnly && "Capacity"}</button>
   </>;
   const workspaceNavigation = <>
-    <div className="shell-workspace">{props.workspaceControl}</div>
+    <div className="shell-sidebar-heading">
+      <div className="shell-workspace">{props.workspaceControl}</div>
+      {showSessions && !compact && <button type="button" data-shell-command="sessions" data-shell-collapse aria-label="Collapse sidebar" title="Collapse sidebar" aria-expanded={true} onClick={() => runCommand("sessions", false, true)}><PanelLeft size={16} aria-hidden="true" /></button>}
+    </div>
     <nav className="shell-sidebar-navigation" aria-label="Workspace navigation">
       {showSessionsPage && <p className="shell-actions-counts" data-actions-counts>{actionsModel.sessionCountLabel} · {actionsModel.recommendationCountLabel}</p>}
       {navigationButtons()}
@@ -405,7 +408,6 @@ export default function ApplicationShell(props: Props) {
       {showSessions && <section className="shell-region shell-region--sessions" aria-label="Sessions region" data-shell-region="sessions">
         <div className="shell-sidebar-top">{workspaceNavigation}</div>
         <header className="shell-region-header shell-sessions-header"><h2 data-shell-sessions-heading tabIndex={-1}>Sessions</h2>
-          {!compact && <button type="button" data-shell-collapse aria-label="Collapse sidebar" title="Collapse sidebar" onClick={() => runCommand("sessions", false, true)}><PanelLeft size={16} aria-hidden="true" /></button>}
           {showSessionsPage && <button type="button" data-shell-command="sessions" data-shell-return onClick={closePage}>{reviewing ? "Back to Review" : "Back to Terminal"}</button>}
         </header>
         <SessionListPanel workspaceGeneration={props.workspaceGeneration} workspace={props.workspace} sessions={props.sessions} activeSessionId={props.activeSessionId}
@@ -423,7 +425,7 @@ export default function ApplicationShell(props: Props) {
         onChange={value => props.onPreferencesChange({ ...props.preferences, sessionsWidth: value })} />}
       {(!showSessionsPage || !!props.newSessionContent) && <main className="shell-main" hidden={showSessionsPage}>
         <nav className="shell-toolbar" aria-label="Content navigation">
-          <button type="button" data-shell-command="sessions" aria-label="Sessions" title="Sessions" aria-expanded={showSessions} onClick={() => runCommand("sessions", false, true)}><PanelLeft size={17} aria-hidden="true" /></button>
+          {compact && <button type="button" data-shell-command="sessions" aria-label="Sessions" title="Sessions" aria-expanded={showSessions} onClick={() => runCommand("sessions", false, true)}><PanelLeft size={17} aria-hidden="true" /></button>}
           {!showSessions && <details key={props.workspaceGeneration} className="shell-navigation-menu" onClick={event => {
             if ((event.target as Element).closest("[data-shell-command], [data-shell-create], [data-shell-settings], .workspace-history-row-open, .workspace-history-other-folder")) {
               event.currentTarget.open = false;

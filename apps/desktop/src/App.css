@@ -2463,8 +2463,8 @@ html, body, #root {
 /* Fixed application shell */
 .shell-layout { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 .shell-toolbar { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border-subtle); background: var(--surface-0); }
-.review-actions button, .shell-toolbar button, .shell-region-header button, .shell-sidebar-navigation button, .shell-sidebar-footer button, .shell-navigation-menu summary { display: inline-flex; align-items: center; gap: var(--space-2); padding: 7px 9px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); font: inherit; font-size: var(--text-sm); cursor: pointer; }
-.review-actions button:hover, .shell-toolbar button:hover, .shell-region-header button:hover, .shell-sidebar-navigation button:hover, .shell-sidebar-footer button:hover, .shell-navigation-menu summary:hover { background: var(--surface-3); color: var(--text-primary); }
+.review-actions button, .shell-toolbar button, .shell-region-header button, .shell-sidebar-heading > button, .shell-sidebar-navigation button, .shell-sidebar-footer button, .shell-navigation-menu summary { display: inline-flex; align-items: center; gap: var(--space-2); padding: 7px 9px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); font: inherit; font-size: var(--text-sm); cursor: pointer; }
+.review-actions button:hover, .shell-toolbar button:hover, .shell-region-header button:hover, .shell-sidebar-heading > button:hover, .shell-sidebar-navigation button:hover, .shell-sidebar-footer button:hover, .shell-navigation-menu summary:hover { background: var(--surface-3); color: var(--text-primary); }
 .shell-toolbar button[aria-expanded="true"], .shell-sidebar-navigation button[aria-expanded="true"] { background: var(--surface-3); color: var(--text-primary); }
 .shell-toolbar .shell-resume-button { flex-shrink: 0; background: var(--accent-bg); color: var(--text-on-accent); font-weight: var(--weight-medium); }
 .shell-toolbar .shell-resume-button:hover { background: var(--accent-bg-hover); color: var(--text-on-accent); }
@@ -2501,7 +2501,9 @@ html, body, #root {
 .shell-sidebar-rail button { justify-content: center; min-width: 44px; min-height: 44px; padding: 7px; }
 .shell-sidebar-rail > footer { margin-top: auto; flex-direction: column; padding: var(--space-2) 3px; }
 .shell-sidebar-rail .shell-connection { justify-content: center; min-height: 16px; }
-.shell-workspace { position: relative; padding: var(--space-1) var(--space-1) var(--space-3); }
+.shell-sidebar-heading { display: flex; align-items: flex-start; gap: var(--space-1); }
+.shell-sidebar-heading > [data-shell-collapse] { flex-shrink: 0; }
+.shell-workspace { flex: 1; min-width: 0; position: relative; padding: var(--space-1) var(--space-1) var(--space-3); }
 .shell-workspace-control { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); min-width: 0; }
 .shell-workspace-control > .titlebar-text { flex: 1; min-width: 0; }
 .shell-workspace-control > [role="alert"] { flex-basis: 100%; font-size: var(--text-xs); color: var(--state-warn); }
@@ -2533,7 +2535,7 @@ html, body, #root {
   .shell-region--sessions { overflow-y: auto; }
   .shell-region--sessions > .panel-content { min-height: 120px; }
 }
-@media (pointer: coarse) { .shell-toolbar button, .shell-region-header button, .shell-sidebar-navigation button, .shell-sidebar-footer button, .shell-navigation-menu summary { min-height: 44px; } }
+@media (pointer: coarse) { .shell-toolbar button, .shell-region-header button, .shell-sidebar-heading > button, .shell-sidebar-navigation button, .shell-sidebar-footer button, .shell-navigation-menu summary { min-height: 44px; } }
 @media (prefers-reduced-motion: reduce) { .shell-layout *, .shell-layout *::before, .shell-layout *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; } }
 
 /* --- New Session Dialog --- */
