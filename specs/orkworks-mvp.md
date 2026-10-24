@@ -677,7 +677,10 @@ The first useful MVP should include:
   and keyboard menu access (Alt reveals the auto-hidden application menu).
   macOS and Linux retain their existing window chrome.
 - Workspace name and switching appear above session history in the sidebar;
-  Settings and connection status appear below it. When the sidebar is hidden,
+  Settings and connection status appear below it. Collapsing the sidebar at
+  medium and wide widths leaves an icon-only rail with named navigation and
+  Settings buttons; expanding restores the saved width. At compact widths the
+  rail is omitted and Sessions remains a temporary page. When the sidebar is hidden,
   the central header's labeled Workspace menu exposes these controls. Keep
   active-workspace history warnings visible in the app header, and connection
   progress and recovery diagnostics visible in the no-workspace picker. This
