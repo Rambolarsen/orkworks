@@ -714,6 +714,19 @@ The first useful MVP should include:
   Back, its toggle, or Escape within the page returns to the previous view and
   restores its invoker; selecting a session opens its Terminal. Recommendations
   is transient and is not restored after restart; see ADR 0084.
+- The selected-session top bar offers an **Open in…** dropdown for the
+  corresponding native application, initially Codex → ChatGPT and Claude Code
+  → Claude Desktop. Open only the captured exact native session; never choose
+  the latest conversation or create a replacement. Hide the control without a
+  selected session or in the new-session composer. Explain missing identity,
+  unsupported tools/platforms, unavailable applications and launch failures.
+  Claude Desktop handoff requires a dead local session; never close a running
+  session automatically. This is an explicit user action only, never navigation
+  restoration. Electron resolves current session identity and tool configuration
+  from its own workspace-bound sidecar before opening. Keep general terminal
+  links restricted to HTTP(S); native opening uses a dedicated bounded bridge.
+  See [native application opening](../docs/agents/harness-integration-contracts.md#native-application-opening)
+  and [#1015](https://github.com/Rambolarsen/orkworks/issues/1015).
 - Electron launches Rust backend sidecar
 - frontend communicates with backend over localhost HTTP/WebSocket
 - secure preload bridge

@@ -30,6 +30,16 @@ jobs:
           python-version: '3.9'
       - run: python scripts/sonar_test.py
 
+  native-session-app-windows:
+    name: Native session app (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: node --experimental-strip-types --test apps/desktop/tests/sessionAppOpener.test.ts
+
   docs:
     name: Documentation site
     runs-on: ubuntu-latest

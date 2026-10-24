@@ -203,6 +203,8 @@ declare global {
       clearHarnessCommandOverride: (
         harnessId: string,
       ) => Promise<{ ok: true } | { ok: false; error: string }>;
+      inspectSessionApp: (workspacePath: string, sessionId: string) => Promise<{ label: string; available: boolean; reason?: string }>;
+      openSessionApp: (workspacePath: string, sessionId: string) => Promise<void>;
       openExternalLink: (url: string) => Promise<void>;
       getPlanContent: (sessionId: string) => Promise<string>;
       requestPlanReview: (sessionId: string) => Promise<void>;
