@@ -147,17 +147,19 @@ platform. Extend or reuse their methods only through an approved runtime plan.
 ## Handoff disposition
 
 This register delivers the baseline seam inventory and concrete qualification
-oracles. Complete writer coverage, transaction architecture, storage selection,
-native crash evidence and producer acceptance are still outstanding. The next
-bounded deliverable is a proposed transaction/storage design that names the
-missing owners and durable unit, maps every writer, and fixes finite journal and
-checkpoint limits. Review the architecture/ADR and obtain owner approval before
-dependent runtime code. Qualification execution needs its own scoped approved
+oracles. SQLite/private-worker DELETE/EXTRA is now the accepted direction for
+further design/qualification only. Complete writer coverage, detailed contracts
+and numerical limits, native crash evidence and producer acceptance remain open.
+The next bounded deliverable is the caller/direct-write inventory and strict
+schema/publication-budget specification needed to propose a qualification plan.
+Detailed design/default acceptance is still required before dependent runtime
+code. Qualification execution needs its own scoped approved
 plan; these tables are not executed tests or that plan. Keep #744/#746 open.
 
 A [candidate transaction/storage design](../superpowers/specs/2026-10-23-hierarchy-transaction-storage-design.md)
-now proposes the durable unit, writer routes and finite limits. This is a proposal
-for owner review, not closure of the qualification gaps above.
+records the accepted direction, proposed writer routes and finite limits. See its
+[acceptance boundary](../superpowers/specs/2026-10-23-hierarchy-transaction-storage-design.md#scoped-architecture-direction-acceptance--2026-10-24);
+no qualification gap is closed by that acceptance.
 
 ## SQLite design review follow-up — 2026-10-24
 
@@ -182,6 +184,7 @@ stand in for that ordering or prove rollback. Required synthetic additions are:
 | Interrupt deadline is reached during prepare/step or near commit | Observe qualified cancellation interval and reconcile actual commit/rollback; no hard response-time claim from the interrupt request |
 
 These are future qualification requirements, not executed tests or an approved
-probe/implementation plan. Architecture/default acceptance, artifact/payload
+probe/implementation plan. The architecture direction is now accepted only for
+further design/qualification; detailed default acceptance, artifact/payload
 placement, producer agreement, #740 eligibility and all existing custody/runtime
 gates remain independent.
