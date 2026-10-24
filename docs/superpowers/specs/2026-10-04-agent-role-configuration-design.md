@@ -1173,7 +1173,13 @@ adapter limit; never truncate. The root contract has its own per-candidate
 derived from included child contracts, not a reporter-controlled summary or a
 mutable post-approval field. A plan containing repeated identical configurations
 still charges every task separately. Shared storage/content deduplication gives
-no admission discount.
+no source-capacity admission discount. These are producer limits, not proof that
+the full source transaction fits the
+[proposed storage-command budget](2026-10-23-hierarchy-transaction-storage-design.md#proposed-finite-limits).
+New snapshot bytes plus mandatory metadata/receipts/edges/lineage must fit that
+complete-command cap too; a maximum-size source contract is not automatically
+an eligible profile. No output bytes may be silently placed in an unreviewed
+external store to bypass it.
 
 Reserve `assignment_evaluation` for one server-artifact declaration matching
 the non-null review input and its one target/stream. Reject a path-backed or

@@ -1314,8 +1314,8 @@ The following are synthetic contract expectations, not executed runtime tests:
 
 | Case | Required outcome |
 | --- | --- |
-| A v1 configuration contains `reviewInput` or asks for evaluation authority | Reject unsupported configuration; no implicit v2 upgrade |
-| Target worker IDs change while reviewer IDs stay constant | Different v2 configuration digest; new exact approval required |
+| A v1 configuration contains `reviewInput`, or a v1/v2 descriptor asks for executable #744 evaluation authority | Reject unsupported producer version; no implicit upgrade to output-bearing v3 |
+| Target worker IDs change while reviewer IDs stay constant | Different output-bearing v3 configuration digest; new exact approval required |
 | Reviewer runtime generation changes on exact resume | Same configuration/target, fresh read credential after revalidation |
 | Target/result/evidence belongs to another workspace or repository | Deny before publication; no path/name-based import |
 | Missing output is selected | Read only known-missing manifest metadata; evaluation preserves known failure |
@@ -1455,7 +1455,7 @@ These are synthetic verification expectations, not executed runtime tests:
 | Duplicate ID, duplicate path source or unknown object property | Reject before approval; never merge entries or grant alias reads |
 | Same kind labels on different authorized paths | Distinct IDs/outputs remain distinct and both consume capacity |
 | Per-file maximum or sum of declaration maxima exceeds a cap | Reject before outputs/branches/children exist; later missing outputs do not cure it |
-| Two 8 MiB path declarations, 16 MiB snapshot cap and 32 MiB rehash cap | Fits initial logical limits for two full content passes; additional probes/recovery need remaining budget |
+| Two 8 MiB path declarations, 16 MiB snapshot cap and 32 MiB rehash cap | Fits source-contract limits for two full content passes only; newly storing those 16 MiB plus mandatory metadata exceeds the proposed 16 MiB complete-command cap and must be rejected |
 | Fifth 16 MiB child contract in one plan | Reject the 80 MiB declared sum above the 64 MiB plan cap |
 | Reviewer evaluation record fits 512 KiB but exceeds its smaller output declaration | Reject evaluation/artifact publication atomically; no oversized artifact or stream revision |
 | Root output declaration changes in a later plan | Deny bootstrap mutation; require a separately reviewed UI-created run |
@@ -1923,3 +1923,60 @@ earlier technical amendments and separately approved implementation plans remain
 gates. The receipt pool is separate from #742's 32 MiB preparation/report-metadata
 limit; neither replaces the other's checks or bounds all workspace storage.
 No runtime limiter, endpoint, profile or automatic maintenance is delivered.
+
+## Joint technical review handoff — 2026-10-24
+
+**Disposition: ready for written owner review of the proposed technical choices,
+not an executable implementation handoff.** Review base:
+`f1a298dfa9cb0a7d03d1116fd9af04faaf0be900`. This joint static pass checked the
+identity, read-input, output, reporting and quota amendments across #741/#742/
+#744 against the parent product flow, accepted ADR 0077 and the proposed #746
+transaction/read contracts. Two bounded read-only readers checked identity/
+approval and storage/custody interactions; the owning session reconciled the
+findings and acceptance inventory below. It ran no native crash/model probes.
+
+### Integration findings and disposition
+
+| Finding | Disposition |
+| --- | --- |
+| #742 review admission and a #744 fixture still name child v2 after structured outputs require v3 | Corrected to executable output-bearing child v3 with the embedded typed input; v2 remains its original input-only proposal and gains no output/reporting grant |
+| Parent product flow and the small-task example imply future-result review is executable in the worker's original plan | Reconciled with the already accepted timing choice: record the intention, finalize the result, then require a separately UI-created review run and exact approval; no old-run continuation or approval transfer |
+| A 16 MiB source-payload example can be mistaken for an eligible 16 MiB complete storage command | Explicitly count newly written output bytes together with metadata/receipts/edges/lineage under the command cap; reject when the combined change cannot fit. No limit increase, external-store exception or maximum-profile eligibility is inferred |
+
+The storage ceiling is a separate, stricter composition limit, not an extra
+16 MiB allowance for snapshots. Before qualifying a concrete producer profile,
+prove its complete atomic publication fits all source, command/row, lineage,
+queue, scratch and main-store limits. A narrowed approved output contract or a
+separately reviewed change to the storage design may be necessary. Native
+payload placement/publication and worst-case overhead proof remain unresolved
+qualification work; this review does not select an external object store.
+
+### Acceptance boundary and remaining gates
+
+| Contract / decision | Current disposition |
+| --- | --- |
+| Evaluation behavior/defaults, including 12 child / 4 user revisions per result | Owner accepted on 2026-10-23; unchanged by this review |
+| Exact-result timing and the separate user-created review run for future output | Owner accepted in PR #999; parent/example drift corrected here |
+| Frozen `assignmentTaskVersion` reservation snapshot and exact attachment proof | Proposed; written owner acceptance and producer/storage proof remain open |
+| Typed review input, independent retained-read capability and dependency protection | Proposed; executable review uses child v3, not the prior v2 input-only descriptor |
+| Output-bearing child v3 / root bootstrap v2, structured declarations and byte/rehash ledger | Proposed; numeric defaults and producer/native/storage qualification remain open |
+| Reporting action IDs, routes/envelopes, exact receipts, user retry namespace and inspection | Proposed; requires owner acceptance, adapter delivery and Electron/preload integration |
+| Request windows, cold restart, reserved receipt credits and 17/64/256 MiB receipt pools | Proposed; arithmetic/ownership reviewed, clock/worker/storage qualification remains open |
+| Hierarchy recovery behavior versus its SQLite mechanism | Recovery behavior has its separate owner acceptance; proposed ADR 0090, producer agreement and concrete storage/default qualification remain open |
+
+No unchanged canonical candidate/result/evaluation/disposition domain was
+rewritten. The review found no further contradiction in the frozen/live version
+separation, capability classes, receipt-before-CAS retry order, target history,
+1,088-slot arithmetic, cold-window derivation or protected-source retention.
+Those are written-contract checks, not implementation or capability evidence.
+
+Before runtime planning, obtain the above technical acceptances, complete the
+artifact-wrapper and broader evidence/read/worker/scratch/storage quota and
+publication contracts, and resolve #745/#746 joint custody/recovery qualification.
+#740 still has no eligible role/profile and capped evidence work remains deferred
+until November; #741 prohibits a runtime launch plan without that evidence.
+Any later executable slice needs its own approved implementation/qualification
+plan and canonical/route/clock/crash fixtures. Provider costs remain absent
+without an approved authenticated usage source; shared learning remains gated.
+Keep #741/#742/#744/#746 open. This handoff does not accept the proposed defaults,
+close unchecked criteria, approve runtime code or grant automatic maintenance.
