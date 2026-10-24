@@ -220,3 +220,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 - [Ordered completion relay implementation](2026-10-24-ordered-completion-relay.md) — Build and verify the approved bounded completion queue and source publisher while preserving rollout gates.
 - [Selected-session Git changes](2026-10-24-session-git-changes.md) — Proposed distinct uncommitted and committed-branch inspection for issue 96.
+
+- [Push refresh](2026-10-24-push-refresh.md) — Changed-row synchronization, producer coverage and recovery verification.

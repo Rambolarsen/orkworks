@@ -675,3 +675,31 @@ test("Restore makes no missing-row inference from an unavailable refresh", async
   assert.deepEqual(disposed,[]);
   controller.dispose();
 });
+
+
+test("healthy update stream fences an older REST response and disconnect restores polling", async () => {
+  const stale = deferred<SessionInfo[]>();
+  let streamOptions: Parameters<NonNullable<WorkspaceSessionControllerDeps["startUpdates"]>>[0] | undefined;
+  let calls = 0;
+  const lists: string[][] = [];
+  const timing = scheduler();
+  const controller = createWorkspaceSessionController({
+    scheduler: timing.scheduler,
+    deps: deps({
+      listSessions: async () => { calls++; return calls === 2 ? stale.promise : [session("current")]; },
+      startUpdates: options => { streamOptions = options; options.onHealthy(false); return { dispose() {}, resync() {} }; },
+    }),
+    onSessions: rows => lists.push(rows.map(row => row.id)),
+  });
+  await controller.adoptRestoredWorkspace(workspace("/workspace"));
+  controller.setPollingEnabled(true);
+  await Promise.resolve(); await Promise.resolve();
+  assert.ok(streamOptions);
+  streamOptions.onHealthy(true); streamOptions.onSessions([session("new")]);
+  stale.resolve([session("stale")]); await Promise.resolve(); await Promise.resolve();
+  assert.deepEqual(lists.at(-1), ["new"]);
+  const before = calls; streamOptions.onHealthy(false);
+  await Promise.resolve(); await Promise.resolve();
+  assert.ok(calls > before);
+  controller.dispose();
+});

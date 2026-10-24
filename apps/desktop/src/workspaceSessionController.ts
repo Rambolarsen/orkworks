@@ -1,3 +1,5 @@
+import { startWorkspaceUpdates } from "./workspaceUpdates.ts";
+import { publishWorkspaceUpdateSignal } from "./workspaceUpdateSignals.ts";
 import { isHistoricalSession } from "./sessionRuntimeState.ts";
 import {
   sessionAction as apiSessionAction,
@@ -19,6 +21,7 @@ import { mergeSessionsById } from "./sessionSort.ts";
 
 export interface WorkspaceSessionControllerDeps {
   getBackendUrl: () => Promise<string>;
+  startUpdates?: typeof startWorkspaceUpdates;
   setWorkspace: typeof apiSetWorkspace;
   listSessions: typeof apiListSessions;
   createSession: typeof apiCreateSession;
@@ -83,12 +86,18 @@ const defaultDeps: WorkspaceSessionControllerDeps = {
 export function createWorkspaceSessionController(
   options: WorkspaceSessionControllerOptions = {},
 ): WorkspaceSessionController {
-  const deps = { ...defaultDeps, ...options.deps };
+  const deps = { ...defaultDeps, startUpdates: typeof window !== "undefined" && typeof WebSocket !== "undefined" ? startWorkspaceUpdates : undefined, ...options.deps };
   let disposed = false;
   let admissionEnabled = options.initialAdmissionEnabled ?? true;
   let admissionGeneration = 0;
   let foregroundGeneration = 0;
   let pollingEpoch = 0;
+  let sourceGeneration = 0;
+  let synchronizationEnabled = false;
+  let synchronizationEpoch = 0;
+  let workspacePath: string | null = null;
+  let stream: ReturnType<typeof startWorkspaceUpdates> | null = null;
+  let streamHealthy = false;
   let workspaceGeneration = 0;
   const pendingActions = new Set<string>();
   let sessions: SessionInfo[] = [];
@@ -121,30 +130,36 @@ export function createWorkspaceSessionController(
     options.onSessions?.(next);
   };
 
+  function acceptSessionList(list: readonly SessionInfo[]): SessionInfo[] {
+    deps.pruneTerminals(new Set(list.filter((session) => !isHistoricalSession(session)).map((session) => session.id)));
+    const resolution = resolvePendingCreates(pendingCreateIds, list);
+    pendingCreateIds = resolution.ids;
+    if (resolution.erroredIds.length > 0) publishError("create", "Couldn't start a new session.");
+
+    const [next, nextLastResortAt] = mergeSessionsById(sessions, list, lastResortAt, new Date());
+    lastResortAt = nextLastResortAt;
+    publishSessions(next);
+    options.onSessionSourceStatus?.("ready");
+    reportedErrors.clear();
+    return next;
+  }
+
   async function refreshSessions(epoch?: number, allowDuringTransition = false): Promise<readonly SessionInfo[] | null> {
+    if (epoch === undefined && streamHealthy) stream?.resync();
     const admissionToken = admissionGeneration;
     if (!allowDuringTransition && !admissionEnabled) return null;
     const token = foregroundGeneration;
+    const sourceToken = sourceGeneration;
     try {
       const baseUrl = await deps.getBackendUrl();
       const list = await deps.listSessions(baseUrl);
-      if (!isCurrent(token)
+      if (sourceToken !== sourceGeneration || !isCurrent(token)
         || (!allowDuringTransition && !isCurrentAdmission(admissionToken))
         || (epoch !== undefined && epoch !== pollingEpoch)) return null;
 
-      deps.pruneTerminals(new Set(list.filter((session) => !isHistoricalSession(session)).map((session) => session.id)));
-      const resolution = resolvePendingCreates(pendingCreateIds, list);
-      pendingCreateIds = resolution.ids;
-      if (resolution.erroredIds.length > 0) publishError("create", "Couldn't start a new session.");
-
-      const [next, nextLastResortAt] = mergeSessionsById(sessions, list, lastResortAt, new Date());
-      lastResortAt = nextLastResortAt;
-      publishSessions(next);
-      options.onSessionSourceStatus?.("ready");
-      reportedErrors.clear();
-      return next;
+      return acceptSessionList(list);
     } catch {
-      if (isCurrent(token) && (allowDuringTransition || isCurrentAdmission(admissionToken))
+      if (sourceToken === sourceGeneration && isCurrent(token) && (allowDuringTransition || isCurrentAdmission(admissionToken))
         && (epoch === undefined || epoch === pollingEpoch)) options.onSessionSourceStatus?.("unavailable");
       return null;
     }
@@ -155,19 +170,43 @@ export function createWorkspaceSessionController(
     : undefined);
   let stopPolling: (() => void) | null = null;
 
+  function stopFallback(): void {
+    pollingEpoch++; stopPolling?.(); stopPolling = null;
+  }
+  function startFallback(): void {
+    if (!disposed && synchronizationEnabled && admissionEnabled && !streamHealthy && stopPolling === null) {
+      const epoch = ++pollingEpoch;
+      stopPolling = startSessionPolling(() => refreshSessions(epoch), options.pollDelayMs, scheduler);
+    }
+  }
   function setPollingEnabled(enabled: boolean): void {
     if (disposed) return;
-    if (enabled) {
-      if (!admissionEnabled) return;
-      if (stopPolling === null) {
-        const epoch = ++pollingEpoch;
-        stopPolling = startSessionPolling(() => refreshSessions(epoch), options.pollDelayMs, scheduler);
-      }
+    if (!enabled || !admissionEnabled) {
+      synchronizationEnabled = false;
+      synchronizationEpoch++; sourceGeneration++;
+      streamHealthy = false;
+      const old = stream; stream = null; old?.dispose();
+      if (workspacePath) publishWorkspaceUpdateSignal(workspacePath, false);
+      stopFallback();
       return;
     }
-    pollingEpoch += 1;
-    stopPolling?.();
-    stopPolling = null;
+    synchronizationEnabled = true;
+    startFallback();
+    if (!stream && deps.startUpdates && workspacePath) {
+      const path = workspacePath, epoch = synchronizationEpoch;
+      const current = () => !disposed && synchronizationEnabled && epoch === synchronizationEpoch && workspacePath === path;
+      stream = deps.startUpdates({
+        workspacePath: path, getBackendUrl: deps.getBackendUrl,
+        onHealthy(healthy) {
+          if (!current()) return;
+          streamHealthy = healthy;
+          if (healthy) { sourceGeneration++; stopFallback(); } else startFallback();
+          publishWorkspaceUpdateSignal(path, healthy);
+        },
+        onSessions(list) { if (current() && streamHealthy) acceptSessionList(list); },
+        onRecommendationsInvalidated() { if (current()) publishWorkspaceUpdateSignal(path); },
+      });
+    }
   }
 
   function setAdmissionEnabled(enabled: boolean): void {
@@ -177,13 +216,13 @@ export function createWorkspaceSessionController(
     foregroundGeneration += 1;
     if (!enabled) {
       options.onSessionSourceStatus?.("unavailable");
-      pollingEpoch += 1;
-      stopPolling?.();
-      stopPolling = null;
+      setPollingEnabled(false);
     }
   }
 
   async function openWorkspace(path: string): Promise<void> {
+    setPollingEnabled(false);
+    workspacePath = path;
     workspaceGeneration += 1;
     const token = ++foregroundGeneration;
     try {
@@ -209,6 +248,8 @@ export function createWorkspaceSessionController(
   }
 
   async function adoptRestoredWorkspace(workspace: WorkspaceInfo | null): Promise<void> {
+    setPollingEnabled(false);
+    workspacePath = workspace?.path ?? null;
     workspaceGeneration += 1;
     const token = ++foregroundGeneration;
     pendingCreateIds = new Set();
@@ -240,6 +281,7 @@ export function createWorkspaceSessionController(
       // A list started while creation was pending may not include this record.
       // Fence it before publishing so it cannot drop the card or prune its terminal.
       foregroundGeneration += 1;
+      stream?.resync();
       pendingCreateIds = trackPendingCreate(pendingCreateIds, created.id);
       const [next, nextLastResortAt] = mergeSessionsById(sessions, [...sessions, created], lastResortAt, new Date());
       lastResortAt = nextLastResortAt;
@@ -264,6 +306,7 @@ export function createWorkspaceSessionController(
       const baseUrl = await deps.getBackendUrl();
       const resumed = await deps.resumeSession(baseUrl, id);
       if (!isCurrent(token) || !isCurrentAdmission(admissionToken)) return;
+      stream?.resync();
       publishSessions(sessions.map((session) => session.id === id ? resumed : session));
       activeSessionId = resumed.id;
       options.onActiveSession?.(resumed.id);
@@ -348,6 +391,7 @@ export function createWorkspaceSessionController(
 
   function dispose(): void {
     if (disposed) return;
+    setPollingEnabled(false);
     disposed = true;
     foregroundGeneration += 1;
     pollingEpoch += 1;

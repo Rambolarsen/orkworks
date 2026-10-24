@@ -1081,16 +1081,17 @@ fn project_live_peon_diagnostics(state: &AppState, info: &mut SessionInfo) {
     project_peon_diagnostics(info, snapshot, observation_count);
 }
 
+pub(crate) fn query_sessions(state: &Arc<AppState>) -> std::io::Result<Vec<SessionInfo>> {
+    let projection = SessionProjection::new(state.clone());
+    let mut infos = projection.list()?;
+    for info in &mut infos {
+        project_live_peon_diagnostics(state, info);
+    }
+    Ok(infos)
+}
+
 pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let result = tokio::task::spawn_blocking(move || {
-        let projection = SessionProjection::new(state.clone());
-        let mut infos = projection.list()?;
-        for info in &mut infos {
-            project_live_peon_diagnostics(&state, info);
-        }
-        Ok::<_, std::io::Error>(infos)
-    })
-    .await;
+    let result = tokio::task::spawn_blocking(move || query_sessions(&state)).await;
 
     match result {
         Ok(Ok(infos)) => Json(infos).into_response(),
@@ -7595,6 +7596,8 @@ mod tests {
         let state = Arc::new(crate::AppState {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             projection_lock: std::sync::Mutex::new(()),
+            updates: Default::default(),
+            session_directory_state: Default::default(),
             git_context_cache: Default::default(),
             session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(Some(WorkspaceState {
@@ -8089,6 +8092,8 @@ mod tests {
         let state = Arc::new(crate::AppState {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             projection_lock: std::sync::Mutex::new(()),
+            updates: Default::default(),
+            session_directory_state: Default::default(),
             git_context_cache: Default::default(),
             session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
@@ -8180,6 +8185,8 @@ mod tests {
         let state = Arc::new(crate::AppState {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             projection_lock: std::sync::Mutex::new(()),
+            updates: Default::default(),
+            session_directory_state: Default::default(),
             git_context_cache: Default::default(),
             session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
@@ -8282,6 +8289,8 @@ mod tests {
         let state = Arc::new(crate::AppState {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             projection_lock: std::sync::Mutex::new(()),
+            updates: Default::default(),
+            session_directory_state: Default::default(),
             git_context_cache: Default::default(),
             session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
@@ -8364,6 +8373,8 @@ mod tests {
         let state = Arc::new(crate::AppState {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             projection_lock: std::sync::Mutex::new(()),
+            updates: Default::default(),
+            session_directory_state: Default::default(),
             git_context_cache: Default::default(),
             session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
@@ -8996,6 +9007,8 @@ mod tests {
         let state = Arc::new(crate::AppState {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             projection_lock: std::sync::Mutex::new(()),
+            updates: Default::default(),
+            session_directory_state: Default::default(),
             git_context_cache: Default::default(),
             session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(Some(WorkspaceState {

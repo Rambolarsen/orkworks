@@ -1154,6 +1154,7 @@ pub(crate) async fn handle_runtime_exit(
     generation: RuntimeGeneration,
     status: &str,
 ) -> bool {
+    state.updates.sessions_changed();
     let owns_generation = state
         .sessions
         .lock()
@@ -2587,6 +2588,7 @@ async fn start_session_runtime_inner(
                                     if let Some(output_at) = output_at {
                                         let output_persist_at = tokio::time::Instant::now();
                                         handle.info.last_output_at = Some(output_at.clone());
+                                        driver_state.updates.sessions_changed();
                                         output_recency_to_persist = handle
                                             .runtime
                                             .record_output_recency(output_at, output_persist_at);
@@ -3894,6 +3896,8 @@ mod tests {
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
             projection_lock: Mutex::new(()),
+            updates: Default::default(),
+            session_directory_state: Default::default(),
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None),
