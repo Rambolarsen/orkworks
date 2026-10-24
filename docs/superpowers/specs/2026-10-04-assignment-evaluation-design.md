@@ -1041,10 +1041,11 @@ paths, byte caps or reporting permission. The required amendment is:
   before issuing review authority. A server-artifact reporting permission does
   not require product-file write access or permit arbitrary artifact retrieval.
 
-**Review-target timing proposal — 2026-10-24.** Require fresh approval of
-an exact accepted result for the initial child-review flow, as specified below.
-This is an agent recommendation pending owner acceptance; it replaces the
-unresolved choice with a concrete proposal, not an approved launch lifecycle.
+**Review-target timing choice accepted — 2026-10-24.** Require fresh approval
+of an exact accepted result for the initial child-review flow, as specified
+below. The owner accepted this choice and the extra user step in the
+[PR #999 session](https://github.com/Rambolarsen/orkworks/pull/999). Technical
+producer/schema agreement and runtime implementation remain separately gated.
 
 These are proposed upstream schema requirements, not fields already present in
 #741. Required output authorization or target binding that cannot be represented
@@ -1054,19 +1055,19 @@ conversion or cross-assignment artifact reuse is introduced.
 
 ### Proposed exact-result review approval
 
-**Decision for owner review.** In the initial flow, approve a child reviewer
+**Owner-accepted timing choice — 2026-10-24.** In the initial flow, approve a child reviewer
 only after its exact target result has been accepted by sidecar finalization.
 A worker's initial plan can describe the intention to obtain independent review,
 but that intention is not an executable reviewer assignment, dependency node,
 reservation or launch grant. Reject an executable reviewer configuration with
-an absent, predicted, mutable or deferred target. This is a proposed restriction
-of the initial flow; it does not remove independent review from the workflow.
+an absent, predicted, mutable or deferred target. This is the accepted timing restriction
+for the initial flow; it does not remove independent review from the workflow.
 
 Two approaches were considered:
 
 | Approach | Consequence |
 | --- | --- |
-| Fresh approval against an accepted result — recommended | Exact target is part of the immutable reviewer configuration from the start. The user approves a later review plan, adding an approval step |
+| Fresh approval against an accepted result — owner selected | Exact target is part of the immutable reviewer configuration from the start. The user approves a later review plan, adding an approval step |
 | Approve a worker-bound future-result selector | Could avoid that step, but needs a new approved selector schema, deterministic one-time binding, digest/authority separation, correction races and durable recovery proof. Existing dependencies and grants do not supply that contract |
 
 The second approach is deferred, not prohibited forever. Do not substitute a
@@ -1155,8 +1156,10 @@ These synthetic cases define expected contract behavior, not executed tests:
 | Required snapshot/evidence is missing, deleted or inaccessible | Block child review; explicit user review remains a separate authorized path |
 | Review finds rework | Record the evaluation; no implied worker resume, retry, remediation or merge |
 
-**Disposition.** Owner acceptance of this approval choice and #741/#742 producer
-agreement remain open. The typed target/output schemas, exact aggregate bounds,
+**Disposition.** The owner accepted the fresh exact-result approval choice,
+including a separate user-created review run for future output and its extra
+approval step. This accepts the timing/user-flow choice only; #741/#742 producer
+agreement remains open. The typed target/output schemas, exact aggregate bounds,
 reporting actions, retained-reference custody, #740 eligibility and scoped
 implementation approval remain separate gates. No runtime change, new capability
 profile, model probe or implementation plan is supplied by this proposal.
@@ -1213,8 +1216,9 @@ or adapter tests:
 
 Existing joins and the discrepancy inventory are recorded here; the frozen
 admission version now has a matching proposed #742 producer/#741 consumer
-contract. Its owner acceptance, typed output/target schemas and approval timing,
-and reporting-action projection remain gates for #741/#742 agreement. Aggregate artifact/rehash/worker,
+contract. Its owner acceptance, typed output/target schemas and
+reporting-action projection remain gates for #741/#742 agreement. The separate
+exact-result approval timing choice above is owner accepted. Aggregate artifact/rehash/worker,
 request/receipt and run/workspace limits still need exact values. #740 eligibility,
 #745 shared custody, #746 producer/storage qualification and separately approved
 runtime plans remain independent gates. Keep #744 open; this reconciliation does

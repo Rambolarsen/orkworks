@@ -975,8 +975,8 @@ handoff and prerequisite gates are satisfied.
 ## Proposed exact-result reviewer timing — 2026-10-24
 
 The [#744 timing proposal](2026-10-04-assignment-evaluation-design.md#proposed-exact-result-review-approval)
-recommends requiring an already accepted exact target before a reviewer
-configuration is approved. A future-result review intention supplies no executable
+records the owner's 2026-10-24 acceptance of requiring an already accepted
+exact target before a reviewer configuration is approved. A future-result review intention supplies no executable
 assignment or deferred selector. The proposed typed target/read authorization
 must join the worker's full retained assignment/result identity independently
 of the reviewer's own identity and participate in the immutable configuration
@@ -985,6 +985,5 @@ digest. Existing text inputs do not implement that schema.
 For a result produced after its worker plan was approved, the proposal uses a
 separate explicitly UI-created review run and exact-plan approval, retaining
 ADR 0077's terminal-run fences. Same-workspace retained-result read/custody
-mappings need explicit agreement; no old worktree is adopted. This is pending
-owner acceptance and producer reconciliation, not adapter eligibility or a
-runtime schema amendment. Keep #741 and the existing implementation gates open.
+mappings need explicit agreement; no old worktree is adopted. The timing/user-flow choice is accepted; producer reconciliation remains
+pending. This supplies no adapter eligibility or runtime schema amendment. Keep #741 and the existing implementation gates open.
