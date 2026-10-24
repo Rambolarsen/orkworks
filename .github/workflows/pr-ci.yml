@@ -46,6 +46,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
         working-directory: docs
       - run: node --test docs/.vitepress/*.test.mjs scripts/docs-audit-scope.test.mjs
+      - name: Test repository verifier prerequisites and ordering
+        run: |
+          node --test scripts/verify-repo.test.mjs
+          bash scripts/verify-repo.test.sh
       - run: pnpm docs:build
         working-directory: docs
 

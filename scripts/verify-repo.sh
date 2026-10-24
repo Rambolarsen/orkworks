@@ -53,6 +53,15 @@ run_docs_build() {
   run_in_directory "$repo_root/docs" pnpm docs:build
 }
 
+run_prerequisites() {
+  if ! command -v node >/dev/null 2>&1; then
+    echo '[verify] Node is missing. Install/select the Node version in .nvmrc before verification.' >&2
+    return 1
+  fi
+  node "$repo_root/scripts/verify-prerequisites.cjs"
+}
+
+run_step 'Verification prerequisites' run_prerequisites
 run_step 'Rust formatting' \
   cargo fmt --manifest-path "$repo_root/crates/orkworksd/Cargo.toml" --check
 run_step 'Rust build' \
