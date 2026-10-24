@@ -4,7 +4,7 @@ title: Selected-session Git changes
 description: Deliver distinct uncommitted and committed branch inspection in the existing right panel after design approval.
 tags: [orkworks, desktop, git, implementation]
 status: draft
-workflow_status: verified-pending-pr
+workflow_status: implemented
 ---
 
 # Selected-session Git changes implementation plan
@@ -156,3 +156,32 @@ changes no universal agent setup rule, and the README overview remains accurate;
 source behavior is documented in the session guide. The repo-wide worktree hook
 flagged another session's merged `open-session-app` checkout; it was left alone.
 No active Taskmaster recommendation matched this verified diff at lookup.
+
+## Rebased verification and delivery evidence
+
+The final rebased product code at `fb033776256edd9f1556313ad1a5d8df998e917a`
+received `/code-review medium` approval. `verify-repo.sh` passed against current
+main on Node 22.23.4 with `RUST_TEST_THREADS=4`: 2,196 Rust unit tests, six Rust
+integration tests, 1,393 desktop tests, both builds, prerequisites and close-out
+checks. Ten existing Rust ignores and one desktop skip remain. The sidebar-rail
+scenario and viewer scenario are both retained after the shared-fixture conflict
+resolution; the viewer fixture waits for the requested responsive mode before
+asserting focus. Hosted Windows compilation/custom-inference also passed. A
+native Windows viewer walkthrough is not claimed.
+
+One unconstrained local run did not start the native probe fixtures for
+`inter_probe_epoch_change_during_version_stops_help_child`,
+`inter_probe_executable_replacement_during_version_stops_help_child`,
+`inter_probe_executable_replacement_during_cli_help_stops_server_help_child`,
+`inter_probe_executable_replacement_during_server_help_revokes_final_result`,
+and `native_cache_never_reuses_integration_outputs_or_replaced_executable_identity`.
+The first passed in isolation and all passed in the complete bounded run. No
+Codex runtime code changed.
+
+Hosted Linux exposed an independent fixture setup assumption in
+`conflicts_and_large_inputs_remain_explicitly_unavailable`: the merge command
+relied on inferred Git identity. The strict-config reproduction failed before
+the correction and passed after adding explicit identity and validating actual
+index conflicts. This test-only delta was approved as tree
+`9d8f6424e973e759162d7dd8b0f7412b94b0aa4e`; production code is unchanged.
+Final hosted checks and delivery are tracked in [PR #1003](https://github.com/Rambolarsen/orkworks/pull/1003).

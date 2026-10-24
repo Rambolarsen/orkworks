@@ -794,11 +794,28 @@ mod tests {
         git(d.path(), &["add", "."]);
         git(d.path(), &["commit", "-qm", "main"]);
         let out = std::process::Command::new("git")
-            .args(["merge", "feature"])
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "merge",
+                "feature",
+            ])
             .current_dir(d.path())
             .output()
             .unwrap();
         assert!(!out.status.success());
+        assert!(
+            Repository::open(d.path())
+                .unwrap()
+                .index()
+                .unwrap()
+                .has_conflicts(),
+            "Expected an actual merge conflict, got stdout={} stderr={}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
         // Even a file that currently matches HEAD remains an unmerged index entry.
         std::fs::write(d.path().join("a.txt"), "main\n").unwrap();
         let a = capture(d.path(), Comparison::Uncommitted, None).unwrap();
