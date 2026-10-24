@@ -90,9 +90,17 @@ Count older research children against the run-wide live-child ceiling until
 their sessions end. The [preparation contract](2026-10-04-orchestrator-preparation-design.md) defines this proposed capability amendment.
 This is a separate approval when the execution assignments were not already
 fixed in an approved plan. Completing research does not authorize execution.
-The execution proposal includes required result-review tasks and all intended
-implementation, verification, and remediation assignments. Small, clear work
-can go directly to this proposal without a research plan.
+The execution proposal declares representable implementation/verification
+assignments and their exact scope. Required #744 review of future worker output
+is an intention, not an executable reviewer task or deferred target. Under the
+[accepted exact-result timing](2026-10-04-assignment-evaluation-design.md#proposed-exact-result-review-approval),
+the result must first be finalized; the user then explicitly creates a separate
+review run and approves its exact result-bound plan. An already accepted exact
+result may be reviewed in a plan that binds it before approval. Later remediation
+also requires its own exact declared scope/approval; neither a review finding nor
+a future-work intention launches it. Final execution still revokes the worker
+run's authority, without automatic creation of the review run or approval
+transfer. Small, clear work can skip research; it does not skip these gates.
 
 ### Planning parallel work
 

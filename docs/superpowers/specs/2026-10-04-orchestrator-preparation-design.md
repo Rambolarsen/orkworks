@@ -910,10 +910,15 @@ defaults, not claims about current storage or tool behavior.
 
 **Small direct task.** The user supplies a clear correction and acceptance
 criteria. The parent records why research/clarification can be skipped and
-proposes implementation plus the required verification/review tasks. Approval
-of the exact execution plan creates a grant. Declared ready tasks run without
-additional launch approvals; final outcomes end the run. The parent never edits
-the correction or performs its own review.
+proposes implementation and any already representable verification tasks.
+It records independent result review as an intention when the output does not
+yet exist; that intention is not an executable #744 reviewer task. Approval of
+the exact execution plan creates a grant for declared admissible tasks only.
+After sidecar result finalization, #744's accepted flow requires a separately
+user-created review run and exact review-plan approval for that future output.
+Final execution completion still ends the worker run; no planning bearer or
+launch approval transfers to the review run. The parent never edits the
+correction or performs its own review.
 
 **Research followed by execution.** The user asks for a new integration with
 unknown delivery and permission support. The parent proposes independent
@@ -1145,9 +1150,12 @@ It implements no route or credential today. The accepted timing/user flow is
 unchanged; this schema/authority/custody amendment requires owner acceptance.
 
 At proposal publication, derive workspace ownership from authenticated run state,
-resolve the exact target and all selected immutable bytes, and validate the v2
-configuration/digest, selected repository identity, independence, rubric,
-output declaration and byte bounds. A same-workspace source run may be terminal;
+resolve the exact target and all selected immutable bytes, and validate the
+output-bearing child v3 configuration/digest with its embedded `ReviewTargetInput`,
+selected repository identity, independence, rubric, output declaration and byte
+bounds. The earlier v2 input-only descriptor retains its exact shape/domain but
+cannot authorize executable #744 evaluation or output/reporting grants.
+A same-workspace source run may be terminal;
 that run's old bearer is neither required nor restored. The new parent receives
 only descriptor/coordination data authorized by its own bootstrap and UI-selected
 review goal, not an arbitrary old-run artifact reader. An unrepresentable

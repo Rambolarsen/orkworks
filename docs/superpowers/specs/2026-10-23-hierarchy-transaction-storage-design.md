@@ -245,12 +245,26 @@ state; it never truncates an accepted command or weakens replay/retention.
 | Database page size / main file | 4,096 bytes / 262,144 pages = 1 GiB; verify `page_size` and `max_page_count` on every connection; a larger existing file is unavailable |
 | Summary rows/material | Existing 2 MiB per row/material, 4,096 rows, 256 MiB aggregate serialized rows; unchanged |
 | Pending lineage/checkpoints | 64 MiB total canonical payload bytes and 4,096 pending transitions per workspace; preserve at least the preceding material for every unavailable initialized subject. New rows/changes must reserve proof capacity before source publication |
-| One durable command | 16 MiB total canonical changed payload and 4,096 changed logical rows, including receipts, edges, fences and lineage; reject before commit if all required effects cannot fit |
+| One durable command | 16 MiB total changed payload and 4,096 changed logical rows, including newly written immutable output bytes, canonical metadata, receipts, edges, fences and lineage; reject before commit if all required effects cannot fit |
 | Worker admission | One active command, at most eight waiting commands and 32 MiB total queued payload; apply source rates first. Queue pressure is a bounded failure, not a new accepted event |
 | SQL work | One transaction per command, no nested savepoints, triggers, SQL-supplied functions or automatic VACUUM; at most 100,000 visited logical rows and 2 seconds of interruptible SQL work per command. Slow OS I/O is not promised to be interruptible |
 | Busy/recovery | 100 ms busy timeout; one retained worker with no replacement threads on timeout. A client deadline cannot prove a transaction aborted; retain the pending fence until outcome is reconciled |
 | SQLite rollback journal | 2 GiB hard file ceiling, enforced by the qualified storage/VFS adapter on writes, including recovery; `journal_size_limit=0` is cleanup policy only, not an active-log limit |
 | SQLite scratch/staging | No application staging files or disk-backed SQL temporary store; `temp_store=MEMORY`, at most 8 MiB statement scratch under the qualified adapter. Reject work that cannot stay within that budget |
+
+The command cap includes source payload bytes when newly written, not just the
+canonical manifest that references them. For example, two new 8 MiB path
+snapshots already consume 16 MiB before nonempty result/receipt/dependency/summary
+metadata; that finalization must fail command admission under these defaults,
+even though it fits #744's source-only cap. Existing immutable artifact references
+still count their changed metadata and all source occurrence quotas; a physical
+reuse is not a source-capacity discount. No unreviewed external payload store,
+post-commit write or split command may bypass atomic publication or byte checks.
+Payload placement/native publication and a complete worst-case profile budget
+need explicit producer/storage qualification; a lower approved output contract
+or separately reviewed storage-budget change may be needed. These ceilings do
+not promise simultaneous use of every source maximum. See the
+[joint #744 review](2026-10-04-assignment-evaluation-design.md#joint-technical-review-handoff--2026-10-24).
 
 Total storage consists of the 1 GiB main file, at most 2 GiB hot journal and
 bounded directory/SQLite metadata. A qualified adapter must enforce the journal
