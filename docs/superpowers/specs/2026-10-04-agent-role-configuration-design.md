@@ -1225,3 +1225,29 @@ coordination-only producer and cannot become an independent child reviewer.
 This is proposed contract work pending owner acceptance/joint consumer review,
 not adapter eligibility, permission expansion, a new UI token or runtime support.
 Existing configuration/read/output/identity and #740 gates remain binding.
+
+## Proposed reporting quota eligibility
+
+The [#744 request/receipt quota policy](2026-10-04-assignment-evaluation-design.md#proposed-reporting-request-and-receipt-quotas)
+is a proposed sidecar admission policy for the existing reporting action sets,
+not an instruction-selected permission, new configuration field or credential
+scope. Its initial numeric defaults require owner acceptance/joint review before
+code. Adapter evidence must demonstrate bounded request delivery, denied
+response handling and receipt lookup within the effective frame/rate/concurrency
+limits; a broadly capable shell/HTTP client is no substitute. Existing exact
+configuration/action and mandatory-rule/skill checks remain binding.
+
+Children cannot select/reset buckets, increase credits, move receipt ownership
+or request automatic purge/retry to recover capacity. UI request lanes and
+accepted results' user receipt credits remain separate from producer use. Lower
+verified adapter limits still apply; an assignment whose required reporting
+cannot fit is ineligible rather than silently widened. Record the reviewed
+policy and its version/content identity in the approved capability-evidence
+sources before claiming support. A future policy change requires reviewed
+compatibility with existing counters/reservations, not reset under a new name.
+
+These defaults bound reporting attempts and receipt metadata only; output,
+retained evidence, artifact production, scratch/worker and overall run/workspace
+storage need their own finite contracts and qualification. All earlier role/
+identity/read/output/reporting and #740 gates remain open. No eligible profile,
+runtime limiter or permission expansion is delivered by this amendment.

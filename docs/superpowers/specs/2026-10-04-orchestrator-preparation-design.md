@@ -1300,3 +1300,39 @@ recovery qualification, Electron/preload wiring, canonical request/record byte
 fixtures and separately approved runtime plans remain prerequisites. Reporting
 acceptance emits only bounded coordination evidence under the existing event
 contract; it neither proves independent quality nor advances task state by itself.
+
+## Proposed reporting quota admission
+
+The [#744 reporting quota proposal](2026-10-04-assignment-evaluation-design.md#proposed-reporting-request-and-receipt-quotas)
+adds bounded request lanes and receipt reservations for the four proposed
+assignment-reporting carriers. Its 60-second windows, four producer/two reserved
+UI request slots, 64 MiB owner-run and 256 MiB workspace receipt pools are
+proposed defaults, not implemented resource controls. Existing research-report,
+parent-proposal/event and metadata limits stay independent; in particular the
+32 MiB preparation/report-metadata aggregate is not replaced by the receipt pool.
+
+Resolve limiter ownership from current authenticated grants/workspace, not body
+labels. Apply coarse request admission before parsing and finer authorized
+subject limits before exact receipt lookup. Repeated/rejected requests consume
+available request windows, not retained report versions or denial-history slots.
+Result/evaluation capability renewal, exact runtime resume and UI token refresh
+retain the same live scope's window. Sidecar startup/replacement establishes exclusive
+workspace ownership and fences prior reporting admission before starting the full
+monotonic cold window and opening fresh rate state; it never resets durable
+receipt credits. Lifecycle/control operations are outside those reporting lanes.
+
+Receipt storage belongs to the producing candidate or evaluated target subject;
+cross-run review does not move the target run's charge or free it on completion.
+Candidate admission reserves both finalization and possible result-user credits
+before allocation of reporting records; child evaluation reserves its receipt
+and a future user invalidation. Honor already owed credits at finalization/user
+publication while retaining ordinary authority, source, CAS and revision fences.
+No receipt slot is a launch grant, a task-state transition or user consent.
+
+Reservations/releases and write/revocation/namespace/purge fences require one
+reviewed atomic ownership protocol. Restart, cancellation, namespace rotation or
+user inspection cannot drop retained history or reserved user capacity. An
+unverifiable counter/index fences mutations until recovery; native publication,
+response buffering/worker deadlines and broader storage qualification remain
+separate executable-handoff gates. The logical quotas supply no OS resource or
+availability proof and no runtime authorization.

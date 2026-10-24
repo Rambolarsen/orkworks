@@ -1664,8 +1664,10 @@ for read requests, mutation receipts, receipt-read replies and errors. The
 embedded candidate/evaluation/disposition retains its separate 512 KiB cap;
 create drafts are bounded by both the frame and completed canonical evaluation
 cap after derived fields are added. No multipart/compressed/upload alternative
-bypasses these counts. Rate/receipt/aggregate quotas and per-request execution/
-response buffering deadlines remain separate required gates before code.
+bypasses these counts. The [proposed reporting quotas](#proposed-reporting-request-and-receipt-quotas)
+now supply request/rate/receipt defaults and recovery rules. Their acceptance,
+per-request execution/response buffering deadlines and broader storage/worker
+qualification remain required gates before code.
 
 Use `201` for a newly committed mutation, `200` for an exact mutation retry or
 successful authorized read; `400` invalid schema, `401` missing/revoked authority,
@@ -1708,3 +1710,216 @@ shared custody, #746 qualification, earlier identity/read/output proposals and
 separately approved implementation plans remain independent gates. No runtime
 API, model probe, profile eligibility, scoring authority or automatic retry is
 delivered. Keep the component issues open.
+
+## Proposed reporting request and receipt quotas
+
+This is the proposed quota layer for the reporting protocol above, with matching
+[#742 admission/recovery](2026-10-04-orchestrator-preparation-design.md#proposed-reporting-quota-admission)
+and [#741 eligibility](2026-10-04-agent-role-configuration-design.md#proposed-reporting-quota-eligibility)
+boundaries. These are initial logical defaults requiring owner acceptance and
+joint storage/consumer review. They create no runtime limiter, filesystem space
+guarantee, new request field, record/digest version or implementation authority.
+They apply to the four proposed assignment-reporting carrier routes only;
+research reports, parent proposals/events and retained worker-input reads keep
+their separately required contracts and limits.
+
+### Request admission and independent lanes
+
+| Authenticated reporting traffic | Proposed rolling 60-second limit |
+| --- | --- |
+| Producer mutations per immutable producer assignment | 10, shared by result/evaluation actions and all its resumed generations |
+| Producer receipt/artifact reads per immutable producer assignment | 30, shared by its read actions and resumed generations |
+| Producer mutations / producer reads per workspace | 120 / 240, in separate pools |
+| Electron-authorized user mutations per exact target result | 10, shared by create/correct/invalidate |
+| Electron-authorized user mutations per workspace | 30, across targets and token refresh |
+| Electron-authorized candidate inspections per workspace | 60, independent of producer pools and user mutations |
+| Concurrent authenticated reporting requests per workspace | Four producer slots and two reserved UI slots; no reporting wait queue |
+
+A rate gate keeps at most its limit's admitted-attempt timestamps on a monotonic
+clock. Remove entries at least 60 seconds old before testing capacity; an
+available entry is consumed before receipt lookup even if the request later
+fails, is malformed, or is an exact retry. When full, reject without appending
+another timestamp or extending the window. An admitted attempt is never refunded
+because later validation, another gate or publication fails. These are rolling
+windows, not calendar-minute boundaries or unlimited burst/refill buckets.
+A denied attempt creates no receipt, per-key denial record or unbounded log.
+
+Apply the authenticated workspace/action-lane gate immediately after credential
+validation, before full body parsing. For producers, consume the workspace gate,
+then the immutable producer-assignment gate from the stored capability binding,
+then acquire a producer slot before allocating/parsing the full frame. Claimed
+request IDs cannot choose a bucket. For UI mutations, consume the coarse
+workspace gate, acquire a UI slot, parse the bounded envelope and resolve the
+authorized existing result, then consume its result gate before exact-receipt
+lookup. Stop at the first denied gate; earlier admitted gates stay charged and
+unreached gates are not charged. A
+malformed or unknown/cross-scope UI target cannot allocate a new target bucket.
+Store no bucket keyed by arbitrary bearer bytes, request keys or unknown IDs.
+Counters/buckets exist only for owned scopes and live windows; idle expired
+buckets may be removed without dropping unexpired attempts. Existing frame and
+authentication limits still reject unknown/revoked authority without exposing
+stored receipts. Bounded unauthenticated ingress remains a transport prerequisite.
+
+Changing credentials/generations, pausing/completing a stage, correcting a report
+or exact resume does not reset a live scope's window. UI token renewal uses the
+same workspace UI lane. After sidecar start/replacement has established exclusive
+workspace ownership and fenced prior reporting admission, reject these reporting
+requests for one full verified monotonic 60-second cold window before opening
+fresh rate windows; old credentials are already fenced. Every pre-fence attempt
+is at least 60 seconds old when that interval ends: `attempt <= fence` and
+`open >= fence + 60s`, so `open - attempt >= 60s`. This conservatively covers
+pre-restart attempts without persisting/comparing process-clock timestamps or
+trusting wall-clock adjustments. An unprovable clock keeps admission closed.
+Repeated restarts never buy fresh request capacity. Other lifecycle/control
+routes, including stop/cancel, are not placed behind this reporting cold window.
+
+Acquire a lane's concurrent slot before allocating/parsing a large frame; keep
+it charged until all request/response buffers and any in-flight work are released,
+including committed transport buffers. Full capacity returns 429 immediately;
+there is no hidden queue or spill into the UI's reserved slots. Stuck work stays
+charged until it exits or the sidecar restarts; timeout alone cannot spawn a
+replacement. Internal candidate finalization has its separate required worker
+budget. These request slots and byte frames do not qualify native I/O deadlines,
+transport buffers or scratch/storage bounds.
+
+### Receipt ownership, reservations and finite storage
+
+Retain one immutable mutation receipt per accepted mutation and at most one
+accepted/rejected finalization receipt per candidate. Exact retries/reads add
+none; validation/conflict/rate/oversize/capacity denials add none. Existing
+canonical records and request digests provide the payload binding: never retain
+a second raw request body or an unbounded retry log. Stored receipt metadata,
+including its owner/routing/key bindings and inline response, is at most 16 KiB
+per receipt slot. At most one request-key lookup binding and one canonical-record
+pointer belong to a slot, included in that bound; reads, credential renewal and
+new runtime generations create no extra lookup aliases. It obeys the smaller
+wire-frame limit independently; reject a new mutation if its full required stored
+metadata cannot fit.
+
+Candidate admission/finalization receipts belong to the producing assignment.
+Evaluation/disposition receipts belong to the evaluated target assignment/result,
+even when a reviewer in another run produced the artifact. Charge their target
+run's pool, including after that run completes. Reviewer lookup indexes are
+bounded references to that one stored receipt, not uncharged receipt copies.
+Artifacts/records and their evidence retain their own producing/target ownership
+and byte quotas; receipt accounting does not reassign them or authorize reuse.
+
+| Retained receipt capacity | Proposed limit / reservation rule |
+| --- | --- |
+| Per evaluated/producing assignment | 1,088 slots / 17 MiB including reserved capacity |
+| Per owner run | 64 MiB across all its subjects, active or terminal |
+| Per selected workspace | 256 MiB across all owner runs/epochs, active or historical |
+| Candidate admission | Reserve two 16 KiB slots: admission and its possible finalization receipt |
+| User review capacity for a possible new result | At candidate admission also reserve eight 16 KiB slots: four user evaluation writes and four possible user-stream invalidations |
+| New child evaluation revision | Reserve two 16 KiB slots in the target subject: its mutation receipt and a possible later user invalidation |
+
+These reservations are hierarchical and atomic with admission/publication: a
+slot consumes its full 16 KiB in assignment, owner-run and workspace pools even
+when the final receipt is smaller or storage deduplicates bytes. The 1,088-slot
+bound is 64 candidate/admission-finalization slots plus twice the existing
+512-evaluation-revision ceiling. It is a conservative bound: one disposition per
+stream means not every revision needs its reserved invalidation slot. User
+capacity is covered by the four-per-result partition, never taken from the
+child's twelve revisions. All 32 possible candidate results reserve the user
+partition conservatively before result finalization. Explicitly, 32 candidates
+times ten slots is 320; at most `32 * 12 = 384` child evaluation revisions times
+two slots is 768; together they are 1,088. The 512 evaluation ceiling includes
+up to 128 user revisions already covered by candidate/result user credits; it
+is not an additional 512 child revisions or 64-candidate allowance.
+
+A candidate therefore needs ten slots (160 KiB) at admission. Finalization uses
+its already reserved outcome slot without another storage-admission check. If
+it publishes a result, transfer the eight user slots atomically to that exact
+result. A terminal rejection/supersession/abandonment that can no longer publish
+a result may release those eight unused user slots with its durable outcome;
+keep the candidate's admission/outcome reservation while its history is retained.
+The eight-credit transfer remains within that same assignment/owner run, with no
+second charge or capacity release: only the credit owner becomes the exact
+accepted result. No other request may consume an admitted result's unused user
+slots. User
+create/correct uses its four reserved write slots; user-stream invalidation uses
+its reserved invalidation slots. Invalidating a child stream uses the slot
+reserved for that stream's first accepted child revision; unused correction
+invalidation reservations remain protected until safe owner deletion.
+
+Each result's four user-write credits cover **all** initial, replacement and
+correction writes together, not four writes per stream. Creating a user stream
+uses one write credit and earmarks one of the four user-invalidation credits to
+that issued stream; correcting it consumes only another write credit. Invalidating
+it consumes its earmarked credit once and freezes it. Child-stream invalidation
+uses only that child's first-revision credit, never a user-stream credit.
+Correction-reserved child credits remain conservative unused capacity; they
+cannot fund a different stream, second invalidation or extra evaluation revision.
+Every transfer/consumption is recorded under the same target-result owner.
+
+A full pool rejects a **new** candidate/child-evaluation reservation with 409
+`reporting-capacity-exhausted` before any record, artifact or receipt commits.
+It does not prevent an admitted candidate's finalization receipt, an eligible
+reserved user write/invalidation, an exact retry/read, or cancellation. Those
+operations retain their authority/rate/CAS/revision/source checks and may still
+fail for another reason. Reservations are logical capacity, not proof that the
+filesystem can durably write; storage-unavailable/recovery still fails closed.
+Do not raise limits, evict protected evidence or change an approval to make room.
+Capacity exhaustion is a reporting blocker, not evidence of poor agent quality
+or task completion/failure. Preserve ordinary work and existing outcome evidence;
+a denied submission creates no candidate or automatic retry/resume permission.
+
+### Recovery, retention and visible exhaustion
+
+Keep charged/reserved/consumed slot ownership as bounded durable metadata outside
+canonical report objects and their digests. Capacity reservation, receipt/record
+publication, user-credit transfer/release and dependency updates share the same
+reviewed transaction/recovery fence as the owning mutation. A crash exposes
+neither an uncharged receipt nor an irreversible reservation for a mutation that
+never committed; uncertain transaction proof fences new writes until reconciled.
+Do not reconstruct quotas from only receipt byte sizes: unused but owed credits
+must remain charged. A missing/corrupt ledger or ambiguous storage outcome yields
+503 for affected mutations; verify retained receipts before retry/read service.
+
+Rate windows may restart only after the cold interval above; durable receipt
+capacity does not reset on restart, runtime resume, token refresh, run completion
+or namespace rotation. Old epochs stay read-only but still consume workspace
+capacity. Explicit eligible subject purge/retention releases only that owner's
+receipts and unused credits atomically with deletion under #744's incoming-
+dependency fence. Rejected proposals and terminal runs are not blanket release
+authority. An index/reference needed by retained history or a current consumer
+keeps its target protected; no quota compaction may erase provenance. Workspace
+deletion/shared custody retain the existing joint gates, not a capacity bypass.
+
+Use 429 with a bounded rate/concurrency/cold-window reason for temporary request
+admission denial, 409 for new-receipt capacity exhaustion and 503 for unverified
+recovery/storage. The existing error-frame shape and 2 KiB safe message bound
+are unchanged. An authorized producer receives only a bounded reason for its
+scope; it cannot inspect other assignments' usage. User diagnostics may explain
+the applicable quota and safe retention/recovery options under existing UI
+authority, without a new arbitrary listing/control action. Waiting for a rate
+window restores only request capacity, never revision slots, receipts, approvals
+or capabilities. No automatic retry, resume, purge or cancellation is authorized.
+
+These are synthetic contract expectations, not executed limiter/storage tests:
+
+| Case | Required outcome |
+| --- | --- |
+| Exact accepted retry is the eleventh producer mutation inside 60 seconds | 429 before receipt lookup; no new revision, receipt or denial history |
+| Attempt fails after coarse admission but before subject validation | Keep its coarse charge; no unknown-subject bucket or refund |
+| Credential refresh or exact resume occurs inside a live rate window | Same immutable scope/window; no burst reset |
+| Sidecar restarts or wall clock moves backward | Monotonic cold window before request admission; durable receipt credits remain charged |
+| All producer slots are busy | Reject extra producer requests; preserve reserved UI slots and independent stop/cancel routes |
+| Finalization occurs after another mutation fills the receipt pool | Use its reserved outcome slot; producer revocation remains enforced |
+| Child writes fill otherwise unreserved receipt space | Preserve accepted results' reserved four user writes and stream invalidations |
+| Candidate is rejected before it can produce a result | Atomically release only its unused eight result-user credits; retain candidate history/outcome capacity |
+| Child stream is corrected before user invalidation | Use its first-revision invalidation credit once; other retained credits do not create extra disposition rights |
+| Exact retry/read arrives when durable receipt pool is full | Apply current auth/rate limits, then return existing receipt without new storage capacity |
+| Capacity-admission transaction is interrupted | Recover atomic reservation/object/receipt proof or fence writes; no uncharged acceptance or guessed refund |
+| Namespace rotates with historical subjects retained | No old mutation replay or workspace-capacity reset; authorized history reads remain scoped |
+| Eligible subject purge races a retained receipt dependency | Existing dependency boundary protects the target or releases owner capacity with deletion, never both |
+| Rate window expires after record/revision capacity is exhausted | New request admission is possible; exhausted durable record/receipt capacity stays exhausted |
+
+**Disposition.** Reporting rate, concurrency and receipt reservation/exhaustion
+rules now have concrete proposed defaults across #741/#742/#744. Owner acceptance,
+ledger/store/clock/worker qualification, broader artifact/evidence/read/run/
+workspace/scratch resource quotas, #745/#746 custody/recovery, #740 eligibility,
+earlier technical amendments and separately approved implementation plans remain
+gates. The receipt pool is separate from #742's 32 MiB preparation/report-metadata
+limit; neither replaces the other's checks or bounds all workspace storage.
+No runtime limiter, endpoint, profile or automatic maintenance is delivered.
