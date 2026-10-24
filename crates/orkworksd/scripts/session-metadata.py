@@ -36,7 +36,7 @@ def valid_revision(value):
 
 
 class Client:
-    def __init__(self):
+    def __init__(self, http_proxy=None):
         if os.environ.get("ORKWORKS_SESSION_METADATA_API_VERSION") != "1":
             raise ProducerError("API-only metadata protocol version 1 is required")
         self.session_id = os.environ.get("ORKWORKS_SESSION_ID", "")
@@ -48,6 +48,14 @@ class Client:
             raise ProducerError("invalid metadata port environment")
         if not self.token or len(self.token) > 4096 or any(ord(c) < 33 or ord(c) > 126 for c in self.token):
             raise ProducerError("invalid metadata reporting capability")
+        self.proxy_port = None
+        if http_proxy is not None:
+            # Explicitly selected trusted relay only. Do not use URL parsing
+            # that normalizes controls, credentials or ambiguous host spellings.
+            proxy = re.fullmatch(r"http://127\.0\.0\.1:([0-9]{1,5})/?", http_proxy)
+            if proxy is None or not 0 < int(proxy[1]) <= 65535:
+                raise ProducerError("invalid HTTP proxy; expected http://127.0.0.1:<port>")
+            self.proxy_port = int(proxy[1])
         self.port = int(port)
         self.path = "/sessions/" + self.session_id + "/metadata"
 
@@ -55,11 +63,13 @@ class Client:
         encoded = None if body is None else json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         if encoded is not None and len(encoded) > MAX_BODY:
             raise ProducerError("metadata patch exceeds the size limit")
-        # HTTPConnection ignores ambient proxies and never follows redirects.
-        # The sole destination is this runtime's IPv4 loopback sidecar port.
-        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=TIMEOUT_SECONDS)
+        # Ambient proxies are ignored. An explicit relay is trusted with the
+        # capability; the origin remains pinned and redirects are never followed.
+        connection = http.client.HTTPConnection("127.0.0.1", self.proxy_port or self.port, timeout=TIMEOUT_SECONDS)
         try:
             path = self.path + ("?validateOnly=true" if validate_only else "")
+            if self.proxy_port is not None:
+                path = "http://127.0.0.1:" + str(self.port) + path
             connection.request(method, path, body=encoded, headers={"Authorization": "Bearer " + self.token, "Content-Type": "application/json"})
             response = connection.getresponse()
             if response.status == 409:
@@ -141,14 +151,19 @@ def instructions():
 
 
 def main():
-    if len(sys.argv) != 2 or sys.argv[1] not in ("bootstrap", "get", "patch", "instructions"):
-        raise ProducerError("usage: session-metadata.py bootstrap|get|patch|instructions")
-    command = sys.argv[1]
+    arguments = sys.argv[1:]
+    http_proxy = None
+    if len(arguments) == 3 and arguments[1] == "--http-proxy":
+        http_proxy = arguments[2]
+        arguments = arguments[:1]
+    if len(arguments) != 1 or arguments[0] not in ("bootstrap", "get", "patch", "instructions") or (arguments[0] == "instructions" and http_proxy is not None):
+        raise ProducerError("usage: session-metadata.py bootstrap|get|patch [--http-proxy URL] | instructions")
+    command = arguments[0]
     if command == "instructions":
         result = instructions()
     else:
         envelope = read_patch() if command == "patch" else None
-        client = Client()
+        client = Client(http_proxy)
         if command == "get":
             result = client.read()
         else:
