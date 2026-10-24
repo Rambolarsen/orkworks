@@ -97,8 +97,8 @@ optional inspector. An upgrade notice explains that the earlier saved panel
 arrangement is retained. Dismiss the notice to acknowledge it; the legacy
 arrangement is not deleted.
 
-In current source builds, choose **Collapse sidebar** beside Sessions or the
-sidebar toggle in the content header to leave a narrow icon rail. Hover an icon
+In current source builds, choose **Collapse sidebar** at the top of the
+sidebar, beside the workspace controls, to leave a narrow icon rail. Hover an icon
 for its label; New session, Recommendations, Capacity and Settings remain
 available. **Expand sidebar** restores the session list at its saved width.
 The header's **Workspace** menu keeps workspace switching available. Narrow

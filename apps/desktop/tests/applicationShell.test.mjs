@@ -29,9 +29,12 @@ if (process.versions.electron) {
       if (scenario === 'sidebar-icon-rail') {
         await waitFor('fixture.runtime()?.terminal.element?.isConnected');
         const sockets = await evaluate('fixture.socketCount');
+        assert.equal(await evaluate('document.querySelectorAll("[data-shell-command=sessions]").length'), 1, 'expanded sidebar has one toggle');
+        assert.equal(await evaluate('!!document.querySelector(".shell-sidebar-top [data-shell-collapse]")'), true, 'collapse control lives at the top');
         const expandedWidth = await evaluate('document.querySelector("[data-shell-region=sessions]").getBoundingClientRect().width');
         await click('sessions');
         await waitFor('document.querySelector("[data-shell-region=rail]")');
+        assert.equal(await evaluate('document.querySelectorAll("[data-shell-command=sessions]").length'), 1, 'collapsed sidebar has one toggle');
         const rail = await evaluate(`(()=>{const r=document.querySelector('[data-shell-region=rail]');return {width:r.getBoundingClientRect().width,buttons:[...r.querySelectorAll('button')].map(b=>({name:b.getAttribute('aria-label'),title:b.title,text:b.innerText,icon:!!b.querySelector('svg')}))};})()`);
         assert.ok(rail.width < expandedWidth && rail.width >= 44, 'collapse frees space and retains usable icon targets');
         assert.ok(rail.buttons.length >= 4);
