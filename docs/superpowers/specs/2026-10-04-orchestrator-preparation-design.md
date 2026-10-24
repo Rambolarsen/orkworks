@@ -7,13 +7,25 @@ tags: ["orkworks", "design"]
 
 # Clarification and research-to-execution lifecycle
 
-- Status: proposed contract; continuity direction approved, written contract review pending
+- Status: broader lifecycle contract proposed; scoped #744 technical amendments accepted 2026-10-24, qualification/runtime gates open
 - Date: 2026-10-04
 - Tracking: [#742](https://github.com/Rambolarsen/orkworks/issues/742), parent [#738](https://github.com/Rambolarsen/orkworks/issues/738)
 - Product direction: [Agent hierarchy and configuration learning](2026-10-04-agent-hierarchy-and-configuration-learning-design.md)
 - Launch baseline: [Taskmaster orchestrated child sessions](2026-09-26-taskmaster-orchestrated-child-sessions-design.md)
 - Configuration: [Role configuration](2026-10-04-agent-role-configuration-design.md)
 - Eligibility: [Capability evidence register](../../validation/agent-role-capabilities.md), [Claude Code 2.1.287 static assessment](../../validation/claude-code-role-capability-evidence.md)
+
+## Scoped technical acceptance — 2026-10-24
+
+The owner accepted the #744-facing frozen reservation identity, typed retained
+read, output-contract, reporting/envelope and quota amendments reviewed in
+PR #1019; see the
+[canonical acceptance record](2026-10-04-assignment-evaluation-design.md#technical-contract-acceptance--2026-10-24).
+It supersedes pending-owner wording for those named amendments only. Broader
+continuous-parent lifecycle/bootstrap choices, #740 eligibility, producer/storage/
+clock/worker qualification, SQLite architecture/limits and scoped runtime plans
+retain their separate review/approval gates. No new probe or implementation is
+authorized, and the component issue stays open.
 
 ## Scope and status
 
@@ -174,8 +186,9 @@ For #744's immutable child identity, propose a durable reservation metadata fiel
 It is not a configuration field, a runtime generation, a reporting capability or
 a new mutable counter. The [evaluation reconciliation](2026-10-04-assignment-evaluation-design.md#configuration-and-reporting-reconciliation--2026-10-23)
 uses it only as the frozen source of `AssignmentIdentity.taskVersion`.
-This amendment remains proposed for written owner acceptance; it authorizes no
-runtime implementation or eligible adapter.
+The owner accepted this reviewed amendment in the scoped technical acceptance
+above; its producer/storage proof and adapter/implementation gates remain open.
+It authorizes no runtime implementation or eligible adapter.
 
 1. At the baseline's successful child reservation transition, capture the
    **resulting** task-state `taskVersion` after that transition's normal version
@@ -1147,7 +1160,8 @@ This is the proposed #742 consumer of #741's
 [typed reviewer configuration](2026-10-04-agent-role-configuration-design.md#proposed-typed-reviewer-input--2026-10-24)
 and #744's [retained-input dependency boundary](2026-10-04-assignment-evaluation-design.md#proposed-review-input-custody).
 It implements no route or credential today. The accepted timing/user flow is
-unchanged; this schema/authority/custody amendment requires owner acceptance.
+unchanged; this reviewed schema/authority/custody amendment now has scoped owner
+acceptance, while producer/storage/adapter qualification remains required.
 
 At proposal publication, derive workspace ownership from authenticated run state,
 resolve the exact target and all selected immutable bytes, and validate the
