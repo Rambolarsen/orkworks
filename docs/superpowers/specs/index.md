@@ -182,3 +182,5 @@ Dated design records; these do not establish current product behavior.
 - [Explicit sandbox proxy support for session metadata](2026-10-24-sandbox-metadata-proxy-design.md) — Add an owner-selected loopback HTTP proxy transport without automatic proxy discovery or launch activation.
 
 - [Ordered completion hook delivery](2026-10-24-ordered-completion-relay-design.md) — Define bounded sender-ordered hook publication and acknowledgement without qualifying a production launch.
+
+- [Hierarchy storage caller inventory and strict publication contract](2026-10-24-hierarchy-storage-contract-design.md) — Proposed source-traced writer routes, strict storage rows, complete-command budgets and the explicit authority/commit no-go.
