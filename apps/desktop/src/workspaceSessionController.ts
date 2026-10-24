@@ -237,6 +237,9 @@ export function createWorkspaceSessionController(
       const baseUrl = await deps.getBackendUrl();
       const created = await deps.createSession(baseUrl, optionsForCreate);
       if (!isCurrent(token) || !isCurrentAdmission(admissionToken)) return false;
+      // A list started while creation was pending may not include this record.
+      // Fence it before publishing so it cannot drop the card or prune its terminal.
+      foregroundGeneration += 1;
       pendingCreateIds = trackPendingCreate(pendingCreateIds, created.id);
       const [next, nextLastResortAt] = mergeSessionsById(sessions, [...sessions, created], lastResortAt, new Date());
       lastResortAt = nextLastResortAt;

@@ -118,6 +118,51 @@ test("a poll response cannot make an in-flight foreground create stale", async (
   controller.dispose();
 });
 
+test("a list started during creation cannot remove the new card or prune its terminal", async () => {
+  const response = deferred<SessionInfo>();
+  const oldList = deferred<SessionInfo[]>();
+  const snapshots: string[][] = [];
+  const pruned: string[][] = [];
+  const errors: string[] = [];
+  let serverRows = [session("existing")];
+  let listPending = false;
+  const controller = createWorkspaceSessionController({
+    deps: deps({
+      createSession: () => response.promise,
+      listSessions: () => listPending ? oldList.promise : Promise.resolve(serverRows),
+      pruneTerminals: ids => pruned.push([...ids]),
+    }),
+    onSessions: rows => snapshots.push(rows.map(row => row.id)),
+    onError: error => errors.push(error.key),
+    scheduler: scheduler().scheduler,
+  });
+  await controller.refreshSessions();
+  const creating = controller.createSession({});
+  listPending = true;
+  const staleRefresh = controller.refreshSessions();
+  await new Promise(resolve => setImmediate(resolve));
+  response.resolve(session("created", "creating", "creating"));
+  assert.equal(await creating, true);
+  assert.deepEqual(new Set(snapshots.at(-1)), new Set(["existing", "created"]));
+  const published = snapshots.length;
+  const pruneCalls = pruned.length;
+
+  oldList.resolve([session("existing")]);
+  await staleRefresh;
+  assert.equal(snapshots.length, published, "a pre-create snapshot must not erase the new card");
+  assert.equal(pruned.length, pruneCalls, "a pre-create snapshot must not detach the new terminal");
+
+  listPending = false;
+  serverRows = [session("existing"), session("created", "dead", "error")];
+  await controller.refreshSessions();
+  assert.deepEqual(new Set(snapshots.at(-1)), new Set(["existing", "created"]));
+  assert.deepEqual(errors, ["create"], "the stale list must not lose startup failure tracking");
+  serverRows = [session("existing")];
+  await controller.refreshSessions();
+  assert.deepEqual(snapshots.at(-1), ["existing"], "a fresh authoritative removal still applies");
+  controller.dispose();
+});
+
 test("publishes a newly created session alongside the current snapshot before the next poll", async () => {
   let listCalls = 0;
   const snapshots: string[][] = [];
