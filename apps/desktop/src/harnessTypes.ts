@@ -260,14 +260,9 @@ function validateLaunch(
   if (!object) return;
   rejectUnknown(object, path, new Set(["kind", "command", "args", "modelPrefix", "login"]), diagnostics);
   if (!complete && object.kind === undefined) {
-    if ("command" in object) {
-      validateString(object.command, `${path}.command`, diagnostics, "invalid_schema");
-      if (typeof object.command === "string") {
-        if (!object.command.trim()) diagnostics.push({ code: "invalid_command", message: "Launch command is required.", path: `${path}.command` });
-        validateTemplate(object.command, `${path}.command`, diagnostics);
-      }
-    }
-    if ("args" in object) validateStringArrayIfPresent(object.args, `${path}.args`, diagnostics);
+    validateCommandFields(object, path, diagnostics, {
+      code: "invalid_command", message: "Launch command is required.",
+    });
     validateNullableStringIfPresent(object.modelPrefix, `${path}.modelPrefix`, diagnostics);
     if ("login" in object) validateBoolean(object.login, `${path}.login`, diagnostics);
     return;
@@ -285,14 +280,9 @@ function validateLaunch(
       requireNestedField(object, "command", path, diagnostics);
       requireNestedField(object, "args", path, diagnostics);
     }
-    if ("command" in object) {
-      validateString(object.command, `${path}.command`, diagnostics, "invalid_schema");
-      if (typeof object.command === "string") {
-        if (!object.command.trim()) diagnostics.push({ code: "invalid_command", message: "Launch command is required.", path: `${path}.command` });
-        validateTemplate(object.command, `${path}.command`, diagnostics);
-      }
-    }
-    if ("args" in object) validateStringArrayIfPresent(object.args, `${path}.args`, diagnostics);
+    validateCommandFields(object, path, diagnostics, {
+      code: "invalid_command", message: "Launch command is required.",
+    });
     validateNullableStringIfPresent(object.modelPrefix, `${path}.modelPrefix`, diagnostics);
     if ("login" in object) diagnostics.push({ code: "invalid_capability_combination", message: "Field login is not valid for command-template launch.", path: `${path}.login` });
   } else {
@@ -319,6 +309,22 @@ function validateResume(
   }
 }
 
+function validateCommandFields(
+  object: Record<string, unknown>,
+  path: string,
+  diagnostics: HarnessValidationDiagnostic[],
+  emptyCommand: { code: string; message: string },
+) {
+  if ("command" in object) {
+    validateString(object.command, `${path}.command`, diagnostics, "invalid_schema");
+    if (typeof object.command === "string") {
+      if (!object.command.trim()) diagnostics.push({ ...emptyCommand, path: `${path}.command` });
+      validateTemplate(object.command, `${path}.command`, diagnostics);
+    }
+  }
+  if ("args" in object) validateStringArrayIfPresent(object.args, `${path}.args`, diagnostics);
+}
+
 function validateCommandTemplate(value: unknown, path: string, complete: boolean, diagnostics: HarnessValidationDiagnostic[]) {
   const object = expectObject(value, path, diagnostics);
   if (!object) return;
@@ -327,14 +333,9 @@ function validateCommandTemplate(value: unknown, path: string, complete: boolean
     requireNestedField(object, "command", path, diagnostics);
     requireNestedField(object, "args", path, diagnostics);
   }
-  if ("command" in object) {
-    validateString(object.command, `${path}.command`, diagnostics, "invalid_schema");
-    if (typeof object.command === "string") {
-      if (!object.command.trim()) diagnostics.push({ code: "invalid_resume_command", message: "Resume command is required.", path: `${path}.command` });
-      validateTemplate(object.command, `${path}.command`, diagnostics);
-    }
-  }
-  if ("args" in object) validateStringArrayIfPresent(object.args, `${path}.args`, diagnostics);
+  validateCommandFields(object, path, diagnostics, {
+    code: "invalid_resume_command", message: "Resume command is required.",
+  });
 }
 
 function validateModels(value: unknown, path: string, complete: boolean, diagnostics: HarnessValidationDiagnostic[]) {
@@ -361,14 +362,9 @@ function validateModels(value: unknown, path: string, complete: boolean, diagnos
       requireNestedField(object, "command", path, diagnostics);
       requireNestedField(object, "args", path, diagnostics);
     }
-    if ("command" in object) {
-      validateString(object.command, `${path}.command`, diagnostics, "invalid_schema");
-      if (typeof object.command === "string") {
-        if (!object.command.trim()) diagnostics.push({ code: "invalid_model_command", message: "Model command is required.", path: `${path}.command` });
-        validateTemplate(object.command, `${path}.command`, diagnostics);
-      }
-    }
-    if ("args" in object) validateStringArrayIfPresent(object.args, `${path}.args`, diagnostics);
+    validateCommandFields(object, path, diagnostics, {
+      code: "invalid_model_command", message: "Model command is required.",
+    });
     if ("models" in object) diagnostics.push({ code: "invalid_capability_combination", message: "Field models is not valid for command models.", path: `${path}.models` });
   } else if (object.kind === "codex-app-server") {
     for (const field of ["models", "command", "args"]) if (field in object) diagnostics.push({ code: "invalid_capability_combination", message: `Field ${field} is not valid for codex-app-server models.`, path: `${path}.${field}` });
