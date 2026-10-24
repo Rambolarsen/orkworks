@@ -1174,10 +1174,12 @@ profile, model probe or implementation plan is supplied by this proposal.
 
 ### Reporting actions and lifecycle boundaries
 
-The operation labels here describe #744 semantics, not implemented routes or
-adapter action IDs. #741/#742 must agree their exact allowed-action projection,
-request envelopes, transport delivery, finite request/receipt quotas and
-revocation integration before an executable plan. Neither the parent's run
+The operation labels here describe #744 semantics. The later
+[proposed reporting protocol](#proposed-result-and-evaluation-reporting-protocol)
+now supplies action IDs, logical envelopes and carrier routes, with matching
+#741/#742 projections. These remain proposed, not implemented endpoints or
+verified adapter tools. Technical acceptance, delivery and finite request/receipt
+quota qualification remain gates before an executable plan. Neither the parent's run
 bearer nor `ResearchReportCapability` is an evaluation/result capability.
 
 | Operation | Required authority and atomic boundary |
@@ -1471,3 +1473,238 @@ and request-envelope mappings, artifact wrapper contracts, aggregate run/workspa
 and worker/scratch quotas, shared custody, #746 qualification, #740 eligibility,
 the separately proposed identity/review-input amendments and approved runtime
 plans remain independent gates. Keep #741/#742/#744 open.
+
+## Proposed result and evaluation reporting protocol
+
+This is the proposed #744 protocol with matching
+[#741 action projection](2026-10-04-agent-role-configuration-design.md#proposed-assignment-reporting-actions)
+and [#742 transport/authority mapping](2026-10-04-orchestrator-preparation-design.md#proposed-assignment-reporting-transport).
+It requires owner acceptance and joint consumer/storage review. It changes no
+canonical candidate/result/evaluation/disposition object or digest domain and
+implements no route or tool. Previously accepted evaluation/timing behavior
+remains unchanged; earlier technical amendments retain their separate gates.
+
+### Action-specific request objects
+
+All requests have exactly `schemaVersion: 1`, `action`, `idempotencyKey`, and
+the action-specific properties below. `idempotencyKey` uses the existing ID
+encoding. Every property is required; reject unknown properties, duplicate JSON
+keys and invalid lossless integers before persistence. Bearers and UI authority
+stay in transport headers, never these objects or their canonical records.
+The schema's full action IDs also identify the requested operation; a route,
+role, model instruction or claimed body identity cannot substitute for one.
+
+| `action` | Additional exact properties / required authority |
+| --- | --- |
+| `orkworks.result.submit.v1` | `candidate`: complete canonical `AssignmentResultCandidate`; current `AssignmentResultCapability` for that child/root assignment |
+| `orkworks.evaluation.submit.v1` | `evaluation`: complete canonical `AssignmentEvaluation`; current `AssignmentEvaluationCapability` for the reviewer, exact target and evaluation declaration; covers first revision and corrections |
+| `orkworks.user-evaluation.create.v1` | `evaluationDraft`, `expectedUserSlot`; Electron-authorized user path; covers initial/replacement stream creation |
+| `orkworks.user-evaluation.correct.v1` | `evaluation`: complete canonical user `AssignmentEvaluation`; Electron-authorized user path and exact existing active user stream |
+| `orkworks.user-evaluation.invalidate.v1` | `disposition`: complete canonical `AssignmentEvaluationDisposition`, plus `resultDigest`; Electron-authorized user path only, including invalidation of child streams |
+
+`evaluationDraft` has exactly the properties of `AssignmentEvaluation` except
+`reviewerIdentity` and `reporterSource`, which are absent. It requires a no-head
+predecessor and evaluation revision 1. The sidecar derives user provenance and
+atomically issues a new `userReviewId` with the successful slot transition,
+then constructs the unchanged canonical evaluation. The caller cannot choose
+that identity or impersonate a child. `expectedUserSlot` is exactly
+`{"kind":"no-head"}` or
+`{"kind":"invalidated","userReviewId":<ID>,"dispositionDigest":<Digest>}`.
+The latter must resolve the same result's current slot and accepted invalidation;
+it is not the new stream's evaluation predecessor. An exact create retry returns
+the original issued identity rather than allocating another one.
+
+For child writes, every supplied identity/runtime/provenance field must equal
+the sidecar's capability binding; claimed fields grant no authority. User
+correction must retain user provenance and the same issued stream; invalidation
+must resolve its supplied result digest and exact current evaluation revision/
+digest under UI authorization. Existing reviewer-role/independence, rubric,
+source, artifact-output, correction-reason, user-slot and revision-budget rules
+apply unchanged. Optional reviewer-performance assessment remains user-only.
+There is no external finalization, candidate-edit, child-invalidation, generic
+artifact-upload, task-completion or launch action in this protocol.
+
+These writes change result/evaluation state only. Their predecessor CAS is the
+candidate's `ResultPredecessor`, evaluation's `EvaluationPredecessor`, explicit
+user-slot predecessor or disposition's exact stream head. They have no
+`expectedTaskVersion`: reporting does not mutate coordinator task state. The
+frozen identity `taskVersion` is not live task CAS metadata. Any separate
+coordination transition retains #742's own authority/version/receipt rules.
+
+### Receipt and artifact reads
+
+Read requests have exactly `schemaVersion: 1`, `action`, and the additional
+properties below. Reads have no mutation idempotency key and create no stream,
+revision or new receipt. Authorization is rechecked for every response.
+
+| `action` | Additional properties / scope |
+| --- | --- |
+| `orkworks.result.receipt.read.v1` | `mutationIdempotencyKey`; current result capability; resolves only this assignment/generation's `result.submit` admission receipt and candidate/finalization status |
+| `orkworks.evaluation.receipt.read.v1` | `mutationIdempotencyKey`; current evaluation capability; resolves only this reviewer/generation/target's `evaluation.submit` receipt |
+| `orkworks.evaluation.artifact.read.v1` | `evaluationRevision`, `evaluationDigest`; current evaluation capability; reads only an already published immutable artifact in this capability's one reviewer/target/declaration stream |
+
+The last operation is not an arbitrary artifact-ID lookup or the separate
+`AssignmentReviewReadCapability` for worker inputs. A current resumed reviewer
+may read retained revisions of its own stream under its newly validated grant;
+it cannot replay old-generation mutation receipts or revive old write authority.
+The proposed Electron-only candidate inspection below supplies finalization
+visibility after producer revocation; it is not an existing implemented route.
+Producer read endpoints do not accept UI credentials as substitutes.
+The new mutation receipt is returned directly by each successful user operation,
+so an exact retry can recover a lost response without a new user stream.
+
+`UserCandidateReceiptReadRequest` has exactly `schemaVersion: 1`,
+`action: "orkworks.user-report.receipt.read.v1"`, `assignmentIdentity`, and
+`candidateDigest`. Electron main authorizes this explicit selected-subject read
+using existing UI authority; the sidecar resolves exact workspace ownership and
+the retained candidate. It returns the same result receipt-read reply, including
+the original admission and eventual accepted/rejected finalization receipts,
+without requiring/reissuing a producer credential or reopening its run. This
+applies after producer end, run completion, restart and namespace rotation to
+retained read-only history. The finalization outcome may remain pending until
+its existing recovery proofs are reconciled. A missing/purged candidate yields
+404 with no tombstone/existence oracle outside authorized scope.
+
+The required selected-subject projection supplies the exact candidate identity/
+digest under UI authorization; it is a proposed UI/producer mapping, not an
+implemented history endpoint. Missing/unverified pointers show unavailable,
+never an inferred/latest accepted result. There is no arbitrary artifact read,
+filesystem access, source-run control, global listing or mutation in this UI
+operation. Other user history/inspection projections remain separate UI work.
+
+A `ReportingMutationReceipt` has exactly `schemaVersion: 1`, `action`,
+`idempotencyKey`, `requestDigest`, `recordKind`, `recordDigest`,
+`reviewerIdentity`, `recordRevision`, and `artifact`. `recordKind` is
+`candidate | evaluation | disposition`. Candidate receipts have null reviewer,
+revision and artifact. Evaluation receipts have the derived reviewer identity,
+the accepted evaluation revision, and, for child evaluation only, `artifact`.
+Disposition receipts name the invalidated reviewer, disposition revision 1 and
+null artifact. `artifact` is null or exactly `artifactId`, `version`,
+`sizeBytes` and `contentDigest` with the existing encodings; its version matches
+the evaluation revision. A receipt never stores or returns a bearer.
+
+A result receipt-read reply has exactly `schemaVersion: 1`, `admissionReceipt`,
+`candidateState` (`pending | finalized | rejected | superseded | abandoned`),
+and `finalizationReceipt`. The admission receipt is immutable; current state is
+a derived projection, not a replacement receipt or result acceptance. The
+finalization receipt is null while no accepted/rejected outcome exists, otherwise
+exactly `schemaVersion: 1`, `candidateDigest`, `outcome` (`accepted | rejected`),
+`result`, and `reasonCode`. Accepted outcome requires `result` containing exactly
+`assignmentIdentity`, `resultRevision` and `resultDigest`, and null reason;
+rejected outcome requires null result and a bounded nonsecret ID reason code.
+It does not include output bytes. Supersession/abandonment keep their existing
+stored disposition; neither manufactures an accepted result. Evaluation receipt
+reads return the immutable mutation receipt; artifact reads return exactly
+`schemaVersion: 1`, `artifact`, and the canonical `evaluation`.
+
+### Authentication, exact retry and atomic writes
+
+1. Enforce bounded transport framing without buffering unbounded input; then
+   authenticate the correct credential class/current generation and namespace,
+   workspace/run/runtime fences. Unknown/revoked authority cannot inspect even
+   an existing receipt. Reject mixed authority headers. Valid authority used
+   for another assignment/action is denied, not widened to that scope.
+2. Charge bounded request/rate admission immediately after authentication,
+   including malformed requests and exact retries, then strictly validate the
+   bounded request shape and fixed identity/scope binding before receipt lookup.
+   Existing receipt lookup consumes no new candidate/revision/storage quota;
+   new-record capacity checks occur only after no exact receipt is found.
+3. Compute `requestDigest` as SHA-256 of
+   `orkworks.assignment-report-request.v1\n` plus the complete canonical
+   validated mutation request, including action and idempotency key, with one
+   literal LF. Transport headers/credentials are excluded. Child retry keys
+   include authenticated assignment/reviewer, target where applicable, current
+   authority generation, action and key. User keys use the fixed authority-class
+   tag `workspace-ui`, the stored workspace/admission-epoch namespace, exact
+   result subject, action and key; stream/slot values remain in the request
+   digest. This local UI authority class is not a per-account principal: token
+   bytes, process IDs and Electron session IDs are never retry identity. Token
+   renewal/restart preserves this namespace and durable receipts, subject to
+   successful current UI authentication. Namespace rotation keeps old mutation
+   history read-only and rejects replay under its old epoch. Missing/corrupt
+   namespace proof blocks mutation; do not invent a new principal or reset keys. A matching durable receipt returns that exact
+   receipt before mutable head, source-freshness or remaining revision-capacity
+   checks. Changed canonical content under the same scoped key conflicts.
+4. For a new write, revalidate semantic source/rubric/output eligibility and
+   current subject/stream/slot rules. Compare the exact predecessor, enforce
+   candidate/revision/artifact budgets and commit the canonical object, artifact
+   where applicable, dependency edges, stream/slot state and immutable receipt
+   atomically. Recheck current authority at that commit under the same fence as
+   runtime end/revocation. Revocation first denies persistence; commit first
+   leaves the record/receipt durable, without reviving authority after revocation.
+5. Finalization remains sidecar-owned over a durable candidate, with #744's
+   output/rehash ledger, quiescence, predecessor and atomic publication rules.
+   Parent results, reports, process exit or receipt reads never finalize a
+   candidate or advance an undeclared dependency. User invalidation/correction
+   cannot reopen or resume the worker/reviewer run.
+
+A target head changing after reviewer admission never retargets a capability.
+An eligible correction remains about the exact original result; if that result
+is now historical it remains historical and cannot affect the new result's
+current assessment. New assessed outcomes must still meet the existing evidence
+freshness rules. A new current target requires a new approved assignment.
+Historical record/receipt inspection is not current evaluation eligibility.
+
+Payload parsing, canonical hashing and staged bounded artifact work stay outside
+long-held dependency transactions. Final source validation, authority and CAS/
+publication share the existing workspace dependency/producer boundary; inability
+to provide that atomic fence blocks implementation. A crash yields either no
+accepted mutation or a complete recoverable record/artifact/receipt/edge
+transaction. Recovery reconciles that proof before writes, retries or purge;
+it never reconstructs a receipt from an orphan artifact or guesses acceptance.
+Reads use #742's final response-commitment/revocation cutoff, including receipts
+and own artifacts; committed bytes may arrive after revocation, uncommitted
+responses are discarded. No blocking network I/O occurs inside that cutoff.
+
+### Finite envelopes, errors and contract cases
+
+Proposed maximum UTF-8 request/reply frames are 540,672 bytes (528 KiB) for
+mutation requests and own-evaluation artifact replies, and 16,384 bytes (16 KiB)
+for read requests, mutation receipts, receipt-read replies and errors. The
+embedded candidate/evaluation/disposition retains its separate 512 KiB cap;
+create drafts are bounded by both the frame and completed canonical evaluation
+cap after derived fields are added. No multipart/compressed/upload alternative
+bypasses these counts. Rate/receipt/aggregate quotas and per-request execution/
+response buffering deadlines remain separate required gates before code.
+
+Use `201` for a newly committed mutation, `200` for an exact mutation retry or
+successful authorized read; `400` invalid schema, `401` missing/revoked authority,
+`403` wrong credential class/identity/scope, `404` no record in authorized scope,
+`409` predecessor/slot/generation/key conflict or exhausted record capacity,
+`413` any independent byte cap exceeded, `429` rate admission denied, and `503`
+unavailable/recovering state. Error bodies have exactly `schemaVersion: 1`,
+`code` (nonsecret bounded ID), and `message` (at most 2 KiB). They disclose no
+cross-scope existence or credentials and grant no automatic retry. No receipt
+is created for a rejected new mutation; committed invalidations/corrections are
+records and receive receipts. Finalization rejections retain their distinct
+sidecar-owned receipts even after producer credentials expire.
+
+These are synthetic contract expectations, not executed runtime tests:
+
+| Case | Required outcome |
+| --- | --- |
+| Planning/research/report token submits a candidate or evaluation | Deny wrong capability class; no record or task transition |
+| Child claims user provenance or requests invalidation | Deny; UI authority is required and provenance is sidecar-derived |
+| Same live credential/key/content retries after its head advanced | Return the exact immutable receipt before head/revision-capacity checks |
+| Same scoped key changes predecessor, target or payload | Conflict; no overwritten receipt or second mutation |
+| Revoked runtime replays a previously accepted key | Reject authentication before lookup; retained receipt is no authority |
+| Request quota/rate is exceeded on an exact retry | Deny request admission without consuming a new revision or returning a bypass receipt |
+| Two user creations from the same no-head/invalidated slot | One atomic winner; loser conflicts; winner retry retains the issued user identity |
+| User replacement names a disposition from another result | Reject scope/slot mismatch; preserve existing history |
+| Revocation races publication | One atomic ordering: rejected write or durable object/artifact/receipt/edges |
+| Crash occurs between artifact staging and transaction commit | No inferred acceptance; reconcile staged bytes and complete transaction proof before retries |
+| Reviewer reads an artifact ID/revision outside its own stream | Deny; immutable existence grants no access |
+| Source changes after reviewer admission | Preserve exact historical target and outcome freshness; no latest-result substitution |
+| Draft frame fits but sidecar-derived canonical user evaluation exceeds 512 KiB | Reject entire mutation before stream/slot/artifact publication |
+| Candidate admission receipt exists but finalization has not completed | Return pending status, not an accepted result or coordination completion |
+| Producer is revoked before sidecar finalization completes | Explicit authorized UI candidate inspection reads retained pending/final receipt; producer replay remains denied |
+| Electron token renews after a lost user-create reply | Current UI authentication plus unchanged workspace/epoch/key returns the same issued user identity; rotation still fences old mutations |
+
+**Disposition.** Action IDs, request/receipt shapes, proposed carriers and
+retry/CAS/revocation order now have matching proposed #741/#742/#744 mappings.
+Technical owner acceptance, adapter delivery/effective restriction evidence,
+finite request/receipt/run/workspace/worker/storage quotas, artifact wrappers,
+shared custody, #746 qualification, earlier identity/read/output proposals and
+separately approved implementation plans remain independent gates. No runtime
+API, model probe, profile eligibility, scoring authority or automatic retry is
+delivered. Keep the component issues open.

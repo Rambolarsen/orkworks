@@ -1233,3 +1233,70 @@ rate/response/candidate-work admission and aggregate storage/worker budgets stil
 need their scoped contracts and implementation approval. The proposed numeric
 limits and ledger introduce no automatic retries, runtime routes, worker
 qualification, cross-plan worktree reuse or relaxation of #740's no-go state.
+
+## Proposed assignment reporting transport
+
+This is the proposed #742 carrier/authority mapping for
+[#744 reporting requests](2026-10-04-assignment-evaluation-design.md#proposed-result-and-evaluation-reporting-protocol)
+and [#741 action allowlists](2026-10-04-agent-role-configuration-design.md#proposed-assignment-reporting-actions).
+These routes are proposed on the existing selected-workspace local sidecar,
+not implemented handlers. Their reviewed bodies and authority classes remain
+separate from research-report, workflow-report, planning and ordinary-session
+APIs; no request may cross those boundaries by reusing a token.
+
+| Proposed route | Accepted action/authority |
+| --- | --- |
+| `POST /taskmaster/assignment-reports` | Only `result.submit` or `evaluation.submit` full v1 action IDs; `Authorization: Bearer` with the matching scoped result/evaluation capability |
+| `POST /taskmaster/assignment-report-reads` | Only the three producer receipt/artifact-read full v1 action IDs; matching current scoped producer capability |
+| `POST /taskmaster/assignment-evaluations/user` | Only the three full `orkworks.user-evaluation.*.v1` IDs; existing Electron-main `x-orkworks-open-plan-token` authority, never a producer bearer |
+| `POST /taskmaster/assignment-report-inspection` | Only `orkworks.user-report.receipt.read.v1`; existing Electron-main UI header, exact selected-workspace assignment/candidate pointer; no producer bearer required or accepted |
+
+The UI header names the existing authority used by
+`authorize_taskmaster_request` in `crates/orkworksd/src/http/taskmaster_settings_handlers.rs`;
+it does not establish these new routes. Electron main/preload must separately
+expose exact reviewed user operations/subjects; renderer/coding tools receive
+no UI token and cannot proxy arbitrary URLs/actions. Mixed authority headers
+are rejected. No second UI credential, producer-accessible finalizer, generic
+artifact-upload or browser-facing shared secret is introduced.
+
+Bind result/evaluation capabilities before producer content delivery to their
+exact assignment/configuration, namespace, workspace/run, current sidecar and
+child-launch/root-runtime generations; evaluation additionally binds its exact
+worker result/declaration/stream. Issue only for eligible approved descriptors
+and allowed actions. Credentials are volatile and delivered only through the
+verified startup/tool integration, without granting shell reporting access.
+Current parent planning authority can request approved coordination operations
+but cannot mint these grants, choose provenance or submit for a child.
+
+Follow existing runtime end/resume, final completion/cancellation,
+sidecar/workspace and namespace fences. Paused/completed stages in an active run
+retain only grants still valid under those rules. Resuming a child/root issues
+fresh generation-bound credentials after exact validation; old-generation
+mutation receipts are retained provenance, not callable authority. User review
+may remain available after run completion under UI authorization/retained-subject
+rules; it cannot reopen that run or bypass namespace/read-only/purge fences.
+
+Use #744's authenticate/request-admission/exact-retry/CAS/commit ordering and
+atomic revocation cutoff. Use the existing review-read response-commitment rule
+for producer receipt/artifact responses as well. #744 owns sidecar finalization
+and its durable work ledger, not the live producer or run bearer. Research
+report correction keeps its distinct stream/head contract and can only stale
+its dependent outcomes through the joint freshness boundary.
+
+The UI inspection route exposes retained candidate admission/finalization status
+after producer/run revocation without restoring their authority. It includes
+read-only historical epochs but obeys selected-workspace ownership, purge and
+response-commitment authorization checks. User mutation retry identity is the
+fixed `workspace-ui` authority class plus the stored workspace/admission epoch
+and exact subject/action/key; credential rotation is not a new retry namespace.
+No login/account identity is inferred from the shared local UI token. Missing
+namespace/ownership proof fences mutations; old-epoch mutation replays remain
+denied; candidate receipts remain readable only through the scoped inspection
+action above.
+
+Route/envelope approval still supplies no adapter evidence or implementation
+plan. Exact finite request/receipt quotas, response-worker deadlines, storage/
+recovery qualification, Electron/preload wiring, canonical request/record byte
+fixtures and separately approved runtime plans remain prerequisites. Reporting
+acceptance emits only bounded coordination evidence under the existing event
+contract; it neither proves independent quality nor advances task state by itself.
