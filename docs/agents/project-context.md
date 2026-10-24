@@ -31,6 +31,29 @@ commands and validation, read [`apps/desktop/AGENTS.md`](https://github.com/Ramb
 
 ## CI routing
 
+### Local repository verification
+
+Run `bash scripts/verify-repo.sh` from an owned checkout. Its read-only first
+step checks the Node major from `.nvmrc`, the installed direct dependencies of
+both `apps/desktop/` and `docs/`, and whether `fs-ext` loads in host Node. Select
+the pinned Node version, then prepare both surfaces with
+`pnpm --dir apps/desktop install --frozen-lockfile` and
+`pnpm --dir docs install --frozen-lockfile`. If dependencies were last built for
+Electron or another Node ABI, use the pinned host Node and run
+`pnpm --dir apps/desktop rebuild fs-ext` before verification.
+
+The prerequisite check reports failures before Rust/build/test work and does not
+install or rebuild dependencies. `--dry-run` lists the existing verification
+sequence without requiring dependencies. A passing prerequisite check does not
+establish GUI or loopback-socket access: sandbox restrictions remain visible test
+failures and require an authorized execution environment. The later native ABI
+repair, builds and tests retain their existing behavior.
+
+The PR documentation job runs the verifier's isolated prerequisite and ordering
+fixtures without installing desktop dependencies or rebuilding native modules.
+
+### Hosted checks
+
 GitHub Actions has eight distinct workflow classes:
 
 - `.github/workflows/release.yml` preserves canonical stable-tag draft

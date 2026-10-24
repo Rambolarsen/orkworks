@@ -12,6 +12,7 @@ output="$(
 )"
 
 expected_steps=(
+  'Verification prerequisites'
   'Rust formatting'
   'Rust build'
   'Rust tests'
