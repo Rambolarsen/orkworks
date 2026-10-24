@@ -209,7 +209,7 @@ function validateCompleteDefinition(
   validateLaunch(object.launch, "$.launch", true, diagnostics);
   validateNullableStringIfPresent(object.defaultModel, "$.defaultModel", diagnostics);
   validateResume(object.resume, "$.resume", true, diagnostics);
-  validateModels(object.models, "$.models", true, diagnostics);
+  validateModels(object.models, "$.models", diagnostics);
   validatePeon(object.peon, "$.peon", true, diagnostics);
   validateCapacity(object.capacity, "$.capacity", true, diagnostics);
   validateVoice(object.voice, "$.voice", true, diagnostics);
@@ -238,7 +238,7 @@ function validatePatch(
   if ("launch" in object) validateLaunch(object.launch, "$.launch", false, diagnostics);
   if ("defaultModel" in object) validateNullableStringIfPresent(object.defaultModel, "$.defaultModel", diagnostics);
   if ("resume" in object) validateResume(object.resume, "$.resume", true, diagnostics);
-  if ("models" in object) validateModels(object.models, "$.models", true, diagnostics);
+  if ("models" in object) validateModels(object.models, "$.models", diagnostics);
   if ("peon" in object) validatePeon(object.peon, "$.peon", false, diagnostics);
   if ("capacity" in object) validateCapacity(object.capacity, "$.capacity", true, diagnostics);
   if ("voice" in object) validateVoice(object.voice, "$.voice", false, diagnostics);
@@ -338,7 +338,7 @@ function validateCommandTemplate(value: unknown, path: string, complete: boolean
   });
 }
 
-function validateModels(value: unknown, path: string, complete: boolean, diagnostics: HarnessValidationDiagnostic[]) {
+function validateModels(value: unknown, path: string, diagnostics: HarnessValidationDiagnostic[]) {
   if (value === undefined || value === null) return;
   const object = expectObject(value, path, diagnostics);
   if (!object) return;
@@ -351,25 +351,23 @@ function validateModels(value: unknown, path: string, complete: boolean, diagnos
     diagnostics.push({ code: "invalid_schema", message: "Model kind must be static, command, codex-app-server, or http.", path: `${path}.kind` });
     return;
   }
+  let forbiddenFields: readonly string[];
   if (object.kind === "static") {
-    if (complete || "models" in object) {
-      if (complete) requireNestedField(object, "models", path, diagnostics);
-      if ("models" in object) validateStringArrayIfPresent(object.models, `${path}.models`, diagnostics);
-    }
-    for (const field of ["command", "args"]) if (field in object) diagnostics.push({ code: "invalid_capability_combination", message: `Field ${field} is not valid for static models.`, path: `${path}.${field}` });
+    requireNestedField(object, "models", path, diagnostics);
+    if ("models" in object) validateStringArrayIfPresent(object.models, `${path}.models`, diagnostics);
+    forbiddenFields = ["command", "args"];
   } else if (object.kind === "command") {
-    if (complete) {
-      requireNestedField(object, "command", path, diagnostics);
-      requireNestedField(object, "args", path, diagnostics);
-    }
+    requireNestedField(object, "command", path, diagnostics);
+    requireNestedField(object, "args", path, diagnostics);
     validateCommandFields(object, path, diagnostics, {
       code: "invalid_model_command", message: "Model command is required.",
     });
-    if ("models" in object) diagnostics.push({ code: "invalid_capability_combination", message: "Field models is not valid for command models.", path: `${path}.models` });
-  } else if (object.kind === "codex-app-server") {
-    for (const field of ["models", "command", "args"]) if (field in object) diagnostics.push({ code: "invalid_capability_combination", message: `Field ${field} is not valid for codex-app-server models.`, path: `${path}.${field}` });
+    forbiddenFields = ["models"];
   } else {
-    for (const field of ["models", "command", "args"]) if (field in object) diagnostics.push({ code: "invalid_capability_combination", message: `Field ${field} is not valid for http models.`, path: `${path}.${field}` });
+    forbiddenFields = ["models", "command", "args"];
+  }
+  for (const field of forbiddenFields) {
+    if (field in object) diagnostics.push({ code: "invalid_capability_combination", message: `Field ${field} is not valid for ${object.kind} models.`, path: `${path}.${field}` });
   }
 }
 
