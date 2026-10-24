@@ -71,7 +71,11 @@ inspection. Callers supply validated source intents and expected identities;
 only the module discovers affected dependencies, reserves capacity, writes
 receipts/lineage and commits. Callers cannot submit an arbitrary SQL transaction
 or assert their own affected set. Authentication and source-owner validation
-remain mandatory before admission and again at the ordered commit step.
+remain mandatory before admission. For the accepted listed #744 publication
+class, current authority is rechecked at its exact claim under the short
+revocation ordering before SQL; commit validates the claim binding and all
+source/predecessor/dependency/quota conditions. Excluded actions keep their own
+current-authority cutoff and qualification requirements.
 
 Proposed internal responsibility split (module names are new, not existing code):
 
@@ -180,8 +184,10 @@ Queue admission is not source acceptance or a durable receipt. After a bounded
 command has entered the worker queue, client cancellation, disconnect or timeout
 detaches its waiter; it does not silently remove the command, refund source-rate
 charges, imply rollback or release its publication position. The worker still
-validates current authority/predecessors at execution/commit and either commits
-under the source contract or proves rejection/rollback. A later exact retry
+validates the applicable authority/claim and predecessors and either commits
+under the source contract or proves rejection/rollback. Only a listed #744
+operation that acquired its exact accepted claim before revoke may finish after
+revocation; an unclaimed queued operation has no such exemption. A later exact retry
 resolves the committed receipt before mutable-head CAS; an uncommitted attempt
 has no fabricated success receipt. Internal coalescing/reordering/dropping of
 queued source mutations is unsupported by this proposal.
@@ -193,14 +199,24 @@ receipts and lineage survive a lost response. Never spawn a replacement worker,
 rerun a command or delete a journal merely because its waiter disappeared.
 
 Caller cancellation is distinct from actual run/runtime revocation, lease loss
-or namespace change. The accepted producer authority cutoff still applies.
-Commit-time authority validation must serialize with those transitions; a
-volatile flag checked before an unlocked SQL/fsync interval is not that proof.
-Before an executable handoff, specify and qualify the store/publication authority
-ordering that preserves revocation-before-write denial without holding ordinary
-core locks across SQL/fsync or making ordinary stop/end callbacks wait for I/O.
-An unresolved ordering is no-go; this review neither moves the accepted cutoff
-nor grants queued/active work an exemption from revocation.
+or namespace change. The owner accepted the
+[scoped #744 claim/lease/retirement amendment](2026-10-24-hierarchy-authority-ordering-design.md#owner-acceptance-and-handoff--2026-10-24):
+revoke-before-claim denies a new operation; claim-before-revoke may complete only
+that exact allowed attempted transaction. Bearers close immediately for queued/
+later work and reads; durable acceptance still occurs at SQL commit. This is an
+explicit exception to the former revocation-before-physical-commit policy, not
+a claim that a volatile precheck/interrupt enforces that former guarantee.
+
+The accepted policy also requires bounded conflict for unsettled finish/namespace
+rotation, one active-or-retiring worker/claim across switches, and retaining its
+old store lease until disposition/close. A stuck worker may hold that old workspace
+indefinitely; new hierarchy work cannot bypass it, while ordinary stop/PTY stays
+independent of SQL. Actual lease loss gains no exception. Research reports,
+launch/control/cleanup/evidence/shared-learning actions and sidecar finalization
+retain their distinct contracts and unresolved gates. Before an executable
+handoff, qualify the exact claim binding, authority owner, lease lifetime and
+publication ordering without ordinary core locks across SQL/fsync. Policy
+acceptance does not supply that enforcement proof or approve runtime code.
 
 ### Writer routing
 

@@ -39,8 +39,10 @@ The proposed storage rows can preserve exact source records without adding
 storage metadata to their digests. Their complete-command accounting reveals
 that several independently valid source maxima cannot be published together.
 There is also no demonstrated ordering that meets immediate revocation denial,
-SQL-commit linearization and nonblocking ordinary stop simultaneously. That
-race remains a specific no-go, rather than an implied mutex implementation.
+SQL-commit linearization and nonblocking ordinary stop simultaneously. The
+later accepted scoped #744 claim amendment explicitly changes that policy;
+qualification of its ordering remains no-go, rather than an implied mutex
+implementation. Excluded actions retain their prior cutoff and open gates.
 
 ## Caller and direct-write inventory
 
@@ -379,11 +381,15 @@ does neither and does not promise all independently maximal inputs can coexist.
 
 ## Authority and commit ordering: explicit no-go
 
-The [accepted reporting cutoff](2026-10-04-assignment-evaluation-design.md#authentication-exact-retry-and-atomic-writes)
-requires revocation first to deny persistence; commit first leaves the complete
-record/receipt durable. The storage proposal places linearization at database
-commit and forbids ordinary stop/end waiting for SQL/fsync or holding ordinary
-core locks across it. A check before commit does not jointly establish these.
+At the #1030 inspection base, the reporting cutoff required revocation first
+to deny persistence; commit first left the complete record/receipt durable.
+The following counterexample explains why a volatile precheck did not establish
+that policy alongside nonblocking ordinary stop and SQL-commit linearization.
+The later [accepted scoped #744 amendment](2026-10-24-hierarchy-authority-ordering-design.md#owner-acceptance-and-handoff--2026-10-24)
+explicitly uses claim/revoke ordering for only its listed publications; it does
+not prove the former physical-commit cutoff. Excluded actions keep their own
+cutoff. Native enforcement, health/ownership ordering and implementation remain
+no-go until qualified.
 
 Concrete counterexample, including a last-moment volatile check:
 
@@ -401,11 +407,13 @@ share an enforceable ordering. No such native ordering is demonstrated here.
 This is a rejection of the unqualified precheck design, not a proof that every
 possible future adapter is impossible.
 
-Keep queued and active child writes no-go until a concrete design closes the
-race. Do not silently reinterpret stop as delayed revocation, queue revocation
-behind stuck I/O, grant already-admitted commands irrevocable authority, or move
-acceptance to a later volatile publication CAS. Each changes an accepted or
-proposed contract and needs its own explicit design review/owner decision.
+Keep runtime implementation no-go until the accepted scoped claim ordering is
+qualified. Queue admission still grants no surviving authority; only the exact
+allowed claim can win before revoke. Do not reinterpret stop as delayed
+revocation, queue it behind stuck I/O, widen the claim to excluded actions, or
+move durable acceptance to a volatile publication CAS. None of those alternatives
+was accepted. The single retiring worker/retained old lease and unsettled finish/
+namespace conflict costs are part of the reviewed accepted claim policy.
 Read response commitment remains the existing short in-memory cutoff; already
 committed response bytes may arrive later, which grants no persistence exemption.
 
@@ -436,18 +444,19 @@ separately approved qualification scope. Native/model execution and runtime
 code remain unauthorized. #745 shared custody, #744/#746 producer/projection
 agreement and broader component choices retain their independent gates.
 
-The next design decision is the authority/commit ordering, before selecting an
-executable storage adapter or pretending the proposed numerical limits are
-proven. Keep #744/#746 open. Accepting these written rows or merging this proposal
+The authority tradeoff is now accepted only for the listed #744 class. Next
+close its strict claim-proof metadata and versioned storage commitment mapping
+before selecting an executable adapter or treating proposed limits as proven. Keep #744/#746 open. Accepting these written rows or merging this proposal
 cannot waive any no-go or authorize runtime work.
 
 
 ## Authority-ordering decision proposal — 2026-10-24
 
-The [ordering proposal](2026-10-24-hierarchy-authority-ordering-design.md) compares
-ways to address the race and recommends an explicit narrow claim-before-revoke
-amendment for listed producer/UI publications. It would permit one exact claimed
-operation to persist after stop while immediately denying queued/later claims,
-with strict exclusions and a single retiring worker/retained-lease cost. This
-changes the accepted cutoff and remains pending owner decision; the no-go above
-is not waived. No schema/default acceptance or executable qualification follows.
+The [ordering amendment](2026-10-24-hierarchy-authority-ordering-design.md#owner-acceptance-and-handoff--2026-10-24)
+is now owner-accepted for only the listed #744 publications and further design/
+qualification: one exact claim may persist after stop while queued/later work
+is denied, with strict exclusions and the single retiring-worker/retained-lease
+cost. It explicitly changes that scoped authority cutoff. The earlier
+counterexample still rejects an unqualified volatile precheck; qualification and
+all excluded-action no-go gates remain. No row-schema/default acceptance,
+native proof or executable approval follows.

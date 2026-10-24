@@ -185,4 +185,4 @@ Dated design records; these do not establish current product behavior.
 
 - [Hierarchy storage caller inventory and strict publication contract](2026-10-24-hierarchy-storage-contract-design.md) — Proposed source-traced writer routes, strict storage rows, complete-command budgets and the explicit authority/commit no-go.
 
-- [Hierarchy authority ordering proposal](2026-10-24-hierarchy-authority-ordering-design.md) — Owner-decision proposal for one exact claimed publication finishing after revocation, with strict action scope and lease/retirement costs.
+- [Hierarchy authority ordering proposal](2026-10-24-hierarchy-authority-ordering-design.md) — Accepted scoped #744 publication claim/lease tradeoff for further design; native ordering, proof schemas and runtime approval remain gated.

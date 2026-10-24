@@ -102,7 +102,15 @@ projection delivery, rather than relying on eventual event arrival.
 1. Prepare bounded immutable source objects outside the publication boundary.
    Validate them under their owning contract; do not expose tentative heads.
 2. Under the boundary, recheck exact predecessors, dependency membership,
-   authority and workspace deletion state. Durable transactions atomically commit
+   authority and workspace deletion state. The later
+   [scoped #744 authority amendment](2026-10-24-hierarchy-authority-ordering-design.md#owner-acceptance-and-handoff--2026-10-24)
+   orders its one exact claim against revocation before SQL; claim-first may
+   complete after stop without restoring a bearer. All excluded actions retain
+   their own cutoff. SQL/source validation and durable acceptance remain separate
+   from that short authorization decision; no core/publication lock spans SQL/fsync.
+   Preserve intervening health/workspace fences and the reviewed single-worker/
+   retained-lease lifetime. Native enforcement remains unqualified.
+   Durable transactions atomically commit
    source-head changes, incoming dependency changes, affected freshness fences,
    summary transitions or summary-unavailable fences, and retry receipts.
    #742's retry-before-head-CAS semantics remain unchanged. Publication becomes

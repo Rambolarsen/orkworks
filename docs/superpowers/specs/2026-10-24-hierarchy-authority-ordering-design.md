@@ -1,7 +1,7 @@
 ---
 type: Design Proposal
 title: Hierarchy write authority ordering and revocation tradeoff
-description: Proposed single-operation authority claims that keep ordinary stop independent of SQL, with explicit owner decision and retained lease/recovery gates.
+description: Accepted scoped authority-claim tradeoff for further design, preserving ordinary stop independence and explicit lease, recovery and implementation gates.
 tags: [orkworks, hierarchy, authority, sqlite, recovery]
 status: draft
 ---
@@ -12,21 +12,24 @@ Tracking: [#744](https://github.com/Rambolarsen/orkworks/issues/744),
 [#746](https://github.com/Rambolarsen/orkworks/issues/746), initiative
 [#738](https://github.com/Rambolarsen/orkworks/issues/738).
 Inspection base: `10403df761232450c3018fc0b057ae2253338a37` (PR #1030).
-**Proposed contract amendment for owner decision; not accepted or executable.**
-The user authorized this design work. That does not accept allowing a write to
-persist after runtime end, retaining an old workspace lease, a new schema,
-native qualification, or runtime implementation.
+**Scoped #744 authority amendment accepted for further design/qualification;
+not an executable handoff.** The owner explicitly answered “yes, go ahead” to
+the full claim/lease/retirement tradeoff reviewed in PR #1031 at
+`eaa426910170a73e572d1bc2e4a91f087cf11989`. See the
+[acceptance record](#owner-acceptance-and-handoff--2026-10-24).
 
 The [storage contract race](2026-10-24-hierarchy-storage-contract-design.md#authority-and-commit-ordering-explicit-no-go)
-remains the current no-go. The accepted #744 rule still says
-[revocation first denies persistence](2026-10-04-assignment-evaluation-design.md#authentication-exact-retry-and-atomic-writes).
-Nothing below replaces that rule until explicitly accepted and reconciled with
-its owners. SQLite/private-worker DELETE/EXTRA direction acceptance in #1029
-and the proposed limits are unchanged. #740 remains deferred/no-go until November.
+is addressed by an explicit scoped policy amendment, not by proving the former
+revocation-before-physical-commit guarantee. #744's
+[atomic-write contract](2026-10-04-assignment-evaluation-design.md#authentication-exact-retry-and-atomic-writes)
+now uses claim/revoke ordering only for the listed publications. Excluded actions
+retain their existing cutoff and no-go conditions. Native ordering, lease and
+resource proof remain required. SQLite/private-worker direction acceptance,
+proposed numerical limits and #740's November/no-go gate are unchanged.
 
 ## Decision in plain language
 
-**Recommend a narrow amendment:** immediately before the private worker starts
+**Owner-accepted narrow amendment:** immediately before the private worker starts
 one exact #744 producer mutation, let it claim that operation's authority under the
 same short in-memory ordering as revocation. If revocation wins, deny the new
 write. If the claim wins, that one bounded operation may still commit after
@@ -175,7 +178,8 @@ is not solved by moving the producer authority cutoff.
 | Actual lease loss, uncertain ownership, broken locking or unsupported filesystem | No eligibility claim. Stop new admission and fence; interruption is not proof of rollback. The adapter must qualify exclusive ownership through disposition or stay no-go; this proposal supplies no permission to write through lease loss |
 | Old command completes after a workspace switch | Persist only to its exact captured store/epoch under the retained lease. No new-workspace reference/event/snapshot publication. Reopening old history later requires normal complete recovery; it restores no bearer/claim |
 
-These are proposed workflow changes, not assertions about current behavior.
+These are accepted workflow requirements for further design, not assertions
+about implemented or qualified behavior.
 In particular, retaining a retired store lease can block another sidecar from
 opening that old workspace indefinitely if the worker is stuck. There is no
 bounded completion/lease-release guarantee and no automatic process kill.
@@ -218,14 +222,14 @@ and receipts remain exact. A committed source with missing/invalid required
 claim proof is unavailable; recovery cannot invent a past decision from a live
 run flag, timestamp, highest revision or surviving artifact.
 
-The current accepted schemas/flows remain authoritative until acceptance. If the
-owner accepts this amendment, make one separate reconciliation record updating
-#744's atomic-write step, #742's references to the #744 result/evaluation transport
-cutoff (without changing its research-report protocol), accepted coherent-read
-publication requirements and the proposed storage cancellation/lease/worker
-lifetime contract together. Include the namespace/finish/retirement cost and
-strict action exclusions, not just the preferred headline. No permission to
+This acceptance record reconciles #744's atomic-write step, #742's references
+to the #744 result/evaluation transport cutoff (without changing its research-report
+protocol), coherent-read publication requirements and the proposed storage
+cancellation/lease/worker lifetime contract together. It includes the reviewed
+namespace/finish/retirement cost and strict action exclusions. No permission to
 widen the exception to new action families follows from a shared database.
+Exact proof metadata, versioned storage shapes and native integration remain
+separate prerequisites; accepted source schemas/digests are unchanged.
 
 ## Required synthetic race and failure cases
 
@@ -258,20 +262,30 @@ source/receipt/proof/lineage joins. Mock races alone cannot qualify native
 storage or prove all ordinary writers participate. All existing unqualified
 journal/scratch/row/work/clock limits remain no-go conditions.
 
-## Owner decision and handoff
+## Owner acceptance and handoff — 2026-10-24
 
-The concrete decision is whether to accept **only the listed #744 producer/UI
-publications** finishing after revocation when their one exact claim won first,
+The owner accepted **only the listed #744 producer/UI publications** finishing
+after revocation when their one exact claim won first,
 with immediate revocation for all queued/later work, unchanged durable acceptance
 at SQL commit, bounded conflict for unsettled finish/rotation, and at most one
 retiring worker retaining the old lease. Ordinary stop/PTY does not wait for it;
 a stuck worker can keep hierarchy storage and old-workspace ownership unavailable.
 
-This is the recommended tradeoff for further design. Declining it preserves the
-current cutoff and implementation no-go until a qualifying alternative fence is
-demonstrated; it does not authorize an I/O-blocking stop. Acceptance must name
-this amendment explicitly; merging the proposal is not that acceptance and the
-user's request to prepare it is not acceptance. Source-schema/producer/lease
-reconciliation, exact proof metadata, full domain schemas and budgets, native
+The explicit acceptance followed the reviewed PR and named this tradeoff;
+it is distinct from the earlier request to prepare a proposal or its merge.
+Accepted scope includes child/parent candidate submission, child evaluation and
+exact Electron-authorized #744 user evaluation/correction/replacement/invalidation;
+research reports and every listed control/cleanup/evidence/shared-learning action
+remain excluded. Sidecar finalization keeps its separate existing authority and
+unresolved ownership ordering. Claims and their annotations restore no bearer,
+launch grant or authority after recovery.
+
+This acceptance settles the policy for further design/qualification preparation,
+not an enforcement mechanism, proof schema, eligible maximum profile, numerical
+storage default, native/model probe, executable plan, migration or runtime code.
+The reviewed scope, state/lifecycle tables and failure oracles are unchanged.
+Exact proof metadata, full domain schemas/budgets, writer/producer/lease and native
 qualification, #740 eligibility and separately approved executable plans still
-remain before runtime code. Keep #744/#746 open.
+remain before runtime code. Keep #744/#746 open. Next bounded design work is the
+strict nonsecret claim-proof metadata and versioned storage commitment mapping;
+that new schema requires its own review and supplies no execution permission.
