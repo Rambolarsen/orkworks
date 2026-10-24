@@ -94,6 +94,12 @@ full protocol detail.
 - `~/.orkworks/hook-scripts/` — stable copies of harness reporter scripts (e.g. the Claude Code Notification hook), installed hook commands always point here rather than at the packaged/dev source, so they keep working across app updates and packaging schemes whose own paths aren't stable at runtime (Linux AppImage's per-launch mount point, in particular). The workspace-local harness hook configuration that invokes these reporters is gitignored and must not be committed.
 - `GET /sessions/:id/summary-log` exposes checkpoints in append order as timestamp, summary, source, and nullable confidence; missing data returns `{ "entries": [] }`. Rendered in the session detail panel as "Task history," distinct from the session's `label` (title), which carries provenance and is separate from this turn-by-turn activity log (ADR 0063).
 
+The owner-approved [explicit helper proxy transport](../superpowers/specs/2026-10-24-sandbox-metadata-proxy-design.md)
+permits a caller-selected trusted loopback HTTP relay for the metadata helper.
+The relay can observe its bearer token. Direct mode still ignores ambient proxy
+variables; automatic launch selection and all metadata/attention qualification
+gates remain unchanged. See the [helper proxy contract](harness-integration-contracts.md#explicit-metadata-helper-proxy).
+
 ## Session organization
 
 The accepted [archive design](../superpowers/specs/2026-10-18-session-archive.md)

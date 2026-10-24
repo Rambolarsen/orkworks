@@ -170,3 +170,15 @@ before every bearer upgrade. No such flag/API is assumed to exist. The
 [implementation plan](../superpowers/plans/2026-10-15-codex-listener-ownership.md)
 separates dormant local work from blocked integration. All production gates
 remain unchanged.
+
+## Amendment — 2026-10-24 explicit metadata helper relay
+
+The owner approved [explicit sandbox proxy support](../superpowers/specs/2026-10-24-sandbox-metadata-proxy-design.md)
+with “go ahead” after reviewing the credential-relay design. A caller may
+explicitly select its trusted Codex-managed loopback HTTP proxy for the existing
+metadata API. The selected relay can observe the bearer token. The helper pins
+the sidecar destination, rejects redirects and malformed proxy URLs, and never
+falls back on failure. Ambient proxies remain ignored by direct mode. This
+amendment adds helper support only; no source capability, launch marker,
+automatic caller migration, sandbox broadening or qualification row is enabled.
+Native startup/clearing and completion gates are unchanged.

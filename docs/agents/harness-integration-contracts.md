@@ -333,3 +333,23 @@ not qualify; the fixture did not automate that approval. Claude, OpenCode, Copil
 custom tools, other platforms, and unqualified versions remain unsupported for
 new-session image context. Existing text-only startup is unchanged. A capability
 response or synthetic argv test alone cannot qualify another row.
+
+## Explicit metadata helper proxy
+
+The source `session-metadata.py` supports an explicit trusted HTTP relay for
+bootstrap/get/patch, for example `python3 <helper> bootstrap --http-proxy
+http://127.0.0.1:<proxy-port>`. The argument follows the command. The proxy is
+trusted with the bearer capability; a loopback address alone is not identity
+proof. Select the actual owner-authorized sandbox-managed proxy, rather than
+silently adopting ambient proxy variables. The helper accepts only literal
+IPv4 loopback HTTP URLs with an explicit valid port and optional trailing slash.
+It pins the origin to the inherited sidecar port and session metadata route.
+Redirects, failed proxies and invalid responses never trigger direct/file
+fallback. Omit the option for unchanged direct access; ambient proxy variables
+remain ignored. Automatic bootstrap callers do not select this option yet.
+
+This is source helper support under the [approved proxy design](../superpowers/specs/2026-10-24-sandbox-metadata-proxy-design.md).
+Installed distributions must receive the updated helper through normal Settings
+reconciliation before this syntax is available there. API-only launch markers,
+producer qualification, native clearing and completion rollout remain separately
+gated; a successful explicit bootstrap does not upgrade an existing session.

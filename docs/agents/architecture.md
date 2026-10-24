@@ -645,6 +645,13 @@ advertised, and inherited copies of that marker are filtered. This preparation
 changes no current attention mapping and supplies no native-clear eligibility.
 
 
+The helper also accepts explicit `--http-proxy http://127.0.0.1:<port>` after
+bootstrap/get/patch for an owner-selected trusted sandbox relay. It pins the
+sidecar origin, ignores ambient proxy variables in direct mode, rejects redirects
+and never falls back after a selected proxy fails. The proxy receives the bearer
+capability; loopback validation is not identity proof. Automatic callers do not
+select this transport. See the [approved proxy design](../superpowers/specs/2026-10-24-sandbox-metadata-proxy-design.md).
+
 The versioned agent API uses `metadata/session_transactions.rs`: checked, durable
 revisions are stored in the canonical session JSON, and scoped mutations hold the
 retained store's per-session lock across read/check/modify/replace. Internal

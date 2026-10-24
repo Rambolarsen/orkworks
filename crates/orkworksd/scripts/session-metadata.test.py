@@ -56,13 +56,87 @@ def bootstrap_replies():
 
 
 class ProducerTests(unittest.TestCase):
-    def invoke(self, command, port=1, body="", marker="1", **environment):
+    def invoke(self, command, port=1, body="", marker="1", http_proxy=None, **environment):
         env = {key: value for key, value in os.environ.items() if not key.startswith("ORKWORKS_")}
         env.update(ORKWORKS_SESSION_ID="session-1", ORKWORKS_PORT=str(port), ORKWORKS_REPORT_TOKEN=TOKEN)
         if marker is not None:
             env["ORKWORKS_SESSION_METADATA_API_VERSION"] = marker
         env.update(environment)
-        return subprocess.run([sys.executable, str(SCRIPT), command], input=body, text=True, capture_output=True, env=env, timeout=15)
+        arguments = [sys.executable, str(SCRIPT), command]
+        if http_proxy is not None:
+            arguments += ["--http-proxy", http_proxy]
+        return subprocess.run(arguments, input=body, text=True, capture_output=True, env=env, timeout=15)
+
+    def test_explicit_proxy_carries_bootstrap_get_and_patch_to_fixed_origin(self):
+        for command in ("bootstrap", "get", "patch"):
+            with self.subTest(command=command):
+                replies = [ok(RECORD)] if command == "get" else bootstrap_replies()
+                if command == "patch":
+                    replies += [ok({**RECORD, "metadataRevision": "8"})]
+                with endpoint(replies) as (proxy_port, requests):
+                    result = self.invoke(command, 41117, json.dumps(PATCH), http_proxy=f"http://127.0.0.1:{proxy_port}/")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                base = "http://127.0.0.1:41117/sessions/session-1/metadata"
+                want = [("GET", base)] if command == "get" else [("GET", base), ("PATCH", base + "?validateOnly=true"), ("GET", base)]
+                if command == "patch":
+                    want += [("PATCH", base)]
+                    self.assertEqual(requests[-1][3], PATCH)
+                self.assertEqual([(r[0], r[1]) for r in requests], want)
+                self.assertTrue(all(r[2] == "Bearer " + TOKEN for r in requests))
+                self.assertNotIn(TOKEN, result.stdout + result.stderr)
+
+    def test_invalid_explicit_proxy_never_contacts_any_endpoint(self):
+        with endpoint([]) as (port, direct_requests), endpoint([]) as (proxy_port, proxy_requests):
+            base = f"http://127.0.0.1:{proxy_port}"
+            invalid = ["", "http://localhost:80", "http://127.1:80", "http://[::1]:80", "https://127.0.0.1:80", "socks5://127.0.0.1:80", "http://127.0.0.1", "http://127.0.0.1:0", "http://127.0.0.1:65536", "http://127.0.0.1:+80", "http://127.0.0.1:８０", "http://example.com:80", base + "/metadata", base + "?query", base + "#fragment", base + "\n", base.replace("127.", "127.\t"), f"http://user:{TOKEN}@127.0.0.1:{proxy_port}"]
+            for url in invalid:
+                with self.subTest(url=url):
+                    result = self.invoke("bootstrap", port, http_proxy=url)
+                    self.assertEqual(result.returncode, 2)
+                    self.assertIn("invalid HTTP proxy", result.stderr)
+                    self.assertNotIn(TOKEN, result.stdout + result.stderr)
+        self.assertEqual(direct_requests, [])
+        self.assertEqual(proxy_requests, [])
+
+    def test_proxy_redirect_does_not_forward_capability_or_fall_back(self):
+        with endpoint([]) as (port, direct_requests):
+            with endpoint([(307, {}, {"Location": f"http://127.0.0.1:{port}/steal"})]) as (proxy_port, requests):
+                result = self.invoke("patch", port, json.dumps(PATCH), http_proxy=f"http://127.0.0.1:{proxy_port}")
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(len(requests), 1)
+        self.assertEqual(direct_requests, [])
+        self.assertNotIn(TOKEN, result.stdout + result.stderr)
+
+    def test_unavailable_proxy_never_falls_back_to_direct_or_file(self):
+        with endpoint([]) as (unavailable_port, _):
+            pass
+        with tempfile.TemporaryDirectory() as folder, endpoint([]) as (port, requests):
+            path = Path(folder) / "session.json"
+            path.write_text("unchanged")
+            result = self.invoke("patch", port, json.dumps(PATCH), http_proxy=f"http://127.0.0.1:{unavailable_port}", ORKWORKS_METADATA_PATH=str(path))
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("transport", result.stderr)
+            self.assertEqual(path.read_text(), "unchanged")
+        self.assertEqual(requests, [])
+        self.assertNotIn(TOKEN, result.stdout + result.stderr)
+
+    def test_proxy_conflict_keeps_caller_revision_and_does_not_retry(self):
+        with endpoint(bootstrap_replies() + [(409, {"secret": TOKEN}, {})]) as (proxy_port, requests):
+            result = self.invoke("patch", 41117, json.dumps(PATCH), http_proxy=f"http://127.0.0.1:{proxy_port}")
+        self.assertEqual(result.returncode, 3)
+        self.assertEqual(len(requests), 4)
+        self.assertEqual(requests[-1][3], PATCH)
+        self.assertNotIn(TOKEN, result.stdout + result.stderr)
+
+    def test_proxy_invalid_responses_cannot_trigger_mutation(self):
+        cases = [[ok(b"not-json")], [ok({**RECORD, "id": "other"})], [ok({**RECORD, "metadataRevision": "07"})], [(502, {"secret": TOKEN}, {})], bootstrap_replies()[:2] + [ok({**RECORD, "metadataRevision": "8"})]]
+        for replies in cases:
+            with self.subTest(replies=replies), endpoint(replies.copy()) as (proxy_port, requests):
+                result = self.invoke("patch", 41117, json.dumps(PATCH), http_proxy=f"http://127.0.0.1:{proxy_port}")
+            self.assertEqual(result.returncode, 2)
+            self.assertTrue(requests)
+            self.assertTrue(all(r[0] == "GET" or r[1].endswith("?validateOnly=true") for r in requests))
+            self.assertNotIn(TOKEN, result.stdout + result.stderr)
 
     def test_patch_bootstraps_before_writing_and_preserves_caller_revision(self):
         with endpoint(bootstrap_replies() + [ok({**RECORD, "metadataRevision": "8", "summary": "new"})]) as (port, requests):
