@@ -410,6 +410,19 @@ installed older-build update testing.
 
 ## Preload bridge (security boundary)
 
+The [selected-session Git changes viewer](../../specs/session-git-changes.md)
+uses session-scoped authenticated `git-change-bases`, `git-changes` and opaque
+snapshot/file routes in `http/git_changes_handlers.rs`. `git_changes.rs` owns
+bounded comparison captures in private temporary Git storage; original
+repositories are never written. `git_changes_fs.rs` anchors worktree traversal
+without following symlinks. Built-in EOL policy in `git_changes_eol.rs` resolves
+only bounded control copies in the private repository, preserving index fallback;
+source attribute/ignore files never enter libgit2 filesystem readers. The Git-context cache owns ephemeral snapshot and
+capture-admission handles; workspace adoption replaces them to invalidate old
+requests, independently of ordinary Git-context polling. Electron main exposes
+only the Changes-specific preload request and retains the desktop credential
+and backend-generation fence. See [ADR 0091](../adr/0091-read-only-session-git-changes.md).
+
 Electron runs with `nodeIntegration: false` and `contextIsolation: true` (ADR 0009). The renderer cannot call Node APIs directly. All privileged operations go through `electron/preload.ts`, which exposes `window.orkworks` with backend discovery, workspace memory, layout memory, menu-command, panel-visibility, and app-settings methods. Adding new capabilities requires extending the preload, not relaxing context isolation. `titleBarStyle: 'hiddenInset'` is set on macOS so the web content extends into the title bar area; the renderer reads `window.orkworks.platform` (exposed synchronously by the preload) to apply a `data-platform` attribute on `<html>`, which CSS uses to add traffic-light clearance (`padding-left: 80px`) on darwin only.
 
 Leaving `sandbox` unset on `webPreferences` means Electron runs `preload.ts` under its sandboxed preload loader, which only resolves Node/Electron built-ins — a plain per-file `tsc` require of any other local `electron/*.ts` module fails at runtime (`module not found`) even though it type-checks and compiles cleanly. `scripts/build-preload.mjs` (config in `scripts/preloadBuildConfig.mjs`) runs esbuild after `tsc` in the `dev`, `build`, and `dist` npm scripts to bundle `electron/preload.ts` and its local imports into a single self-contained `dist-electron/preload.js`, keeping `electron` external so Electron's own binding still resolves it. The rest of `electron/*.ts` (main-process code, not sandboxed) keeps its plain per-file `tsc` output and may freely `require()` sibling modules.

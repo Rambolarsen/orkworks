@@ -24,6 +24,8 @@ dirs = "5"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 git2 = "0.20"
 sha2 = "0.10"
+# Already present transitively; streaming Git-blob equality without buffering large files.
+sha1 = "0.10"
 url = "2"
 hex = "0.4"
 unicode-normalization = "0.1"

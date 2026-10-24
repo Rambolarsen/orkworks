@@ -4,6 +4,7 @@ export type CentralSurface =
 
 export type TemporaryUtilityDestination =
   | "sessions"
+  | "changes"
   | "details"
   | "actions"
   | "recommendations"
@@ -21,7 +22,7 @@ export function resolveInspectorSubject(
   activeSessionId: string | null,
   workspaceKey: string | null,
 ): InspectedSubject | null {
-  if (destination === "details" && activeSessionId) {
+  if ((destination === "details" || destination === "changes") && activeSessionId) {
     return { kind: "session", sessionId: activeSessionId };
   }
   return workspaceKey ? { kind: "workspace", workspaceKey } : null;
@@ -156,8 +157,8 @@ export function reduceShellNavigation(
         activeSessionId: event.sessionId,
         acknowledgedSessionIds,
         centralSurface: { kind: "terminal", sessionId: event.sessionId },
-        inspector: null,
-        inspectedSubject: null,
+        inspector: state.inspector === "changes" ? "changes" : null,
+        inspectedSubject: state.inspector === "changes" ? { kind: "session", sessionId: event.sessionId } : null,
         focusTarget: { kind: "terminal", sessionId: event.sessionId },
         returnTarget: null,
         inspectorReturnFocus: null,

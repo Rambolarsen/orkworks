@@ -313,3 +313,13 @@ for (const destination of ["capacity", "recommendations", "actions"] as const) {
     assert.deepEqual(missing.inspectedSubject,{kind:"workspace",workspaceKey:"workspace-a"});
   });
 }
+
+test("Changes follows explicit session selection without retaining the old subject", () => {
+  const initial=createShellNavigationState({workspaceGeneration:4,activeSessionId:"a"});
+  const open=reduceShellNavigation(initial,{type:"inspector-opened",destination:"changes",subject:{kind:"session",sessionId:"a"},generation:4});
+  const next=reduceShellNavigation(open,{type:"session-selected",sessionId:"b",generation:4});
+  assert.equal(next.inspector,"changes");
+  assert.deepEqual(next.inspectedSubject,{kind:"session",sessionId:"b"});
+  assert.deepEqual(next.centralSurface,{kind:"terminal",sessionId:"b"});
+  assert.equal(reduceShellNavigation(next,{type:"workspace-generation-changed",generation:5}).inspector,null);
+});

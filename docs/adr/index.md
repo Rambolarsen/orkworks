@@ -105,3 +105,5 @@ Decision records and their original rationale and consequences.
 - [New sessions own bounded local image context](0089-new-session-image-context.md) — Proposed ingestion, storage, and evidence-gated delivery.
 
 - [Workspace hierarchy SQLite transactions](0090-workspace-hierarchy-sqlite-transactions.md) — Proposed transaction owner and storage qualification gates.
+
+- [Read-only selected-session Git changes](0091-read-only-session-git-changes.md) — Bounded authenticated inspection with distinct worktree and branch comparisons.

@@ -85,6 +85,12 @@ switching—keyboard navigation, MRU ordering, and jump-to-session search—not
 parallel visibility. See [ADR 0078](../adr/0078-fixed-desktop-shell-and-central-navigation.md)
 for the accepted shell and navigation contract.
 
+The [selected-session Git changes viewer](../../specs/session-git-changes.md)
+uses the same inspector for distinct uncommitted and committed-branch comparisons.
+This is read-only observation: it grants no Git mutation authority, result
+acceptance or session authorship attribution and preserves central plan/spec
+Review. The concrete design and scoped plan were owner-approved on 2026-10-24.
+
 ## Related context
 
 - [Project context](project-context.md) covers the product's repository state

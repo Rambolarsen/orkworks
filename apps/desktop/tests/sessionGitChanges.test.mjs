@@ -47,3 +47,10 @@ test("Details uses a neutral label when a repository branch cannot be resolved",
   assert.match(html, /Git repository/);
   assert.doesNotMatch(html, /No commits yet/);
 });
+
+// A clean/idle worktree may still have committed branch changes.
+test("Review changes remains reachable for clean idle and historical sessions", () => {
+  for (const extra of [{dirty:false,changedFiles:0,attention:"idle"},{lifecycle:"dead",status:"ended"}]) {
+    assert.match(render(extra), /data-review-changes/);
+  }
+});

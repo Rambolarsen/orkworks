@@ -16,3 +16,5 @@ pub(crate) struct ErrorResponse {
 }
 
 pub(crate) mod session_metadata_handlers;
+
+pub(crate) mod git_changes_handlers;

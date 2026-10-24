@@ -42,12 +42,13 @@ interface SessionDetailPanelProps {
   onApplyDebugAttention: (id: string, attention: SessionAttention, message?: string) => void;
   onOpenSettings: () => void;
   onReviewPlan?: () => void;
+  onReviewChanges?: () => void;
   onRequestPlanReview?: (sessionId: string) => Promise<void>;
   onOpenRecommendation?: (id: string) => void;
   showDebugMetadata: boolean;
 }
 
-function SessionDetailPanel({ sessions, visibleSessionId, harnesses, onResumeSession, onApplyDebugAttention, onOpenSettings, showDebugMetadata, onReviewPlan, onRequestPlanReview, onOpenRecommendation }: SessionDetailPanelProps) {
+function SessionDetailPanel({ sessions, visibleSessionId, harnesses, onResumeSession, onApplyDebugAttention, onOpenSettings, showDebugMetadata, onReviewChanges, onReviewPlan, onRequestPlanReview, onOpenRecommendation }: SessionDetailPanelProps) {
   const [debugAttention, setDebugAttention] = useState<SessionAttention>("working");
   const [debugMessage, setDebugMessage] = useState("");
   const pendingReviews = useRef(new Set<string>());
@@ -238,15 +239,6 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, onResumeSes
 
           {actionZone.kind === "buttons" && (
             <div className="detail-button-row">
-              {!!active.changedFiles && (
-                <button
-                  className="detail-button detail-button--primary"
-                  type="button"
-                  onClick={() => pushToast("info", VOCAB.diffReviewComingSoon)}
-                >
-                  {VOCAB.reviewDiffAction} (+{active.changedFiles})
-                </button>
-              )}
               <button
                 className="detail-button detail-button--ghost"
                 type="button"
@@ -433,6 +425,11 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, onResumeSes
           </div>
         )}
       </div>
+
+      <button type="button" className="detail-button" data-review-changes
+        disabled={!(active.repoRoot || active.branch) || !onReviewChanges}
+        title={active.repoRoot || active.branch ? "Inspect this worktree and committed branch changes" : "No available Git context for this session"}
+        onClick={onReviewChanges}>Review changes</button>
 
       {/* Surface 4 — task history: durable checkpoints of what the session has done, distinct from the live headline above. */}
       {summaryLog.length > 0 && (

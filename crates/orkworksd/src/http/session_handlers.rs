@@ -170,7 +170,7 @@ pub(crate) struct PlanContentResponse {
     pub(crate) content: String,
 }
 
-fn authorize_plan_request(headers: &HeaderMap) -> Result<(), axum::http::StatusCode> {
+pub(crate) fn authorize_plan_request(headers: &HeaderMap) -> Result<(), axum::http::StatusCode> {
     let Ok(token) = std::env::var("ORKWORKS_OPEN_PLAN_TOKEN") else {
         return Err(axum::http::StatusCode::SERVICE_UNAVAILABLE);
     };
