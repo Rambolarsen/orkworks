@@ -3013,3 +3013,16 @@ html, body, #root {
 .shell-toolbar .session-app-popover button { width: 100%; justify-content: flex-start; }
 .session-app-popover p { margin: 6px 8px; font-size: 12px; line-height: 1.5; color: var(--text-muted); white-space: normal; }
 .session-app-popover [role=alert] { color: var(--attention-needs-you); }
+/* The Changes view uses the existing inspector geometry. */
+.git-changes { padding: 12px; min-width: 0; overflow-wrap: anywhere; }
+.git-changes h3, .git-changes h4 { margin-block: 14px 8px; }
+.git-changes p { font-size: var(--text-xs); color: var(--text-muted); margin-block: 8px; }
+.git-changes label { display: grid; gap: 4px; margin-block: 10px; font-size: var(--text-xs); }
+.git-changes select { width: 100%; min-width: 0; }
+.git-changes-refresh { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: var(--text-xs); }
+.git-changes-files { list-style: none; padding: 0; max-height: 200px; overflow: auto; }
+.git-changes-files button { text-align: left; width: 100%; padding: 8px; white-space: normal; overflow-wrap: anywhere; }
+.git-changes-files button[aria-pressed="true"] { border-color: var(--text-muted); font-weight: 600; }
+.git-changes-files span { display: block; font-size: var(--text-xs); color: var(--text-muted); }
+.git-changes-patch { overflow: auto; white-space: pre; max-height: 65vh; padding: 8px; font-size: 11px; background: var(--surface-base); }
+.git-changes :focus-visible { outline: 2px solid var(--text-muted); outline-offset: 2px; }

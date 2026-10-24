@@ -96,6 +96,38 @@ if (process.versions.electron) {
         await waitFor('document.getElementById("sessions-list")===document.activeElement');
         assert.deepEqual(await evaluate('fixture.errors'),[]);
         return;
+      } else if (scenario === 'app-review-changes') {
+        await waitFor('fixture.runtime()?.terminal.element?.isConnected');
+        const sockets=await evaluate('fixture.socketCount');
+        await click('details');
+        await waitFor('document.querySelector("[data-review-changes]")');
+        await evaluate('document.querySelector("[data-review-changes]").click()');
+        await waitFor('document.querySelector(".git-changes-patch")?.textContent.includes("working edit")');
+        assert.match(await evaluate('document.querySelector(".git-changes").textContent'),/HEAD.*working tree/);
+        await evaluate('(()=>{const s=document.querySelector("[data-git-comparison]");s.value="branch";s.dispatchEvent(new Event("change",{bubbles:true}))})()');
+        await waitFor('document.querySelector(".git-changes-patch")?.textContent.includes("committed edit")');
+        assert.match(await evaluate('document.querySelector(".git-changes").textContent'),/committed only/);
+        assert.doesNotMatch(await evaluate('document.querySelector(".git-changes").textContent'),/working edit/);
+        // A delayed refresh from the old comparison must never overwrite the new one.
+        await evaluate('fixture.deferChanges=true;document.querySelector("[data-git-refresh]").click()');
+        await waitFor('!!fixture.finishChanges');
+        await evaluate('(()=>{const s=document.querySelector("[data-git-comparison]");fixture.deferChanges=false;s.value="uncommitted";s.dispatchEvent(new Event("change",{bubbles:true}))})()');
+        await waitFor('document.querySelector(".git-changes-patch")?.textContent.includes("working edit")');
+        await evaluate('fixture.finishChanges()');
+        assert.doesNotMatch(await evaluate('document.querySelector(".git-changes").textContent'),/committed edit/);
+        for(const width of [1280,1000,640]){
+          await win.setContentSize(width,700);
+          await waitFor('document.querySelector(".git-changes")');
+          await evaluate('fixture.output("changes panel output\\r\\n")');
+          assert.equal(await evaluate('fixture.socketCount'),sockets);
+        }
+        await evaluate('document.querySelector("[data-git-back]").click()');
+        await waitFor('document.activeElement?.hasAttribute("data-review-changes")');
+        await evaluate('document.querySelector("[data-shell-return]").click()');
+        await waitFor('fixture.runtime()?.terminal.element?.isConnected');
+        assert.equal(await evaluate('fixture.input.length'),0);
+        assert.deepEqual(await evaluate('fixture.errors'),[]);
+        return;
       } else if (scenario === 'app-review-archived-stale') {
         await waitFor('fixture.runtime()?.terminal.element?.isConnected');
         const sockets = await evaluate('fixture.socketCount');
@@ -1398,7 +1430,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['open-session-app','sidebar-icon-rail','app-review-archived-stale','recommendations-main','inspector-dismissal','inspector-overlay','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['app-review-changes','open-session-app','sidebar-icon-rail','app-review-archived-stale','recommendations-main','inspector-dismissal','inspector-overlay','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
@@ -1434,6 +1466,13 @@ if (process.versions.electron) {
           window.orkworks.inspectSessionApp=async()=>fixture.nativeUnavailable?{label:'Claude',available:false,reason:'Close this session first'}:{label:'ChatGPT',available:true};
           window.orkworks.openSessionApp=async(...args)=>{if(fixture.nativeFailure)throw new Error('App refused');fixture.nativeOpened.push(args)};
           window.orkworks.pinWorkspacePath=async()=>{fixture.pins++;return {pinned:[],recent:['/tmp/test','/tmp/other'],diagnostic:null}};
+          window.orkworks.readGitChanges=async request=>{
+            if(request.kind==='bases')return {refs:['refs/heads/main'],defaultRef:'refs/heads/main',limited:false,unavailableReason:null};
+            if(request.kind==='file')return {snapshotId:request.snapshotId,fileId:request.fileId,patch:request.snapshotId.includes('branch')?'+committed edit':'+working edit',notice:null};
+            const result={snapshotId:request.comparison+'-'+request.sessionId,sessionId:request.sessionId,worktree:'/tmp/test',branch:'feature',comparison:request.comparison,baseRef:request.baseRef||null,baseOid:'bbbbbbbb',baselineOid:'aaaaaaaa',headOid:'cccccccc',capturedAt:'2026-10-24T10:00:00Z',partial:false,notice:null,files:[{id:'file',path:'src/change.ts',oldPath:null,status:'Modified',additions:1,deletions:0,notice:null}]};
+            if(fixture.deferChanges)await new Promise(resolve=>fixture.finishChanges=resolve);
+            return result;
+          };
           fixture.noticeCommands=[];fixture.preferenceWrites=0;fixture.preferenceReads=0;fixture.rebuildCalls=0;fixture.resetCalls=0;fixture.cancelRebuild=true;
           fixture.snapshot={preferences:{sessionsWidth:240,inspectorWidth:320,sessionsVisible:true,density:'low'},revision:0,diagnostic:${JSON.stringify(scenario)}==='preferences-recovery'?'corrupt_record':null};
           Object.assign(window.orkworks,{
@@ -1446,7 +1485,7 @@ if (process.versions.electron) {
           if ((${JSON.stringify(scenario)}.startsWith('app-'))) {
             fixture.posts=0;fixture.navigation=[];fixture.navigationRebuilds=0;fixture.cancelNavigationRebuild=true;fixture.navigationDiagnostic=${JSON.stringify(scenario)}.includes('navigation-recovery')?'corrupt_record':null;fixture.activeWrites=0;fixture.reads=[];fixture.navigationReads=0;
             fixture.plan='# Current plan';fixture.savedSurface=${JSON.stringify(scenario)}.includes('restore')||${JSON.stringify(scenario)}==='app-review-opening-navigation'?'review':'terminal';
-            const reviewSession=id=>({id,label:id,harness:'generic-shell',harnessId:'generic-shell',lifecycle:'alive',status:'running',cwd:'/tmp/test',created_at:'2026-10-13T10:00:00Z',memoryState:'live',resumeStrategy:'none',hasOpenablePlan:true});
+            const reviewSession=id=>({id,label:id,harness:'generic-shell',harnessId:'generic-shell',lifecycle:'alive',status:'running',cwd:'/tmp/test',created_at:'2026-10-13T10:00:00Z',memoryState:'live',resumeStrategy:'none',hasOpenablePlan:true,repoRoot:'/tmp/test',branch:'feature'});
             fixture.sessionList=${JSON.stringify(scenario)}.startsWith('app-review')?[reviewSession('created'),reviewSession('other')]:[];
             if(${JSON.stringify(scenario)}==='app-review-empty-navigation-recovery')fixture.sessionList=[];
             if(${JSON.stringify(scenario)}==='app-review-stale-read-restore')fixture.deferRead=true;

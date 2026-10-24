@@ -26,6 +26,8 @@ struct CachedGitContext {
 #[derive(Default)]
 pub(crate) struct GitContextCache {
     entries: HashMap<PathBuf, CachedGitContext>,
+    pub(crate) changes: Arc<std::sync::Mutex<crate::git_changes::CaptureStore>>,
+    pub(crate) changes_busy: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl GitContextCache {
@@ -67,6 +69,8 @@ impl GitContextCache {
 
     pub(crate) fn clear(&mut self) {
         self.entries.clear();
+        self.changes = Default::default();
+        self.changes_busy = Default::default();
     }
 }
 

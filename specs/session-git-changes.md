@@ -1,14 +1,14 @@
 # Selected-session Git changes
 
-Status: proposed; concrete design and implementation plan await owner approval.
+Status: accepted by the owner on 2026-10-24; implementation in progress.
 Tracking: [#96](https://github.com/Rambolarsen/orkworks/issues/96).
 
 ## Outcome and authority
 
 Inspect the selected session's current worktree and committed branch changes
 without leaving its terminal. The owner requested both comparisons and an
-obvious distinction between them on 2026-10-24. The implementation choices below
-are proposed by the implementer, not previously approved by the owner.
+obvious distinction between them on 2026-10-24. The owner approved the concrete design and linked scoped implementation plan
+in the PR #1003 conversation.
 
 This is read-only observation. It never stages, discards, edits, commits, fetches,
 merges, approves work, acknowledges attention, or requests independent review.
@@ -117,7 +117,7 @@ renderer. Extend the narrow preload API with Changes-specific methods and keep
 independent corresponding Electron/renderer types. No arbitrary command,
 filesystem path, blob-ID or arbitrary revision API is exposed.
 
-Proposed additive read API:
+Additive read API:
 
 - `GET /sessions/:id/git-changes?comparison=uncommitted|branch&baseRef=...`
   resolves the registered session through the sidecar's current effective-CWD
@@ -148,9 +148,12 @@ Revalidate root and HEAD/base IDs after capture; if they changed, discard the
 capture and ask for Refresh. Worktree reads are best-effort over a capture
 interval, not an atomic filesystem snapshot; make that limitation visible.
 
-Proposed limits: 500 displayed file entries, 10,000 visited candidates, 1 MiB
+Capture limits: 500 displayed file entries, 10,000 visited candidates, 1 MiB
 per text input, 256 KiB rendered patch per file, 4 MiB aggregate captured text,
-64 KiB displayed line length, and 5 seconds cooperative capture budget. Abort
+64 KiB displayed line length, and 5 seconds cooperative capture budget. Unchanged large tracked files may
+be checked by streaming Git-blob hashing in 64 KiB chunks, capped at 64 MiB
+aggregate I/O within that same time budget; their text is never buffered for
+display. Identical committed tree entries are skipped without reading blobs. Abort
 traversal/output on limits and return an explicit partial/limit notice; report
 unknown totals when the whole comparison was not inspected. Never say clean
 for a partial result. Keep at most two snapshots and 8 MiB text per sidecar,
@@ -189,8 +192,9 @@ existing layout preference schema and central Review restoration stay unchanged.
 
 The linked [implementation plan](../docs/superpowers/plans/2026-10-24-session-git-changes.md)
 covers Git fixtures, authenticated bounded access, real entry/panel interactions,
-stale-response fencing, accessibility and terminal continuity. The source currently
-has Git totals and a placeholder action, not this viewer. Do not claim installer
-availability. Owner approval of this concrete design and scoped plan is required
-by #96 before runtime implementation. The MVP, product boundaries and architecture
-references link this proposal without treating it as accepted behavior.
+stale-response fencing, accessibility and terminal continuity. The source viewer
+implements the read-only comparisons and existing-inspector entry described here;
+this does not establish availability in older published installers. Owner approval
+of the concrete design and scoped plan was given on 2026-10-24, satisfying the #96
+implementation gate. [ADR 0091](../docs/adr/0091-read-only-session-git-changes.md)
+records the accepted read boundary.

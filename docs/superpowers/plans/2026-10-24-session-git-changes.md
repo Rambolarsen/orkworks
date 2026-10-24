@@ -4,7 +4,7 @@ title: Selected-session Git changes
 description: Deliver distinct uncommitted and committed branch inspection in the existing right panel after design approval.
 tags: [orkworks, desktop, git, implementation]
 status: draft
-workflow_status: awaiting-owner-approval
+workflow_status: verified-pending-pr
 ---
 
 # Selected-session Git changes implementation plan
@@ -16,7 +16,7 @@ each comparison, rejects stale or unauthorized content, and preserves the PTY.
 
 Tracking: [#96](https://github.com/Rambolarsen/orkworks/issues/96).
 Design: [selected-session Git changes](../../../specs/session-git-changes.md).
-This is preparation only; implementation awaits approval of both documents.
+The owner approved both documents on 2026-10-24; implementation is verified locally and PR delivery is in progress.
 No dependency on delivering Markdown #18 or app preview #19; preserve their
 shared single-inspector direction. Execute inline in the owning worktree.
 
@@ -32,7 +32,8 @@ Produce the three design routes, exact subject/baseline/capture identity,
 typed failures and opaque file lookup. Preserve existing session-list totals and
 metadata. No persisted migration. Extend existing plan-content desktop credential
 validation through a shared internal helper without broadening unauthenticated
-routes. Use git2 only, including safe bounded worktree access; inspect its actual
+routes. Use git2 and the already-locked sha1 package for bounded streaming equality,
+including safe bounded worktree access; inspect its actual
 no-follow behavior before relying on it. Record the accepted new read capability
 in an ADR before implementation; reconcile runtime/security references with the
 approved design without changing central document Review.
@@ -94,7 +95,7 @@ Keep transport work on its own side of the Electron/renderer boundary.
 
 ## Plan review and risk disposition
 
-Self-review: **Ready for owner design/plan review; runtime work remains gated**.
+Self-review: **Ready; owner approved the design and plan on 2026-10-24**.
 Each #96 acceptance item maps to design sections and tasks 1–3. No unresolved
 product choice is delegated to implementation; unsafe/unbounded filesystem access
 is an explicit blocker. Reuse ADR 0009/0078/0083 geometry and security constraints.
@@ -107,9 +108,8 @@ is an explicit blocker. Reuse ADR 0009/0078/0083 geometry and security constrain
 | Reversibility | 1 | Revert routes/bridge/panel together; no user repository mutation |
 | Uncertainty | 3 | git2 safe bounded capture needs behavioral proof before exposure |
 
-Total: 11/25; judgment aid only. The security design and scoped plan require
-owner approval under #96. After approval, author the scoped ADR and execute this
-plan; fail closed if filesystem containment or resource bounds cannot be proven.
+Total: 11/25; judgment aid only. Owner approval under #96 was given on
+2026-10-24; ADR 0091 records the accepted design. During execution, fail closed if filesystem containment or resource bounds cannot be proven.
 
 ## Proposal verification
 
@@ -118,5 +118,41 @@ Documentation metadata/index validation, all 20 OKF validator tests and the
 VitePress build passed. Existing build warnings concern circular framework/theme
 chunks and bundle size; this diff changes no build configuration. The doc-drift
 hook recommends reviewing README because specs changed: no README edit is
-needed because this is explicitly proposed behavior, with no availability or
-installer claim to update. Runtime tests have not run; no runtime code changed.
+needed for the initial proposal. Implementation documentation now distinguishes
+current source behavior from published installers; the existing README overview
+and universal agent instructions need no new claims for a directly exposed
+transitive hashing dependency.
+
+## Implementation review
+
+Fresh `/code-review medium` approved indexed tree
+`53097407388f9748d8840e508aab8b4b1044d490` with no outstanding actionable
+findings. Escalation from low was required by the new authenticated read surface
+and diff size. Five reproduced edge cases were corrected: ignored staged files,
+deleted-input budgets, oversized unchanged files, unsupported names and missing
+conflicted files. Focused follow-up also corrected committed-mode normalization
+and restricted the invalid-byte filename fixture to Linux.
+
+The reader uses sanitized private temporary Git objects for rename detection,
+without writing the original repository. Streaming equality uses the already-locked
+sha1 package (no new transitive packages), bounded to 64 MiB aggregate input in
+64 KiB chunks within the existing cooperative time budget. Renderer calls the
+narrow typed preload method directly; an additional pass-through API wrapper
+would provide no separate policy.
+
+## Final local verification
+
+`bash scripts/verify-repo.sh` passed on macOS arm64 with Node 22.23.4: Rust
+build/format, 2,195 Rust unit tests (10 existing ignored), six Rust integration
+tests, OpenCode reporter tests, desktop type check, native ABI repair, 1,391
+desktop tests (one skipped), desktop build, docs metadata/build and diff checks.
+The Electron viewer scenario verifies both comparisons, stale-refresh fencing,
+wide/medium/compact layout, focus return and retained xterm connection/input.
+Windows native handle behavior is covered by implementation/CI routing rather
+than a local Windows walkthrough. Existing docs chunk warnings are unchanged.
+
+Doc-drift warnings were reviewed: exposing an already-locked hashing package
+changes no universal agent setup rule, and the README overview remains accurate;
+source behavior is documented in the session guide. The repo-wide worktree hook
+flagged another session's merged `open-session-app` checkout; it was left alone.
+No active Taskmaster recommendation matched this verified diff at lookup.

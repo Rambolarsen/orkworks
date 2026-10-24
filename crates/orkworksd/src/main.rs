@@ -15,6 +15,8 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 mod capacity_state;
 mod codex_session_store;
 mod git;
+mod git_changes;
+mod git_changes_fs;
 mod harness;
 mod harness_integration_application;
 mod http;
@@ -408,6 +410,18 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
             post(select_terminal_plan),
         )
         .route("/sessions/:id/debug-injection", post(apply_debug_attention))
+        .route(
+            "/sessions/:id/git-change-bases",
+            get(http::git_changes_handlers::get_bases),
+        )
+        .route(
+            "/sessions/:id/git-changes",
+            get(http::git_changes_handlers::get_changes),
+        )
+        .route(
+            "/sessions/:id/git-changes/:snapshot/files/:file",
+            get(http::git_changes_handlers::get_file),
+        )
         .route("/sessions/:id/plan-content", get(get_session_plan_content))
         .route(
             "/sessions/:id/request-plan-review",

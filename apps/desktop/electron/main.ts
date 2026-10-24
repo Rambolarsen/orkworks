@@ -1,3 +1,4 @@
+import { readGitChanges, validateGitChangesRequest } from "./gitChanges";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from "electron";
 import { spawn, execFile } from "child_process";
 import { stat } from "node:fs/promises";
@@ -1627,6 +1628,11 @@ app.whenReady().then(async () => {
     return { models: [] };
   });
 
+  ipcMain.handle("read-git-changes", async (_event, request: unknown) => {
+    validateGitChangesRequest(request);
+    return withReadyBackendGeneration((port, token, signal) =>
+      readGitChanges(sidecarUrl(port), request, token, fetch, signal));
+  });
   ipcMain.handle("get-plan-content", async (_event, sessionId: unknown) => {
     if (typeof sessionId !== "string" || !sessionId) throw new Error("Invalid session ID.");
     return withReadyBackendGeneration((port, token, signal) =>

@@ -1,3 +1,4 @@
+import type { GitChangesRequest, GitChangesResult } from "./gitChangesTypes";
 import type { SessionAttention, WorkflowRecommendation, WorkspaceInfo } from "./api";
 import type { AppSettings, DebugSettings, HotkeySettings, RetentionSettings, SaveHotkeysResult } from "./appSettingsTypes";
 import type { ProviderModelsResponse, RetentionApplyStatus, PeonAppliedState, PeonProviderVerificationResponse, PeonSelectionSaveResult, PeonSelection } from "./providerTypes";
@@ -206,6 +207,7 @@ declare global {
       inspectSessionApp: (workspacePath: string, sessionId: string) => Promise<{ label: string; available: boolean; reason?: string }>;
       openSessionApp: (workspacePath: string, sessionId: string) => Promise<void>;
       openExternalLink: (url: string) => Promise<void>;
+      readGitChanges: (request: GitChangesRequest) => Promise<GitChangesResult>;
       getPlanContent: (sessionId: string) => Promise<string>;
       requestPlanReview: (sessionId: string) => Promise<void>;
       selectTerminalPlan: (sessionId: string, printedPath: string) => Promise<void>;

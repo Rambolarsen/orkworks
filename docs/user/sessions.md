@@ -168,6 +168,31 @@ each edit. Git results are reused for five seconds; committing or undoing
 changes updates the counter on the first session refresh after that window.
 Line totals are omitted when they cannot be read.
 
+## Inspect Git changes
+
+In current source builds, select a session, open **Details**, and choose
+**Review changes**. The existing right panel shows a file list and read-only
+unified diff; **Back to Details** returns to the session facts. The entry is
+available even for clean worktrees, which may still contain branch commits.
+
+Use **Comparison** to distinguish two views:
+
+- **Uncommitted changes** compares HEAD with the working tree, combining staged,
+  unstaged, and non-ignored new files into one net diff.
+- **Branch changes** shows committed changes from the merge base with the
+  selected **Base branch** to the current HEAD. It excludes uncommitted edits.
+
+The panel identifies the worktree, baseline and capture time. Base choices use
+local refs; the viewer never fetches. Choose **Refresh** to capture newer changes.
+Sessions sharing a worktree show the same changes; this does not identify which
+session made an edit. Limits and unavailable/binary content are labeled, and an
+incomplete comparison is not reported as clean. Reading changes never stages,
+discards, edits, commits, approves or submits work to a coding tool.
+
+The panel keeps the selected terminal alongside it at wide widths and uses the
+normal temporary page at narrower widths. These instructions describe source
+behavior; an older published installer may not include the viewer.
+
 ## Scroll a terminal
 
 Use the mouse wheel or scrollbar to look back through terminal history. Some

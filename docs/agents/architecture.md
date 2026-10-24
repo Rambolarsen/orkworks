@@ -410,11 +410,16 @@ installed older-build update testing.
 
 ## Preload bridge (security boundary)
 
-The proposed [selected-session Git changes viewer](../../specs/session-git-changes.md)
-defines a bounded authenticated Git read capability and alternative inspector
-content. Its [implementation plan](../superpowers/plans/2026-10-24-session-git-changes.md)
-awaits owner approval under #96; the routes and bridge described there are not
-implemented by this design change.
+The [selected-session Git changes viewer](../../specs/session-git-changes.md)
+uses session-scoped authenticated `git-change-bases`, `git-changes` and opaque
+snapshot/file routes in `http/git_changes_handlers.rs`. `git_changes.rs` owns
+bounded comparison captures in private temporary Git storage; original
+repositories are never written. `git_changes_fs.rs` anchors worktree traversal
+without following symlinks. The Git-context cache owns ephemeral snapshot and
+capture-admission handles; workspace adoption replaces them to invalidate old
+requests, independently of ordinary Git-context polling. Electron main exposes
+only the Changes-specific preload request and retains the desktop credential
+and backend-generation fence. See [ADR 0091](../adr/0091-read-only-session-git-changes.md).
 
 Electron runs with `nodeIntegration: false` and `contextIsolation: true` (ADR 0009). The renderer cannot call Node APIs directly. All privileged operations go through `electron/preload.ts`, which exposes `window.orkworks` with backend discovery, workspace memory, layout memory, menu-command, panel-visibility, and app-settings methods. Adding new capabilities requires extending the preload, not relaxing context isolation. `titleBarStyle: 'hiddenInset'` is set on macOS so the web content extends into the title bar area; the renderer reads `window.orkworks.platform` (exposed synchronously by the preload) to apply a `data-platform` attribute on `<html>`, which CSS uses to add traffic-light clearance (`padding-left: 80px`) on darwin only.
 

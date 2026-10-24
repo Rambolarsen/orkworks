@@ -10,6 +10,7 @@ import { resumeChoices } from "../labels";
 import { computeShellLayout } from "../fixedShellLayout";
 import SessionListPanel from "./SessionListPanel";
 import SessionAppMenu from "./SessionAppMenu";
+import GitChangesPanel from "./GitChangesPanel";
 import SessionDetailPanel from "./SessionDetailPanel";
 import TerminalPanel from "./TerminalPanel";
 import CapacityPanel from "./CapacityPanel";
@@ -20,7 +21,7 @@ import { useActionsRecommendations } from "../useActionsRecommendations";
 import RegionSeparator from "./RegionSeparator";
 import { disposeAllTerminals } from "../terminalStore";
 
-export type ShellDestination = "details" | "capacity" | "recommendations" | "actions";
+export type ShellDestination = "changes" | "details" | "capacity" | "recommendations" | "actions";
 export type ShellCommand = "sessions" | "terminal" | "new-session" | "cancel-new-session" | "reset-layout" | "review" | "next-action" | ShellDestination;
 export interface ShellCommandRequest { command: ShellCommand; sequence: number; reveal?: boolean }
 
@@ -81,7 +82,7 @@ interface Props {
   onRetryBackend: () => void;
 }
 
-const TITLES = { actions: "Actions", details: "Details", capacity: "Capacity", recommendations: "Recommendations" };
+const TITLES = { changes: "Changes", actions: "Actions", details: "Details", capacity: "Capacity", recommendations: "Recommendations" };
 
 export default function ApplicationShell(props: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -92,7 +93,7 @@ export default function ApplicationShell(props: Props) {
   const creationReturn = useRef<{ inspector: ShellDestination | null; sessionsPage: boolean } | null>(null);
   const workspaceGenerationRef = useRef(props.workspaceGeneration);
   workspaceGenerationRef.current = props.workspaceGeneration;
-  const focusIntent = useRef<"page" | "return" | "review-return" | "terminal" | "sessions" | null>(null);
+  const focusIntent = useRef<"page" | "changes-return" | "return" | "review-return" | "terminal" | "sessions" | null>(null);
   const [width, setWidth] = useState(() => window.innerWidth);
   const [sessionsPage, setSessionsPage] = useState(false);
   const [focusTick, setFocusTick] = useState(0);
@@ -276,7 +277,9 @@ export default function ApplicationShell(props: Props) {
       : invokerSelectorRef.current ? root.querySelector<HTMLElement>(invokerSelectorRef.current) : null;
     const closedDisclosure = returnTarget?.closest("details:not([open])");
     if (closedDisclosure) returnTarget = closedDisclosure.querySelector<HTMLElement>("summary");
-    if ((intent === "return" || intent === "review-return") && returnTarget?.getClientRects().length) {
+    if (intent === "changes-return") {
+      root.querySelector<HTMLElement>("[data-review-changes]")?.focus({ preventScroll: true });
+    } else if ((intent === "return" || intent === "review-return") && returnTarget?.getClientRects().length) {
       returnTarget.focus({ preventScroll: true });
       invokerRef.current = null;
       invokerSelectorRef.current = null;
@@ -313,8 +316,12 @@ export default function ApplicationShell(props: Props) {
   }, [showSessions, showTerminal, showInspector, temporaryUtility, props.inspector, showReview]);
 
   const renderUtility = () => {
+    if (props.inspector === "changes") return <GitChangesPanel key={`${props.workspaceGeneration}:${props.activeSessionId}:${session?.repoRoot ?? ""}`}
+      session={props.sessions.find(s => s.id === props.activeSessionId) ?? null}
+      onBack={() => { props.onInspect("details"); requestFocus("changes-return"); }} />;
     if (props.inspector === "details") return <SessionDetailPanel sessions={props.sessions}
       visibleSessionId={props.visibleSubjectId} harnesses={props.harnesses}
+      onReviewChanges={() => runCommand("changes", true)}
       onReviewPlan={() => runCommand("review")} onRequestPlanReview={props.onRequestPlanReview}
       onResumeSession={props.onResumeSession} onApplyDebugAttention={props.onApplyDebugAttention}
       onOpenSettings={() => props.onOpenSettings("providers")} onOpenRecommendation={props.onOpenRecommendation}
