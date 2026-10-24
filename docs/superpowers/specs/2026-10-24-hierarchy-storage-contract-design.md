@@ -440,3 +440,14 @@ The next design decision is the authority/commit ordering, before selecting an
 executable storage adapter or pretending the proposed numerical limits are
 proven. Keep #744/#746 open. Accepting these written rows or merging this proposal
 cannot waive any no-go or authorize runtime work.
+
+
+## Authority-ordering decision proposal — 2026-10-24
+
+The [ordering proposal](2026-10-24-hierarchy-authority-ordering-design.md) compares
+ways to address the race and recommends an explicit narrow claim-before-revoke
+amendment for listed producer/UI publications. It would permit one exact claimed
+operation to persist after stop while immediately denying queued/later claims,
+with strict exclusions and a single retiring worker/retained-lease cost. This
+changes the accepted cutoff and remains pending owner decision; the no-go above
+is not waived. No schema/default acceptance or executable qualification follows.

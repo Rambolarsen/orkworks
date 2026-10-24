@@ -206,3 +206,16 @@ by a fence or compensating deletion does not pass the accepted cutoff oracle.
 No SQL/native fixture ran; every platform remains unqualified. Complete domain
 schemas, exact profile budgets, qualified ordering and enforcement evidence plus
 a separately approved execution plan remain necessary before runtime work.
+
+
+## Authority-ordering proposal — 2026-10-24
+
+The [single-operation claim proposal](../superpowers/specs/2026-10-24-hierarchy-authority-ordering-design.md)
+provides race/failure oracles for an explicit owner-decision amendment, including
+queued denial, claim-first completion, namespace/finish conflicts, one retired
+worker/lease, actual ownership loss and non-restoration after crash. It does not
+meet the existing revocation-before-persistence cutoff by reinterpretation. Until
+accepted and reconciled, keep that cutoff and its no-go oracle unchanged. Every
+platform remains unqualified; no runtime/native/model probe or executable plan
+is delivered. Even acceptance would leave proof-schema, action-owner, writer,
+lease-lifetime and native durability/resource qualification requirements open.
