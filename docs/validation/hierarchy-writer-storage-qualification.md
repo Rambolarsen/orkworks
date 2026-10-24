@@ -178,7 +178,8 @@ stand in for that ordering or prove rollback. Required synthetic additions are:
 | --- | --- |
 | Queued caller disconnects before worker start | Waiter detaches; source authority and exact receipt/predecessor rules still decide the command, with no invented acceptance |
 | Active caller cancels before/after durable commit | Keep the worker/fence until proven disposition; a committed receipt survives response loss; no replacement worker or blind retry |
-| Runtime/lease revocation races commit | Preserve the accepted source cutoff under a qualified ordering; a prior volatile check is insufficient |
+| Runtime revocation races a listed #744 claim/commit | Revoke-first denies the claim; claim-first may finish only that exact allowed attempted transaction, with no surviving bearer. Verify the accepted amendment's binding/response/fence rules; no queue exemption |
+| Lease loss or excluded-action revocation races commit | No claim-based exemption; retain its own cutoff/ownership no-go until qualified. An interrupt/precheck cannot prove denial |
 | Ordinary generation overflows | Terminal unavailable lifetime, no token reuse; ordinary controls remain usable and fresh scope requires recapture/fencing |
 | Statement journal or other auxiliary spill is attempted | Qualified adapter enforces the allowed class/budget or rejects; `temp_store` alone is not evidence |
 | Interrupt deadline is reached during prepare/step or near commit | Observe qualified cancellation interval and reconcile actual commit/rollback; no hard response-time claim from the interrupt request |
@@ -202,7 +203,9 @@ precheck as proof of revocation-before-persistence denial.
 
 Retain that race in the future ordering packet alongside source-health, quota,
 proof-retention and missing-registry fixtures. A hidden committed write followed
-by a fence or compensating deletion does not pass the accepted cutoff oracle.
+by a fence or compensating deletion does not establish the former cutoff.
+For the later accepted listed #744 class, verify the exact claim-first/revoke-first
+oracle instead; all excluded actions retain their own cutoff and open gates.
 No SQL/native fixture ran; every platform remains unqualified. Complete domain
 schemas, exact profile budgets, qualified ordering and enforcement evidence plus
 a separately approved execution plan remain necessary before runtime work.
@@ -210,12 +213,14 @@ a separately approved execution plan remain necessary before runtime work.
 
 ## Authority-ordering proposal — 2026-10-24
 
-The [single-operation claim proposal](../superpowers/specs/2026-10-24-hierarchy-authority-ordering-design.md)
-provides race/failure oracles for an explicit owner-decision amendment, including
-queued denial, claim-first completion, namespace/finish conflicts, one retired
-worker/lease, actual ownership loss and non-restoration after crash. It does not
-meet the existing revocation-before-persistence cutoff by reinterpretation. Until
-accepted and reconciled, keep that cutoff and its no-go oracle unchanged. Every
-platform remains unqualified; no runtime/native/model probe or executable plan
-is delivered. Even acceptance would leave proof-schema, action-owner, writer,
-lease-lifetime and native durability/resource qualification requirements open.
+The [single-operation claim amendment](../superpowers/specs/2026-10-24-hierarchy-authority-ordering-design.md#owner-acceptance-and-handoff--2026-10-24)
+is owner-accepted for further design/qualification, including queued denial,
+claim-first completion for only its listed #744 publications, namespace/finish
+conflicts, one retired worker/lease, actual-ownership-loss no-go and no authority
+restoration after crash. This explicitly changes the scoped policy; it does not
+reinterpret a precheck as physical-commit denial. Research reports and every
+excluded action retain their own cutoff and gates. Every platform remains
+unqualified; no runtime/native/model probe or executable plan is delivered.
+Proof-schema, action-owner, writer, lease-lifetime and native durability/resource
+qualification requirements remain open. Next bounded design work is strict
+nonsecret claim-proof metadata and versioned storage commitment mapping.

@@ -97,6 +97,31 @@ their separate gates. No eligible profile, executable runtime plan, endpoint,
 model probe, migration or runtime implementation is authorized by this acceptance.
 Keep the component issues open for those deliverables.
 
+## Scoped publication-authority acceptance — 2026-10-24
+
+The owner accepted the reviewed PR #1031
+[claim/lease/retirement amendment](2026-10-24-hierarchy-authority-ordering-design.md#owner-acceptance-and-handoff--2026-10-24)
+at `eaa426910170a73e572d1bc2e4a91f087cf11989` for further design/qualification.
+For only child/parent candidate submission, child evaluation submission and exact
+Electron-authorized user evaluation/correction/replacement/invalidation, one
+exact operation may claim authority before SQL. Revoke-first denies its claim;
+claim-first may persist that operation after stop/cancellation. Durable acceptance
+remains at SQL commit; queued/later work and reads gain no surviving bearer.
+
+The acceptance includes bounded conflict for unsettled finish/namespace rotation,
+one active-or-retiring worker/claim across workspace switches and its retained
+old lease, which a stuck worker may hold indefinitely. Ordinary stop/PTY does not
+wait for that worker. It excludes #742 research reporting and every launch,
+approval, coordination, evidence, purge/cleanup, transfer and shared-learning
+operation; internal finalization retains its separate proof/authority contract.
+
+This later scoped decision amends the atomic-write cutoff below, not canonical
+records, request/receipt shapes, digest domains, quota values, source eligibility,
+CAS or read response commitment. Implementation remains no-go until exact claim
+proof/storage versioning, writer/producer/lease/native qualification and separately
+approved executable plans are supplied; numerical storage defaults and #740's
+November/no-go gate remain separate. Keep the component issues open.
+
 ## Assignment and result identity
 
 An evaluation binds one approved assignment identity, the exact accepted result
@@ -1679,9 +1704,17 @@ reads return the immutable mutation receipt; artifact reads return exactly
    current subject/stream/slot rules. Compare the exact predecessor, enforce
    candidate/revision/artifact budgets and commit the canonical object, artifact
    where applicable, dependency edges, stream/slot state and immutable receipt
-   atomically. Recheck current authority at that commit under the same fence as
-   runtime end/revocation. Revocation first denies persistence; commit first
-   leaves the record/receipt durable, without reviving authority after revocation.
+   atomically. For only the publications named in the scoped authority
+   acceptance above, first acquire the exact operation claim immediately before
+   SQL under the same short ordering as runtime end/revocation. Revocation first
+   denies the claim; claim first permits only that attempted transaction to reach
+   proven commit/rollback even if revocation follows. Queue admission is not a
+   claim. Recheck its exact binding and all domain/CAS/quota/dependency conditions
+   at commit; claim permission alone cannot make an ineligible source succeed.
+   Durable acceptance remains at SQL commit, with the record/receipt complete.
+   The bearer closes immediately for every queued/later operation and response
+   commitment; no authority is revived. This exception applies to no other
+   action or actual lease loss, and permits no launch or automatic retry.
 5. Finalization remains sidecar-owned over a durable candidate, with #744's
    output/rehash ledger, quiescence, predecessor and atomic publication rules.
    Parent results, reports, process exit or receipt reads never finalize a
@@ -1696,9 +1729,13 @@ freshness rules. A new current target requires a new approved assignment.
 Historical record/receipt inspection is not current evaluation eligibility.
 
 Payload parsing, canonical hashing and staged bounded artifact work stay outside
-long-held dependency transactions. Final source validation, authority and CAS/
-publication share the existing workspace dependency/producer boundary; inability
-to provide that atomic fence blocks implementation. A crash yields either no
+long-held dependency transactions. The accepted scoped claim/revoke decision
+uses the short publication ordering before SQL; durable source/CAS/dependency
+validation and publication still require the reviewed common transaction/fence.
+Hold no ordinary core lock or publication latch across SQL/fsync. Qualified
+claim binding, complete changed-set discovery, lease retention and preservation
+of intervening health/workspace fences are required; inability to provide them
+blocks implementation. Excluded action families retain their own cutoffs. A crash yields either no
 accepted mutation or a complete recoverable record/artifact/receipt/edge
 transaction. Recovery reconciles that proof before writes, retries or purge;
 it never reconstructs a receipt from an orphan artifact or guesses acceptance.

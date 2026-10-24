@@ -1299,7 +1299,14 @@ may remain available after run completion under UI authorization/retained-subjec
 rules; it cannot reopen that run or bypass namespace/read-only/purge fences.
 
 Use #744's authenticate/request-admission/exact-retry/CAS/commit ordering and
-atomic revocation cutoff. Use the existing review-read response-commitment rule
+[accepted scoped publication claim](2026-10-24-hierarchy-authority-ordering-design.md#owner-acceptance-and-handoff--2026-10-24)
+for only its listed candidate/evaluation/user mutations: revoke-before-claim
+denies; claim-before-revoke may finish that one attempted transaction after stop,
+without a surviving bearer. This includes its unsettled finish/namespace conflict
+and single retiring-worker/old-lease cost; it is policy acceptance for further
+design, not qualified enforcement or code permission. No research-report, launch,
+approval or coordination action inherits this exception. Use the existing
+review-read response-commitment rule
 for producer receipt/artifact responses as well. #744 owns sidecar finalization
 and its durable work ledger, not the live producer or run bearer. Research
 report correction keeps its distinct stream/head contract and can only stale
