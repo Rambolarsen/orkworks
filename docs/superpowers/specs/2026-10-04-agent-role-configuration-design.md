@@ -1184,3 +1184,44 @@ evidence until such an assignment/declaration-bound wrapper exists. Path outputs
 still require effective read scope, appropriate worker write scope and the exact
 allocated root. No declaration grants tools, shell, source reads or reporting
 capabilities; unsupported access/production contracts block approval.
+
+## Proposed assignment reporting actions
+
+The [#744 reporting protocol](2026-10-04-assignment-evaluation-design.md#proposed-result-and-evaluation-reporting-protocol)
+defines proposed immutable action IDs and bounded request/receipt shapes.
+Select producer actions in both requested/effective `permissions.tools`, with
+verified exact adapter mapping and only the actions required by this assignment:
+
+| Action set | Required assignment binding |
+| --- | --- |
+| `orkworks.result.submit.v1`, `orkworks.result.receipt.read.v1` | Own output-bearing child v3 or root bootstrap v2; a separate generation-bound result capability |
+| `orkworks.evaluation.submit.v1`, `orkworks.evaluation.receipt.read.v1`, `orkworks.evaluation.artifact.read.v1` | Output-bearing child v3, non-null exact review input and matching required evaluation declaration; separate evaluation capability |
+
+These ID selections use the existing versioned tools allowlist and participate
+in the containing descriptor digest; they introduce no new configuration field
+or silent version upgrade. They are logical action IDs, not a claim that any
+current adapter recognizes them. Alias/transport translation must be bound by
+the approved adapter/settings/capability evidence; an unverified mapping or
+broader native action blocks eligibility. The adapter must not expose general
+HTTP, shell, artifact listing or arbitrary session access just to report.
+Verified environment/tool injection keeps credentials out of rendered/model
+instructions, terminal output, retained configuration and renderer state.
+
+The result set grants no evaluation write, and the evaluation set grants no
+candidate submission or worker-input read. A reviewer needing to publish its
+own result and inspect approved inputs needs the independently scoped result,
+evaluation and review-read capabilities; one token is never their union. Each
+action must still satisfy existing role/permission/authority rules. Parent
+`coordinationActions` and workflow-report tokens cannot substitute for these
+tools; reporting does not complete tasks or launch work.
+
+The three `orkworks.user-evaluation.*.v1` actions and
+`orkworks.user-report.receipt.read.v1` are Electron-authorized only: never admit
+them into child/root tool allowlists or inject UI credentials into coding tools. Correct user provenance and exact subject/slot/stream CAS are
+sidecar-derived under that UI path. There is no producer invalidation,
+finalization, artifact-upload or user-impersonation action. The root remains a
+coordination-only producer and cannot become an independent child reviewer.
+
+This is proposed contract work pending owner acceptance/joint consumer review,
+not adapter eligibility, permission expansion, a new UI token or runtime support.
+Existing configuration/read/output/identity and #740 gates remain binding.
