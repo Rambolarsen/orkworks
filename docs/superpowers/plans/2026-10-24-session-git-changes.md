@@ -185,3 +185,19 @@ the correction and passed after adding explicit identity and validating actual
 index conflicts. This test-only delta was approved as tree
 `9d8f6424e973e759162d7dd8b0f7412b94b0aa4e`; production code is unchanged.
 Final hosted checks and delivery are tracked in [PR #1003](https://github.com/Rambolarsen/orkworks/pull/1003).
+
+## Substantial review cycle 1/3
+
+Codex findings on `8f364cc` were reproduced and corrected with explicit fixtures:
+built-in CRLF cleaning, sparse index-only content, staged index modes, and a
+default-base response restarting initial uncommitted capture. Normalization uses
+bounded private control copies with no-follow/nonblocking reads, source/index
+control budgets and private index fallback. External filters remain disabled.
+FIFOs fail closed; ignored directories are pruned before their controls are read.
+Forced text normalization differs from historical Auto-mode CRLF preservation.
+
+Fresh `/code-review medium` approved tree
+`8ede6475edb907fb07aa4b9aa81c16bcc01c3b65` with no outstanding findings.
+The expanded 23 Git/router fixtures, delayed-initial-capture Electron scenario
+and renderer type check passed. Complete local/hosted revalidation and fresh
+Codex/Copilot review are tracked in PR #1003 for this bounded review cycle.

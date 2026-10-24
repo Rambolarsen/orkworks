@@ -16,6 +16,7 @@ mod capacity_state;
 mod codex_session_store;
 mod git;
 mod git_changes;
+mod git_changes_eol;
 mod git_changes_fs;
 mod harness;
 mod harness_integration_application;

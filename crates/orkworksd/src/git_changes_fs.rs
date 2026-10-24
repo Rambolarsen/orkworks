@@ -1,5 +1,6 @@
 //! Anchored no-follow worktree reads. Directory handles stay alive during traversal.
 use super::git_changes::{safe_path, INPUT_LIMIT};
+use super::git_changes_eol::{Eol, Stats};
 use std::{
     fs::File,
     io::{self, Read},
@@ -17,7 +18,8 @@ pub fn walk(
     root: &Path,
     mut visit: impl FnMut(Entry) -> bool,
     mut descend: impl FnMut(&Path, bool) -> bool,
-    mut expected: impl FnMut(&Path, i32) -> Option<git2::Oid>,
+    mut expected: impl FnMut(&Path, i32) -> Result<(Option<git2::Oid>, Eol), String>,
+    mut prepare: impl FnMut(&Path, Option<Vec<u8>>, Option<Vec<u8>>) -> Result<(), String>,
 ) -> io::Result<()> {
     use std::{
         ffi::{CStr, CString},
@@ -48,9 +50,45 @@ pub fn walk(
         descend: &mut impl FnMut(&Path, bool) -> bool,
         count: &mut usize,
         start: std::time::Instant,
-        expected: &mut impl FnMut(&Path, i32) -> Option<git2::Oid>,
+        expected: &mut impl FnMut(&Path, i32) -> Result<(Option<git2::Oid>, Eol), String>,
         hash_bytes: &mut usize,
+        prepare: &mut impl FnMut(&Path, Option<Vec<u8>>, Option<Vec<u8>>) -> Result<(), String>,
+        control_bytes: &mut usize,
     ) -> io::Result<bool> {
+        let mut control = |name: &CStr| -> io::Result<Option<Vec<u8>>> {
+            let fd = unsafe {
+                libc::openat(
+                    dir.as_raw_fd(),
+                    name.as_ptr(),
+                    libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
+                )
+            };
+            if fd < 0 {
+                let e = io::Error::last_os_error();
+                return if e.kind() == io::ErrorKind::NotFound {
+                    Ok(None)
+                } else {
+                    Err(e)
+                };
+            }
+            let file = unsafe { File::from_raw_fd(fd) };
+            if !file.metadata()?.is_file() {
+                return Err(io::Error::other(
+                    "Unsupported Git control file; comparison unavailable.",
+                ));
+            }
+            let data = bounded(file, None, Eol::Raw, hash_bytes, start)
+                .map_err(io::Error::other)?
+                .unwrap_or_default();
+            *control_bytes += data.len();
+            if *control_bytes > 4 * 1024 * 1024 {
+                return Err(io::Error::other("Git control-file budget exceeded."));
+            }
+            Ok(Some(data))
+        };
+        let attrs = control(c".gitattributes")?;
+        let ignore = control(c".gitignore")?;
+        prepare(prefix, attrs, ignore).map_err(io::Error::other)?;
         // Open a new description so fdopendir's stream offset does not modify the anchored handle.
         let duplicate = open_dir(dir.as_raw_fd(), c".")?;
         use std::os::fd::IntoRawFd;
@@ -119,7 +157,16 @@ pub fn walk(
                 if descend(&path, true) {
                     let child = open_dir(dir.as_raw_fd(), &name)?;
                     if !recurse(
-                        &child, &path, visit, descend, count, start, expected, hash_bytes,
+                        &child,
+                        &path,
+                        visit,
+                        descend,
+                        count,
+                        start,
+                        expected,
+                        hash_bytes,
+                        prepare,
+                        control_bytes,
                     )? {
                         return Ok(false);
                     }
@@ -168,9 +215,8 @@ pub fn walk(
                 } else {
                     let f = unsafe { File::from_raw_fd(fd) };
                     match f.metadata() {
-                        Ok(m) if m.is_file() => {
-                            bounded(f, expected(&path, mode), hash_bytes, start)
-                        }
+                        Ok(m) if m.is_file() => expected(&path, mode)
+                            .and_then(|(id, eol)| bounded(f, id, eol, hash_bytes, start)),
                         _ => Err("Special file; content unavailable.".into()),
                     }
                 };
@@ -210,6 +256,8 @@ pub fn walk(
         std::time::Instant::now(),
         &mut expected,
         &mut 0,
+        &mut prepare,
+        &mut 0,
     )?;
     Ok(())
 }
@@ -219,7 +267,8 @@ pub fn walk(
     root: &Path,
     mut visit: impl FnMut(Entry) -> bool,
     mut descend: impl FnMut(&Path, bool) -> bool,
-    mut expected: impl FnMut(&Path, i32) -> Option<git2::Oid>,
+    mut expected: impl FnMut(&Path, i32) -> Result<(Option<git2::Oid>, Eol), String>,
+    mut prepare: impl FnMut(&Path, Option<Vec<u8>>, Option<Vec<u8>>) -> Result<(), String>,
 ) -> io::Result<()> {
     use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
     // Omit FILE_SHARE_DELETE, pinning each ancestor against rename/replacement.
@@ -237,13 +286,37 @@ pub fn walk(
         descend: &mut impl FnMut(&Path, bool) -> bool,
         count: &mut usize,
         start: std::time::Instant,
-        expected: &mut impl FnMut(&Path, i32) -> Option<git2::Oid>,
+        expected: &mut impl FnMut(&Path, i32) -> Result<(Option<git2::Oid>, Eol), String>,
         hash_bytes: &mut usize,
+        prepare: &mut impl FnMut(&Path, Option<Vec<u8>>, Option<Vec<u8>>) -> Result<(), String>,
+        control_bytes: &mut usize,
     ) -> io::Result<bool> {
         let dir = pin(&root.join(relative))?;
         if dir.metadata()?.file_attributes() & 0x400 != 0 {
             return Err(io::Error::other("Reparse directory unavailable."));
         }
+        let mut control = |name: &str| -> io::Result<Option<Vec<u8>>> {
+            let f = match pin(&root.join(relative).join(name)) {
+                Ok(f) => f,
+                Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+                Err(e) => return Err(e),
+            };
+            let metadata = f.metadata()?;
+            if !metadata.is_file() || metadata.file_attributes() & 0x400 != 0 {
+                return Err(io::Error::other("Unsupported Git control file."));
+            }
+            let data = bounded(f, None, Eol::Raw, hash_bytes, start)
+                .map_err(io::Error::other)?
+                .unwrap_or_default();
+            *control_bytes += data.len();
+            if *control_bytes > 4 * 1024 * 1024 {
+                return Err(io::Error::other("Git control-file budget exceeded."));
+            }
+            Ok(Some(data))
+        };
+        let attrs = control(".gitattributes")?;
+        let ignore = control(".gitignore")?;
+        prepare(relative, attrs, ignore).map_err(io::Error::other)?;
         for item in std::fs::read_dir(root.join(relative))? {
             *count += 1;
             if *count > 10_000 || start.elapsed() > std::time::Duration::from_secs(5) {
@@ -299,7 +372,16 @@ pub fn walk(
             } else if meta.is_dir() {
                 if descend(&path, true)
                     && !recurse(
-                        root, &path, visit, descend, count, start, expected, hash_bytes,
+                        root,
+                        &path,
+                        visit,
+                        descend,
+                        count,
+                        start,
+                        expected,
+                        hash_bytes,
+                        prepare,
+                        control_bytes,
                     )?
                 {
                     return Ok(false);
@@ -308,7 +390,8 @@ pub fn walk(
                 path: path.clone(),
                 mode: 0o100644,
                 content: if meta.is_file() {
-                    bounded(held, expected(&path, 0o100644), hash_bytes, start)
+                    expected(&path, 0o100644)
+                        .and_then(|(id, eol)| bounded(held, id, eol, hash_bytes, start))
                 } else {
                     Err("Special file; content unavailable.".into())
                 },
@@ -342,12 +425,15 @@ pub fn walk(
         std::time::Instant::now(),
         &mut expected,
         &mut 0,
+        &mut prepare,
+        &mut 0,
     )?;
     Ok(())
 }
 fn bounded(
     mut f: File,
     expected: Option<git2::Oid>,
+    eol: Eol,
     hash_bytes: &mut usize,
     start: std::time::Instant,
 ) -> Result<Option<Vec<u8>>, String> {
@@ -363,6 +449,7 @@ fn bounded(
         let mut hash = Sha1::new();
         hash.update(format!("blob {size}\0").as_bytes());
         let mut buf = [0u8; 65536];
+        let mut stats = Stats::default();
         let mut read = 0u64;
         loop {
             if start.elapsed() > std::time::Duration::from_secs(5) {
@@ -377,10 +464,68 @@ fn bounded(
             if read > size || *hash_bytes > 64 * 1024 * 1024 {
                 return Err("File changed or equality budget exceeded; refresh.".into());
             }
+            stats.add(&buf[..n]);
             hash.update(&buf[..n]);
         }
-        if read == size && hash.finalize().as_slice() == expected.as_bytes() {
+        if read == size
+            && hash.finalize().as_slice() == expected.as_bytes()
+            && (!eol.converts(&stats) || stats.crlf == 0 || eol == Eol::AutoIndexSame)
+        {
             return Ok(None);
+        }
+        if eol.converts(&stats) && stats.crlf > 0 {
+            use std::io::{Seek, SeekFrom};
+            if (*hash_bytes as u64) + size > 64 * 1024 * 1024 {
+                return Err("Large-file equality budget exceeded; content unavailable.".into());
+            }
+            f.seek(SeekFrom::Start(0))
+                .map_err(|_| "File changed; refresh.")?;
+            let normalized_size = size - stats.crlf;
+            let mut hash = Sha1::new();
+            hash.update(format!("blob {normalized_size}\0").as_bytes());
+            let mut pending_cr = false;
+            let mut output = 0u64;
+            let mut raw = 0u64;
+            loop {
+                if start.elapsed() > std::time::Duration::from_secs(5) {
+                    return Err("Capture budget exceeded; content unavailable.".into());
+                }
+                let n = f.read(&mut buf).map_err(|_| "Unreadable file.")?;
+                if n == 0 {
+                    break;
+                }
+                raw += n as u64;
+                *hash_bytes += n;
+                if raw > size || *hash_bytes > 64 * 1024 * 1024 {
+                    return Err("File changed or equality budget exceeded; refresh.".into());
+                }
+                let mut clean = Vec::with_capacity(n + 1);
+                for &b in &buf[..n] {
+                    if pending_cr {
+                        if b != b'\n' {
+                            clean.push(b'\r')
+                        }
+                        pending_cr = false;
+                    }
+                    if b == b'\r' {
+                        pending_cr = true
+                    } else {
+                        clean.push(b)
+                    }
+                }
+                output += clean.len() as u64;
+                hash.update(&clean);
+            }
+            if pending_cr {
+                hash.update(b"\r");
+                output += 1;
+            }
+            if raw == size
+                && output == normalized_size
+                && hash.finalize().as_slice() == expected.as_bytes()
+            {
+                return Ok(None);
+            }
         }
         return Err("File exceeds 1 MiB; patch unavailable.".into());
     }
@@ -391,6 +536,42 @@ fn bounded(
     if buf.len() > INPUT_LIMIT {
         Err("File exceeds 1 MiB; patch unavailable.".into())
     } else {
+        eol.clean(&mut buf);
         Ok(Some(buf))
     }
+}
+
+/// Reads only caller-resolved Git administrative/global control metadata; source
+/// controls use the anchored per-directory reader above. Never follows a leaf
+/// link or blocks on a FIFO, and never accepts arbitrary renderer paths.
+pub fn metadata_file(path: &Path) -> io::Result<Option<Vec<u8>>> {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        options.share_mode(3).custom_flags(0x00200000 | 0x02000000);
+    }
+    let file = match options.open(path) {
+        Ok(f) => f,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let metadata = file.metadata()?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        if metadata.file_attributes() & 0x400 != 0 {
+            return Err(io::Error::other("Git metadata link unavailable."));
+        }
+    }
+    if !metadata.is_file() {
+        return Err(io::Error::other("Unsupported Git control metadata."));
+    }
+    bounded(file, None, Eol::Raw, &mut 0, std::time::Instant::now()).map_err(io::Error::other)
 }

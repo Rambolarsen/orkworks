@@ -97,6 +97,14 @@ fallback to two-tip comparison. Detached HEAD is labeled with its commit ID and
 can still compare against a selected base. Local remote-tracking refs may be
 old; say **Local refs; no fetch performed** beside the base selector.
 
+Uncommitted comparisons honor stage-zero index modes when filesystem executable
+bits or native symlinks are disabled. Intentionally unmaterialized skip-worktree
+entries use index content, preserving staged differences. Built-in CRLF cleaning
+honors text/eol attributes and core.autocrlf, including bounded large-file equality;
+external filters remain disabled. Attribute and ignore evaluation uses private
+bounded copies, never ordinary opens of source control files. Each source control
+file is capped at 1 MiB and each control traversal/index copy set at 4 MiB.
+
 Both views support additions, deletions, modifications, type/mode changes,
 renames (old → new), binary notices and submodule commit-ID changes. Detect
 renames before line totals; pure renames show zero added/deleted lines. Binary

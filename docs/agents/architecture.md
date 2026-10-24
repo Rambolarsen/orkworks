@@ -415,7 +415,9 @@ uses session-scoped authenticated `git-change-bases`, `git-changes` and opaque
 snapshot/file routes in `http/git_changes_handlers.rs`. `git_changes.rs` owns
 bounded comparison captures in private temporary Git storage; original
 repositories are never written. `git_changes_fs.rs` anchors worktree traversal
-without following symlinks. The Git-context cache owns ephemeral snapshot and
+without following symlinks. Built-in EOL policy in `git_changes_eol.rs` resolves
+only bounded control copies in the private repository, preserving index fallback;
+source attribute/ignore files never enter libgit2 filesystem readers. The Git-context cache owns ephemeral snapshot and
 capture-admission handles; workspace adoption replaces them to invalidate old
 requests, independently of ordinary Git-context polling. Electron main exposes
 only the Changes-specific preload request and retains the desktop credential

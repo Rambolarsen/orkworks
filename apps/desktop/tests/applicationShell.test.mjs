@@ -101,7 +101,12 @@ if (process.versions.electron) {
         const sockets=await evaluate('fixture.socketCount');
         await click('details');
         await waitFor('document.querySelector("[data-review-changes]")');
-        await evaluate('document.querySelector("[data-review-changes]").click()');
+        await evaluate('fixture.deferChanges=true;fixture.deferBases=true;fixture.captureCount=0;document.querySelector("[data-review-changes]").click()');
+        await waitFor('!!fixture.finishChanges && !!fixture.finishBases');
+        await evaluate('fixture.deferBases=false;fixture.finishBases()');
+        await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        assert.equal(await evaluate('fixture.captureCount'),1,'default base must not restart uncommitted capture');
+        await evaluate('fixture.deferChanges=false;fixture.finishChanges()');
         await waitFor('document.querySelector(".git-changes-patch")?.textContent.includes("working edit")');
         assert.match(await evaluate('document.querySelector(".git-changes").textContent'),/HEAD.*working tree/);
         await evaluate('(()=>{const s=document.querySelector("[data-git-comparison]");s.value="branch";s.dispatchEvent(new Event("change",{bubbles:true}))})()');
@@ -1468,8 +1473,9 @@ if (process.versions.electron) {
           window.orkworks.openSessionApp=async(...args)=>{if(fixture.nativeFailure)throw new Error('App refused');fixture.nativeOpened.push(args)};
           window.orkworks.pinWorkspacePath=async()=>{fixture.pins++;return {pinned:[],recent:['/tmp/test','/tmp/other'],diagnostic:null}};
           window.orkworks.readGitChanges=async request=>{
-            if(request.kind==='bases')return {refs:['refs/heads/main'],defaultRef:'refs/heads/main',limited:false,unavailableReason:null};
+            if(request.kind==='bases'){if(fixture.deferBases)await new Promise(resolve=>fixture.finishBases=resolve);return {refs:['refs/heads/main'],defaultRef:'refs/heads/main',limited:false,unavailableReason:null};}
             if(request.kind==='file')return {snapshotId:request.snapshotId,fileId:request.fileId,patch:request.snapshotId.includes('branch')?'+committed edit':'+working edit',notice:null};
+            fixture.captureCount=(fixture.captureCount||0)+1;
             const result={snapshotId:request.comparison+'-'+request.sessionId,sessionId:request.sessionId,worktree:'/tmp/test',branch:'feature',comparison:request.comparison,baseRef:request.baseRef||null,baseOid:'bbbbbbbb',baselineOid:'aaaaaaaa',headOid:'cccccccc',capturedAt:'2026-10-24T10:00:00Z',partial:false,notice:null,files:[{id:'file',path:'src/change.ts',oldPath:null,status:'Modified',additions:1,deletions:0,notice:null}]};
             if(fixture.deferChanges)await new Promise(resolve=>fixture.finishChanges=resolve);
             return result;

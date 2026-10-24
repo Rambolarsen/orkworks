@@ -253,7 +253,54 @@ pub fn capture(
         BTreeMap::new()
     };
     let temp = tempfile::tempdir().map_err(err)?;
-    let scratch = Repository::init_bare(temp.path()).map_err(err)?;
+    let scratch = Repository::init(temp.path()).map_err(err)?;
+    // libgit2 resolves only sanitized control inputs in this private worktree.
+    // Git administrative/global config remains the selected repository's normal
+    // metadata authority, copied with bounded nonblocking leaf reads.
+    let config = repo.config().map_err(err)?;
+    for (key, name) in [
+        ("core.attributesfile", "global-attributes"),
+        ("core.excludesfile", "global-excludes"),
+    ] {
+        let original = config.get_path(key).ok().or_else(|| {
+            std::env::var_os("XDG_CONFIG_HOME")
+                .map(std::path::PathBuf::from)
+                .or_else(|| dirs::home_dir().map(|h| h.join(".config")))
+                .map(|d| {
+                    d.join("git").join(if key == "core.attributesfile" {
+                        "attributes"
+                    } else {
+                        "ignore"
+                    })
+                })
+        });
+        let data = if let Some(path) = original {
+            crate::git_changes_fs::metadata_file(&if path.is_absolute() {
+                path
+            } else {
+                worktree.join(path)
+            })
+            .map_err(err)?
+            .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let destination = scratch.path().join(name);
+        std::fs::write(&destination, data).map_err(err)?;
+        scratch
+            .config()
+            .map_err(err)?
+            .set_str(key, &destination.display().to_string())
+            .map_err(err)?;
+    }
+    for name in ["attributes", "exclude"] {
+        if let Some(data) =
+            crate::git_changes_fs::metadata_file(&repo.commondir().join("info").join(name))
+                .map_err(err)?
+        {
+            std::fs::write(scratch.path().join("info").join(name), data).map_err(err)?;
+        }
+    }
     let mut before = git2::Index::new().map_err(err)?;
     let mut after = git2::Index::new().map_err(err)?;
     let mut total = 0usize;
@@ -311,12 +358,49 @@ pub fn capture(
         == Some(false);
     // With core.symlinks=false the index defines which ordinary files are
     // link-text checkouts. HEAD must not hide a staged conversion or replacement.
-    let link_modes: HashSet<String> = index
+    let stage0: HashMap<String, (Oid, i32, bool)> = index
         .iter()
         .flat_map(|index| index.iter())
-        .filter(|entry| entry.mode == 0o120000 && entry.flags & 0x3000 == 0)
-        .filter_map(|entry| String::from_utf8(entry.path).ok())
+        .filter(|e| e.flags & 0x3000 == 0)
+        .filter_map(|e| {
+            String::from_utf8(e.path)
+                .ok()
+                .map(|path| (path, (e.id, e.mode as i32, e.flags_extended & 0x4000 != 0)))
+        })
         .collect();
+    let mut controls = scratch.index().map_err(err)?;
+    let mut control_size = 0usize;
+    for (path, (id, mode, _)) in &stage0 {
+        if matches!(
+            std::path::Path::new(path)
+                .file_name()
+                .and_then(|n| n.to_str()),
+            Some(".gitattributes" | ".gitignore")
+        ) {
+            if ![0o100644, 0o100755].contains(mode) {
+                return Err("Unsupported indexed Git control file.".into());
+            }
+            let data = blob(&repo, *id, *mode)?;
+            control_size += data.len();
+            if control_size > 4 * 1024 * 1024 {
+                return Err("Git control index budget exceeded.".into());
+            }
+            put(&scratch, &mut controls, path, &data, *mode)?;
+        }
+    }
+    controls.write().map_err(err)?;
+    let effective_mode = |path: &str, mode: i32| {
+        if [0o100644, 0o100755].contains(&mode) {
+            if let Some((_, indexed, _)) = stage0.get(path) {
+                if (literal_symlinks && *indexed == 0o120000)
+                    || (!trust_filemode && [0o100644, 0o100755].contains(indexed))
+                {
+                    return *indexed;
+                }
+            }
+        }
+        mode
+    };
     let mut compare = |path: &str,
                        new: Result<Option<(Vec<u8>, i32)>, String>|
      -> Result<(), String> {
@@ -330,23 +414,9 @@ pub fn capture(
             .transpose();
         let pair = old_content.and_then(|old| {
             new.map(|mut new| {
-                if comparison == Comparison::Uncommitted
-                    && literal_symlinks
-                    && link_modes.contains(path)
-                {
+                if comparison == Comparison::Uncommitted {
                     if let Some((_, mode)) = &mut new {
-                        if [0o100644, 0o100755].contains(mode) {
-                            *mode = 0o120000;
-                        }
-                    }
-                }
-                if comparison == Comparison::Uncommitted && !trust_filemode {
-                    if let (Some((_, old_mode)), Some((_, new_mode))) = (&old, &mut new) {
-                        if [0o100644, 0o100755].contains(old_mode)
-                            && [0o100644, 0o100755].contains(new_mode)
-                        {
-                            *new_mode = *old_mode;
-                        }
+                        *mode = effective_mode(path, *mode);
                     }
                 }
                 (old, new)
@@ -422,7 +492,7 @@ pub fn capture(
                 }
                 if !old.contains_key(p)
                     && !tracked.contains(p)
-                    && repo.status_should_ignore(&entry.path).unwrap_or(true)
+                    && scratch.status_should_ignore(&entry.path).unwrap_or(true)
                 {
                     return true;
                 }
@@ -449,25 +519,44 @@ pub fn capture(
                 if is_dir && gitlinks.contains(p) {
                     return false;
                 }
+                if is_dir {
+                    if let Err(e) = std::fs::create_dir_all(temp.path().join(path)) {
+                        *failure.borrow_mut() = Some(e.to_string());
+                        return false;
+                    }
+                }
                 let prefix = format!("{p}/");
                 old.contains_key(p)
                     || tracked.contains(p)
                     || tracked.iter().any(|k| k.starts_with(&prefix))
                     || old.keys().any(|k| k.starts_with(&prefix))
-                    || !repo.status_should_ignore(path).unwrap_or(true)
+                    || !scratch.status_should_ignore(path).unwrap_or(true)
             },
             |path, mode| {
-                path.to_str().and_then(|p| {
-                    old.get(p)
-                        .filter(|(_, m)| {
-                            !conflicts.contains(p)
-                                && (*m == mode
-                                    || (!trust_filemode
-                                        && [0o100644, 0o100755].contains(m)
-                                        && [0o100644, 0o100755].contains(&mode)))
-                        })
-                        .map(|(id, _)| *id)
-                })
+                let path = path.to_str().ok_or("Unsupported path.")?;
+                let mode = effective_mode(path, mode);
+                let expected = old
+                    .get(path)
+                    .filter(|(_, m)| !conflicts.contains(path) && *m == mode)
+                    .map(|(id, _)| *id);
+                let eol = crate::git_changes_eol::policy(
+                    &scratch,
+                    &repo,
+                    path,
+                    stage0.get(path).map(|e| e.0),
+                    old.get(path).map(|e| e.0),
+                )?;
+                Ok((expected, eol))
+            },
+            |prefix, attrs, ignore| {
+                for (name, data) in [(".gitattributes", attrs), (".gitignore", ignore)] {
+                    if let Some(data) = data {
+                        let directory = temp.path().join(prefix);
+                        std::fs::create_dir_all(&directory).map_err(err)?;
+                        std::fs::write(directory.join(name), data).map_err(err)?;
+                    }
+                }
+                Ok(())
             },
         )
         .map_err(err)?;
@@ -479,6 +568,9 @@ pub fn capture(
                 continue;
             }
             let directory = worktree.join(path);
+            if !directory.exists() && stage0.get(path).is_some_and(|e| e.2) {
+                continue;
+            }
             let new = if !directory.exists() {
                 Ok(None)
             } else if directory
@@ -507,7 +599,17 @@ pub fn capture(
                 .into_iter()
                 .collect();
             for path in remaining {
-                compare(&path, Ok(None))?;
+                if let Some((id, mode, true)) = stage0.get(&path) {
+                    if old.get(&path) == Some(&(*id, *mode)) {
+                        continue;
+                    }
+                    compare(
+                        &path,
+                        blob(&repo, *id, *mode).map(|data| Some((data, *mode))),
+                    )?;
+                } else {
+                    compare(&path, Ok(None))?;
+                }
             }
         } else {
             drop(compare);
@@ -864,7 +966,8 @@ mod tests {
                 }
                 true
             },
-            |_, _| None,
+            |_, _| Ok((None, crate::git_changes_eol::Eol::Raw)),
+            |_, _, _| Ok(()),
         )
         .unwrap();
         assert!(results
@@ -970,6 +1073,168 @@ mod tests {
         let untracked = capture(d.path(), Comparison::Uncommitted, None).unwrap();
         assert_eq!(untracked.files.len(), 1);
         assert_eq!(untracked.files[0].path, "link");
+    }
+    #[test]
+    fn crlf_checkout_normalization_matches_git_for_config_and_attributes() {
+        for attributes in [None, Some("*.txt text eol=crlf\n"), Some("*.txt -text\n")] {
+            let d = init();
+            if let Some(attrs) = attributes {
+                std::fs::write(d.path().join(".gitattributes"), attrs).unwrap();
+                git(d.path(), &["add", "."]);
+                git(d.path(), &["commit", "-qm", "attributes"]);
+            }
+            git(d.path(), &["config", "core.autocrlf", "true"]);
+            std::fs::write(d.path().join("a.txt"), "one\r\ntwo\r\n").unwrap();
+            let c = capture(d.path(), Comparison::Uncommitted, None).unwrap();
+            if attributes.is_some_and(|a| a.contains("-text")) {
+                assert_eq!(c.files.len(), 1);
+            } else {
+                assert!(!c.partial);
+                assert!(
+                    c.files.is_empty(),
+                    "{:?}",
+                    c.files.iter().map(|f| &f.path).collect::<Vec<_>>()
+                );
+            }
+        }
+        let d = init();
+        let text = "x\n".repeat(INPUT_LIMIT / 2 + 1);
+        std::fs::write(d.path().join("large.txt"), &text).unwrap();
+        git(d.path(), &["add", "."]);
+        git(d.path(), &["commit", "-qm", "large"]);
+        git(d.path(), &["config", "core.autocrlf", "true"]);
+        std::fs::write(d.path().join("large.txt"), text.replace('\n', "\r\n")).unwrap();
+        let c = capture(d.path(), Comparison::Uncommitted, None).unwrap();
+        assert!(!c.partial);
+        assert!(c.files.is_empty());
+    }
+    #[test]
+    fn sparse_index_files_preserve_clean_and_staged_content() {
+        let d = init();
+        git(d.path(), &["update-index", "--skip-worktree", "a.txt"]);
+        std::fs::remove_file(d.path().join("a.txt")).unwrap();
+        let c = capture(d.path(), Comparison::Uncommitted, None).unwrap();
+        assert!(!c.partial);
+        assert!(c.files.is_empty());
+        let repo = Repository::open(d.path()).unwrap();
+        let id = repo.blob(b"staged\n").unwrap();
+        git(
+            d.path(),
+            &["update-index", "--cacheinfo", &format!("100644,{id},a.txt")],
+        );
+        git(d.path(), &["update-index", "--skip-worktree", "a.txt"]);
+        let c = capture(d.path(), Comparison::Uncommitted, None).unwrap();
+        assert_eq!(c.files.len(), 1);
+        assert!(c.patches.values().any(|p| p.contains("+staged")));
+    }
+    #[test]
+    fn staged_executable_modes_are_taken_from_index_when_filemode_is_untrusted() {
+        let d = init();
+        git(d.path(), &["config", "core.filemode", "false"]);
+        git(d.path(), &["update-index", "--chmod=+x", "a.txt"]);
+        let c = capture(d.path(), Comparison::Uncommitted, None).unwrap();
+        assert_eq!(c.files.len(), 1);
+        assert!(c.patches.values().any(|p| p.contains("new mode 100755")));
+        std::fs::write(d.path().join("new.txt"), "new\n").unwrap();
+        git(d.path(), &["add", "new.txt"]);
+        git(d.path(), &["update-index", "--chmod=+x", "new.txt"]);
+        let c = capture(d.path(), Comparison::Uncommitted, None).unwrap();
+        assert!(c
+            .patches
+            .values()
+            .any(|p| p.contains("new file mode 100755")));
+    }
+    #[test]
+    fn forced_text_normalization_cannot_hide_large_raw_equal_changes() {
+        let d = init();
+        std::fs::write(d.path().join("large.txt"), "abc\r\n".repeat(230000)).unwrap();
+        git(d.path(), &["add", "."]);
+        git(d.path(), &["commit", "-qm", "raw CRLF"]);
+        std::fs::write(d.path().join(".gitattributes"), "*.txt text\n").unwrap();
+        let c = capture(d.path(), Comparison::Uncommitted, None).unwrap();
+        assert!(c.partial);
+        assert!(c.files.iter().any(|f| f.path == "large.txt"));
+    }
+    #[cfg(unix)]
+    #[test]
+    fn git_control_fifos_fail_closed_without_hanging() {
+        const CHILD: &str = "ORKWORKS_CONTROL_FIFO_TEST";
+        if std::env::var_os(CHILD).is_some() {
+            use std::ffi::CString;
+            let d = init();
+            for name in [".gitattributes", ".gitignore"] {
+                let path = d.path().join(name);
+                let c = CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
+                assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+                assert!(capture(d.path(), Comparison::Uncommitted, None).is_err());
+                std::fs::remove_file(path).unwrap();
+            }
+            return;
+        }
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "git_changes::tests::git_control_fifos_fail_closed_without_hanging",
+            ])
+            .env(CHILD, "1")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                assert!(status.success());
+                break;
+            }
+            if Instant::now() > deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("Git control FIFO blocked capture")
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+    #[test]
+    fn index_attributes_survive_missing_worktree_control_and_large_auto_preserves_crlf() {
+        let d = init();
+        std::fs::write(d.path().join(".gitattributes"), "*.txt text eol=crlf\n").unwrap();
+        git(d.path(), &["add", "."]);
+        git(d.path(), &["commit", "-qm", "attrs"]);
+        std::fs::write(d.path().join("a.txt"), "one\r\ntwo\r\n").unwrap();
+        std::fs::remove_file(d.path().join(".gitattributes")).unwrap();
+        let c = capture(d.path(), Comparison::Uncommitted, None).unwrap();
+        assert_eq!(c.files.len(), 1);
+        assert_eq!(c.files[0].path, ".gitattributes");
+        let d = init();
+        std::fs::write(d.path().join("large.txt"), "abc\r\n".repeat(230000)).unwrap();
+        git(d.path(), &["add", "."]);
+        git(d.path(), &["commit", "-qm", "raw"]);
+        git(d.path(), &["config", "core.autocrlf", "true"]);
+        let c = capture(d.path(), Comparison::Uncommitted, None).unwrap();
+        assert!(!c.partial);
+        assert!(c.files.is_empty());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn ignored_directories_are_skipped_before_reading_control_files() {
+        use std::ffi::CString;
+        let d = init();
+        std::fs::write(d.path().join(".gitignore"), "ignored/\n").unwrap();
+        git(d.path(), &["add", "."]);
+        git(d.path(), &["commit", "-qm", "ignore"]);
+        std::fs::create_dir(d.path().join("ignored")).unwrap();
+        let path = CString::new(
+            d.path()
+                .join("ignored/.gitattributes")
+                .as_os_str()
+                .as_encoded_bytes(),
+        )
+        .unwrap();
+        assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+        let c = capture(d.path(), Comparison::Uncommitted, None).unwrap();
+        assert!(!c.partial);
+        assert!(c.files.is_empty());
     }
     #[test]
     fn snapshots_reject_foreign_subjects_and_expired_handles() {

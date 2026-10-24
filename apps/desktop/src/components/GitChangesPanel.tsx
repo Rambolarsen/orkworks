@@ -17,7 +17,8 @@ export default function GitChangesPanel({ session, onBack }: { session: SessionI
   const [patch, setPatch] = useState<{ key: string; result?: GitFilePatch; error?: string } | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const fileHeading = useRef<HTMLHeadingElement>(null);
-  const key = `${comparison}:${comparison === "branch" ? baseRef : ""}`;
+  const comparisonBase = comparison === "branch" ? baseRef : "";
+  const key = `${comparison}:${comparisonBase}`;
   const current = state?.key === key ? state : null;
   const capture = current?.capture;
   const file = capture?.files.find(f => f.path === selected) ?? capture?.files[0];
@@ -36,14 +37,14 @@ export default function GitChangesPanel({ session, onBack }: { session: SessionI
   }, [session?.id, refresh]);
 
   useEffect(() => {
-    if (!session || (comparison === "branch" && !baseRef)) return;
+    if (!session || (comparison === "branch" && !comparisonBase)) return;
     let active = true;
     setState(old => ({ key, capture: old?.key === key ? old.capture : null, error: null, loading: true }));
     window.orkworks.readGitChanges({ sessionId: session.id, kind: "capture", comparison,
-      ...(comparison === "branch" ? { baseRef } : {}) }).then(result => {
+      ...(comparison === "branch" ? { baseRef: comparisonBase } : {}) }).then(result => {
       if (!active) return;
       const c = result as GitChangesCapture;
-      if (c.sessionId !== session.id || c.comparison !== comparison || (comparison === "branch" && c.baseRef !== baseRef)) throw new Error("Inspection source changed; refresh.");
+      if (c.sessionId !== session.id || c.comparison !== comparison || (comparison === "branch" && c.baseRef !== comparisonBase)) throw new Error("Inspection source changed; refresh.");
       setState({ key, capture: c, error: null, loading: false });
       setSelected(old => {
         if (old && c.files.some(f => f.path === old)) return old;
@@ -56,7 +57,7 @@ export default function GitChangesPanel({ session, onBack }: { session: SessionI
       setState(old => ({ key, capture: /source changed|Session unavailable|No available|Worktree unavailable/i.test(error) ? null : old?.key === key ? old.capture : null, error, loading: false }));
     });
     return () => { active = false; };
-  }, [session?.id, comparison, baseRef, refresh, key]);
+  }, [session?.id, comparison, comparisonBase, refresh, key]);
 
   useEffect(() => {
     if (!session || !capture || !file) return;
