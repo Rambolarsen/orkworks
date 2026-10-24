@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from "electron";
 import { spawn, execFile } from "child_process";
 import { stat } from "node:fs/promises";
-import { inspectSessionApp, openSessionApp, type SessionAppDependencies } from "./sessionAppOpener";
+import { inspectSessionApp, openSessionApp, sessionAppInvocation, type SessionAppDependencies } from "./sessionAppOpener";
 import { normalizeImageCreation, submitImageSession } from "./sessionImages";
 import { createHash, randomBytes } from "crypto";
 import { existsSync, readFileSync } from "fs";
@@ -1400,7 +1400,8 @@ app.whenReady().then(async () => {
         run: (command, args, cwd) => new Promise<string>((resolve, reject) => {
           signal.throwIfAborted();
           const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("ORKWORKS_")));
-          execFile(command, args, { cwd, env, signal, timeout: 15_000, maxBuffer: 256 * 1024, windowsHide: true }, (error, stdout) => {
+          const invocation = sessionAppInvocation(process.platform, command, args, process.env.ComSpec);
+          execFile(invocation.file, invocation.args, { cwd, env: { ...env, ...invocation.env }, signal, timeout: 15_000, maxBuffer: 256 * 1024, windowsHide: true }, (error, stdout) => {
             if (error) reject(new Error("Couldn't open Claude. Check that Claude Code and Claude Desktop are installed, you are signed in with a subscription, and the session is closed."));
             else resolve(stdout);
           });

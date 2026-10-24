@@ -390,11 +390,21 @@ Authentication, missing native transcripts and app-specific refusal remain
 launch-time errors. Other coding tools and custom/overridden definitions have no qualified native
 destination in this first slice.
 
-The renderer supplies a session ID and expected workspace path only. Electron
+The renderer supplies a session ID and expected canonical workspace identity only. Electron
 reloads the session and resolved coding-tool definition from the current sidecar,
 checks exact native UUID identity, validates the directory and supported platform,
 and probes the configured Claude command for `--desktop` support. Native commands
-use fixed argv without a shell, bounded output/time, and an environment stripped
+use fixed argv, bounded output/time, and an environment stripped
 of OrkWorks capabilities. Generation cancellation prevents stale workspace work
 from opening an app. No general URL or command execution capability is exposed;
 ordinary external/terminal links retain their HTTP(S)-only policy.
+
+On Unix the configured executable is called directly. Windows uses the absolute
+OS command interpreter to support native executables and npm `.cmd`/`.bat`
+shims, following [Node's Windows process contract](https://nodejs.org/api/child_process.html#spawning-bat-and-cmd-files-on-windows).
+Only the literal `claude --help` or `claude --desktop --resume <validated-uuid>`
+command is admitted: no path, custom flag, prompt or renderer text is interpolated.
+AutoRun and delayed expansion are disabled. `NoDefaultCurrentDirectoryInExePath`
+excludes implicit current-directory command lookup, following the
+[Windows command-search contract](https://learn.microsoft.com/en-us/windows/win32/api/processenv/nf-processenv-needcurrentdirectoryforexepathw).
+The renderer has no shell API.

@@ -443,7 +443,7 @@ export default function ApplicationShell(props: Props) {
           </details>}
           <div className="shell-context"><h1 data-shell-terminal-focus tabIndex={-1}>{showComposer ? "New agent session" : recommendationsPage ? "Recommendations" : session?.label || "Terminal"}</h1><span className="shell-context-scope">{showComposer ? "Start a session in this workspace" : recommendationsPage ? "Workspace recommendations" : session?.harness || "No session selected"}</span></div>
           {!showComposer && session && props.workspace && <SessionAppMenu key={`${props.workspaceGeneration}:${session.id}:${sourcesReady}`}
-            workspacePath={props.workspace.path} sessionId={session.id} disabled={!sourcesReady} />}
+            workspacePath={props.workspace.workspaceIdentity || props.workspace.path} sessionId={session.id} disabled={!sourcesReady} />}
           {!showComposer && canResume && <button type="button" className="shell-resume-button" data-shell-resume
             onClick={() => session?.resumeStrategy === "exact" ? props.onResumeSession(session.id) : runCommand("details", true)}><Play size={15} aria-hidden="true" />Resume session</button>}
           {session?.hasOpenablePlan && props.onOpenReview && !showComposer && <button type="button" data-shell-command="review"

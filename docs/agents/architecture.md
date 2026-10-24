@@ -446,9 +446,11 @@ opening. Electron reads current session/tool data from its own ready sidecar;
 `electron/sessionAppOpener.ts` validates the exact native UUID and built-in tool,
 checks app registration and Claude capability/lifecycle/directory, and revalidates
 identity and lifecycle after asynchronous probing before dispatch. Main binds
-requests to workspace generation and aborts stale work. Claude uses fixed argv
-without a shell, a 15-second timeout, a 256 KiB output bound and an environment
-without `ORKWORKS_` capabilities. General links remain HTTP(S)-only. See the
+requests to workspace generation and aborts stale work. Claude uses fixed argv with a 15-second timeout, a 256 KiB output bound and an
+environment without `ORKWORKS_` capabilities. Unix executes the tool directly;
+Windows uses the absolute OS command interpreter with only a fixed Claude help
+or UUID-validated handoff command, with AutoRun/delayed expansion disabled, to
+support npm command shims. General links remain HTTP(S)-only. See the
 [native application contract](harness-integration-contracts.md#native-application-opening).
 
 ## Frontend → backend API
