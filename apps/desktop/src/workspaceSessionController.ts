@@ -100,6 +100,7 @@ export function createWorkspaceSessionController(
   let streamHealthy = false;
   let workspaceGeneration = 0;
   const pendingActions = new Set<string>();
+  const pendingSnapshotActions = new Map<string, (list: readonly SessionInfo[]) => void>();
   let sessions: SessionInfo[] = [];
   let activeSessionId: string | null = null;
   let pendingRestoration: { id: string | null; foreground: number } | null = null;
@@ -152,6 +153,10 @@ export function createWorkspaceSessionController(
         activeSessionId = match.id;
         options.onActiveSession?.(match.id);
       }
+    }
+    for (const [key, reconcile] of pendingSnapshotActions) {
+      pendingSnapshotActions.delete(key);
+      reconcile(next);
     }
     return next;
   }
@@ -227,6 +232,7 @@ export function createWorkspaceSessionController(
     admissionGeneration += 1;
     foregroundGeneration += 1;
     if (!enabled) {
+      pendingSnapshotActions.clear();
       options.onSessionSourceStatus?.("unavailable");
       setPollingEnabled(false);
     }
@@ -234,6 +240,7 @@ export function createWorkspaceSessionController(
 
   async function openWorkspace(path: string): Promise<void> {
     pendingRestoration = null;
+    pendingSnapshotActions.clear();
     setPollingEnabled(false);
     workspacePath = path;
     workspaceGeneration += 1;
@@ -255,6 +262,7 @@ export function createWorkspaceSessionController(
   }
 
   async function adoptRestoredWorkspace(workspace: WorkspaceInfo | null): Promise<void> {
+    pendingSnapshotActions.clear();
     setPollingEnabled(false);
     workspacePath = workspace?.path ?? null;
     workspaceGeneration += 1;
@@ -301,6 +309,7 @@ export function createWorkspaceSessionController(
 
   async function resumeSession(id: string): Promise<void> {
     const admissionToken = requireAdmission();
+    pendingSnapshotActions.delete(`${workspaceGeneration}:${id}`);
     const token = ++foregroundGeneration;
     deps.disposeTerminal(id);
     try {
@@ -335,6 +344,7 @@ export function createWorkspaceSessionController(
 
   async function deleteSession(id: string, forget: boolean): Promise<void> {
     const admissionToken = requireAdmission();
+    pendingSnapshotActions.delete(`${workspaceGeneration}:${id}`);
     const token = ++foregroundGeneration;
     try {
       const baseUrl = await deps.getBackendUrl();
@@ -357,6 +367,7 @@ export function createWorkspaceSessionController(
     const workspaceToken = workspaceGeneration;
     const pendingKey = `${workspaceToken}:${id}`;
     if (pendingActions.has(pendingKey)) throw new Error("A session action is already running.");
+    pendingSnapshotActions.delete(pendingKey);
     pendingActions.add(pendingKey);
     foregroundGeneration += 1;
     const current = () => isCurrentAdmission(admissionToken) && workspaceToken === workspaceGeneration;
@@ -370,17 +381,29 @@ export function createWorkspaceSessionController(
         options.onActiveSession?.(null, { deliberate: true });
       }
     };
+    const refreshAfterAction = () => {
+      // Neither a poll nor a still-connecting socket captured before the
+      // mutation settled may consume its post-action reconciliation.
+      sourceGeneration++;
+      // The stream may replace the REST refresh. Complete cleanup from the first
+      // post-action authoritative list, including after a failed/partial mutation.
+      pendingSnapshotActions.set(pendingKey, list => {
+        if (current() && !list.some(session => session.id === id)) disposeDeletedRow();
+      });
+      stream?.resync();
+      return refreshSessions();
+    };
     try {
       const baseUrl = await deps.getBackendUrl();
       if (!current()) return;
       await deps.sessionAction(baseUrl, id, action, actionToken);
       if (!current()) return;
       if (action === "delete") disposeDeletedRow();
-      const refreshed = await refreshSessions();
+      const refreshed = await refreshAfterAction();
       if (current() && refreshed !== null && !refreshed.some(session => session.id === id)) disposeDeletedRow();
     } catch (error) {
       if (current()) {
-        const refreshed = await refreshSessions();
+        const refreshed = await refreshAfterAction();
         if (current()) {
           if (refreshed !== null && !refreshed.some(session => session.id === id)) disposeDeletedRow();
           throw error;
@@ -394,6 +417,7 @@ export function createWorkspaceSessionController(
   function dispose(): void {
     if (disposed) return;
     setPollingEnabled(false);
+    pendingSnapshotActions.clear();
     disposed = true;
     foregroundGeneration += 1;
     pollingEpoch += 1;

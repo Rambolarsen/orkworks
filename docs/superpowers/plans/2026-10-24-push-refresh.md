@@ -165,3 +165,26 @@ passed on this production code; after the fixture corrections, the full desktop
 rerun passed 1,436 tests with two intentional skips. Seven native socket tests
 and 98 controller/shell tests passed separately. Hosted Windows revalidation
 remains a merge gate for this revision.
+
+## PR feedback cycle 2 of 3
+
+A second Codex P2 identified post-action cleanup lost when stream adoption fences
+the action's REST refresh. Pending cleanup now completes from the first accepted
+post-action snapshot. It retains workspace/admission identity, disposes the exact
+target once, and clears selection only if that target remains selected. Scope
+changes, disposal and superseding same-ID operations cancel old intents.
+
+Six regressions cover Restore success/failure and partially failed Delete, each
+with and without intervening selection. Local review then found that a poll
+started during mutation could consume cleanup early. Two additional regressions
+failed before advancing source generation and resyncing even connecting sockets
+at the post-action boundary. All 57 targeted tests and typecheck passed. Fresh
+medium review approved with no remaining material findings. Current reviewed
+app/sidecar diff SHA-256:
+`19b1668f14f31a406d475cd2e432a7801a4ed87e35a4ece2db9a497d86201a2e`.
+
+The full `bash scripts/verify-repo.sh` passed again: 2,227 Rust unit tests and all
+seven integration tests; 1,444 desktop tests (two intentional skips); reporter
+tests, typecheck, native ABI repair, desktop/docs builds and close-out checks.
+The prior published revision's Windows/native watcher CI passed; the new head
+still requires its own hosted checks and current-head automated review.
