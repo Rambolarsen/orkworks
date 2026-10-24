@@ -144,3 +144,14 @@ written native-only eligibility contract without enabling the native runtime
 or weakening ADR 0076. No completion shipping row is yet qualified; current
 PreToolUse/PostToolUse behavior stays capture-only until qualification and
 integration pass. This is a partial mitigation, not closure of #690/#789.
+
+## Amendment — 2026-10-24 ordered completion delivery
+
+The owner approved the concrete [sender-ordered completion relay](../superpowers/specs/2026-10-24-ordered-completion-relay-design.md)
+with “keep going.” A bounded POSIX pending queue and standalone publisher may
+prepare source-established ordering and acknowledgement within the existing
+private runtime relay. They share a retained lock and durable atomic state;
+per-writer markers and terminal poison preserve conservative failure behavior.
+No production launch or reporter uses this preparation. Native and completion
+activation gates, callback-completeness evidence, accepted root/configuration
+checks and API-only producer qualification remain unchanged.

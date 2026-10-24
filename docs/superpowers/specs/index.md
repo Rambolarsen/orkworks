@@ -180,3 +180,5 @@ Dated design records; these do not establish current product behavior.
 - [Workspace hierarchy transaction/storage proposal](2026-10-23-hierarchy-transaction-storage-design.md) — Proposed durable unit, writer integration and bounded SQLite recovery.
 
 - [Explicit sandbox proxy support for session metadata](2026-10-24-sandbox-metadata-proxy-design.md) — Add an owner-selected loopback HTTP proxy transport without automatic proxy discovery or launch activation.
+
+- [Ordered completion hook delivery](2026-10-24-ordered-completion-relay-design.md) — Define bounded sender-ordered hook publication and acknowledgement without qualifying a production launch.

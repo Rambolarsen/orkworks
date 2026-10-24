@@ -353,3 +353,15 @@ Installed distributions must receive the updated helper through normal Settings
 reconciliation before this syntax is available there. API-only launch markers,
 producer qualification, native clearing and completion rollout remain separately
 gated; a successful explicit bootstrap does not upgrade an existing session.
+
+## Ordered completion transport preparation
+
+The [approved ordered relay design](../superpowers/specs/2026-10-24-ordered-completion-relay-design.md)
+adds a dormant POSIX queue and standalone source publisher. Sender sequence and
+acknowledgement are stored atomically under one retained lock, with bounded
+pending storage and per-writer in-flight markers. Corruption, unknown identity,
+gaps, failure or lost consumer fences disable assistance. Legacy identity and
+approval mailboxes keep their existing behavior. No normal reporter invocation,
+stable installed-asset entry, source capability, launch marker or qualification
+row uses this path. Native callback completeness and effective launch/producer
+qualification remain independent gates; local queue tests cannot prove them.

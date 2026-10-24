@@ -65,6 +65,12 @@ mutation checks ownership and edits the latest record under the same storage
 lane as revisioned patches, preserving unrelated descriptive updates. This
 does not relax native startup/clearing or the producer/child-context gates.
 
+The [ordered completion transport](../superpowers/specs/2026-10-24-ordered-completion-relay-design.md)
+is an additive dormant protocol inside the private hook relay, not a metadata
+mailbox. It has no production stream creator, preserves legacy reports, and
+cannot adopt queued effects after consumer/runtime state loss. Source ordering
+of published records does not prove complete upstream hook invocation.
+
 ## Metadata protocol
 
 The detailed paths, bounds, lifecycle, authentication, and ADR reference are in the [architecture concept](architecture.md#metadata-protocol).
