@@ -15,6 +15,7 @@ MAX_QUEUE = 1024 * 1024
 MAX_RECORD = 4096
 MAX_PENDING = 256
 MAX_MARKERS = 256
+MAX_DIRECTORY_ENTRIES = 512
 LOCK_WAIT_SECONDS = 2.0
 EVENTS = {"UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "Stop"}
 HEADER_KEYS = {"version", "streamId", "generation", "hookFingerprint", "nextSequence", "acknowledgedSequence", "records"}
@@ -86,12 +87,22 @@ def _owned_private_directory(directory):
 
 
 def _open_regular(dir_fd, name, flags=os.O_RDONLY):
-    fd = os.open(name, flags | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=dir_fd)
+    fd = os.open(name, flags | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, dir_fd=dir_fd)
     info = os.fstat(fd)
     if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077 or info.st_nlink != 1:
         os.close(fd)
         raise Invalid()
     return fd, info
+
+
+def _list_names_bounded(dir_fd):
+    names = []
+    with os.scandir(dir_fd) as entries:
+        for entry in entries:
+            if len(names) >= MAX_DIRECTORY_ENTRIES:
+                raise Invalid()
+            names.append(entry.name)
+    return names
 
 
 def _verify_named_inode(dir_fd, name, info):
@@ -150,7 +161,7 @@ def _poison(dir_fd):
 
 
 def _queue_files(dir_fd, own_marker, own_temp=None):
-    names = os.listdir(dir_fd)
+    names = _list_names_bounded(dir_fd)
     inflights = [name for name in names if name.startswith("inflight-")]
     if len(inflights) > MAX_MARKERS or any(not re.fullmatch(r"inflight-[0-9a-f]{32}", name) for name in inflights):
         raise Invalid()
@@ -205,7 +216,8 @@ def _parse_header(data, fingerprint):
             raise Invalid()
         if item["hookFingerprint"] != fingerprint:
             raise Invalid()
-        _scalar(item["rootId"], identifier=True)
+        if _scalar(item["rootId"], identifier=True) is None:
+            raise Invalid()
         _scalar(item["turnId"], identifier=True)
         if item["event"] not in EVENTS:
             raise Invalid()
@@ -267,7 +279,7 @@ def publish(directory, event, fingerprint):
         marker_created = True
         queue_fd, _ = _open_regular(dir_fd, "queue.json")
         os.close(queue_fd)
-        names = os.listdir(dir_fd)
+        names = _list_names_bounded(dir_fd)
         if "poison" in names:
             fd, _ = _open_regular(dir_fd, "poison")
             os.close(fd)
@@ -320,17 +332,19 @@ def publish(directory, event, fingerprint):
             os.close(temp_fd)
         _verify_named_inode(dir_fd, "queue.lock", lock_info)
         _queue_files(dir_fd, marker, temp_name)
-        queue_fd, queue_info = _open_regular(dir_fd, "queue.json")
+        queue_fd, current_queue_info = _open_regular(dir_fd, "queue.json")
         os.close(queue_fd)
+        if (current_queue_info.st_dev, current_queue_info.st_ino) != (queue_info.st_dev, queue_info.st_ino):
+            raise Invalid()
         _verify_named_inode(dir_fd, "queue.json", queue_info)
         os.rename(temp_name, "queue.json", src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
         os.fsync(dir_fd)
         _verify_named_inode(dir_fd, "queue.json", temp_info)
-        if "poison" in os.listdir(dir_fd):
+        if "poison" in _list_names_bounded(dir_fd):
             raise Invalid()
         os.unlink(marker, dir_fd=dir_fd)
         os.fsync(dir_fd)
-        if "poison" in os.listdir(dir_fd):
+        if "poison" in _list_names_bounded(dir_fd):
             raise Invalid()
         marker_created = False
         succeeded = True

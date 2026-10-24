@@ -8,6 +8,7 @@ import threading
 import time
 import unittest
 import uuid
+import importlib.util
 
 SCRIPT = Path(__file__).with_name("codex-completion-report.py")
 FINGERPRINT = "a" * 64
@@ -168,6 +169,7 @@ class PublisherTests(unittest.TestCase):
             {**header(), "records": [record(1)], "nextSequence": 3},
             {**header(), "nextSequence": 1 << 64},
             {**header(), "records": [record(1) | {"rootId": 7}], "nextSequence": 2},
+            {**header(), "records": [record(1) | {"rootId": None}], "nextSequence": 2},
         ]
         for value in invalid_headers:
             with self.subTest(value=value):
@@ -178,6 +180,9 @@ class PublisherTests(unittest.TestCase):
                 self.assertEqual(result.stderr, b"completion report failed\n")
                 self.assertEqual((self.directory / "queue.json").read_bytes(), original)
                 self.assertTrue((self.directory / "poison").exists())
+                for marker in self.directory.glob("inflight-*"):
+                    marker.unlink()
+                (self.directory / "poison").unlink()
 
     def test_overflow_and_counter_exhaustion_fail_closed(self):
         full = [record(sequence) for sequence in range(1, 257)]
@@ -190,6 +195,64 @@ class PublisherTests(unittest.TestCase):
         result = self.run_publisher()
         self.assertEqual(result.returncode, 2)
         self.assertEqual(self.published()["nextSequence"], (1 << 64) - 1)
+        self.assertTrue((self.directory / "poison").exists())
+
+    def test_directory_enumeration_is_bounded_before_append(self):
+        for index in range(513):
+            path = self.directory / f"unexpected-{index:04d}"
+            path.touch(mode=0o600)
+        module_spec = importlib.util.spec_from_file_location("completion_publisher", SCRIPT)
+        module = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(module)
+        dir_fd = os.open(self.directory, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            with self.assertRaises(module.Invalid):
+                module._list_names_bounded(dir_fd)
+        finally:
+            os.close(dir_fd)
+        result = self.run_publisher()
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.stderr, b"completion report failed\n")
+        self.assertEqual(self.published(), header())
+        self.assertTrue((self.directory / "poison").exists())
+
+    def test_queue_inode_replaced_after_read_is_not_adopted(self):
+        module_spec = importlib.util.spec_from_file_location("completion_publisher", SCRIPT)
+        module = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(module)
+        replacement = header(next_sequence=2, records=[record(1)])
+        replacement_bytes = json.dumps(replacement, separators=(",", ":")).encode()
+        original_verify = module._verify_named_inode
+        replaced = False
+
+        def replace_after_initial_queue_read(dir_fd, name, info):
+            nonlocal replaced
+            original_verify(dir_fd, name, info)
+            if name == "queue.json" and not replaced:
+                replaced = True
+                os.unlink("queue.json", dir_fd=dir_fd)
+                fd = os.open("queue.json", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=dir_fd)
+                try:
+                    os.write(fd, replacement_bytes)
+                    os.fsync(fd)
+                finally:
+                    os.close(fd)
+                os.fsync(dir_fd)
+
+        module._verify_named_inode = replace_after_initial_queue_read
+        read_fd, write_fd = os.pipe()
+        os.write(write_fd, json.dumps(PAYLOAD).encode())
+        os.close(write_fd)
+        with os.fdopen(read_fd, "rb") as stream:
+            original_stdin = sys.stdin
+            sys.stdin = stream
+            try:
+                with self.assertRaises(module.Invalid):
+                    module.publish(str(self.directory), EVENT, FINGERPRINT)
+            finally:
+                sys.stdin = original_stdin
+        self.assertTrue(replaced)
+        self.assertEqual((self.directory / "queue.json").read_bytes(), replacement_bytes)
         self.assertTrue((self.directory / "poison").exists())
 
     def test_marker_bound_and_invalid_native_scalars_fail_closed(self):
@@ -280,6 +343,34 @@ class PublisherTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertEqual(self.published(), header())
         self.assertTrue((self.directory / "poison").exists())
+
+    def test_fifo_lock_queue_and_marker_are_rejected_without_hanging(self):
+        for name in ("queue.lock", "queue.json", "inflight-" + ("c" * 32)):
+            with self.subTest(name=name):
+                path = self.directory / name
+                if path.exists():
+                    path.unlink()
+                os.mkfifo(path, 0o600)
+                timed_out = False
+                try:
+                    result = self.run_publisher(timeout=2)
+                except subprocess.TimeoutExpired:
+                    timed_out = True
+                finally:
+                    if path.exists():
+                        path.unlink()
+                    for marker in self.directory.glob("inflight-*"):
+                        marker.unlink()
+                    poison = self.directory / "poison"
+                    if poison.exists():
+                        poison.unlink()
+                    self.write_queue(header())
+                    if not (self.directory / "queue.lock").exists():
+                        fd = os.open(self.directory / "queue.lock", os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+                        os.close(fd)
+                self.assertFalse(timed_out, f"publisher blocked opening FIFO {name}")
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(result.stderr, b"completion report failed\n")
 
     def test_replaced_retained_lock_during_publication_fails_closed(self):
         process = subprocess.Popen(
