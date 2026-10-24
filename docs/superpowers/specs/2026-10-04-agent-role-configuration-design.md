@@ -1008,7 +1008,10 @@ its declared evaluation output is required. It is used for child assignments
 that publish #744 evaluations, not for research-report review or reviewer
 performance assessment. A v1 configuration cannot carry `reviewInput` or obtain
 an evaluation capability. Other child configurations and the run bootstrap
-remain v1 under this scoped amendment.
+remain v1 under this scoped amendment. The later
+[structured-output amendment](#proposed-structured-output-contract--2026-10-24)
+combines this input with output-bearing child v3; this typed input alone does
+not supply a structured output/result grant.
 
 Apply the existing canonical serializer, configuration/plan byte bounds,
 required-rule/skill/model/permission checks and snapshot retention. Hash the
@@ -1077,3 +1080,107 @@ issues only the scoped read authority after approval/admission; an inline
 reference alone is not a bearer. Unknown mapping keeps the profile no-go.
 The input grants no result/evaluation write operation; those remain separate
 capability classes and reporting-action gates.
+
+## Proposed structured output contract — 2026-10-24
+
+This is the proposed #741 producer amendment for #744's declared outputs and
+[snapshot/finalization budget](2026-10-04-assignment-evaluation-design.md#proposed-output-byte-and-rehash-accounting).
+It requires owner acceptance and joint consumer review. All limits below are
+proposed initial defaults, not observed tool capacities or runtime support.
+It does not accept the earlier v2 review-input or frozen task-version proposals.
+
+### Placement, versions and canonical bytes
+
+`OutputAssignmentConfiguration` has exactly the v1 child configuration fields,
+except `schemaVersion` is `3`, plus required top-level `outputContract` and
+`reviewInput`. `outputContract` is the object below. `reviewInput` is either
+`null` or the exact proposed `ReviewTargetInput` from the v2 amendment. A non-null
+value retains its eligible review/verification role and independence rules and
+must resolve its `evaluationOutputDeclarationId` in this output contract.
+A null value cannot obtain child-evaluation authority or declare an
+`assignment_evaluation` output. The v3 object uses
+`orkworks.assignment-configuration.v3\n` plus its canonical bytes excluding
+`configurationDigest`, with one literal LF after `v3`.
+
+`OutputOrchestratorBootstrapConfiguration` has exactly the v1 bootstrap fields,
+except `schemaVersion` is `2`, plus required top-level `outputContract`. There
+is no root `reviewInput`; root review remains user-only. Hash the complete
+bootstrap excluding `bootstrapConfigurationDigest` with
+`orkworks.orchestrator-bootstrap.v2\n` plus the canonical bytes. The full
+contract is bound at run creation; a later plan cannot add/change root outputs.
+The root retains the orchestrator role and its existing coordination-only scope.
+
+Use these output-bearing versions for #744 result-producing child/root
+assignments and child-evaluation publication. Legacy v1 configurations and the
+proposed v2 reviewer configuration retain their original exact shape/domain;
+they cannot obtain #744 output/reporting grants by interpreting text as a
+structured contract. They are not auto-upgraded. The prior v2 proposal defines
+the typed review input; v3 combines that input with the structured outputs needed
+for result/evaluation production. Versioned consumer dispatch and cross-language
+byte fixtures are prerequisites before implementation, not a deployed migration.
+
+Keep the existing explanatory output-contract text and its 2 KiB bound. It
+cannot add declarations, change limits or grant access. Contradictions between
+that text, required criteria, rendered instructions and the structured contract
+block approval. Render the exact declarations/limits as assignment context;
+retain the canonical inline object in the approved descriptor and digest. Its
+bytes count toward the existing 1 MiB configuration/bootstrap bound and 2 MiB
+approved plan bound; referenced bootstrap bytes obey the existing plan accounting.
+No separate uncounted attachment or mutable artifact lookup supplies the contract.
+
+### Exact output object and validation
+
+`OutputContract` has exactly `schemaVersion: 1`, `declarations`,
+`maxSnapshotBytes`, and `maxRehashBytes`. Every property is required; reject
+unknown properties and duplicate JSON keys. `declarations` is a set of 0–32
+`OutputDeclaration` objects sorted by ascending UTF-8 `id` bytes. Each has
+exactly `id`, `kind`, `maxBytes`, and `source`, preserving #744's existing shape.
+IDs/kinds obey the 128-byte ASCII ID rule. IDs are unique; kind labels may repeat
+for distinct outputs. Each positive `maxBytes` is a lossless plain decimal JSON
+integer. `source` is exactly `{"kind":"workspace-path","path":<exact root-relative file>}`
+or `{"kind":"server-artifact"}`, with no extra locator/owner fields. Paths obey
+#741's exact descendant-path and 2 KiB bound; duplicate path sources are rejected,
+not charged once under different IDs. Existing no-alias/no-follow/hard-link proof
+still applies when opening files; text comparison alone cannot prove it.
+
+Every declared output is required to pass; there is no optional-output flag.
+Do not reorder meaningful criteria, instructions or command arrays when sorting
+declarations. A declaration's ID/kind/source/limit change changes the containing
+digest and requires fresh approval. Numeric fields use lossless integers,
+without fractions, exponents, signs or rounded JavaScript Numbers.
+
+| Limit | Proposed value / rule |
+| --- | --- |
+| Path output `maxBytes` | 1–8,388,608 bytes (8 MiB) per regular file |
+| Server-artifact `maxBytes` | 1–524,288 bytes (512 KiB), including `assignment_evaluation` canonical content |
+| `maxSnapshotBytes` | 0–16,777,216 bytes (16 MiB); checked sum of all declaration `maxBytes` must not exceed it |
+| `maxRehashBytes` | 0–67,108,864 bytes (64 MiB); at least twice `maxSnapshotBytes` for a nonempty declaration set |
+| Empty declaration set | Both aggregate caps are exactly zero; existing required-criterion/quality rules still govern the result |
+| Plan-declared snapshot capacity | Sum of child `maxSnapshotBytes` in one exact plan revision at most 67,108,864 bytes (64 MiB) |
+| Plan-declared rehash capacity | Sum of child `maxRehashBytes` in one exact plan revision at most 268,435,456 bytes (256 MiB) |
+
+An empty contract is allowed only when the approved assignment/criteria require
+no materialized deliverable. Criteria/rubric validity, independent/user review
+and current evidence requirements still apply; an empty array is never proof of
+success. A task requiring an artifact or workspace change cannot omit its
+corresponding output declaration. Child evaluation producers always have their
+required evaluation declaration and therefore cannot use an empty contract.
+
+A nonempty set requires positive aggregate caps. Reject arithmetic overflow or
+any declaration/aggregate beyond the smaller approved, server or verified
+adapter limit; never truncate. The root contract has its own per-candidate
+16 MiB/64 MiB ceiling and is not multiplied/changed per plan. Plan sums are
+derived from included child contracts, not a reporter-controlled summary or a
+mutable post-approval field. A plan containing repeated identical configurations
+still charges every task separately. Shared storage/content deduplication gives
+no admission discount.
+
+Reserve `assignment_evaluation` for one server-artifact declaration matching
+the non-null review input and its one target/stream. Reject a path-backed or
+second evaluation declaration, and reject it on a root bootstrap. Other
+server-artifact kinds still require their separately approved producer/artifact
+wrapper; this schema is not an arbitrary upload API. A research report remains
+evidence until such an assignment/declaration-bound wrapper exists. Path outputs
+still require effective read scope, appropriate worker write scope and the exact
+allocated root. No declaration grants tools, shell, source reads or reporting
+capabilities; unsupported access/production contracts block approval.

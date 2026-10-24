@@ -1204,3 +1204,32 @@ input, requires current eligibility/freshness checks and fresh generation-bound
 credentials, and never reuses an old grant. Retention of the worker result or
 proposal does not restore read/launch authority. Resumed or interrupted
 allocations keep the existing ambiguity, single-reservation and reapproval gates.
+
+## Proposed output-contract admission
+
+The [#741 output-bearing child/bootstrap versions](2026-10-04-agent-role-configuration-design.md#proposed-structured-output-contract--2026-10-24)
+and [#744 byte/rehash accounting](2026-10-04-assignment-evaluation-design.md#proposed-output-byte-and-rehash-accounting)
+are proposed consumers of this lifecycle, not runtime support. Version-aware
+admission must bind the whole child output contract in its exact approved plan
+and the whole root contract at UI-authorized run creation. Derived plan capacity
+sums include every child/task without deduplication. Validate declaration/source/
+role scope, independent metadata/payload caps and effective adapter limits before
+approval/reservation/content delivery; unknown versions or unsupported producer
+contracts block admission. A reporting token cannot add declarations or increase
+caps after approval. New output-bearing schema versions do not auto-upgrade v1
+or v2 records or qualify a coding-tool profile.
+
+Root output scope/limits are immutable across research/execution plans and exact
+resume. Changed root declarations need the existing new-bootstrap/new-run path;
+child changes require a new exact approved configuration/plan. The candidate
+work ledger belongs to #744 and survives this contract's parent/child runtime
+end, run completion, cancellation, interruption and generation fences. It grants
+no launch/report authority and never resets on resume. A finalization rejection
+remains an explicit result-snapshot outcome, not a successful coordination result
+or permission to retry/advance undeclared work.
+
+Exact result/evaluation capability envelopes, artifact publication wrappers,
+rate/response/candidate-work admission and aggregate storage/worker budgets still
+need their scoped contracts and implementation approval. The proposed numeric
+limits and ledger introduce no automatic retries, runtime routes, worker
+qualification, cross-plan worktree reuse or relaxation of #740's no-go state.
