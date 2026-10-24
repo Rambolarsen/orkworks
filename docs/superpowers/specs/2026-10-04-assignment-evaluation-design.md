@@ -1041,21 +1041,125 @@ paths, byte caps or reporting permission. The required amendment is:
   before issuing review authority. A server-artifact reporting permission does
   not require product-file write access or permit arbitrary artifact retrieval.
 
-**Review-target timing remains unresolved.** A plan may declare a worker and
-its reviewer before that worker has an accepted result. The exact result digest
-required above then does not yet exist. Neither #741 nor #742 currently defines
-an approved deferred-target selector or a result-binding approval transition.
-Do not fill the target with a predicted/latest result or silently alter an
-approved configuration. The executable handoff must distinguish review of an
-already accepted result from review of future output, and obtain agreement on
-the latter's exact approval/binding lifecycle before claiming it supported.
-This identity amendment selects no new approval flow or automatic retargeting.
+**Review-target timing proposal — 2026-10-24.** Require fresh approval of
+an exact accepted result for the initial child-review flow, as specified below.
+This is an agent recommendation pending owner acceptance; it replaces the
+unresolved choice with a concrete proposal, not an approved launch lifecycle.
 
 These are proposed upstream schema requirements, not fields already present in
 #741. Required output authorization or target binding that cannot be represented
 blocks admission. A bare #742 `ResearchReport` remains evidence only: it lacks
 an assignment/declaration-bound immutable output wrapper. No report-to-result
 conversion or cross-assignment artifact reuse is introduced.
+
+### Proposed exact-result review approval
+
+**Decision for owner review.** In the initial flow, approve a child reviewer
+only after its exact target result has been accepted by sidecar finalization.
+A worker's initial plan can describe the intention to obtain independent review,
+but that intention is not an executable reviewer assignment, dependency node,
+reservation or launch grant. Reject an executable reviewer configuration with
+an absent, predicted, mutable or deferred target. This is a proposed restriction
+of the initial flow; it does not remove independent review from the workflow.
+
+Two approaches were considered:
+
+| Approach | Consequence |
+| --- | --- |
+| Fresh approval against an accepted result — recommended | Exact target is part of the immutable reviewer configuration from the start. The user approves a later review plan, adding an approval step |
+| Approve a worker-bound future-result selector | Could avoid that step, but needs a new approved selector schema, deterministic one-time binding, digest/authority separation, correction races and durable recovery proof. Existing dependencies and grants do not supply that contract |
+
+The second approach is deferred, not prohibited forever. Do not substitute a
+`latest` query, choose the first candidate, or append a result digest to an
+already approved configuration. A separate reviewed amendment would be required
+before offering automatic worker-to-reviewer launch for future results.
+
+#### Approval and lifecycle
+
+1. Finish the worker's existing approved assignment. A completion message,
+   parent coordination result or accepted candidate alone is insufficient:
+   #744 sidecar finalization must publish the immutable accepted result and
+   its revision/digest. Missing outputs may still yield a reviewable partial
+   result under the existing evaluation rules; do not require a passing score.
+2. Resolve and retain the exact result and evidence under the existing custody
+   rules. The review input names the worker's full `AssignmentIdentity`,
+   `resultRevision` and `resultDigest`; the reviewer's own run/plan/task identity
+   remains distinct. Show the target, scope, rubric, independence, evidence
+   access and declared evaluation output in the proposal. A label or source
+   session ID is insufficient.
+3. For a future worker result, use an explicitly UI-created review run with its
+   own reviewed bootstrap, goal and child ceiling, followed by exact review-plan
+   approval. Do not reopen the completed worker run or transfer its planning
+   bearer, launch grant, task reservation or approval. Final execution completion
+   still revokes the worker run's authority under ADR 0077. This proposal adds
+   no execution-to-execution transition or automatic replacement parent.
+4. If an exact accepted result is already available when an otherwise eligible
+   plan is first proposed, that plan may declare its reviewer directly. The
+   target must already be bound before approval; no extra result-selection step
+   is needed. Neither case creates branches, worktrees or children before the
+   relevant exact-plan approval.
+5. Revalidate exact input identity, retained custody, current source freshness,
+   independence, permissions, profile eligibility and ordinary launch fences at
+   approval and again at reviewer admission. A newer accepted result or changed
+   cited source before admission makes the proposal stale: prepare a new exact
+   proposal and obtain approval. A failed approval/admission check creates no
+   reviewer reservation and leaves the result available for explicit user review.
+6. Once admitted, the reviewer remains bound to that result. A later correction
+   does not retarget its configuration, capability or evaluation stream. Preserve
+   historical review under its original subject and apply the existing freshness
+   rules; reviewing the replacement requires another approved assignment. Review
+   completion does not restart the worker or launch remediation.
+
+The new run consumes retained immutable result snapshots and approved evidence;
+it does not adopt or reuse the worker's worktree, branch or live filesystem.
+Its own worktree allocation follows the ordinary plan rules. Reading an exact
+retained result is a proposed typed input authorization, not cross-assignment
+**output** reuse: the reviewer publishes its own `assignment_evaluation` artifact.
+No arbitrary artifact lookup, live path read, cross-workspace import or report-to-
+result conversion is granted. An unresolved read/custody/identity mapping blocks
+child review rather than falling back to the old worktree. Root results and
+optional reviewer-performance assessments retain their user-only rules.
+
+This deliberately adds a user action compared with the aspirational same-plan
+worker/reviewer examples in #742. Automatic collection/proposal preparation
+within a still-authorized run remains subject to #740; a completed run cannot
+prepare or launch a new run using revoked authority. Run creation and approval
+are user actions, not an automatic continuation or inferred consent. The
+proposal does not claim a review UI or retained-result transport already exists.
+
+#### Producer agreement and contract cases
+
+#741 must bind the typed target and exact result/evidence read authorization
+into the reviewer configuration and its digest; its existing text input field
+cannot silently stand in for that schema. #742 must reject unresolved reviewer
+assignments before approval/admission and reconcile its workflow examples with
+this restriction. #744 continues to resolve worker and reviewer identities from
+their respective reservations, including their own frozen admission versions.
+Run completion of the worker does not erase the retained subject or grant the
+reviewer authority over the worker run. Same-workspace retained-result references
+across runs require explicit schema, custody and authorization agreement before
+an executable handoff; this proposal does not establish their eligibility.
+
+These synthetic cases define expected contract behavior, not executed tests:
+
+| Case | Required outcome |
+| --- | --- |
+| Initial plan contains worker plus executable reviewer with no accepted result | Reject reviewer configuration; a review intention grants no launch or reservation |
+| Candidate stored but finalization is pending or rejected | No exact-result reviewer approval; expose the missing accepted result |
+| Worker finalized a partial result with a required output missing | Exact-result review may be proposed; evaluation retains the known failure |
+| Worker run completes before review is proposed | Keep its authority revoked; user creates a separate review run and approves its exact plan |
+| Review plan targets a retained child result from a prior run | Require complete worker identity and explicit same-workspace typed read/custody agreement; no worktree adoption |
+| Target changes between proposal, approval and admission | Fence the stale proposal; new exact target needs fresh approval, with no reservation from the failed check |
+| Target changes after reviewer admission | Keep the old target immutable; apply existing freshness/history rules and require separate approval for replacement review |
+| Parent/sidecar ends before review launch | Existing generation/resume/reapproval rules apply; no deferred selection or automatic relaunch |
+| Required snapshot/evidence is missing, deleted or inaccessible | Block child review; explicit user review remains a separate authorized path |
+| Review finds rework | Record the evaluation; no implied worker resume, retry, remediation or merge |
+
+**Disposition.** Owner acceptance of this approval choice and #741/#742 producer
+agreement remain open. The typed target/output schemas, exact aggregate bounds,
+reporting actions, retained-reference custody, #740 eligibility and scoped
+implementation approval remain separate gates. No runtime change, new capability
+profile, model probe or implementation plan is supplied by this proposal.
 
 ### Reporting actions and lifecycle boundaries
 

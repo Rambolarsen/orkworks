@@ -1111,3 +1111,26 @@ fixtures and verification cases. Preserve ordinary-session compatibility,
 manual integration and both Electron/renderer and runtime ownership boundaries.
 No general DAG scheduler, grandchildren, automatic code integration, automatic
 retry loop, native confinement or additional UI authority is added here.
+
+## Proposed exact-result reviewer timing — 2026-10-24
+
+The [#744 timing proposal](2026-10-04-assignment-evaluation-design.md#proposed-exact-result-review-approval)
+recommends fresh exact-result approval for the initial child-evaluation flow.
+The example workflows above do not establish support for a reviewer of future
+#744 output: until a deferred selector is separately specified and accepted,
+a worker/reviewer intention cannot become an executable reviewer configuration
+without an already accepted target. Research-report review is not automatically
+#744 result evaluation and receives no artifact conversion from this proposal.
+
+For future output, the proposed follow-up is a user-created review run with its
+own bootstrap and exact review-plan approval after result finalization. Final
+execution still revokes the worker run; no planning authority survives solely
+to create the review run, and no execution-to-execution transition, cross-plan
+worktree reuse or automatic retry is introduced. If the exact result already
+exists before a plan is proposed, its reviewer may be declared in that plan.
+
+Before an executable handoff, agree #741's typed immutable target and read
+scope, same-workspace retained-result custody/authorization, and stale-input
+checks at approval/admission. The linked proposal supplies lifecycle/race cases;
+it is pending owner acceptance and does not change accepted ADR 0077 or qualify
+any #740 profile. Keep #742 and its broader review/runtime gates open.
