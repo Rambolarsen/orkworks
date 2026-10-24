@@ -54,6 +54,45 @@ Cross-contract mappings, technical recovery agreements and the scoped execution
 handoff remain open. Runtime implementation and launches require their separate
 approvals; #740 capability-evidence work remains deferred until November.
 
+## Technical contract acceptance — 2026-10-24
+
+The owner accepted the scoped #741/#742/#744 technical amendments in response
+to the explicit acceptance question following the
+[PR #1019 joint review](https://github.com/Rambolarsen/orkworks/pull/1019).
+The reviewed contract is the joint handoff at
+`f9a1102798a8797edcd6722d5c1edb5685c1d304`. Acceptance covers:
+
+- The frozen reservation `assignmentTaskVersion`, exact child-attachment proof
+  and separation from live task CAS/runtime generations.
+- The typed exact-result review input, independently scoped retained-read
+  capability, dependency protection and read/revocation cutoff. Executable
+  evaluation uses output-bearing child v3; v2 retains its input-only shape.
+- Structured output declarations, child v3/root-bootstrap v2 placement and
+  digest domains, source/plan byte limits and conservative candidate rehash
+  ledger/recovery rules.
+- The result/evaluation/user reporting action, carrier/envelope, immutable
+  receipt and inspection contracts, including sidecar-issued user-stream
+  identity, the stable UI retry namespace and exact-retry/CAS ordering.
+- The reporting request/rate/concurrency defaults and protected receipt-credit
+  accounting, including the 1,088-slot / 17 MiB assignment, 64 MiB owner-run and
+  256 MiB workspace receipt pools and fenced cold-start window.
+
+This supersedes owner-acceptance-pending wording for those named amendments,
+not unrelated component choices or their qualification gates. The earlier
+accepted evaluation/timing choices remain unchanged. No schema, numeric limit,
+canonical digest domain or authority rule changes in this acceptance record.
+
+SQLite mechanism/ADR 0090 and its storage limits are **not** accepted here.
+Source limits still must compose with the complete command/row/publication
+limits of a separately accepted, qualified storage design; a 16 MiB source
+maximum is no promise that a 16 MiB complete command can carry it with metadata.
+Broader #741/#742 lifecycle/role choices, artifact/evidence/read/worker/scratch
+and overall storage quota contracts, #745/#746 custody/transaction qualification,
+#740 role/profile evidence, and scoped implementation/qualification plans retain
+their separate gates. No eligible profile, executable runtime plan, endpoint,
+model probe, migration or runtime implementation is authorized by this acceptance.
+Keep the component issues open for those deliverables.
+
 ## Assignment and result identity
 
 An evaluation binds one approved assignment identity, the exact accepted result
@@ -1009,8 +1048,10 @@ frozen identity. #743's task-state evidence binding retains its own semantics.
 The #742 amendment supplies capture, exact-retry, overflow, attachment, retention
 and crash/recovery rules; #741's consumer boundary links the same proposal.
 
-Written owner acceptance of this cross-contract amendment remains pending;
-merging it does not make the mapping eligible for implementation. Missing
+The owner accepted this cross-contract amendment in the
+[technical acceptance record](#technical-contract-acceptance--2026-10-24).
+Producer/storage proof and capability/implementation gates remain open;
+acceptance does not make the mapping eligible for runtime implementation. Missing
 historical admission evidence cannot be reconstructed from today's counter or a
 report timestamp. Already-hashed #744 objects must match the proven snapshot;
 never rewrite their identity/digest. Removing `taskVersion` instead would change
@@ -1226,8 +1267,9 @@ or adapter tests:
 
 Existing joins and the discrepancy inventory are recorded here; the frozen
 admission version now has a matching proposed #742 producer/#741 consumer
-contract. Its owner acceptance, typed output/target schemas and
-reporting-action projection remain gates for #741/#742 agreement. The separate
+contract. The reviewed identity, typed output/target and reporting-action
+amendments now have the scoped owner acceptance recorded above; their remaining
+producer/storage/adapter qualification and implementation gates stay open. The separate
 exact-result approval timing choice above is owner accepted. Aggregate artifact/rehash/worker,
 request/receipt and run/workspace limits still need exact values. #740 eligibility,
 #745 shared custody, #746 producer/storage qualification and separately approved
@@ -1261,9 +1303,10 @@ automated evaluation, changes to ordinary Peon/session behavior or runtime code.
 This is the proposed #744 custody side of the
 [#741 typed review input](2026-10-04-agent-role-configuration-design.md#proposed-typed-reviewer-input--2026-10-24)
 and [#742 admission/read grant](2026-10-04-orchestrator-preparation-design.md#proposed-retained-review-input-admission).
-The owner accepted exact-result timing, not this schema/custody amendment.
-It remains subject to written owner acceptance, joint producer/storage review
-and separately approved implementation/qualification plans.
+The owner accepted this reviewed schema/read-custody amendment in the
+[technical acceptance record](#technical-contract-acceptance--2026-10-24).
+Joint producer/storage qualification and separately approved implementation/
+qualification plans remain required.
 
 The review target copies this document's complete child `AssignmentIdentity`,
 `resultRevision` and `resultDigest`; it changes no #744 canonical result,
@@ -1342,9 +1385,10 @@ approval. Keep the component issues open.
 
 This is the #744 consumer of #741's
 [proposed structured output contract](2026-10-04-agent-role-configuration-design.md#proposed-structured-output-contract--2026-10-24).
-It defines initial logical limits and budget semantics only. Owner acceptance,
-reporting/transport integration, native snapshot qualification, finite worker/
-request/storage quotas and a separately approved executable plan remain gates.
+It defines the logical limits and budget semantics covered by the scoped
+[technical acceptance](#technical-contract-acceptance--2026-10-24).
+Reporting/transport integration, native snapshot qualification, finite broader
+worker/storage quotas and a separately approved executable plan remain gates.
 Existing candidate/result/evaluation canonical shapes and digest domains remain
 unchanged; they bind the new producer descriptor through its configuration or
 bootstrap digest.
@@ -1467,8 +1511,9 @@ These are synthetic verification expectations, not executed runtime tests:
 | Output payload fits but configuration or result JSON is oversized | Enforce every independent byte cap; no attachment/metadata exemption |
 
 **Disposition.** Placement, schema versions, sorting and numeric byte/rehash
-limits now have matching proposed #741/#744 contracts. Defaults and ledger
-semantics require owner acceptance and producer/storage review. Reporting-action
+limits have matching #741/#744 contracts with scoped owner acceptance.
+Producer/storage qualification remains required for those defaults and ledger
+semantics. Reporting-action
 and request-envelope mappings, artifact wrapper contracts, aggregate run/workspace
 and worker/scratch quotas, shared custody, #746 qualification, #740 eligibility,
 the separately proposed identity/review-input amendments and approved runtime
@@ -1479,8 +1524,9 @@ plans remain independent gates. Keep #741/#742/#744 open.
 This is the proposed #744 protocol with matching
 [#741 action projection](2026-10-04-agent-role-configuration-design.md#proposed-assignment-reporting-actions)
 and [#742 transport/authority mapping](2026-10-04-orchestrator-preparation-design.md#proposed-assignment-reporting-transport).
-It requires owner acceptance and joint consumer/storage review. It changes no
-canonical candidate/result/evaluation/disposition object or digest domain and
+Its reviewed actions/envelopes have scoped owner acceptance; joint consumer/
+storage qualification remains required. It changes no canonical candidate/result/
+evaluation/disposition object or digest domain and
 implements no route or tool. Previously accepted evaluation/timing behavior
 remains unchanged; earlier technical amendments retain their separate gates.
 
@@ -1704,8 +1750,8 @@ These are synthetic contract expectations, not executed runtime tests:
 
 **Disposition.** Action IDs, request/receipt shapes, proposed carriers and
 retry/CAS/revocation order now have matching proposed #741/#742/#744 mappings.
-Technical owner acceptance, adapter delivery/effective restriction evidence,
-finite request/receipt/run/workspace/worker/storage quotas, artifact wrappers,
+The scoped technical acceptance is recorded above; adapter delivery/effective
+restriction evidence, broader run/workspace/worker/storage quotas, artifact wrappers,
 shared custody, #746 qualification, earlier identity/read/output proposals and
 separately approved implementation plans remain independent gates. No runtime
 API, model probe, profile eligibility, scoring authority or automatic retry is
@@ -1716,8 +1762,8 @@ delivered. Keep the component issues open.
 This is the proposed quota layer for the reporting protocol above, with matching
 [#742 admission/recovery](2026-10-04-orchestrator-preparation-design.md#proposed-reporting-quota-admission)
 and [#741 eligibility](2026-10-04-agent-role-configuration-design.md#proposed-reporting-quota-eligibility)
-boundaries. These are initial logical defaults requiring owner acceptance and
-joint storage/consumer review. They create no runtime limiter, filesystem space
+boundaries. These logical defaults have the scoped owner acceptance recorded
+above; joint storage/consumer qualification remains required. They create no runtime limiter, filesystem space
 guarantee, new request field, record/digest version or implementation authority.
 They apply to the four proposed assignment-reporting carrier routes only;
 research reports, parent proposals/events and retained worker-input reads keep
@@ -1916,8 +1962,8 @@ These are synthetic contract expectations, not executed limiter/storage tests:
 | Rate window expires after record/revision capacity is exhausted | New request admission is possible; exhausted durable record/receipt capacity stays exhausted |
 
 **Disposition.** Reporting rate, concurrency and receipt reservation/exhaustion
-rules now have concrete proposed defaults across #741/#742/#744. Owner acceptance,
-ledger/store/clock/worker qualification, broader artifact/evidence/read/run/
+rules have concrete owner-accepted defaults across #741/#742/#744.
+Ledger/store/clock/worker qualification, broader artifact/evidence/read/run/
 workspace/scratch resource quotas, #745/#746 custody/recovery, #740 eligibility,
 earlier technical amendments and separately approved implementation plans remain
 gates. The receipt pool is separate from #742's 32 MiB preparation/report-metadata
@@ -1926,8 +1972,9 @@ No runtime limiter, endpoint, profile or automatic maintenance is delivered.
 
 ## Joint technical review handoff — 2026-10-24
 
-**Disposition: ready for written owner review of the proposed technical choices,
-not an executable implementation handoff.** Review base:
+**Disposition: scoped #741/#742/#744 technical choices owner accepted on
+2026-10-24; not an executable implementation handoff.** See the
+[acceptance record](#technical-contract-acceptance--2026-10-24). Review base:
 `f1a298dfa9cb0a7d03d1116fd9af04faaf0be900`. This joint static pass checked the
 identity, read-input, output, reporting and quota amendments across #741/#742/
 #744 against the parent product flow, accepted ADR 0077 and the proposed #746
@@ -1957,11 +2004,11 @@ qualification work; this review does not select an external object store.
 | --- | --- |
 | Evaluation behavior/defaults, including 12 child / 4 user revisions per result | Owner accepted on 2026-10-23; unchanged by this review |
 | Exact-result timing and the separate user-created review run for future output | Owner accepted in PR #999; parent/example drift corrected here |
-| Frozen `assignmentTaskVersion` reservation snapshot and exact attachment proof | Proposed; written owner acceptance and producer/storage proof remain open |
-| Typed review input, independent retained-read capability and dependency protection | Proposed; executable review uses child v3, not the prior v2 input-only descriptor |
-| Output-bearing child v3 / root bootstrap v2, structured declarations and byte/rehash ledger | Proposed; numeric defaults and producer/native/storage qualification remain open |
-| Reporting action IDs, routes/envelopes, exact receipts, user retry namespace and inspection | Proposed; requires owner acceptance, adapter delivery and Electron/preload integration |
-| Request windows, cold restart, reserved receipt credits and 17/64/256 MiB receipt pools | Proposed; arithmetic/ownership reviewed, clock/worker/storage qualification remains open |
+| Frozen `assignmentTaskVersion` reservation snapshot and exact attachment proof | Owner accepted on 2026-10-24; producer/storage proof remains open |
+| Typed review input, independent retained-read capability and dependency protection | Owner accepted on 2026-10-24; executable review uses child v3 and qualification remains open |
+| Output-bearing child v3 / root bootstrap v2, structured declarations and byte/rehash ledger | Owner accepted on 2026-10-24, including source defaults; producer/native/storage qualification remains open |
+| Reporting action IDs, routes/envelopes, exact receipts, user retry namespace and inspection | Owner accepted on 2026-10-24; adapter delivery and Electron/preload integration remain open |
+| Request windows, cold restart, reserved receipt credits and 17/64/256 MiB receipt pools | Owner accepted on 2026-10-24; clock/worker/storage qualification remains open |
 | Hierarchy recovery behavior versus its SQLite mechanism | Recovery behavior has its separate owner acceptance; proposed ADR 0090, producer agreement and concrete storage/default qualification remain open |
 
 No unchanged canonical candidate/result/evaluation/disposition domain was
@@ -1970,7 +2017,8 @@ separation, capability classes, receipt-before-CAS retry order, target history,
 1,088-slot arithmetic, cold-window derivation or protected-source retention.
 Those are written-contract checks, not implementation or capability evidence.
 
-Before runtime planning, obtain the above technical acceptances, complete the
+The scoped technical amendments above are accepted. Before runtime planning,
+resolve the separately gated broader component choices and complete the
 artifact-wrapper and broader evidence/read/worker/scratch/storage quota and
 publication contracts, and resolve #745/#746 joint custody/recovery qualification.
 #740 still has no eligible role/profile and capped evidence work remains deferred
@@ -1978,5 +2026,6 @@ until November; #741 prohibits a runtime launch plan without that evidence.
 Any later executable slice needs its own approved implementation/qualification
 plan and canonical/route/clock/crash fixtures. Provider costs remain absent
 without an approved authenticated usage source; shared learning remains gated.
-Keep #741/#742/#744/#746 open. This handoff does not accept the proposed defaults,
-close unchecked criteria, approve runtime code or grant automatic maintenance.
+Keep #741/#742/#744/#746 open. This handoff records scoped technical acceptance;
+it does not accept SQLite architecture/limits, close unchecked implementation
+criteria, approve runtime code or grant automatic maintenance.

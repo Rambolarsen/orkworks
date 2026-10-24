@@ -7,12 +7,23 @@ tags: ["orkworks", "design"]
 
 # Agent role configuration and coding-tool permissions
 
-- Status: proposed contract; drafting authorized, written contract review pending
+- Status: broader component contract proposed; scoped #744 technical amendments accepted 2026-10-24, qualification/runtime gates open
 - Date: 2026-10-04
 - Tracking: [#741](https://github.com/Rambolarsen/orkworks/issues/741)
 - Product direction: [Agent hierarchy and configuration learning](2026-10-04-agent-hierarchy-and-configuration-learning-design.md)
 - Launch baseline: [Orchestrated child sessions](2026-09-26-taskmaster-orchestrated-child-sessions-design.md)
 - Eligibility evidence: [Coding-tool role capabilities](../../validation/agent-role-capabilities.md), [Claude Code 2.1.287 static assessment](../../validation/claude-code-role-capability-evidence.md), [#740](https://github.com/Rambolarsen/orkworks/issues/740)
+
+## Scoped technical acceptance — 2026-10-24
+
+The owner accepted the reviewed #744-facing admission identity, typed read input,
+output-bearing child v3/root-bootstrap v2, reporting-action/envelope and quota
+amendments in the
+[canonical acceptance record](2026-10-04-assignment-evaluation-design.md#technical-contract-acceptance--2026-10-24),
+following PR #1019. This supersedes pending-owner wording only for those named
+amendments. Broader #741 role/configuration choices, profile evidence, native/
+storage/consumer qualification and executable implementation approval remain
+separate gates. SQLite mechanism/limits and runtime work are not accepted here.
 
 ## Scope and status
 
@@ -994,8 +1005,9 @@ pending. This supplies no adapter eligibility or runtime schema amendment. Keep 
 
 This is the proposed #741 producer contract for #744's
 [accepted exact-result timing](2026-10-04-assignment-evaluation-design.md#proposed-exact-result-review-approval).
-The timing choice is accepted; the wire schema, read authority and custody
-amendment below need written owner acceptance and joint producer review. They
+The timing choice and reviewed wire/read-authority/custody amendment have the
+scoped owner acceptance recorded above; joint producer/storage qualification
+remains required. They
 supply no runtime implementation, endpoint, adapter eligibility or migration.
 
 ### Configuration version and placement
@@ -1085,9 +1097,11 @@ capability classes and reporting-action gates.
 
 This is the proposed #741 producer amendment for #744's declared outputs and
 [snapshot/finalization budget](2026-10-04-assignment-evaluation-design.md#proposed-output-byte-and-rehash-accounting).
-It requires owner acceptance and joint consumer review. All limits below are
-proposed initial defaults, not observed tool capacities or runtime support.
-It does not accept the earlier v2 review-input or frozen task-version proposals.
+The reviewed output schema/defaults have the scoped owner acceptance recorded
+above; joint consumer/native/storage qualification remains required. The limits
+are logical defaults, not observed tool capacities or runtime support. The
+reviewed typed-input and frozen-version choices share that scoped acceptance;
+none establishes adapter eligibility or runtime implementation authority.
 
 ### Placement, versions and canonical bytes
 
@@ -1228,8 +1242,9 @@ sidecar-derived under that UI path. There is no producer invalidation,
 finalization, artifact-upload or user-impersonation action. The root remains a
 coordination-only producer and cannot become an independent child reviewer.
 
-This is proposed contract work pending owner acceptance/joint consumer review,
-not adapter eligibility, permission expansion, a new UI token or runtime support.
+This action contract has the scoped owner acceptance recorded above; consumer/
+adapter qualification remains open. It supplies no adapter eligibility,
+permission expansion, new UI token or runtime support.
 Existing configuration/read/output/identity and #740 gates remain binding.
 
 ## Proposed reporting quota eligibility
@@ -1237,7 +1252,8 @@ Existing configuration/read/output/identity and #740 gates remain binding.
 The [#744 request/receipt quota policy](2026-10-04-assignment-evaluation-design.md#proposed-reporting-request-and-receipt-quotas)
 is a proposed sidecar admission policy for the existing reporting action sets,
 not an instruction-selected permission, new configuration field or credential
-scope. Its initial numeric defaults require owner acceptance/joint review before
+scope. Its reviewed numeric defaults have the scoped owner acceptance recorded
+above; joint consumer/clock/worker/storage qualification remains required before
 code. Adapter evidence must demonstrate bounded request delivery, denied
 response handling and receipt lookup within the effective frame/rate/concurrency
 limits; a broadly capable shell/HTTP client is no substitute. Existing exact
