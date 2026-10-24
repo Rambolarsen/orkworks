@@ -117,6 +117,7 @@ if (process.versions.electron) {
         assert.doesNotMatch(await evaluate('document.querySelector(".git-changes").textContent'),/committed edit/);
         for(const width of [1280,1000,640]){
           await win.setContentSize(width,700);
+          await waitFor(`document.querySelector(".shell-layout").dataset.mode==="${width>=1180?'wide':width>=860?'medium':'compact'}"`);
           await waitFor('document.querySelector(".git-changes")');
           await evaluate('fixture.output("changes panel output\\r\\n")');
           assert.equal(await evaluate('fixture.socketCount'),sockets);

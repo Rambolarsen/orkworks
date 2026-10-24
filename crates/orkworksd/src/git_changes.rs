@@ -304,6 +304,19 @@ pub fn capture(
         .ok()
         .and_then(|c| c.get_bool("core.filemode").ok())
         .unwrap_or(cfg!(unix));
+    let literal_symlinks = repo
+        .config()
+        .ok()
+        .and_then(|c| c.get_bool("core.symlinks").ok())
+        == Some(false);
+    // With core.symlinks=false the index defines which ordinary files are
+    // link-text checkouts. HEAD must not hide a staged conversion or replacement.
+    let link_modes: HashSet<String> = index
+        .iter()
+        .flat_map(|index| index.iter())
+        .filter(|entry| entry.mode == 0o120000 && entry.flags & 0x3000 == 0)
+        .filter_map(|entry| String::from_utf8(entry.path).ok())
+        .collect();
     let mut compare = |path: &str,
                        new: Result<Option<(Vec<u8>, i32)>, String>|
      -> Result<(), String> {
@@ -317,6 +330,16 @@ pub fn capture(
             .transpose();
         let pair = old_content.and_then(|old| {
             new.map(|mut new| {
+                if comparison == Comparison::Uncommitted
+                    && literal_symlinks
+                    && link_modes.contains(path)
+                {
+                    if let Some((_, mode)) = &mut new {
+                        if [0o100644, 0o100755].contains(mode) {
+                            *mode = 0o120000;
+                        }
+                    }
+                }
                 if comparison == Comparison::Uncommitted && !trust_filemode {
                     if let (Some((_, old_mode)), Some((_, new_mode))) = (&old, &mut new) {
                         if [0o100644, 0o100755].contains(old_mode)
@@ -900,6 +923,36 @@ mod tests {
         let c = capture(d.path(), Comparison::Branch, Some("refs/heads/main")).unwrap();
         assert_eq!(c.files.len(), 1);
         assert_eq!(c.files[0].path, "a.txt");
+    }
+    #[test]
+    fn non_symlink_checkouts_preserve_git_link_semantics() {
+        let d = init();
+        let repo = Repository::open(d.path()).unwrap();
+        let id = repo.blob(b"target.txt").unwrap();
+        git(
+            d.path(),
+            &[
+                "update-index",
+                "--add",
+                "--cacheinfo",
+                &format!("120000,{id},link"),
+            ],
+        );
+        git(d.path(), &["commit", "-qm", "link"]);
+        git(d.path(), &["config", "core.symlinks", "false"]);
+        std::fs::write(d.path().join("link"), "target.txt").unwrap();
+        let c = capture(d.path(), Comparison::Uncommitted, None).unwrap();
+        assert!(!c.partial);
+        assert!(c.files.is_empty());
+        git(d.path(), &["rm", "--cached", "link"]);
+        git(d.path(), &["add", "link"]);
+        let converted = capture(d.path(), Comparison::Uncommitted, None).unwrap();
+        assert_eq!(converted.files.len(), 1);
+        assert_eq!(converted.files[0].path, "link");
+        git(d.path(), &["rm", "--cached", "link"]);
+        let untracked = capture(d.path(), Comparison::Uncommitted, None).unwrap();
+        assert_eq!(untracked.files.len(), 1);
+        assert_eq!(untracked.files[0].path, "link");
     }
     #[test]
     fn snapshots_reject_foreign_subjects_and_expired_handles() {
