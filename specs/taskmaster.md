@@ -1523,3 +1523,13 @@ Taskmaster does not turn OrkWorks into an autonomous coding harness, task-board 
 It extends the core OrkWorks principle:
 
 > Peons tell OrkWorks what is happening. Taskmaster recommends what should happen next. The user decides whether it happens.
+
+## Workspace update transport (approved 2026-10-24)
+
+The owner-approved [push refresh design](../docs/superpowers/specs/2026-10-24-push-refresh-design.md)
+and [ADR 0092](../docs/adr/0092-workspace-update-stream.md) govern an additive
+read-only workspace WebSocket: complete session snapshot, changed rows/removals,
+and recommendation invalidation. Reconnect resynchronizes authoritatively; REST
+polling remains the compatibility/disconnection fallback. Thirty-second server
+reconciliation permits bounded delay for Git/cwd, clock and external changes.
+Session attention, organization and recommendation action authority are unchanged.

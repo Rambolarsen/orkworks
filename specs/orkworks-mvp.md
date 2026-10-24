@@ -1163,3 +1163,13 @@ or select it for new sessions. Antigravity CLI is the supported replacement and
 is launched as `agy`; it currently has no compiled integration, signal, voice,
 capacity, or model-selection capability beyond its documented launch and resume
 commands.
+
+## Workspace update transport (approved 2026-10-24)
+
+The owner-approved [push refresh design](../docs/superpowers/specs/2026-10-24-push-refresh-design.md)
+and [ADR 0092](../docs/adr/0092-workspace-update-stream.md) govern an additive
+read-only workspace WebSocket: complete session snapshot, changed rows/removals,
+and recommendation invalidation. Reconnect resynchronizes authoritatively; REST
+polling remains the compatibility/disconnection fallback. Thirty-second server
+reconciliation permits bounded delay for Git/cwd, clock and external changes.
+Session attention, organization and recommendation action authority are unchanged.

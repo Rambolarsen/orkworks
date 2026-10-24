@@ -107,3 +107,5 @@ Decision records and their original rationale and consequences.
 - [Workspace hierarchy SQLite transactions](0090-workspace-hierarchy-sqlite-transactions.md) — Proposed transaction owner and storage qualification gates.
 
 - [Read-only selected-session Git changes](0091-read-only-session-git-changes.md) — Bounded authenticated inspection with distinct worktree and branch comparisons.
+
+- [Workspace update stream](0092-workspace-update-stream.md) — Changed rows, shared recommendation invalidation and authoritative recovery.

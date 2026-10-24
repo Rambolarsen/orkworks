@@ -68,6 +68,8 @@ GitHub Actions has eight distinct workflow classes:
   approval-gated activation, and trust tests when Rust files, `rust-toolchain.toml`
   or the PR workflow change. It requires the targeted tests to be discoverable
   before running them, preventing a platform gate from producing an empty pass.
+  The same Windows job runs the workspace update socket/native watcher tests,
+  with required discovery of atomic-update and directory-recovery regressions.
   Existing Linux job names and branch-protection requirements are unchanged.
 - `.github/workflows/codex-listener-proof.yml` runs the dormant connected-stream
   proof and SDK decoder tests on a macOS arm64 runner for Rust changes on PRs

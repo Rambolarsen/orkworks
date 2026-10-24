@@ -675,3 +675,157 @@ test("Restore makes no missing-row inference from an unavailable refresh", async
   assert.deepEqual(disposed,[]);
   controller.dispose();
 });
+
+
+test("healthy update stream fences an older REST response and disconnect restores polling", async () => {
+  const stale = deferred<SessionInfo[]>();
+  let streamOptions: Parameters<NonNullable<WorkspaceSessionControllerDeps["startUpdates"]>>[0] | undefined;
+  let calls = 0;
+  const lists: string[][] = [];
+  const timing = scheduler();
+  const controller = createWorkspaceSessionController({
+    scheduler: timing.scheduler,
+    deps: deps({
+      listSessions: async () => { calls++; return calls === 2 ? stale.promise : [session("current")]; },
+      startUpdates: options => { streamOptions = options; options.onHealthy(false); return { dispose() {}, resync() {} }; },
+    }),
+    onSessions: rows => lists.push(rows.map(row => row.id)),
+  });
+  await controller.adoptRestoredWorkspace(workspace("/workspace"));
+  controller.setPollingEnabled(true);
+  await Promise.resolve(); await Promise.resolve();
+  assert.ok(streamOptions);
+  streamOptions.onHealthy(true); streamOptions.onSessions([session("new")]);
+  stale.resolve([session("stale")]); await Promise.resolve(); await Promise.resolve();
+  assert.deepEqual(lists.at(-1), ["new"]);
+  const before = calls; streamOptions.onHealthy(false);
+  await Promise.resolve(); await Promise.resolve();
+  assert.ok(calls > before);
+  controller.dispose();
+});
+
+for (const opening of ["adopt", "open"] as const) {
+  for (const userNavigates of [false, true]) {
+    test(`${opening}: stream winning initial REST restores the remembered session; navigation=${userNavigates}`, async () => {
+      const delayed = deferred<SessionInfo[]>();
+      const started = deferred<Parameters<NonNullable<WorkspaceSessionControllerDeps["startUpdates"]>>[0]>();
+      const active: Array<string | null> = [];
+      let controller!: ReturnType<typeof createWorkspaceSessionController>;
+      controller = createWorkspaceSessionController({
+        scheduler: scheduler().scheduler,
+        deps: deps({
+          setWorkspace: async () => workspace("/workspace", "remembered"),
+          listSessions: () => delayed.promise,
+          startUpdates: options => { started.resolve(options); options.onHealthy(false); return { dispose() {}, resync() {} }; },
+        }),
+        onWorkspace: value => { if (value) controller.setPollingEnabled(true); },
+        onActiveSession: id => active.push(id),
+      });
+      const openingPromise = opening === "adopt"
+        ? controller.adoptRestoredWorkspace(workspace("/workspace", "remembered"))
+        : controller.openWorkspace("/workspace");
+      const stream = await started.promise;
+      if (userNavigates) controller.selectSession("other");
+      stream.onHealthy(true); stream.onSessions([session("remembered"), session("other")]);
+      assert.equal(active.at(-1), userNavigates ? "other" : "remembered");
+      delayed.resolve([]); await openingPromise;
+      assert.equal(active.at(-1), userNavigates ? "other" : "remembered");
+      controller.dispose();
+    });
+  }
+}
+
+for (const opening of ["adopt", "open"] as const) {
+  test(`${opening}: REST restoration publishes the matching list before its active session`, async () => {
+    let published: readonly SessionInfo[] = [];
+    const active: Array<string|null> = [];
+    const controller = createWorkspaceSessionController({
+      deps: deps({ setWorkspace: async () => workspace("/workspace", "remembered"), listSessions: async () => [session("remembered")] }),
+      onSessions: rows => { published = rows; },
+      onActiveSession: id => { if (id) assert.ok(published.some(row => row.id === id), "restore must never publish an active ID before its list"); active.push(id); },
+    });
+    if (opening === "adopt") await controller.adoptRestoredWorkspace(workspace("/workspace", "remembered"));
+    else await controller.openWorkspace("/workspace");
+    assert.equal(active.at(-1), "remembered");
+    controller.dispose();
+  });
+}
+
+for (const action of ["restore", "delete"] as const) {
+  for (const fails of [false,true]) {
+    if (action === "delete" && !fails) continue;
+    for (const changesSelection of [false,true]) {
+      test(`${action} error=${fails}: accepted stream reconciles removed target before stale REST; navigation=${changesSelection}`, async () => {
+        const oldList = deferred<SessionInfo[]>();
+        const request = deferred<void>();
+        let streamOptions!: Parameters<NonNullable<WorkspaceSessionControllerDeps["startUpdates"]>>[0];
+        const active: Array<string|null> = [], disposed: string[] = [];
+        let delayLists = false;
+        const controller = createWorkspaceSessionController({
+          scheduler: scheduler().scheduler,
+          deps: deps({
+            listSessions: async () => delayLists ? oldList.promise : [session("target"), session("other")],
+            sessionAction: async () => { await request.promise; if (fails) throw new Error("Action partially failed"); },
+            disposeTerminal: id => disposed.push(id),
+            startUpdates: options => {
+              streamOptions = options; options.onHealthy(false);
+              return { dispose() {}, resync() { options.onHealthy(false); } };
+            },
+          }),
+          onActiveSession: id => active.push(id),
+        });
+        await controller.adoptRestoredWorkspace(workspace("/workspace"));
+        controller.setPollingEnabled(true); await Promise.resolve(); await Promise.resolve();
+        streamOptions.onHealthy(true); streamOptions.onSessions([session("target"), session("other")]);
+        controller.selectSession("target");
+        delayLists = true;
+        const operation = controller.sessionAction("target", action, "token").catch(error => error);
+        request.resolve();
+        await new Promise(resolve => setImmediate(resolve));
+        if (changesSelection) controller.selectSession("other");
+        streamOptions.onHealthy(true); streamOptions.onSessions([session("other")]);
+        assert.deepEqual(disposed,["target"], "accepted authority must reconcile even while REST is pending");
+        assert.equal(active.at(-1), changesSelection ? "other" : null);
+        oldList.resolve([session("target"), session("other")]); await operation;
+        assert.deepEqual(disposed,["target"]); assert.equal(active.at(-1), changesSelection ? "other" : null);
+        controller.dispose();
+      });
+    }
+  }
+}
+
+for (const changesSelection of [false,true]) {
+  test(`pre-mutation fallback cannot consume post-action stream reconciliation; navigation=${changesSelection}`, async () => {
+    const earlier = deferred<SessionInfo[]>(), actionList = deferred<SessionInfo[]>(), request = deferred<void>();
+    const timing = scheduler();
+    let phase = "initial", resyncs = 0;
+    let stream!: Parameters<NonNullable<WorkspaceSessionControllerDeps["startUpdates"]>>[0];
+    const active: Array<string|null> = [], disposed: string[] = [];
+    const controller = createWorkspaceSessionController({
+      scheduler: timing.scheduler,
+      deps: deps({
+        listSessions: async () => phase === "during" ? earlier.promise : phase === "after" ? actionList.promise : [session("target"),session("other")],
+        sessionAction: () => request.promise,
+        disposeTerminal: id => disposed.push(id),
+        startUpdates: options => { stream = options; options.onHealthy(false); return { dispose() {}, resync() { resyncs++; options.onHealthy(false); } }; },
+      }),
+      onActiveSession: id => active.push(id),
+    });
+    await controller.adoptRestoredWorkspace(workspace("/workspace"));
+    controller.setPollingEnabled(true); await new Promise(resolve=>setImmediate(resolve));
+    controller.selectSession("target");
+    const operation = controller.sessionAction("target","restore","token");
+    phase = "during";
+    assert.ok(timing.callbacks.length); timing.callbacks.at(-1)!();
+    await new Promise(resolve=>setImmediate(resolve));
+    phase = "after"; request.resolve(); await new Promise(resolve=>setImmediate(resolve));
+    earlier.resolve([session("target"),session("other")]); await new Promise(resolve=>setImmediate(resolve));
+    if (changesSelection) controller.selectSession("other");
+    stream.onHealthy(true); stream.onSessions([session("other")]);
+    assert.deepEqual(disposed,["target"]);
+    assert.equal(active.at(-1),changesSelection ? "other" : null);
+    assert.ok(resyncs > 0,"post-action refresh must fence an initial socket query that is still connecting");
+    actionList.resolve([session("target"),session("other")]); await operation;
+    assert.deepEqual(disposed,["target"]); controller.dispose();
+  });
+}
