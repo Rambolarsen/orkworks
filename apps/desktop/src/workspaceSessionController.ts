@@ -102,6 +102,7 @@ export function createWorkspaceSessionController(
   const pendingActions = new Set<string>();
   let sessions: SessionInfo[] = [];
   let activeSessionId: string | null = null;
+  let pendingRestoration: { id: string | null; foreground: number } | null = null;
   let lastResortAt = new Date(0);
   let pendingCreateIds: ReadonlySet<string> = new Set();
   const reportedErrors = new Set<string>();
@@ -141,6 +142,17 @@ export function createWorkspaceSessionController(
     publishSessions(next);
     options.onSessionSourceStatus?.("ready");
     reportedErrors.clear();
+    // Either REST or the stream can deliver the first authoritative list.
+    // Consume restoration once, without replacing intervening user navigation.
+    const restoration = pendingRestoration;
+    pendingRestoration = null;
+    if (restoration && isCurrent(restoration.foreground)) {
+      const match = next.find(session => session.id === restoration.id);
+      if (match && !isHistoricalSession(match)) {
+        activeSessionId = match.id;
+        options.onActiveSession?.(match.id);
+      }
+    }
     return next;
   }
 
@@ -221,6 +233,7 @@ export function createWorkspaceSessionController(
   }
 
   async function openWorkspace(path: string): Promise<void> {
+    pendingRestoration = null;
     setPollingEnabled(false);
     workspacePath = path;
     workspaceGeneration += 1;
@@ -229,19 +242,13 @@ export function createWorkspaceSessionController(
       const baseUrl = await deps.getBackendUrl();
       const info = await deps.setWorkspace(baseUrl, path);
       if (!isCurrent(token)) return;
+      pendingRestoration = { id: info.lastActiveSessionId ?? null, foreground: token };
       options.onWorkspace?.(info);
       activeSessionId = null;
       options.onActiveSession?.(null);
       publishSessions([]);
       options.onSessionSourceStatus?.("loading");
-      const refreshed = await refreshSessions(undefined, true);
-      if (!refreshed || !isCurrent(token)) return;
-      const restored = info.lastActiveSessionId;
-      const match = restored && sessions.find((session) => session.id === restored);
-      if (match && !isHistoricalSession(match)) {
-        activeSessionId = match.id;
-        options.onActiveSession?.(match.id);
-      }
+      await refreshSessions(undefined, true);
     } catch {
       if (isCurrent(token)) publishError("workspace", "Couldn't open workspace.");
     }
@@ -253,6 +260,7 @@ export function createWorkspaceSessionController(
     workspaceGeneration += 1;
     const token = ++foregroundGeneration;
     pendingCreateIds = new Set();
+    pendingRestoration = workspace ? { id: workspace.lastActiveSessionId ?? null, foreground: token } : null;
     reportedErrors.clear();
     activeSessionId = null;
     options.onActiveSession?.(null);
@@ -261,14 +269,7 @@ export function createWorkspaceSessionController(
     options.onWorkspace?.(workspace);
     if (!workspace || !isCurrent(token)) return;
 
-    const refreshed = await refreshSessions(undefined, true);
-    if (!refreshed || !isCurrent(token)) return;
-    const restored = workspace.lastActiveSessionId;
-    const match = restored && sessions.find((session) => session.id === restored);
-    if (match && !isHistoricalSession(match)) {
-      activeSessionId = match.id;
-      options.onActiveSession?.(match.id);
-    }
+    await refreshSessions(undefined, true);
   }
 
   async function createSession(optionsForCreate: CreateSessionOptions, shouldSelect: () => boolean = () => true): Promise<boolean> {
@@ -326,6 +327,7 @@ export function createWorkspaceSessionController(
 
   function selectSession(id: string): boolean {
     if (disposed || !admissionEnabled) return false;
+    pendingRestoration = null;
     activeSessionId = id;
     options.onActiveSession?.(id);
     return true;

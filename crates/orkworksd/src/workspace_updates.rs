@@ -441,6 +441,33 @@ mod tests {
         serde_json::from_str(message.to_text().unwrap()).unwrap()
     }
 
+    async fn next_session_update(
+        socket: &mut tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+        cursor: &mut u64,
+    ) -> Value {
+        tokio::time::timeout(Duration::from_secs(8), async {
+            loop {
+                let message = next_json(socket).await;
+                if message["type"] == "heartbeat" {
+                    continue;
+                }
+                if message["type"] == "unavailable" {
+                    return message;
+                }
+                assert_eq!(message["base"], json!(*cursor), "{message}");
+                assert_eq!(message["sequence"], json!(*cursor + 1), "{message}");
+                *cursor += 1;
+                if message["type"] != "recommendations-invalidated" {
+                    return message;
+                }
+            }
+        })
+        .await
+        .expect("session update deadline")
+    }
+
     #[tokio::test]
     async fn real_socket_publishes_changed_row_then_removal_without_full_retransmission() {
         let directory = tempfile::tempdir().unwrap();
@@ -488,20 +515,26 @@ mod tests {
             .metadata;
         changed.label = "Updated one row".into();
         metadata.write_session(&changed); // Exercise the real native watcher, no manual dirty signal.
-        let delta = next_json(&mut socket).await;
+        let mut cursor = invalidation["sequence"].as_u64().unwrap();
+        let delta = next_session_update(&mut socket, &mut cursor).await;
         assert_eq!(delta["type"], "sessions-delta");
-        assert_eq!(delta["base"], invalidation["sequence"]);
         assert_eq!(delta["changed"].as_array().unwrap().len(), 1);
         assert_eq!(delta["changed"][0]["id"], "session-7");
         assert!(delta.to_string().len() < snapshot.to_string().len() / 4);
-        metadata.delete_session("session-7").unwrap();
-        let removal = next_json(&mut socket).await;
+        {
+            // Exercise removal publication without intentionally racing the strict
+            // directory scan; incomplete reads are covered by the corruption case.
+            let _projection = state.projection_lock.lock().unwrap();
+            metadata.delete_session("session-7").unwrap();
+        }
+        let removal = next_session_update(&mut socket, &mut cursor).await;
+        assert_eq!(removal["type"], "sessions-delta", "{removal}");
         assert_eq!(removal["removed"], json!(["session-7"]));
         assert_eq!(removal["changed"], json!([]));
         assert_eq!(removal["order"].as_array().unwrap().len(), 31);
         // A corrupt remembered record must close for recovery, never remove it.
         std::fs::write(root.join("sessions/session-8.json"), b"invalid json").unwrap();
-        let unavailable = next_json(&mut socket).await;
+        let unavailable = next_session_update(&mut socket, &mut cursor).await;
         assert_eq!(unavailable["type"], "unavailable");
         server.abort();
     }

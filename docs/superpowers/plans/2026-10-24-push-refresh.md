@@ -139,3 +139,29 @@ the architecture concept and ADR. Existing bundle-size/circular-chunk and Rust
 dead-code warnings do not require unrelated edits. The pre-commit worktree hook
 called the new branch merged because its HEAD was still the fork point; staged
 changes were retained and require the owned PR before cleanup.
+
+## PR feedback cycle 1 of 3
+
+PR #1034's automated Codex review found a P2 startup-restoration race: the first
+stream snapshot fenced initial REST before its restoration continuation ran.
+Four regressions (open/adopt and intervening navigation) reproduced two failures;
+restoration now completes once from the first accepted authoritative list, with
+foreground/explicit-selection fencing. Two behavioral REST tests also verify
+list-before-active publication, replacing an implementation-specific regex.
+
+Windows CI exposed the socket fixture's assumption that every next frame is a
+session delta. The fixture now validates and advances a shared cursor through
+recommendation invalidations and leaves heartbeat/unavailable cursors unchanged.
+Its explicit deletion uses the projection lock; corruption still tests the
+incomplete-query recovery path. The navigation fixture now rejects corrupt or
+unsupported saved-state writes until rebuild, matching the real persistence
+contract. Delayed and pending rebuild Electron regressions passed.
+
+Fresh medium review approved these changes with no remaining material findings.
+Reviewed current app/sidecar diff SHA-256:
+`a6e7836407b858da6caf8da66ac60353cfbeb26be949027bda7b418d7e58218b`.
+The verifier's Rust suites, reporter tests, type check and native ABI repair
+passed on this production code; after the fixture corrections, the full desktop
+rerun passed 1,436 tests with two intentional skips. Seven native socket tests
+and 98 controller/shell tests passed separately. Hosted Windows revalidation
+remains a merge gate for this revision.

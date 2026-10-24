@@ -614,24 +614,6 @@ test("attachTerminal keeps a stable identity across starting transitions, so a s
   );
 });
 
-test("handleOpenWorkspace refreshes sessions before setting activeSessionId, so no consumer sees a real active id with an empty session list", () => {
-  const source = readFileSync(new URL("../src/workspaceSessionController.ts", import.meta.url), "utf8");
-
-  const start = source.indexOf("async function openWorkspace");
-  const end = source.indexOf("\n  async function createSession", start);
-  const body = source.slice(start, end);
-
-  const refreshMatch = body.match(/const refreshed = await refreshSessions\([^)]*\);/);
-  const refreshIndex = refreshMatch?.index ?? -1;
-  const setActiveIndex = body.indexOf("options.onActiveSession?.(match.id)");
-  assert.ok(refreshIndex !== -1, "openWorkspace should await refreshSessions()");
-  assert.ok(setActiveIndex !== -1, "openWorkspace should publish the restored active session");
-  assert.ok(
-    refreshIndex < setActiveIndex,
-    "refreshSessions() must resolve before activeSessionId is set, otherwise a consumer reading props.sessions " +
-      "for the just-set activeSessionId (e.g. the terminal) transiently sees no match during workspace switch",
-  );
-});
 
 test("titlebar icon is decorative beside the visible application name", () => {
   const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");

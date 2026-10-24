@@ -703,3 +703,50 @@ test("healthy update stream fences an older REST response and disconnect restore
   assert.ok(calls > before);
   controller.dispose();
 });
+
+for (const opening of ["adopt", "open"] as const) {
+  for (const userNavigates of [false, true]) {
+    test(`${opening}: stream winning initial REST restores the remembered session; navigation=${userNavigates}`, async () => {
+      const delayed = deferred<SessionInfo[]>();
+      const started = deferred<Parameters<NonNullable<WorkspaceSessionControllerDeps["startUpdates"]>>[0]>();
+      const active: Array<string | null> = [];
+      let controller!: ReturnType<typeof createWorkspaceSessionController>;
+      controller = createWorkspaceSessionController({
+        scheduler: scheduler().scheduler,
+        deps: deps({
+          setWorkspace: async () => workspace("/workspace", "remembered"),
+          listSessions: () => delayed.promise,
+          startUpdates: options => { started.resolve(options); options.onHealthy(false); return { dispose() {}, resync() {} }; },
+        }),
+        onWorkspace: value => { if (value) controller.setPollingEnabled(true); },
+        onActiveSession: id => active.push(id),
+      });
+      const openingPromise = opening === "adopt"
+        ? controller.adoptRestoredWorkspace(workspace("/workspace", "remembered"))
+        : controller.openWorkspace("/workspace");
+      const stream = await started.promise;
+      if (userNavigates) controller.selectSession("other");
+      stream.onHealthy(true); stream.onSessions([session("remembered"), session("other")]);
+      assert.equal(active.at(-1), userNavigates ? "other" : "remembered");
+      delayed.resolve([]); await openingPromise;
+      assert.equal(active.at(-1), userNavigates ? "other" : "remembered");
+      controller.dispose();
+    });
+  }
+}
+
+for (const opening of ["adopt", "open"] as const) {
+  test(`${opening}: REST restoration publishes the matching list before its active session`, async () => {
+    let published: readonly SessionInfo[] = [];
+    const active: Array<string|null> = [];
+    const controller = createWorkspaceSessionController({
+      deps: deps({ setWorkspace: async () => workspace("/workspace", "remembered"), listSessions: async () => [session("remembered")] }),
+      onSessions: rows => { published = rows; },
+      onActiveSession: id => { if (id) assert.ok(published.some(row => row.id === id), "restore must never publish an active ID before its list"); active.push(id); },
+    });
+    if (opening === "adopt") await controller.adoptRestoredWorkspace(workspace("/workspace", "remembered"));
+    else await controller.openWorkspace("/workspace");
+    assert.equal(active.at(-1), "remembered");
+    controller.dispose();
+  });
+}
