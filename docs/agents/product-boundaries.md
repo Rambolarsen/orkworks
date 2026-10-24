@@ -85,6 +85,11 @@ switching—keyboard navigation, MRU ordering, and jump-to-session search—not
 parallel visibility. See [ADR 0078](../adr/0078-fixed-desktop-shell-and-central-navigation.md)
 for the accepted shell and navigation contract.
 
+A proposed [selected-session Git changes viewer](../../specs/session-git-changes.md)
+uses this same inspector for read-only worktree and committed-branch comparisons.
+Issue #96 still requires concrete design and scoped plan approval; this proposal
+does not grant Git mutation authority or replace central plan/spec Review.
+
 ## Related context
 
 - [Project context](project-context.md) covers the product's repository state

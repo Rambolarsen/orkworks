@@ -110,6 +110,13 @@ projection and reuse the diff for sessions sharing a worktree. These totals
 describe the worktree, not edits attributable to one session; sessions sharing
 a worktree show the same totals. No coding-tool status-line parsing is needed.
 
+A read-only selected-session changes viewer is proposed in
+[selected-session Git changes](session-git-changes.md), tracked by
+[#96](https://github.com/Rambolarsen/orkworks/issues/96). It distinguishes net
+uncommitted changes against HEAD from committed branch changes since the merge
+base with a visibly selected base ref. The concrete design and scoped plan await
+owner approval; the existing totals do not imply a working diff viewer.
+
 Example recommendations:
 
 ```text
