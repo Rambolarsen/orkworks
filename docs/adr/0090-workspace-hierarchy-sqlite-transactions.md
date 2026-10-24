@@ -48,3 +48,14 @@ platform qualification, accepted architecture or runtime implementation approval
 Independent stores and ordinary session history remain unchanged. Owner acceptance,
 producer agreement, strict schema/fixtures, native evidence and separate runtime
 plans are still required. No same-user rollback protection is claimed.
+
+## Architecture review — 2026-10-24
+
+The [owner-review handoff](../superpowers/specs/2026-10-23-hierarchy-transaction-storage-design.md#architecture-owner-review-handoff--2026-10-24)
+clarifies caller cancellation, terminal ordinary-generation exhaustion and which
+proposed limits lack stock enforcement. The two-second SQL value is a cooperative
+cancellation threshold, not a hard return/rollback guarantee. Auxiliary-file,
+scoped scratch/row accounting, authority/commit ordering and native durability
+proof remain no-go conditions before an executable handoff. No global allocator
+change or custom VFS is implied. This review does not accept this ADR, qualify
+a platform or authorize runtime implementation.

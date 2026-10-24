@@ -158,3 +158,30 @@ plan; these tables are not executed tests or that plan. Keep #744/#746 open.
 A [candidate transaction/storage design](../superpowers/specs/2026-10-23-hierarchy-transaction-storage-design.md)
 now proposes the durable unit, writer routes and finite limits. This is a proposal
 for owner review, not closure of the qualification gaps above.
+
+## SQLite design review follow-up — 2026-10-24
+
+The [architecture review](../superpowers/specs/2026-10-23-hierarchy-transaction-storage-design.md#architecture-owner-review-handoff--2026-10-24)
+remains static evidence, with every platform unqualified. The pinned dependency
+and available PRAGMAs do not qualify hard active-journal, aggregate scratch or
+logical-row work limits. Include auxiliary file classes, effective wrapper/API
+features, cooperative SQL-deadline interval/overshoot and ordinary SQLite-user
+compatibility in the future native packet.
+
+Before code, also fix the exact authority/commit ordering across revocation and
+SQL/fsync without blocking ordinary controls. Client wait cancellation cannot
+stand in for that ordering or prove rollback. Required synthetic additions are:
+
+| Case | Required observable outcome |
+| --- | --- |
+| Queued caller disconnects before worker start | Waiter detaches; source authority and exact receipt/predecessor rules still decide the command, with no invented acceptance |
+| Active caller cancels before/after durable commit | Keep the worker/fence until proven disposition; a committed receipt survives response loss; no replacement worker or blind retry |
+| Runtime/lease revocation races commit | Preserve the accepted source cutoff under a qualified ordering; a prior volatile check is insufficient |
+| Ordinary generation overflows | Terminal unavailable lifetime, no token reuse; ordinary controls remain usable and fresh scope requires recapture/fencing |
+| Statement journal or other auxiliary spill is attempted | Qualified adapter enforces the allowed class/budget or rejects; `temp_store` alone is not evidence |
+| Interrupt deadline is reached during prepare/step or near commit | Observe qualified cancellation interval and reconcile actual commit/rollback; no hard response-time claim from the interrupt request |
+
+These are future qualification requirements, not executed tests or an approved
+probe/implementation plan. Architecture/default acceptance, artifact/payload
+placement, producer agreement, #740 eligibility and all existing custody/runtime
+gates remain independent.

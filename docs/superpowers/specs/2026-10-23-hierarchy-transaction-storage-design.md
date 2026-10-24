@@ -23,6 +23,9 @@ remain the requirements. This proposes their storage mechanism; it does not
 accept the wider producer/UI contracts, qualify any OS/filesystem, or open
 #740's deferred capability gate. Shared-learning custody and runtime plans stay
 separately gated. No code, database or live probe is delivered here.
+The [scoped #741/#742/#744 technical acceptance](2026-10-04-assignment-evaluation-design.md#technical-contract-acceptance--2026-10-24)
+is now recorded separately; it accepts neither this mechanism/limits nor the
+broader #746 producer/UI mappings or any native storage profile.
 
 ## Proposed decision and alternatives
 
@@ -141,6 +144,12 @@ copies. A read must validate both tokens; there is no claim that the ordinary
 change preceded or followed the durable change in one persisted history. This
 is sufficient because ordinary copies cannot change that transaction's material.
 A pending ordinary write or unknown generation keeps the read reconciling.
+If the checked ordinary-generation increment exhausts its range, mark that
+publication lifetime terminal/unavailable for complete hierarchy reads; never
+wrap, reuse a token or reset the counter in place. Ordinary controls continue.
+Only an explicitly established fresh publication lifetime, with all source
+copies/joins recaptured and old requests fenced, may use a new generation scope.
+This is not a durable summary reset, sidecar auto-restart or restored authority.
 
 An actual #744 evidence-currentness change (for example detected loss of a
 retained immutable source) is different: announce a health fence immediately,
@@ -162,6 +171,34 @@ outside the latch; revalidate every token at publication as the recovery contrac
 requires. Existing two-attempt/five-second/response-size limits are unchanged.
 Equal snapshot versions still serialize identically. No SQLite read transaction
 stays open while a renderer inspects details or while files are copied/hashed.
+
+### Caller cancellation and authority changes
+
+Queue admission is not source acceptance or a durable receipt. After a bounded
+command has entered the worker queue, client cancellation, disconnect or timeout
+detaches its waiter; it does not silently remove the command, refund source-rate
+charges, imply rollback or release its publication position. The worker still
+validates current authority/predecessors at execution/commit and either commits
+under the source contract or proves rejection/rollback. A later exact retry
+resolves the committed receipt before mutable-head CAS; an uncommitted attempt
+has no fabricated success receipt. Internal coalescing/reordering/dropping of
+queued source mutations is unsupported by this proposal.
+
+Once SQL is active, a caller deadline or interrupt request cannot prove its
+transaction disposition. Keep the worker charged and affected hierarchy fenced
+until rollback, commit or same-worker recovery is established. Committed objects,
+receipts and lineage survive a lost response. Never spawn a replacement worker,
+rerun a command or delete a journal merely because its waiter disappeared.
+
+Caller cancellation is distinct from actual run/runtime revocation, lease loss
+or namespace change. The accepted producer authority cutoff still applies.
+Commit-time authority validation must serialize with those transitions; a
+volatile flag checked before an unlocked SQL/fsync interval is not that proof.
+Before an executable handoff, specify and qualify the store/publication authority
+ordering that preserves revocation-before-write denial without holding ordinary
+core locks across SQL/fsync or making ordinary stop/end callbacks wait for I/O.
+An unresolved ordering is no-go; this review neither moves the accepted cutoff
+nor grants queued/active work an exemption from revocation.
 
 ### Writer routing
 
@@ -247,7 +284,8 @@ state; it never truncates an accepted command or weakens replay/retention.
 | Pending lineage/checkpoints | 64 MiB total canonical payload bytes and 4,096 pending transitions per workspace; preserve at least the preceding material for every unavailable initialized subject. New rows/changes must reserve proof capacity before source publication |
 | One durable command | 16 MiB total changed payload and 4,096 changed logical rows, including newly written immutable output bytes, canonical metadata, receipts, edges, fences and lineage; reject before commit if all required effects cannot fit |
 | Worker admission | One active command, at most eight waiting commands and 32 MiB total queued payload; apply source rates first. Queue pressure is a bounded failure, not a new accepted event |
-| SQL work | One transaction per command, no nested savepoints, triggers, SQL-supplied functions or automatic VACUUM; at most 100,000 visited logical rows and 2 seconds of interruptible SQL work per command. Slow OS I/O is not promised to be interruptible |
+| SQL work | One transaction per command, no nested savepoints, triggers, SQL-supplied functions or automatic VACUUM; at most 100,000 visited logical rows per command, using qualified query/application accounting rather than treating SQLite VM instructions as rows |
+| SQL cancellation deadline | 2 seconds of monotonic interruptible SQL work per command is the proposed cooperative cancellation threshold, shared across its statements rather than reset per statement. Qualify progress-check interval, maximum observed overshoot and abort/recovery handling before claiming support; it is not a two-second return/rollback guarantee. Blocked OS I/O remains separately unqualified |
 | Busy/recovery | 100 ms busy timeout; one retained worker with no replacement threads on timeout. A client deadline cannot prove a transaction aborted; retain the pending fence until outcome is reconciled |
 | SQLite rollback journal | 2 GiB hard file ceiling, enforced by the qualified storage/VFS adapter on writes, including recovery; `journal_size_limit=0` is cleanup policy only, not an active-log limit |
 | SQLite scratch/staging | No application staging files or disk-backed SQL temporary store; `temp_store=MEMORY`, at most 8 MiB statement scratch under the qualified adapter. Reject work that cannot stay within that budget |
@@ -287,6 +325,45 @@ There is no WAL checkpoint schedule or application segment rotation. DELETE
 journal recovery belongs to SQLite; never unlink a hot journal or reset an epoch
 to make startup succeed. Application checkpoint compaction follows the atomic
 lineage rule above. Reject unreviewed schema upgrades instead of migrating data.
+
+### Limit feasibility review — 2026-10-24
+
+Review base: `ff4c9f0338eaf1224cfe86027e466174730785f8`. Static manifest/lock
+inspection finds `rusqlite 0.32.1` and `libsqlite3-sys 0.30.1`; the sidecar
+manifest explicitly selects `bundled`. Those identities are not a native SQLite
+build/feature/OS/VFS qualification packet. No dependency feature was changed,
+database opened, native fault fixture run or platform qualified for this review.
+
+| Proposed bound | Available mechanism / remaining proof |
+| --- | --- |
+| 1 GiB main file | Stock `max_page_count` with verified 4,096-byte page size, current page count and effective readback; an oversized existing file cannot be made eligible by requesting a lower maximum |
+| 2 GiB active rollback journal | No `journal_size_limit` peak cap; requires qualified write/recovery enforcement. Without that evidence the adapter stays no-go |
+| 8 MiB statement scratch | `temp_store=MEMORY` routes eligible temporary work but does not enforce this aggregate memory limit. A qualified scoped mechanism is still required |
+| 100,000 visited logical rows | No generic SQLite runtime row-visit limit. Prove query/application-specific counting for every admitted statement and recovery path; returned rows or VM instruction callbacks are not a substitute |
+| Two-second SQL cancellation threshold | Progress/interrupt controls provide cooperative cancellation opportunities, not proof of prompt return or transaction outcome. Effective API/features, interval/overshoot, preparation/step/commit coverage and abort reconciliation need qualification |
+
+These distinctions follow SQLite's [page/journal/temp PRAGMAs](https://www.sqlite.org/pragma.html),
+[runtime-limit categories](https://www.sqlite.org/c3ref/c_limit_attached.html),
+[progress callback](https://www.sqlite.org/c3ref/progress_handler.html) and
+[interrupt](https://www.sqlite.org/c3ref/interrupt.html) contracts. In particular,
+progress callbacks use approximate VM instruction intervals. The wrapper's
+[version-pinned feature list](https://docs.rs/crate/rusqlite/0.32.1/features)
+separates optional hooks/limits from the declared bundled profile; selecting an
+API/feature/FFI route belongs to a separately reviewed implementation choice,
+not evidence supplied by the current manifest.
+
+SQLite's [temporary-file inventory](https://www.sqlite.org/tempfiles.html)
+includes statement journals and other auxiliary file classes. Qualify every
+file class and its write/recovery path; do not infer absence of disk spill from
+`temp_store` alone. Unknown/unbounded auxiliary files keep the adapter no-go,
+so the main-plus-journal total above is a required proved bound, not an observed
+fact. No new external payload store or implicit custom VFS is authorized.
+
+The [heap-limit API](https://www.sqlite.org/c3ref/hard_heap_limit64.html) scopes
+limits across connections in the process. Do not silently use process-global
+allocator/heap/configuration changes as a per-hierarchy scratch limiter: ordinary
+SQLite users such as the Codex reader must retain their behavior. Any needed
+scoped adapter or broader process-level design requires separate review/approval.
 
 ## Recovery and qualification
 
@@ -332,3 +409,37 @@ schema/digest fixtures and adapter feasibility evidence are prerequisites for
 that plan. #740 eligibility, #741/#742 review, #744/#746 projection agreement,
 shared custody and runtime-plan approvals remain independent gates. Keep the
 issues open; no runtime availability follows from this proposal.
+
+## Architecture owner-review handoff — 2026-10-24
+
+**Disposition: ready for an architecture/default decision with explicit no-go
+qualification gates; not an executable implementation handoff.** The proposed
+choice is one selected-workspace SQLite durable unit/private worker, typed
+producer commands, DELETE/EXTRA journaling, FIFO durable publication, independent
+ordinary display generations and proof-preserving checkpoints. JSON mirrors,
+a general file-transaction broker, WAL scheduling and automatic destructive
+recovery remain excluded from this proposed slice.
+
+Two bounded read-only reviews checked atomicity/recovery and limit feasibility;
+the owning session checked the accepted producer contract and primary SQLite
+API documentation. This review added explicit caller-cancellation/ordinary-
+generation-exhaustion outcomes and the feasibility matrix above. It also names
+the still-unqualified authority/commit ordering and auxiliary-file coverage;
+no profile is claimed merely because SQLite provides transactions or PRAGMAs.
+
+The owner decision must distinguish mechanism/limits from evidence: the 1 GiB
+main / 2 GiB journal / 8 MiB scratch and 16 MiB complete-command limits are still
+proposed, with the two-second value clarified as a cooperative cancellation
+threshold. A maximum #744 payload must fit with all its metadata/lineage under
+the complete command cap. The accepted #744 request lanes/receipt credits remain
+independent and are not reset or guaranteed physically writable by this store.
+
+Architecture acceptance would permit only further scoped design/qualification
+preparation. Before runtime code, complete caller/direct-write inventory, strict
+storage schemas and canonical fixtures, full source/authority/retention mapping,
+payload placement/whole-command budgeting, native clock/SQL/allocator/VFS/file-
+class evidence and a separately approved implementation/qualification plan.
+#740 remains no-go/deferred until November; broader #741/#742 decisions,
+#744/#746 producer/projection agreement and #745 shared custody retain their
+gates. No model/native probe, automatic adapter work, code change or accepted
+architecture is delivered by this review. Keep #744/#746 open.
