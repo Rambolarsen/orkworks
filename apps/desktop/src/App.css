@@ -3002,3 +3002,14 @@ html, body, #root {
 .new-session-image-list span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .new-session-image-list button { justify-self: start; border: 0; color: inherit; background: transparent; text-decoration: underline; cursor: pointer; }
 .new-session-image-error { color: var(--error, #dc6464); width: 100%; }
+
+.session-app-menu { position: relative; flex-shrink: 0; }
+.session-app-popover {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 30;
+  width: min(280px, calc(100vw - 24px)); padding: 6px;
+  border: 1px solid var(--border-default); border-radius: 8px;
+  background: var(--surface-2); box-shadow: 0 6px 24px #0005;
+}
+.shell-toolbar .session-app-popover button { width: 100%; justify-content: flex-start; }
+.session-app-popover p { margin: 6px 8px; font-size: 12px; line-height: 1.5; color: var(--text-muted); white-space: normal; }
+.session-app-popover [role=alert] { color: var(--attention-needs-you); }

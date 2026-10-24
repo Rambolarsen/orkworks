@@ -126,6 +126,8 @@ contextBridge.exposeInMainWorld("orkworks", {
     ipcRenderer.invoke("set-harness-command-override", harnessId, commandPath),
   clearHarnessCommandOverride: (harnessId: string): Promise<unknown> =>
     ipcRenderer.invoke("clear-harness-command-override", harnessId),
+  inspectSessionApp: (workspacePath: string, sessionId: string): Promise<import("./sessionAppOpener").SessionAppAvailability> => ipcRenderer.invoke("inspect-session-app", workspacePath, sessionId),
+  openSessionApp: (workspacePath: string, sessionId: string): Promise<void> => ipcRenderer.invoke("open-session-app", workspacePath, sessionId),
   openExternalLink: (url: string): Promise<void> => ipcRenderer.invoke("open-external-link", url),
   getPlanContent: (sessionId: string): Promise<string> => ipcRenderer.invoke("get-plan-content", sessionId),
   requestPlanReview: (sessionId: string): Promise<void> => ipcRenderer.invoke("request-plan-review", sessionId),

@@ -1,5 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from "electron";
-import { spawn } from "child_process";
+import { spawn, execFile } from "child_process";
+import { stat } from "node:fs/promises";
+import { inspectSessionApp, openSessionApp, type SessionAppDependencies } from "./sessionAppOpener";
 import { normalizeImageCreation, submitImageSession } from "./sessionImages";
 import { createHash, randomBytes } from "crypto";
 import { existsSync, readFileSync } from "fs";
@@ -1379,6 +1381,36 @@ app.whenReady().then(async () => {
     }
     return { ok: false, state: "picker", failure: result.failure };
   });
+
+  function sessionAppRequest(expectedWorkspace: unknown, id: unknown, open: boolean) {
+    if (typeof expectedWorkspace !== "string" || expectedWorkspace !== workspacePath) throw new Error(STALE_BACKEND_GENERATION_MESSAGE);
+    return withReadyBackendGeneration(async (port, _token, signal) => {
+      if (expectedWorkspace !== workspacePath) throw new Error(STALE_BACKEND_GENERATION_MESSAGE);
+      const read = async (resource: string) => {
+        const response = await sidecarSend(port, resource, { signal, timeoutMs: 10_000 });
+        if (!response.ok) throw new Error("Couldn't read the current session's desktop destination.");
+        return response.json();
+      };
+      const deps: SessionAppDependencies = {
+        platform: process.platform, arch: process.arch, signal,
+        readSessions: () => read("sessions"), readHarnesses: () => read("harnesses"),
+        applicationForProtocol: async url => app.getApplicationNameForProtocol(url),
+        checkDirectory: async cwd => { if (!(await stat(cwd)).isDirectory()) throw new Error("The session directory is unavailable."); },
+        openExternal: url => shell.openExternal(url),
+        run: (command, args, cwd) => new Promise<string>((resolve, reject) => {
+          signal.throwIfAborted();
+          const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("ORKWORKS_")));
+          execFile(command, args, { cwd, env, signal, timeout: 15_000, maxBuffer: 256 * 1024, windowsHide: true }, (error, stdout) => {
+            if (error) reject(new Error("Couldn't open Claude. Check that Claude Code and Claude Desktop are installed, you are signed in with a subscription, and the session is closed."));
+            else resolve(stdout);
+          });
+        }),
+      };
+      return open ? openSessionApp(id, deps) : inspectSessionApp(id, deps);
+    });
+  }
+  ipcMain.handle("inspect-session-app", (_event, expectedWorkspace: unknown, id: unknown) => sessionAppRequest(expectedWorkspace, id, false));
+  ipcMain.handle("open-session-app", (_event, expectedWorkspace: unknown, id: unknown) => sessionAppRequest(expectedWorkspace, id, true));
 
   ipcMain.handle("open-external-link", (_event, url: unknown) => {
     openExternalLink(url, shell.openExternal);

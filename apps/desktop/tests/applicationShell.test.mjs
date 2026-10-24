@@ -26,7 +26,46 @@ if (process.versions.electron) {
       await fresh();
       const scenario = process.env.ORKWORKS_SHELL_SCENARIO;
       const click = async command => evaluate('(()=>{const b=document.querySelector("[data-shell-command=' + command + ']");b.focus();b.click()})()');
-      if (scenario === 'sidebar-icon-rail') {
+      if (scenario === 'open-session-app') {
+        assert.deepEqual(await evaluate('fixture.nativeOpened'), [], 'rendering never opens an application');
+        await evaluate('document.querySelector("[data-session-app-trigger]").click()');
+        await waitFor('document.querySelector("[data-session-app-open]")&&!document.querySelector("[data-session-app-open]").disabled');
+        assert.match(await evaluate('document.querySelector("[data-session-app-open]").textContent'), /ChatGPT/);
+        await evaluate('document.querySelector("[data-session-app-open]").click()');
+        await waitFor('fixture.nativeOpened.length===1');
+        assert.deepEqual(await evaluate('fixture.nativeOpened'), [['/tmp/test','coding']]);
+        await evaluate('fixture.select("other")');
+        await waitFor('document.querySelector(".shell-context h1").textContent==="other"');
+        await evaluate('fixture.nativeFailure=true;document.querySelector("[data-session-app-trigger]").click()');
+        await waitFor('document.querySelector("[data-session-app-open]")&&!document.querySelector("[data-session-app-open]").disabled');
+        await evaluate('document.querySelector("[data-session-app-open]").click()');
+        await waitFor('document.querySelector(".session-app-menu [role=alert]")');
+        assert.match(await evaluate('document.querySelector(".session-app-menu").textContent'), /App refused/);
+        await evaluate('document.querySelector("[data-session-app-trigger]").dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
+        await waitFor('!document.querySelector(".session-app-popover")');
+        assert.equal(await evaluate('document.activeElement.hasAttribute("data-session-app-trigger")'),true);
+        await evaluate('fixture.nativeUnavailable=true;document.querySelector("[data-session-app-trigger]").click()');
+        await waitFor('document.querySelector(".session-app-menu").textContent.includes("Close this session first")');
+        assert.equal(await evaluate('document.querySelector("[data-session-app-open]").disabled'),true);
+        await evaluate('fixture.advanceWorkspace()');
+        await waitFor('!document.querySelector(".session-app-popover")');
+        await win.setContentSize(360,700);
+        await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
+        await evaluate('fixture.nativeUnavailable=false;document.querySelector("[data-session-app-trigger]").click()');
+        await waitFor('document.querySelector("[data-session-app-open]")&&!document.querySelector("[data-session-app-open]").disabled');
+        assert.ok(await evaluate('(()=>{const r=document.querySelector(".session-app-popover").getBoundingClientRect();return r.x>=0&&r.right<=innerWidth})()'), 'menu stays within compact viewport');
+        if (process.env.ORKWORKS_CAPTURE_SESSION_APP) {
+          const {writeFileSync}=await import('node:fs');
+          writeFileSync(process.env.ORKWORKS_CAPTURE_SESSION_APP,(await win.webContents.capturePage()).toPNG());
+        }
+        await evaluate('fixture.setCreating(true)');
+        await waitFor('!document.querySelector("[data-session-app-trigger]")');
+        await evaluate('fixture.setCreating(false);fixture.select(null)');
+        await waitFor('document.querySelector(".shell-context h1").textContent==="Terminal"');
+        assert.equal(await evaluate('!!document.querySelector("[data-session-app-trigger]")'),false);
+        assert.deepEqual(await evaluate('fixture.errors'),[]);
+        return;
+      } else if (scenario === 'sidebar-icon-rail') {
         await waitFor('fixture.runtime()?.terminal.element?.isConnected');
         const sockets = await evaluate('fixture.socketCount');
         assert.equal(await evaluate('document.querySelectorAll("[data-shell-command=sessions]").length'), 1, 'expanded sidebar has one toggle');
@@ -1359,7 +1398,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['sidebar-icon-rail','app-review-archived-stale','recommendations-main','inspector-dismissal','inspector-overlay','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['open-session-app','sidebar-icon-rail','app-review-archived-stale','recommendations-main','inspector-dismissal','inspector-overlay','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
@@ -1391,6 +1430,9 @@ if (process.versions.electron) {
           fixture.runtime=()=>getTerminal(fixture.activeSessionId||'coding');
           fixture.runtimeCount=()=>getLiveTerminalCount();
           window.orkworks = {notifyPanelVisibility:()=>{},getBackendUrl:()=>Promise.resolve('http://127.0.0.1:12345'),getWorkspaceHistory:async()=>({pinned:[],recent:['/tmp/test','/tmp/other'],diagnostic:null})};
+          fixture.nativeOpened=[];
+          window.orkworks.inspectSessionApp=async()=>fixture.nativeUnavailable?{label:'Claude',available:false,reason:'Close this session first'}:{label:'ChatGPT',available:true};
+          window.orkworks.openSessionApp=async(...args)=>{if(fixture.nativeFailure)throw new Error('App refused');fixture.nativeOpened.push(args)};
           window.orkworks.pinWorkspacePath=async()=>{fixture.pins++;return {pinned:[],recent:['/tmp/test','/tmp/other'],diagnostic:null}};
           fixture.noticeCommands=[];fixture.preferenceWrites=0;fixture.preferenceReads=0;fixture.rebuildCalls=0;fixture.resetCalls=0;fixture.cancelRebuild=true;
           fixture.snapshot={preferences:{sessionsWidth:240,inspectorWidth:320,sessionsVisible:true,density:'low'},revision:0,diagnostic:${JSON.stringify(scenario)}==='preferences-recovery'?'corrupt_record':null};

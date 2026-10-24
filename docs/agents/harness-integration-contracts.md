@@ -365,3 +365,36 @@ approval mailboxes keep their existing behavior. No normal reporter invocation,
 stable installed-asset entry, source capability, launch marker or qualification
 row uses this path. Native callback completeness and effective launch/producer
 qualification remain independent gates; local queue tests cannot prove them.
+
+## Native application opening
+
+The owner approved #1015 on 2026-10-24: the selected-session top-bar **Open in…**
+menu opens the same local conversation in its corresponding desktop application.
+It never starts a new conversation or falls back to the latest one.
+
+- Codex uses `codex://threads/<native-session-uuid>`, documented in
+  [ChatGPT commands](https://learn.chatgpt.com/docs/reference/commands).
+  ChatGPT retains the `codex` scheme for compatibility.
+- Claude Code uses `claude --desktop --resume <native-session-uuid>` from the
+  session directory, documented in
+  [Coming from the CLI](https://code.claude.com/docs/en/desktop#coming-from-the-cli).
+  This requires Claude Code 2.1.285+, macOS or x64 Windows, subscription login
+  and Claude Desktop. A running terminal/background session cannot be moved.
+  The menu requires a dead local session and never silently ends one.
+
+Installed capability inspection on 2026-10-24 found Claude Code 2.1.308 with
+`--desktop` and `--resume` in its help, and the installed ChatGPT and Claude
+applications registering `codex` and `claude` respectively. This is capability
+evidence, not a live transfer test or a claim about published OrkWorks installers.
+Authentication, missing native transcripts and app-specific refusal remain
+launch-time errors. Other coding tools and custom/overridden definitions have no qualified native
+destination in this first slice.
+
+The renderer supplies a session ID and expected workspace path only. Electron
+reloads the session and resolved coding-tool definition from the current sidecar,
+checks exact native UUID identity, validates the directory and supported platform,
+and probes the configured Claude command for `--desktop` support. Native commands
+use fixed argv without a shell, bounded output/time, and an environment stripped
+of OrkWorks capabilities. Generation cancellation prevents stale workspace work
+from opening an app. No general URL or command execution capability is exposed;
+ordinary external/terminal links retain their HTTP(S)-only policy.

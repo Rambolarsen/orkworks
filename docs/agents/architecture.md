@@ -440,6 +440,17 @@ the fixed shell.
 
 Electron-main denies renderer popup and navigation requests, delegates valid HTTP(S) links to the OS default browser, and keeps same-origin Vite reloads inside Electron during development. xterm's OSC-8 terminal links use the narrow `openExternalLink` preload bridge, so they bypass renderer `window.open()` while still receiving Electron-main URL validation. Renderer load/process failures log bounded diagnostics and show a resource-free local recovery document; its retry returns to the captured original app URL, with only that exact packaged `file:` target allowlisted.
 
+`inspectSessionApp(workspacePath, sessionId)` and
+`openSessionApp(workspacePath, sessionId)` expose only bounded native desktop
+opening. Electron reads current session/tool data from its own ready sidecar;
+`electron/sessionAppOpener.ts` validates the exact native UUID and built-in tool,
+checks app registration and Claude capability/lifecycle/directory, and revalidates
+identity and lifecycle after asynchronous probing before dispatch. Main binds
+requests to workspace generation and aborts stale work. Claude uses fixed argv
+without a shell, a 15-second timeout, a 256 KiB output bound and an environment
+without `ORKWORKS_` capabilities. General links remain HTTP(S)-only. See the
+[native application contract](harness-integration-contracts.md#native-application-opening).
+
 ## Frontend → backend API
 
 `apps/desktop/src/api.ts` defines TypeScript types and fetch wrappers for the REST API. `workspaceSessionController.ts` owns the single renderer polling loop, workspace switching, session refresh/merge, pending-create reconciliation, active-session restoration, session lifecycle actions, terminal pruning, and stale/disposed operation rejection. `App.tsx` retains React state and view wiring, passes controller callbacks into the UI, and enables or disables polling with the application lifecycle. `SettingsModal.tsx` owns its own durable snapshot versus draft, subsection-local save/revert behavior, provider verification, and partial-save status directly via component state; the Coding tools subsection saves through the Electron-main orchestration seam above, Hotkeys owns its own Save/Cancel/Restore lifecycle, Providers keep Apply/Save, and Retention plus Debug stay immediate or field-local. `settingsController.ts` itself is now scoped to `mergeIntegrationOperationFailures`, the pre-grouped-to-grouped result merge for coding-tool integration operation failures. Electron remains authoritative for defaults and persistence. Session state flows: Rust structs → JSON API → `SessionInfo`/`WorkspaceInfo` TS types → controller callbacks → React state → components. The payload exposes canonical `harnessId`, `modelProviderId`, and `modelId` fields alongside legacy fields during the migration window. Its session state is the canonical `creating → alive → stopping → dead` lifecycle, with alive-only attention (`working`, `idle`, `needs_you`, `blocked`, `failed`, or `capped`); `connectivity`, `terminalOutcome`, `lastActivityAt`, `lastOutputAt`, and `resumeOptions` provide supporting runtime and history context. `lastActivityAt` tracks meaningful situation changes for task history, while `lastOutputAt` tracks raw PTY output; session-list recency selects the newest valid timestamp. PTY lifetime is session-runtime-owned in the sidecar; the terminal WebSocket is an attach/detach transport rather than the thing that keeps the PTY alive.

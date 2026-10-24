@@ -75,6 +75,20 @@ folder or repository fallbacks open Details so you can read which conversation
 will resume before choosing. Resume support varies by coding tool. Published
 installers may still place resume actions inside Details.
 
+## Open a session in its desktop app
+
+In current source builds, select a session and choose **Open in…** in the top
+bar. Built-in Codex sessions can open the same conversation in **ChatGPT**.
+Built-in Claude Code sessions can open in **Claude** after you explicitly
+**Close** the session in OrkWorks. Opening never closes a running session for you.
+
+The exact native conversation ID must have been captured. The menu explains
+missing IDs, unsupported tools or custom configurations, and missing desktop
+apps. Claude also requires a supported CLI version, platform and subscription
+login. If opening fails, the error stays in the menu. OrkWorks never substitutes
+the most recent conversation or starts a new one. Published installers may not
+yet include this action.
+
 ## Find the next thing to inspect
 
 In current source builds, **Actions** shows session attention followed by
