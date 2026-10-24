@@ -952,7 +952,12 @@ shows the selected session, Details, and a prominent Resume session action for
 an ended session with an available resume option while connected. The action uses
 the existing selected-session resume callback for the exact strategy; other
 strategies reveal Details so the chooser discloses fallback semantics. When the
-sidebar is hidden, its Workspace menu keeps the sidebar controls reachable.
+sidebar is collapsed at medium and wide widths, an icon-only navigation rail
+retains New session, Recommendations, Capacity and Settings, and an expand
+button restores its saved width using the existing visibility preference.
+Compact widths omit the rail and retain the temporary Sessions page. The
+central Workspace menu keeps workspace switching and the full sidebar controls
+reachable whenever session history is hidden.
 The titlebar retains the product name
 and native window dragging/controls; active-workspace history warnings remain
 visible there even when the sidebar is hidden. The no-workspace picker displays

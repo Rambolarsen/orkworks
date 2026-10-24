@@ -2496,6 +2496,11 @@ html, body, #root {
 .shell-region--inspector > .shell-region-header [data-shell-return] { grid-area: 1 / 3; }
 .shell-region--inspector > .shell-region-header .shell-utility-scope { grid-area: 2 / 1 / auto / -1; }
 .shell-sidebar-top { flex: 0 0 auto; padding: var(--space-3) var(--space-2); border-bottom: 1px solid var(--border-subtle); }
+.shell-sidebar-rail { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; padding-top: var(--space-2); background: var(--surface-1); border-right: 1px solid var(--border-subtle); }
+.shell-sidebar-rail > nav { padding: 0 3px; }
+.shell-sidebar-rail button { justify-content: center; min-width: 44px; min-height: 44px; padding: 7px; }
+.shell-sidebar-rail > footer { margin-top: auto; flex-direction: column; padding: var(--space-2) 3px; }
+.shell-sidebar-rail .shell-connection { justify-content: center; min-height: 16px; }
 .shell-workspace { position: relative; padding: var(--space-1) var(--space-1) var(--space-3); }
 .shell-workspace-control { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); min-width: 0; }
 .shell-workspace-control > .titlebar-text { flex: 1; min-width: 0; }

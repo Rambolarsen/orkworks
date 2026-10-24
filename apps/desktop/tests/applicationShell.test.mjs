@@ -26,7 +26,35 @@ if (process.versions.electron) {
       await fresh();
       const scenario = process.env.ORKWORKS_SHELL_SCENARIO;
       const click = async command => evaluate('(()=>{const b=document.querySelector("[data-shell-command=' + command + ']");b.focus();b.click()})()');
-      if (scenario === 'app-review-archived-stale') {
+      if (scenario === 'sidebar-icon-rail') {
+        await waitFor('fixture.runtime()?.terminal.element?.isConnected');
+        const sockets = await evaluate('fixture.socketCount');
+        const expandedWidth = await evaluate('document.querySelector("[data-shell-region=sessions]").getBoundingClientRect().width');
+        await click('sessions');
+        await waitFor('document.querySelector("[data-shell-region=rail]")');
+        const rail = await evaluate(`(()=>{const r=document.querySelector('[data-shell-region=rail]');return {width:r.getBoundingClientRect().width,buttons:[...r.querySelectorAll('button')].map(b=>({name:b.getAttribute('aria-label'),title:b.title,text:b.innerText,icon:!!b.querySelector('svg')}))};})()`);
+        assert.ok(rail.width < expandedWidth && rail.width >= 44, 'collapse frees space and retains usable icon targets');
+        assert.ok(rail.buttons.length >= 4);
+        assert.ok(rail.buttons.every(b=>b.name && b.title && !b.text.trim() && b.icon), 'rail buttons are named, discoverable icons');
+        await evaluate('document.querySelector("[data-shell-region=rail] [data-shell-command=capacity]").click()');
+        await waitFor('document.querySelector("[data-shell-region=inspector]")');
+        await evaluate('document.querySelector("[data-shell-return]").click()');
+        await evaluate('document.querySelector("[data-shell-region=rail] [data-shell-settings]").click()');
+        assert.equal(await evaluate('fixture.settingsOpened'),1);
+        await evaluate('document.querySelector("[data-shell-region=rail] [data-shell-command=sessions]").click()');
+        await waitFor('document.querySelector("[data-shell-region=sessions]")');
+        assert.equal(await evaluate('document.querySelector("[data-shell-region=sessions]").getBoundingClientRect().width'),expandedWidth,'expanding restores the saved width');
+        assert.equal(await evaluate('fixture.selections'),0);
+        assert.equal(await evaluate('fixture.socketCount'),sockets,'collapse preserves the live terminal');
+        await click('sessions');
+        await win.setContentSize(640,700);
+        await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
+        assert.equal(await evaluate('!!document.querySelector("[data-shell-region=rail]")'),false);
+        await click('sessions');
+        await waitFor('document.getElementById("sessions-list")===document.activeElement');
+        assert.deepEqual(await evaluate('fixture.errors'),[]);
+        return;
+      } else if (scenario === 'app-review-archived-stale') {
         await waitFor('fixture.runtime()?.terminal.element?.isConnected');
         const sockets = await evaluate('fixture.socketCount');
         await evaluate('(()=>{const select=document.querySelector(".session-state-filter select");select.value="archived";select.dispatchEvent(new Event("change",{bubbles:true}))})()');
@@ -966,7 +994,7 @@ if (process.versions.electron) {
           await waitFor('!document.querySelector("[data-shell-region=sessions]")');
           await evaluate('fixture.command("capacity")');
           await waitFor('!document.querySelector("[data-shell-region=inspector]")');
-          assert.equal(await evaluate('document.activeElement.tagName'),'SUMMARY','lost sidebar invoker returns to visible workspace summary');
+          assert.ok(await evaluate('document.activeElement===document.querySelector("[data-shell-region=rail] [data-shell-command=capacity]")'),'collapsed sidebar returns focus to its visible rail control');
           await click('sessions');
           await waitFor('document.querySelector("[data-shell-region=sessions]")');
           await click('capacity');
@@ -987,7 +1015,7 @@ if (process.versions.electron) {
           assert.equal(await evaluate('document.querySelector(".shell-navigation-menu").open'),false,'Escape dismisses the fallback menu');
           assert.equal(await evaluate('document.activeElement.tagName'),'SUMMARY','menu dismissal restores trigger focus');
           await evaluate('document.querySelector(".shell-navigation-menu summary").click()');
-          await click('capacity');
+          await evaluate('const button=document.querySelector(".shell-navigation-menu [data-shell-command=capacity]");button.focus();button.click()');
           await waitFor('document.querySelector("[data-shell-region=inspector]")');
           assert.equal(await evaluate('document.querySelector(".shell-navigation-menu").open'),false,'choosing a utility dismisses the menu');
           await evaluate('fixture.command("capacity")');
@@ -1328,7 +1356,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['app-review-archived-stale','recommendations-main','inspector-dismissal','inspector-overlay','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['sidebar-icon-rail','app-review-archived-stale','recommendations-main','inspector-dismissal','inspector-overlay','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
