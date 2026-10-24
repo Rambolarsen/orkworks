@@ -1135,3 +1135,72 @@ scope, same-workspace retained-result custody/authorization, and stale-input
 checks at approval/admission. The linked proposal supplies lifecycle/race cases;
 the timing/user-flow choice is accepted while technical producer agreement
 remains pending. It does not change accepted ADR 0077 or qualify any #740 profile. Keep #742 and its broader review/runtime gates open.
+
+## Proposed retained review-input admission
+
+This is the proposed #742 consumer of #741's
+[typed reviewer configuration](2026-10-04-agent-role-configuration-design.md#proposed-typed-reviewer-input--2026-10-24)
+and #744's [retained-input dependency boundary](2026-10-04-assignment-evaluation-design.md#proposed-review-input-custody).
+It implements no route or credential today. The accepted timing/user flow is
+unchanged; this schema/authority/custody amendment requires owner acceptance.
+
+At proposal publication, derive workspace ownership from authenticated run state,
+resolve the exact target and all selected immutable bytes, and validate the v2
+configuration/digest, selected repository identity, independence, rubric,
+output declaration and byte bounds. A same-workspace source run may be terminal;
+that run's old bearer is neither required nor restored. The new parent receives
+only descriptor/coordination data authorized by its own bootstrap and UI-selected
+review goal, not an arbitrary old-run artifact reader. An unrepresentable
+bootstrap input/read scope blocks the review run; the parent cannot investigate
+source bytes or expand its startup instructions to prepare the proposal.
+
+Publish the proposal and its #744 retained-reference edges atomically under the
+workspace dependency boundary. No plan-owned worktree, branch or child is
+created. At exact-plan approval and again before the unique durable child
+reservation, validate the immutable target against the current accepted head,
+source freshness, custody, configuration/permissions, repository/worktree
+bindings, runtime generations, grant, capacity and all existing launch fences.
+Serialize these checks and reservation with conflicting source publication,
+purge, cancellation and revocation. Recheck before content delivery/spawn;
+if a source changes after reservation, preserve the reservation/one-attempt
+record, block launch and use existing recovery rules rather than erase it or
+retry automatically. Missing/stale input cannot obtain a review-read grant.
+
+`AssignmentReviewReadCapability` is a distinct proposed volatile bearer bound
+to the exact reviewer assignment/configuration digest, sidecar/child-launch
+generation and the complete immutable `reviewInput`. The server resolves every
+read under that binding; request paths/IDs cannot widen it. It permits only the
+manifest, criteria/rubric and enumerated snapshot/evidence reads. It cannot list
+artifacts, control the worker/source run, submit results/evaluations or launch
+children. The parent planning bearer, research-report capability and evaluation
+submission capability cannot substitute for this read grant. Exact adapter
+action IDs, delivery/envelope schemas, response/rate budgets and safe startup
+transport remain separate implementation prerequisites, not implied support.
+
+Issue/deliver this grant only after a successful exact approved reservation and
+fresh source/authority checks. Revalidate scope and retained-object integrity
+on each read. A newer target head after admission never retargets the grant:
+existing freshness rules make its evaluation historical or Unassessed. Reads
+of still-retained original immutable bytes remain scoped to that historical
+subject; integrity/custody failure denies reads.
+
+**Read/revocation cutoff.** Request acceptance alone authorizes no response.
+Prepare a complete bounded response and verify its immutable bytes outside the
+authority/dependency boundary. Immediately before committing that response to
+the bounded transport handoff, recheck the current capability, generation, exact
+scope and custody under the same serialization as revocation. That handoff is
+the read's authorization linearization point: revocation first discards the
+buffer and denies delivery; response commitment first allows those committed
+bytes to arrive even if revocation precedes the client's receipt. Do no blocking
+I/O or network write inside this final boundary. Revocation does not wait for
+uncommitted reads and prevents all later response commitments. No partial or
+streaming response bypasses this check; unsupported response buffering/delivery
+bounds keep the adapter no-go. This cannot retract already committed/delivered
+bytes from an ordinary coding-tool process or transport.
+
+Follow existing child-runtime/end, run cancellation/final completion,
+sidecar/workspace and namespace fences. Exact resume retains the same approved
+input, requires current eligibility/freshness checks and fresh generation-bound
+credentials, and never reuses an old grant. Retention of the worker result or
+proposal does not restore read/launch authority. Resumed or interrupted
+allocations keep the existing ambiguity, single-reservation and reapproval gates.

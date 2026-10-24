@@ -1034,9 +1034,11 @@ paths, byte caps or reporting permission. The required amendment is:
   code; this handoff supplies no invented default.
 - Bind a reviewer's exact target `(assignmentIdentity, resultRevision,
   resultDigest)` as an approved immutable input and its `assignment_evaluation`
-  server-artifact declaration to one reviewer stream. #741's current general
-  input references do not yet define this typed target. Result drift requires
-  a separately approved assignment; it cannot retarget an existing capability.
+  server-artifact declaration to one reviewer stream. The
+  [proposed #741 v2 input](2026-10-04-agent-role-configuration-design.md#proposed-typed-reviewer-input--2026-10-24)
+  now supplies a typed target/read-scope proposal; its acceptance and output
+  declaration placement remain gated. Result drift requires a separately
+  approved assignment; it cannot retarget an existing capability.
 - Validate the rubric's evaluator role, independence and exact read access
   before issuing review authority. A server-artifact reporting permission does
   not require product-file write access or permit arbitrary artifact retrieval.
@@ -1047,8 +1049,9 @@ below. The owner accepted this choice and the extra user step in the
 [PR #999 session](https://github.com/Rambolarsen/orkworks/pull/999). Technical
 producer/schema agreement and runtime implementation remain separately gated.
 
-These are proposed upstream schema requirements, not fields already present in
-#741. Required output authorization or target binding that cannot be represented
+These are proposed schema requirements, including the separate proposed v2
+review-input amendment, not implemented #741 support. Required output
+authorization or target binding that cannot be represented
 blocks admission. A bare #742 `ResearchReport` remains evidence only: it lacks
 an assignment/declaration-bound immutable output wrapper. No report-to-result
 conversion or cross-assignment artifact reuse is introduced.
@@ -1245,3 +1248,85 @@ normative race outcomes above or silently enable unsupported adapters.
 
 Approval approves only the written contract, not role support, launches,
 automated evaluation, changes to ordinary Peon/session behavior or runtime code.
+
+## Proposed review-input custody
+
+This is the proposed #744 custody side of the
+[#741 typed review input](2026-10-04-agent-role-configuration-design.md#proposed-typed-reviewer-input--2026-10-24)
+and [#742 admission/read grant](2026-10-04-orchestrator-preparation-design.md#proposed-retained-review-input-admission).
+The owner accepted exact-result timing, not this schema/custody amendment.
+It remains subject to written owner acceptance, joint producer/storage review
+and separately approved implementation/qualification plans.
+
+The review target copies this document's complete child `AssignmentIdentity`,
+`resultRevision` and `resultDigest`; it changes no #744 canonical result,
+evaluation, evidence or digest domain. Read evidence uses the existing exact
+`EvidenceSource` variants and source-key algorithm. Worker and reviewer identities
+remain independent, with their own reservation/frozen admission-version proof.
+Do not substitute the new review run's plan/task/runtime fields into the target.
+
+Proposal publication must protect the exact result manifest, required provenance
+and criteria/rubric snapshots, selected output objects and selected evidence
+with incoming dependency edges. The owner key is the review proposal's exact
+run/plan/revision/task/configuration identity, which exists before allocation;
+it is not a fabricated reviewer session/reservation. Retain the worker's source
+identity proof while referenced. Approval and allocation record their consumer
+bindings without a gap in protection. An accepted evaluation/artifact/result
+adds its own required edges atomically with publication, under the existing
+workspace-local dependency boundary.
+
+Stage bounded copying/integrity work outside that boundary. At publication,
+revalidate source/head/custody and atomically commit the proposal/edges, or
+publish neither. A purge that commits first makes proposal publication fail;
+proposal publication first prevents purge. Temporary staged bytes supply no
+review authority and must be reconciled by the bounded storage/recovery plan.
+Use the same boundary through approval/reservation/source publication; if the
+stores cannot share that atomic fence, deny admission until the jointly reviewed
+storage protocol supplies it. Per-subject revision CAS alone cannot protect a
+reference owned by another run.
+
+Rejection, cancellation, supersession and reviewer termination revoke their
+applicable authority but do not erase retained references. A retained historical
+proposal/configuration/evaluation still protects its exact dependencies. Release
+edges only with deletion of the corresponding owner under existing retention
+and purge rules and after checking all other consumers; never expire pins while
+a retained immutable owner still requires them. Charge proposals, approved
+configurations, edges and snapshots to existing plan/configuration limits and
+finite workspace quotas; exhaustion blocks new proposals, not evidence eviction.
+The unresolved aggregate quotas and crash/storage proof remain explicit gates.
+
+Recovery rebuilds or verifies these owner-to-source edges before enabling reads,
+admission, purge or cleanup. An uncertain index, incomplete proposal publication,
+missing snapshot or unsupported recovered identity fences affected operations;
+do not reconstruct from live files, today's task counter or an old bearer.
+Source-run completion cannot delete protected bytes. Cross-workspace references,
+shared-learning admission, workspace deletion/custody transfer and #746's storage
+qualification retain their separate joint gates; this proposal enables none.
+
+The following are synthetic contract expectations, not executed runtime tests:
+
+| Case | Required outcome |
+| --- | --- |
+| A v1 configuration contains `reviewInput` or asks for evaluation authority | Reject unsupported configuration; no implicit v2 upgrade |
+| Target worker IDs change while reviewer IDs stay constant | Different v2 configuration digest; new exact approval required |
+| Reviewer runtime generation changes on exact resume | Same configuration/target, fresh read credential after revalidation |
+| Target/result/evidence belongs to another workspace or repository | Deny before publication; no path/name-based import |
+| Missing output is selected | Read only known-missing manifest metadata; evaluation preserves known failure |
+| Output path now contains different bytes | Read retained approved snapshot only; no live path read |
+| Read request names an unlisted output/source or source-run operation | Deny even if the artifact exists and the source run is terminal |
+| Required evidence exceeds finite input budget or verified delivery limit | Reject proposal; no truncation or broader-profile fallback |
+| Proposal publication races subject purge | One atomic winner: retained edges protect sources, or proposal fails without dangling references |
+| Source changes after approval but before reservation | Fence stale approval; no reservation/read grant; new exact proposal required |
+| Source changes after reservation but before spawn | Retain the unique reservation and block launch; no automatic retry or grant delivery |
+| Source changes after reviewer admission | Keep original target/read scope; apply historical/freshness rules without substitution |
+| Proposal is rejected but historical configuration is retained | Keep referenced evidence protected until owner deletion is safe |
+| Sidecar restarts after proposal persistence | Recover dependency proof before read/admission/purge; no old credential revival |
+| Read starts, then revocation wins before response commitment | Discard buffered response and deny delivery; request acceptance grants no bytes |
+| Response commitment wins, then revocation precedes client receipt | Only the already committed response may arrive; deny all later commitments without claiming bytes can be retracted |
+
+**Disposition.** This supplies concrete proposed record placement, a separate
+read-authority class and workspace-local dependency ownership across #741/#742/
+#744. It does not settle structured output-array placement, reporting action/
+transport envelopes, aggregate resource quotas, frozen-version acceptance,
+shared custody, #746 storage/qualification, #740 eligibility or implementation
+approval. Keep the component issues open.
