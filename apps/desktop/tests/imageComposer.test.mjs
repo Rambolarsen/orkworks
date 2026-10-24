@@ -15,11 +15,13 @@ if (process.versions.electron) {
       // Drop, paste (including mixed text), and picker all use real browser File/Blob decoding.
       await evaluate('fixture.drop([fixture.file("drop.png")])');
       await wait('document.querySelectorAll(".new-session-image-list li").length===1');
+      await wait('Array.from(document.querySelectorAll(".new-session-image-list img")).length===1 && Array.from(document.querySelectorAll(".new-session-image-list img")).every(image=>image.complete && image.naturalWidth>0)');
       await evaluate('fixture.paste(fixture.file("paste.png"),"inspect this")');
       await wait('document.querySelectorAll(".new-session-image-list li").length===2');
       assert.equal(await evaluate('document.querySelector("#nsd-prompt").value'),'inspect this');
       await evaluate('fixture.picker([fixture.file("picker.png")])');
       await wait('document.querySelectorAll(".new-session-image-list li").length===3');
+      await wait('Array.from(document.querySelectorAll(".new-session-image-list img")).length===3 && Array.from(document.querySelectorAll(".new-session-image-list img")).every(image=>image.complete && image.naturalWidth>0)');
       await evaluate('document.querySelector("input[type=file]").addEventListener("click",event=>{event.preventDefault();fixture.pickerClicks++});document.querySelector(".new-session-attach").focus()');
       assert.equal(await evaluate('(()=>{const button=document.querySelector(".new-session-attach");const event=new KeyboardEvent("keydown",{key:"Enter",bubbles:true,cancelable:true});button.dispatchEvent(event);if(!event.defaultPrevented)button.click();return event.defaultPrevented})()'),false);
       await wait("fixture.pickerClicks===1");
@@ -69,7 +71,7 @@ if (process.versions.electron) {
 } else {
   const {default:test}=await import('node:test');
   test('image composer: paste, drop, picker, removal, retries, and cancellation',async()=>{
-    const {mkdtempSync,writeFileSync,rmSync}=await import('node:fs');
+    const {mkdtempSync,readFileSync,writeFileSync,rmSync}=await import('node:fs');
     const {tmpdir}=await import('node:os');const {join}=await import('node:path');
     const {spawnSync}=await import('node:child_process');const {createRequire}=await import('node:module');
     const {build}=await import('esbuild');const require=createRequire(import.meta.url);
@@ -92,7 +94,13 @@ if (process.versions.electron) {
         function App(){const[visible,setVisible]=useState(true);const[generation,setGeneration]=useState(0);fixture.hide=()=>setVisible(false);fixture.show=()=>{setGeneration(n=>n+1);setVisible(true)};return visible?<Composer key={generation} workspacePath='/tmp/image-workspace' harnesses={[{id:'codex',name:'Codex',launch:{command:'codex',args:[]}},{id:'generic-shell',name:'Shell',launch:{command:'sh',args:[]}}]} providerRuntime={null} onCancel={()=>setVisible(false)} onConfirm={async options=>{if(fixture.fail)throw new Error('fixture creation failed');fixture.submitted.push(options)}}/>:<p>Closed</p>}
         createRoot(document.getElementById('root')).render(<App/>);
       `},bundle:true,write:false,outdir:directory,format:'iife',platform:'browser',define:{'process.env.NODE_ENV':'"development"'}});
-      writeFileSync(join(directory,'index.html'),'<style>'+bundle.outputFiles.find(file=>file.path.endsWith('.css')).text+'</style><div id="root"></div><script>'+bundle.outputFiles.find(file=>file.path.endsWith('.js')).text+'</script>');
+      // Exercise the shipped CSP: an attachment row alone does not prove its thumbnail loaded.
+      const appHtml=readFileSync(new URL('../index.html',import.meta.url),'utf8');
+      const cspMeta=appHtml.match(/<meta\s+http-equiv="Content-Security-Policy"[^>]*>/i)?.[0];
+      assert.ok(cspMeta,'Application CSP must be present in the browser fixture');
+      writeFileSync(join(directory,'fixture.css'),bundle.outputFiles.find(file=>file.path.endsWith('.css')).text);
+      writeFileSync(join(directory,'fixture.js'),bundle.outputFiles.find(file=>file.path.endsWith('.js')).text);
+      writeFileSync(join(directory,'index.html'),'<!DOCTYPE html><html><head>'+cspMeta+'<link rel="stylesheet" href="fixture.css"></head><body><div id="root"></div><script src="fixture.js"></script></body></html>');
       const env={...process.env,ORKWORKS_IMAGE_UI_DIR:directory};delete env.ELECTRON_RUN_AS_NODE;
       const electron=require('electron');const headless=process.platform==='linux'&&!env.DISPLAY;
       const args=[fileURLToPath(import.meta.url)];if(process.platform==='linux')args.unshift('--no-sandbox');if(headless)args.unshift('-a',electron);
