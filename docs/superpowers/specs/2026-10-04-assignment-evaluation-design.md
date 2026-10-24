@@ -71,8 +71,8 @@ Root results use explicit user review; v1 child reviewers evaluate only child re
 
 ### Declared outputs and authorized sources
 
-The approved assignment declares at most 32 unique output IDs/kinds, using
-#741's identifier rule. Each `OutputDeclaration` has exactly `id`, `kind`,
+The approved assignment declares at most 32 unique output IDs with bounded
+kind labels, using #741's identifier rule. Each `OutputDeclaration` has exactly `id`, `kind`,
 `maxBytes`, and `source`. `maxBytes` is a positive finite integer. `source` is
 either `{"kind":"workspace-path","path":<exact approved root-relative file>}`
 or `{"kind":"server-artifact"}`. A path declaration must be within the
@@ -84,8 +84,10 @@ Use #741's descendant-path rules; the reporter cannot select another path or
 root. A file's existence beneath a worktree never authorizes reading it.
 
 All declarations are required to pass. The configuration also declares a finite
-total rehash-work cap. Reject declarations above server hard limits. Exact hard
-limits and this declaration schema must be reconciled with #741 before code.
+total rehash-work cap. Reject declarations above server hard limits. The
+[proposed structured output contract](2026-10-04-agent-role-configuration-design.md#proposed-structured-output-contract--2026-10-24)
+now supplies versioned placement, canonical ordering and numeric limits; written
+acceptance and joint consumer/implementation review remain required before code.
 `workspace_changes` and `verification_report` may be declared kinds; v1 path
 sources are regular files, not directory trees. A server artifact is created
 under the exact producing assignment and declaration ID/kind, with an immutable
@@ -1017,10 +1019,12 @@ schema/fixture revision. This proposal retains the current canonical shape.
 
 ### Output declarations and reviewer inputs
 
-#741 currently describes an expected output contract inside `assignment`, with
-a 2 KiB output-contract **text** bound; it does not define #744's structured
-`OutputDeclaration` array or rehash-work cap. Prose cannot supply missing IDs,
-paths, byte caps or reporting permission. The required amendment is:
+#741's v1 assignment has a 2 KiB output-contract **text** bound. Its separately
+[proposed output-bearing versions](2026-10-04-agent-role-configuration-design.md#proposed-structured-output-contract--2026-10-24)
+now define an inline structured declaration array, ordering and numeric caps.
+That technical amendment remains proposed, not implemented support. Prose cannot
+supply missing IDs, paths, byte caps or reporting permission. The cross-contract
+requirements remain:
 
 - Bind the exact structured declarations and finite total rehash-work cap into
   the approved child configuration or root bootstrap, and thus its canonical
@@ -1029,15 +1033,16 @@ paths, byte caps or reporting permission. The required amendment is:
   required worker write scopes before approval.
 - Specify the structured manifest's field placement, canonical declaration
   ordering and aggregate byte accounting in #741. Do not silently overload its
-  text field or exempt the manifest from configuration/plan bounds. Exact
-  per-output/server/rehash limits remain explicit acceptance decisions before
-  code; this handoff supplies no invented default.
+  text field or exempt the manifest from configuration/plan bounds. The new
+  amendment proposes exact per-output/server/rehash and per-plan defaults;
+  accepting those defaults and qualifying their consumers remain gates.
 - Bind a reviewer's exact target `(assignmentIdentity, resultRevision,
   resultDigest)` as an approved immutable input and its `assignment_evaluation`
   server-artifact declaration to one reviewer stream. The
   [proposed #741 v2 input](2026-10-04-agent-role-configuration-design.md#proposed-typed-reviewer-input--2026-10-24)
-  now supplies a typed target/read-scope proposal; its acceptance and output
-  declaration placement remain gated. Result drift requires a separately
+  now supplies a typed target/read-scope proposal; the output-bearing v3
+  amendment combines it with structured declarations. Their technical acceptance
+  remains gated. Result drift requires a separately
   approved assignment; it cannot retarget an existing capability.
 - Validate the rubric's evaluator role, independence and exact read access
   before issuing review authority. A server-artifact reporting permission does
@@ -1330,3 +1335,139 @@ read-authority class and workspace-local dependency ownership across #741/#742/
 transport envelopes, aggregate resource quotas, frozen-version acceptance,
 shared custody, #746 storage/qualification, #740 eligibility or implementation
 approval. Keep the component issues open.
+
+## Proposed output byte and rehash accounting
+
+This is the #744 consumer of #741's
+[proposed structured output contract](2026-10-04-agent-role-configuration-design.md#proposed-structured-output-contract--2026-10-24).
+It defines initial logical limits and budget semantics only. Owner acceptance,
+reporting/transport integration, native snapshot qualification, finite worker/
+request/storage quotas and a separately approved executable plan remain gates.
+Existing candidate/result/evaluation canonical shapes and digest domains remain
+unchanged; they bind the new producer descriptor through its configuration or
+bootstrap digest.
+
+### Payload versus metadata accounting
+
+Check all declaration maxima and aggregate sums before approving a configuration,
+creating a result capability or accepting a candidate. These pre-candidate checks resolve
+committed producer/artifact metadata; content verification waits for the accepted
+candidate's work ledger. Prior artifact production retains its own separate
+producer budget. Candidate entries still match every declaration in canonical ID order, including known/missing entries;
+a reporter cannot add or relabel an output. For a claimed-present entry, verify
+its declared size is within the exact declaration and checked aggregate. At
+finalization, measure and verify actual immutable bytes; reporter sizes alone
+cannot establish admission. A file/artifact whose actual size exceeds its cap
+is unsupported and rejects finalization, not a known-missing output or a partial
+truncated success. Known-missing entries contribute zero accepted payload bytes
+but retain the existing finalization proof and Needs rework semantics.
+
+`maxSnapshotBytes` bounds the sum of present output payload sizes in one
+candidate/result. Charge each declared occurrence, regardless of physical
+storage deduplication or source-kind differences. Its declared-capacity sum is
+reserved conservatively before any output exists; actual missingness cannot
+make an oversized declaration set approvable. The child/root's approved cap
+applies to every candidate across exact resumes, never a newly inferred cap.
+
+Serialized candidate, result, evaluation and disposition metadata each retain
+the existing 512 KiB bound. Declaration JSON counts within the containing
+configuration/plan byte bounds. Payloads are not embedded in candidate/result
+JSON and get no exemption from their own declaration/aggregate caps. An
+evaluation's canonical bytes must satisfy both the existing 512 KiB record cap
+and its reviewer output declaration before atomic publication as an artifact.
+Its later inclusion as a result output charges those artifact bytes to that
+result's payload sum too; this is a second consumer budget, not a second output
+identity. Prior artifact creation/reporting work is not free or charged to a
+future nonexistent candidate: it remains governed by separately required
+producer/reporting quotas. No generic server-artifact publication route is added.
+
+### Rehash budget, retries and recovery
+
+`maxRehashBytes` bounds output-content processing per accepted candidate,
+including failed finalization attempts and interrupted recovery work. Charge
+one byte for each byte consumed by each content-digest pass. A copy and source
+hash using the same buffer are one pass; verifying the completed immutable copy
+is another. Hashing the same data again, including checking an existing artifact
+or a staged destination after restart, is charged again. A one-byte oversize
+probe is charged as well, even if it is not hashed or retained. Bounded metadata
+record hashing is governed by the separate 512 KiB record limits, not disguised
+as output payload. Scope/identity/link checks still require their proofs; a byte
+budget is neither an I/O deadline nor evidence of quiescence.
+
+Before each potentially blocking content pass, durably reserve an upper bound
+on its byte charge in a candidate-owned work ledger, serializing the checked
+increment with that candidate's finalization state. Stage the bounded pass
+outside the dependency transaction. Never begin an uncharged pass. Charge stays
+consumed even if the pass reads less, fails, times out or is interrupted; this
+conservative ledger never refunds or wraps. Each content pass reserves at least
+one byte unit even for empty content, so repeated zero-byte verification is not
+uncharged. An empty declaration set needs no output-content pass. If detecting an oversized source
+requires reading one extra byte, reserve that byte before probing. Inability
+to reserve a required pass atomically records a terminal `budget-exhausted`
+finalization rejection and its receipt without publishing a result revision.
+It does not classify an output as missing or reset the candidate budget. Exact
+retries then resolve that stored rejection and cannot schedule another pass.
+A completed failed finalization likewise records its durable rejection; only
+an interruption before an outcome may leave a pending candidate for the existing
+recovery flow. Every recovery pass needs a new positive reservation, with no
+unbounded free attempt loop; request/rate/worker limits remain separate gates.
+Reserve no more than the approved cap. Native worker/deadline/queue qualification
+remains separate; stuck I/O does not justify replacement workers or unbounded
+retries. The minimum two-times-snapshot cap permits the ordinary source-copy/hash
+and destination-verification passes; it does not promise spare probe/recovery
+capacity for every maximum-sized candidate.
+
+Retain the ledger with the durable candidate, outside its canonical object and
+digest. Receipt lookup for an already finalized/rejected candidate returns that
+outcome without new reads, snapshot creation or budget consumption. A crash
+before a reserved pass leaves its charge consumed. Recovery may reuse only
+independently verified staged work under the existing identity/quiescence and
+storage contract, charging any new verification passes; uncertain or exhausted
+work proof blocks finalization. It must not infer work from a present staging
+file or reset a counter on restart/resume. Candidate finalization, rejection and
+ledger changes need the jointly reviewed storage/atomicity boundary before code.
+
+The existing 32 accepted-candidate cap includes rejected and superseded
+candidates across resumes. A separately authorized resume can admit a new
+candidate while capacity remains; it cannot replenish the old ledger or
+re-finalize its bytes under a new ID automatically. At the proposed maxima,
+one assignment can declare at most 512 MiB of accepted-result payload and
+2 GiB of candidate output hashing; one plan's child contracts imply at most
+2 GiB and 8 GiB respectively across their 32-candidate allowance. These are
+conservative logical bounds, not a complete disk/CPU quota or a permission to
+consume them. They exclude bounded record bytes, prior artifact-production
+work, retained evidence/read budgets, scratch duplication and storage overhead,
+which require their own finite admission/retention/worker quotas. Root accounting
+is separate and counted once per root assignment, not once per plan. Protected
+evidence is never evicted to make these numbers fit.
+
+### Contract examples and disposition
+
+These are synthetic verification expectations, not executed runtime tests:
+
+| Case | Required outcome |
+| --- | --- |
+| Same declaration set arrives in a different order | Normalize by ID before rendering/hash; same structured contract bytes |
+| Empty output contract but task/criteria require a produced artifact | Reject scope/contract mismatch; an empty array cannot manufacture completion |
+| Zero-byte content verification is interrupted before an outcome | Keep its positive reserved charge; recovery needs remaining capacity and cannot loop at zero cost |
+| Duplicate ID, duplicate path source or unknown object property | Reject before approval; never merge entries or grant alias reads |
+| Same kind labels on different authorized paths | Distinct IDs/outputs remain distinct and both consume capacity |
+| Per-file maximum or sum of declaration maxima exceeds a cap | Reject before outputs/branches/children exist; later missing outputs do not cure it |
+| Two 8 MiB path declarations, 16 MiB snapshot cap and 32 MiB rehash cap | Fits initial logical limits for two full content passes; additional probes/recovery need remaining budget |
+| Fifth 16 MiB child contract in one plan | Reject the 80 MiB declared sum above the 64 MiB plan cap |
+| Reviewer evaluation record fits 512 KiB but exceeds its smaller output declaration | Reject evaluation/artifact publication atomically; no oversized artifact or stream revision |
+| Root output declaration changes in a later plan | Deny bootstrap mutation; require a separately reviewed UI-created run |
+| Claimed-small file is larger at finalization | Bound reads/probes by reserved budget; reject rather than truncate or label missing |
+| Finalizer crashes after reserving a pass | Keep charge consumed; revalidation/repeated passes consume remaining budget |
+| Exact retry after accepted/rejected finalization | Return stored receipt/outcome without rehash or quota reset |
+| Old candidate exhausted, then user authorizes an exact resume | Preserve old outcome/ledger; only a new candidate under existing generation/32-candidate gates may proceed |
+| Readable output has no approved write/read or artifact-producer scope | Deny configuration/capability; the declaration is no access grant |
+| Output payload fits but configuration or result JSON is oversized | Enforce every independent byte cap; no attachment/metadata exemption |
+
+**Disposition.** Placement, schema versions, sorting and numeric byte/rehash
+limits now have matching proposed #741/#744 contracts. Defaults and ledger
+semantics require owner acceptance and producer/storage review. Reporting-action
+and request-envelope mappings, artifact wrapper contracts, aggregate run/workspace
+and worker/scratch quotas, shared custody, #746 qualification, #740 eligibility,
+the separately proposed identity/review-input amendments and approved runtime
+plans remain independent gates. Keep #741/#742/#744 open.
