@@ -82,7 +82,11 @@ not unrelated component choices or their qualification gates. The earlier
 accepted evaluation/timing choices remain unchanged. No schema, numeric limit,
 canonical digest domain or authority rule changes in this acceptance record.
 
-SQLite mechanism/ADR 0090 and its storage limits are **not** accepted here.
+SQLite mechanism/ADR 0090 and its storage limits are **not** accepted by this
+technical-amendment decision. The later
+[architecture-direction acceptance](2026-10-23-hierarchy-transaction-storage-design.md#scoped-architecture-direction-acceptance--2026-10-24)
+accepts one workspace SQLite/private-worker DELETE/EXTRA direction for further
+design/qualification only; detailed storage choices and numeric limits remain proposed.
 Source limits still must compose with the complete command/row/publication
 limits of a separately accepted, qualified storage design; a 16 MiB source
 maximum is no promise that a 16 MiB complete command can carry it with metadata.
@@ -2009,7 +2013,7 @@ qualification work; this review does not select an external object store.
 | Output-bearing child v3 / root bootstrap v2, structured declarations and byte/rehash ledger | Owner accepted on 2026-10-24, including source defaults; producer/native/storage qualification remains open |
 | Reporting action IDs, routes/envelopes, exact receipts, user retry namespace and inspection | Owner accepted on 2026-10-24; adapter delivery and Electron/preload integration remain open |
 | Request windows, cold restart, reserved receipt credits and 17/64/256 MiB receipt pools | Owner accepted on 2026-10-24; clock/worker/storage qualification remains open |
-| Hierarchy recovery behavior versus its SQLite mechanism | Recovery behavior has its separate owner acceptance; proposed ADR 0090, producer agreement and concrete storage/default qualification remain open |
+| Hierarchy recovery behavior versus its SQLite mechanism | Recovery behavior has its separate owner acceptance; ADR 0090's SQLite/private-worker DELETE/EXTRA direction is separately accepted for further design/qualification only; detailed choices/defaults, producer agreement and native qualification remain open |
 
 No unchanged canonical candidate/result/evaluation/disposition domain was
 rewritten. The review found no further contradiction in the frozen/live version
@@ -2027,5 +2031,5 @@ Any later executable slice needs its own approved implementation/qualification
 plan and canonical/route/clock/crash fixtures. Provider costs remain absent
 without an approved authenticated usage source; shared learning remains gated.
 Keep #741/#742/#744/#746 open. This handoff records scoped technical acceptance;
-it does not accept SQLite architecture/limits, close unchecked implementation
+it does not itself accept SQLite architecture/limits, close unchecked implementation
 criteria, approve runtime code or grant automatic maintenance.

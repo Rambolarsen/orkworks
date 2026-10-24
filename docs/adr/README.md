@@ -111,6 +111,6 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 
 | [0089](./0089-new-session-image-context.md) | New sessions own bounded local image context | accepted; implementation in progress |
 
-| [0090](./0090-workspace-hierarchy-sqlite-transactions.md) | Workspace hierarchy transactions use one SQLite store | proposed; owner acceptance and native qualification pending |
+| [0090](./0090-workspace-hierarchy-sqlite-transactions.md) | Workspace hierarchy transactions use one SQLite store | architecture direction accepted for design/qualification; detailed defaults, native evidence and runtime approval gated |
 
 - [Read-only selected-session Git changes](0091-read-only-session-git-changes.md) — Bounded authenticated inspection with distinct worktree and branch comparisons.

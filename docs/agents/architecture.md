@@ -819,6 +819,13 @@ describe a proposed replacement for the confined master-runner architecture.
 The current coordinator records/store are data-only; no orchestration launch,
 run/grant, skill-usage or hierarchy runtime is implemented by these documents.
 
+[ADR 0090](../adr/0090-workspace-hierarchy-sqlite-transactions.md) separately
+records the accepted one-workspace SQLite/private-worker DELETE/EXTRA direction
+for further hierarchy design and qualification only. Detailed storage contracts
+and numerical limits remain proposed; enforcement evidence, producer agreement,
+capability qualification and approved executable plans retain their gates.
+This acceptance supplies no hierarchy runtime or migration.
+
 Repository-family identity is accepted separately in [ADR 0080](../adr/0080-repository-identity-across-worktrees.md)
 and its bounded sidecar registry is tracked by [#810](https://github.com/Rambolarsen/orkworks/issues/810).
 That registry supplements the path-only workspace history and lease in ADR

@@ -12,10 +12,11 @@ Tracking: [#746](https://github.com/Rambolarsen/orkworks/issues/746),
 [#744](https://github.com/Rambolarsen/orkworks/issues/744), initiative
 [#738](https://github.com/Rambolarsen/orkworks/issues/738).
 Source-inspection base: `fe50f57122e55d172736bcccad16819f2ba0ee1a`.
-Status: **proposed architecture and limits, pending owner acceptance**.
-The user's authorization to prepare this proposal is not acceptance of these
-new choices or permission to implement them. [ADR 0090](../../adr/0090-workspace-hierarchy-sqlite-transactions.md)
-records the same proposed decision.
+Status: **architecture direction accepted for further design/qualification;
+detailed design and numeric limits remain proposed**. See the
+[scoped acceptance](#scoped-architecture-direction-acceptance--2026-10-24).
+[ADR 0090](../../adr/0090-workspace-hierarchy-sqlite-transactions.md) records the
+same scope. Acceptance supplies no implementation or probe authorization.
 
 The [accepted recovery behavior](2026-10-20-hierarchy-read-recovery-design.md)
 and [qualification register](../../validation/hierarchy-writer-storage-qualification.md)
@@ -24,8 +25,9 @@ accept the wider producer/UI contracts, qualify any OS/filesystem, or open
 #740's deferred capability gate. Shared-learning custody and runtime plans stay
 separately gated. No code, database or live probe is delivered here.
 The [scoped #741/#742/#744 technical acceptance](2026-10-04-assignment-evaluation-design.md#technical-contract-acceptance--2026-10-24)
-is now recorded separately; it accepts neither this mechanism/limits nor the
-broader #746 producer/UI mappings or any native storage profile.
+is recorded separately from the later architecture-direction acceptance. Neither
+accepts the storage defaults, broader #746 producer/UI mappings or a native
+storage profile.
 
 ## Proposed decision and alternatives
 
@@ -46,7 +48,7 @@ not that database or its permissive reading policy.
 | --- | --- |
 | Extend recommendation manifests across hierarchy stores | Reject for this slice: new cross-owner redo/rollback, lineage and rotation code would sit beside SQLite, which is already available |
 | Independent JSON files with post-write invalidation | Reject: cannot atomically bind a source correction, retry receipt, dependency protection and summary transition |
-| One SQLite database, rollback journal | Proposed: one durable unit without an application redo log or a multi-database commit |
+| One SQLite database, rollback journal | Direction accepted for design/qualification: one durable unit without an application redo log or a multi-database commit; detailed contract remains gated |
 | SQLite WAL | Defer: concurrent long-lived readers and WAL checkpoint scheduling are unnecessary for bounded captured reads; avoid a second log-growth policy |
 
 SQLite documents rollback-journal atomicity and hot-journal recovery in its
@@ -400,11 +402,12 @@ lineage must yield unavailable even when SQLite's structural integrity check pas
 
 ## Acceptance and handoff
 
-The owner must review the SQLite durable unit, new module responsibilities,
-ordinary-writer integration and finite limits, including capacity rejection and
-adapter no-go conditions. Merging this proposed document or ADR is not that
-acceptance. Then reconcile producer contracts and write a scoped implementation
-and qualification plan; a complete caller inventory, concrete strict storage
+The owner accepted the SQLite/private-worker DELETE/EXTRA direction for further
+design and qualification only. Detailed module responsibilities, ordinary-writer
+integration and finite limits, including capacity rejection and adapter no-go
+conditions, retain their review/acceptance gates. Merging this document or ADR
+does not expand the recorded acceptance. Reconcile producer contracts before a
+scoped implementation and qualification plan; a complete caller inventory, concrete strict storage
 schema/digest fixtures and adapter feasibility evidence are prerequisites for
 that plan. #740 eligibility, #741/#742 review, #744/#746 projection agreement,
 shared custody and runtime-plan approvals remain independent gates. Keep the
@@ -412,9 +415,10 @@ issues open; no runtime availability follows from this proposal.
 
 ## Architecture owner-review handoff — 2026-10-24
 
-**Disposition: ready for an architecture/default decision with explicit no-go
-qualification gates; not an executable implementation handoff.** The proposed
-choice is one selected-workspace SQLite durable unit/private worker, typed
+**Disposition: SQLite/private-worker DELETE/EXTRA architecture direction accepted
+for further design/qualification only; detailed choices/defaults and no-go gates
+remain open. This is not an executable implementation handoff.** The design
+uses one selected-workspace SQLite durable unit/private worker, typed
 producer commands, DELETE/EXTRA journaling, FIFO durable publication, independent
 ordinary display generations and proof-preserving checkpoints. JSON mirrors,
 a general file-transaction broker, WAL scheduling and automatic destructive
@@ -434,12 +438,34 @@ threshold. A maximum #744 payload must fit with all its metadata/lineage under
 the complete command cap. The accepted #744 request lanes/receipt credits remain
 independent and are not reset or guaranteed physically writable by this store.
 
-Architecture acceptance would permit only further scoped design/qualification
+The scoped direction acceptance permits only further design/qualification
 preparation. Before runtime code, complete caller/direct-write inventory, strict
 storage schemas and canonical fixtures, full source/authority/retention mapping,
 payload placement/whole-command budgeting, native clock/SQL/allocator/VFS/file-
 class evidence and a separately approved implementation/qualification plan.
 #740 remains no-go/deferred until November; broader #741/#742 decisions,
 #744/#746 producer/projection agreement and #745 shared custody retain their
-gates. No model/native probe, automatic adapter work, code change or accepted
-architecture is delivered by this review. Keep #744/#746 open.
+gates. The review itself delivered no model/native probe, automatic adapter work
+or runtime code. Keep #744/#746 open.
+
+## Scoped architecture direction acceptance — 2026-10-24
+
+The owner answered “go ahead” to the recommendation to accept the one-workspace
+SQLite/private-worker direction with DELETE/EXTRA journaling **for further design
+and qualification only**. This accepts the direction reviewed in PR #1028 at
+`9aa0a417c19cdf449925565dfcec803537c46d37`, not every detailed contract choice
+or numerical policy in this document. The acceptance record changes no schema,
+canonical domain, authority rule, limit or qualification oracle.
+
+The 1 GiB main / 2 GiB journal / 8 MiB scratch / 16 MiB complete-command defaults
+and all other proposed numerical limits remain proposed pending enforcement proof
+and separate acceptance. A complete command must account for payloads plus all
+metadata; source maxima do not guarantee an eligible publication. Retain the
+existing no-go conditions rather than infer a working enforcement mechanism.
+
+Next preparation is the bounded caller/direct-write inventory and strict
+schema/publication-budget specification needed to propose a qualification plan.
+This acceptance executes no probe, qualifies no adapter, approves no executable
+plan, and authorizes no runtime implementation or migration. Broader component
+decisions, #745/#746 custody/producer agreement and #740's November capability
+gate remain separate. Keep the component issues open.
