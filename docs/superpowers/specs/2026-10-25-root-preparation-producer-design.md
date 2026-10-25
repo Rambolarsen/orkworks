@@ -14,8 +14,9 @@ Tracking: [#741](https://github.com/Rambolarsen/orkworks/issues/741),
 [#746](https://github.com/Rambolarsen/orkworks/issues/746); initiative
 [#738](https://github.com/Rambolarsen/orkworks/issues/738).
 Inspection base: `f5cae3f2`.
-**Proposed source-owned contract for separate owner review; no executable plan,
-eligible tool profile, native probe or runtime implementation.**
+**Scoped draft/source flow accepted for further design/qualification; no executable
+plan, eligible tool profile, native probe or runtime implementation.** See the
+[owner acceptance](#owner-acceptance-and-handoff--2026-10-25).
 This continues the [accepted two witness choices](2026-10-25-hierarchy-empty-output-profile-design.md#owner-acceptance-and-handoff--2026-10-25).
 Their synthetic bootstrap binding stays UNVERIFIED; this text does not upgrade it.
 #740 stays deferred/no-go until November.
@@ -364,14 +365,15 @@ rereview is claimed. Runtime gates remain explicit rather than assumed complete.
 
 ## Review handoff and remaining gates
 
-Owner choices proposed here are identity-first drafts with burned sequences and
-one draft slot, exact-source/approval/membership records and registry extensions,
-non-revivable review context and root-only preparation ordering. They change no
-accepted #744 claim policy, source/report schema, receipt pool or fixture bytes.
-The new draft/source record bounds are proposed envelopes, not global production
-source/payload defaults or native resource guarantees.
+The owner accepted the scoped identity-first draft/source flow, associated exact
+records/registry and finite record envelopes for further design/qualification,
+as recorded below. This settles the named flow choices, not every broader
+component contract or an executable preparation profile. Existing #744 claim
+policy, source/report schemas, receipt pools and fixture bytes are unchanged.
+The record envelopes do not establish global production source/payload defaults
+or native resource guarantees.
 
-After review, supply full #741 source-valid bootstrap/run/receipt/row/transition
+Next, supply full #741 source-valid bootstrap/run/receipt/row/transition
 byte fixtures and close the #742 initial-state/parent-attachment codec/effects,
 finite production aggregate storage/custody limits and excluded-action authority
 ordering. Then update the previously synthetic seed with separately reviewed,
@@ -380,3 +382,51 @@ repository/platform proof, shared custody, native resource/query/durability and
 finalization-versus-writable-ownership qualification, and separately approved
 executable plans remain gates. No runtime code, database, migration or probe is
 authorized; keep all four component issues open.
+
+## Owner acceptance and handoff — 2026-10-25
+
+After PR #1066 merged and its draft/source flow was presented for acceptance,
+the owner answered “go ahead”. Accepted for further design and qualification
+against reviewed source [PR #1066](https://github.com/Rambolarsen/orkworks/pull/1066),
+merged as `41f52bd7ad7f7a911ab6071ad97a95589140083f` (reviewed head
+`32a7b800da727798276a9ac0c807f6147f127271`):
+
+- Identity-first non-executable review drafts with one pending draft per workspace.
+  Sidecar-owned run/parent/root identities precede exact review; abandoned or
+  failed reservations burn sequences and cannot be reused or inferred as runs.
+- The exact draft/approval/request/receipt and retained bootstrap/run membership
+  records, root_drafts/root_preparations registry additions, draft prepare/cancel
+  kinds and root-only atomic subject-preparation/source/summary/ledger obligations.
+  The reviewed draft/source envelopes are 1,081,344 bytes each, with a 4 KiB
+  receipt bound and all smaller nested bounds preserved. These are record bounds,
+  not new aggregate production quotas or executable storage guarantees.
+- A non-revivable review context and frozen canonical byte comparison in addition
+  to digest checks. Context invalidation, restart/workspace change, or changed
+  reviewed inputs requires explicit discard, a fresh draft/sequence/context and
+  new exact review. No recovered bearer, automatic acceptance or silent renewal.
+
+The accepted usability cost includes one draft slot, burned abandoned identities
+and repeating review after context invalidation. Current authentication remains
+mandatory for retries and response delivery; historical receipts confer no new
+run/report/launch authority. Child reservation, frozen version and unique attachment
+proofs are unchanged. Preparation stays excluded from #744's claim-first exception;
+this acceptance supplies no native commit/revocation ordering mechanism.
+
+This record changes no reviewed technical definition, canonical field/domain,
+record bound, fixture/checker byte, #744 receipt quota or claim/lease policy. It
+accepts the named flow and records, not the whole broader component/storage
+contract or any eligible tool/source profile. The earlier synthetic bootstrap
+snapshot binding remains UNVERIFIED.
+
+Source-valid bootstrap/run/request/receipt/row/transition byte fixtures, initial
+run-state/parent-attachment codecs and complete effects, finite production
+aggregate storage/custody limits, excluded-action authority ordering, #740 evidence,
+repository/platform and native resource/query/durability/finalization qualification,
+shared custody and separately approved executable plans remain gates. No database,
+migration, model/native probe, runtime implementation or launch eligibility is
+approved. #740 stays deferred/no-go until November; keep #741/#742/#744/#746 open.
+
+Next bounded design task: full source-valid bootstrap/run/approval/retained-source
+and transition byte fixtures for the accepted root flow. Close any missing source
+codec before labeling a fixture source-valid; review new schema/default choices
+separately before dependent implementation.

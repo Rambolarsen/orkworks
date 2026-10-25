@@ -1377,3 +1377,17 @@ qualify #740 or extend #744's claim-first exception. Production initial-state/
 parent-attachment codecs, source-valid byte fixtures, aggregate source/custody
 limits, native ordering and executable-plan approvals remain gates. Existing
 technical definitions and fixture bytes are unchanged.
+
+## Scoped root draft/source flow accepted — 2026-10-25
+
+The owner [accepted #1066's root draft/source flow](2026-10-25-root-preparation-producer-design.md#owner-acceptance-and-handoff--2026-10-25)
+for further design/qualification: one identity-first immutable draft per workspace,
+burned abandoned sequences, exact source/approval/membership records and bounded
+registry additions, and fresh draft/review after context invalidation. This
+supersedes pending review for those choices only; technical definitions, source
+schemas, record bounds and fixture bytes are unchanged. Preparation gains no
+#744 claim-first authority. Source-valid byte fixtures, initial-state/attachment
+codecs, aggregate/custody and native authority/resource qualification, #740 and
+executable-plan approvals remain gates; no runtime work or eligibility is approved.
+The earlier synthetic bootstrap binding stays UNVERIFIED. Keep component issues
+open; next is the bounded root-flow source-valid byte/transition fixture task.

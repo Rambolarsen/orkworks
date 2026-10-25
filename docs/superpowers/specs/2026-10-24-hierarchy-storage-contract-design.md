@@ -575,3 +575,17 @@ implicitly supported format-3 kinds or deployed tables. Initial run-state/parent
 attachment codecs, aggregate limits, source-valid byte fixtures and excluded-action
 authority/native qualification remain gates; #744 claims confer no preparation
 authority. Existing definitions and catalogs remain unchanged.
+
+## Scoped root draft/source flow accepted — 2026-10-25
+
+The owner [accepted #1066's root draft/source flow](2026-10-25-root-preparation-producer-design.md#owner-acceptance-and-handoff--2026-10-25)
+for further design/qualification: one identity-first immutable draft per workspace,
+burned abandoned sequences, exact source/approval/membership records and bounded
+registry additions, and fresh draft/review after context invalidation. This
+supersedes pending review for those choices only; technical definitions, source
+schemas, record bounds and fixture bytes are unchanged. Preparation gains no
+#744 claim-first authority. Source-valid byte fixtures, initial-state/attachment
+codecs, aggregate/custody and native authority/resource qualification, #740 and
+executable-plan approvals remain gates; no runtime work or eligibility is approved.
+The earlier synthetic bootstrap binding stays UNVERIFIED. Keep component issues
+open; next is the bounded root-flow source-valid byte/transition fixture task.
