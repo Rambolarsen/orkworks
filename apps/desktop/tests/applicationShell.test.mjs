@@ -27,8 +27,26 @@ if (process.versions.electron) {
       const scenario = process.env.ORKWORKS_SHELL_SCENARIO;
       const click = async command => evaluate('(()=>{const b=document.querySelector("[data-shell-command=' + command + ']");b.focus();b.click()})()');
       if (scenario === 'open-session-app') {
+        await waitFor('document.querySelector("[data-session-app-trigger]").textContent.includes("ChatGPT")');
         assert.deepEqual(await evaluate('fixture.nativeOpened'), [], 'rendering never opens an application');
         await evaluate('document.querySelector("[data-session-app-trigger]").click()');
+        await waitFor('document.querySelector(".session-app-menu").textContent.includes("Native ID not captured")');
+        assert.equal(await evaluate('document.querySelector("[data-session-app-open]").disabled'), true);
+        await evaluate('fixture.nativeMissing=false;fixture.setSessionState({resume:{harnessSessionId:"12345678-1234-1234-1234-123456789abc"}})');
+        await waitFor('!document.querySelector("[data-session-app-open]").disabled');
+        await evaluate('document.querySelector("[data-session-app-trigger]").click()');
+        await waitFor('!document.querySelector(".session-app-popover")');
+        await evaluate('fixture.deferNative=true;document.querySelector("[data-session-app-trigger]").click()');
+        await waitFor('!!fixture.finishNative');
+        assert.equal(await evaluate('document.querySelector("[data-session-app-open]").disabled'), false, 'opening uses the prefetched availability while rechecking');
+        await evaluate('fixture.deferNative=false;fixture.nativeUnavailable=true;fixture.setSessionState({harnessId:"claude-code",lifecycle:"alive"})');
+        await waitFor('document.querySelector(".session-app-menu").textContent.includes("Close this session first")');
+        await evaluate('fixture.finishNative()');
+        assert.equal(await evaluate('document.querySelector("[data-session-app-open]").disabled'), true, 'late inspection cannot restore the previous destination');
+        await evaluate('fixture.nativeUnavailable=false;fixture.setSessionState({harnessId:"claude-code",lifecycle:"dead"})');
+        await waitFor('!document.querySelector("[data-session-app-open]").disabled');
+        await evaluate('fixture.setSessionState({harnessId:"codex",lifecycle:"alive"})');
+        await waitFor('document.querySelector("[data-session-app-trigger]").textContent.includes("ChatGPT")');
         await waitFor('document.querySelector("[data-session-app-open]")&&!document.querySelector("[data-session-app-open]").disabled');
         assert.match(await evaluate('document.querySelector("[data-session-app-open]").textContent'), /ChatGPT/);
         await evaluate('document.querySelector("[data-session-app-open]").click()');
@@ -1487,8 +1505,12 @@ if (process.versions.electron) {
           fixture.runtime=()=>getTerminal(fixture.activeSessionId||'coding');
           fixture.runtimeCount=()=>getLiveTerminalCount();
           window.orkworks = {notifyPanelVisibility:()=>{},getBackendUrl:()=>Promise.resolve('http://127.0.0.1:12345'),getWorkspaceHistory:async()=>({pinned:[],recent:['/tmp/test','/tmp/other'],diagnostic:null})};
-          fixture.nativeOpened=[];
-          window.orkworks.inspectSessionApp=async()=>fixture.nativeUnavailable?{label:'Claude',available:false,reason:'Close this session first'}:{label:'ChatGPT',available:true};
+          fixture.nativeOpened=[];fixture.nativeMissing=${JSON.stringify(scenario)}==='open-session-app';
+          window.orkworks.inspectSessionApp=async()=>{
+            const value=fixture.nativeMissing?{label:'ChatGPT',available:false,reason:'Native ID not captured'}:fixture.nativeUnavailable?{label:'Claude',available:false,reason:'Close this session first'}:{label:fixture.nativeHarness==='claude-code'?'Claude':'ChatGPT',available:true};
+            if(fixture.deferNative)await new Promise(resolve=>fixture.finishNative=resolve);
+            return value;
+          };
           window.orkworks.openSessionApp=async(...args)=>{if(fixture.nativeFailure)throw new Error('App refused');fixture.nativeOpened.push(args)};
           window.orkworks.pinWorkspacePath=async()=>{fixture.pins++;return {pinned:[],recent:['/tmp/test','/tmp/other'],diagnostic:null}};
           window.orkworks.readGitChanges=async request=>{
@@ -1569,7 +1591,7 @@ if (process.versions.electron) {
           function Preferences() {const prefs=useShellPreferences();return <ShellPreferencesNotice {...prefs} onCommand={command=>{fixture.noticeCommands.push(command);void prefs.reset()}}/>;}
           function PreferencesHarness() {const [generation,setGeneration]=useState(0);fixture.remountPreferences=()=>setGeneration(n=>n+1);return <Preferences key={generation}/>;}
           function Harness() {
-            const [sessionState,setSessionState]=useState({});fixture.setSessionState=setSessionState;fixture.resumed??=[];
+            const [sessionState,setSessionState]=useState({});fixture.setSessionState=next=>{fixture.nativeHarness=next.harnessId;setSessionState(next)};fixture.resumed??=[];
             const [sessionsSourceStatus,setSessionSourceStatus]=useState('ready');fixture.setSessionSourceStatus=setSessionSourceStatus;
             const [inspector,setInspector]=useState(null);
             const [reviewing,setReviewing]=useState(false);fixture.openReview=()=>setReviewing(true);

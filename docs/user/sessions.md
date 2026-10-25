@@ -77,8 +77,10 @@ installers may still place resume actions inside Details.
 
 ## Open a session in its desktop app
 
-In current source builds, select a session and choose **Open in…** in the top
-bar. Built-in Codex sessions can open the same conversation in **ChatGPT**.
+In current source builds, the top-bar **Open in** control names the desktop app
+as soon as the selected session’s coding tool is known. It checks availability
+in advance and refreshes when the native conversation ID or session lifecycle
+changes. Built-in Codex sessions can open the same conversation in **ChatGPT**.
 Built-in Claude Code sessions can open in **Claude** after you explicitly
 **Close** the session in OrkWorks. Opening never closes a running session for you.
 
