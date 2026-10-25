@@ -1,9 +1,10 @@
 ---
 type: Design Proposal
 title: Compact exact hierarchy claim and receipt bindings
-description: Proposed proof-local assignment references and reconstructable retry keys that fit declared claimed-mutation metadata within the unchanged receipt-slot budget.
+description: Accepted proof-local assignment references and reconstructable retry keys for further design and qualification, with unchanged runtime gates.
 tags: [orkworks, hierarchy, authority, storage, recovery]
 status: draft
+workflow_status: accepted-for-design-and-qualification
 ---
 
 # Compact exact hierarchy claim and receipt bindings
@@ -11,12 +12,14 @@ status: draft
 Tracking: [#744](https://github.com/Rambolarsen/orkworks/issues/744),
 [#746](https://github.com/Rambolarsen/orkworks/issues/746).
 Inspection base: `b4328f0995f3b5e67d3991e0059074478df75894`.
-**Proposed schema for review, not accepted or executable.** This follows
+**Scoped codecs accepted for further design/qualification; not executable.**
+See the [owner acceptance record](#owner-acceptance-and-handoff--2026-10-25).
+The original reviewed proposal follows
 [#1044](https://github.com/Rambolarsen/orkworks/pull/1044)'s two receipt-slot
 overflows. It changes the proposed storage representation, not the
 [accepted scoped claim policy](2026-10-24-hierarchy-authority-ordering-design.md#owner-acceptance-and-handoff--2026-10-24).
 No runtime implementation, database creation, migration, native/model probe,
-quota increase or architecture acceptance is authorized by this document.
+quota increase or broader storage-schema/default acceptance is authorized by this document.
 #740 remains deferred/no-go until November. Finalization authority and its
 ordering against writable ownership remain separately unqualified.
 
@@ -412,6 +415,9 @@ console.log('Node verified 16 exact binding expansions, retry-key/row/proof hash
 
 ## Required decisions and remaining gates
 
+Historical review handoff from #1049; the later scoped acceptance below resolves
+its named codec decision only. All other listed qualification gates remain.
+
 Owner review must accept or revise the concrete proof-v2/storage-v3 codecs,
 canonical receipt encoding, reconstructable full-key lookup, row commitments
 and accounting boundary before dependent implementation. The accepted claim
@@ -421,3 +427,55 @@ coverage; qualify native lease/claim/revoke/recovery and physical storage limits
 on each supported platform. No implementation or probe starts from a passing
 fixture alone. The [qualification register](../../validation/hierarchy-writer-storage-qualification.md)
 remains the authoritative no-go inventory.
+
+## Owner acceptance and handoff — 2026-10-25
+
+The owner answered “go ahead”, then “keep going”, after the merged
+[#1049 concrete schema](https://github.com/Rambolarsen/orkworks/pull/1049)
+and the explicit next step to review and accept it. This records acceptance of
+that reviewed representation **for further design and qualification**. It is
+separate from the proposal's merge and from the earlier authority-policy
+acceptance. Reviewed source is `23471c84016627f09fba57399b4e6ae2fd85d846`,
+whose exact PR head was `dcfe7d6a123e2af34c4743386e7d695c0bd23dab`.
+
+Accepted scope is limited to:
+
+- ClaimProofV2's deterministic proof-local identity table, exact expansion and
+  inherited full action/source/authority/predecessor checks, plus proof domain v2.
+- The declared claimed-mutation claim_proofs, consumed receipt_slots and single
+  mutation_lookup rows, their closed key/value encodings and commitment rules.
+- Canonical original ReportingMutationReceipt bytes stored as standard padded
+  Base64 and emitted/retried byte-for-byte, with unchanged wire fields.
+- RetryKeyV1's exact producer/UI tuples and key domain, current authentication
+  before lookup, reconstructed full-key comparison, changed-request conflicts
+  and fail-closed digest collisions; no alias, grant restoration or raw log.
+- Format-3 header/manifest/row version and domains, the closed registry extension,
+  exact change coverage/order and excluded-link validation for those rows,
+  strict no-mixed-codec/no-implicit-migration compatibility boundary.
+- The complete declared three-row logical-byte accounting boundary and its
+  limited fixture evidence; every additional implementation cost still needs
+  accounting and qualification against the unchanged applicable limits.
+
+The original sections from Choice and boundary through the executable fixture
+block remain byte-identical to the reviewed proposal. Its 16 vectors still
+expand exactly to the unchanged full seed proofs; the largest declared metadata
+charge is 9,503 bytes. This accepts neither a physical storage bound nor a
+maximal eligible source/ledger profile. Source/request domains and wire fields,
+CAS/slot purpose/reservation/retention semantics and the accepted claim/lease/
+retirement tradeoff are unchanged. Proof-v1/format-2 goldens remain historical
+bytes, not an accepted alternate runtime codec or migration path.
+
+This settles only the listed codec choices. Other domain schemas, reserved and
+internal-finalization encodings, whole-command/row/index/resource bounds,
+writer/producer coverage, lease/claim/revoke/recovery and finalization-versus-
+ownership ordering, native platform durability and physical overhead remain
+open. No broader numerical storage default, eligible adapter, database creation,
+migration, native/model probe, executable plan or runtime implementation is
+approved. #740 remains deferred/no-go until November; shared-learning custody
+and separate component/implementation approvals remain independent gates.
+Keep #744/#746 open.
+
+Next bounded design work: specify the remaining reserved-slot and internal
+finalization metadata with their separate authority/retention joins, then account
+for those rows and the new lookup row in complete-command/row/reservation limits.
+This is preparation for a separate review, not permission to implement or probe.
