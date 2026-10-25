@@ -168,6 +168,7 @@ impl Drop for AttemptContext {
             .state
             .peon
             .cleanup_attempt(self.session_id(), self.attempt());
+        self.view.state.updates.sessions_changed();
     }
 }
 
@@ -680,6 +681,7 @@ where
 
         for (session_id, _) in &candidates {
             state.peon.mark_candidate(session_id);
+            state.updates.sessions_changed();
         }
 
         for id in pending {
@@ -2664,6 +2666,8 @@ mod tests {
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
             projection_lock: Mutex::new(()),
+            updates: Default::default(),
+            session_directory_state: Default::default(),
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None),
@@ -2773,6 +2777,8 @@ mod tests {
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
             projection_lock: Mutex::new(()),
+            updates: Default::default(),
+            session_directory_state: Default::default(),
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None),
@@ -2898,6 +2904,8 @@ mod tests {
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
             projection_lock: Mutex::new(()),
+            updates: Default::default(),
+            session_directory_state: Default::default(),
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
@@ -3053,6 +3061,8 @@ mod tests {
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
             projection_lock: Mutex::new(()),
+            updates: Default::default(),
+            session_directory_state: Default::default(),
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
@@ -3199,6 +3209,8 @@ mod tests {
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
             projection_lock: Mutex::new(()),
+            updates: Default::default(),
+            session_directory_state: Default::default(),
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
@@ -3363,6 +3375,8 @@ mod tests {
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
             projection_lock: Mutex::new(()),
+            updates: Default::default(),
+            session_directory_state: Default::default(),
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
@@ -3577,6 +3591,8 @@ mod tests {
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
             projection_lock: Mutex::new(()),
+            updates: Default::default(),
+            session_directory_state: Default::default(),
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
@@ -3698,6 +3714,8 @@ mod tests {
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
             projection_lock: Mutex::new(()),
+            updates: Default::default(),
+            session_directory_state: Default::default(),
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
@@ -3821,6 +3839,8 @@ mod tests {
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
             projection_lock: Mutex::new(()),
+            updates: Default::default(),
+            session_directory_state: Default::default(),
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None),
@@ -3932,6 +3952,8 @@ mod tests {
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
             projection_lock: Mutex::new(()),
+            updates: Default::default(),
+            session_directory_state: Default::default(),
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
@@ -4106,6 +4128,8 @@ mod tests {
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
             projection_lock: Mutex::new(()),
+            updates: Default::default(),
+            session_directory_state: Default::default(),
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
@@ -4298,6 +4322,8 @@ mod tests {
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
             projection_lock: Mutex::new(()),
+            updates: Default::default(),
+            session_directory_state: Default::default(),
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
@@ -4466,6 +4492,8 @@ mod tests {
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
             projection_lock: Mutex::new(()),
+            updates: Default::default(),
+            session_directory_state: Default::default(),
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
@@ -4632,6 +4660,8 @@ mod tests {
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
             projection_lock: Mutex::new(()),
+            updates: Default::default(),
+            session_directory_state: Default::default(),
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
@@ -4803,6 +4833,8 @@ mod tests {
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
             projection_lock: Mutex::new(()),
+            updates: Default::default(),
+            session_directory_state: Default::default(),
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
@@ -4973,6 +5005,8 @@ mod tests {
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
             projection_lock: Mutex::new(()),
+            updates: Default::default(),
+            session_directory_state: Default::default(),
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
@@ -5159,6 +5193,8 @@ mod tests {
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
             projection_lock: Mutex::new(()),
+            updates: Default::default(),
+            session_directory_state: Default::default(),
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None), // no workspace → persist is always skipped
@@ -5283,6 +5319,8 @@ mod tests {
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
             projection_lock: Mutex::new(()),
+            updates: Default::default(),
+            session_directory_state: Default::default(),
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None),

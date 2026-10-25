@@ -101,7 +101,7 @@ export default function ApplicationShell(props: Props) {
   const [actionInspection, setActionInspection] = useState<{ scope: string; row: ActionRow | null }>({ scope: "", row: null });
   const actionsScope = `${props.workspace?.workspaceIdentity || props.workspace?.path || ""}:${props.workspaceGeneration}`;
   const sourcesReady = !!props.workspace && !props.isSwitchingWorkspace && props.backendStatus === "connected";
-  const recommendations = useActionsRecommendations(actionsScope, sourcesReady && props.taskmasterReady);
+  const recommendations = useActionsRecommendations(actionsScope, sourcesReady && props.taskmasterReady, props.workspace?.path ?? "");
   const actionsModel = buildActionsOverview(sourcesReady ? props.sessions : [], sourcesReady ? props.sessionsSourceStatus ?? "loading" : "unavailable",
     recommendations.items, recommendations.status);
   const recommendationsPage = props.inspector === "recommendations";
@@ -340,6 +340,7 @@ export default function ApplicationShell(props: Props) {
       }} onOpenRecommendation={props.onOpenRecommendation} />;
     return <RecommendationsPanel hasWorkspace={!!props.workspace && !props.isSwitchingWorkspace}
       workspacePath={props.workspace?.path ?? null}
+      recommendationSource={recommendations}
       taskmasterReady={props.taskmasterReady} canFixWithAi={props.canFixWithAi && isSessionAlive(session)}
       onSelectSession={props.onSelectSession} onFixWithAi={props.onFixWithAi} onRunCleanup={props.onRunCleanup}
       focusedRecommendationId={props.focusedRecommendationId} />;

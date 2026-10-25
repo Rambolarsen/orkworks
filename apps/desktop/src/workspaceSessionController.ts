@@ -1,3 +1,5 @@
+import { startWorkspaceUpdates } from "./workspaceUpdates.ts";
+import { publishWorkspaceUpdateSignal } from "./workspaceUpdateSignals.ts";
 import { isHistoricalSession } from "./sessionRuntimeState.ts";
 import {
   sessionAction as apiSessionAction,
@@ -19,6 +21,7 @@ import { mergeSessionsById } from "./sessionSort.ts";
 
 export interface WorkspaceSessionControllerDeps {
   getBackendUrl: () => Promise<string>;
+  startUpdates?: typeof startWorkspaceUpdates;
   setWorkspace: typeof apiSetWorkspace;
   listSessions: typeof apiListSessions;
   createSession: typeof apiCreateSession;
@@ -83,16 +86,24 @@ const defaultDeps: WorkspaceSessionControllerDeps = {
 export function createWorkspaceSessionController(
   options: WorkspaceSessionControllerOptions = {},
 ): WorkspaceSessionController {
-  const deps = { ...defaultDeps, ...options.deps };
+  const deps = { ...defaultDeps, startUpdates: typeof window !== "undefined" && typeof WebSocket !== "undefined" ? startWorkspaceUpdates : undefined, ...options.deps };
   let disposed = false;
   let admissionEnabled = options.initialAdmissionEnabled ?? true;
   let admissionGeneration = 0;
   let foregroundGeneration = 0;
   let pollingEpoch = 0;
+  let sourceGeneration = 0;
+  let synchronizationEnabled = false;
+  let synchronizationEpoch = 0;
+  let workspacePath: string | null = null;
+  let stream: ReturnType<typeof startWorkspaceUpdates> | null = null;
+  let streamHealthy = false;
   let workspaceGeneration = 0;
   const pendingActions = new Set<string>();
+  const pendingSnapshotActions = new Map<string, (list: readonly SessionInfo[]) => void>();
   let sessions: SessionInfo[] = [];
   let activeSessionId: string | null = null;
+  let pendingRestoration: { id: string | null; foreground: number } | null = null;
   let lastResortAt = new Date(0);
   let pendingCreateIds: ReadonlySet<string> = new Set();
   const reportedErrors = new Set<string>();
@@ -121,30 +132,51 @@ export function createWorkspaceSessionController(
     options.onSessions?.(next);
   };
 
+  function acceptSessionList(list: readonly SessionInfo[]): SessionInfo[] {
+    deps.pruneTerminals(new Set(list.filter((session) => !isHistoricalSession(session)).map((session) => session.id)));
+    const resolution = resolvePendingCreates(pendingCreateIds, list);
+    pendingCreateIds = resolution.ids;
+    if (resolution.erroredIds.length > 0) publishError("create", "Couldn't start a new session.");
+
+    const [next, nextLastResortAt] = mergeSessionsById(sessions, list, lastResortAt, new Date());
+    lastResortAt = nextLastResortAt;
+    publishSessions(next);
+    options.onSessionSourceStatus?.("ready");
+    reportedErrors.clear();
+    // Either REST or the stream can deliver the first authoritative list.
+    // Consume restoration once, without replacing intervening user navigation.
+    const restoration = pendingRestoration;
+    pendingRestoration = null;
+    if (restoration && isCurrent(restoration.foreground)) {
+      const match = next.find(session => session.id === restoration.id);
+      if (match && !isHistoricalSession(match)) {
+        activeSessionId = match.id;
+        options.onActiveSession?.(match.id);
+      }
+    }
+    for (const [key, reconcile] of pendingSnapshotActions) {
+      pendingSnapshotActions.delete(key);
+      reconcile(next);
+    }
+    return next;
+  }
+
   async function refreshSessions(epoch?: number, allowDuringTransition = false): Promise<readonly SessionInfo[] | null> {
+    if (epoch === undefined && streamHealthy) stream?.resync();
     const admissionToken = admissionGeneration;
     if (!allowDuringTransition && !admissionEnabled) return null;
     const token = foregroundGeneration;
+    const sourceToken = sourceGeneration;
     try {
       const baseUrl = await deps.getBackendUrl();
       const list = await deps.listSessions(baseUrl);
-      if (!isCurrent(token)
+      if (sourceToken !== sourceGeneration || !isCurrent(token)
         || (!allowDuringTransition && !isCurrentAdmission(admissionToken))
         || (epoch !== undefined && epoch !== pollingEpoch)) return null;
 
-      deps.pruneTerminals(new Set(list.filter((session) => !isHistoricalSession(session)).map((session) => session.id)));
-      const resolution = resolvePendingCreates(pendingCreateIds, list);
-      pendingCreateIds = resolution.ids;
-      if (resolution.erroredIds.length > 0) publishError("create", "Couldn't start a new session.");
-
-      const [next, nextLastResortAt] = mergeSessionsById(sessions, list, lastResortAt, new Date());
-      lastResortAt = nextLastResortAt;
-      publishSessions(next);
-      options.onSessionSourceStatus?.("ready");
-      reportedErrors.clear();
-      return next;
+      return acceptSessionList(list);
     } catch {
-      if (isCurrent(token) && (allowDuringTransition || isCurrentAdmission(admissionToken))
+      if (sourceToken === sourceGeneration && isCurrent(token) && (allowDuringTransition || isCurrentAdmission(admissionToken))
         && (epoch === undefined || epoch === pollingEpoch)) options.onSessionSourceStatus?.("unavailable");
       return null;
     }
@@ -155,19 +187,43 @@ export function createWorkspaceSessionController(
     : undefined);
   let stopPolling: (() => void) | null = null;
 
+  function stopFallback(): void {
+    pollingEpoch++; stopPolling?.(); stopPolling = null;
+  }
+  function startFallback(): void {
+    if (!disposed && synchronizationEnabled && admissionEnabled && !streamHealthy && stopPolling === null) {
+      const epoch = ++pollingEpoch;
+      stopPolling = startSessionPolling(() => refreshSessions(epoch), options.pollDelayMs, scheduler);
+    }
+  }
   function setPollingEnabled(enabled: boolean): void {
     if (disposed) return;
-    if (enabled) {
-      if (!admissionEnabled) return;
-      if (stopPolling === null) {
-        const epoch = ++pollingEpoch;
-        stopPolling = startSessionPolling(() => refreshSessions(epoch), options.pollDelayMs, scheduler);
-      }
+    if (!enabled || !admissionEnabled) {
+      synchronizationEnabled = false;
+      synchronizationEpoch++; sourceGeneration++;
+      streamHealthy = false;
+      const old = stream; stream = null; old?.dispose();
+      if (workspacePath) publishWorkspaceUpdateSignal(workspacePath, false);
+      stopFallback();
       return;
     }
-    pollingEpoch += 1;
-    stopPolling?.();
-    stopPolling = null;
+    synchronizationEnabled = true;
+    startFallback();
+    if (!stream && deps.startUpdates && workspacePath) {
+      const path = workspacePath, epoch = synchronizationEpoch;
+      const current = () => !disposed && synchronizationEnabled && epoch === synchronizationEpoch && workspacePath === path;
+      stream = deps.startUpdates({
+        workspacePath: path, getBackendUrl: deps.getBackendUrl,
+        onHealthy(healthy) {
+          if (!current()) return;
+          streamHealthy = healthy;
+          if (healthy) { sourceGeneration++; stopFallback(); } else startFallback();
+          publishWorkspaceUpdateSignal(path, healthy);
+        },
+        onSessions(list) { if (current() && streamHealthy) acceptSessionList(list); },
+        onRecommendationsInvalidated() { if (current()) publishWorkspaceUpdateSignal(path); },
+      });
+    }
   }
 
   function setAdmissionEnabled(enabled: boolean): void {
@@ -176,42 +232,43 @@ export function createWorkspaceSessionController(
     admissionGeneration += 1;
     foregroundGeneration += 1;
     if (!enabled) {
+      pendingSnapshotActions.clear();
       options.onSessionSourceStatus?.("unavailable");
-      pollingEpoch += 1;
-      stopPolling?.();
-      stopPolling = null;
+      setPollingEnabled(false);
     }
   }
 
   async function openWorkspace(path: string): Promise<void> {
+    pendingRestoration = null;
+    pendingSnapshotActions.clear();
+    setPollingEnabled(false);
+    workspacePath = path;
     workspaceGeneration += 1;
     const token = ++foregroundGeneration;
     try {
       const baseUrl = await deps.getBackendUrl();
       const info = await deps.setWorkspace(baseUrl, path);
       if (!isCurrent(token)) return;
+      pendingRestoration = { id: info.lastActiveSessionId ?? null, foreground: token };
       options.onWorkspace?.(info);
       activeSessionId = null;
       options.onActiveSession?.(null);
       publishSessions([]);
       options.onSessionSourceStatus?.("loading");
-      const refreshed = await refreshSessions(undefined, true);
-      if (!refreshed || !isCurrent(token)) return;
-      const restored = info.lastActiveSessionId;
-      const match = restored && sessions.find((session) => session.id === restored);
-      if (match && !isHistoricalSession(match)) {
-        activeSessionId = match.id;
-        options.onActiveSession?.(match.id);
-      }
+      await refreshSessions(undefined, true);
     } catch {
       if (isCurrent(token)) publishError("workspace", "Couldn't open workspace.");
     }
   }
 
   async function adoptRestoredWorkspace(workspace: WorkspaceInfo | null): Promise<void> {
+    pendingSnapshotActions.clear();
+    setPollingEnabled(false);
+    workspacePath = workspace?.path ?? null;
     workspaceGeneration += 1;
     const token = ++foregroundGeneration;
     pendingCreateIds = new Set();
+    pendingRestoration = workspace ? { id: workspace.lastActiveSessionId ?? null, foreground: token } : null;
     reportedErrors.clear();
     activeSessionId = null;
     options.onActiveSession?.(null);
@@ -220,14 +277,7 @@ export function createWorkspaceSessionController(
     options.onWorkspace?.(workspace);
     if (!workspace || !isCurrent(token)) return;
 
-    const refreshed = await refreshSessions(undefined, true);
-    if (!refreshed || !isCurrent(token)) return;
-    const restored = workspace.lastActiveSessionId;
-    const match = restored && sessions.find((session) => session.id === restored);
-    if (match && !isHistoricalSession(match)) {
-      activeSessionId = match.id;
-      options.onActiveSession?.(match.id);
-    }
+    await refreshSessions(undefined, true);
   }
 
   async function createSession(optionsForCreate: CreateSessionOptions, shouldSelect: () => boolean = () => true): Promise<boolean> {
@@ -240,6 +290,7 @@ export function createWorkspaceSessionController(
       // A list started while creation was pending may not include this record.
       // Fence it before publishing so it cannot drop the card or prune its terminal.
       foregroundGeneration += 1;
+      stream?.resync();
       pendingCreateIds = trackPendingCreate(pendingCreateIds, created.id);
       const [next, nextLastResortAt] = mergeSessionsById(sessions, [...sessions, created], lastResortAt, new Date());
       lastResortAt = nextLastResortAt;
@@ -258,12 +309,14 @@ export function createWorkspaceSessionController(
 
   async function resumeSession(id: string): Promise<void> {
     const admissionToken = requireAdmission();
+    pendingSnapshotActions.delete(`${workspaceGeneration}:${id}`);
     const token = ++foregroundGeneration;
     deps.disposeTerminal(id);
     try {
       const baseUrl = await deps.getBackendUrl();
       const resumed = await deps.resumeSession(baseUrl, id);
       if (!isCurrent(token) || !isCurrentAdmission(admissionToken)) return;
+      stream?.resync();
       publishSessions(sessions.map((session) => session.id === id ? resumed : session));
       activeSessionId = resumed.id;
       options.onActiveSession?.(resumed.id);
@@ -283,6 +336,7 @@ export function createWorkspaceSessionController(
 
   function selectSession(id: string): boolean {
     if (disposed || !admissionEnabled) return false;
+    pendingRestoration = null;
     activeSessionId = id;
     options.onActiveSession?.(id);
     return true;
@@ -290,6 +344,7 @@ export function createWorkspaceSessionController(
 
   async function deleteSession(id: string, forget: boolean): Promise<void> {
     const admissionToken = requireAdmission();
+    pendingSnapshotActions.delete(`${workspaceGeneration}:${id}`);
     const token = ++foregroundGeneration;
     try {
       const baseUrl = await deps.getBackendUrl();
@@ -312,6 +367,7 @@ export function createWorkspaceSessionController(
     const workspaceToken = workspaceGeneration;
     const pendingKey = `${workspaceToken}:${id}`;
     if (pendingActions.has(pendingKey)) throw new Error("A session action is already running.");
+    pendingSnapshotActions.delete(pendingKey);
     pendingActions.add(pendingKey);
     foregroundGeneration += 1;
     const current = () => isCurrentAdmission(admissionToken) && workspaceToken === workspaceGeneration;
@@ -325,17 +381,29 @@ export function createWorkspaceSessionController(
         options.onActiveSession?.(null, { deliberate: true });
       }
     };
+    const refreshAfterAction = () => {
+      // Neither a poll nor a still-connecting socket captured before the
+      // mutation settled may consume its post-action reconciliation.
+      sourceGeneration++;
+      // The stream may replace the REST refresh. Complete cleanup from the first
+      // post-action authoritative list, including after a failed/partial mutation.
+      pendingSnapshotActions.set(pendingKey, list => {
+        if (current() && !list.some(session => session.id === id)) disposeDeletedRow();
+      });
+      stream?.resync();
+      return refreshSessions();
+    };
     try {
       const baseUrl = await deps.getBackendUrl();
       if (!current()) return;
       await deps.sessionAction(baseUrl, id, action, actionToken);
       if (!current()) return;
       if (action === "delete") disposeDeletedRow();
-      const refreshed = await refreshSessions();
+      const refreshed = await refreshAfterAction();
       if (current() && refreshed !== null && !refreshed.some(session => session.id === id)) disposeDeletedRow();
     } catch (error) {
       if (current()) {
-        const refreshed = await refreshSessions();
+        const refreshed = await refreshAfterAction();
         if (current()) {
           if (refreshed !== null && !refreshed.some(session => session.id === id)) disposeDeletedRow();
           throw error;
@@ -348,6 +416,8 @@ export function createWorkspaceSessionController(
 
   function dispose(): void {
     if (disposed) return;
+    setPollingEnabled(false);
+    pendingSnapshotActions.clear();
     disposed = true;
     foregroundGeneration += 1;
     pollingEpoch += 1;

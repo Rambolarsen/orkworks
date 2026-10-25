@@ -230,13 +230,17 @@ jobs:
             "harness::integrations::tests::report_harness_event_ps1_rejects_array_lifecycle_sources",
             "harness::integrations::tests::report_harness_event_ps1_native_scalar_success_fallback_and_secret_exclusion",
             "taskmaster::inference_trust::identity::tests::defaulted_identity_is_stable_but_execution_changes_invalidate_it",
-            "workspace_runtime::tests::native_identity_rejects_missing_windows_identity_parts"
+            "workspace_runtime::tests::native_identity_rejects_missing_windows_identity_parts",
+            "workspace_updates::tests::real_socket_publishes_changed_row_then_removal_without_full_retransmission",
+            "workspace_updates::tests::established_directory_disappearance_is_unavailable_then_recreation_resynchronizes"
           )
           foreach ($test in $required) {
             if ($listed -notcontains "$($test): test") { throw "Missing required Windows test: $test" }
           }
       - name: Run native custom inference transport
         run: cargo test --locked --manifest-path crates/orkworksd/Cargo.toml custom_inference
+      - name: Test workspace update sockets and native metadata watcher
+        run: cargo test --locked --manifest-path crates/orkworksd/Cargo.toml workspace_updates
       - name: Test durable archive storage on Windows
         run: cargo test --locked --manifest-path crates/orkworksd/Cargo.toml session_archive::tests
       - name: Test approval-gated evaluation

@@ -16,6 +16,46 @@ use std::time::{Duration, Instant};
 const GIT_CONTEXT_TTL: Duration = Duration::from_secs(5);
 const MAX_GIT_CONTEXT_ENTRIES: usize = 512;
 
+/// A fresh workspace may have no session directory. Once observed, its
+/// disappearance is an incomplete read, including across stream reconnects.
+#[derive(Default)]
+pub(crate) struct SessionDirectoryState {
+    directory: Option<PathBuf>,
+    established: bool,
+}
+
+impl SessionDirectoryState {
+    fn observe(&mut self, directory: &Path) -> io::Result<()> {
+        if self.directory.as_deref() != Some(directory) {
+            self.directory = Some(directory.to_owned());
+            self.established = false;
+        }
+        match std::fs::metadata(directory) {
+            Ok(metadata) if metadata.is_dir() => {
+                self.established = true;
+                Ok(())
+            }
+            Ok(_) => Err(io::Error::new(
+                io::ErrorKind::NotADirectory,
+                "session directory is not a directory",
+            )),
+            Err(error) if error.kind() == io::ErrorKind::NotFound && !self.established => Ok(()),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn read(
+        &mut self,
+        store: &metadata::MetadataStore,
+    ) -> io::Result<Vec<metadata::SessionMetadata>> {
+        let directory = store.sessions_dir();
+        self.observe(&directory)?;
+        let sessions = read_remembered_sessions(store)?;
+        self.observe(&directory)?;
+        Ok(sessions)
+    }
+}
+
 struct CachedGitContext {
     scanned_at: Instant,
     context: git::GitContext,
@@ -155,7 +195,13 @@ impl SessionProjection {
         }
         let remembered_sessions = metadata
             .as_ref()
-            .map(read_remembered_sessions)
+            .map(|store| {
+                self.state
+                    .session_directory_state
+                    .lock()
+                    .map_err(|_| io::Error::other("session directory state lock poisoned"))?
+                    .read(store)
+            })
             .transpose()?
             .unwrap_or_default();
         let mut codex_native_session_ids = live_sessions

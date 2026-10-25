@@ -1,47 +1,51 @@
-import { useEffect, useState } from "react";
-import { getTaskmasterRecommendations, type WorkflowRecommendation } from "./api";
-import type { ActionsSourceStatus } from "./actionsOverview";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { getTaskmasterRecommendations, type RecommendationListResponse } from "./api";
+import { createRecommendationSource, type RecommendationSnapshot } from "./recommendationSource";
+import { subscribeWorkspaceUpdateSignal, workspaceUpdateSignal } from "./workspaceUpdateSignals";
 
-interface Snapshot {
-  scope: string;
-  status: ActionsSourceStatus;
-  items: WorkflowRecommendation[];
+type Source = ReturnType<typeof createRecommendationSource>;
+interface Entry { source: Source; users: number; unsubscribeSignal(): void }
+const sources = new Map<string, Entry>();
+const empty: RecommendationSnapshot = { response: { recommendations: [], diagnostics: [] }, status: "loading", revision: 0 };
+function acquire(scope: string, workspacePath: string): Entry {
+  let entry = sources.get(scope);
+  if (!entry) {
+    const source = createRecommendationSource({ load: async () => getTaskmasterRecommendations(await window.orkworks.getBackendUrl()) });
+    source.setHealthy(workspaceUpdateSignal(workspacePath).healthy);
+    const unsubscribeSignal = subscribeWorkspaceUpdateSignal(workspacePath, () => {
+      source.setHealthy(workspaceUpdateSignal(workspacePath).healthy); source.invalidate();
+    });
+    entry = { source, users: 0, unsubscribeSignal }; sources.set(scope, entry);
+  }
+  entry.users++; return entry;
 }
 
-export function useActionsRecommendations(scope: string, enabled: boolean): Snapshot {
-  const [snapshot, setSnapshot] = useState<Snapshot>({ scope: "", status: "loading", items: [] });
+export interface ActionsRecommendationSnapshot extends RecommendationSnapshot {
+  scope: string;
+  items: RecommendationListResponse["recommendations"];
+  refresh(): Promise<RecommendationListResponse>;
+}
+
+export function useActionsRecommendations(scope: string, enabled: boolean, workspacePath = scope): ActionsRecommendationSnapshot {
+  const [snapshot, setSnapshot] = useState<RecommendationSnapshot & { scope: string }>({ ...empty, scope: "" });
+  const sourceRef = useRef<{ scope: string; source: Source } | null>(null);
   useEffect(() => {
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout>;
-    setSnapshot({ scope, status: enabled ? "loading" : "unavailable", items: [] });
     if (!enabled) return;
-
-    const refresh = async () => {
-      try {
-        const base = await window.orkworks.getBackendUrl();
-        if (cancelled) return;
-        const response = await getTaskmasterRecommendations(base);
-        if (cancelled) return;
-        setSnapshot({
-          scope,
-          status: response.diagnostics.length ? "partial" : "ready",
-          items: response.recommendations,
-        });
-      } catch {
-        if (!cancelled) {
-          setSnapshot(old => ({ scope, status: "unavailable", items: old.scope === scope ? old.items : [] }));
-        }
-      } finally {
-        // Schedule after completion so slow requests never overlap or reorder snapshots.
-        if (!cancelled) timer = setTimeout(refresh, 5000);
-      }
+    let cancelled = false;
+    const entry = acquire(scope,workspacePath);
+    sourceRef.current = { scope, source: entry.source };
+    const update = () => { if (!cancelled) setSnapshot({ ...entry.source.getSnapshot(), scope }); };
+    const unsubscribe = entry.source.subscribe(update); update();
+    return () => {
+      cancelled = true; unsubscribe(); sourceRef.current = null;
+      if (--entry.users === 0) { entry.unsubscribeSignal(); sources.delete(scope); }
     };
-    void refresh();
-    return () => { cancelled = true; clearTimeout(timer); };
-  }, [scope, enabled]);
-
-  // Fence the render too: an effect cleanup alone leaves one render of the old scope.
-  return snapshot.scope === scope && enabled
-    ? snapshot
-    : { scope, status: enabled ? "loading" : "unavailable", items: [] };
+  }, [scope,enabled,workspacePath]);
+  const refresh = useCallback(() => {
+    const current = sourceRef.current;
+    if (!enabled || !current || current.scope !== scope) return Promise.reject(new Error("Workspace recommendations unavailable"));
+    return current.source.refresh();
+  }, [scope,enabled]);
+  const current = enabled && snapshot.scope === scope ? snapshot : { ...empty, status: enabled ? "loading" as const : "unavailable" as const };
+  return { ...current, scope, items: current.response.recommendations, refresh };
 }

@@ -1,3 +1,4 @@
+mod workspace_updates;
 use axum::{
     extract::DefaultBodyLimit,
     routing::{delete, get, post, put},
@@ -186,6 +187,8 @@ struct AppState {
     sessions: Mutex<HashMap<String, SessionHandle>>,
     // Coordinates complete session projections with workspace replacement.
     projection_lock: Mutex<()>,
+    updates: workspace_updates::UpdateHub,
+    session_directory_state: Mutex<session_projection::SessionDirectoryState>,
     git_context_cache: Mutex<session_projection::GitContextCache>,
     // OS pid of each session's PTY child, captured at spawn. Used to probe
     // the process's live cwd (issue #241) instead of trusting the frozen
@@ -242,6 +245,8 @@ async fn main() {
     let state = Arc::new(AppState {
         sessions: Mutex::new(HashMap::new()),
         projection_lock: Mutex::new(()),
+        updates: Default::default(),
+        session_directory_state: Default::default(),
         git_context_cache: Default::default(),
         session_pids: Mutex::new(HashMap::new()),
         workspace: Mutex::new(None),
@@ -322,6 +327,7 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
 
     Router::new()
         .route("/health", get(health_check))
+        .route("/workspace/updates", get(workspace_updates::subscribe))
         .route("/session-image-context", get(image_context::capabilities))
         .route("/providers", get(get_providers))
         .route("/settings/providers", post(set_provider_settings))
@@ -478,6 +484,10 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
                 )
                 .layer(DefaultBodyLimit::max(8 * 1024)),
         )
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            workspace_updates::invalidate_mutations,
+        ))
         .layer(cors)
         .with_state(state)
 }
@@ -664,6 +674,8 @@ pub(crate) mod test_support {
         Arc::new(AppState {
             sessions: Mutex::new(HashMap::new()),
             projection_lock: Mutex::new(()),
+            updates: Default::default(),
+            session_directory_state: Default::default(),
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(WorkspaceState {
@@ -1139,6 +1151,8 @@ mod tests {
         let state = Arc::new(AppState {
             sessions: Mutex::new(HashMap::new()),
             projection_lock: Mutex::new(()),
+            updates: Default::default(),
+            session_directory_state: Default::default(),
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None),

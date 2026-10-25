@@ -1,9 +1,9 @@
+import { useActionsRecommendations, type ActionsRecommendationSnapshot } from "../useActionsRecommendations";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ApiError,
   dismissTaskmasterRecommendation,
   getTaskmasterRecommendation,
-  getTaskmasterRecommendations,
   runTaskmasterAudit,
   type ObservationDiagnostic,
   type ProposedChange,
@@ -38,6 +38,7 @@ import RecommendationEvidence from "./RecommendationEvidence";
 import TaskmasterAssessmentSummary from "./TaskmasterAssessmentSummary";
 
 interface RecommendationsPanelProps {
+  recommendationSource?: ActionsRecommendationSnapshot;
   hasWorkspace: boolean;
   workspacePath: string | null;
   taskmasterReady: boolean;
@@ -235,7 +236,10 @@ function WorkflowEvidenceBlocks({
   );
 }
 
-function RecommendationsPanel({ hasWorkspace, workspacePath, taskmasterReady, canFixWithAi, onSelectSession, onFixWithAi, onRunCleanup, focusedRecommendationId }: RecommendationsPanelProps) {
+function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePath, taskmasterReady, canFixWithAi, onSelectSession, onFixWithAi, onRunCleanup, focusedRecommendationId }: RecommendationsPanelProps) {
+  const ownSource = useActionsRecommendations(workspacePath ?? "", !recommendationSource && hasWorkspace && taskmasterReady, workspacePath ?? "");
+  const source = recommendationSource ?? ownSource;
+  const refreshList = source.refresh;
   const [recommendations, setRecommendations] = useState<WorkflowRecommendation[]>([]);
   const [originFilter, setOriginFilter] = useState<PanelOriginFilter>("all");
   const [diagnostics, setDiagnostics] = useState<ObservationDiagnostic[]>([]);
@@ -267,38 +271,53 @@ function RecommendationsPanel({ hasWorkspace, workspacePath, taskmasterReady, ca
   const [loadedWorkspacePath, setLoadedWorkspacePath] = useState<string | null>(null);
   workspacePathRef.current = workspacePath;
 
-  const refresh = useCallback(async () => {
+  const runStatusGeneration = useRef(0);
+  const refreshRunStatus = useCallback((baseUrl: string) => {
+    const generation = ++runStatusGeneration.current;
+    void window.orkworks.getTaskmasterRunStatus().then((status) => {
+      if (generation !== runStatusGeneration.current || workspacePathRef.current !== workspacePath) return;
+      if (status.workspacePath !== workspacePath) { setRunStatus(null); setRunStatusError(undefined); return; }
+      setRunStatus(status);
+      setRunStatusError(undefined);
+      if (status.latestManualRequest) setAnalysisMessage(undefined);
+      const recommendationId = status.assessment?.report?.recommendationId;
+      if (recommendationId) {
+        void getTaskmasterRecommendation(baseUrl, recommendationId).then((recommendation) => {
+          if (generation !== runStatusGeneration.current || workspacePathRef.current !== workspacePath) return;
+          setRecommendations((current) => current.some((item) => item.id === recommendation.id)
+            ? current : [...current, recommendation]);
+          if (
+            isActiveBrainRecommendation(recommendation)
+            && shouldFocusAssessmentRecommendation(
+              recommendation.id,
+              recommendation.status,
+              surfacedAssessmentRecommendationIds.current,
+            )
+          ) setOriginFilter("analysis");
+        }).catch(() => undefined);
+      }
+    }).catch((cause: unknown) => {
+      if (generation === runStatusGeneration.current && workspacePathRef.current === workspacePath) { setRunStatus(null); setRunStatusError(cause instanceof Error ? cause.message : "Couldn't load analysis status."); }
+    });
+  }, [workspacePath]);
+
+  useEffect(() => {
+    if (!hasWorkspace || !taskmasterReady) { ++runStatusGeneration.current; return; }
+    let cancelled = false;
+    void window.orkworks.getBackendUrl().then(baseUrl => {
+      if (!cancelled) refreshRunStatus(baseUrl);
+    }).catch(() => { if (!cancelled) setRunStatusError("Couldn't load analysis status."); });
+    return () => { cancelled = true; ++runStatusGeneration.current; };
+  }, [hasWorkspace, taskmasterReady, workspacePath, refreshRunStatus, source.revision]);
+
+  const refresh = useCallback(async (provided?: Awaited<ReturnType<typeof refreshList>>) => {
     if (!hasWorkspace || !taskmasterReady) return;
     const generation = ++refreshGeneration.current;
     try {
       const baseUrl = await window.orkworks.getBackendUrl();
       if (!hasWorkspace || !taskmasterReady || generation !== refreshGeneration.current || workspacePathRef.current !== workspacePath) return;
-      void window.orkworks.getTaskmasterRunStatus().then((status) => {
-        if (generation !== refreshGeneration.current || workspacePathRef.current !== workspacePath) return;
-        if (status.workspacePath !== workspacePath) { setRunStatus(null); setRunStatusError(undefined); return; }
-        setRunStatus(status);
-        setRunStatusError(undefined);
-        if (status.latestManualRequest) setAnalysisMessage(undefined);
-        const recommendationId = status.assessment?.report?.recommendationId;
-        if (recommendationId) {
-          void getTaskmasterRecommendation(baseUrl, recommendationId).then((recommendation) => {
-            if (generation !== refreshGeneration.current || workspacePathRef.current !== workspacePath) return;
-            setRecommendations((current) => current.some((item) => item.id === recommendation.id)
-              ? current : [...current, recommendation]);
-            if (
-              isActiveBrainRecommendation(recommendation)
-              && shouldFocusAssessmentRecommendation(
-                recommendation.id,
-                recommendation.status,
-                surfacedAssessmentRecommendationIds.current,
-              )
-            ) setOriginFilter("analysis");
-          }).catch(() => undefined);
-        }
-      }).catch((cause: unknown) => {
-        if (generation === refreshGeneration.current && workspacePathRef.current === workspacePath) { setRunStatus(null); setRunStatusError(cause instanceof Error ? cause.message : "Couldn't load analysis status."); }
-      });
-      const response = await getTaskmasterRecommendations(baseUrl);
+      if (!provided) refreshRunStatus(baseUrl);
+      const response = provided ?? await refreshList();
       let nextRecommendations = response.recommendations;
       if (blockedRecommendationId) {
         try {
@@ -343,7 +362,7 @@ function RecommendationsPanel({ hasWorkspace, workspacePath, taskmasterReady, ca
       if (generation !== refreshGeneration.current || workspacePathRef.current !== workspacePath) return;
       setError(cause instanceof Error ? cause.message : "Couldn't load recommendations.");
     }
-  }, [blockedRecommendationId, focusedRecommendationId, hasWorkspace, taskmasterReady, workspacePath]);
+  }, [blockedRecommendationId, focusedRecommendationId, hasWorkspace, taskmasterReady, workspacePath, refreshList, refreshRunStatus]);
 
   useEffect(() => {
     if (trackedWorkspacePath.current === workspacePath) return;
@@ -430,16 +449,9 @@ function RecommendationsPanel({ hasWorkspace, workspacePath, taskmasterReady, ca
       setError(undefined);
       return;
     }
-    let cancelled = false;
-    void refresh();
-    const timer = window.setInterval(() => {
-      if (!cancelled) void refresh();
-    }, 5000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [refresh, hasWorkspace, taskmasterReady]);
+    if (source.status === "ready" || source.status === "partial") void refresh(source.response);
+    else if (source.status === "unavailable") setError(source.error ?? "Couldn't load recommendations.");
+  }, [refresh, hasWorkspace, taskmasterReady, source.response, source.status, source.error]);
 
   async function analyzeNow() {
     if (!hasWorkspace || !taskmasterReady || analysisRequestBusy) return;
