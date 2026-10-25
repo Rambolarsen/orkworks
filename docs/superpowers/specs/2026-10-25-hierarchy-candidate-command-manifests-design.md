@@ -11,7 +11,8 @@ status: draft
 Tracking: [#744](https://github.com/Rambolarsen/orkworks/issues/744),
 [#746](https://github.com/Rambolarsen/orkworks/issues/746).
 Inspection base: `5388d85a`.
-**Proposed for separate owner review; no executable plan or runtime approval.**
+**Three scoped choices accepted for further design/qualification; no executable plan or runtime approval.**
+See the [owner acceptance](#owner-acceptance-and-handoff--2026-10-25).
 This follows the [accepted slot metadata](2026-10-25-hierarchy-slot-finalization-design.md#owner-acceptance-and-handoff--2026-10-25)
 and [accepted compact codec](2026-10-25-hierarchy-compact-bindings-design.md#owner-acceptance-and-handoff--2026-10-25).
 It changes no canonical source/request/wire object, receipt quota, claim policy or
@@ -367,11 +368,11 @@ native qualification. Existing reviewed contract and fixture bytes stay unchange
 
 ## Review handoff and remaining gates
 
-Review the bounded inventory lookup, shared quota-key meanings, resource deltas,
-complete effect-set expansion, per-command subjectRevision choice and explicit
-per-result payload copies. These are the proposal author's design choices,
-not previously accepted owner decisions. Existing technical definitions/fixtures
-remain unchanged; routing links do not accept this amendment.
+The owner accepted the shared ledger keys/meanings, per-result payload-copy policy
+and work-ledger subjectRevision choice for further design/qualification, as recorded
+below. This is scoped acceptance of those three choices, not blanket acceptance
+of every component contract, producer schema or executable command profile.
+Existing technical definitions and fixtures remain unchanged.
 
 This closes logical command recipes and identifies exact required producer joins;
 it does not close missing artifact/custody/other-domain codecs, broader aggregate
@@ -381,7 +382,54 @@ writable ownership, shared custody or #740 eligibility. No runtime execution is
 eligible until every referenced expansion is qualified and the bounded executable
 plan separately approved. Keep #744/#746 open.
 
-Next bounded preparation after owner review: bind one source profile to complete
+Next bounded preparation: bind one source profile to complete
 canonical before/after command bytes, summary/lineage and owner-cap rows, then
 qualify its storage and finalization ordering under a separately approved plan.
 Do not substitute the symbolic accounting checker for that evidence.
+
+## Owner acceptance and handoff — 2026-10-25
+
+After PR #1059 merged and the three proposed choices were presented for owner
+review, the owner answered “go ahead”. This accepts the following choices for
+further design and qualification against reviewed source
+[PR #1059](https://github.com/Rambolarsen/orkworks/pull/1059), merged as
+`93c650307b641f5e517838d8f4f9ffee3056799e` (reviewed head
+`0092bcce842d15079691fa4d3e597250172f82c9`):
+
+- The shared quota_usage owner/resource keys and meanings in the closed resource
+  subset, including evaluation/correction/disposition writers' record-byte charges
+  and the requirement to gate producers that omit these shared effects. This
+  accepts no new numerical aggregate source/payload default or extra receipt pool.
+- A distinct result-keyed payload row for every present output, including zero-byte
+  outputs and server-artifact bytes copied into that result. Copies count again
+  in that result's payload and complete-command costs; prior artifact-production
+  charges remain. No physical-sharing or source-capacity discount is inferred.
+- Positive candidate-work reservation updates its candidate-owned work counters
+  and commit proof, while remaining outside subjectRevision and summary material.
+  Candidate admission/finalization/disposition, user-slot and retained-edge events
+  keep their existing source-revision rules; work accounting gains no authority.
+
+The accepted tradeoffs include cross-writer ledger integration before producer
+eligibility and additional payload storage/copy cost. Work-budget updates still
+participate in the existing pending/health publication fences; omitting a
+subjectRevision increment does not permit an uncharged pass or an invisible
+source outcome. Neither a quota row nor a stored work ledger/proof supplies native
+quiescence, ownership exclusion or permission to finalize.
+
+This record changes no reviewed codec, effect recipe, ledger delta, fixture,
+source/request/wire field, quota value or claim/lease policy. It accepts only the
+three named choices, not the entire broader storage/component design or an
+admitted maximum profile. Symbolic fixtures do not become canonical full-byte
+histories or native evidence through acceptance.
+
+Missing artifact/custody/other-domain codecs, finite aggregate source/payload
+defaults, exact source-profile command/lineage/owner-cap fixtures, native query/
+physical/resource/scratch feasibility, finalization/quiescence/recovery ordering
+against writable ownership, shared custody and separately approved executable
+plans remain gates. No database, migration, native/model probe or runtime code is
+approved. #740 remains deferred/no-go until November; keep #744/#746 open.
+
+Next bounded design task: define one source profile's complete canonical
+before/after command bytes, summary/lineage and owner-cap rows, preserving the
+remaining authority and native qualification gates. Review new schema/default
+choices separately before dependent implementation.

@@ -195,4 +195,4 @@ Dated design records; these do not establish current product behavior.
 
 - [Hierarchy reserved slots and internal finalization metadata](2026-10-25-hierarchy-slot-finalization-design.md) — Proposed format-3 reservation/outcome rows, separate authority joins and bounded command accounting.
 
-- [Hierarchy candidate command manifests and ledger effects](2026-10-25-hierarchy-candidate-command-manifests-design.md) — Proposed complete logical effect recipes, exact quota deltas and bounded lookup/accounting evidence; producer/native gates remain open.
+- [Hierarchy candidate command manifests and ledger effects](2026-10-25-hierarchy-candidate-command-manifests-design.md) — Three scoped ledger/payload/work-revision choices accepted for further design; logical effect recipes and bounded accounting evidence retain producer/native gates.
