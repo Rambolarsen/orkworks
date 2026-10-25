@@ -46,6 +46,7 @@ export function useActionsRecommendations(scope: string, enabled: boolean, works
     if (!enabled || !current || current.scope !== scope) return Promise.reject(new Error("Workspace recommendations unavailable"));
     return current.source.refresh();
   }, [scope,enabled]);
-  const current = enabled && snapshot.scope === scope ? snapshot : { ...empty, status: enabled ? "loading" as const : "unavailable" as const };
+  // Fast Refresh can retain the old items-only state until the subscription effect reruns.
+  const current = enabled && snapshot.scope === scope && snapshot.response ? snapshot : { ...empty, status: enabled ? "loading" as const : "unavailable" as const };
   return { ...current, scope, items: current.response.recommendations, refresh };
 }
