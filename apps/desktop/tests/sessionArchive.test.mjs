@@ -32,7 +32,29 @@ if (process.versions.electron) {
       };
       const scenario = process.env.ORKWORKS_ARCHIVE_CASE;
       if (scenario) {
-        if (scenario === 'delete-copy') {
+        if (scenario.startsWith('close-feedback')) {
+          await evaluate('fixture.pauseAction=true');
+          await more('live'); await action('Close');
+          await wait('fixture.finishAction');
+          const row = 'document.querySelector("[data-session-id=live]")';
+          assert.match(await evaluate(row+'.innerText'), /Closing…/, 'the target row immediately explains that close is pending');
+          assert.equal(await evaluate(row+'.getAttribute("aria-busy")'), 'true');
+          assert.equal(await evaluate(row+'.querySelector(".session-row-more").disabled'), true);
+          assert.doesNotMatch(await evaluate('document.querySelector("[data-session-id=closed]").innerText'), /Closing…/);
+          if (scenario === 'close-feedback-error') await evaluate('fixture.failAction=true');
+          if (scenario === 'close-feedback-generation') {
+            await evaluate('fixture.nextGeneration()');
+            await wait(row+'.getAttribute("aria-busy")==="false"');
+            assert.doesNotMatch(await evaluate(row+'.innerText'), /Closing…/);
+          }
+          await evaluate('fixture.finishAction()');
+          await wait(row+'.getAttribute("aria-busy")==="false"');
+          assert.doesNotMatch(await evaluate(row+'.innerText'), /Closing…/);
+          if (scenario === 'close-feedback-error') {
+            await wait('document.querySelector("[role=alert]")');
+            assert.match(await evaluate('document.querySelector("[role=alert]").innerText'), /Close failed/);
+          }
+        } else if (scenario === 'delete-copy') {
           await more('live'); await action('Delete');
           assert.match(await evaluate('fixture.confirmations[0]'), /native.*session.*retained/i);
           assert.match(await evaluate('fixture.confirmations[0]'), /Git worktree.*retained/i);
@@ -137,7 +159,7 @@ if (process.versions.electron) {
   const { join } = await import('node:path');
   const { spawnSync } = await import('node:child_process');
   const require = createRequire(import.meta.url);
-  for (const scenario of ['', 'delete-copy', 'restore-warning', 'archived-attention', 'generation-menu', 'generation-pending']) test('archive UI '+(scenario || 'workflow'), async () => {
+  for (const scenario of ['', 'close-feedback', 'close-feedback-error', 'close-feedback-generation', 'delete-copy', 'restore-warning', 'archived-attention', 'generation-menu', 'generation-pending']) test('archive UI '+(scenario || 'workflow'), async () => {
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-archive-'));
     try {
       const { build } = await import('esbuild');
@@ -152,7 +174,7 @@ if (process.versions.electron) {
         function Harness(){const[rows,setRows]=useState([row('live','active'),row('closed','closed'),row('saved','archived')]);const[selected,setSelected]=useState('live');const[enabled,setEnabled]=useState(true);const[generation,setGeneration]=useState(0);fixture.nextGeneration=()=>setGeneration(g=>g+1);fixture.setRows=setRows;fixture.setActionsEnabled=setEnabled;fixture.selectHidden=()=>setSelected('saved');fixture.selectLive=()=>setSelected('live');
           return <SessionListPanel workspaceGeneration={generation} workspace={{path:'/tmp',workspaceIdentity:'test'}} sessions={rows} activeSessionId={selected} unreadIds={new Set(['saved'])} acknowledgedIds={new Set()} harnesses={[]}
             actionsEnabled={enabled} onSelectSession={id=>{fixture.selections.push(id);fixture.selected=id;setSelected(id)}} onFocusTerminal={()=>{}} onOpenWorkspace={()=>{}}
-            onSessionAction={async(id,action,token)=>{fixture.calls.push([id,action,token]);if(fixture.pauseAction)await new Promise(resolve=>fixture.finishAction=resolve);setRows(rows=>action==='delete'?rows.filter(r=>r.id!==id):rows.map(r=>r.id===id?{...r,sessionState:action==='archive'?'archived':'closed',sessionActionToken:r.sessionActionToken+'-next',lifecycle:'dead',lifecyclePhase:'ended'}:r))}}/>}
+            onSessionAction={async(id,action,token)=>{fixture.calls.push([id,action,token]);if(fixture.pauseAction)await new Promise(resolve=>fixture.finishAction=resolve);if(fixture.failAction)throw new Error("Close failed");setRows(rows=>action==='delete'?rows.filter(r=>r.id!==id):rows.map(r=>r.id===id?{...r,sessionState:action==='archive'?'archived':'closed',sessionActionToken:r.sessionActionToken+'-next',lifecycle:'dead',lifecyclePhase:'ended'}:r))}}/>}
         createRoot(document.getElementById('root')).render(<Harness/>);
       `, resolveDir: root, loader: 'tsx' }, bundle: true, write: false, outdir: directory, format: 'iife', platform: 'browser', define: { 'process.env.NODE_ENV': '"development"' } });
       const fixture = join(directory, 'index.html');

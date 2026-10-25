@@ -1,6 +1,6 @@
 import { isHistoricalSession } from "../sessionRuntimeState";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { MoreHorizontal } from "lucide-react";
+import { LoaderCircle, MoreHorizontal } from "lucide-react";
 import type { SessionAction, SessionInfo, WorkspaceInfo } from "../api";
 import type { HarnessConfig } from "../harnessTypes";
 import { sessionAttentionStatus } from "../sessionSort";
@@ -21,6 +21,10 @@ import EmptyState from "./EmptyState";
 import StatusIndicator from "./StatusIndicator";
 import HarnessIcon from "./HarnessIcon";
 import SessionContextMenu, { type SessionMenuAnchor } from "./SessionContextMenu";
+
+const actionProgress: Record<SessionAction, string> = {
+  close: "Closing…", archive: "Archiving…", restore: "Restoring…", delete: "Deleting…",
+};
 
 interface SessionListPanelProps {
   workspace: WorkspaceInfo | null;
@@ -59,10 +63,10 @@ function SessionListPanel({
   const menuRef = useRef<SessionMenuAnchor | null>(null);
   const workspaceGeneration = useRef(0);
   const [menu, setMenu] = useState<SessionMenuAnchor | null>(null);
-  const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
+  const [pending, setPending] = useState<ReadonlyMap<string, SessionAction>>(new Map());
   const [error, setError] = useState<string | null>(null);
   const workspaceIdentity = workspace?.workspaceIdentity ?? workspace?.path;
-  useEffect(() => { workspaceGeneration.current += 1; actionInvoker.current = null; menuRef.current = null; setMenu(null); setFilter("all"); setError(null); setPending(new Set()); }, [workspaceIdentity, workspaceEpoch]);
+  useEffect(() => { workspaceGeneration.current += 1; actionInvoker.current = null; menuRef.current = null; setMenu(null); setFilter("all"); setError(null); setPending(new Map()); }, [workspaceIdentity, workspaceEpoch]);
   const listRef = useRef<HTMLUListElement | null>(null);
   const itemRefs = useRef<Map<string, HTMLLIElement>>(new Map());
   useLayoutEffect(() => {
@@ -114,10 +118,10 @@ function SessionListPanel({
     if (action === "resume") { onResumeSession?.(target.id); return; }
     if (action === "delete" && !window.confirm(`Permanently delete “${target.label}”? ${target.sessionState === "active" ? "The session will be closed first. " : ""}The session record, events, and saved terminal scrollback cannot be restored. The coding tool's native saved session is retained. The Git worktree is retained.`)) return;
     const generation = workspaceGeneration.current;
-    setPending(current => new Set(current).add(target.id));
+    setPending(current => new Map(current).set(target.id, action));
     try { await onSessionAction?.(target.id, action, target.sessionActionToken); }
     catch (error) { if (generation === workspaceGeneration.current) setError(error instanceof Error ? error.message : "Session action failed. Refresh and try again."); }
-    finally { if (generation === workspaceGeneration.current) setPending(current => { const next = new Set(current); next.delete(target.id); return next; }); }
+    finally { if (generation === workspaceGeneration.current) setPending(current => { const next = new Map(current); next.delete(target.id); return next; }); }
   };
 
   const orderedSessions = useMemo(
@@ -254,17 +258,24 @@ function SessionListPanel({
                       </span>
                     </span>
                     <span className="session-row-secondary">
-                      {attention && (
-                        <span className="session-row-attention" data-attention={tone}>
-                          {attentionLabel(attn)}
+                      {pending.has(s.id) ? (
+                        <span role="status" className="session-row-progress">
+                          <LoaderCircle size={12} className="status-indicator-spin" aria-hidden="true" />
+                          {actionProgress[pending.get(s.id)!]}
                         </span>
-                      )}
-                      <span className="session-row-meta">
-                        <span className="session-row-tool" aria-hidden={!tool}>
-                          {tool && <HarnessIcon tool={tool} />}
+                      ) : <>
+                        {attention && (
+                          <span className="session-row-attention" data-attention={tone}>
+                            {attentionLabel(attn)}
+                          </span>
+                        )}
+                        <span className="session-row-meta">
+                          <span className="session-row-tool" aria-hidden={!tool}>
+                            {tool && <HarnessIcon tool={tool} />}
+                          </span>
+                          <span className="session-row-time">{lastActivity(s, now)}</span>
                         </span>
-                        <span className="session-row-time">{lastActivity(s, now)}</span>
-                      </span>
+                      </>}
                     </span>
                     </button>
                     <div className="session-row-actions">
