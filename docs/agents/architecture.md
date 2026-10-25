@@ -933,7 +933,7 @@ Single binary. Top-level modules:
 - `session_application.rs` — typed application seam for workspace opening, session lifecycle commands, attention and plan selection, and delete/forget workflows. It coordinates the existing `AppState` and runtime/metadata modules without owning a second session map; workspace opening retains the `WorkspaceLease` in `WorkspaceState` for the lifetime of the owner; `http/session_handlers.rs` remains responsible for request extraction, authorization, compatibility mapping, and serialization.
 - `session_projection.rs` — stateful `GET /sessions` projection. It snapshots live and durable session state, performs capacity/provider write-back and cwd/Git/conflict enrichment, and serializes projection with workspace replacement under `AppState.projection_lock`; the lock order is projection lock, workspace or sessions lock, then provider-manager internal locks. It releases state locks before filesystem, process-cwd, or Git I/O. Its process-local Git-context cache lives in `AppState`, reuses results per resolved worktree root for five seconds from scan start, and retains at most 512 roots. Workspace adoption clears it; expired entries are pruned and a full cache evicts the oldest scan. The dedicated cache lock serializes misses without holding workspace or session locks. Session recommendations and cwd-conflict warnings are derived afresh on each listing. `session_view.rs` remains pure and reusable for field derivation.
 - `runtime/` — background-task and PTY submodules:
-  - `observed_status.rs` — applies ordinary `observed_status`/`attention` signals across the live session handle and persisted metadata: `apply_attention_signal` (external hook/debug reports) and `apply_process_transition` (the sidecar's own observations — committed input, idle timeout). See [ADR 0027](../adr/0027-observed-status-attention-owning-module.md).
+  - `observed_status.rs` — shared attention field operations and `ProcessTransition` decisions; `SessionApplication` owns application and persistence/live-mirror sequencing for ordinary hook/debug, idle and process-attention changes. Committed input retains its combined freshness/attention critical section. See [ADR 0027](../adr/0027-observed-status-attention-owning-module.md) and [transition observation windows](domain-entities.md#transition-ownership-and-observation-windows).
   - `codex_terminal_status.rs` — bounded OSC 7501 parser for live Codex PTY output. Its best-effort status uses existing transactional attention storage, preserves explicit attention, and supersedes hooks only after activation (ADR 0093).
   - `codex_approval.rs` — pure bounded hook/native correlation reducer; effects carry runtime/identity/turn/input fences and require owner acknowledgement after successful persistence.
   - `codex_approval_application.rs` — private authenticated scalar callback and runtime-local attention ownership; atomic application checks use workspace→sessions lock order, and production clearing remains separately gated for unfenced JSON writers.
@@ -974,6 +974,12 @@ persist PTYs or checkpoints across a sidecar restart.
 Delayed terminal-status transitions preserve durable `ended` metadata even
 while the same live runtime remains `ending`: finalization writes metadata
 before updating the live handle, so that interval must not reopen the record.
+Read-side lifecycle reconciliation remains necessary, while resume admission
+rejects an ending handle. Idle candidates carry their selected runtime generation;
+the application rechecks live and persisted lifecycle plus live authority under
+its existing locks, so a stale sweep cannot mark a terminal or replacement
+runtime idle. Failed finalization writes preserve `ending` and can be retried
+through the same operation once storage recovers; no automatic retry is implied.
 
 PTY input runs as one sequential blocking-pool write at a time, while the
 session driver continues draining output and observing the independent stop

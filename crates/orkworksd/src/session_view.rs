@@ -674,18 +674,30 @@ mod tests {
         };
         let harness = harness("claude-code");
 
-        let merged = merge_live_session_info(
-            info,
-            Some(&meta),
-            None,
-            Some(&harness),
-            &std::collections::HashSet::new(),
-        );
-
-        assert_eq!(merged.lifecycle_phase, "ended");
-        assert_ne!(merged.memory_state, MemoryState::Live);
-        assert_eq!(merged.memory_state, MemoryState::Resumable);
-        assert_eq!(merged.resume_strategy, harness::ResumeStrategy::Exact);
+        // Finalization persists ended metadata before updating the live
+        // mirror. Retain reconciliation for that exact running/ending window
+        // as well as older creating/active mirrors.
+        for (status, phase, lifecycle) in [
+            ("creating", "creating", "creating"),
+            ("running", "active", "alive"),
+            ("running", "ending", "stopping"),
+        ] {
+            let mut live = info.clone();
+            live.status = status.into();
+            live.lifecycle_phase = phase.into();
+            live.lifecycle = lifecycle.into();
+            let merged = merge_live_session_info(
+                live,
+                Some(&meta),
+                None,
+                Some(&harness),
+                &std::collections::HashSet::new(),
+            );
+            assert_eq!(merged.lifecycle_phase, "ended");
+            assert_ne!(merged.memory_state, MemoryState::Live);
+            assert_eq!(merged.memory_state, MemoryState::Resumable);
+            assert_eq!(merged.resume_strategy, harness::ResumeStrategy::Exact);
+        }
     }
 
     #[test]

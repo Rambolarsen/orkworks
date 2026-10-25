@@ -10,7 +10,11 @@ status: stable
 
 This document describes the current Rust session state model in `crates/orkworksd/src/`.
 
-There is no separate `domain/`/`application/` DDD layer in this crate — an earlier scaffold along those lines existed but was never wired into production and has been removed. Session state is modeled directly as data: `SessionMetadata` (the on-disk/API source of truth) plus the in-memory `SessionHandle`/`SessionInfo` types used by the HTTP and runtime layers.
+There is no separate `domain/`/`application/` DDD layer in this crate. Session
+state uses `SessionMetadata` for persisted records and `SessionHandle` /
+`SessionInfo` for live runtime and API state, with mutations coordinated by
+`SessionApplication`. The historical typed scaffold and its integration remain
+under the assessment described below.
 
 ## Scope
 
@@ -74,6 +78,36 @@ Unlike a typed domain enum, `status`/`lifecycle`/`lifecycle_phase`/`attention`/`
 - `terminal_outcome`: `ended`, `killed`, `error`
 
 Because these are untyped strings threaded through many call sites rather than a single enum, adding a new status value does not get compiler-checked exhaustiveness — grep for the field name across `http/` and `runtime/` before assuming a closed set.
+
+
+## Transition ownership and observation windows
+
+`SessionApplication` owns production application of lifecycle and attention
+changes. `runtime/observed_status.rs` supplies the shared attention field
+operations and `ProcessTransition` decisions described by ADR 0027. Hook/debug
+attention, idle timeout and ordinary process-attention writes arbitrate against
+the latest metadata in the retained store's session transaction lane before
+publishing a live mirror. Caller-specific runtime generation, source priority,
+prompt authority and lifecycle checks remain at the application boundary.
+Committed terminal input keeps its generation/freshness bookkeeping and attention
+update in the same critical section.
+
+Physical lifecycle changes have a different order. A terminal status first
+marks the owned live runtime `ending`, then attempts its durable transition;
+failed persistence cannot undo the physical process event or prevent its
+finalizer from being scheduled. Finalization writes `ended` metadata before
+updating the live handle. During that latter window, `session_view::is_live_session`
+must honor the durable terminal signal even if the handle still says `running`
+with phase `ending`; resume admission separately rejects an ending live handle.
+This reconciliation remains required rather than being a disposable workaround.
+
+A failed finalization write reports failure and retains `ending`; the same
+runtime generation can retry after storage recovers. That is retryability of the
+existing application operation, not a promise of automatic retry or successful
+durability during an I/O failure. Idle sweeps must not mutate either side of an
+ending/ended window: production candidates carry the selected runtime generation,
+and the apply boundary rechecks current lifecycle and authority before touching
+metadata revisions or live attention.
 
 ## Terminology boundary
 
@@ -150,7 +184,15 @@ There is no separate renderer session model or attention vocabulary.
 
 ## Prior DDD scaffold (removed)
 
-An earlier `domain/session/` + `application/session/` + `infrastructure/session_*` layer existed as a typed alternative to the above (a `Session` aggregate with a 5-variant `SessionStatus` enum, `MemoryState`, `AttentionState`, `WorkPhase`, `LifecyclePhase`, domain events, a `SessionRepository` port, and command handlers). It was never wired into any production code path — `SessionModule` was constructed only to populate an unread `AppState` field, and its PTY adapters were unimplemented stubs. It has been deleted. Two gaps would need to be closed before a typed state machine like this could work: it modeled only the 5-variant `SessionStatus` enum where production status vocabulary is the larger untyped set documented above, and it had no representation of PTY runtime state (`kill_tx`, output buffers, `SessionRuntime`) at all. See [issue #181](https://github.com/Rambolarsen/orkworks/issues/181) for the idea captured for future work.
+An earlier `domain/session/` + `application/session/` +
+`infrastructure/session_*` scaffold was removed in PR #182. Its historical
+integration state, deletion context, and useful recoverable types are being
+reassessed in [#181](https://github.com/Rambolarsen/orkworks/issues/181); removal
+alone does not establish that typed modeling failed or was rejected. The
+current consistency assessment in [#402](https://github.com/Rambolarsen/orkworks/issues/402)
+keeps the existing application/metadata/runtime owners. A recovered or adapted
+typed boundary still requires its own reviewed production integration and
+compatibility/recovery design before implementation.
 
 ## Workflow observation feedback loop
 

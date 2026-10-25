@@ -2637,8 +2637,14 @@ impl SessionApplication {
     /// Applies the Peon idle-timeout transition to persisted metadata and the
     /// live session. The persisted state is re-read while the workspace and
     /// sessions locks are held in that order; the live projection happens
-    /// only after persistence succeeds.
-    pub(crate) fn apply_idle_timeout(&self, id: &str) {
+    /// only after persistence succeeds. Idle selections from the Peon loop
+    /// carry the selected run generation; lifecycle and authority are checked
+    /// again at this boundary because they can change after selection.
+    pub(crate) fn apply_idle_timeout(
+        &self,
+        id: &str,
+        expected_generation: Option<crate::runtime::session_runtime::RuntimeGeneration>,
+    ) {
         let _transition = crate::runtime::prompt_authority::transition_lock()
             .lock()
             .unwrap();
@@ -2650,13 +2656,32 @@ impl SessionApplication {
             return;
         };
         let mut sessions = self.state.sessions.lock().unwrap();
+        let handle = sessions.get(id);
+        if expected_generation.is_some_and(|generation| {
+            !handle.is_some_and(|handle| handle.runtime.run_generation() == generation)
+        }) || handle.is_some_and(|handle| {
+            handle.info.status != "running"
+                || handle.info.lifecycle != "alive"
+                || handle.info.lifecycle_phase != "active"
+                || handle.active_work_hook
+                || handle.runtime.codex_terminal_status_active
+                || !matches!(
+                    handle.info.observed_status.as_deref(),
+                    None | Some("working")
+                )
+        }) {
+            return;
+        }
         let fields = crate::runtime::observed_status::process_transition_fields(
             crate::runtime::observed_status::ProcessTransition::IdleTimeout,
         );
         let result = ws
             .metadata
             .mutate_session_optional(id, WriteScope::ATTENTION, |meta| {
-                if !matches!(meta.observed_status.as_deref(), None | Some("working"))
+                if meta.status != "running"
+                    || meta.lifecycle != "alive"
+                    || meta.lifecycle_phase != "active"
+                    || !matches!(meta.observed_status.as_deref(), None | Some("working"))
                     || !metadata::source_priority::can_overwrite(
                         "process",
                         meta.attention_source(),
@@ -8350,7 +8375,7 @@ mod tests {
             .unwrap()
             .insert(id.into(), attention_test_handle(id, root.path()));
 
-        SessionApplication::new(state.clone()).apply_idle_timeout(id);
+        SessionApplication::new(state.clone()).apply_idle_timeout(id, None);
 
         let stored = state
             .workspace
@@ -8363,6 +8388,225 @@ mod tests {
             .unwrap();
         assert_eq!(stored.observed_status.as_deref(), Some("idle"));
         assert_eq!(
+            state.sessions.lock().unwrap()[id]
+                .info
+                .observed_status
+                .as_deref(),
+            Some("idle")
+        );
+    }
+
+    #[test]
+    fn apply_idle_timeout_rechecks_lifecycle_and_live_authority_before_mutating() {
+        for (case, metadata_phase, live_phase, hook, codex, live_status) in [
+            (
+                "persisted-ending",
+                "ending",
+                Some("active"),
+                false,
+                false,
+                "working",
+            ),
+            (
+                "persisted-ended",
+                "ended",
+                Some("active"),
+                false,
+                false,
+                "working",
+            ),
+            (
+                "metadata-only-ended",
+                "ended",
+                None,
+                false,
+                false,
+                "working",
+            ),
+            (
+                "live-ending",
+                "active",
+                Some("ending"),
+                false,
+                false,
+                "working",
+            ),
+            (
+                "live-ended",
+                "active",
+                Some("ended"),
+                false,
+                false,
+                "working",
+            ),
+            (
+                "hook-activated",
+                "active",
+                Some("active"),
+                true,
+                false,
+                "working",
+            ),
+            (
+                "codex-activated",
+                "active",
+                Some("active"),
+                false,
+                true,
+                "working",
+            ),
+            (
+                "live-specific",
+                "active",
+                Some("active"),
+                false,
+                false,
+                "capped",
+            ),
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let state = crate::test_support::test_app_state_with_workspace(root.path());
+            let id = format!("idle-recheck-{case}");
+            let mut meta = crate::test_support::test_session_metadata(
+                &id,
+                "Idle recheck",
+                &root.path().display().to_string(),
+                if metadata_phase == "ended" {
+                    "ended"
+                } else {
+                    "running"
+                },
+                "before",
+                "before",
+            );
+            meta.lifecycle_phase = metadata_phase.into();
+            meta.lifecycle = match metadata_phase {
+                "ending" => "stopping",
+                "ended" => "dead",
+                _ => "alive",
+            }
+            .into();
+            meta.observed_status = Some("working".into());
+            meta.provenance.attention_source = Some("process".into());
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .write_session(&meta);
+            if let Some(phase) = live_phase {
+                let mut handle = attention_test_handle(&id, root.path());
+                handle.info.lifecycle_phase = phase.into();
+                handle.info.lifecycle = match phase {
+                    "ending" => "stopping",
+                    "ended" => "dead",
+                    _ => "alive",
+                }
+                .into();
+                handle.info.observed_status = Some(live_status.into());
+                handle.active_work_hook = hook;
+                handle.runtime.codex_terminal_status_active = codex;
+                state.sessions.lock().unwrap().insert(id.clone(), handle);
+            }
+            let before = state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .try_read_revisioned_session(&id)
+                .unwrap()
+                .unwrap();
+            let live_before = state
+                .sessions
+                .lock()
+                .unwrap()
+                .get(&id)
+                .map(|handle| serde_json::to_value(&handle.info).unwrap());
+
+            SessionApplication::new(state.clone()).apply_idle_timeout(&id, None);
+
+            let after = state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .try_read_revisioned_session(&id)
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                after.revision, before.revision,
+                "{case}: rejected idle must not replace metadata"
+            );
+            assert_eq!(
+                serde_json::to_value(after.metadata).unwrap(),
+                serde_json::to_value(before.metadata).unwrap(),
+                "{case}"
+            );
+            let live_after = state
+                .sessions
+                .lock()
+                .unwrap()
+                .get(&id)
+                .map(|handle| serde_json::to_value(&handle.info).unwrap());
+            assert_eq!(
+                live_after, live_before,
+                "{case}: rejected idle must not change the live mirror"
+            );
+        }
+    }
+
+    #[test]
+    fn apply_idle_timeout_cannot_apply_a_selection_from_a_replaced_runtime() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "idle-replaced-runtime";
+        let mut meta = crate::test_support::test_session_metadata(
+            id,
+            "Replacement",
+            &root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
+        );
+        meta.lifecycle = "alive".into();
+        meta.lifecycle_phase = "active".into();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
+        let selected = attention_test_handle(id, root.path());
+        let selected_generation = selected.runtime.run_generation();
+        let replacement = attention_test_handle(id, root.path());
+        assert_ne!(selected_generation, replacement.runtime.run_generation());
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(id.into(), replacement);
+
+        SessionApplication::new(state.clone()).apply_idle_timeout(id, Some(selected_generation));
+
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_ne!(stored.observed_status.as_deref(), Some("idle"));
+        assert_ne!(
             state.sessions.lock().unwrap()[id]
                 .info
                 .observed_status
@@ -8412,7 +8656,7 @@ mod tests {
         );
         assert!(authority.activate(id, "claude-code", "idle-authority-generation", "native"));
 
-        SessionApplication::new(state.clone()).apply_idle_timeout(id);
+        SessionApplication::new(state.clone()).apply_idle_timeout(id, None);
 
         let stored = state
             .workspace
@@ -8458,7 +8702,7 @@ mod tests {
             .metadata
             .write_session(&metadata);
 
-        SessionApplication::new(state.clone()).apply_idle_timeout(id);
+        SessionApplication::new(state.clone()).apply_idle_timeout(id, None);
 
         let stored = state
             .workspace
@@ -8503,7 +8747,7 @@ mod tests {
             .unwrap()
             .insert(id.into(), attention_test_handle(id, root.path()));
 
-        SessionApplication::new(state.clone()).apply_idle_timeout(id);
+        SessionApplication::new(state.clone()).apply_idle_timeout(id, None);
 
         let stored = state
             .workspace
@@ -8549,7 +8793,7 @@ mod tests {
             .unwrap()
             .insert(id.into(), attention_test_handle(id, root.path()));
 
-        SessionApplication::new(state.clone()).apply_idle_timeout(id);
+        SessionApplication::new(state.clone()).apply_idle_timeout(id, None);
 
         let persisted = state
             .workspace
@@ -8573,9 +8817,9 @@ mod tests {
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let application = SessionApplication::new(state.clone());
 
-        application.apply_idle_timeout("missing");
+        application.apply_idle_timeout("missing", None);
         *state.workspace.lock().unwrap() = None;
-        application.apply_idle_timeout("missing");
+        application.apply_idle_timeout("missing", None);
     }
 
     #[test]
@@ -8763,6 +9007,78 @@ mod tests {
         );
         assert_eq!(stored.pending_terminal_status, None);
         assert_eq!(stored.final_observed_status_snapshot, Some(snapshot));
+    }
+
+    #[test]
+    fn complete_session_ending_preserves_ending_on_write_failure_and_can_retry() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "ending-write-retry";
+        let mut meta = crate::test_support::test_session_metadata(
+            id,
+            "Ending retry",
+            &root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
+        );
+        meta.lifecycle = "stopping".into();
+        meta.lifecycle_phase = "ending".into();
+        meta.pending_terminal_status = Some("ended".into());
+        let sessions_dir = {
+            let workspace = state.workspace.lock().unwrap();
+            let store = &workspace.as_ref().unwrap().metadata;
+            store.write_session(&meta);
+            store.sessions_dir()
+        };
+        let mut handle = attention_test_handle(id, root.path());
+        handle.info.lifecycle = "stopping".into();
+        handle.info.lifecycle_phase = "ending".into();
+        let generation = handle.runtime.run_generation();
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+        let temporary_record = sessions_dir.join(format!("{id}.json.tmp"));
+        std::fs::create_dir_all(&temporary_record).unwrap();
+        let application = SessionApplication::new(state.clone());
+        let snapshot = metadata::canonical_null_snapshot("recovery", Some("now".into()));
+
+        assert!(!application.complete_session_ending(id, generation, snapshot.clone(), "ended"));
+        assert_eq!(
+            state.sessions.lock().unwrap()[id].info.lifecycle_phase,
+            "ending"
+        );
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap()
+                .lifecycle_phase,
+            "ending"
+        );
+
+        std::fs::remove_dir(&temporary_record).unwrap();
+        assert!(application.complete_session_ending(id, generation, snapshot, "ended"));
+        assert_eq!(
+            state.sessions.lock().unwrap()[id].info.lifecycle_phase,
+            "ended"
+        );
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap()
+                .lifecycle_phase,
+            "ended"
+        );
     }
 
     #[test]
