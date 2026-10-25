@@ -341,6 +341,16 @@ OrkWorks session workflow, real PTY, and installed Codex 0.163.0 on macOS arm64
 red, green, blue, orange in order; an image-only prompt described the red circle
 and green square. Storage paths included spaces and non-ASCII characters.
 
+On 2026-10-25, the same opt-in fixture qualified Codex 0.164.0 on macOS
+arm64 with configured GPT-6.1-Sol. The two-image response identified red, green,
+blue, orange in order; the image-only response described the red circle and
+green square. Both used the ordinary OrkWorks PTY launch with spaces and `é`
+in the storage path. The unmodified gate first rejected 0.164.0; after adding
+that exact version, both fixture cases passed. Codex 0.163.0 remains qualified;
+other versions still require their own fixture evidence. See
+[#1057](https://github.com/Rambolarsen/orkworks/issues/1057). This is source
+qualification evidence, not a claim about published installers.
+
 Native Codex `--image` auto-submits startup content. Supplying only image argv and
 then using the queued PTY text creates two turns. The qualified route passes image
 paths and literal text together in argv and disables the queued prompt for that

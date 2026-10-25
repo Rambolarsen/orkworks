@@ -89,13 +89,15 @@ pub(crate) async fn delivery(harness: &str, command: &str) -> Option<ImageDelive
     if !cfg!(all(target_os = "macos", target_arch = "aarch64")) {
         return None;
     }
-    let (expected, route) = match harness {
-        "codex" => ((0, 163, 0), ImageDelivery::NativeCodex),
+    let (qualified_versions, route) = match harness {
+        "codex" => ([(0, 163, 0), (0, 164, 0)], ImageDelivery::NativeCodex),
         _ => return None,
     };
     let tool = crate::harness::detect::probe_installed_tool(command)?;
     let version = crate::harness::detect::probe_tool_version(&tool.executable).await?;
-    (crate::harness::detect::parse_version_token(&version) == Some(expected)).then_some(route)
+    qualified_versions
+        .contains(&crate::harness::detect::parse_version_token(&version)?)
+        .then_some(route)
 }
 pub(crate) async fn capabilities(
     axum::extract::State(state): axum::extract::State<std::sync::Arc<crate::AppState>>,
