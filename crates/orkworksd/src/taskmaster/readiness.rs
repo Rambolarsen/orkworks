@@ -86,8 +86,16 @@ fn identity(
     let comparison_fingerprint = hash(
         &json!({"rubric":rubric_digest,"guidance":guidance,"custom":stable_custom,"native":e.native_revision,"selection":e.settings.selection,"contextLevel":e.settings.context_level,"excludedPaths":e.settings.excluded_paths,"versions":versions}),
     )?;
+    // Admission fences instance and generation separately from persisted inputs.
+    let mut persistent_inference = full.clone();
+    if let Some(value) = persistent_inference.as_object_mut() {
+        value.remove("generation");
+    }
+    if let Some(value) = persistent_inference["custom"].as_object_mut() {
+        value.remove("runtime_generation");
+    }
     let input_fingerprint = hash(
-        &json!({"workspace":path.to_str().ok_or("Workspace path is not valid UTF-8")?,"instance":instance,"git":git,"manifest":manifest,"inference":full,"versions":versions,"rubric":rubric_digest,"guidance":guidance}),
+        &json!({"workspace":path.to_str().ok_or("Workspace path is not valid UTF-8")?,"git":git,"manifest":manifest,"inference":persistent_inference,"versions":versions,"rubric":rubric_digest,"guidance":guidance}),
     )?;
     Ok(InputIdentity {
         workspace_path: path
@@ -585,30 +593,35 @@ pub(crate) fn status(state: &Arc<crate::AppState>, runtime_root: PathBuf) -> Sta
     if let Some(data) = latest.and_then(|s| s.data.as_ref()) {
         if let Ok(mut c) = capture(state, &runtime) {
             if c.path == path && c.instance == instance {
-                if let Ok(restored) = c
+                match c
                     .repository
                     .clone()
-                    .restore(&data.identity.input_manifest.collector)
+                    .restore_for_readiness(&data.identity.input_manifest.collector)
                 {
-                    c.repository = restored;
-                    if let Ok(new) = identity(
-                        &c.path,
-                        c.instance,
-                        &c.evaluation,
-                        &c.rubric,
-                        &c.repository,
-                        &c.observations,
-                    ) {
-                        c.identity = new;
-                        freshness =
-                            if c.identity.input_fingerprint == data.identity.input_fingerprint {
+                    Ok(restored) => {
+                        c.repository = restored;
+                        if let Ok(new) = identity(
+                            &c.path,
+                            c.instance,
+                            &c.evaluation,
+                            &c.rubric,
+                            &c.repository,
+                            &c.observations,
+                        ) {
+                            freshness = if new.input_fingerprint == data.identity.input_fingerprint
+                            {
                                 "current"
                             } else {
                                 "changed"
                             };
+                        }
                     }
-                } else {
-                    freshness = "changed";
+                    Err(super::assessment_context::RevalidationError::Changed) => {
+                        freshness = "changed"
+                    }
+                    Err(super::assessment_context::RevalidationError::Unavailable) => {
+                        freshness = "unknown"
+                    }
                 }
             }
         }
@@ -799,6 +812,38 @@ mod integration_tests {
             Ok(())
         })
         .unwrap();
+    }
+    #[test]
+    fn unchanged_inputs_survive_workspace_reopen_and_runtime_generation_change() {
+        let (f, runtime) = setup();
+        let first = capture(&f.state, &runtime).unwrap();
+        crate::test_support::swap_workspace(&f.state, &first.path);
+        let reopened = capture(&f.state, &runtime).unwrap();
+        assert_ne!(first.instance, reopened.instance);
+        assert_eq!(
+            first.identity.input_fingerprint,
+            reopened.identity.input_fingerprint
+        );
+        runtime
+            .replace_settings(reopened.evaluation.settings.clone())
+            .unwrap();
+        let refreshed = capture(&f.state, &runtime).unwrap();
+        assert_ne!(
+            reopened.evaluation.generation,
+            refreshed.evaluation.generation
+        );
+        assert_eq!(
+            reopened.identity.input_fingerprint,
+            refreshed.identity.input_fingerprint
+        );
+        assert!(
+            guarded(&f.state, &runtime, &first, || Ok(())).is_err(),
+            "persistent fingerprint must not weaken admission fences"
+        );
+        assert!(
+            guarded(&f.state, &runtime, &reopened, || Ok(())).is_err(),
+            "generation change must still fence in-flight inference"
+        );
     }
     #[test]
     fn follow_up_cannot_adopt_a_git_change_as_its_new_baseline() {

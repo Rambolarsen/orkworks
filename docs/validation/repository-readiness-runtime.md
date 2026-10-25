@@ -122,3 +122,16 @@ improvement of the intended component in at least two of three paired trials
 without unrelated invented gains. Identical no-change scores are not required.
 A more capable model may be qualified in isolated fixtures if selected by the
 owner; live application settings must remain unchanged without that instruction.
+
+## Historical freshness review
+
+Current-diff review at `e7210343` found two required freshness errors: transient
+workspace/runtime identity made an unchanged reopened workspace look changed,
+and every restoration failure looked like a detected repository change. Both
+regressions failed before corrections. Persisted input fingerprints now omit
+transient instance/generation while independent admission checks retain them.
+The collector distinguishes observed content/catalog differences from unavailable
+or unsafe reads before the status projection chooses changed or unknown.
+Focused readiness checks passed 26 tests with the opt-in live matrix ignored;
+regressions also preserve stale-instance/generation cancellation and classify
+changed, removed, non-text and symlinked follow-up evidence.

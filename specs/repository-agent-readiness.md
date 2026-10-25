@@ -218,6 +218,10 @@ restores its history; removing its local metadata removes its history.
 
 Every completed full or partial result becomes an immutable snapshot with ID,
 start/completion time, identities, bounded cited evidence and fourteen rows.
+Persisted input fingerprints exclude transient workspace instances and runtime
+generations so unchanged evidence remains current after reopening. Those captured
+identities still fence every in-flight dispatch and publication independently.
+
 A manual rerun always invokes the provider after admission, even for unchanged
 inputs; label identical-input reruns so model variability stays visible. Polls
 and opening history never invoke inference. Failed/interrupted runs never become
