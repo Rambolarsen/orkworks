@@ -190,22 +190,41 @@ fn contains_command_or_verification_claim(value: &str) -> bool {
         return true;
     }
     let shell_operator = lower.contains('|') || lower.contains('>') || lower.contains('<');
-    // A semicolon also joins ordinary prose. Only the capitalized platform
-    // noun phrases below disambiguate Node from an executable name. All other
+    // A semicolon also joins ordinary prose. Only capitalized platform
+    // descriptions below disambiguate Node from an executable name. All other
     // bare command names remain conservative, including capitalized spellings.
     let semicolon_command = lower.contains(';') && contains_command_token(&words) && {
         let original_words: Vec<&str> = value.split_whitespace().collect();
         let bare_command = original_words.iter().enumerate().any(|(index, word)| {
-            let node_package_description = *word == "Node"
-                && original_words.get(index + 1) == Some(&"package")
-                && original_words.get(index + 2).is_some_and(|word| {
+            let next = original_words
+                .get(index + 1)
+                .map(|word| word.trim_end_matches(['.', ',', ':', ';', '!', '?']));
+            let node_platform_description = *word == "Node"
+                && (next.is_some_and(|word| {
                     matches!(
-                        word.trim_end_matches(['.', ',', ':', ';', '!', '?']),
-                        "management" | "configuration"
+                        word,
+                        "setup" | "version" | "versions" | "runtime" | "requirements" | "toolchain"
                     )
-                });
+                }) || next.is_some_and(|word| {
+                    word.chars().any(|ch| ch.is_ascii_digit())
+                        && word.chars().all(|ch| ch.is_ascii_digit() || ch == '.')
+                }) || (next == Some("and")
+                    && original_words.get(index + 2) == Some(&"pnpm")
+                    && original_words.get(index + 3).is_some_and(|word| {
+                        matches!(
+                            word.trim_end_matches(['.', ',', ':', ';']),
+                            "versions" | "requirements"
+                        )
+                    }))
+                    || (next == Some("package")
+                        && original_words.get(index + 2).is_some_and(|word| {
+                            matches!(
+                                word.trim_end_matches(['.', ',', ':', ';', '!', '?']),
+                                "management" | "configuration"
+                            )
+                        })));
             let lower_word = word.to_ascii_lowercase();
-            !node_package_description
+            !node_platform_description
                 && lower_word
                     .split(|character: char| !character.is_ascii_alphanumeric())
                     .any(|token| contains_command_token(&[token]))
@@ -823,6 +842,31 @@ mod tests {
         description["unverifiedChecks"] =
             json!(["Existing CI configuration includes regression checks."]);
         assert!(parse(&description).is_ok());
+    }
+
+    #[test]
+    fn platform_descriptions_with_semicolons_are_not_commands() {
+        for text in [
+            "README documents setup and package metadata pins Node and pnpm versions; no supplied outcome establishes a reliable clean-checkout environment.",
+            "Required versions are listed and CI specifies Node setup; local environment provisioning is unverified.",
+            "The package manager and Node version are pinned; reliability remains unknown.",
+            "README lists Node and pnpm requirements; availability is unknown.",
+            "README and package metadata specify Node and pnpm versions, while CI selects Node 22; no evidence establishes guaranteed agent-environment availability.",
+        ] {
+            assert!(validate_prose(text, 500, true).is_ok(), "description rejected: {text}");
+        }
+        for text in [
+            "Node 22; rm output",
+            "Node setup; pnpm test",
+            "Node package management; node script.js",
+            "Node 22; printf hello",
+            "node setup; local environment unknown",
+        ] {
+            assert!(
+                validate_prose(text, 500, true).is_err(),
+                "command accepted: {text}"
+            );
+        }
     }
 
     #[test]

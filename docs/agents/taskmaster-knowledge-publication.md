@@ -20,7 +20,7 @@ receive private receipts, source paths, review hashes or credentials. The
 
 The initial production publication was deployed on 2026-10-16. The feed is
 [the signed manifest](https://rambolarsen.github.io/brain/orkworks-knowledge/manifest.json).
-The generated packaged starter retains the original signed bundle and its signed
+A generated packaged starter retains its original signed bundle and signed
 manifest attestation, verified independently in Electron and Rust.
 
 | Identity | Initial publication |
@@ -38,6 +38,31 @@ and [historical signed manifest](https://rambolarsen.github.io/brain/orkworks-kn
 remain available after newer publications. A private publisher receipt connects
 these public identities to the reviewed source revision; do not copy that receipt
 into app resources, public evidence or Pages.
+
+## Complete readiness rubric publication
+
+On 2026-10-25 the owner approved the exact public candidate and signed
+publication in [Brain PR #127](https://github.com/Rambolarsen/brain/pull/127).
+The [publication workflow](https://github.com/Rambolarsen/brain/actions/runs/40211250600)
+completed after that merge.
+Current source packages the generated activation proof for this publication.
+The pinned public key is unchanged. Older format-1 publications remain eligible
+for older clients; readiness requires the complete format-2 descriptor.
+
+| Identity | Readiness publication |
+| --- | --- |
+| Version / sequence / bundle format | `brain-3` / `3` / `2` |
+| Bundle-envelope SHA-256 | `ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511` |
+| Manifest-envelope SHA-256 | `4e028762fae8a8dca9ebd346210dc965295e43ea43ed6c760ca545de9ea48eb3` |
+| Reviewed public-core SHA-256 | `1d6cb0f03c3f66b43257e94fef8160f011758ce699bcfc2e856ff8b9a93768b7` |
+| Guidance | Ten pages, including the complete fourteen-concept readiness rubric |
+
+The [immutable readiness bundle](https://rambolarsen.github.io/brain/orkworks-knowledge/bundles/brain-3.json)
+was verified against the signed manifest with the existing pin. Removing the
+archive-owned version, sequence and publication time yields the exact reviewed
+public candidate in every field. Offline Electron and Rust tests exercise the
+actual generated starter. This publication does not establish model score quality
+or availability in a published OrkWorks installer.
 
 ## Promotion and publishing ownership
 

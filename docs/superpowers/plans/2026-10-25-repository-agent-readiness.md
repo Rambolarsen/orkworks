@@ -14,14 +14,13 @@ Specification: [repository agent readiness](../../../specs/repository-agent-read
 Decision: [ADR 0095](../../adr/0095-repository-agent-readiness-history.md).
 
 The owner approved the concrete protocol/storage and runtime implementation
-in chat on 2026-10-25. Exact public rubric export review remains required
-before publication. Continue inline using `executing-plans`;
+in chat on 2026-10-25. Exact public rubric export and publication were approved on 2026-10-25. Continue inline using `executing-plans`;
 do not launch another coding harness. Use TDD for runtime changes and the scoped
 Rust/desktop instructions. Keep existing workflow assessment behavior unchanged.
 
 ## Deliverables and checks
 
-- [ ] **Complete reviewed rubric delivery.** Extend the Brain publisher/client
+- [x] **Complete reviewed rubric delivery.** Extend the Brain publisher/client
   schema with an exact format-2 fourteen-concept rubric descriptor and independent signed
   readiness capability. Review a sanitized proposed export and format-1 manifest compatibility before publishing; retain old-client compatible bundles. Ownership
   spans the Brain publisher and `taskmaster/knowledge.rs`,
@@ -33,7 +32,7 @@ Rust/desktop instructions. Keep existing workflow assessment behavior unchanged.
   verified starter offline while existing workflow assessment retains its bundle.
   If publication is unavailable, surface readiness unavailable without fallback.
 
-- [ ] **Readiness protocol and deterministic score.** Add focused
+- [x] **Readiness protocol and deterministic score.** Add focused
   `taskmaster/readiness_model.rs` and a readiness-specific discovery/schema module
   beside existing assessment modules. Reuse `assessment_context.rs` as the sole
   permission/evidence owner; do not duplicate traversal or weaken existing limits.
@@ -44,7 +43,7 @@ Rust/desktop instructions. Keep existing workflow assessment behavior unchanged.
   hallucinated references, absent versus truncated files, partial confidence and
   unsupported verification claims. A model's overall score must be rejected.
 
-- [ ] **Manual orchestration and durable snapshots.** Add focused readiness
+- [x] **Manual orchestration and durable snapshots.** Add focused readiness
   scheduler/report/store/access modules under `taskmaster/`, registered in
   `taskmaster/mod.rs`. Reuse the shared runtime analysis lease and captured
   transport; do not reuse the active-recommendation admission gate for this
@@ -57,7 +56,7 @@ Rust/desktop instructions. Keep existing workflow assessment behavior unchanged.
   atomic replacement failure, completion idempotence and crash boundaries before
   and after history commit. Prior completed history survives failed new runs.
 
-- [ ] **Historical access and comparison.** Integrate readiness reconciliation
+- [x] **Historical access and comparison.** Integrate readiness reconciliation
   with existing settings-narrowing/startup ownership and lock order; extend every
   known workspace reconciliation, not only the selected one. Fixture-test
   excluded paths, lower context level, unopened workspace, pending narrowing,
@@ -68,7 +67,7 @@ Rust/desktop instructions. Keep existing workflow assessment behavior unchanged.
   coverage, incompatible rubric/provider/effort/access/schema versions, model
   variability for identical input and no cross-worktree aggregation.
 
-- [ ] **Authenticated API, independent transport types and UI.** Add narrow
+- [x] **Authenticated API, independent transport types and UI.** Add narrow
   `POST /taskmaster/assess-readiness` (empty body; run-ID admission) and
   `GET /taskmaster/readiness` (selected workspace's bounded history/run status)
   in the authenticated sidecar router. Both follow current workspace identity
@@ -135,7 +134,7 @@ collector reuse boundaries, admission serialization, conservative narrowing and
 freshness triggers. The current implementation's installation-wide lease is
 explicitly distinguished from the independent-instance proposal. No unchanged
 approved workflow artifact was reopened. The owner approved the concrete design and implementation on 2026-10-25.
-Exact publisher export approval remains required before publication.
+Exact publisher export and publication approval was subsequently granted on 2026-10-25.
 
 Documentation review note: the doc-drift hook suggests README review because a
 proposed ADR was added. README behavior/availability claims remain accurate;
@@ -150,13 +149,16 @@ the separate manual action, strict scoring/discovery protocol, guarded
 workspace-local history, access reconciliation and renderer comparison/details.
 The existing workflow assessment retains its one-improvement behavior.
 
-The rubric/publisher prerequisite is prepared in
+The rubric/publisher prerequisite was approved and delivered through
 [Brain PR #127](https://github.com/Rambolarsen/brain/pull/127). Exact public-core
 SHA-256 is `1d6cb0f03c3f66b43257e94fef8160f011758ce699bcfc2e856ff8b9a93768b7`.
-Production allowlist, signing keys and packaged starter remain unchanged pending
-owner approval of that public candidate. Selected-model semantic trials and
-production eligibility therefore remain incomplete; synthetic fixture results
-are not a claim of production score usefulness.
+The signed `brain-3` format-2 publication retains the unchanged trust key and
+all prior compatible publications. Current source packages its generated proof;
+actual feed verification established that its public core matches the approved
+candidate in every field. Starter/proof/readiness Electron checks passed 33 tests;
+Rust production-starter checks passed three tests. Selected-model semantic trials
+remain a separate acceptance gate; synthetic fixture results are not a claim of
+production score usefulness.
 
 Fresh-context implementation review found two required identity races: mixed
 rubric/evaluation capture and adopting a changed Git identity after follow-up.
@@ -187,3 +189,18 @@ hooks passed. The README drift warning was reviewed: no installer or onboarding
 claim changes while readiness remains publication/quality gated. A final bounded
 UI label for identical-input model variability passed its new rendered regression
 and the 26-test focused desktop rerun; renderer type checking remained green.
+
+## Resumed delivery evidence
+
+The generated `brain-3` starter now passes independent offline verification.
+The resumed full verifier passed 2,267 Rust tests with eleven ignored, all four
+integration binaries, 1,537 desktop tests with two skipped, native ABI checks,
+reporter tests, type checks, desktop/docs builds and close-out hooks. The final
+readiness-focused follow-up passed 24 tests with its live matrix ignored.
+
+[Readiness runtime validation](../../validation/repository-readiness-runtime.md)
+records the selected-model gate failure, including all diagnostic matrices and
+independent review of 126 rows. Domain documentation improved its intended row
+in all three pairs, but missing evidence, unsupported levels and parser rejects
+prevent acceptance. The quality deliverable remains incomplete and the PR stays
+draft. Live application settings were not changed.

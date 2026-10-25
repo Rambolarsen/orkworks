@@ -152,8 +152,8 @@ the sidecar independently verifies that proof and owns bounded analysis and
 evidence validation. Knowledge cannot change execution authority.
 Brain-backed analysis requires server-owned, reverified durable knowledge proof
 under [ADR 0081](../adr/0081-signed-taskmaster-knowledge-activation-proof.md).
-Current source packages the generated `brain-1` signed starter and matching
-replacement public key from the approved production publication. Admission checks
+Current source packages the generated `brain-3` signed starter with the complete readiness
+rubric and unchanged public pin from the approved production publication. Admission checks
 manual requests, scheduling and worker entry before provider preparation, context
 collection or usage reservation. Missing, corrupt, unsupported or mismatched proof
 remains unavailable; unsigned policy fields, legacy snapshots and executable

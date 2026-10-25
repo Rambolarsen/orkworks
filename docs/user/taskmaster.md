@@ -163,8 +163,10 @@ for a rerun. Reducing Taskmaster context access redacts affected historical scor
 and evidence, and expanding access again does not restore them.
 
 This feature requires complete verified signed Brain rubric guidance and an
-available configured Taskmaster model. Publication, the generated starter and
-selected-model acceptance remain tracked in
-[#1063](https://github.com/Rambolarsen/orkworks/issues/1063); source changes alone
-do not establish installer availability. Existing **Assess workflow** continues
+available configured Taskmaster model. Signed publication and the generated
+starter are verified, but the current selected-model quality matrix failed
+[semantic acceptance](../validation/repository-readiness-runtime.md#final-acceptance).
+The implementation remains in draft PR review under
+[#1063](https://github.com/Rambolarsen/orkworks/issues/1063), pending model
+qualification; it is not established as an available installer feature. Existing **Assess workflow** continues
 to suggest one bounded improvement separately.

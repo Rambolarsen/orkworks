@@ -24,3 +24,5 @@ Capability research, validation results, and evidence fixtures.
 - [Hierarchy writer and storage qualification](hierarchy-writer-storage-qualification.md) — Inspected persistence seams, missing writer coverage and required crash evidence.
 
 - [Hierarchy claim-proof action fixtures and combined byte budgets](hierarchy-claim-proof-fixtures.md) — Reproducible child/UI/Unicode/maximum-width vectors and conservative 16 KiB slot packing results.
+
+- [Repository readiness runtime validation](repository-readiness-runtime.md) — Signed starter, selected-provider trial procedure and semantic acceptance evidence.
