@@ -8,7 +8,8 @@ status: draft
 
 # Explicit session worktree reporting
 
-Proposed for owner approval; no implementation approval is claimed.
+Owner approved this concrete design and inline implementation on 2026-10-25
+(“go ahead”).
 Tracking: [#1056](https://github.com/Rambolarsen/orkworks/issues/1056).
 Extends [selected-session Changes](../../../specs/session-git-changes.md) and
 [ADR 0032](../../adr/0032-harness-reported-cwd-via-hook-payload.md).

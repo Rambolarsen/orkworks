@@ -341,13 +341,17 @@ impl MetadataStore {
     // Called only while the session's write lock is held, including native
     // ownership checks. Never derive a revision from the caller's snapshot.
     pub(super) fn prepare_session_replacement(&self, meta: &SessionMetadata) -> io::Result<String> {
-        let revision = self
-            .try_read_revisioned_session(&meta.id)?
+        let current = self.try_read_revisioned_session(&meta.id)?;
+        let mut replacement = meta.clone();
+        if let Some(record) = &current {
+            replacement.worktree_binding = record.metadata.worktree_binding.clone();
+        }
+        let revision = current
             .map(|record| record.revision)
             .unwrap_or_default()
             .next()?;
         serde_json::to_string_pretty(&RevisionedSession {
-            metadata: meta.clone(),
+            metadata: replacement,
             revision,
         })
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))

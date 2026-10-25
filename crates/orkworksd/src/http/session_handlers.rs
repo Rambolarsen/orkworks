@@ -1619,6 +1619,7 @@ mod tests {
     fn orphan_test_metadata(id: &str, workspace: &std::path::Path) -> metadata::SessionMetadata {
         let workspace = workspace.display().to_string();
         metadata::SessionMetadata {
+            worktree_binding: None,
             provenance: Default::default(),
             id: id.into(),
             label: "Test".into(),
@@ -2664,6 +2665,7 @@ mod tests {
                 .unwrap()
                 .metadata
                 .write_session(&metadata::SessionMetadata {
+                    worktree_binding: None,
                     provenance: Default::default(),
                     id: "known".into(),
                     label: "Known".into(),
@@ -3089,6 +3091,7 @@ mod tests {
                 .unwrap()
                 .metadata
                 .write_session(&metadata::SessionMetadata {
+                    worktree_binding: None,
                     provenance: Default::default(),
                     id: session_id.clone(),
                     label: "Known".into(),
@@ -4311,6 +4314,7 @@ mod tests {
                 .unwrap()
                 .metadata
                 .write_session(&metadata::SessionMetadata {
+                    worktree_binding: None,
                     provenance: Default::default(),
                     id: session_id.clone(),
                     label: "Resume Attached".into(),
@@ -4425,6 +4429,7 @@ mod tests {
                 .unwrap()
                 .metadata
                 .write_session(&metadata::SessionMetadata {
+                    worktree_binding: None,
                     provenance: Default::default(),
                     id: session_id.clone(),
                     label: "Resume Detached Live".into(),
@@ -5427,6 +5432,7 @@ mod tests {
                 .unwrap()
                 .metadata
                 .write_session(&metadata::SessionMetadata {
+                    worktree_binding: None,
                     provenance: Default::default(),
                     id: "attention-known".into(),
                     label: "Known".into(),
@@ -7667,6 +7673,7 @@ mod tests {
             let ws = state.workspace.lock().unwrap();
             let ws = ws.as_ref().unwrap();
             ws.metadata.write_session(&metadata::SessionMetadata {
+                worktree_binding: None,
                 provenance: Default::default(),
                 id: session_id.clone(),
                 label: "Killed".into(),
@@ -7942,6 +7949,7 @@ mod tests {
                 .unwrap()
                 .metadata
                 .write_session(&metadata::SessionMetadata {
+                    worktree_binding: None,
                     provenance: Default::default(),
                     id: session_id.clone(),
                     label: "Delete Ending".into(),
@@ -9047,6 +9055,7 @@ mod tests {
             let ws = state.workspace.lock().unwrap();
             let ws = ws.as_ref().unwrap();
             ws.metadata.write_session(&metadata::SessionMetadata {
+                worktree_binding: None,
                 provenance: Default::default(),
                 id: "remembered-derived".into(),
                 label: "Remembered Derived".into(),

@@ -436,3 +436,15 @@ AutoRun and delayed expansion are disabled. `NoDefaultCurrentDirectoryInExePath`
 excludes implicit current-directory command lookup, following the
 [Windows command-search contract](https://learn.microsoft.com/en-us/windows/win32/api/processenv/nf-processenv-needcurrentdirectoryforexepathw).
 The renderer has no shell API.
+
+## Explicit task-worktree helper
+
+Codex SessionStart supplies scoped task-worktree reporting instructions when the
+existing session capability is available. `session-metadata.py worktree PATH`
+(or `worktree --clear`) runs from the actual agent context and sends only a
+revisioned worktree patch. Its optional explicit HTTP proxy has the same transport
+restrictions as the general helper. General bootstrap/get/patch/instructions
+retain the API-only marker gate; a marked SessionStart combines both contexts
+in one response. Stable helper reconciliation still owns installed bytes.
+This is cooperative reporting, not automatic worktree discovery, and does not
+relax any #789/native/completion gate. See [ADR 0094](../adr/0094-explicit-session-worktree-binding.md).

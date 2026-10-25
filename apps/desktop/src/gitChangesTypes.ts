@@ -8,6 +8,7 @@ export interface GitChangeBases { refs: string[]; defaultRef: string | null; lim
 export interface GitChangedFile { id: string; path: string; oldPath: string | null; status: string; additions: number | null; deletions: number | null; notice: string | null }
 export interface GitChangesCapture {
   snapshotId: string; sessionId: string; worktree: string; branch: string; comparison: GitComparison;
+  gitContextSource?: "agent" | "harness" | "process" | "launch";
   baseRef: string | null; baseOid: string | null; baselineOid: string | null; headOid: string | null;
   capturedAt: string; partial: boolean; notice: string | null; files: GitChangedFile[];
 }

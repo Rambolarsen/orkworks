@@ -77,6 +77,10 @@ pub(crate) struct SessionInfo {
     #[serde(rename = "terminalOutcome", skip_serializing_if = "Option::is_none")]
     pub(crate) terminal_outcome: Option<String>,
     pub(crate) cwd: String,
+    #[serde(rename = "worktreeBinding", skip_serializing_if = "Option::is_none")]
+    pub(crate) worktree_binding: Option<crate::session_location::WorktreeBinding>,
+    #[serde(rename = "gitContextSource", skip_serializing_if = "Option::is_none")]
+    pub(crate) git_context_source: Option<crate::session_location::GitLocationSource>,
     pub(crate) created_at: String,
     #[serde(rename = "lastActivityAt", skip_serializing_if = "Option::is_none")]
     pub(crate) last_activity_at: Option<String>,
@@ -223,6 +227,8 @@ impl SessionInfo {
             status: meta.status.clone(),
             connectivity: None,
             terminal_outcome: None,
+            worktree_binding: meta.worktree_binding.clone(),
+            git_context_source: None,
             cwd: meta.cwd.clone(),
             created_at: meta.created_at.clone(),
             last_activity_at: None,
@@ -318,6 +324,8 @@ mod tests {
     ) -> SessionInfo {
         let created_at = created_at.into();
         SessionInfo {
+            worktree_binding: None,
+            git_context_source: None,
             organization: Default::default(),
             provenance: Default::default(),
             id: id.into(),

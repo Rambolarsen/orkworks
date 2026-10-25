@@ -552,10 +552,8 @@ if ($sessionSource -eq "codex_hook" -and $HOME) {
     }
 }
 
-# The host hook only delivers instructions; the agent must bootstrap from its
-# actual sandboxed tool context before an API-only metadata mutation.
-if ($sessionSource -eq "codex_hook" -and $Event -eq "SessionStart" -and
-    $env:ORKWORKS_SESSION_METADATA_API_VERSION -ceq "1") {
-    & python3 (Join-Path $PSScriptRoot "session-metadata.py") instructions
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+# The host hook delivers context; worktree reporting runs in the agent tool context.
+if ($sessionSource -eq "codex_hook" -and $Event -eq "SessionStart") {
+    $instructionMode = if ($env:ORKWORKS_SESSION_METADATA_API_VERSION -ceq "1") { "instructions" } else { "worktree-instructions" }
+    & python3 (Join-Path $PSScriptRoot "session-metadata.py") $instructionMode
 }

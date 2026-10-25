@@ -393,6 +393,12 @@ pub struct SessionMetadata {
     #[serde(rename = "modelId", alias = "model", default)]
     pub model: String,
     pub cwd: String,
+    #[serde(
+        rename = "worktreeBinding",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub worktree_binding: Option<crate::session_location::WorktreeBinding>,
     pub status: String,
     #[serde(rename = "workPhase", alias = "phase", default = "default_work_phase")]
     pub work_phase: String,
@@ -874,6 +880,7 @@ pub fn derive_resume_options(
 #[cfg(test)]
 pub(crate) fn assert_session_metadata_serializes_connectivity_terminal_outcome_and_last_activity() {
     let meta = SessionMetadata {
+        worktree_binding: None,
         provenance: Default::default(),
         id: "s1".into(),
         label: "Test".into(),
@@ -3144,6 +3151,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(dir.path());
         let meta = SessionMetadata {
+            worktree_binding: None,
             provenance: Default::default(),
             id: "test-1".into(),
             label: "Test".into(),
@@ -3785,6 +3793,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(dir.path());
         store.write_session(&SessionMetadata {
+            worktree_binding: None,
             provenance: Default::default(),
             id: "rename-test".into(),
             label: "Session abc12345".into(),
@@ -3940,6 +3949,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(dir.path());
         store.write_session(&SessionMetadata {
+            worktree_binding: None,
             provenance: Default::default(),
             id: "test-peon-observer".into(),
             label: "Test".into(),
@@ -4681,6 +4691,7 @@ mod tests {
 
     fn test_metadata(id: &str) -> SessionMetadata {
         SessionMetadata {
+            worktree_binding: None,
             provenance: Default::default(),
             id: id.into(),
             label: "Test".into(),

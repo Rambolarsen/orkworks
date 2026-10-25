@@ -206,3 +206,12 @@ this does not establish availability in older published installers. Owner approv
 of the concrete design and scoped plan was given on 2026-10-24, satisfying the #96
 implementation gate. [ADR 0091](../docs/adr/0091-read-only-session-git-changes.md)
 records the accepted read boundary.
+
+## Explicit task-worktree binding
+
+The owner approved [explicit session worktree reporting](../docs/superpowers/specs/2026-10-25-session-worktree-location-design.md)
+on 2026-10-25. A revisioned authenticated agent report binds the task worktree
+without changing launch/resume CWD. Details and Changes prefer that durable
+binding over hook/process/launch fallback, revalidate its repository membership,
+and report unavailable if it disappears. Source labels disclose fallback use.
+See [ADR 0094](../docs/adr/0094-explicit-session-worktree-binding.md).

@@ -122,6 +122,27 @@ Notes:
 - If the branch already exists and its owner has explicitly authorized your work (for example, review fixes), drop `-b <branch-slug>` and use `git worktree add ../orkworks-<branch-slug> <branch-slug>`.
 - Run any agent (Claude Code, Codex, OpenCode, Aider) from inside the worktree directory, not the primary checkout. Treat the worktree as the project root for that task.
 
+## Report the task worktree to OrkWorks
+
+When running inside an OrkWorks session with its installed worktree-reporting
+helper and inherited reporting capability, report the owned task worktree after
+selecting it and before editing there:
+
+```bash
+python3 "$HOME/.orkworks/hook-scripts/session-metadata.py" worktree "$(pwd -P)"
+```
+
+Run this in the actual agent tool context from the selected worktree. Report
+intentional task-worktree switches; temporary read-only commands elsewhere do
+not change this binding. Only the owning agent reports; subagents must not
+replace their owning session's binding. `worktree --clear` explicitly withdraws
+the binding when appropriate. Do not change another session, print inherited
+credentials, edit metadata files, or weaken sandbox policy if reporting fails.
+If the helper or capability is unavailable, report that limitation and continue
+the authorized development work; do not claim OrkWorks has followed the worktree.
+Use an explicit trusted proxy only when already configured/authorized for the
+metadata helper; never infer one from ambient proxy variables.
+
 ## While the work is in flight
 
 - Commit frequently inside the worktree or branch; rebase onto `main` rather than merging `main` in.

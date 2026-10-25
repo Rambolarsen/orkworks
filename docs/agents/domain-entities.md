@@ -328,3 +328,13 @@ it available for remembered-session resume; Forget/retention removes it only
 before deleting the owning record, while retaining the cleanup lease through
 metadata deletion. Failed image removal preserves that record for retry. Recovery
 retains uncertain metadata or ownership.
+
+## Session task-worktree binding
+
+`SessionMetadata.worktreeBinding` is an optional sidecar-resolved `{ root, commonDir }`
+record written through revisioned `agentMetadata.worktreePath` reporting. It is
+independent of launch/resume `cwd`, survives end/restart, and is authoritative
+until explicitly changed or cleared. Git enrichment and Changes validate and
+use this binding before hook/process/launch directories; unavailable bindings
+do not fall back. `SessionInfo.gitContextSource` and capture provenance expose
+agent, harness, process or launch origin. See [ADR 0094](../adr/0094-explicit-session-worktree-binding.md).

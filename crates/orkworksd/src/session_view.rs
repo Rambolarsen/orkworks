@@ -30,36 +30,39 @@ pub(crate) fn resolve_effective_cwds(
     session_pids: &HashMap<String, u32>,
     live_cwds: impl FnOnce(&[u32]) -> HashMap<u32, String>,
 ) -> HashMap<String, String> {
-    // One batched probe covering only pids whose session lacks a
-    // higher-priority reported cwd — not one probe per session, and not
-    // wasted work for sessions the pid-probe result would be discarded for
-    // anyway (e.g. a workspace of all-Claude-Code sessions, which all
-    // self-report).
+    resolve_effective_locations(sessions, reported_cwds, session_pids, live_cwds)
+        .into_iter()
+        .map(|(id, (path, _))| (id, path))
+        .collect()
+}
+
+pub(crate) fn resolve_effective_locations(
+    sessions: &[SessionInfo],
+    reported_cwds: &HashMap<String, String>,
+    session_pids: &HashMap<String, u32>,
+    live_cwds: impl FnOnce(&[u32]) -> HashMap<u32, String>,
+) -> HashMap<String, (String, crate::session_location::GitLocationSource)> {
+    use crate::session_location::GitLocationSource as Source;
     let pids: Vec<u32> = sessions
         .iter()
-        .filter(|s| !reported_cwds.contains_key(&s.id))
+        .filter(|s| s.worktree_binding.is_none() && !reported_cwds.contains_key(&s.id))
         .filter_map(|s| session_pids.get(&s.id).copied())
         .collect();
     let resolved = live_cwds(&pids);
     sessions
         .iter()
         .map(|s| {
-            // Priority: the harness's own self-reported cwd (ADR 0032,
-            // authoritative when available — currently Claude Code only) >
-            // the pid-probed live cwd (ADR 0031, works for bare shell
-            // sessions) > the frozen launch-time cwd.
-            let cwd = reported_cwds.get(&s.id).cloned().unwrap_or_else(|| {
-                session_pids
-                    .get(&s.id)
-                    .and_then(|pid| resolved.get(pid))
-                    .cloned()
-                    .unwrap_or_else(|| s.cwd.clone())
-            });
-            // Canonicalize every source the same way, so e.g. a live-
-            // resolved macOS /private/tmp/x and an unresolved launch cwd
-            // /tmp/x for the *same* directory compare equal instead of
-            // grouping/counting as two different locations.
-            (s.id.clone(), best_effort_canonicalize(&cwd))
+            let (cwd, source) = if let Some(binding) = &s.worktree_binding {
+                // Keep an unavailable binding; inspection must not fall back to launch.
+                (binding.root.clone(), Source::Agent)
+            } else if let Some(cwd) = reported_cwds.get(&s.id) {
+                (cwd.clone(), Source::Harness)
+            } else if let Some(cwd) = session_pids.get(&s.id).and_then(|pid| resolved.get(pid)) {
+                (cwd.clone(), Source::Process)
+            } else {
+                (s.cwd.clone(), Source::Launch)
+            };
+            (s.id.clone(), (best_effort_canonicalize(&cwd), source))
         })
         .collect()
 }
@@ -81,9 +84,7 @@ fn best_effort_canonicalize(cwd: &str) -> String {
 /// compatible with tools expecting normal Windows paths. A no-op elsewhere:
 /// non-Windows canonicalized paths never carry this prefix.
 fn strip_windows_verbatim_prefix(path: String) -> String {
-    path.strip_prefix(r"\\?\")
-        .map(str::to_string)
-        .unwrap_or(path)
+    crate::session_location::normalize_windows_path(&path)
 }
 
 pub(crate) fn detect_conflicts(
@@ -292,6 +293,10 @@ pub(crate) fn project_session_info(
         status: info.status.clone(),
         connectivity: Some(connectivity_for_status(&info.status).to_string()),
         terminal_outcome: terminal_outcome_for_status(&info.status),
+        worktree_binding: meta
+            .map(|m| m.worktree_binding.clone())
+            .unwrap_or(info.worktree_binding),
+        git_context_source: info.git_context_source,
         cwd: info.cwd,
         created_at: info.created_at.clone(),
         // Falls back to `created_at` when neither `meta` nor `info` carries a
@@ -482,6 +487,8 @@ mod tests {
         let status = status.into();
         let created_at = created_at.into();
         SessionInfo {
+            worktree_binding: None,
+            git_context_source: None,
             organization: Default::default(),
             provenance: Default::default(),
             id: id.into(),
@@ -606,6 +613,7 @@ mod tests {
             "2026-06-28T09:00:00Z",
         );
         let meta = metadata::SessionMetadata {
+            worktree_binding: None,
             provenance: Default::default(),
             id: "stale-handle".into(),
             label: "Stale Handle".into(),
@@ -756,6 +764,7 @@ mod tests {
             "2026-06-28T09:00:00Z",
         );
         let meta = metadata::SessionMetadata {
+            worktree_binding: None,
             provenance: Default::default(),
             id: "merge-derived".into(),
             label: "Merge Derived".into(),
@@ -944,11 +953,38 @@ mod tests {
     }
 
     #[test]
+    fn canonical_unc_path_remains_an_absolute_network_share() {
+        assert_eq!(
+            strip_windows_verbatim_prefix(r"\\?\UNC\server\share\feature".into()),
+            r"\\server\share\feature"
+        );
+    }
+
+    #[test]
     fn strip_windows_verbatim_prefix_is_a_noop_for_unix_paths() {
         assert_eq!(
             strip_windows_verbatim_prefix("/private/tmp/repo".to_string()),
             "/private/tmp/repo"
         );
+    }
+
+    #[test]
+    fn explicit_task_worktree_outweighs_hook_and_process_even_when_missing() {
+        let mut info = test_session_info("bound", "Bound", "/launch", "running", "now");
+        info.worktree_binding = Some(crate::session_location::WorktreeBinding {
+            root: "/task/worktree".into(),
+            common_dir: "/launch/.git".into(),
+        });
+        let hook = HashMap::from([("bound".into(), "/launch".into())]);
+        let pids = HashMap::from([("bound".into(), 99)]);
+        let resolved = resolve_effective_cwds(&[info], &hook, &pids, |pids| {
+            assert!(
+                pids.is_empty(),
+                "bound sessions must not need process probing"
+            );
+            HashMap::new()
+        });
+        assert_eq!(resolved["bound"], "/task/worktree");
     }
 
     #[test]

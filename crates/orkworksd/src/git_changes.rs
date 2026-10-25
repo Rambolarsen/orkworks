@@ -41,6 +41,7 @@ pub struct Capture {
     pub snapshot_id: String,
     pub session_id: String,
     pub worktree: String,
+    pub git_context_source: Option<crate::session_location::GitLocationSource>,
     pub branch: String,
     pub comparison: Comparison,
     pub base_ref: Option<String>,
@@ -77,7 +78,8 @@ pub fn safe_path(path: &Path) -> Result<(), String> {
     }
 }
 fn open(cwd: &Path) -> Result<Repository, String> {
-    let repo = Repository::discover(cwd).map_err(err)?;
+    let path = crate::session_location::canonical_git_path(cwd).map_err(err)?;
+    let repo = Repository::discover(path).map_err(err)?;
     if repo.is_bare() {
         return Err("Bare repository has no worktree.".into());
     }
@@ -744,6 +746,7 @@ pub fn capture(
     Ok(Capture {
         snapshot_id: uuid::Uuid::new_v4().to_string(),
         session_id: String::new(),
+        git_context_source: None,
         worktree: worktree.display().to_string(),
         branch: repo
             .head()

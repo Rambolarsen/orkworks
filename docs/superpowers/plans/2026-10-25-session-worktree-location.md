@@ -8,7 +8,7 @@ status: draft
 
 # Session task-worktree location
 
-Pending owner approval of the [design](../specs/2026-10-25-session-worktree-location-design.md).
+Owner approved implementation of the [design](../specs/2026-10-25-session-worktree-location-design.md).
 Goal: report worktree B from a session launched in A/main, then inspect B in
 Details and both Changes comparisons without changing launch/resume identity.
 Implement inline in the owned `session-worktree-location` branch. No concurrent
@@ -83,7 +83,7 @@ marker in Client construction; the worktree command must separate that narrow
 authority without bypassing the general-command gate. End/history, missing-root,
 legacy rewrite and non-editing commands in A are included above.
 
-Review disposition: Ready for owner design approval, not implementation.
+Review disposition: Ready; owner approved implementation on 2026-10-25.
 The one-pass read-only builder check raised marker-free credential delivery;
 source inspection confirmed the existing session environment override supplies
 the three credentials independently of the API-only marker. The design and
@@ -91,3 +91,32 @@ step 3 now name that source and require isolated marker-free command tests.
 No other material builder question remained. Approval is required
 for this new binding/schema contract; the bugfix request authorizes preparation
 and subsequent implementation after that concrete gate.
+
+## Execution evidence — 2026-10-25
+
+The owner approved implementation. The worktree-path schema, canonical binding,
+shared observation and Codex helper/instruction delivery are implemented.
+Regression cycles observed missing worktreePath and helper command failures,
+launch-directory resolver precedence, delayed old-worktree renderer responses,
+wrong-session helper responses and UNC prefix loss before their fixes passed.
+The authenticated real-helper fixture covers both comparisons, patch content,
+switch/removal/clear and historical binding. The helper suite passes 25 tests.
+
+The first full repository verification passes under temporary Node 22 with
+worktree-local native dependencies. A final Rust run covers the subsequent UNC
+review correction. Native Windows and automatic agent compliance remain
+unverified beyond fixtures; existing running installers require updated
+source and integration assets.
+
+Current-session `/code-review medium` was used because this changes a shared
+schema and persistence contract and exceeds the default diff-size threshold.
+The review found UNC normalization inconsistency; its regression failed and
+passed after sharing one normalizer. The correction-focused current-diff
+review approved with no further findings or declined-to-judge items. Final
+review evidence and checks are recorded in the PR.
+
+Documentation warnings were reviewed: the user session guide and stale README
+Git-location claim were updated. The homepage makes no affected location claim;
+the root guide already routes to starting-work, so no duplicate root rule is
+needed. The unrelated worktree currency warning belongs to another owner and
+was left untouched.

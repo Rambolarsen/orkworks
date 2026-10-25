@@ -32,6 +32,7 @@ mod providers;
 mod runtime;
 mod session_application;
 mod session_archive;
+mod session_location;
 mod session_projection;
 mod session_types;
 mod session_view;
@@ -749,6 +750,8 @@ pub(crate) mod test_support {
         let created_at = created_at.into();
 
         SessionInfo {
+            worktree_binding: None,
+            git_context_source: None,
             organization: Default::default(),
             provenance: Default::default(),
             id: id.into(),
@@ -816,6 +819,7 @@ pub(crate) mod test_support {
         last_activity: impl Into<String>,
     ) -> metadata::SessionMetadata {
         metadata::SessionMetadata {
+            worktree_binding: None,
             provenance: Default::default(),
             id: id.into(),
             label: label.into(),

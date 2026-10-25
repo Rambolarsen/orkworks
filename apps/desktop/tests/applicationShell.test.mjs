@@ -127,6 +127,20 @@ if (process.versions.electron) {
           await evaluate('fixture.output("changes panel output\\r\\n")');
           assert.equal(await evaluate('fixture.socketCount'),sockets);
         }
+        // A binding change inside the same repository invalidates the open capture,
+        // including a deferred old response and a failed replacement refresh.
+        await evaluate('fixture.deferChanges=true;document.querySelector("[data-git-refresh]").click()');
+        await waitFor('!!fixture.finishChanges');
+        await evaluate('fixture.oldWorktreeResponse=fixture.finishChanges;fixture.deferChanges=false;fixture.changeFailure=true;fixture.worktree="/tmp/feature";fixture.sessionList[0]={...fixture.sessionList[0],worktreeBinding:{root:"/tmp/feature",commonDir:"/tmp/test/.git"},gitContextSource:"agent"}');
+        await waitFor('document.querySelector(".git-changes [role=alert]")?.textContent.includes("fixture refresh failed")');
+        assert.equal(await evaluate('!!document.querySelector(".git-changes-patch")'),false);
+        await evaluate('fixture.oldWorktreeResponse()');
+        await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        assert.equal(await evaluate('!!document.querySelector(".git-changes-patch")'),false,'late capture from the previous worktree stays discarded');
+        await evaluate('fixture.changeFailure=false;document.querySelector("[data-git-refresh]").click()');
+        await waitFor('document.querySelector(".git-changes-patch")');
+        assert.match(await evaluate('document.querySelector(".git-changes-subject").textContent'),/feature/);
+        assert.match(await evaluate('document.querySelector(".git-changes").textContent'),/Reported task worktree/);
         await evaluate('document.querySelector("[data-git-back]").click()');
         await waitFor('document.activeElement?.hasAttribute("data-review-changes")');
         await evaluate('document.querySelector("[data-shell-return]").click()');
@@ -1481,7 +1495,8 @@ if (process.versions.electron) {
             if(request.kind==='bases'){if(fixture.deferBases)await new Promise(resolve=>fixture.finishBases=resolve);return {refs:['refs/heads/main'],defaultRef:'refs/heads/main',limited:false,unavailableReason:null};}
             if(request.kind==='file')return {snapshotId:request.snapshotId,fileId:request.fileId,patch:request.snapshotId.includes('branch')?'+committed edit':'+working edit',notice:null};
             fixture.captureCount=(fixture.captureCount||0)+1;
-            const result={snapshotId:request.comparison+'-'+request.sessionId,sessionId:request.sessionId,worktree:'/tmp/test',branch:'feature',comparison:request.comparison,baseRef:request.baseRef||null,baseOid:'bbbbbbbb',baselineOid:'aaaaaaaa',headOid:'cccccccc',capturedAt:'2026-10-24T10:00:00Z',partial:false,notice:null,files:[{id:'file',path:'src/change.ts',oldPath:null,status:'Modified',additions:1,deletions:0,notice:null}]};
+            if(fixture.changeFailure)throw new Error('fixture refresh failed');
+            const result={snapshotId:request.comparison+'-'+request.sessionId,sessionId:request.sessionId,worktree:fixture.worktree||'/tmp/test',gitContextSource:fixture.worktree?'agent':'launch',branch:'feature',comparison:request.comparison,baseRef:request.baseRef||null,baseOid:'bbbbbbbb',baselineOid:'aaaaaaaa',headOid:'cccccccc',capturedAt:'2026-10-24T10:00:00Z',partial:false,notice:null,files:[{id:'file',path:'src/change.ts',oldPath:null,status:'Modified',additions:1,deletions:0,notice:null}]};
             if(fixture.deferChanges)await new Promise(resolve=>fixture.finishChanges=resolve);
             return result;
           };

@@ -5768,6 +5768,8 @@ async fn resume_session_workflow(
 
     let (kill_tx, _kill_rx) = tokio::sync::watch::channel(false);
     let info = SessionInfo {
+        worktree_binding: meta.worktree_binding.clone(),
+        git_context_source: None,
         organization: Default::default(),
         provenance: Default::default(),
         id: id.clone(),
@@ -6213,6 +6215,8 @@ async fn create_session_workflow(
     let git_ctx = scan_git(PathBuf::from(&cwd)).await?;
     let now = iso_now();
     let mut info = SessionInfo {
+        worktree_binding: None,
+        git_context_source: None,
         organization: Default::default(),
         provenance: Default::default(),
         id: id.clone(),
@@ -6396,6 +6400,7 @@ async fn create_session_workflow(
     {
         if let Some(ref ws) = *creation_workspace {
             let record = metadata::SessionMetadata {
+                worktree_binding: None,
                 provenance: Default::default(),
                 id: id.clone(),
                 label: info.label.clone(),

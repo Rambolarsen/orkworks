@@ -133,6 +133,8 @@ struct AgentMetadata {
     summary: FieldUpdate<String>,
     #[serde(default)]
     plan_path: FieldUpdate<String>,
+    #[serde(default)]
+    worktree_path: FieldUpdate<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -222,6 +224,7 @@ impl AgentPatch {
             if agent.work_fields.is_none()
                 && matches!(agent.summary, FieldUpdate::Omitted)
                 && matches!(agent.plan_path, FieldUpdate::Omitted)
+                && matches!(agent.worktree_path, FieldUpdate::Omitted)
             {
                 return Err("empty agent metadata");
             }
@@ -314,6 +317,10 @@ impl AgentPatch {
         {
             return Err(semantic_error(PatchSemanticError::Conflict));
         }
+        if let FieldUpdate::Set(path) = &agent.worktree_path {
+            crate::session_location::WorktreeBinding::resolve(&meta.cwd, path)
+                .map_err(|_| semantic_error(PatchSemanticError::BadRequest))?;
+        }
         if matches!(agent.plan_path, FieldUpdate::Omitted) {
             return Ok(None);
         }
@@ -339,6 +346,13 @@ impl AgentPatch {
     fn apply(&self, meta: &mut SessionMetadata) -> io::Result<()> {
         require_live(meta)?;
         let plan = self.validate_current(meta, true)?;
+        let binding = match self.agent_metadata.as_ref().map(|a| &a.worktree_path) {
+            Some(FieldUpdate::Set(path)) => Some(
+                crate::session_location::WorktreeBinding::resolve(&meta.cwd, path)
+                    .map_err(|_| semantic_error(PatchSemanticError::BadRequest))?,
+            ),
+            _ => None,
+        };
         if let Some(attention) = &self.attention_state {
             meta.observed_status = attention.observed_status.clone();
             meta.needs_user_input = attention.needs_user_input;
@@ -352,6 +366,9 @@ impl AgentPatch {
             meta.provenance.attention_origin = Some("direct_agent".into());
         }
         if let Some(agent) = &self.agent_metadata {
+            if !matches!(agent.worktree_path, FieldUpdate::Omitted) {
+                meta.worktree_binding = binding;
+            }
             if let Some(work) = &agent.work_fields {
                 meta.task = work.task.clone();
                 meta.next_action = work.next_action.clone();
@@ -472,6 +489,98 @@ mod tests {
 
     fn parse(value: serde_json::Value) -> Result<AgentPatchEnvelope, serde_json::Error> {
         serde_json::from_value(value)
+    }
+
+    #[test]
+    fn task_worktree_report_is_revisioned_canonical_and_preserved_by_legacy_writes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let a = tmp.path().join("main");
+        let b = tmp.path().join("feature");
+        let repo = git2::Repository::init(&a).unwrap();
+        let tree = repo
+            .find_tree(repo.index().unwrap().write_tree().unwrap())
+            .unwrap();
+        let sig = git2::Signature::now("test", "test@example.com").unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "base", &tree, &[])
+            .unwrap();
+        repo.worktree("feature", &b, None).unwrap();
+        std::fs::create_dir(b.join("src")).unwrap();
+        let store = MetadataStore::new(&tmp.path().join("state"));
+        let original = live_meta("worktree-report", a.to_str().unwrap());
+        store.write_session(&original);
+        let before = store
+            .try_read_revisioned_session(&original.id)
+            .unwrap()
+            .unwrap();
+        let set = parse(json!({"metadataRevision":"0","patch":{"agentMetadata":{"worktreePath":b.join("src")}}})).expect("worktree patch must be accepted").patch;
+        let bound = store
+            .apply_agent_patch(&original.id, &before.revision, &set)
+            .unwrap();
+        let json = serde_json::to_value(&bound.metadata).unwrap();
+        assert_eq!(
+            Path::new(json["worktreeBinding"]["root"].as_str().unwrap())
+                .canonicalize()
+                .unwrap(),
+            b.canonicalize().unwrap()
+        );
+        assert_eq!(bound.metadata.cwd, original.cwd);
+        assert_eq!(
+            bound.metadata.provenance.attention_updated_at,
+            before.metadata.provenance.attention_updated_at
+        );
+        assert!(matches!(
+            store.apply_agent_patch(&original.id, &before.revision, &set),
+            Err(AgentPatchError::Conflict)
+        ));
+        store.write_session(&original); // a stale legacy writer must retain the newer binding
+        let after = store
+            .try_read_revisioned_session(&original.id)
+            .unwrap()
+            .unwrap();
+        let summary = parse(
+            json!({"metadataRevision":"0","patch":{"agentMetadata":{"summary":"separate update"}}}),
+        )
+        .unwrap()
+        .patch;
+        let after = store
+            .apply_agent_patch(&original.id, &after.revision, &summary)
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(&after.metadata).unwrap()["worktreeBinding"],
+            json["worktreeBinding"]
+        );
+        let unrelated = tempfile::tempdir().unwrap();
+        git2::Repository::init(unrelated.path()).unwrap();
+        let bad = parse(json!({"metadataRevision":"0","patch":{"agentMetadata":{"worktreePath":unrelated.path(),"summary":"must not land"}}})).unwrap().patch;
+        assert!(matches!(
+            store.apply_agent_patch(&original.id, &after.revision, &bad),
+            Err(AgentPatchError::BadRequest)
+        ));
+        assert_eq!(
+            store
+                .try_read_revisioned_session(&original.id)
+                .unwrap()
+                .unwrap()
+                .revision,
+            after.revision
+        );
+        let clear =
+            parse(json!({"metadataRevision":"0","patch":{"agentMetadata":{"worktreePath":null}}}))
+                .unwrap()
+                .patch;
+        let cleared = store
+            .apply_agent_patch(&original.id, &after.revision, &clear)
+            .unwrap();
+        store.write_session(&bound.metadata);
+        assert!(store
+            .read_session(&original.id)
+            .unwrap()
+            .worktree_binding
+            .is_none());
+        assert!(serde_json::to_value(&cleared.metadata)
+            .unwrap()
+            .get("worktreeBinding")
+            .is_none_or(|v| v.is_null()));
     }
 
     fn owned_native_wait(

@@ -62,10 +62,57 @@ class ProducerTests(unittest.TestCase):
         if marker is not None:
             env["ORKWORKS_SESSION_METADATA_API_VERSION"] = marker
         env.update(environment)
-        arguments = [sys.executable, str(SCRIPT), command]
+        arguments = [sys.executable, str(SCRIPT), *(command if isinstance(command, list) else [command])]
         if http_proxy is not None:
             arguments += ["--http-proxy", http_proxy]
         return subprocess.run(arguments, input=body, text=True, capture_output=True, env=env, timeout=15)
+
+    def test_worktree_command_without_general_marker_sends_only_narrow_patch(self):
+        for proxy in (False, True):
+            for path in ("/task/feature", "--clear"):
+                with self.subTest(proxy=proxy, path=path), endpoint([ok(RECORD), ok({**RECORD, "metadataRevision": "8"})]) as (port, requests):
+                    result = self.invoke(["worktree", path], 41117 if proxy else port, marker=None,
+                        http_proxy=f"http://127.0.0.1:{port}" if proxy else None)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual([r[0] for r in requests], ["GET", "PATCH"])
+                self.assertEqual(requests[-1][3], {"metadataRevision": "7", "patch": {"agentMetadata": {"worktreePath": None if path == "--clear" else path}}})
+                self.assertNotIn(TOKEN, result.stdout + result.stderr)
+
+    def test_worktree_conflict_never_retries_or_prints_capability(self):
+        with endpoint([ok(RECORD), (409, {"secret": TOKEN}, {})]) as (port, requests):
+            result = self.invoke(["worktree", "/task/feature"], port, marker=None)
+        self.assertEqual(result.returncode, 3)
+        self.assertEqual(len(requests), 2)
+        self.assertNotIn(TOKEN, result.stdout + result.stderr)
+
+    def test_worktree_instruction_scope_is_independent_of_general_marker(self):
+        result = self.invoke("worktree-instructions", marker=None)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("worktree", context)
+        self.assertNotIn("API-only", context)
+        self.assertNotIn(TOKEN, result.stdout + result.stderr)
+        for command in ("bootstrap", "get", "patch"):
+            with endpoint([]) as (port, requests):
+                rejected = self.invoke(command, port, json.dumps(PATCH), marker=None)
+            self.assertEqual(rejected.returncode, 2)
+            self.assertEqual(requests, [])
+
+    def test_worktree_rejects_wrong_session_patch_response(self):
+        with endpoint([ok(RECORD), ok({**RECORD, "id": "other", "metadataRevision": "8"})]) as (port, requests):
+            result = self.invoke(["worktree", "/task/feature"], port, marker=None)
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(len(requests), 2)
+
+    def test_marker_free_session_start_delivers_only_worktree_instructions(self):
+        env = {key: value for key, value in os.environ.items() if not key.startswith("ORKWORKS_")}
+        env.update(ORKWORKS_SESSION_ID="session-1", ORKWORKS_PORT="1", ORKWORKS_REPORT_TOKEN=TOKEN)
+        result = subprocess.run(["bash", str(SCRIPT.with_name("report-harness-event.sh")), "--marker", "orkworks:harness-integration:v2:codex", "--event", "SessionStart"], input="{}", text=True, capture_output=True, env=env, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("task worktree reporting", context)
+        self.assertNotIn("API-only", context)
+        self.assertNotIn(TOKEN, result.stdout + result.stderr)
 
     def test_explicit_proxy_carries_bootstrap_get_and_patch_to_fixed_origin(self):
         for command in ("bootstrap", "get", "patch"):
