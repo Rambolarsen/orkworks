@@ -829,3 +829,119 @@ for (const changesSelection of [false,true]) {
     assert.deepEqual(disposed,["target"]); controller.dispose();
   });
 }
+
+
+for (const replacement of ["admission", "foreground", "workspace", "source", "disposal"] as const) {
+  for (const outcome of ["success", "failure"] as const) {
+    test(`replaced ${replacement} identity ignores an old refresh ${outcome}`, async () => {
+      const old = deferred<SessionInfo[]>();
+      const snapshots: string[][] = [];
+      const statuses: string[] = [];
+      let calls = 0;
+      const controller = createWorkspaceSessionController({
+        deps: deps({ listSessions: async () => ++calls === 1 ? old.promise : [session("current")] }),
+        onSessions: rows => snapshots.push(rows.map(row => row.id)),
+        onSessionSourceStatus: status => statuses.push(status),
+      });
+      const pending = controller.refreshSessions();
+      await new Promise(resolve => setImmediate(resolve));
+      if (replacement === "admission") {
+        controller.setAdmissionEnabled(false);
+        controller.setAdmissionEnabled(true);
+      } else if (replacement === "foreground") await controller.createSession({});
+      else if (replacement === "workspace") await controller.adoptRestoredWorkspace(workspace("/new"));
+      else if (replacement === "source") controller.setPollingEnabled(false);
+      else controller.dispose();
+      if (replacement !== "disposal") await controller.refreshSessions();
+      const currentSnapshots = snapshots.slice();
+      const currentStatuses = statuses.slice();
+      if (outcome === "success") old.resolve([session("obsolete")]);
+      else old.reject(new Error("obsolete failure"));
+      assert.equal(await pending, null);
+      assert.deepEqual(snapshots, currentSnapshots);
+      assert.deepEqual(statuses, currentStatuses);
+      controller.dispose();
+    });
+  }
+}
+
+test("an old REST failure cannot mark a healthy stream snapshot unavailable", async () => {
+  const old = deferred<SessionInfo[]>();
+  let stream: Parameters<NonNullable<WorkspaceSessionControllerDeps["startUpdates"]>>[0] | undefined;
+  let calls = 0;
+  const statuses: string[] = [];
+  const snapshots: string[][] = [];
+  const controller = createWorkspaceSessionController({
+    scheduler: scheduler().scheduler,
+    deps: deps({
+      listSessions: async () => ++calls === 2 ? old.promise : [],
+      startUpdates: options => { stream = options; return { dispose() {}, resync() {} }; },
+    }),
+    onSessions: rows => snapshots.push(rows.map(row => row.id)),
+    onSessionSourceStatus: status => statuses.push(status),
+  });
+  await controller.adoptRestoredWorkspace(workspace("/workspace"));
+  controller.setPollingEnabled(true);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(stream);
+  stream.onHealthy(true);
+  stream.onSessions([session("stream-current")]);
+  statuses.length = 0;
+  old.reject(new Error("obsolete REST failure"));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(statuses, []);
+  assert.deepEqual(snapshots.at(-1), ["stream-current"]);
+  controller.dispose();
+});
+
+
+for (const outcome of ["success", "failure"] as const) {
+  test(`an older overlapping REST ${outcome} cannot replace a newer refresh`, async () => {
+    const first = deferred<SessionInfo[]>(), second = deferred<SessionInfo[]>();
+    const snapshots: string[][] = [], statuses: string[] = [];
+    let calls = 0;
+    const controller = createWorkspaceSessionController({
+      deps: deps({ listSessions: () => ++calls === 1 ? first.promise : second.promise }),
+      onSessions: rows => snapshots.push(rows.map(row => row.id)),
+      onSessionSourceStatus: status => statuses.push(status),
+    });
+    const old = controller.refreshSessions();
+    const current = controller.refreshSessions();
+    second.resolve([session("newer")]);
+    await current;
+    if (outcome === "success") first.resolve([session("older")]);
+    else first.reject(new Error("old failure"));
+    assert.equal(await old, null);
+    assert.deepEqual(snapshots, [["newer"]]);
+    assert.deepEqual(statuses, ["ready"]);
+    controller.dispose();
+  });
+}
+
+test("a new stream snapshot fences an explicit REST refresh started while the stream was already healthy", async () => {
+  const pending = deferred<SessionInfo[]>();
+  let stream: Parameters<NonNullable<WorkspaceSessionControllerDeps["startUpdates"]>>[0] | undefined;
+  let defer = false;
+  const snapshots: string[][] = [];
+  const controller = createWorkspaceSessionController({
+    scheduler: scheduler().scheduler,
+    deps: deps({
+      listSessions: async () => defer ? pending.promise : [],
+      startUpdates: options => { stream = options; return { dispose() {}, resync() {} }; },
+    }),
+    onSessions: rows => snapshots.push(rows.map(row => row.id)),
+  });
+  await controller.adoptRestoredWorkspace(workspace("/workspace"));
+  controller.setPollingEnabled(true);
+  assert.ok(stream);
+  stream.onHealthy(true);
+  await new Promise(resolve => setImmediate(resolve));
+  defer = true;
+  const refresh = controller.refreshSessions();
+  await new Promise(resolve => setImmediate(resolve));
+  stream.onSessions([session("stream-newer")]);
+  pending.resolve([session("REST-older")]);
+  assert.equal(await refresh, null);
+  assert.deepEqual(snapshots.at(-1), ["stream-newer"]);
+  controller.dispose();
+});

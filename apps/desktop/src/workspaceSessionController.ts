@@ -93,6 +93,7 @@ export function createWorkspaceSessionController(
   let foregroundGeneration = 0;
   let pollingEpoch = 0;
   let sourceGeneration = 0;
+  let refreshGeneration = 0;
   let synchronizationEnabled = false;
   let synchronizationEpoch = 0;
   let workspacePath: string | null = null;
@@ -167,17 +168,18 @@ export function createWorkspaceSessionController(
     if (!allowDuringTransition && !admissionEnabled) return null;
     const token = foregroundGeneration;
     const sourceToken = sourceGeneration;
+    const request = ++refreshGeneration;
+    const canPublish = () => request === refreshGeneration && sourceToken === sourceGeneration && isCurrent(token)
+      && (allowDuringTransition || isCurrentAdmission(admissionToken))
+      && (epoch === undefined || epoch === pollingEpoch);
     try {
       const baseUrl = await deps.getBackendUrl();
       const list = await deps.listSessions(baseUrl);
-      if (sourceToken !== sourceGeneration || !isCurrent(token)
-        || (!allowDuringTransition && !isCurrentAdmission(admissionToken))
-        || (epoch !== undefined && epoch !== pollingEpoch)) return null;
+      if (!canPublish()) return null;
 
       return acceptSessionList(list);
     } catch {
-      if (sourceToken === sourceGeneration && isCurrent(token) && (allowDuringTransition || isCurrentAdmission(admissionToken))
-        && (epoch === undefined || epoch === pollingEpoch)) options.onSessionSourceStatus?.("unavailable");
+      if (canPublish()) options.onSessionSourceStatus?.("unavailable");
       return null;
     }
   }
@@ -220,7 +222,13 @@ export function createWorkspaceSessionController(
           if (healthy) { sourceGeneration++; stopFallback(); } else startFallback();
           publishWorkspaceUpdateSignal(path, healthy);
         },
-        onSessions(list) { if (current() && streamHealthy) acceptSessionList(list); },
+        onSessions(list) {
+          if (!current() || !streamHealthy) return;
+          // A newer pushed snapshot supersedes REST reads started even after
+          // this socket became healthy, not only reads from fallback polling.
+          sourceGeneration++;
+          acceptSessionList(list);
+        },
         onRecommendationsInvalidated() { if (current()) publishWorkspaceUpdateSignal(path); },
       });
     }
