@@ -1365,3 +1365,15 @@ unverifiable counter/index fences mutations until recovery; native publication,
 response buffering/worker deadlines and broader storage qualification remain
 separate executable-handoff gates. The logical quotas supply no OS resource or
 availability proof and no runtime authorization.
+
+## Root source/preparation producer follow-up — 2026-10-25
+
+The [root producer proposal](2026-10-25-root-preparation-producer-design.md)
+defines identity-first non-executable review drafts, exact approved bootstrap/run
+and root subject joins, bounded source records, and atomic summary/ledger/source
+preparation. Its new draft lifecycle/registry/context choices need separate owner
+review. Root-only source binding does not replace child reservation/attachment,
+qualify #740 or extend #744's claim-first exception. Production initial-state/
+parent-attachment codecs, source-valid byte fixtures, aggregate source/custody
+limits, native ordering and executable-plan approvals remain gates. Existing
+technical definitions and fixture bytes are unchanged.
