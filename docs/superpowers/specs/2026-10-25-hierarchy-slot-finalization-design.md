@@ -397,3 +397,19 @@ sets, with bounded admission-inventory lookup, exact resource deltas and symboli
 accounting cases. Its new resource keys, payload-copy policy and source-revision
 choices require separate owner review. Existing definitions and fixtures remain
 unchanged; no complete byte-bound/native profile or runtime approval is claimed.
+
+## Scoped candidate-command choices accepted — 2026-10-25
+
+The owner [accepted three #1059 choices](2026-10-25-hierarchy-candidate-command-manifests-design.md#owner-acceptance-and-handoff--2026-10-25)
+for further design/qualification: shared ledger keys/meanings and cross-writer
+charges, per-result copies of every present output, and work-budget updates that
+do not advance subjectRevision or summary material. This supersedes pending-review
+status for those choices only. Definitions, recipes, fixture bytes, quota values,
+source/wire fields and claim/lease rules are unchanged.
+
+Missing producer/custody codecs, finite aggregate source/payload defaults, exact
+full-byte command/lineage/owner-cap fixtures, native/physical/resource and
+finalization-versus-writable-ownership qualification, shared custody and separate
+executable-plan approvals remain gates. No database, migration, probe or runtime
+work is approved. #740 remains deferred/no-go until November; keep #744/#746 open.
+Next is a bounded source-profile canonical command-fixture proposal.
