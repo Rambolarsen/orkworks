@@ -222,3 +222,4 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Selected-session Git changes](2026-10-24-session-git-changes.md) — Proposed distinct uncommitted and committed-branch inspection for issue 96.
 
 - [Push refresh](2026-10-24-push-refresh.md) — Changed-row synchronization, producer coverage and recovery verification.
+- [Session task-worktree location](2026-10-25-session-worktree-location.md) — Pending-approval delivery and verification for explicit worktree reporting.
