@@ -2898,7 +2898,7 @@ impl ProviderManager {
             }
             write_request(r#"{"method":"initialized"}"#)?;
             write_request(r#"{"method":"model/list","id":2,"params":{}}"#)?;
-            drop(stdin);
+            // Keep stdin open until the response arrives: EOF shuts down app-server.
             loop {
                 let line = match receive_line() {
                     Ok(line) => line,
@@ -5529,22 +5529,22 @@ exit 17
         let command = dir.path().join("codex");
         std::fs::write(
             &command,
-            r#"#!/bin/sh
-while IFS= read -r line; do
-  case "$line" in
-    *'"method":"initialize"'*)
-      case "$line" in
-        *'"version":"__ORKWORKS_VERSION__"'*) ;;
-        *) exit 23 ;;
-      esac
-      printf '%s\n' '{"id":1,"result":{}}'
-      ;;
-    *'"method":"model/list"'*)
-      printf '%s\n' '{"id":2,"result":{"data":[{"id":"gpt-live","displayName":"GPT Live","supportedReasoningEfforts":[{"reasoningEffort":"high","description":"Deep"}],"defaultReasoningEffort":"high"}]}}'
-      break
-      ;;
-  esac
-done
+            r#"#!/usr/bin/env python3
+import json
+import select
+import sys
+
+for line in sys.stdin:
+    request = json.loads(line)
+    if request["method"] == "initialize":
+        assert request["params"]["clientInfo"]["version"] == "__ORKWORKS_VERSION__"
+        print('{"id":1,"result":{}}', flush=True)
+    elif request["method"] == "model/list":
+        # Like the real server, stop on input EOF before returning pending work.
+        if select.select([sys.stdin], [], [], 0.1)[0]:
+            sys.exit(24)
+        print('{"id":2,"result":{"data":[{"id":"gpt-live","displayName":"GPT Live","supportedReasoningEfforts":[{"reasoningEffort":"high","description":"Deep"}],"defaultReasoningEffort":"high"}]}}', flush=True)
+        break
 "#
             .replace("__ORKWORKS_VERSION__", env!("CARGO_PKG_VERSION")),
         )
