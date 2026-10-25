@@ -11,7 +11,8 @@ status: draft
 Tracking: [#744](https://github.com/Rambolarsen/orkworks/issues/744),
 [#746](https://github.com/Rambolarsen/orkworks/issues/746).
 Inspection base: `4df4078b`.
-**New schema proposal for separate review; not accepted or executable.**
+**Scoped metadata schema accepted for further design/qualification; not executable.**
+See the [owner acceptance](#owner-acceptance-and-handoff--2026-10-25).
 This continues the [accepted compact codec](2026-10-25-hierarchy-compact-bindings-design.md#owner-acceptance-and-handoff--2026-10-25).
 It supplies the two remaining receipt-slot variants, not a new authority class.
 No database, migration, native/model probe or runtime implementation is authorized.
@@ -37,7 +38,7 @@ A fabricated claim would extend the accepted action class to internal work.
 A second finalization lookup/log would duplicate the already unique candidate
 outcome mapping. A nullable generic receipt envelope would obscure which source
 joins are required. These alternatives are excluded from this proposal.
-This is a choice by the proposal author, pending owner review.
+The owner accepted this scoped choice as recorded below.
 
 ## Strict encodings and commitments
 
@@ -334,9 +335,9 @@ source-authentication, race/recovery or native tests:
 
 ## Review handoff and unresolved gates
 
-Review the two new slot variants, unchanged wire response encoding, exact
-candidate/result/stream joins, retention and independent row/byte/reservation
-accounting before accepting this proposal. The existing accepted mutation codec
+The owner accepted the two slot variants, unchanged wire response encoding,
+exact candidate/result/stream joins, retention and independent row/byte/reservation
+accounting for further design/qualification, as recorded below. The existing accepted mutation codec
 and its golden fixtures are unchanged. This document does not accept the whole
 format-3 store or numerical storage defaults.
 
@@ -348,3 +349,42 @@ qualification; #745 custody and #740 eligibility; then separately approve the
 bounded executable plan. The next preparation is a complete candidate admission/
 finalization command manifest and exact source-specific ledger/index effects,
 not a live database or model probe. Keep #744/#746 open.
+
+## Owner acceptance and handoff — 2026-10-25
+
+After the scoped review and explicit decision request, the owner answered
+“go ahead”, accepting this metadata proposal for further design and qualification.
+The reviewed source is [PR #1053](https://github.com/Rambolarsen/orkworks/pull/1053),
+merged as `8f88e0dc68c31805cd1ff599e3159b10cd56b77c`.
+
+Accepted scope:
+
+- The closed format-3 reserved slot and consumed internal candidate-outcome
+  variants, their commitment exclusions and exact assignment/candidate/result/
+  stream/ordinal joins.
+- Original canonical finalization response Base64 encoding, retry resolution,
+  protected correction credits and atomic credit transfer/release/retention.
+- Separate receipt reservation, per-slot fit and complete-command accounting,
+  including mandatory core row counts and conservative full-slot byte allowances.
+
+The review found no blocking findings against the accepted contracts. Fresh
+execution verified all seven new encoding/accounting fixtures and all sixteen
+existing compact-binding expansions/hashes/charges. These are synthetic encoding
+checks, not production strict-parser, admitted-history or native evidence.
+
+This settles the named metadata choice only. It changes no source/request/wire
+field, quota, claim/lease policy or technical fixture. Internal finalization
+acquires no producer/UI claim or grandfathered authority. Protected unused
+correction credits remain charged until eligible owner deletion. Logical fit
+provides no physical writability or maximum-profile guarantee.
+
+Complete source/ledger/index command manifests and exact full-command accounting,
+physical overhead, finalization/quiescence/recovery authority and native ordering
+against writable ownership, writer/resource/durability qualification, shared
+custody and separately approved executable plans remain open. No database,
+migration, native/model probe or runtime implementation is approved. #740 remains
+deferred/no-go until November; keep #744/#746 open.
+
+Next bounded design task: close complete candidate admission/finalization command
+manifests and exact source-specific ledger/index effects. Review the new proposal
+separately before dependent implementation.
