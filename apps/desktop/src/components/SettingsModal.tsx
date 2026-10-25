@@ -598,7 +598,7 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
     });
   }
 
-  const hotkeysDirty = !deepEqual(draft, savedHotkeys);
+  const hotkeysDirty = hotkeyRows.some(({ action }) => draft[action] !== savedHotkeys[action]);
 
   const peonProviders = providerDraft.providers.filter((entry) => entry.enabled).map((entry) => entry.id).filter((id, index, all) => all.indexOf(id) === index);
   const providerLabels = new Map<string, string>((providerRuntime?.providers ?? []).map((provider) => [provider.id, provider.label]));
@@ -1285,8 +1285,4 @@ function peonSelectionFromProviders(providers: ProviderSettings): PeonSelection 
     model: providers.peonModel ?? "",
     ollamaBaseUrl: providers.ollamaBaseUrl,
   };
-}
-
-function deepEqual(left: unknown, right: unknown): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
 }

@@ -48,7 +48,7 @@ function text(tree) {
 // Exercise the real modal's handlers, state and effects; native IPC and its
 // parent-owned save callback are the external dependencies. Child components
 // remain React elements, so detection is supplied through their real callback.
-async function fixture(t, { active = ["copilot"], detection, save, groupedStatus } = {}) {
+async function fixture(t, { active = ["copilot"], detection, save, groupedStatus, section = "tools", settings = {} } = {}) {
   const tools = [harness("codex", "Codex"), harness("copilot", "Copilot"), harness("plain", "Plain", null)];
   const calls = [];
   const previousWindow = globalThis.window;
@@ -60,12 +60,17 @@ async function fixture(t, { active = ["copilot"], detection, save, groupedStatus
     getGroupedHarnessIntegrationStatus: async (adapterId, targetId) => groupedStatus
       ? groupedStatus(adapterId, targetId)
       : { ok: true, group: { key: { adapterId, targetId }, consumers: [], status: detected(adapterId).status } },
+    saveHotkeys: async (draft) => {
+      calls.push(["hotkeys", draft]);
+      return { ok: true, settings: { ...props.initialSettings, hotkeys: structuredClone(draft) } };
+    },
     getAppliedPeonProvider: async () => ({ provider: null, model: null, reasoningEffort: null, ollamaBaseUrl: null, appliedAt: null, connectionRevision: 0 }),
     verifyPeonProvider: async () => ({ ok: false, provider: "ollama", capabilities: { connectivity: false, modelDiscovery: false, providerDefault: false, testInference: false }, models: [], ollamaBaseUrl: null, generation: 0 }),
   } };
   const hotkeys = { newSession: "Ctrl+N", toggleSessionsPanel: "Ctrl+1", toggleDetailPanel: "Ctrl+2", toggleTerminalPanel: "Ctrl+3", toggleCapacityPanel: "Ctrl+4", toggleRecommendationsPanel: "Ctrl+5", resetLayout: null };
   const props = {
-    initialSettings: { version: 1, hotkeys, defaultHotkeys: hotkeys, retention: { maxSessions: 50, maxAgeDays: 30 }, debug: { showSessionIds: false, rendererHealthLogMs: 0 }, providers: { version: 2, revision: 0, peonModel: null, ollamaBaseUrl: "http://localhost:11434", providers: [] } },
+    initialSection: section,
+    initialSettings: { version: 1, hotkeys, defaultHotkeys: hotkeys, retention: { maxSessions: 50, maxAgeDays: 30 }, debug: { showSessionIds: false, rendererHealthLogMs: 0 }, providers: { version: 2, revision: 0, peonModel: null, ollamaBaseUrl: "http://localhost:11434", providers: [] }, ...settings },
     currentWorkspacePath: "/workspace", updateStatus: null, updateCurrentVersion: null, updateChannel: null,
     onCheckForUpdates() {}, onDownloadUpdate() {}, harnesses: tools, documentRevision: null,
     onRefreshHarnesses: async () => ({ documentRevision: null, harnesses: tools }),
@@ -265,3 +270,35 @@ test("persisted selections retain integration failures and refresh detection; a 
   assert.doesNotMatch(view.toggle("Codex").props.tooltip, /permission denied/);
   assert.deepEqual(detectionGenerations(), [["codex", 2], ["copilot", 0], ["plain", 0]]);
 });
+
+test("restoring equivalent hotkey defaults ignores property insertion order", async (t) => {
+  const defaults = { resetLayout: null, toggleRecommendationsPanel: "Ctrl+5", toggleCapacityPanel: "Ctrl+4", toggleTerminalPanel: "Ctrl+3", toggleDetailPanel: "Ctrl+2", toggleSessionsPanel: "Ctrl+1", newSession: "Ctrl+N" };
+  const view = await fixture(t, { section: "hotkeys", settings: { defaultHotkeys: defaults } });
+  const button = (label) => nodes(view.render()).find((node) => node.type?.name === "Button" && text(node) === label);
+  button("Restore defaults").props.onClick();
+  assert.equal(view.saveButton().props.disabled, true);
+  assert.equal(button("Cancel").props.disabled, true);
+  assert.deepEqual(view.calls, []);
+});
+
+for (const action of ["newSession", "toggleSessionsPanel", "toggleDetailPanel", "toggleTerminalPanel", "toggleCapacityPanel", "toggleRecommendationsPanel", "resetLayout"]) {
+  test(`hotkey ${action} changes can be discarded and saved`, async (t) => {
+    const defaults = { newSession: "Ctrl+N", toggleSessionsPanel: "Ctrl+1", toggleDetailPanel: "Ctrl+2", toggleTerminalPanel: "Ctrl+3", toggleCapacityPanel: "Ctrl+4", toggleRecommendationsPanel: "Ctrl+5", resetLayout: null };
+    const saved = { ...defaults, [action]: "Ctrl+Shift+9" };
+    const view = await fixture(t, { section: "hotkeys", settings: { hotkeys: saved, defaultHotkeys: defaults } });
+    const button = (label) => nodes(view.render()).find((node) => node.type?.name === "Button" && text(node) === label);
+    assert.equal(view.saveButton().props.disabled, true);
+    button("Restore defaults").props.onClick();
+    assert.equal(view.saveButton().props.disabled, false);
+    button("Cancel").props.onClick();
+    assert.equal(view.saveButton().props.disabled, true);
+    assert.deepEqual(view.calls, []);
+    button("Restore defaults").props.onClick();
+    view.saveButton().props.onClick();
+    await view.settle();
+    assert.deepEqual(view.calls, [["hotkeys", defaults]]);
+    assert.equal(view.saveButton().props.disabled, true);
+    assert.equal(button("Cancel").props.disabled, true);
+    assert.match(text(view.render()), /Saved/);
+  });
+}
