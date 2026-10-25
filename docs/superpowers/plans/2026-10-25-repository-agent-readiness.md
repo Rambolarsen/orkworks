@@ -4,7 +4,7 @@ title: Repository agent-readiness scoring and history
 description: Proposed bounded delivery plan for repeatable Brain-based readiness ratings and an overall score.
 tags: [orkworks, taskmaster, readiness, implementation]
 status: draft
-workflow_status: active
+workflow_status: complete
 ---
 
 # Repository agent-readiness scoring and history
@@ -80,7 +80,7 @@ Rust/desktop instructions. Keep existing workflow assessment behavior unchanged.
   Verify the actual rendered layout at narrow/desktop widths with long evidence.
   Preserve one central context and existing Assess workflow/Analyze now behavior.
 
-- [ ] **Quality evidence and release documentation.** With an eligible reviewed
+- [x] **Quality evidence and release documentation.** With an eligible reviewed
   rubric, use isolated temporary fixture workspaces to compare a known documented
   baseline with one controlled improvement and a healthy no-change rerun. Run
   three independent uncached selected-provider trials per fixture; retain actual
@@ -202,5 +202,23 @@ readiness-focused follow-up passed 24 tests with its live matrix ignored.
 records the selected-model gate failure, including all diagnostic matrices and
 independent review of 126 rows. Domain documentation improved its intended row
 in all three pairs, but missing evidence, unsupported levels and parser rejects
-prevent acceptance. The quality deliverable remains incomplete and the PR stays
-draft. Live application settings were not changed.
+prevent acceptance. That profile remained unqualified. The subsequent low-effort Sol qualification
+below completes the fixture criteria; live application settings were not changed.
+
+Current-code `/code-review medium` approved the bounded review fixes at
+`116766131891bb1eac3cb539bd897e04613d6832`, with no new required findings or
+minor deferrals. Full local verification passed 2,269 Rust tests (eleven ignored)
+and 1,537 desktop tests (two skipped), plus integrations and build/docs checks.
+A final collector-order/symlink refinement passed 26 readiness and 14 context
+tests. Model qualification remains separate from this code approval.
+
+Final profile qualification: Codex GPT-6.1-Sol low passed all nine uncached trials
+and independent semantic review of all 126 rows (99 grounded ratings, 27 justified
+nulls). Domain knowledge improved 1 to 2 in all three pairs, with no unrelated
+maturity gains or no-change maturity variability. Every partial snapshot retained
+11/14 coverage and no overall number. Exact synthetic inputs/outputs and hashes
+are indexed under the validation evidence; all failed matrices remain retained
+separately. The current-code full verifier passed again at code head `11676613`
+with 2,269 Rust tests, 1,537 desktop tests, integrations and all required local
+checks. CI/PR integration follows the normal branch workflow; installer
+availability is separate.

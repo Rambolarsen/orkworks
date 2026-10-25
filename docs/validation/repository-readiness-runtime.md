@@ -3,7 +3,7 @@ type: Validation Evidence
 title: Repository readiness runtime validation
 description: Reproducible transport and semantic acceptance evidence for the fourteen-area readiness score.
 tags: [orkworks, taskmaster, readiness, validation]
-status: draft
+status: stable
 ---
 
 # Repository readiness runtime validation
@@ -73,7 +73,7 @@ next transition. Links alone do not establish ongoing maintenance, and static
 configuration does not establish observed execution or reliability. All earlier
 failures remain part of the evidence rather than being silently retried.
 
-## Final acceptance
+## Luna medium qualification — failed
 
 The final Codex `gpt-6-luna`, medium-effort matrix **failed** independent
 semantic review of all 126 rows. Six responses became snapshots; three were
@@ -107,7 +107,7 @@ The three parser rejects were prospective “Verified build…” noun phrases a
 workflow classifier does not fully distinguish these from verification claims
 and imperative actions. The readiness prompt/schema now explicitly request
 prospective next-transition noun phrases beginning “Evidence of” and descriptive
-“usage” wording; a fresh matrix is required to establish the effect. The strict
+“usage” wording; the subsequent low-effort matrix below establishes the effect for that profile. The strict
 rejection behavior remains in place.
 
 The healthy fixture sources are byte-identical to improved. Healthy 2 selected
@@ -115,13 +115,12 @@ one extra source fact during discovery, so it is a no-change workspace trial,
 not an identical-final-input trial. Other improved/healthy final inputs match.
 Their rating and coverage variation must not be attributed to repository fixes.
 
-This failed evidence does not establish score usefulness. The runtime PR remains
-draft, with no merge or installer claim. Required criteria remain semantically
-grounded scored rows, no fabricated execution or complete-coverage claims, and
-improvement of the intended component in at least two of three paired trials
-without unrelated invented gains. Identical no-change scores are not required.
-A more capable model may be qualified in isolated fixtures if selected by the
-owner; live application settings must remain unchanged without that instruction.
+These failed results do not establish score usefulness for Luna. They remain
+retained separately from the qualified profile below. Acceptance still requires
+semantically grounded scored rows, no fabricated execution or complete-coverage
+claims, and improvement of the intended component in at least two of three paired
+trials without unrelated invented gains. Identical no-change scores are not
+required. Live application settings remain unchanged.
 
 ## Historical freshness review
 
@@ -135,3 +134,73 @@ or unsafe reads before the status projection chooses changed or unknown.
 Focused readiness checks passed 26 tests with the opt-in live matrix ignored;
 regressions also preserve stale-instance/generation cancellation and classify
 changed, removed, non-text and symlinked follow-up evidence.
+
+The bounded current-code `/code-review medium` follow-up approved
+`116766131891bb1eac3cb539bd897e04613d6832`: both required findings resolved,
+no new Critical/Required findings and no minor deferrals. The reviewer inspected
+source/tests and diff formatting, without independently rerunning builds or
+provider calls. The full verifier passed 2,269 Rust tests with eleven ignored,
+1,537 desktop tests with two skipped, all four integration binaries, native ABI,
+reporter, type, build and documentation checks. The final collector ordering and
+symlink refinement additionally passed all 26 readiness and 14 context tests.
+
+## Alternative model qualification
+
+An isolated GPT-6.1-Sol medium-effort matrix completed six snapshots. The final
+scoring calls for trial 3 of baseline, improved and healthy each hit the existing
+90-second native timeout and produced no snapshot. The other six calls appear
+conservative and stable: unknown scoping, decomposition and observability remain
+unassessed, and the two completed domain pairs change 1 to 2 without unrelated
+changes. This medium-effort profile is not qualified by these results. The live application's
+model selection was not changed. The low-effort matrix below uses the same model,
+fixtures and timeout to assess operational suitability. No failed trial
+is repaired, retried or replaced in retained evidence.
+
+## Qualified profile
+
+**PASS: Codex GPT-6.1-Sol, low reasoning effort**, evaluated on 2026-10-25 with
+signed `brain-3` and rubric digest
+`9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e`.
+All nine independent two-call trials completed and saved snapshots without
+repairs, parser rejections or timeouts. Independent review checked all 126 rows:
+99 assessed rows were grounded, and 27 Unassessed rows were justified. No required
+semantic findings remained. The [retained synthetic evidence](fixtures/repository-readiness-2026-10-25/index.md)
+contains exact final inputs, parsed outputs, original byte hashes, source hashes
+and public guidance identity. Original outputs and all failed matrices also remain
+in a private local evidence archive.
+
+Each value below holds in all three trials per group. U means Unassessed with
+null maturity/confidence and an explicit reason.
+
+| Component | Baseline | Improved | Healthy |
+| --- | --- | --- | --- |
+| Context discovery | 1 | 1 | 1 |
+| Progressive disclosure | 2 | 2 | 2 |
+| Instruction scoping | U | U | U |
+| Architecture awareness | 2 | 2 | 2 |
+| Domain knowledge | 1 | 2 | 2 |
+| Environment reproducibility | 1 | 1 | 1 |
+| Tool accessibility | 1 | 1 | 1 |
+| Task decomposition | U | U | U |
+| Verification | 1 | 1 | 1 |
+| Observability | U | U | U |
+| Change safety | 1 | 1 | 1 |
+| Feedback loops | 1 | 1 | 1 |
+| Durable memory | 2 | 2 | 2 |
+| Human oversight | 2 | 2 | 2 |
+
+The controlled glossary change improved domain knowledge 1 to 2 in **3/3 pairs**,
+exceeding the required two of three. No unrelated maturity/null value changed.
+All improved/healthy source files and final provider inputs matched exactly.
+Those no-change trials showed no maturity or coverage variability; prose,
+citations and durable-memory confidence varied reasonably between medium/high.
+Every snapshot retained honest 11/14 coverage and null raw total/overall score.
+No missing evidence became zero, and no completed execution, maintained practice
+or technical enforcement was invented.
+
+This qualifies the approved synthetic fixture criteria for this **model/effort
+profile only**. It does not qualify Luna, medium effort, other models, arbitrary
+repositories or full fourteen-area scoring. Deterministic tests separately verify
+full-coverage arithmetic and comparison presentation. No live application model
+selection was changed. Source verification and this model-specific evidence do
+not establish availability in a published installer.

@@ -164,9 +164,9 @@ and evidence, and expanding access again does not restore them.
 
 This feature requires complete verified signed Brain rubric guidance and an
 available configured Taskmaster model. Signed publication and the generated
-starter are verified, but the current selected-model quality matrix failed
-[semantic acceptance](../validation/repository-readiness-runtime.md#final-acceptance).
-The implementation remains in draft PR review under
-[#1063](https://github.com/Rambolarsen/orkworks/issues/1063), pending model
-qualification; it is not established as an available installer feature. Existing **Assess workflow** continues
+starter are verified. The [qualified fixture profile](../validation/repository-readiness-runtime.md#qualified-profile)
+is Codex **GPT-6.1-Sol with low reasoning effort**; GPT-6-Luna medium did not meet
+the quality bar. Select the desired model in Taskmaster settings, which are shared
+with other Taskmaster analysis. The feature does not change your model selection.
+Source validation does not establish availability in an existing installer. Existing **Assess workflow** continues
 to suggest one bounded improvement separately.

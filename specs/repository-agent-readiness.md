@@ -1,6 +1,6 @@
 # Repository agent readiness
 
-Status: accepted; owner approved the concrete design and runtime implementation in chat on 2026-10-25. Exact public rubric export review remains required before publication.
+Status: accepted; owner approved the design, implementation, exact public rubric and publication on 2026-10-25. Signed brain-3 guidance is delivered; source verification and the GPT-6.1-Sol low-effort fixture qualification are recorded in the linked validation evidence.
 Tracking: [#1063](https://github.com/Rambolarsen/orkworks/issues/1063).
 
 ## Outcome and scope
@@ -11,7 +11,7 @@ and rerun to see evolution. A run describes observed readiness at a particular
 repository snapshot; it is neither a general code-quality score nor a guarantee
 of future agent performance.
 
-This proposal adds a distinct **Assess readiness** action and history within the
+This specification adds a distinct **Assess readiness** action and history within the
 existing Recommendations surface. **Assess workflow**, **Analyze now**, their
 reports, recommendations and admission rules retain their accepted behavior.
 Readiness runs do not create recommendations or execute fixes in this first
@@ -20,7 +20,7 @@ existing workflow assessment and coding-session paths separately.
 
 The architecture rationale is in [ADR 0095](../docs/adr/0095-repository-agent-readiness-history.md).
 The [implementation plan](../docs/superpowers/plans/2026-10-25-repository-agent-readiness.md)
-is proposed, not runtime delivery evidence.
+records execution. [Runtime validation](../docs/validation/repository-readiness-runtime.md) records delivered source checks and the model-specific quality boundary; neither establishes installer availability.
 
 ## Rubric and overall score
 
