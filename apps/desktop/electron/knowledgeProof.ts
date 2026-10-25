@@ -1,3 +1,4 @@
+import { parseReadinessRubric, type ReadinessRubric } from './knowledgeReadiness.ts';
 import { createHash, createPublicKey, verify } from 'node:crypto';
 import { parseStrictJson } from './strictJson.ts';
 
@@ -42,7 +43,8 @@ export type KnowledgePage = {
 };
 
 export type KnowledgeBundle = {
-  readonly formatVersion: 1;
+  readonly formatVersion: 1 | 2;
+  readonly readinessRubric?: ReadinessRubric;
   readonly version: string;
   readonly sequence: number;
   readonly publishedAt: string;
@@ -67,7 +69,7 @@ export type KnowledgeManifest = {
 
 export type KnowledgeIdentity = {
   readonly bundleSha256: string;
-  readonly formatVersion: 1;
+  readonly formatVersion: 1 | 2;
   readonly privacyPolicyVersion: 1;
   readonly version: string;
   readonly sequence: number;
@@ -226,7 +228,7 @@ function parseProvenance(value: unknown): KnowledgePageProvenance[] {
 function parseBundle(value: unknown): KnowledgeBundle {
   const source = record(value, 'bundle');
   const version = safeVersion(source.version, 'bundle.version');
-  if (source.formatVersion !== 1) fail('bundle.formatVersion must equal 1');
+  if (source.formatVersion !== 1 && source.formatVersion !== 2) fail('bundle.formatVersion must equal 1 or 2');
   if (source.privacyPolicyVersion !== 1) fail('bundle.privacyPolicyVersion must equal 1');
   const sequence = nonnegativeInteger(source.sequence, 'bundle.sequence');
   const publishedAt = string(source.publishedAt, 'bundle.publishedAt');
@@ -282,8 +284,13 @@ function parseBundle(value: unknown): KnowledgeBundle {
     }
   }
 
+  const readiness = capabilities.includes('taskmaster-readiness-v1');
+  if (source.formatVersion === 1 && (readiness || source.readinessRubric !== undefined)) fail('readiness requires bundle format 2');
+  if (source.formatVersion === 2 && !readiness) fail('format 2 requires readiness capability');
+  const readinessRubric = source.formatVersion === 2 ? parseReadinessRubric(source.readinessRubric, pages) : undefined;
   return {
-    formatVersion: 1,
+    formatVersion: source.formatVersion,
+    ...(readinessRubric ? { readinessRubric } : {}),
     version,
     sequence,
     publishedAt,
@@ -330,7 +337,7 @@ export function verifyKnowledgeManifest(bytes: Uint8Array, publicKey: string): K
 
 export function selectKnowledgeEntry(manifest: KnowledgeManifest): KnowledgeManifestEntry {
   if (!manifest || !Array.isArray(manifest.bundles)) fail('manifest is invalid');
-  const eligible = manifest.bundles.filter((entry) => entry.formatVersion === 1 && entry.privacyPolicyVersion === 1);
+  const eligible = manifest.bundles.filter((entry) => (entry.formatVersion === 1 || entry.formatVersion === 2) && entry.privacyPolicyVersion === 1);
   if (eligible.length === 0) fail('manifest has no supported format and policy entry');
   const selected = eligible.reduce((highest, candidate) => candidate.sequence > highest.sequence ? candidate : highest);
   return deepFreeze({ ...selected });

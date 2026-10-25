@@ -95,7 +95,8 @@ test('page ID grammar rejects duplicate IDs and every unsafe path spelling', () 
 test('manifest selection ranks only the supported format and privacy policy', () => {
   const manifest = verifyKnowledgeManifest(fixture('ranked-manifest-envelope.json'), testPublicKey);
 
-  assert.equal(selectKnowledgeEntry(manifest).version, 'supported-newer');
+  const supported = { ...manifest, bundles: manifest.bundles.map(entry => entry.formatVersion === 2 ? { ...entry, formatVersion: 3 } : entry) };
+  assert.equal(selectKnowledgeEntry(supported).version, 'supported-newer');
 });
 
 test('same bundle with a newer valid manifest is idempotent at bundle identity', () => {

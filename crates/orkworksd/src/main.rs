@@ -439,6 +439,14 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
         .route("/taskmaster/analyze", post(analyze_taskmaster))
         .route("/taskmaster/assess-workflow", post(assess_workflow))
         .route(
+            "/taskmaster/assess-readiness",
+            post(http::readiness_handlers::assess),
+        )
+        .route(
+            "/taskmaster/readiness",
+            get(http::readiness_handlers::get_status),
+        )
+        .route(
             "/taskmaster/audit/recommendations",
             post(run_recommendation_audit),
         )

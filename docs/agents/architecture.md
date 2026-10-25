@@ -152,8 +152,8 @@ the sidecar independently verifies that proof and owns bounded analysis and
 evidence validation. Knowledge cannot change execution authority.
 Brain-backed analysis requires server-owned, reverified durable knowledge proof
 under [ADR 0081](../adr/0081-signed-taskmaster-knowledge-activation-proof.md).
-Current source packages the generated `brain-1` signed starter and matching
-replacement public key from the approved production publication. Admission checks
+Current source packages the generated `brain-3` signed starter with the complete readiness
+rubric and unchanged public pin from the approved production publication. Admission checks
 manual requests, scheduling and worker entry before provider preparation, context
 collection or usage reservation. Missing, corrupt, unsupported or mismatched proof
 remains unavailable; unsigned policy fields, legacy snapshots and executable
@@ -1117,3 +1117,31 @@ Archive publication syncs the staged file and, on Unix, the metadata parent and
 state directory entries before success. Windows publishes through a same-directory
 write-through replacement. A durability barrier failure is returned to the caller;
 it cannot be reported as a successful archive decision.
+
+## Repository agent-readiness implementation
+
+Owner-approved [readiness scoring](../../specs/repository-agent-readiness.md) is
+implemented separately from the one-improvement workflow assessment.
+`taskmaster/readiness.rs` owns the manual two-call scheduler and input fences;
+`readiness_model.rs` owns strict scoring/discovery decoding;
+`readiness_rubric.rs` validates the complete signed fourteen-concept descriptor;
+`readiness_store.rs` owns capped atomic snapshots, attempt recovery and redaction.
+The shared safe collector has an explicit readiness purpose/version while
+legacy workflow manifests retain their existing representation.
+
+Authenticated empty-body `POST /taskmaster/assess-readiness` admits a manual run;
+`GET /taskmaster/readiness` projects only the selected workspace's local history
+and fixed progress. The existing inference transport/trust, shared analysis
+lease and context restrictions apply; no recommendations or repository commands
+are generated. Sidecar-computed totals require all fourteen validated ratings.
+The renderer compares compatible saved snapshots and never treats a partial
+assessment as an overall number. Settings narrowing removes affected historical
+scores and evidence, including unopened workspaces, through the existing policy
+reconciliation owner.
+
+Runtime eligibility still requires the complete reviewed signed format-2 Brain
+rubric, generated starter proof and selected-model quality evidence. These
+dependencies remain pending under [#1063](https://github.com/Rambolarsen/orkworks/issues/1063)
+and [Brain PR #127](https://github.com/Rambolarsen/brain/pull/127); source wiring
+does not establish released-installer availability. See
+[ADR 0095](../adr/0095-repository-agent-readiness-history.md).

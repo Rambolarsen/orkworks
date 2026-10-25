@@ -78,7 +78,7 @@ test("tampered signed response and offline refresh preserve verified knowledge",
 test("selector filters unsupported policy and format before ranking", async t => {
   const f = await setup(t);
   const manifest = f.key.signed({ formatVersion: 1, bundles: [f.next.entry,
-    { ...f.next.entry, formatVersion: 2, sequence: 99, version: "future", path: "bundles/future.json" },
+    { ...f.next.entry, formatVersion: 3, sequence: 99, version: "future", path: "bundles/future.json" },
     { ...f.next.entry, privacyPolicyVersion: 2, sequence: 100, version: "policy", path: "bundles/policy.json" }] });
   const updates = new KnowledgeUpdates({ ...f.options, fetcher: async url => new Response(url.endsWith("manifest.json") ? manifest : f.next.bundle) });
   assert.equal((await updates.check())?.bundle.version, "2");

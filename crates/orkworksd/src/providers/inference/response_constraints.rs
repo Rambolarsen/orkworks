@@ -25,6 +25,21 @@ fn nullable(object: Value) -> Value {
 
 fn schema(shape: NativeResponseShape) -> Value {
     match shape {
+        NativeResponseShape::ReadinessDiscoveryV1 => {
+            json!({"type":"object","additionalProperties":false,"required":["version","requestedFileIds"],"properties":{"version":{"type":"integer","enum":[1]},"requestedFileIds":{"type":"array","items":{"type":"integer"}}}})
+        }
+        NativeResponseShape::ReadinessV1 => {
+            let rated = json!({"type":"object","additionalProperties":false,"required":["conceptId","maturity","confidence","repositoryFactIds","rubricPageId","rationale","limits","nextTransition","unassessedReason"],"properties":{
+                "conceptId":{"type":"string"},"maturity":{"type":"integer","minimum":0,"maximum":4},"confidence":{"type":"string","enum":["low","medium","high"]},"repositoryFactIds":{"type":"array","items":{"type":"integer"}},"rubricPageId":{"type":"string"},"rationale":prose(),"limits":{"type":"array","items":prose()},"nextTransition":{"type":"string","description":"A prospective noun phrase beginning Evidence of, describing the next supported level. No completed-check claims, literal commands or instructions. Use usage for descriptive usage, not ambiguous use."},"unassessedReason":{"type":"null"}
+            }});
+            let mut unassessed = rated.clone();
+            unassessed["properties"]["maturity"] = json!({"type":"null"});
+            unassessed["properties"]["confidence"] = json!({"type":"null"});
+            unassessed["properties"]["unassessedReason"] = prose();
+            json!({"type":"object","additionalProperties":false,"required":["version","summary","concepts"],"properties":{
+                "version":{"type":"integer","enum":[1]},"summary":prose(),"concepts":{"type":"array","items":{"anyOf":[rated,unassessed]}}
+            }})
+        }
         NativeResponseShape::DiscoveryV1 => json!({
             "type":"object", "additionalProperties":false,
             "required":["version","outcome","candidate","repositoryFactHashes","knowledgePageIds","requestedFileIds","reason"],
@@ -77,4 +92,33 @@ pub(super) fn write(
     let path = directory.join("response-schema.json");
     fs::write(&path, bytes).map_err(|_| invalid("could not prepare native response constraint"))?;
     Ok(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn readiness_constraints_keep_unassessed_confidence_null() {
+        let constraint = schema(NativeResponseShape::ReadinessV1);
+        let alternatives = constraint["properties"]["concepts"]["items"]["anyOf"]
+            .as_array()
+            .expect("rated and unassessed are distinct row alternatives");
+        assert_eq!(alternatives.len(), 2);
+        assert_eq!(alternatives[0]["properties"]["maturity"]["type"], "integer");
+        assert_eq!(
+            alternatives[0]["properties"]["confidence"]["type"],
+            "string"
+        );
+        assert_eq!(
+            alternatives[0]["properties"]["unassessedReason"]["type"],
+            "null"
+        );
+        assert_eq!(alternatives[1]["properties"]["maturity"]["type"], "null");
+        assert_eq!(alternatives[1]["properties"]["confidence"]["type"], "null");
+        assert_eq!(
+            alternatives[1]["properties"]["unassessedReason"]["type"],
+            "string"
+        );
+        assert!(serde_json::to_vec(&constraint).unwrap().len() <= 8192);
+    }
 }

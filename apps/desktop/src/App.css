@@ -3035,3 +3035,26 @@ html, body, #root {
 .git-changes-files span { display: block; font-size: var(--text-xs); color: var(--text-muted); }
 .git-changes-patch { overflow: auto; white-space: pre; max-height: 65vh; padding: 8px; font-size: 11px; background: var(--surface-base); }
 .git-changes :focus-visible { outline: 2px solid var(--text-muted); outline-offset: 2px; }
+
+.readiness-panel { border: 1px solid var(--border-subtle); border-radius: 8px; padding: 16px; margin: 12px 0; min-width: 0; }
+.readiness-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.readiness-heading h3 { margin: 0; }
+.readiness-heading p, .readiness-retention { opacity: .72; font-size: .9em; }
+.readiness-score { display: flex; align-items: baseline; gap: 4px; margin-top: 12px; }
+.readiness-score > strong { font-size: 2.6rem; font-variant-numeric: tabular-nums; }
+.readiness-delta { margin-left: 12px; font-size: .9rem; }
+.readiness-history-controls { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0; }
+.readiness-history-controls label { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.readiness-history-controls select { max-width: 100%; }
+.readiness-area { border-bottom: 1px solid var(--border-subtle); padding: 10px 0; }
+.readiness-area summary { display: flex; align-items: baseline; gap: 12px; cursor: pointer; }
+.readiness-area summary > span:first-child { flex: 1; }
+.readiness-summary > details { margin: 12px 0; }
+.readiness-summary p, .readiness-summary li { overflow-wrap: anywhere; }
+.readiness-notice { font-weight: 600; }
+
+.readiness-panel button, .readiness-panel select { background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 7px 10px; }
+.readiness-panel button:not(:disabled):hover { background: var(--surface-3); }
+.readiness-panel button:disabled { opacity: .5; }
+.readiness-panel button:focus-visible, .readiness-panel select:focus-visible, .readiness-panel summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.readiness-summary p { margin: 6px 0; }

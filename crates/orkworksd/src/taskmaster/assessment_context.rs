@@ -15,6 +15,8 @@ const MAX_TOTAL: usize = 65536;
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct InputManifest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<String>,
     pub context_level: ContextLevel,
     pub excluded_paths: Vec<String>,
     pub collector_version: u8,
@@ -47,7 +49,11 @@ fn valid_digest(text: &str) -> bool {
 impl InputManifest {
     pub(crate) fn validate(&self) -> Result<(), String> {
         if self.collector_version != COLLECTOR_VERSION
-            || self.prompt_version != super::assessment::ASSESSMENT_PROMPT_VERSION
+            || match self.purpose.as_deref() {
+                None => self.prompt_version != super::assessment::ASSESSMENT_PROMPT_VERSION,
+                Some("readiness") => self.prompt_version != "taskmaster-readiness-v1",
+                _ => true,
+            }
             || self.files.len() > 32
             || self.requested_file_ids.len() > 8
             || self.requested_file_ids.iter().any(|id| *id >= 512)
@@ -129,6 +135,7 @@ pub(crate) struct RepositoryContext {
     manifest: InputManifest,
     coverage: context::TraversalCoverage,
     permitted: HashSet<String>,
+    unavailable_inputs: bool,
 }
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum FollowUp {
@@ -136,7 +143,24 @@ pub(crate) enum FollowUp {
     EvidenceLimit,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum RevalidationError {
+    Changed,
+    Unavailable,
+}
+
 impl RepositoryContext {
+    pub(crate) fn collect_for_readiness(
+        workspace: &Path,
+        level: ContextLevel,
+        excluded: &[String],
+        observed_at: &str,
+    ) -> Result<Self, String> {
+        let mut context = Self::collect(workspace, level, excluded, observed_at)?;
+        context.manifest.purpose = Some("readiness".into());
+        context.manifest.prompt_version = "taskmaster-readiness-v1".into();
+        Ok(context)
+    }
     pub(crate) fn collect(
         workspace: &Path,
         level: ContextLevel,
@@ -177,6 +201,7 @@ impl RepositoryContext {
         let mut catalog = Vec::new();
         let mut permitted = HashSet::new();
         let mut size = 2;
+        let mut unavailable_inputs = false;
         complete &= remaining > 0;
         for path in paths {
             let Some(relative) = path
@@ -206,6 +231,7 @@ impl RepositoryContext {
             // A catalog entry is permission data, not proof of absence. Vet the
             // bounded prefix without retaining or supplying unselected contents.
             if read_prefix(&root, &relative, level, excluded).is_err() {
+                unavailable_inputs = true;
                 continue;
             }
             size += encoded.len() + 1;
@@ -222,7 +248,9 @@ impl RepositoryContext {
             prefixes: BTreeMap::new(),
             coverage,
             permitted,
+            unavailable_inputs,
             manifest: InputManifest {
+                purpose: None,
                 context_level: level,
                 excluded_paths: excluded.to_vec(),
                 collector_version: COLLECTOR_VERSION,
@@ -454,6 +482,55 @@ impl RepositoryContext {
     pub(crate) fn manifest(&self) -> InputManifest {
         self.manifest.clone()
     }
+    pub(crate) fn restore_for_readiness(
+        self,
+        saved: &InputManifest,
+    ) -> Result<Self, RevalidationError> {
+        saved
+            .validate()
+            .map_err(|_| RevalidationError::Unavailable)?;
+        if self.unavailable_inputs {
+            return Err(RevalidationError::Unavailable);
+        }
+        let mut changed = false;
+        // Classify disappeared paths without opening evidence outside this catalog.
+        for file in saved
+            .files
+            .iter()
+            .filter(|file| !self.permitted.contains(&file.path))
+        {
+            match std::fs::symlink_metadata(self.root.join(&file.path)) {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => changed = true,
+                _ => return Err(RevalidationError::Unavailable),
+            }
+        }
+        if changed
+            || self.manifest.context_level != saved.context_level
+            || self.manifest.excluded_paths != saved.excluded_paths
+            || self.manifest.catalog_digest != saved.catalog_digest
+            || self.manifest.catalog_complete != saved.catalog_complete
+            || self.manifest.files
+                != saved
+                    .files
+                    .iter()
+                    .filter(|file| file.seed)
+                    .cloned()
+                    .collect::<Vec<_>>()
+        {
+            return Err(RevalidationError::Changed);
+        }
+        // The original selection still fits the current catalog and permission set.
+        for file in &saved.files {
+            let bytes = read_prefix(&self.root, &file.path, self.level, &self.excluded)
+                .map_err(|_| RevalidationError::Unavailable)?;
+            changed |= bytes.len() != file.bytes || digest(&bytes) != file.sha256;
+        }
+        if changed {
+            return Err(RevalidationError::Changed);
+        }
+        self.restore(saved)
+            .map_err(|_| RevalidationError::Unavailable)
+    }
     pub(crate) fn restore(mut self, saved: &InputManifest) -> Result<Self, String> {
         saved.validate()?;
         if saved.redacted
@@ -626,6 +703,58 @@ mod tests {
     use super::*;
     use crate::taskmaster::runtime::ContextLevel;
     use std::fs;
+
+    #[test]
+    fn readiness_revalidation_distinguishes_changes_from_unavailable_follow_up() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::create_dir(directory.path().join("src")).unwrap();
+        std::fs::write(directory.path().join("README.md"), "Repository guide").unwrap();
+        let source = directory.path().join("src/main.rs");
+        std::fs::write(&source, "fn main() {}\n").unwrap();
+        let collect = || {
+            RepositoryContext::collect_for_readiness(
+                directory.path(),
+                ContextLevel::SourceCode,
+                &[],
+                "now",
+            )
+            .unwrap()
+        };
+        let mut initial = collect();
+        let id = initial
+            .catalog
+            .iter()
+            .position(|path| path == "src/main.rs")
+            .unwrap();
+        initial.follow_up(&[id], "source").unwrap();
+        initial.bind_discovery("selection");
+        let saved = initial.manifest();
+        assert!(collect().restore_for_readiness(&saved).is_ok());
+        std::fs::write(&source, "fn main() { println!(\"changed\"); }\n").unwrap();
+        assert!(matches!(
+            collect().restore_for_readiness(&saved),
+            Err(RevalidationError::Changed)
+        ));
+        std::fs::write(&source, [0xff, 0xfe]).unwrap();
+        assert!(matches!(
+            collect().restore_for_readiness(&saved),
+            Err(RevalidationError::Unavailable)
+        ));
+        std::fs::remove_file(&source).unwrap();
+        assert!(matches!(
+            collect().restore_for_readiness(&saved),
+            Err(RevalidationError::Changed)
+        ));
+        #[cfg(unix)]
+        {
+            let outside = tempfile::NamedTempFile::new().unwrap();
+            std::os::unix::fs::symlink(outside.path(), &source).unwrap();
+            assert!(matches!(
+                collect().restore_for_readiness(&saved),
+                Err(RevalidationError::Unavailable)
+            ));
+        }
+    }
 
     #[test]
     fn repository_seeds_reserve_workflow_evidence_and_catalog_followup() {

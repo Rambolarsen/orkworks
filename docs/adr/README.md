@@ -120,3 +120,5 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 - [Codex terminal program status](0093-codex-terminal-program-status.md) — Best-effort UI attention; supersedes ADR 0051 for emitting runtimes.
 
 - [Explicit session task-worktree binding](0094-explicit-session-worktree-binding.md) — Authenticated durable worktree reports supersede launch-directory fallback.
+
+- [Repository agent-readiness scores and local history](0095-repository-agent-readiness-history.md) — Accepted (#1063); implementation and signed rubric delivery tracked separately.
