@@ -470,3 +470,19 @@ contract, with one proof row charged inside the owning mutation's existing slot.
 All v1 bytes/fixtures above remain unchanged; no mixed-format parsing or implicit
 upgrade is authorized. This new schema remains proposed. Complete domain/lookup
 shapes, maximum profiles and native/executable gates remain open.
+
+## Compact codec acceptance — 2026-10-25
+
+The owner [accepted #1049's exact compact codecs](2026-10-25-hierarchy-compact-bindings-design.md#owner-acceptance-and-handoff--2026-10-25)
+for further design/qualification: proof-v2 exact local references, the three
+claimed-mutation metadata rows and full-key retry lookup, canonical original
+receipt bytes, scoped format-3 commitments and logical-byte accounting. This
+supersedes acceptance-pending wording only for those named choices. Earlier
+proof-v1/format-2 encodings and fixture bytes remain historical and unchanged;
+no mixed parsing or implicit upgrade is accepted.
+
+Source/request/wire fields, quotas and accepted claim/lease policy are unchanged.
+No physical/whole-command qualification, remaining domain/reserved/finalization
+schema/default acceptance, migration, probe, executable plan or runtime approval
+follows. The linked record lists the remaining gates and next bounded metadata/
+budget design work. #740 stays deferred/no-go until November; keep #744/#746 open.

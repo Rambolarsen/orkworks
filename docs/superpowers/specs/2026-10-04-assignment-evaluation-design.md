@@ -122,6 +122,22 @@ proof/storage versioning, writer/producer/lease/native qualification and separat
 approved executable plans are supplied; numerical storage defaults and #740's
 November/no-go gate remain separate. Keep the component issues open.
 
+## Compact proof and receipt codec acceptance — 2026-10-25
+
+The owner [accepted the reviewed #1049 codecs](2026-10-25-hierarchy-compact-bindings-design.md#owner-acceptance-and-handoff--2026-10-25)
+for further design/qualification. ClaimProofV2 expands to the same exact full
+bindings; the three claimed-mutation metadata rows preserve original receipts
+and reconstruct complete retry keys after authentication. Scoped format-3 hash
+and manifest rules replace the earlier proposed full-binding representation for
+this design path; old vectors remain unchanged historical references.
+
+This resolves the named proof/receipt/lookup codec decision, not all technical
+storage gates below. Canonical source/request/wire fields, quota values and
+claim/lease policy are unchanged. Reserved/finalization and other domain schemas,
+whole-command/physical accounting, writer/producer/native qualification and
+separately approved executable plans remain open. No database, migration, probe
+or runtime code is authorized; #740 remains deferred/no-go until November.
+
 ## Assignment and result identity
 
 An evaluation binds one approved assignment identity, the exact accepted result
