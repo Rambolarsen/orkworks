@@ -224,3 +224,16 @@ unqualified; no runtime/native/model probe or executable plan is delivered.
 Proof-schema, action-owner, writer, lease-lifetime and native durability/resource
 qualification requirements remain open. Next bounded design work is strict
 nonsecret claim-proof metadata and versioned storage commitment mapping.
+
+
+## Claim-proof schema preparation — 2026-10-25
+
+The [proposed claim-proof and format-2 contract](../superpowers/specs/2026-10-25-hierarchy-claim-proof-design.md)
+adds strict receipt/source/claim/commit validation, hash-cycle exclusions, slot
+charging, immutable retention and ASCII encoding vectors. Its fixtures are
+written expectations and local hash calculations, not SQL or native evidence.
+A proof is not independent evidence that the runtime latch preceded revocation,
+and cannot restore a claim/grant. Keep native ordering/lease/resource proof and
+all excluded-action gates open. The schema/version decisions, complete non-ASCII/
+maximum variants and exact combined slot/command budgets need separate review;
+no migration, eligible profile, probe or executable plan is supplied.

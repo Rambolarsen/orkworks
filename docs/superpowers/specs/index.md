@@ -187,3 +187,5 @@ Dated design records; these do not establish current product behavior.
 
 - [Hierarchy authority ordering proposal](2026-10-24-hierarchy-authority-ordering-design.md) — Accepted scoped #744 publication claim/lease tradeoff for further design; native ordering, proof schemas and runtime approval remain gated.
 - [Session and recommendation push refresh](2026-10-24-push-refresh-design.md) — Approved changed-row updates, measured baseline and authoritative recovery.
+
+- [Hierarchy claim-proof metadata and storage commitment v2](2026-10-25-hierarchy-claim-proof-design.md) — Proposed exact nonsecret authority evidence, versioned hashes, receipt/commit joins and recovery vectors; no migration or runtime approval.

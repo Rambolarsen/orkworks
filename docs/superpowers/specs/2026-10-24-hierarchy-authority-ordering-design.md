@@ -289,3 +289,13 @@ qualification, #740 eligibility and separately approved executable plans still
 remain before runtime code. Keep #744/#746 open. Next bounded design work is the
 strict nonsecret claim-proof metadata and versioned storage commitment mapping;
 that new schema requires its own review and supplies no execution permission.
+
+
+## Claim-proof schema proposal — 2026-10-25
+
+The [strict proof/commitment proposal](2026-10-25-hierarchy-claim-proof-design.md)
+defines candidate nonsecret ClaimIdentity/decision/proof shapes, receipt-owned
+proof rows, format-2 hash/commit joins and recovery vectors. It changes none of
+the accepted action scope, cutoff, lease/retirement cost or finalization authority.
+The new schema/version choices remain proposed; no runtime/probe/migration or
+native qualification follows from the accepted policy or this schema draft.

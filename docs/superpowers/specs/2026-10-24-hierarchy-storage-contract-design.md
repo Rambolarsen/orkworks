@@ -460,3 +460,13 @@ cost. It explicitly changes that scoped authority cutoff. The earlier
 counterexample still rejects an unqualified volatile precheck; qualification and
 all excluded-action no-go gates remain. No row-schema/default acceptance,
 native proof or executable approval follows.
+
+
+## Claim-proof and format-2 proposal — 2026-10-25
+
+The [claim-proof proposal](2026-10-25-hierarchy-claim-proof-design.md) supplies
+closed candidate claim metadata and a distinct format-2 header/manifest/row hash
+contract, with one proof row charged inside the owning mutation's existing slot.
+All v1 bytes/fixtures above remain unchanged; no mixed-format parsing or implicit
+upgrade is authorized. This new schema remains proposed. Complete domain/lookup
+shapes, maximum profiles and native/executable gates remain open.
