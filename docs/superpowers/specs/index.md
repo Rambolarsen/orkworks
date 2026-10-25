@@ -197,5 +197,5 @@ Dated design records; these do not establish current product behavior.
 
 - [Hierarchy candidate command manifests and ledger effects](2026-10-25-hierarchy-candidate-command-manifests-design.md) — Three scoped ledger/payload/work-revision choices accepted for further design; logical effect recipes and bounded accounting evidence retain producer/native gates.
 
-- [Hierarchy empty-output logical source-profile witness](2026-10-25-hierarchy-empty-output-profile-design.md) — Exact synthetic before/after store projections, manifests and owner-cap comparisons; producer/bootstrap and native eligibility remain unverified.
+- [Hierarchy empty-output logical source-profile witness](2026-10-25-hierarchy-empty-output-profile-design.md) — Two scoped body-projection/preparation choices accepted for further design; exact synthetic bytes leave producer/bootstrap and native eligibility unverified.
 - [Explicit session worktree reporting](2026-10-25-session-worktree-location-design.md) — Proposed authenticated task-worktree binding, honest location sources and unchanged native gates.

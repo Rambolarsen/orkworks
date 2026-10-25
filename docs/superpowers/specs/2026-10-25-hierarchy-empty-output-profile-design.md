@@ -11,8 +11,9 @@ status: draft
 Tracking: [#744](https://github.com/Rambolarsen/orkworks/issues/744),
 [#746](https://github.com/Rambolarsen/orkworks/issues/746).
 Inspection base: `a10f11f1`.
-**Proposed byte/fixture representation for separate review; no executable or
-runtime-eligible profile is established.** This continues the
+**Two scoped representation/preparation choices accepted for further design/qualification;
+no executable or runtime-eligible profile is established.** See the
+[owner acceptance](#owner-acceptance-and-handoff--2026-10-25). This continues the
 [accepted three command choices](2026-10-25-hierarchy-candidate-command-manifests-design.md#owner-acceptance-and-handoff--2026-10-25),
 [format-3 codecs](2026-10-25-hierarchy-compact-bindings-design.md#owner-acceptance-and-handoff--2026-10-25)
 and [slot metadata](2026-10-25-hierarchy-slot-finalization-design.md#owner-acceptance-and-handoff--2026-10-25).
@@ -226,12 +227,13 @@ coverage expanded. No post-edit independent technical or native review is claime
 
 ## Review handoff and remaining gates
 
-Review the narrow decoded objects.body commitment projection, proposed
-subject-preparation manifest kind/zero-ledger initialization, exact source/summary/
-receipt/proof/link joins and declared logical byte measurement boundary. The
-fixture-only cap schedule is not a request to approve production source defaults.
-All prior technical definitions and catalogs remain unchanged; this new proposal
-needs separate owner review before dependent implementation.
+The owner accepted the narrow decoded objects.body commitment projection and
+explicit subject-preparation manifest kind/zero-ledger initialization for further
+design/qualification, as recorded below. This acceptance covers those two choices,
+not every broader component contract or a runtime-ready source profile. The
+fixture-only cap schedule establishes no production source defaults. Technical
+definitions, source/summary/receipt/proof/link joins, logical measurement rules
+and all catalog/checker bytes remain unchanged.
 
 The next evidence gap is a source-owned preparation/bootstrap producer contract
 with exact approved snapshot and membership bindings, finite production aggregate
@@ -242,3 +244,51 @@ plan. #740, finalization/quiescence/recovery versus writable ownership, physical
 resource/query/durability feasibility and shared custody remain gates. Keep
 #744/#746 open. No migration, database write, runtime implementation or launch
 eligibility is claimed.
+
+## Owner acceptance and handoff — 2026-10-25
+
+After PR #1061 merged and the two proposed choices were presented for owner
+acceptance, the owner answered “go ahead”. Accepted for further design and
+qualification against reviewed source
+[PR #1061](https://github.com/Rambolarsen/orkworks/pull/1061), merged as
+`1a50c4f05efe29bc85992d38d2241e64f992b6cb` (reviewed head
+`387dff2dd7b99637b99cc71d7a3cf96de12f7f42`):
+
+- For the two objects source variants used by this witness, commitment body.body
+  contains the strict decoded canonical candidate/result object. Physical source
+  BLOB bytes must equal that object's canonical serialization and validate its
+  unchanged source-domain digest and complete key. No Base64/quoted-object
+  alternative, new source domain or general unknown-variant fallback is accepted.
+- Explicit subject-preparation is a closed manifest kind for this synthetic
+  witness's initialized-store/absent-subject case. It initializes one no-result
+  summary/checkpoint and all thirteen required quota rows, including zeros.
+  It cannot reset an existing subject, initialize on read, infer approvals or
+  repair missing history. A production preparation actor/API and its exact
+  authority, producer/context and capacity/ownership atomicity remain unqualified.
+
+The accepted cost is exact byte/codec checking at each source-row commitment and
+explicit preparation proof before subject ledgers may be used. This is scoped
+choice acceptance, not blanket acceptance of the broader store/component design,
+production source caps or any admitted maximum profile. The thirteen cap witnesses
+stay fixture-only comparisons; the synthetic criteria/rubric binding to the seed
+bootstrapConfigurationDigest remains UNVERIFIED. No approval/permission/lease/
+claim history or physical feasibility is established by these hashes.
+
+This record changes no technical definition, stored witness bytes, measured
+command total, negative case, source/request/wire field, quota value or claim/lease
+policy. Admission remains 23 changed logical rows / 28,371 bytes; acceptance is
+23 / 30,151. Logical fit supplies no native writability or execution authority.
+
+Source-owned bootstrap/preparation membership and snapshot bindings, finite
+production aggregate source/payload defaults, custody/affected-set codecs,
+payload/pending/unavailable/rejection witnesses, native query/physical/resource/
+scratch/durability feasibility, finalization/quiescence/recovery ordering against
+writable ownership, shared custody and separately approved executable plans remain
+gates. No database, migration, native/model probe, runtime implementation or
+launch eligibility is approved. #740 stays deferred/no-go until November; keep
+#744/#746 open.
+
+Next bounded design task: specify the source-owned bootstrap/preparation producer
+contract and its exact approved snapshot/membership bindings. Treat any new
+production quota defaults as separate proposed choices for owner review before
+dependent implementation.
