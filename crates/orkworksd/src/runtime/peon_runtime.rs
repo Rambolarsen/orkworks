@@ -1,4 +1,4 @@
-use crate::runtime::session_runtime::RuntimeIdentity;
+use crate::runtime::session_runtime::{RuntimeGeneration, RuntimeIdentity};
 use crate::workspace_runtime::iso_now;
 use crate::{peon, providers, AppState};
 use std::collections::HashMap;
@@ -1099,7 +1099,10 @@ where
                 tokio::time::Instant::now() - std::time::Duration::from_secs(idle_timeout);
             let last_output = state.peon.last_output.read().unwrap();
 
-            let (silent_ids, missing_last_output_ids): (Vec<String>, Vec<String>) = {
+            let (silent_ids, missing_last_output_ids): (
+                Vec<(String, RuntimeGeneration)>,
+                Vec<String>,
+            ) = {
                 let sessions = state.sessions.lock().unwrap();
                 let mut silent_ids = Vec::new();
                 let mut missing_last_output_ids = Vec::new();
@@ -1123,7 +1126,9 @@ where
                     }
 
                     match last_output.get(id) {
-                        Some(&t) if t <= idle_deadline => silent_ids.push(id.clone()),
+                        Some(&t) if t <= idle_deadline => {
+                            silent_ids.push((id.clone(), handle.runtime.run_generation()));
+                        }
                         Some(_) => {}
                         None => missing_last_output_ids.push(id.clone()),
                     }
@@ -1143,9 +1148,9 @@ where
                 }
             }
 
-            for id in &silent_ids {
+            for (id, generation) in &silent_ids {
                 crate::session_application::SessionApplication::new(state.clone())
-                    .apply_idle_timeout(id);
+                    .apply_idle_timeout(id, Some(*generation));
             }
         }
     }
