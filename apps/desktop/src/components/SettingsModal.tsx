@@ -75,6 +75,11 @@ const hotkeyRows: Array<{ action: HotkeyAction; label: string; optional?: boolea
   { action: "resetLayout", label: "Reset Layout", optional: true },
 ];
 
+const retentionRows: Array<{ field: keyof RetentionSettings; label: string; hint: string }> = [
+  { field: "maxSessions", label: "Max sessions to keep", hint: "0 = unlimited" },
+  { field: "maxAgeDays", label: "Auto-delete sessions older than (days)", hint: "0 = never" },
+];
+
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 function jsonText(value: unknown): string {
@@ -130,11 +135,7 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
   const [debugSaveStatus, setDebugSaveStatus] = useState<string | null>(null);
   const [providerDraft, setProviderDraft] = useState<ProviderSettings>(initialSettings.providers);
   const [providerSaveStatus, setProviderSaveStatus] = useState<string | null>(null);
-  const initialPeonSelection: PeonSelection = initialSettings.providers.peonSelection ?? {
-    provider: "ollama",
-    model: initialSettings.providers.peonModel ?? "",
-    ollamaBaseUrl: initialSettings.providers.ollamaBaseUrl,
-  };
+  const initialPeonSelection = peonSelectionFromProviders(initialSettings.providers);
   const [peonSelection, setPeonSelection] = useState<PeonSelection>(initialPeonSelection);
   const [peonVerification, setPeonVerification] = useState<PeonProviderVerificationResponse | null>(null);
   const [peonApplied, setPeonApplied] = useState<PeonAppliedState | null>(null);
@@ -408,10 +409,7 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
 
   function discardDraftsAndClose() {
     invalidateAsyncState();
-    setCapturing(null);
-    setErrors({});
-    setHotkeySaveStatus(null);
-    setDraft(clone(savedHotkeys));
+    cancelHotkeyChanges();
     setRetention(clone(savedSettingsRef.current.retention));
     setRetentionSaveStatus(null);
     setDebugSettings(clone(savedSettingsRef.current.debug));
@@ -1138,49 +1136,29 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
                 </p>
 
                 <div className="retention-list">
-                  <div className="retention-row">
-                    <div className="retention-label">Max sessions to keep</div>
-                    <Input
-                      type="number"
-                      min={0}
-                      max={999}
-                      style={{ width: 72 }}
-                      value={retention.maxSessions}
-                      onChange={(e) => {
-                        const v = parseInt(e.target.value, 10);
-                        if (!Number.isNaN(v)) {
-                          setRetention((r) => ({ ...r, maxSessions: Math.max(0, Math.min(999, v)) }));
-                        }
-                      }}
-                      onBlur={(e) => {
-                        const v = parseInt(e.target.value, 10);
-                        saveRetention({ ...retention, maxSessions: Number.isNaN(v) ? 0 : Math.max(0, Math.min(999, v)) });
-                      }}
-                    />
-                    <span className="retention-hint">0 = unlimited</span>
-                  </div>
-
-                  <div className="retention-row">
-                    <div className="retention-label">Auto-delete sessions older than (days)</div>
-                    <Input
-                      type="number"
-                      min={0}
-                      max={999}
-                      style={{ width: 72 }}
-                      value={retention.maxAgeDays}
-                      onChange={(e) => {
-                        const v = parseInt(e.target.value, 10);
-                        if (!Number.isNaN(v)) {
-                          setRetention((r) => ({ ...r, maxAgeDays: Math.max(0, Math.min(999, v)) }));
-                        }
-                      }}
-                      onBlur={(e) => {
-                        const v = parseInt(e.target.value, 10);
-                        saveRetention({ ...retention, maxAgeDays: Number.isNaN(v) ? 0 : Math.max(0, Math.min(999, v)) });
-                      }}
-                    />
-                    <span className="retention-hint">0 = never</span>
-                  </div>
+                  {retentionRows.map(({ field, label, hint }) => (
+                    <div className="retention-row" key={field}>
+                      <div className="retention-label">{label}</div>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={999}
+                        style={{ width: 72 }}
+                        value={retention[field]}
+                        onChange={(e) => {
+                          const v = parseInt(e.target.value, 10);
+                          if (!Number.isNaN(v)) {
+                            setRetention((r) => ({ ...r, [field]: Math.max(0, Math.min(999, v)) }));
+                          }
+                        }}
+                        onBlur={(e) => {
+                          const v = parseInt(e.target.value, 10);
+                          saveRetention({ ...retention, [field]: Number.isNaN(v) ? 0 : Math.max(0, Math.min(999, v)) });
+                        }}
+                      />
+                      <span className="retention-hint">{hint}</span>
+                    </div>
+                  ))}
                 </div>
 
                 {retentionSaveStatus && (
