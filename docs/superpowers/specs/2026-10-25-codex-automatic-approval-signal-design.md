@@ -1,18 +1,103 @@
 ---
 type: Design Proposal
 title: Prevent false Codex permission waits with a native approval-route signal
-description: Propose a conservative upstream per-request signal that avoids automatic-review waits without clearing existing attention.
+description: Record the original approval-route proposal and the preferred upstream human-approval lifecycle follow-up.
 tags: [orkworks, codex, hooks, attention, upstream]
 status: draft
 ---
 
 # Prevent false Codex permission waits with a native approval-route signal
 
-Status: proposed; runtime implementation and upstream submission not approved.
+Status: original route-field proposal not adopted; prefer the human-approval
+lifecycle follow-up below. No runtime implementation is authorized by this document.
 The owner requested a revised design after the human-run hook failure tests.
 Tracks [#690](https://github.com/Rambolarsen/orkworks/issues/690).
-This document proposes an alternative preventative path. It does not amend an
-accepted runtime contract, activate a capability, or qualify the installed binary.
+The original preventative proposal is retained below as history. This follow-up
+does not amend an accepted runtime contract, activate a capability, or qualify
+the installed binary.
+
+## Follow-up: observe actual human approval requests
+
+On 2026-10-25 the owner accepted the recommendation to pursue a narrow upstream
+human-approval lifecycle instead of further completion-queue work or a predicted
+exclusive-automatic route. This authorizes the proposal update and upstream
+follow-up, not runtime activation or adoption of another project's full design.
+The original proposal below is retained as history; its route-field issue draft
+must not be submitted as the current recommendation.
+
+Existing upstream requests already cover the gap:
+
+- [openai/codex#39426](https://github.com/openai/codex/issues/39426) requests an
+  output-only human-input lifecycle with opaque request identity and resolution.
+- [openai/codex#28833](https://github.com/openai/codex/issues/28833) describes the
+  same false notifications during automatic review; its comments include a
+  second terminal manager's identical PermissionRequest-to-waiting mapping.
+- [openai/codex#19921](https://github.com/openai/codex/issues/19921) requests
+  external notifications for approval and question prompts.
+
+The [OrkWorks evidence comment](https://github.com/openai/codex/issues/39426#issuecomment-6395253021)
+was posted to #39426 on 2026-10-25 rather than opening a duplicate.
+Ask upstream for a supported observation-only projection of the existing native
+approval request/resolution lifecycle. Do not prescribe a new transport, fork
+Codex, or implement guessed hook names. The minimum useful semantics are:
+
+1. Emit pending only once human approval is actually required, after automatic
+   routing. Automatic allow/deny produces no human-pending event; an automatic
+   fallback to human approval does.
+2. Pair pending and resolution with an opaque request identity and enough native
+   session/source identity to separate concurrent requests and process restarts.
+   Scope includes the native root/child attribution contract; the parent session
+   ID alone must not be assumed to distinguish child requests.
+3. Resolve when that request ceases to need a human decision, including decline,
+   cancellation and native cleanup, before an accepted long tool completes.
+   Resolution means no longer pending, never human approval, tool success or
+   session-wide working. Resolving A must leave pending B intact.
+4. Keep the surface passive and content-minimal: no approval-control responses,
+   approval decisions, command text, prompt content, user answers or credentials. Observer failure must not
+   change native approval policy or tool execution.
+5. Ask how missed events, reconnect and startup are represented. Paired IDs alone
+   do not guarantee complete delivery. Without a documented fresh authoritative
+   baseline, gaps/disconnects/restarts are unknown, not evidence that a wait ended.
+
+The source-loss default in #39426 is not adopted: clearing an observer's own
+visual notification on EOF is different from clearing OrkWorks' persisted
+attention tuple. Likewise, broader questions/heartbeat/transport proposals in
+that issue are upstream discussion, not new OrkWorks implementation scope.
+Existing attention ownership and competing-writer fences remain binding.
+
+### Smaller existing alternatives and limits
+
+[Codex TUI notifications](https://learn.chatgpt.com/docs/config-file/config-advanced#notify-vs-tuinotifications)
+support an approval-requested filter, OSC 9 output, and notification_condition
+set to always. At the pinned 0.164.0 commit,
+[tool request handlers](https://github.com/openai/codex/blob/6aaac694803004a63c6f393d153c96d22521a6b9/codex-rs/tui/src/chatwidget/tool_requests.rs)
+emit notifications for command/edit approvals and MCP elicitation, while the
+explicit request_permissions handler does not emit one.
+[Notification coalescing](https://github.com/openai/codex/blob/6aaac694803004a63c6f393d153c96d22521a6b9/codex-rs/tui/src/chatwidget/notifications.rs)
+and [OSC output](https://github.com/openai/codex/blob/6aaac694803004a63c6f393d153c96d22521a6b9/codex-rs/tui/src/notifications/osc9.rs)
+do not supply paired identity/resolution. Terminal bytes are not an authenticated
+native status channel. These are source findings, not a live qualification;
+notifications remain a possible limited experiment, not an authoritative fix.
+
+The [app-server protocol](https://learn.chatgpt.com/docs/app-server#approvals)
+already exposes request identity and serverRequest/resolved. Its use by an
+independent observer remains subject to ADR 0076's connection and launch gates.
+The [Unix-socket alternative](2026-10-15-codex-listener-ownership-design.md#evidence-and-alternatives)
+was already rejected because it does not retain exclusion of same-user tool
+processes from native approval control; it is not an unexamined shortcut.
+
+### Delivery boundary
+
+After upstream identifies a supported contract, review a concrete OrkWorks
+consumer design before implementation. Qualification must cover real manual
+holds, automatic decisions and fallback, overlapping requests, long tools,
+source loss and existing attention ownership. No native/completion capability,
+API-only launch marker, installed hook or session state changes in this update.
+#690 remains open. No claim is made that upstream has accepted or shipped this
+contract. The historical acceptance/review sections below apply only to the
+original route-field proposal.
+
+## Original route-field proposal (historical)
 
 ## Problem and evidence
 
@@ -234,7 +319,7 @@ No native process, conversation, or installed diagnostic was launched for this
 read-only design audit. #690 remains unresolved.
 
 
-## Fresh review disposition
+## Historical route-field review disposition
 
 The independent builder check found no important accidental omissions. It
 confirmed that exclusive-route feasibility and retry/configuration lifecycle
