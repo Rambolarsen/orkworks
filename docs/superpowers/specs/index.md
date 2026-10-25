@@ -194,3 +194,5 @@ Dated design records; these do not establish current product behavior.
 - [Compact exact hierarchy claim and receipt bindings](2026-10-25-hierarchy-compact-bindings-design.md) — Accepted scoped proof-v2/storage-v3 codecs for further design/qualification; logical-byte evidence is bounded and runtime/native gates remain open.
 
 - [Hierarchy reserved slots and internal finalization metadata](2026-10-25-hierarchy-slot-finalization-design.md) — Proposed format-3 reservation/outcome rows, separate authority joins and bounded command accounting.
+
+- [Hierarchy candidate command manifests and ledger effects](2026-10-25-hierarchy-candidate-command-manifests-design.md) — Proposed complete logical effect recipes, exact quota deltas and bounded lookup/accounting evidence; producer/native gates remain open.

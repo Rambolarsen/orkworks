@@ -1,0 +1,735 @@
+{
+  "schemaVersion": 1,
+  "evidenceKind": "symbolic-effect-accounting-not-admitted-history",
+  "slotBytes": 16384,
+  "commandByteCap": 16777216,
+  "commandRowCap": 4096,
+  "cases": [
+    {
+      "name": "admission-detail-only",
+      "coreRows": 14,
+      "quotaRows": 6,
+      "summaryRows": 1,
+      "payloadRows": 0,
+      "controlRows": 2,
+      "expectedRows": 23,
+      "receiptDeltaSlots": {
+        "used": 1,
+        "reserved": 9
+      },
+      "effects": {
+        "core": [
+          {
+            "table": "receipt_slots",
+            "key": "A:0"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:1"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:2"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:3"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:4"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:5"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:6"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:7"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:8"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:9"
+          },
+          {
+            "table": "objects",
+            "key": "candidate:C"
+          },
+          {
+            "table": "candidate_work",
+            "key": "C"
+          },
+          {
+            "table": "claim_proofs",
+            "key": "claim"
+          },
+          {
+            "table": "mutation_lookup",
+            "key": "retry"
+          }
+        ],
+        "quota": [
+          {
+            "table": "quota_usage",
+            "key": "assignment:A:reporting-receipt-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "run:R:reporting-receipt-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "workspace:W:reporting-receipt-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "assignment:A:assignment-record-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "run:R:assignment-record-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "workspace:W:assignment-record-bytes"
+          }
+        ],
+        "summary": [
+          {
+            "table": "summary_state",
+            "key": "A"
+          }
+        ],
+        "payload": [],
+        "control": [
+          {
+            "table": "store_header",
+            "key": "1"
+          },
+          {
+            "table": "commit_proof",
+            "key": "next"
+          }
+        ]
+      }
+    },
+    {
+      "name": "positive-work-reservation",
+      "coreRows": 1,
+      "quotaRows": 0,
+      "summaryRows": 0,
+      "payloadRows": 0,
+      "controlRows": 2,
+      "expectedRows": 3,
+      "receiptDeltaSlots": {
+        "used": 0,
+        "reserved": 0
+      },
+      "effects": {
+        "core": [
+          {
+            "table": "candidate_work",
+            "key": "C"
+          }
+        ],
+        "quota": [],
+        "summary": [],
+        "payload": [],
+        "control": [
+          {
+            "table": "store_header",
+            "key": "1"
+          },
+          {
+            "table": "commit_proof",
+            "key": "next"
+          }
+        ]
+      }
+    },
+    {
+      "name": "rejection-detail-only",
+      "coreRows": 10,
+      "quotaRows": 3,
+      "summaryRows": 1,
+      "payloadRows": 0,
+      "controlRows": 2,
+      "expectedRows": 16,
+      "receiptDeltaSlots": {
+        "used": 1,
+        "reserved": -9
+      },
+      "effects": {
+        "core": [
+          {
+            "table": "receipt_slots",
+            "key": "A:1"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:2"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:3"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:4"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:5"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:6"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:7"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:8"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:9"
+          },
+          {
+            "table": "candidate_work",
+            "key": "C"
+          }
+        ],
+        "quota": [
+          {
+            "table": "quota_usage",
+            "key": "assignment:A:reporting-receipt-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "run:R:reporting-receipt-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "workspace:W:reporting-receipt-bytes"
+          }
+        ],
+        "summary": [
+          {
+            "table": "summary_state",
+            "key": "A"
+          }
+        ],
+        "payload": [],
+        "control": [
+          {
+            "table": "store_header",
+            "key": "1"
+          },
+          {
+            "table": "commit_proof",
+            "key": "next"
+          }
+        ]
+      }
+    },
+    {
+      "name": "abandonment-detail-only",
+      "coreRows": 9,
+      "quotaRows": 3,
+      "summaryRows": 1,
+      "payloadRows": 0,
+      "controlRows": 2,
+      "expectedRows": 15,
+      "receiptDeltaSlots": {
+        "used": 0,
+        "reserved": -8
+      },
+      "effects": {
+        "core": [
+          {
+            "table": "receipt_slots",
+            "key": "A:2"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:3"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:4"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:5"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:6"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:7"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:8"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:9"
+          },
+          {
+            "table": "candidate_work",
+            "key": "C"
+          }
+        ],
+        "quota": [
+          {
+            "table": "quota_usage",
+            "key": "assignment:A:reporting-receipt-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "run:R:reporting-receipt-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "workspace:W:reporting-receipt-bytes"
+          }
+        ],
+        "summary": [
+          {
+            "table": "summary_state",
+            "key": "A"
+          }
+        ],
+        "payload": [],
+        "control": [
+          {
+            "table": "store_header",
+            "key": "1"
+          },
+          {
+            "table": "commit_proof",
+            "key": "next"
+          }
+        ]
+      }
+    },
+    {
+      "name": "accept-empty-current-summary",
+      "coreRows": 12,
+      "quotaRows": 8,
+      "summaryRows": 1,
+      "payloadRows": 0,
+      "controlRows": 2,
+      "expectedRows": 23,
+      "receiptDeltaSlots": {
+        "used": 1,
+        "reserved": -1
+      },
+      "effects": {
+        "core": [
+          {
+            "table": "receipt_slots",
+            "key": "A:1"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:2"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:3"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:4"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:5"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:6"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:7"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:8"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:9"
+          },
+          {
+            "table": "objects",
+            "key": "result:R"
+          },
+          {
+            "table": "candidate_work",
+            "key": "C"
+          },
+          {
+            "table": "heads",
+            "key": "result:A"
+          }
+        ],
+        "quota": [
+          {
+            "table": "quota_usage",
+            "key": "assignment:A:reporting-receipt-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "run:R:reporting-receipt-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "workspace:W:reporting-receipt-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "assignment:A:assignment-record-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "run:R:assignment-record-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "workspace:W:assignment-record-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "workspace:W:summary-row-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "workspace:W:summary-lineage-bytes"
+          }
+        ],
+        "summary": [
+          {
+            "table": "summary_state",
+            "key": "A"
+          }
+        ],
+        "payload": [],
+        "control": [
+          {
+            "table": "store_header",
+            "key": "1"
+          },
+          {
+            "table": "commit_proof",
+            "key": "next"
+          }
+        ]
+      }
+    },
+    {
+      "name": "accept-two-current-summary",
+      "coreRows": 12,
+      "quotaRows": 11,
+      "summaryRows": 1,
+      "payloadRows": 2,
+      "controlRows": 2,
+      "expectedRows": 28,
+      "receiptDeltaSlots": {
+        "used": 1,
+        "reserved": -1
+      },
+      "effects": {
+        "core": [
+          {
+            "table": "receipt_slots",
+            "key": "A:1"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:2"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:3"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:4"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:5"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:6"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:7"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:8"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:9"
+          },
+          {
+            "table": "objects",
+            "key": "result:R"
+          },
+          {
+            "table": "candidate_work",
+            "key": "C"
+          },
+          {
+            "table": "heads",
+            "key": "result:A"
+          }
+        ],
+        "quota": [
+          {
+            "table": "quota_usage",
+            "key": "assignment:A:reporting-receipt-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "run:R:reporting-receipt-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "workspace:W:reporting-receipt-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "assignment:A:assignment-record-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "run:R:assignment-record-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "workspace:W:assignment-record-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "assignment:A:result-payload-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "run:R:result-payload-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "workspace:W:result-payload-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "workspace:W:summary-row-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "workspace:W:summary-lineage-bytes"
+          }
+        ],
+        "summary": [
+          {
+            "table": "summary_state",
+            "key": "A"
+          }
+        ],
+        "payload": [
+          {
+            "table": "payloads",
+            "key": "A:R:output-0"
+          },
+          {
+            "table": "payloads",
+            "key": "A:R:output-1"
+          }
+        ],
+        "control": [
+          {
+            "table": "store_header",
+            "key": "1"
+          },
+          {
+            "table": "commit_proof",
+            "key": "next"
+          }
+        ]
+      }
+    },
+    {
+      "name": "accept-two-pending-summary",
+      "coreRows": 12,
+      "quotaRows": 12,
+      "summaryRows": 2,
+      "payloadRows": 2,
+      "controlRows": 2,
+      "expectedRows": 30,
+      "receiptDeltaSlots": {
+        "used": 1,
+        "reserved": -1
+      },
+      "effects": {
+        "core": [
+          {
+            "table": "receipt_slots",
+            "key": "A:1"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:2"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:3"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:4"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:5"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:6"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:7"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:8"
+          },
+          {
+            "table": "receipt_slots",
+            "key": "A:9"
+          },
+          {
+            "table": "objects",
+            "key": "result:R"
+          },
+          {
+            "table": "candidate_work",
+            "key": "C"
+          },
+          {
+            "table": "heads",
+            "key": "result:A"
+          }
+        ],
+        "quota": [
+          {
+            "table": "quota_usage",
+            "key": "assignment:A:reporting-receipt-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "run:R:reporting-receipt-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "workspace:W:reporting-receipt-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "assignment:A:assignment-record-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "run:R:assignment-record-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "workspace:W:assignment-record-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "assignment:A:result-payload-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "run:R:result-payload-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "workspace:W:result-payload-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "workspace:W:summary-row-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "workspace:W:summary-lineage-bytes"
+          },
+          {
+            "table": "quota_usage",
+            "key": "workspace:W:summary-pending-count"
+          }
+        ],
+        "summary": [
+          {
+            "table": "summary_state",
+            "key": "A"
+          },
+          {
+            "table": "pending_material",
+            "key": "A:next-summary-revision"
+          }
+        ],
+        "payload": [
+          {
+            "table": "payloads",
+            "key": "A:R:output-0"
+          },
+          {
+            "table": "payloads",
+            "key": "A:R:output-1"
+          }
+        ],
+        "control": [
+          {
+            "table": "store_header",
+            "key": "1"
+          },
+          {
+            "table": "commit_proof",
+            "key": "next"
+          }
+        ]
+      }
+    }
+  ],
+  "boundaries": {
+    "two8MiBOutputs": 16777216,
+    "admissionSlotAllowance": 163840,
+    "acceptanceSlotAllowance": 147456,
+    "sourceRecordCap": 524288
+  }
+}

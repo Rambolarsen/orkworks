@@ -511,3 +511,12 @@ finalization-versus-writable-ownership qualification, shared custody and separat
 executable-plan approvals remain gates. No database, migration, probe or runtime
 work is approved. #740 remains deferred/no-go until November; keep #744/#746 open.
 Next is the complete candidate admission/finalization command-manifest proposal.
+
+## Candidate command-manifest follow-up — 2026-10-25
+
+The [candidate command proposal](2026-10-25-hierarchy-candidate-command-manifests-design.md)
+expands minimum row counts into source/receipt/quota/dependency/summary/control
+sets, with bounded admission-inventory lookup, exact resource deltas and symbolic
+accounting cases. Its new resource keys, payload-copy policy and source-revision
+choices require separate owner review. Existing definitions and fixtures remain
+unchanged; no complete byte-bound/native profile or runtime approval is claimed.
