@@ -382,3 +382,13 @@ cap. Those cases cannot be admitted under this representation; a proof fitting
 alone is insufficient. No cap/profile/schema is changed here. Review exact
 compact bindings or explicit profile limits and close key/index/command budgets
 before claiming eligibility or accepting an executable handoff.
+
+## Compact-binding follow-up — 2026-10-25
+
+The [compact exact-binding proposal](2026-10-25-hierarchy-compact-bindings-design.md) responds to #1044's two 16 KiB receipt-slot overflows. Its proof-v2/storage-v3 encoding preserves
+all 16 original full bindings by exact expansion and measures at most 9,503
+declared logical metadata bytes across three rows, including a lookup row and
+Base64 wire response. Original proof-v1/format-2 vectors remain unchanged.
+This is a new schema proposal requiring review, not acceptance, a migration,
+physical storage qualification, native authority evidence or runtime approval.
+Whole-command, reserved/finalization and native platform gates remain open.

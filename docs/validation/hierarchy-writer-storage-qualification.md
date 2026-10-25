@@ -251,3 +251,13 @@ by a smaller fixture's remaining space. Packing/schema/profile reconciliation,
 complete command/row accounting and native ordering/lease/resource qualification
 remain no-go prerequisites. These are encoding measurements, not runtime, SQL,
 crash, capability or power-loss test evidence; no limits or authority changed.
+
+## Compact-binding follow-up — 2026-10-25
+
+The [compact exact-binding proposal](../superpowers/specs/2026-10-25-hierarchy-compact-bindings-design.md) responds to #1044's two 16 KiB receipt-slot overflows. Its proof-v2/storage-v3 encoding preserves
+all 16 original full bindings by exact expansion and measures at most 9,503
+declared logical metadata bytes across three rows, including a lookup row and
+Base64 wire response. Original proof-v1/format-2 vectors remain unchanged.
+This is a new schema proposal requiring review, not acceptance, a migration,
+physical storage qualification, native authority evidence or runtime approval.
+Whole-command, reserved/finalization and native platform gates remain open.
