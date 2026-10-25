@@ -3,8 +3,8 @@ use crate::metadata;
 use crate::plan_handoff::resolve_openable_plan_reference;
 use crate::session_types::SessionInfo;
 use crate::session_view::{
-    detect_conflicts, merge_live_session_info, resolve_effective_cwds,
-    resolve_harness_or_generic_shell, session_recommendation,
+    detect_conflicts, merge_live_session_info, resolve_harness_or_generic_shell,
+    session_recommendation,
 };
 use crate::AppState;
 use std::collections::{HashMap, HashSet};
@@ -348,12 +348,19 @@ impl SessionProjection {
     pub(crate) fn enrich_workspace(&self, mut infos: Vec<SessionInfo>) -> Vec<SessionInfo> {
         let session_pids = self.state.session_pids.lock().unwrap().clone();
         let reported_cwds = self.state.peon.reported_cwd.read().unwrap().clone();
-        let effective_cwds = resolve_effective_cwds(
+        let locations = crate::session_view::resolve_effective_locations(
             &infos,
             &reported_cwds,
             &session_pids,
             crate::procfs::live_cwds,
         );
+        let effective_cwds = locations
+            .iter()
+            .map(|(id, (path, _))| (id.clone(), path.clone()))
+            .collect();
+        for info in &mut infos {
+            info.git_context_source = locations.get(&info.id).map(|(_, source)| *source);
+        }
         {
             let mut cache = self
                 .state
@@ -661,6 +668,20 @@ pub(crate) fn enrich_sessions_with_git_context<F>(
     }
     let mut contexts: HashMap<String, git::GitContext> = HashMap::new();
     for info in infos.iter_mut() {
+        if info
+            .worktree_binding
+            .as_ref()
+            .is_some_and(|binding| binding.validate().is_err())
+        {
+            info.repo_root = None;
+            info.branch = None;
+            info.dirty = None;
+            info.changed_files = None;
+            info.line_changes = None;
+            info.is_worktree = None;
+            info.recommendation = Some("Reported task worktree unavailable.".into());
+            continue;
+        }
         let cwd = cwd_for(info);
         let git_cwd = git::worktree_root(std::path::Path::new(&cwd))
             .map(|root| root.display().to_string())

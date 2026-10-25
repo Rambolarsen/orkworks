@@ -189,6 +189,15 @@ Use **Comparison** to distinguish two views:
 - **Branch changes** shows committed changes from the merge base with the
   selected **Base branch** to the current HEAD. It excludes uncommitted edits.
 
+Current source builds support an explicit task-worktree report from the agent.
+When a coding agent starts in one checkout but works in another, its reported
+task worktree takes precedence over the harness, process and launch directories.
+Details and Changes label the directory source. Without a report, the fallback
+is labeled; a missing reported worktree shows unavailable rather than silently
+switching back to the launch checkout. Temporary commands elsewhere do not
+change the binding. This requires the matching source build and updated Codex
+integration; it does not establish availability in older installers.
+
 The panel identifies the worktree, baseline and capture time. Base choices use
 local refs; the viewer never fetches. Choose **Refresh** to capture newer changes.
 Sessions sharing a worktree show the same changes; this does not identify which

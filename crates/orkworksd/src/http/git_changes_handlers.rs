@@ -29,7 +29,10 @@ fn failure(status: StatusCode, message: impl Into<String>) -> Response {
     )
         .into_response()
 }
-fn subject(state: &AppState, id: &str) -> Result<PathBuf, String> {
+fn subject(
+    state: &AppState,
+    id: &str,
+) -> Result<(PathBuf, crate::session_location::GitLocationSource), String> {
     if id.is_empty()
         || id.len() > 256
         || !id
@@ -51,14 +54,20 @@ fn subject(state: &AppState, id: &str) -> Result<PathBuf, String> {
             })
             .ok_or("Session unavailable.")?
     };
-    let cwds = crate::session_view::resolve_effective_cwds(
+    if let Some(binding) = &info.worktree_binding {
+        return binding
+            .validate()
+            .map(|root| (root, crate::session_location::GitLocationSource::Agent))
+            .map_err(str::to_owned);
+    }
+    let cwds = crate::session_view::resolve_effective_locations(
         &[info],
         &state.peon.reported_cwd.read().unwrap(),
         &state.session_pids.lock().unwrap(),
         crate::procfs::live_cwds,
     );
-    let cwd = cwds.get(id).ok_or("Session directory unavailable.")?;
-    git_changes_root(std::path::Path::new(cwd))
+    let (cwd, source) = cwds.get(id).ok_or("Session directory unavailable.")?;
+    git_changes_root(std::path::Path::new(cwd)).map(|root| (root, *source))
 }
 fn git_changes_root(cwd: &std::path::Path) -> Result<PathBuf, String> {
     crate::git::worktree_root(cwd)
@@ -104,12 +113,12 @@ async fn request(
     let permit = capturing.then(|| Admission(busy));
     tokio::task::spawn_blocking(move||{
         let _permit=permit;
-        let root=match subject(&state,&id){Ok(r)=>r,Err(e)=>return failure(StatusCode::NOT_FOUND,e)};
+        let (root,source)=match subject(&state,&id){Ok(r)=>r,Err(e)=>return failure(StatusCode::NOT_FOUND,e)};
         let result:Result<serde_json::Value,String>=(||{
             match operation{
                 Operation::Bases=>serde_json::to_value(git_changes::bases(&root)?).map_err(|e|e.to_string()),
                 Operation::Capture(q)=>{
-                    let mut capture=git_changes::capture(&root,q.comparison,q.base_ref.as_deref())?;capture.session_id=id.clone();
+                    let mut capture=git_changes::capture(&root,q.comparison,q.base_ref.as_deref())?;capture.session_id=id.clone();capture.git_context_source=Some(source);
                     let value=serde_json::to_value(&capture).map_err(|e|e.to_string())?;
                     store.lock().unwrap().insert(capture);Ok(value)
                 }
@@ -121,7 +130,7 @@ async fn request(
             }
         })();
         // Workspace adoption replaces the store Arc: even A→B→A invalidates prior requests.
-        if !Arc::ptr_eq(&store,&state.git_context_cache.lock().unwrap().changes)||subject(&state,&id).ok().as_ref()!=Some(&root){return failure(StatusCode::CONFLICT,"Inspection source changed; refresh.")}
+        if !Arc::ptr_eq(&store,&state.git_context_cache.lock().unwrap().changes)||subject(&state,&id).ok()!=Some((root.clone(),source)){return failure(StatusCode::CONFLICT,"Inspection source changed; refresh.")}
         match result{Ok(value)=>Json(value).into_response(),Err(e)=>failure(StatusCode::UNPROCESSABLE_ENTITY,e)}
     }).await.unwrap_or_else(|_|failure(StatusCode::INTERNAL_SERVER_ERROR,"Inspection failed; retry."))
 }
@@ -162,7 +171,16 @@ mod tests {
             .output()
             .unwrap();
         assert!(git.status.success());
-        std::fs::write(root.join("new.txt"), "new content\n").unwrap();
+        let repo = git2::Repository::open(&root).unwrap();
+        let sig = git2::Signature::now("test", "test@example.com").unwrap();
+        let tree = repo
+            .find_tree(repo.index().unwrap().write_tree().unwrap())
+            .unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "base", &tree, &[])
+            .unwrap();
+        let feature = tmp.path().join("feature");
+        repo.worktree("feature", &feature, None).unwrap();
+        std::fs::write(feature.join("new.txt"), "new content\n").unwrap();
         let state = crate::test_support::test_app_state_with_workspace(tmp.path());
         let mut meta = crate::test_support::test_session_metadata(
             "git-subject",
@@ -173,6 +191,10 @@ mod tests {
             "2026-10-24T00:00:00Z",
         );
         meta.cwd = root.display().to_string();
+        meta.worktree_binding = Some(
+            crate::session_location::WorktreeBinding::resolve(&meta.cwd, feature.to_str().unwrap())
+                .unwrap(),
+        );
         state
             .workspace
             .lock()
@@ -214,6 +236,11 @@ mod tests {
         assert!(response.status().is_success());
         let body: serde_json::Value = response.json().await.unwrap();
         assert_eq!(body["sessionId"], "git-subject");
+        assert_eq!(
+            body["worktree"],
+            feature.canonicalize().unwrap().to_str().unwrap()
+        );
+        assert_eq!(body["branch"], "feature");
         assert_eq!(body["files"][0]["path"], "new.txt");
         let snapshot = body["snapshotId"].as_str().unwrap();
         let file = body["files"][0]["id"].as_str().unwrap();

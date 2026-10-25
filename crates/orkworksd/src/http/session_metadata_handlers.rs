@@ -139,6 +139,7 @@ fn perform(
                     .get_mut(id)
                     .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
                 handle.info.last_activity_at = Some(updated.metadata.last_activity.clone());
+                handle.info.worktree_binding = updated.metadata.worktree_binding.clone();
                 if scope.attention {
                     handle.runtime.attention_owner.accepted_write();
                     handle.info.observed_status = updated.metadata.observed_status.clone();
@@ -302,6 +303,189 @@ mod tests {
         drop(ws);
         set_workflow_report_token(&id, "secret".into());
         (state, id, dir)
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn real_worktree_helper_drives_git_context_captures_switches_and_history() {
+        let (state, id, launch) = fixture().await;
+        let repo = git2::Repository::init(launch.path()).unwrap();
+        repo.set_head("refs/heads/main").unwrap();
+        let sig = git2::Signature::now("test", "test@example.com").unwrap();
+        let tree = repo
+            .find_tree(repo.index().unwrap().write_tree().unwrap())
+            .unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "base", &tree, &[])
+            .unwrap();
+        let tasks = tempfile::tempdir().unwrap();
+        let b = tasks.path().join("feature");
+        let c = tasks.path().join("other");
+        repo.worktree("feature", &b, None).unwrap();
+        repo.worktree("other", &c, None).unwrap();
+        let feature_repo = git2::Repository::open(&b).unwrap();
+        std::fs::write(b.join("committed.txt"), "feature commit\n").unwrap();
+        let mut index = feature_repo.index().unwrap();
+        index.add_path(FilePath::new("committed.txt")).unwrap();
+        index.write().unwrap();
+        let tree = feature_repo.find_tree(index.write_tree().unwrap()).unwrap();
+        let parent = feature_repo.head().unwrap().peel_to_commit().unwrap();
+        feature_repo
+            .commit(Some("HEAD"), &sig, &sig, "feature", &tree, &[&parent])
+            .unwrap();
+        std::fs::write(b.join("new.txt"), "feature working edit\n").unwrap();
+        let _token = crate::test_support::open_plan_token::set("worktree-reader").await;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let router = crate::build_router(state.clone());
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        struct Server(tokio::task::JoinHandle<()>);
+        impl Drop for Server {
+            fn drop(&mut self) {
+                self.0.abort();
+            }
+        }
+        let _server = Server(server);
+        let client = reqwest::Client::new();
+        let base = format!("http://127.0.0.1:{port}");
+        async fn report(port: u16, id: &str, path: &str) {
+            let result = tokio::process::Command::new("python3")
+                .args([
+                    concat!(env!("CARGO_MANIFEST_DIR"), "/scripts/session-metadata.py"),
+                    "worktree",
+                    path,
+                ])
+                .env_remove("ORKWORKS_SESSION_METADATA_API_VERSION")
+                .env("ORKWORKS_SESSION_ID", id)
+                .env("ORKWORKS_PORT", port.to_string())
+                .env("ORKWORKS_REPORT_TOKEN", "secret")
+                .output()
+                .await
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+        }
+        async fn capture(
+            client: &reqwest::Client,
+            base: &str,
+            id: &str,
+            comparison: &str,
+        ) -> Value {
+            let response = client
+                .get(format!(
+                    "{base}/sessions/{id}/git-changes?comparison={comparison}"
+                ))
+                .header("x-orkworks-open-plan-token", "worktree-reader")
+                .send()
+                .await
+                .unwrap();
+            assert!(response.status().is_success(), "{}", response.status());
+            response.json().await.unwrap()
+        }
+        report(port, &id, b.to_str().unwrap()).await;
+        state
+            .peon
+            .reported_cwd
+            .write()
+            .unwrap()
+            .insert(id.clone(), launch.path().display().to_string());
+        let infos: Value = client
+            .get(format!("{base}/sessions"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let info = infos
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["id"] == id)
+            .unwrap();
+        assert_eq!(info["branch"], "feature");
+        assert_eq!(info["gitContextSource"], "agent");
+        let working = capture(&client, &base, &id, "uncommitted").await;
+        assert_eq!(working["branch"], "feature");
+        assert_eq!(working["files"][0]["path"], "new.txt");
+        let branch = capture(&client, &base, &id, "branch&baseRef=refs%2Fheads%2Fmain").await;
+        assert_eq!(branch["files"][0]["path"], "committed.txt");
+        let patch_url = format!(
+            "{base}/sessions/{id}/git-changes/{}/files/{}",
+            working["snapshotId"].as_str().unwrap(),
+            working["files"][0]["id"].as_str().unwrap()
+        );
+        let patch: Value = client
+            .get(&patch_url)
+            .header("x-orkworks-open-plan-token", "worktree-reader")
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert!(patch["patch"]
+            .as_str()
+            .unwrap()
+            .contains("+feature working edit"));
+        assert_eq!(repo.head().unwrap().shorthand(), Some("main"));
+        report(port, &id, c.to_str().unwrap()).await;
+        assert_eq!(
+            client
+                .get(&patch_url)
+                .header("x-orkworks-open-plan-token", "worktree-reader")
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+        assert_eq!(
+            capture(&client, &base, &id, "uncommitted").await["branch"],
+            "other"
+        );
+        std::fs::remove_dir_all(&c).unwrap();
+        assert_eq!(
+            client
+                .get(format!(
+                    "{base}/sessions/{id}/git-changes?comparison=uncommitted"
+                ))
+                .header("x-orkworks-open-plan-token", "worktree-reader")
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+        report(port, &id, "--clear").await;
+        assert_eq!(
+            capture(&client, &base, &id, "uncommitted").await["branch"],
+            "main"
+        );
+        report(port, &id, b.to_str().unwrap()).await;
+        state.sessions.lock().unwrap().remove(&id);
+        {
+            let ws = state.workspace.lock().unwrap();
+            let store = &ws.as_ref().unwrap().metadata;
+            store
+                .mutate_session(
+                    &id,
+                    crate::metadata::session_transactions::WriteScope::NONE,
+                    |m| {
+                        m.lifecycle = "dead".into();
+                        m.lifecycle_phase = "ended".into();
+                        m.status = "ended".into();
+                        Ok(())
+                    },
+                )
+                .unwrap();
+        }
+        assert_eq!(
+            capture(&client, &base, &id, "uncommitted").await["branch"],
+            "feature"
+        );
     }
 
     fn install_hook_owned_wait(state: &Arc<AppState>, id: &str) {

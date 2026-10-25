@@ -35,10 +35,8 @@ def valid_revision(value):
     return isinstance(value, str) and re.fullmatch(r"0|[1-9][0-9]{0,19}", value) is not None and int(value) < 2**64
 
 
-class Client:
+class Transport:
     def __init__(self, http_proxy=None):
-        if os.environ.get("ORKWORKS_SESSION_METADATA_API_VERSION") != "1":
-            raise ProducerError("API-only metadata protocol version 1 is required")
         self.session_id = os.environ.get("ORKWORKS_SESSION_ID", "")
         port = os.environ.get("ORKWORKS_PORT", "")
         self.token = os.environ.get("ORKWORKS_REPORT_TOKEN", "")
@@ -110,6 +108,32 @@ class Client:
         return result
 
 
+class Client(Transport):
+    def __init__(self, http_proxy=None):
+        if os.environ.get("ORKWORKS_SESSION_METADATA_API_VERSION") != "1":
+            raise ProducerError("API-only metadata protocol version 1 is required")
+        super().__init__(http_proxy)
+
+
+def worktree_instructions():
+    if not all(os.environ.get(key) for key in ("ORKWORKS_SESSION_ID", "ORKWORKS_PORT", "ORKWORKS_REPORT_TOKEN")):
+        return None
+    helper = str(Path(__file__).resolve())
+    helper = "'" + helper.replace("'", "''") + "'" if os.name == "nt" else shlex.quote(helper)
+    context = (
+        "OrkWorks task worktree reporting: after selecting or creating your task worktree, "
+        "before editing there, run `python3 " + helper + " worktree ABSOLUTE_PATH` from your "
+        "actual tool execution context. Report intentional task-worktree switches too. "
+        "Temporary read-only commands elsewhere must not change the report. "
+        "Use `worktree --clear` only to withdraw the binding. Only the owning agent reports; "
+        "subagents must not replace their owning session's worktree. "
+        "This command updates only Git location, never attention, task, summary or native identity. "
+        "On failure, report that location could not be updated; do not change sandbox policy, "
+        "retry a conflict blindly, or write metadata files. Never print or persist inherited credentials."
+    )
+    return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": context}}
+
+
 def read_patch():
     raw = sys.stdin.buffer.read(MAX_BODY + 1)
     if len(raw) > MAX_BODY:
@@ -153,14 +177,32 @@ def instructions():
 def main():
     arguments = sys.argv[1:]
     http_proxy = None
-    if len(arguments) == 3 and arguments[1] == "--http-proxy":
-        http_proxy = arguments[2]
-        arguments = arguments[:1]
-    if len(arguments) != 1 or arguments[0] not in ("bootstrap", "get", "patch", "instructions") or (arguments[0] == "instructions" and http_proxy is not None):
-        raise ProducerError("usage: session-metadata.py bootstrap|get|patch [--http-proxy URL] | instructions")
+    if len(arguments) >= 3 and arguments[-2] == "--http-proxy":
+        http_proxy = arguments[-1]
+        arguments = arguments[:-2]
+    worktree = len(arguments) == 2 and arguments[0] == "worktree"
+    if not (worktree or (len(arguments) == 1 and arguments[0] in ("bootstrap", "get", "patch", "instructions", "worktree-instructions"))):
+        raise ProducerError("usage: session-metadata.py bootstrap|get|patch [--http-proxy URL] | worktree ABSOLUTE_PATH|--clear [--http-proxy URL] | instructions | worktree-instructions")
+    if arguments[0] in ("instructions", "worktree-instructions") and http_proxy is not None:
+        raise ProducerError("instructions do not accept a proxy")
+    if worktree:
+        path = None if arguments[1] == "--clear" else arguments[1]
+        if path is not None and (not Path(path).is_absolute() or len(path.encode("utf-8")) > 4096 or any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in path)):
+            raise ProducerError("worktree requires an absolute path")
+        client = Transport(http_proxy)
+        record = client.read()
+        result = client.request("PATCH", {"metadataRevision": record["metadataRevision"], "patch": {"agentMetadata": {"worktreePath": path}}})
+        if result.get("id") != client.session_id:
+            raise ProducerError("metadata API returned a different session")
+        print(json.dumps({"metadataRevision": result["metadataRevision"], "worktreeBinding": result.get("worktreeBinding")}))
+        return
     command = arguments[0]
-    if command == "instructions":
-        result = instructions()
+    if command in ("instructions", "worktree-instructions"):
+        result = instructions() if command == "instructions" else worktree_instructions()
+        if command == "instructions" and result is not None:
+            worktree_context = worktree_instructions()
+            if worktree_context:
+                result["hookSpecificOutput"]["additionalContext"] += " " + worktree_context["hookSpecificOutput"]["additionalContext"]
     else:
         envelope = read_patch() if command == "patch" else None
         client = Client(http_proxy)

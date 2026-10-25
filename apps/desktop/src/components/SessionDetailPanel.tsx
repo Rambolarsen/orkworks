@@ -1,3 +1,4 @@
+import { gitLocationLabel } from "../gitLocationLabel";
 import { isSessionAlive } from "../sessionRuntimeState";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
@@ -426,6 +427,9 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, onResumeSes
         )}
       </div>
 
+      {(active.gitContextSource || active.worktreeBinding) && <p className="detail-muted">
+        {gitLocationLabel(active.gitContextSource)}{active.worktreeBinding && !active.repoRoot && !active.branch ? " unavailable" : ""}
+      </p>}
       <button type="button" className="detail-button" data-review-changes
         disabled={!(active.repoRoot || active.branch) || !onReviewChanges}
         title={active.repoRoot || active.branch ? "Inspect this worktree and committed branch changes" : "No available Git context for this session"}

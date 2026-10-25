@@ -118,3 +118,14 @@ and await cleanup plus persisted ending first. Restore returns to Closed.
 Archived history is retained outside automatic age/count cleanup. Archive and
 Restore preserve activity timestamps and native tool identity. This is OrkWorks
 organization only; native archive synchronization is outside this increment.
+
+## Explicit task-worktree reporting
+
+The owner-approved [worktree binding](../adr/0094-explicit-session-worktree-binding.md)
+extends the authenticated revisioned metadata API with `agentMetadata.worktreePath`
+(absolute same-repository directory or null to clear). The sidecar persists the
+canonical binding and preserves it across legacy snapshot replacements. Invalid
+or missing bound worktrees are unavailable; launch `cwd` never changes. The
+narrow `session-metadata.py worktree` command and Codex worktree-only SessionStart
+context are independent of the general API-only marker. This does not enable
+general metadata commands, native observers, or completion authority.

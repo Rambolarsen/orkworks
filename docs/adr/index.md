@@ -111,3 +111,5 @@ Decision records and their original rationale and consequences.
 - [Workspace update stream](0092-workspace-update-stream.md) — Changed rows, shared recommendation invalidation and authoritative recovery.
 
 - [Codex terminal program status](0093-codex-terminal-program-status.md) — Best-effort UI attention after a runtime emits OSC 7501.
+
+- [Explicit session task-worktree binding](0094-explicit-session-worktree-binding.md) — Authenticated durable worktree reports supersede launch-directory fallback.

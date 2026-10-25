@@ -1,3 +1,4 @@
+import { gitLocationLabel } from "../gitLocationLabel";
 import { useEffect, useRef, useState } from "react";
 import type { SessionInfo } from "../api";
 import type { GitChangeBases, GitChangesCapture, GitComparison, GitFilePatch } from "../gitChangesTypes";
@@ -78,7 +79,8 @@ export default function GitChangesPanel({ session, onBack }: { session: SessionI
   return <section className="git-changes" aria-label="Git changes">
     <button type="button" data-git-back onClick={onBack}>Back to Details</button>
     <h3 ref={heading} tabIndex={-1}>Changes · {session?.label ?? "No selected session"}</h3>
-    <p className="git-changes-subject">{capture?.worktree ?? session?.repoRoot ?? session?.cwd}<br />{capture?.branch ?? session?.branch}</p>
+    <p className="git-changes-subject">{capture?.worktree ?? session?.worktreeBinding?.root ?? session?.repoRoot ?? session?.cwd}<br />{capture?.branch ?? session?.branch}</p>
+    <p>{gitLocationLabel(capture ? capture.gitContextSource : session?.gitContextSource)}</p>
     <label>Comparison<select data-git-comparison value={comparison} onChange={e => choose(e.target.value as GitComparison)}>
       <option value="uncommitted">Uncommitted changes</option><option value="branch">Branch changes</option>
     </select></label>

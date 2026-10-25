@@ -4170,6 +4170,7 @@ mod tests {
             let ws_guard = state.workspace.lock().unwrap();
             let ws = ws_guard.as_ref().unwrap();
             ws.metadata.write_session(&metadata::SessionMetadata {
+                worktree_binding: None,
                 provenance: Default::default(),
                 id: session_id.clone(),
                 label: "Test".into(),
@@ -4323,6 +4324,7 @@ mod tests {
             let ws_guard = state.workspace.lock().unwrap();
             let ws = ws_guard.as_ref().unwrap();
             ws.metadata.write_session(&metadata::SessionMetadata {
+                worktree_binding: None,
                 provenance: Default::default(),
                 id: session_id.clone(),
                 label: "Test".into(),
@@ -4546,6 +4548,7 @@ mod tests {
             let ws_guard = state.workspace.lock().unwrap();
             let ws = ws_guard.as_ref().unwrap();
             ws.metadata.write_session(&metadata::SessionMetadata {
+                worktree_binding: None,
                 provenance: Default::default(),
                 id: session_id.clone(),
                 label: "Test".into(),
@@ -4779,6 +4782,7 @@ mod tests {
             let ws_guard = state.workspace.lock().unwrap();
             let ws = ws_guard.as_ref().unwrap();
             ws.metadata.write_session(&metadata::SessionMetadata {
+                worktree_binding: None,
                 provenance: Default::default(),
                 id: session_id.clone(),
                 label: "Test".into(),

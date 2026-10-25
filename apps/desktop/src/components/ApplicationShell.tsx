@@ -316,7 +316,7 @@ export default function ApplicationShell(props: Props) {
   }, [showSessions, showTerminal, showInspector, temporaryUtility, props.inspector, showReview]);
 
   const renderUtility = () => {
-    if (props.inspector === "changes") return <GitChangesPanel key={`${props.workspaceGeneration}:${props.activeSessionId}:${session?.repoRoot ?? ""}`}
+    if (props.inspector === "changes") return <GitChangesPanel key={`${props.workspaceGeneration}:${props.activeSessionId}:${session?.repoRoot ?? ""}:${session?.worktreeBinding?.root ?? ""}:${session?.worktreeBinding?.commonDir ?? ""}`}
       session={props.sessions.find(s => s.id === props.activeSessionId) ?? null}
       onBack={() => { props.onInspect("details"); requestFocus("changes-return"); }} />;
     if (props.inspector === "details") return <SessionDetailPanel sessions={props.sessions}

@@ -111,6 +111,8 @@ export interface SessionInfo {
   summaryConfidence?: number;
   summaryObservedAt?: string;
   repoRoot?: string;
+  worktreeBinding?: { root: string; commonDir: string };
+  gitContextSource?: "agent" | "harness" | "process" | "launch";
   branch?: string;
   dirty?: boolean;
   changedFiles?: number;
