@@ -430,7 +430,9 @@ fn capture_pending_terminal_input(
     data: String,
 ) -> (String, bool, u64, bool) {
     let (is_sensitive, output_boundary) = snapshot_input_context(state, id);
-    let identity_reset_prepared = if is_sensitive {
+    // A reset can only be recognized when this frame completes a line. Avoid
+    // copying and reparsing the accumulated buffer on ordinary keystrokes.
+    let identity_reset_prepared = if is_sensitive || !data.contains(['\r', '\n']) {
         false
     } else {
         let mut buffer = state
@@ -560,47 +562,28 @@ pub(crate) fn collect_input_line(buf: &mut String, data: &str) -> (Option<String
 /// terminals that still emit it. Mouse motion and wheel reports are excluded
 /// so merely moving or scrolling over a Codex prompt cannot clear attention.
 fn contains_mouse_button_event(data: &str) -> bool {
-    let chars: Vec<char> = data.chars().collect();
-    let mut index = 0;
-    while index + 2 < chars.len() {
-        if chars[index] != '\x1b' || chars[index + 1] != '[' {
-            index += 1;
-            continue;
-        }
-
-        if chars[index + 2] == '<' {
-            let mut cursor = index + 3;
-            let code_start = cursor;
-            while cursor < chars.len() && chars[cursor].is_ascii_digit() {
-                cursor += 1;
-            }
-            if cursor == code_start || cursor >= chars.len() || chars[cursor] != ';' {
-                index += 1;
-                continue;
-            }
-            let Ok(code) = chars[code_start..cursor]
-                .iter()
-                .collect::<String>()
-                .parse::<u16>()
-            else {
-                index += 1;
-                continue;
+    data.match_indices("\x1b[").any(|(index, _)| {
+        let report = &data[index + 2..];
+        if let Some(sgr) = report.strip_prefix('<') {
+            // Stop at the first non-digit, including malformed report prefixes.
+            let Some(end) = sgr.find(|ch: char| !ch.is_ascii_digit()) else {
+                return false;
             };
-            while cursor < chars.len() && !matches!(chars[cursor], 'M' | 'm') {
-                cursor += 1;
-            }
-            if cursor < chars.len() && code < 32 {
-                return true;
-            }
-        } else if chars[index + 2] == 'M' && index + 5 < chars.len() {
-            let code = chars[index + 3] as u32;
-            if (32..64).contains(&code) {
-                return true;
-            }
+            let (code, tail) = sgr.split_at(end);
+            let Some(coordinates) = tail.strip_prefix(';') else {
+                return false;
+            };
+            return code.parse::<u16>().is_ok_and(|code| code < 32)
+                && coordinates.contains(['M', 'm']);
         }
-        index += 1;
-    }
-    false
+        if let Some(x10) = report.strip_prefix('M') {
+            let mut chars = x10.chars();
+            return chars.next().is_some_and(|code| (' '..'@').contains(&code))
+                && chars.next().is_some()
+                && chars.next().is_some();
+        }
+        false
+    })
 }
 
 /// Records accepted terminal input for usage-limit rechecks, labels, and pending work signals.
@@ -1564,6 +1547,70 @@ mod tests {
     use std::collections::{HashMap, HashSet};
     use std::sync::atomic::AtomicU16;
     use std::sync::{Arc, Mutex, RwLock};
+
+    #[test]
+    fn mouse_button_scan_preserves_sgr_and_x10_classification() {
+        for (input, expected) in [
+            ("", false),
+            ("普通の入力", false),
+            ("\x1b[<0;12;34M", true),
+            ("\x1b[<3;12;34m", true),
+            ("text\x1b[<31;1;1Mtail", true),
+            ("\x1b[<32;12;34M", false),
+            ("\x1b[<64;12;34M", false),
+            ("\x1b[<;1;1M", false),
+            ("\x1b[<+0;1;1M", false),
+            ("\x1b[<65536;1;1M", false),
+            ("\x1b[<0;1;1", false),
+            ("\x1b[<0", false),
+            ("\x1b[M !!", true),
+            ("\x1b[M?界🙂", true),
+            ("\x1b[M@!!", false),
+            ("\x1b[M`!!", false),
+            ("\x1b[M 界", false),
+            ("\x1b[M界!!", false),
+            ("\x1b[<64;1;1M\x1b[<0;1;1m", true),
+            ("\x1b[<broken\x1b[M !!", true),
+        ] {
+            assert_eq!(contains_mouse_button_event(input), expected, "{input:?}");
+        }
+    }
+
+    #[test]
+    fn reset_preflight_waits_for_submission_of_buffered_command() {
+        let id = "buffered-reset-preflight";
+        let (state, _dir) = prompted_session_state(id);
+        set_harness(&state, id, "codex");
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let store = &workspace.as_ref().unwrap().metadata;
+            let mut meta = store.read_session(id).unwrap();
+            meta.resume = Some(crate::harness::ResumeMemory {
+                state: crate::harness::ResumeState::Available,
+                preferred_strategy: crate::harness::ResumeStrategy::Exact,
+                harness_session_id: Some("buffered-native-id".into()),
+                latest_fallback: false,
+                last_seen_at: Some("before".into()),
+            });
+            store.write_session(&meta);
+        }
+        state
+            .peon
+            .input_buf
+            .write()
+            .unwrap()
+            .insert(id.into(), "/clea".into());
+
+        let typing = capture_pending_terminal_input(&state, id, "r".into());
+        assert!(!typing.3);
+        assert_eq!(state.peon.input_buf.read().unwrap()[id], "/clea");
+
+        // Preflight parses a copy; only accepted delivery changes the real buffer.
+        let submitted = capture_pending_terminal_input(&state, id, "r\r".into());
+        assert!(submitted.3);
+        assert_eq!(state.peon.input_buf.read().unwrap()[id], "/clea");
+        record_input_after_delivery(&state, id, Some(&submitted), &Err(()));
+    }
 
     #[tokio::test]
     async fn rejected_resize_preserves_trailing_output_and_terminal_event() {
