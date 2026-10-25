@@ -434,3 +434,30 @@ test("still discovers a valid port after noisy pre-readiness stdout", async () =
 
   assert.equal(await readiness, 4321);
 });
+
+
+for (const ending of ["replacement", "disposal"] as const) {
+  test(`late process events after ${ending} cannot change the active lifecycle`, async () => {
+    const { lifecycle, processes, states, ready, unavailable, unexpectedExits } = createHarness();
+    const first = lifecycle.start("/old");
+    processes[0].stdout.emit("ORKWORKSD_PORT=4001\n");
+    await first;
+    if (ending === "replacement") {
+      const stopped = lifecycle.stop();
+      processes[0].exit(0);
+      await stopped;
+    } else lifecycle.dispose();
+    const second = ending === "replacement" ? lifecycle.start("/replacement") : null;
+    const before = { states: states.slice(), ready: ready.slice(), unavailable: unavailable.slice(), unexpectedExits: unexpectedExits.slice() };
+    processes[0].stdout.emit("ORKWORKSD_PORT=4999\n");
+    processes[0].error(new Error("late old process error"));
+    processes[0].exit(1);
+    assert.deepEqual({ states, ready, unavailable, unexpectedExits }, before);
+    if (second) {
+      processes[1].stdout.emit("ORKWORKSD_PORT=4002\n");
+      assert.equal(await second, 4002);
+      assert.deepEqual(ready, [4001, 4002]);
+    }
+    lifecycle.dispose();
+  });
+}

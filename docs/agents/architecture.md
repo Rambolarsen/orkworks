@@ -40,7 +40,7 @@ process instead of leaving API callers waiting on a stale promise.
 
 Sidecar readiness is followed by a separate generation-owned restoration gate
 in `electron/backendRestoration.ts`. After the port is known, Electron main
-restores the remembered workspace as the critical prerequisite for readiness.
+restores the selected workspace as the critical prerequisite for readiness.
 Once that succeeds, `get-backend-url` resolves and the renderer receives the
 `ready` lifecycle event; the renderer can therefore adopt the restored
 workspace and recover its sessions even if a secondary settings replay is
@@ -50,9 +50,10 @@ Electron settings mutation queue with user saves, so a slow startup catalog
 request cannot overwrite newer settings. Their failures are logged without
 invalidating workspace readiness, and replacement/disposal aborts any
 in-flight step. A restoration timeout or workspace-restoration failure still
-rejects readiness and publishes an unavailable state. Initial startup uses a
-canonical remembered workspace hint when available; without one it remains in
-the picker with no sidecar, health probing, or backend recovery UI. A workspace
+rejects readiness and publishes an unavailable state. Initial startup remains in
+the picker with no sidecar, health probing, or backend recovery UI, even when
+history contains remembered workspace paths. Those paths are choices for an
+explicit open, not authority to restore a runtime automatically. A workspace
 path is remembered only after restoration publishes readiness. Stale
 restoration work is aborted so an older workspace cannot become ready afterward.
 
@@ -72,14 +73,26 @@ commands, `pnpm rebuild fs-ext` restores the host Node ABI for tests. The separa
 Electron marker, actual advisory locking, and repeated startup; it restores the
 host ABI before the ordinary Node tests and must not run concurrently with them.
 
-Automatic recovery is bounded: one recovery sequence makes at most three
-sidecar launches in total (the initial launch plus two automatic retries), with
-default delays of 250 ms and 1 second. Only one delayed recovery is scheduled
-at a time. After the third failed launch the lifecycle becomes `exhausted` and
-waits for the user's explicit Retry action; a generation that remains ready for
-five seconds resets the automatic-attempt counter. Explicit retry starts a
-fresh generation using the last sidecar working directory and resets the
-counter.
+Recovery is explicit through the serialized workspace coordinator. A startup
+failure reports its readiness/restoration diagnostic; Retry uses the same
+cleanup-and-open path. An unexpected sidecar exit cancels restoration and
+generation-bound requests, advances the backend fence, and marks the workspace
+unresolved. Cleanup timeout/failure remains sticky and blocks replacement;
+process exit alone cannot prove descendant cleanup. Crash-recovery adoption and
+replacement remain subject to ADR 0060's native ownership evidence gate;
+closing #545 did not establish that proof. There is no automatic sidecar
+relaunch in the current source.
+
+Process launch, restoration candidate, and workspace-operation generations have
+different lifetimes and need not share numeric IDs. Main advances its request
+fence and aborts old work when admission closes, a launch starts, or an
+unexpected exit occurs. Restoration callbacks additionally require the current
+unaborted candidate; the workspace coordinator rechecks its operation generation
+after readiness and awaited history persistence before publishing ready.
+Provider replay checks cancellation when its queued settings write begins and
+after catalog decoding before persisting. Rejected-workspace history cleanup
+checks cancellation after its await before changing the current path or history
+diagnostic. These checks also cover operations that finish despite abort.
 
 The preload bridge exposes `onBackendLifecycle` and `retryBackend`. Lifecycle
 events are the narrow union `picker` (no backend), `starting`, `retrying`, `ready` (with a validated
