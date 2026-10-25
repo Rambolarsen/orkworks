@@ -369,3 +369,16 @@ health/finalization ordering, native resource/durability evidence, #740 eligibil
 shared custody and separately approved executable plans remain gates. Keep
 #744/#746 open; neither merging this proposal nor a valid proof hash authorizes
 runtime code or a probe.
+
+
+## Action/width fixture and budget pass — 2026-10-25
+
+The [fixture catalog and measurements](../../validation/hierarchy-claim-proof-fixtures.md)
+cover the five actions, child/UI predecessors and Unicode source reconstruction,
+plus maximum local identity/counter/text widths. Combined logical value accounting
+finds at least 19,153 bytes for the max child-evaluation slot and 17,439 for child
+stream invalidation, before unclosed overhead, exceeding the existing 16,384-byte
+cap. Those cases cannot be admitted under this representation; a proof fitting
+alone is insufficient. No cap/profile/schema is changed here. Review exact
+compact bindings or explicit profile limits and close key/index/command budgets
+before claiming eligibility or accepting an executable handoff.

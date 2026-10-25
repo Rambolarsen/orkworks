@@ -237,3 +237,17 @@ and cannot restore a claim/grant. Keep native ordering/lease/resource proof and
 all excluded-action gates open. The schema/version decisions, complete non-ASCII/
 maximum variants and exact combined slot/command budgets need separate review;
 no migration, eligible profile, probe or executable plan is supplied.
+
+
+## Claim action and byte-budget fixtures — 2026-10-25
+
+The [five-action fixture/budget pass](hierarchy-claim-proof-fixtures.md) retains
+16 independent source/request/receipt/proof vectors and 17 negative cases/oracles.
+Python and Node verified hashes, UTF-8 lengths and request/binding calculations.
+Maximum local-width child evaluation and child-stream invalidation already exceed
+the 16 KiB receipt slot at mandatory logical subtotals of 19,153 and 17,439 bytes;
+unclosed keys/envelopes/indexes add cost. No eligible full profile is established
+by a smaller fixture's remaining space. Packing/schema/profile reconciliation,
+complete command/row accounting and native ordering/lease/resource qualification
+remain no-go prerequisites. These are encoding measurements, not runtime, SQL,
+crash, capability or power-loss test evidence; no limits or authority changed.
