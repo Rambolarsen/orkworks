@@ -947,6 +947,16 @@ Single binary. Top-level modules:
 
 For the current Rust domain model itself, see [domain-entities.md](domain-entities.md).
 
+Live terminal attachment replays the newest 256 PTY output chunks. As older
+chunks leave that window, `runtime/terminal_replay_modes.rs` retains a bounded
+checkpoint of screen-buffer and interaction modes. The first replay chunk
+restores that checkpoint before its original bytes, preserving alternate-screen
+wheel routing, mouse protocol/encoding, keyboard, focus and bracketed-paste
+modes after renderer reload. Partial control sequences retain parser context;
+retained mode changes and resets still execute in their original order. This
+does not reconstruct evicted screen contents or scrollback, and it does not
+persist PTYs or checkpoints across a sidecar restart.
+
 Delayed terminal-status transitions preserve durable `ended` metadata even
 while the same live runtime remains `ending`: finalization writes metadata
 before updating the live handle, so that interval must not reopen the record.
