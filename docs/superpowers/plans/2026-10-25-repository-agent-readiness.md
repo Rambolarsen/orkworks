@@ -4,7 +4,7 @@ title: Repository agent-readiness scoring and history
 description: Proposed bounded delivery plan for repeatable Brain-based readiness ratings and an overall score.
 tags: [orkworks, taskmaster, readiness, implementation]
 status: draft
-workflow_status: proposed
+workflow_status: active
 ---
 
 # Repository agent-readiness scoring and history
@@ -13,9 +13,9 @@ Tracking: [#1063](https://github.com/Rambolarsen/orkworks/issues/1063).
 Specification: [repository agent readiness](../../../specs/repository-agent-readiness.md).
 Decision: [ADR 0095](../../adr/0095-repository-agent-readiness-history.md).
 
-Product intent is approved. Concrete protocol/storage and publisher delivery
-remain proposed; no runtime implementation or publication is authorized by
-this artifact. Continue inline using `executing-plans` after owner approval;
+The owner approved the concrete protocol/storage and runtime implementation
+in chat on 2026-10-25. Exact public rubric export review remains required
+before publication. Continue inline using `executing-plans`;
 do not launch another coding harness. Use TDD for runtime changes and the scoped
 Rust/desktop instructions. Keep existing workflow assessment behavior unchanged.
 
@@ -134,12 +134,56 @@ wire/storage shapes and canonical identities, full captured inference guards,
 collector reuse boundaries, admission serialization, conservative narrowing and
 freshness triggers. The current implementation's installation-wide lease is
 explicitly distinguished from the independent-instance proposal. No unchanged
-approved workflow artifact was reopened. Owner concrete-design approval and
-reviewed publisher export remain required before dependent implementation and
-publication respectively.
+approved workflow artifact was reopened. The owner approved the concrete design and implementation on 2026-10-25.
+Exact publisher export approval remains required before publication.
 
 Documentation review note: the doc-drift hook suggests README review because a
 proposed ADR was added. README behavior/availability claims remain accurate;
 no runtime or released feature is advertised by this proposal. The initial
 worktree check called this uncommitted branch merged because its HEAD still
 matched main; it is the owned active design checkout, not a cleanup target.
+
+## Implementation evidence — 2026-10-25
+
+The owner approved runtime implementation in chat. OrkWorks source now includes
+the separate manual action, strict scoring/discovery protocol, guarded
+workspace-local history, access reconciliation and renderer comparison/details.
+The existing workflow assessment retains its one-improvement behavior.
+
+The rubric/publisher prerequisite is prepared in
+[Brain PR #127](https://github.com/Rambolarsen/brain/pull/127). Exact public-core
+SHA-256 is `1d6cb0f03c3f66b43257e94fef8160f011758ce699bcfc2e856ff8b9a93768b7`.
+Production allowlist, signing keys and packaged starter remain unchanged pending
+owner approval of that public candidate. Selected-model semantic trials and
+production eligibility therefore remain incomplete; synthetic fixture results
+are not a claim of production score usefulness.
+
+Fresh-context implementation review found two required identity races: mixed
+rubric/evaluation capture and adopting a changed Git identity after follow-up.
+One fix pass added regressions, bound rubric to the exact verified evaluation
+proof/generation, and preserved admission Git identity. The bounded fix review
+approved both corrections with no new findings. Readiness-filtered Rust checks
+then passed 23 tests. Desktop checks cover summary, comparison, strict transport
+and stale/redacted-history presentation; Electron and renderer type checks pass.
+
+An isolated Electron synthetic UI fixture showed fourteen areas at desktop
+(1,020 px) and narrow (440 px) widths without horizontal overflow, with a
+66/100 current score and +16 compared with a 50/100 baseline. This is component
+QA, not a released-app acceptance claim.
+
+The first default-parallel full Rust run had two three-second Codex help-probe
+timeouts; both isolated reruns passed. An unchanged four-thread rerun passed
+2,263 Rust tests with ten ignored, plus integration binaries. Its desktop pass
+exposed one old compatibility fixture treating newly supported bundle format 2
+as unsupported; the fixture now uses format 3. Final whole-repository verification
+after the reviewed fixes is recorded in the PR, with any remaining limits.
+
+Final implementation verification: `bash scripts/verify-repo.sh` passed with
+`RUST_TEST_THREADS=4`, isolated Node 22.20.0 and pnpm 11.24.0. Rust unit suite:
+2,265 passed, ten ignored; all four integration binaries passed. Desktop suite:
+1,536 passed, two skipped. Native ABI regression, OpenCode reporter tests,
+renderer type check, desktop build, documentation build, diff check and close-out
+hooks passed. The README drift warning was reviewed: no installer or onboarding
+claim changes while readiness remains publication/quality gated. A final bounded
+UI label for identical-input model variability passed its new rendered regression
+and the 26-test focused desktop rerun; renderer type checking remained green.

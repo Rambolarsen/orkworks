@@ -1,6 +1,6 @@
 # Repository agent readiness
 
-Status: proposed; product intent approved in chat on 2026-10-25, concrete protocol and storage awaiting owner approval.
+Status: accepted; owner approved the concrete design and runtime implementation in chat on 2026-10-25. Exact public rubric export review remains required before publication.
 Tracking: [#1063](https://github.com/Rambolarsen/orkworks/issues/1063).
 
 ## Outcome and scope
@@ -312,8 +312,10 @@ For redacted snapshots `data` is null. Otherwise `data` has `workspacePath`,
 `versions`, `contextLevel`, `excludedPaths`, `summary`, `concepts`,
 `repositoryEvidence`, `knowledgeEvidence`, `coverage`, `rawTotal`, `overallScore`.
 Nullable Git fields preserve unknown/unborn states. Stored rows use the same
-fields as the final Row, replacing fact IDs with hashes into deduplicated saved
-evidence. Knowledge evidence records its signed page hash and bundle provenance.
+fields as the final Row, replacing `repositoryFactIds` with
+`repositoryFactHashes` into deduplicated saved evidence. Each saved repository
+fact adds `factId`, the canonical hash of its path, prefix hash and exact
+excerpt, so individual ratings resolve to their precise supporting snapshots. Knowledge evidence records its signed page hash and bundle provenance.
 `rawTotal`/`overallScore` are null unless coverage is 14. Redacted records contain
 only fixed IDs, times, version and marker, not provenance-derived fields.
 

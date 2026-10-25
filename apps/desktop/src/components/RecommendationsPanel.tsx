@@ -1,3 +1,4 @@
+import ReadinessPanel from "./ReadinessPanel";
 import { useActionsRecommendations, type ActionsRecommendationSnapshot } from "../useActionsRecommendations";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -253,6 +254,7 @@ function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePat
   const [analysisMessage, setAnalysisMessage] = useState<string>();
   const [analysisError, setAnalysisError] = useState<string>();
   const [assessmentBusy, setAssessmentBusy] = useState(false);
+  const [readinessBusy, setReadinessBusy] = useState(false);
   const [assessmentMessage, setAssessmentMessage] = useState<string>();
   const [assessmentError, setAssessmentError] = useState<string>();
   const [auditBusy, setAuditBusy] = useState(false);
@@ -609,8 +611,8 @@ function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePat
 
   const currentRunStatus = runStatus?.workspacePath === workspacePath ? runStatus : null;
   const assessmentStatus = workspacePath ? taskmasterAssessmentForWorkspace(currentRunStatus, workspacePath) : null;
-  const analysisRequestBusy = taskmasterAnalysisRequestBusy(currentRunStatus, analysisBusy, assessmentBusy);
-  const assessmentRequestBusy = taskmasterAssessmentRequestBusy(currentRunStatus, analysisBusy, assessmentBusy);
+  const analysisRequestBusy = readinessBusy || taskmasterAnalysisRequestBusy(currentRunStatus, analysisBusy, assessmentBusy);
+  const assessmentRequestBusy = readinessBusy || taskmasterAssessmentRequestBusy(currentRunStatus, analysisBusy, assessmentBusy);
   const analysisPending = Boolean(analysisRequestBaseline
     && !analysisStatusAdvanced(currentRunStatus, analysisRequestBaseline));
   const visibleRecommendations = hasWorkspace && taskmasterReady && loadedWorkspacePath === workspacePath
@@ -652,6 +654,7 @@ function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePat
           <button type="button" disabled={!hasWorkspace || !taskmasterReady} onClick={() => void refresh()}>Reload</button>
         </div>
       </div>
+      {workspacePath && taskmasterReady && <ReadinessPanel key={workspacePath} workspacePath={workspacePath} disabled={analysisBusy || assessmentBusy || Boolean(currentRunStatus?.activeAttempt)} onBusyChange={setReadinessBusy} />}
       {hasWorkspace && taskmasterReady && <TaskmasterAnalysisStatus
         status={currentRunStatus}
         requesting={analysisBusy}

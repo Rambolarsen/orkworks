@@ -338,3 +338,18 @@ until explicitly changed or cleared. Git enrichment and Changes validate and
 use this binding before hook/process/launch directories; unavailable bindings
 do not fall back. `SessionInfo.gitContextSource` and capture provenance expose
 agent, harness, process or launch origin. See [ADR 0094](../adr/0094-explicit-session-worktree-binding.md).
+
+### Repository readiness snapshots
+
+A readiness attempt is a manual selected-workspace evaluation with an immutable
+server-generated ID. Its fixed phases are collecting evidence, reading evidence
+and scoring readiness; restart interrupts unfinished work without inference
+replay. A completed snapshot retains fourteen nullable maturity ratings, separate
+confidence and exact cited evidence. The sidecar computes an equal-weight 0–100
+score only at complete coverage. Run history is workspace-local and distinct
+from workflow assessment recommendations and their completion provenance.
+Historical input identity supports freshness; stable comparison identity permits
+meaningful deltas across repository changes. Permission narrowing redacts an
+affected snapshot's entire source-derived payload, including its score.
+The [readiness specification](../../specs/repository-agent-readiness.md) defines
+bounds, identities, retention and publication eligibility.

@@ -8,6 +8,8 @@ use serde::Serialize;
 pub(crate) enum NativeResponseShape {
     DiscoveryV1,
     AssessmentV1,
+    ReadinessDiscoveryV1,
+    ReadinessV1,
 }
 
 pub(crate) const ASSESSMENT_RESPONSE_CONSTRAINT_VERSION: &str = "taskmaster-response-shapes-v1";

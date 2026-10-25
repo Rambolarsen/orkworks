@@ -772,6 +772,7 @@ pub(crate) fn recover_workspace_record_under_lease(
     _analysis_lease: &std::fs::File,
 ) -> Result<(), String> {
     use super::assessment_report::{recover_with, AssessmentState};
+    super::readiness_store::ReadinessStore::new(workspace_root).recover()?;
     let store = super::assessment_store::AssessmentStore::new(workspace_root);
     let Some(mut record) = store.load::<super::assessment_report::AssessmentRecord>()? else {
         return Ok(());

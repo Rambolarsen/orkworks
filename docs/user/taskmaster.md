@@ -139,3 +139,32 @@ The current workflow-improvement surface is one part of the broader
 [Taskmaster design](/specs/taskmaster). That specification also describes
 review and verification chains and approved session transitions. Treat it
 as design scope, not a checklist of features available in an installer.
+
+## Agent-readiness score and history
+
+Current source adds **Assess readiness** in Recommendations. It assesses only
+the selected workspace and shows an overall score out of 100, with fourteen
+individual 0–4 maturity ratings, confidence, saved evidence and suggested next
+improvements. Run it manually after repository changes to compare assessments.
+The overall score weights every area equally; a partially assessed repository
+shows coverage and individual ratings without an overall number.
+
+Each completed result retains its date, commit/worktree state and evaluation
+conditions. Select an older assessment or a comparison baseline in history.
+Deltas appear only for full assessments with comparable rubric, model and access
+conditions. An unchanged-input rerun is a new model judgment; a higher score does
+not prove that one particular fix caused the improvement. Saved evidence is a
+historical excerpt, not a claim that current tests passed. The action itself
+does not execute repository commands.
+
+History retains up to 100 snapshots locally for this canonical workspace. Failed
+attempts preserve previous results; repository changes mark the last assessment
+for a rerun. Reducing Taskmaster context access redacts affected historical scores
+and evidence, and expanding access again does not restore them.
+
+This feature requires complete verified signed Brain rubric guidance and an
+available configured Taskmaster model. Publication, the generated starter and
+selected-model acceptance remain tracked in
+[#1063](https://github.com/Rambolarsen/orkworks/issues/1063); source changes alone
+do not establish installer availability. Existing **Assess workflow** continues
+to suggest one bounded improvement separately.

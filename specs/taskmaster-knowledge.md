@@ -515,6 +515,7 @@ The owner requested repeatable overall agent-readiness scoring with individual
 ratings and history. The [proposed readiness specification](repository-agent-readiness.md)
 and [ADR 0095](../docs/adr/0095-repository-agent-readiness-history.md) define a
 separate manual action, complete signed rubric dependency and local history.
-Product intent is approved; concrete protocol/storage awaits owner approval.
+The owner approved concrete protocol/storage and runtime implementation on
+2026-10-25; exact public rubric export review remains required before publication.
 This proposal does not change the accepted single-improvement assessment above
 or establish runtime/installer availability.

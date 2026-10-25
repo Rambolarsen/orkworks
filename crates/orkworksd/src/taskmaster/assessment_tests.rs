@@ -44,7 +44,11 @@ if prompt.get('protocol') != 'taskmaster-discovery-v1' and response.with_suffix(
     import time
     response.with_suffix('.final-started').write_text('started')
     while not response.with_suffix('.final-release').exists(): time.sleep(0.01)
-if prompt.get('protocol') == 'taskmaster-discovery-v1':
+if prompt.get('protocol') == 'taskmaster-readiness-discovery-v1':
+    output = json.dumps({'version':1,'requestedFileIds':[]})
+elif prompt.get('protocol') == 'taskmaster-readiness-v1':
+    output = json.dumps({'version':1,'summary':'Observed repository guidance','concepts':[{'conceptId':c['conceptId'],'maturity':2,'confidence':'medium','repositoryFactIds':[0],'rubricPageId':c['pageId'],'rationale':'Documented repository guidance','limits':['Runtime behavior remains unverified'],'nextTransition':'Evidence of workflow integration','unassessedReason':None} for c in prompt['rubric']['concepts']]})
+elif prompt.get('protocol') == 'taskmaster-discovery-v1':
     override = response.with_suffix('.discovery')
     if override.exists():
         output = override.read_text()

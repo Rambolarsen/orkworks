@@ -177,6 +177,8 @@ declare global {
       getTaskmasterRunStatus: () => Promise<import("./taskmasterSettings").TaskmasterRunStatus>;
       refreshTaskmasterModels: (provider: "codex" | "ollama", ollamaBaseUrl?: string) => Promise<string[]>;
       requestTaskmasterAnalysis: () => Promise<import("./api").ManualTaskmasterAnalysisResponse>;
+      getReadinessStatus: () => Promise<unknown>;
+      requestReadinessAssessment: () => Promise<import("./readiness").ReadinessAdmission>;
       requestTaskmasterAssessment: () => Promise<import("./api").TaskmasterAssessmentRequestResponse>;
       dismissTaskmasterRecommendation: (id: string, reason?: string) => Promise<void>;
       acceptTaskmasterRecommendation: (id: string, options: AcceptRecommendationOptions) => Promise<unknown>;

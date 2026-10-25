@@ -65,6 +65,12 @@ pub(crate) struct KnowledgeBundle {
     pub(crate) published_at: String,
     pub(crate) privacy_policy_version: u8,
     pub(crate) capabilities: Vec<String>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub(crate) readiness_rubric: Option<super::readiness_rubric::ReadinessRubric>,
     pub(crate) pages: Vec<KnowledgePage>,
 }
 
@@ -273,7 +279,7 @@ fn canonical_base64(value: &str, label: &str) -> Result<Vec<u8>, String> {
 }
 
 fn validate_bundle(bundle: &KnowledgeBundle) -> Result<(), String> {
-    if bundle.format_version != 1 || bundle.privacy_policy_version != 1 {
+    if !matches!(bundle.format_version, 1 | 2) || bundle.privacy_policy_version != 1 {
         return Err("bundle format and privacy policy versions must equal 1".into());
     }
     safe_identifier(&bundle.version, "bundle.version")?;
@@ -286,6 +292,24 @@ fn validate_bundle(bundle: &KnowledgeBundle) -> Result<(), String> {
         );
     }
     validate_unique_strings(&bundle.capabilities, "bundle.capabilities", 16, 128, true)?;
+    let readiness = bundle
+        .capabilities
+        .iter()
+        .any(|value| value == "taskmaster-readiness-v1");
+    if bundle.format_version == 1 && (readiness || bundle.readiness_rubric.is_some()) {
+        return Err("Readiness requires bundle format 2".into());
+    }
+    if bundle.format_version == 2 {
+        if !readiness {
+            return Err("Format 2 requires readiness capability".into());
+        }
+        bundle
+            .readiness_rubric
+            .as_ref()
+            .ok_or("Readiness rubric is missing")?
+            .validate(&bundle.pages)?;
+    }
+
     if bundle.pages.is_empty() || bundle.pages.len() > 256 {
         return Err("bundle.pages must contain 1 to 256 pages".into());
     }
@@ -357,7 +381,7 @@ fn select_manifest_entry(manifest: &Manifest) -> Result<&ManifestEntry, String> 
     manifest
         .bundles
         .iter()
-        .filter(|entry| entry.format_version == 1 && entry.privacy_policy_version == 1)
+        .filter(|entry| matches!(entry.format_version, 1 | 2) && entry.privacy_policy_version == 1)
         .max_by_key(|entry| entry.sequence)
         .ok_or_else(|| "manifest has no supported format and policy entry".into())
 }
@@ -726,9 +750,14 @@ mod tests {
 
     #[test]
     fn manifest_selection_filters_policy_before_sequence_ranking() {
-        let manifest =
+        let mut manifest =
             verify_manifest_with_key(&fixture("ranked-manifest-envelope.json"), TEST_PUBLIC_KEY)
                 .unwrap();
+        for entry in &mut manifest.bundles {
+            if entry.format_version == 2 {
+                entry.format_version = 3;
+            }
+        }
         assert_eq!(
             super::select_manifest_entry(&manifest).unwrap().version,
             "supported-newer"

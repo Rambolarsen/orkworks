@@ -25,6 +25,16 @@ fn nullable(object: Value) -> Value {
 
 fn schema(shape: NativeResponseShape) -> Value {
     match shape {
+        NativeResponseShape::ReadinessDiscoveryV1 => {
+            json!({"type":"object","additionalProperties":false,"required":["version","requestedFileIds"],"properties":{"version":{"type":"integer","enum":[1]},"requestedFileIds":{"type":"array","items":{"type":"integer"}}}})
+        }
+        NativeResponseShape::ReadinessV1 => {
+            json!({"type":"object","additionalProperties":false,"required":["version","summary","concepts"],"properties":{
+                "version":{"type":"integer","enum":[1]},"summary":prose(),"concepts":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["conceptId","maturity","confidence","repositoryFactIds","rubricPageId","rationale","limits","nextTransition","unassessedReason"],"properties":{
+                    "conceptId":{"type":"string"},"maturity":nullable(json!({"type":"integer","minimum":0,"maximum":4})),"confidence":nullable(json!({"type":"string","enum":["low","medium","high"]})),"repositoryFactIds":{"type":"array","items":{"type":"integer"}},"rubricPageId":{"type":"string"},"rationale":prose(),"limits":{"type":"array","items":prose()},"nextTransition":prose(),"unassessedReason":nullable(prose())
+                }}}
+            }})
+        }
         NativeResponseShape::DiscoveryV1 => json!({
             "type":"object", "additionalProperties":false,
             "required":["version","outcome","candidate","repositoryFactHashes","knowledgePageIds","requestedFileIds","reason"],

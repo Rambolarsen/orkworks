@@ -15,6 +15,8 @@ const MAX_TOTAL: usize = 65536;
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct InputManifest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<String>,
     pub context_level: ContextLevel,
     pub excluded_paths: Vec<String>,
     pub collector_version: u8,
@@ -47,7 +49,11 @@ fn valid_digest(text: &str) -> bool {
 impl InputManifest {
     pub(crate) fn validate(&self) -> Result<(), String> {
         if self.collector_version != COLLECTOR_VERSION
-            || self.prompt_version != super::assessment::ASSESSMENT_PROMPT_VERSION
+            || match self.purpose.as_deref() {
+                None => self.prompt_version != super::assessment::ASSESSMENT_PROMPT_VERSION,
+                Some("readiness") => self.prompt_version != "taskmaster-readiness-v1",
+                _ => true,
+            }
             || self.files.len() > 32
             || self.requested_file_ids.len() > 8
             || self.requested_file_ids.iter().any(|id| *id >= 512)
@@ -137,6 +143,17 @@ pub(crate) enum FollowUp {
 }
 
 impl RepositoryContext {
+    pub(crate) fn collect_for_readiness(
+        workspace: &Path,
+        level: ContextLevel,
+        excluded: &[String],
+        observed_at: &str,
+    ) -> Result<Self, String> {
+        let mut context = Self::collect(workspace, level, excluded, observed_at)?;
+        context.manifest.purpose = Some("readiness".into());
+        context.manifest.prompt_version = "taskmaster-readiness-v1".into();
+        Ok(context)
+    }
     pub(crate) fn collect(
         workspace: &Path,
         level: ContextLevel,
@@ -223,6 +240,7 @@ impl RepositoryContext {
             coverage,
             permitted,
             manifest: InputManifest {
+                purpose: None,
                 context_level: level,
                 excluded_paths: excluded.to_vec(),
                 collector_version: COLLECTOR_VERSION,

@@ -114,4 +114,4 @@ Decision records and their original rationale and consequences.
 
 - [Explicit session task-worktree binding](0094-explicit-session-worktree-binding.md) — Authenticated durable worktree reports supersede launch-directory fallback.
 
-- [Repository agent-readiness scores and local history](0095-repository-agent-readiness-history.md) — Proposed manual scoring, signed complete rubric and historical access boundaries.
+- [Repository agent-readiness scores and local history](0095-repository-agent-readiness-history.md) — Accepted manual scoring, signed complete rubric and historical access boundaries.

@@ -120,6 +120,7 @@ pub(crate) fn reconcile_metadata(
     root: &std::path::Path,
     settings: &TaskmasterSettings,
 ) -> Result<(), String> {
+    super::readiness_store::ReadinessStore::new(root).reconcile(settings)?;
     let report_store = super::assessment_store::AssessmentStore::new(root);
     if let Some(mut record) = report_store.load::<AssessmentRecord>()? {
         let original = record.clone();
@@ -272,7 +273,10 @@ fn reconcile_known_workspaces(
             continue;
         }
         let Some(origin) = crate::workspace_runtime::read_origin_file(&root) else {
-            if root.join("assessment.json").exists() {
+            if root.join("assessment.json").exists()
+                || root.join("readiness-history.json").exists()
+                || root.join("readiness-run.json").exists()
+            {
                 return Err("Assessment workspace identity is unavailable".into());
             }
             continue;

@@ -3,13 +3,13 @@ type: Architecture Decision
 title: Repository agent-readiness scores and local history
 description: Proposed independent manual readiness scoring with a complete signed rubric and workspace-local historical snapshots.
 tags: [orkworks, architecture, taskmaster, brain, readiness]
-status: draft
-workflow_status: proposed
+status: stable
+workflow_status: approved
 ---
 
 # Repository agent-readiness scores and local history
 
-- Status: proposed; product intent approved, concrete design awaits owner approval
+- Status: accepted; owner approved the concrete design and runtime implementation on 2026-10-25
 - Deciders: repository owner
 - Date: 2026-10-25
 - Tracking: [#1063](https://github.com/Rambolarsen/orkworks/issues/1063)
@@ -31,7 +31,7 @@ defines the complete behavior and bounds.
 
 ## Decision
 
-Propose a separate manual readiness action, strict two-call scoring protocol and
+Use a separate manual readiness action, strict two-call scoring protocol and
 workspace-local history. Reuse the existing evidence collector, configured
 Taskmaster transport and shared analysis lease. Keep existing workflow assessment
 and recommendation publication independent. No readiness run executes commands
@@ -57,8 +57,8 @@ assessment. Missing evidence cannot inflate a total and model/rubric changes are
 visible rather than attributed to repository fixes.
 
 This adds a publisher dependency, strict inference/API contracts, local metadata
-and redaction work. Implementation requires approval of this concrete proposal,
-review of the rubric publication and the plan's verification gates. Missing
+and redaction work. The owner approved implementation of this concrete proposal on 2026-10-25.
+Exact rubric publication review and the plan's verification gates remain required. Missing
 readiness files are backward-compatible absence; once retained metadata exists,
 forward fixes preserve redaction fences and binary downgrade is unsupported.
 ADRs 0085–0087 remain accepted for the existing workflow assessment.
