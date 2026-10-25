@@ -199,3 +199,5 @@ Dated design records; these do not establish current product behavior.
 
 - [Hierarchy empty-output logical source-profile witness](2026-10-25-hierarchy-empty-output-profile-design.md) — Two scoped body-projection/preparation choices accepted for further design; exact synthetic bytes leave producer/bootstrap and native eligibility unverified.
 - [Explicit session worktree reporting](2026-10-25-session-worktree-location-design.md) — Proposed authenticated task-worktree binding, honest location sources and unchanged native gates.
+
+- [Root bootstrap and subject-preparation producer contract](2026-10-25-root-preparation-producer-design.md) — Proposed identity-first UI review drafts, exact source/membership bindings and atomic root preparation; authority and runtime qualification remain gated.

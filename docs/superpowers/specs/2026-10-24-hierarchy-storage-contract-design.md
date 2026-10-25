@@ -563,3 +563,15 @@ native/physical/resource/finalization ordering, shared custody and executable-pl
 approvals retain their gates. No database, migration, probe or runtime approval
 is supplied. #740 stays deferred/no-go until November; keep #744/#746 open.
 Next is the source-owned bootstrap/preparation producer-contract proposal.
+
+## Root producer registry proposal — 2026-10-25
+
+The [root preparation producer contract](2026-10-25-root-preparation-producer-design.md)
+proposes closed root_drafts/root_preparations rows and draft prepare/cancel plus
+subject-preparation effects. Exact UI-reviewed bootstrap/run bytes, root membership,
+summary/ledger and retained-source publication share the required boundary.
+These are proposed registry/source additions for separate owner review, not
+implicitly supported format-3 kinds or deployed tables. Initial run-state/parent
+attachment codecs, aggregate limits, source-valid byte fixtures and excluded-action
+authority/native qualification remain gates; #744 claims confer no preparation
+authority. Existing definitions and catalogs remain unchanged.
