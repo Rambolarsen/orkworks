@@ -92,6 +92,17 @@ and workspace restoration is complete, and shows a Retry panel for
 unreachable or exhausted states without discarding existing workspace/session
 state.
 
+
+`workspaceSessionController` owns session-list publication. Each refresh captures
+request, foreground, admission, source and polling identities and uses one local predicate
+for both successful lists and unavailable status; disposal invalidates publication.
+A new stream snapshot invalidates pending REST publication even when the stream
+was already healthy. Those identities remain independent. App's polling gate additionally covers the
+renderer switch attempt before a backend lifecycle event reaches the controller,
+and requires a connected backend and restored workspace. Controller admission
+checks therefore do not replace that gate. Review-document, model-refresh and
+Settings-save guards retain their own selection/request/lifecycle semantics.
+
 React render exceptions are handled in the renderer by `ErrorBoundary`.
 Electron main has an independent fallback for main-frame `did-fail-load` and
 `render-process-gone` events, with bounded, sanitized console diagnostics. It
