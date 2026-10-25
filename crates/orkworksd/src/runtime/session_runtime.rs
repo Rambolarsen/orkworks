@@ -436,6 +436,7 @@ pub(crate) struct ReplayBuffer {
     capacity: usize,
     next_cursor: u64,
     chunks: VecDeque<(u64, Vec<u8>)>,
+    modes: super::terminal_replay_modes::TerminalReplayModes,
 }
 
 impl ReplayBuffer {
@@ -444,6 +445,7 @@ impl ReplayBuffer {
             capacity,
             next_cursor: 0,
             chunks: VecDeque::new(),
+            modes: super::terminal_replay_modes::TerminalReplayModes::default(),
         }
     }
 
@@ -452,7 +454,9 @@ impl ReplayBuffer {
         self.next_cursor += 1;
         self.chunks.push_back((cursor, chunk));
         while self.chunks.len() > self.capacity {
-            self.chunks.pop_front();
+            if let Some((_, bytes)) = self.chunks.pop_front() {
+                self.modes.advance(&bytes);
+            }
         }
         cursor
     }
@@ -469,7 +473,15 @@ impl ReplayBuffer {
     }
 
     pub(crate) fn snapshot(&self) -> Vec<(u64, Vec<u8>)> {
-        self.chunks.iter().cloned().collect()
+        let mut chunks: Vec<_> = self.chunks.iter().cloned().collect();
+        if let Some((_, first)) = chunks.first_mut() {
+            let mut prefix = self.modes.prefix();
+            if !prefix.is_empty() {
+                prefix.append(first);
+                *first = prefix;
+            }
+        }
+        chunks
     }
 }
 
@@ -4363,6 +4375,184 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
             .runtime
             .attached_generation();
         assert_eq!(detached, None);
+    }
+
+    #[test]
+    fn replay_restores_evicted_terminal_interaction_modes() {
+        let mut replay = ReplayBuffer::new(2);
+        replay.push(b"\x1b[?1049h\x1b[?1003h\x1b[?1006h\x1b[?2004h".to_vec());
+        replay.push(b"\x1b[Hfirst frame".to_vec());
+        replay.push(b"\x1b[Hsecond frame".to_vec());
+
+        let bytes: Vec<u8> = replay
+            .snapshot()
+            .into_iter()
+            .flat_map(|(_, bytes)| bytes)
+            .collect();
+        assert!(bytes.windows(8).any(|part| part == b"\x1b[?1049h"));
+        assert!(bytes.windows(8).any(|part| part == b"\x1b[?1003h"));
+        assert!(bytes.windows(8).any(|part| part == b"\x1b[?1006h"));
+        assert!(bytes.windows(8).any(|part| part == b"\x1b[?2004h"));
+        assert_eq!(replay.start_cursor(), 1);
+        assert_eq!(replay.next_cursor(), 3);
+    }
+
+    #[test]
+    fn replay_restores_a_mode_sequence_split_at_the_eviction_boundary() {
+        let mut replay = ReplayBuffer::new(1);
+        replay.push(b"\x1b[?100".to_vec());
+        replay.push(b"3hframe".to_vec());
+        assert_eq!(replay.snapshot()[0].1, b"\x1b[?1003hframe");
+    }
+
+    #[test]
+    fn replay_modes_ignore_control_string_payloads_and_keep_the_last_mouse_protocol() {
+        let mut replay = ReplayBuffer::new(1);
+        replay.push(
+            b"\x1b[?1000h\x1b[?1003h\x1b[?2004h\x1b]title [?2004l\x07\x1bP[?1003l\x1b\\".to_vec(),
+        );
+        replay.push(b"frame".to_vec());
+        let bytes = &replay.snapshot()[0].1;
+        assert!(bytes.windows(8).any(|part| part == b"\x1b[?1003h"));
+        assert!(!bytes.windows(8).any(|part| part == b"\x1b[?1000h"));
+        assert!(bytes.windows(8).any(|part| part == b"\x1b[?2004h"));
+    }
+
+    #[test]
+    fn replay_restores_modes_before_retained_resets_instead_of_after_them() {
+        let mut replay = ReplayBuffer::new(1);
+        replay.push(b"\x1b[?1049h\x1b[?2004h".to_vec());
+        replay.push(b"\x1b[?1049l\x1b[?2004lframe".to_vec());
+        let bytes = &replay.snapshot()[0].1;
+        let enable = bytes
+            .windows(8)
+            .position(|part| part == b"\x1b[?1049h")
+            .unwrap();
+        let disable = bytes
+            .windows(8)
+            .position(|part| part == b"\x1b[?1049l")
+            .unwrap();
+        assert!(enable < disable);
+        replay.push(b"after reset".to_vec());
+        assert_eq!(replay.snapshot()[0].1, b"after reset");
+    }
+
+    #[test]
+    fn replay_preserves_control_string_parser_state_at_the_eviction_boundary() {
+        let mut replay = ReplayBuffer::new(1);
+        replay.push(b"\x1b]old title".to_vec());
+        replay.push(b"[?1003h\x07frame".to_vec());
+        assert_eq!(replay.snapshot()[0].1, b"\x1b][?1003h\x07frame");
+    }
+
+    #[test]
+    fn replay_interaction_modes_match_continuous_xterm_after_eviction() {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+
+        let cases: &[(&str, &[&[u8]])] = &[
+            (
+                "codex fullscreen input",
+                &[
+                    b"\x1b[?1049h\x1b[?1003h\x1b[?1006h\x1b[?2004h",
+                    b"\x1b[Hframe",
+                ],
+            ),
+            ("split private mode", &[b"\x1b[?100", b"3hframe"]),
+            (
+                "retained mode disable",
+                &[b"\x1b[?1049h\x1b[?2004h", b"\x1b[?1049l\x1b[?2004lframe"],
+            ),
+            (
+                "aliases and exclusive protocols",
+                &[
+                    b"\x1b[?47h\x1b[?1000h\x1b[?1003h\x1b[?1016h\x1b[?1006h",
+                    b"frame",
+                ],
+            ),
+            (
+                "reset evicted",
+                &[b"\x1b[?1049h\x1b[?1003h\x1b[?2004h\x1bc", b"frame"],
+            ),
+            (
+                "soft reset",
+                &[b"\x1b[?1049h\x1b[?1003h\x1b[?2004h\x1b[!p", b"frame"],
+            ),
+            (
+                "mouse reset clears active protocol",
+                &[b"\x1b[?1003h\x1b[?1000l", b"frame"],
+            ),
+            (
+                "encoding reset clears active encoding",
+                &[b"\x1b[?1003h\x1b[?1006h\x1b[?1016l", b"frame"],
+            ),
+            (
+                "keyboard and cursor modes",
+                &[b"\x1b=\x1b[?1h\x1b[?7l\x1b[?25l\x1b[?1004h", b"frame"],
+            ),
+            (
+                "OSC payload at boundary",
+                &[b"\x1b]title", b"[?1003h\x07frame"],
+            ),
+            (
+                "DCS payload at boundary",
+                &[b"\x1bP0qpayload", b"[?1003h\x1b\\frame"],
+            ),
+            ("ESC at boundary", &[b"\x1b", b"[?2004hframe"]),
+            (
+                "escaped control-string terminator",
+                &[b"\x1b]title\x1b", b"\\frame"],
+            ),
+            ("cancelled CSI", &[b"\x1b[?2004\x18", b"hframe"]),
+            (
+                "multi-parameter mode",
+                &[b"\x1b[?1049;1003;1006;2004h", b"frame"],
+            ),
+            (
+                "unsupported mode is not restored",
+                &[b"\x1b[?9999h", b"frame"],
+            ),
+            ("UTF8 C1 CSI", &[b"\xc2\x9b?1003h", b"frame"]),
+            ("UTF8 C1 OSC", &[b"\xc2\x9dtitle", b"[?1003h\xc2\x9cframe"]),
+            (
+                "UTF8 C1 interrupts OSC",
+                &[b"\x1b]title\xc2\x9b?1003h", b"frame"],
+            ),
+            ("split UTF8 C1", &[b"\xc2", b"\x9b?1003hframe"]),
+            ("raw C1 is invalid UTF8", &[b"\x9b?1003h", b"frame"]),
+        ];
+        let fixtures: Vec<_> = cases.iter().map(|(name, chunks)| {
+            let mut replay = ReplayBuffer::new(1);
+            for bytes in *chunks {
+                replay.push(bytes.to_vec());
+            }
+            serde_json::json!({
+                "name": name,
+                "continuous": chunks,
+                "replay": replay.snapshot().into_iter().map(|(_, bytes)| bytes).collect::<Vec<_>>(),
+            })
+        }).collect();
+        let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../apps/desktop/tests/fixtures/terminalReplayModes.mjs");
+        let mut child = Command::new("node")
+            .arg(script)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("Node and desktop dependencies are required for the xterm replay regression");
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(&serde_json::to_vec(&fixtures).unwrap())
+            .unwrap();
+        let result = child.wait_with_output().unwrap();
+        assert!(
+            result.status.success(),
+            "xterm replay mismatch: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
     }
 
     #[test]

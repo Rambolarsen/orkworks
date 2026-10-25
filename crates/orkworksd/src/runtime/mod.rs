@@ -14,5 +14,6 @@ pub(crate) mod prompt_authority;
 pub(crate) mod retention;
 pub(crate) mod session_runtime;
 pub(crate) mod terminal_http;
+mod terminal_replay_modes;
 pub(crate) mod terminal_runtime;
 pub(crate) mod workspace_gc;
