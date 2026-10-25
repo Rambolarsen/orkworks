@@ -20,8 +20,9 @@ the installed binary.
 
 On 2026-10-25 the owner accepted the recommendation to pursue a narrow upstream
 human-approval lifecycle instead of further completion-queue work or a predicted
-exclusive-automatic route. This authorizes the proposal update and upstream
-follow-up, not runtime activation or adoption of another project's full design.
+exclusive-automatic route. The current scope is the proposal update, not runtime activation or adoption
+of another project's full design. Further upstream communication requires
+explicit approval of the message and any project attribution.
 The original proposal below is retained as history; its route-field issue draft
 must not be submitted as the current recommendation.
 
@@ -35,9 +36,9 @@ Existing upstream requests already cover the gap:
 - [openai/codex#19921](https://github.com/openai/codex/issues/19921) requests
   external notifications for approval and question prompts.
 
-The [OrkWorks evidence comment](https://github.com/openai/codex/issues/39426#issuecomment-6395253021)
-was posted to #39426 on 2026-10-25 rather than opening a duplicate.
-Ask upstream for a supported observation-only projection of the existing native
+Track #39426 without opening a duplicate. A project-specific comment was
+removed by the owner; do not repost it. The preferred technical question is
+whether upstream supports an observation-only projection of the existing native
 approval request/resolution lifecycle. Do not prescribe a new transport, fork
 Codex, or implement guessed hook names. The minimum useful semantics are:
 
