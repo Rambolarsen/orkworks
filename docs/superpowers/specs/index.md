@@ -189,3 +189,4 @@ Dated design records; these do not establish current product behavior.
 - [Session and recommendation push refresh](2026-10-24-push-refresh-design.md) — Approved changed-row updates, measured baseline and authoritative recovery.
 
 - [Hierarchy claim-proof metadata and storage commitment v2](2026-10-25-hierarchy-claim-proof-design.md) — Proposed exact nonsecret authority evidence, versioned hashes, receipt/commit joins and recovery vectors; no migration or runtime approval.
+- [Native automatic approval-route signal](2026-10-25-codex-automatic-approval-signal-design.md) — Proposed upstream no-human-route contract that avoids creating false waits without clearing existing attention.
