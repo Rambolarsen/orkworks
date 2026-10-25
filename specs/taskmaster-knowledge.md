@@ -508,3 +508,13 @@ and ordinary analysis do not gain schema enforcement. Selected-model compatibili
 gates production integration; the usefulness matrix remains required before
 claiming usefulness or marking the runtime ready. Implementation evidence is
 tracked in #931/#938; approval is not a runtime-completion claim.
+
+## Proposed repository readiness scoring (#1063)
+
+The owner requested repeatable overall agent-readiness scoring with individual
+ratings and history. The [proposed readiness specification](repository-agent-readiness.md)
+and [ADR 0095](../docs/adr/0095-repository-agent-readiness-history.md) define a
+separate manual action, complete signed rubric dependency and local history.
+Product intent is approved; concrete protocol/storage awaits owner approval.
+This proposal does not change the accepted single-improvement assessment above
+or establish runtime/installer availability.

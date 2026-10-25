@@ -223,3 +223,6 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 - [Push refresh](2026-10-24-push-refresh.md) — Changed-row synchronization, producer coverage and recovery verification.
 - [Session task-worktree location](2026-10-25-session-worktree-location.md) — Pending-approval delivery and verification for explicit worktree reporting.
+
+
+- [Repository agent-readiness scoring and history](2026-10-25-repository-agent-readiness.md) — Proposed rubric, scoring, history and verification delivery for #1063.
