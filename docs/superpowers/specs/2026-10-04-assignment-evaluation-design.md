@@ -2086,3 +2086,19 @@ without an approved authenticated usage source; shared learning remains gated.
 Keep #741/#742/#744/#746 open. This handoff records scoped technical acceptance;
 it does not itself accept SQLite architecture/limits, close unchecked implementation
 criteria, approve runtime code or grant automatic maintenance.
+
+## Reserved-slot and internal-outcome acceptance — 2026-10-25
+
+The owner [accepted the scoped slot/finalization metadata](2026-10-25-hierarchy-slot-finalization-design.md#owner-acceptance-and-handoff--2026-10-25)
+from reviewed PR #1053 for further design/qualification: the two closed variants,
+exact ownership/stream/ordinal and retention joins, original canonical response
+encoding, atomic credit transitions and independent logical accounting boundary.
+This supersedes earlier pending-review status for these named encodings only.
+Existing technical definitions, fixture bytes, source/wire schemas, quota values
+and claim/lease policy are unchanged; internal finalization gains no claim.
+
+Complete command/source/ledger/index effects, physical/native/resource and
+finalization-versus-writable-ownership qualification, shared custody and separate
+executable-plan approvals remain gates. No database, migration, probe or runtime
+work is approved. #740 remains deferred/no-go until November; keep #744/#746 open.
+Next is the complete candidate admission/finalization command-manifest proposal.
