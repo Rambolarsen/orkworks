@@ -878,6 +878,7 @@ app.whenReady().then(async () => {
       if (restoreResult.removeFromHistory) {
         try {
           const result = await forgetRememberedWorkspaceWithNavigation(app.getPath("userData"), rejectedPath, workspaceNavigationMemory);
+          signal.throwIfAborted();
           const diagnostic = result.history.diagnostic;
           currentHistoryDiagnostic = toWorkspaceHistoryDiagnostic(diagnostic);
           if (currentHistoryDiagnostic) {
@@ -887,6 +888,7 @@ app.whenReady().then(async () => {
             console.warn("[main] rejected workspace navigation could not be removed", result.navigation.diagnostic);
           }
         } catch (error) {
+          signal.throwIfAborted();
           console.warn("[main] rejected workspace could not be removed from history", error instanceof Error ? error.message : "unknown error");
         }
       }
@@ -1015,12 +1017,14 @@ app.whenReady().then(async () => {
 
   async function syncSavedProviderSettings(port: number, signal: AbortSignal): Promise<void> {
     return enqueueSettingsWrite(async () => {
+      signal.throwIfAborted();
       const settings = currentSettings ?? readSettings(app.getPath("userData"));
       const providerResponse = await sidecarSend(port, "providers", { signal });
       if (!providerResponse.ok) throw new Error(`provider catalog sync failed: ${providerResponse.status}`);
       const providerBody = await providerResponse.json() as {
         providers?: unknown;
       };
+      signal.throwIfAborted();
       if (!Array.isArray(providerBody.providers)) throw new Error("provider catalog sync returned malformed data");
       const definitions: ProviderDefinition[] = providerBody.providers.map((entry) => {
         if (!entry || typeof entry !== "object" || Array.isArray(entry)) {

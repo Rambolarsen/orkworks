@@ -13,8 +13,8 @@ session, follow its progress, and see when it needs you.
 OrkWorks is in early alpha. These guides follow current source; an older
 installer may not include every feature described here.
 
-When no valid remembered workspace is available, the source desktop app waits
-in the workspace picker. The picker shows pinned and recently opened
+The source desktop app starts in the workspace picker, even when history
+contains remembered workspaces. The picker shows pinned and recently opened
 workspaces, if any, and an **Open workspace** button for choosing a new folder.
 Click a remembered workspace to open it again. This idle state does not
 indicate a backend outage and does not offer backend recovery. If workspace
