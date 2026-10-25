@@ -28,3 +28,26 @@ function clearsIntegrationOperationFailure(result: ActiveHarnessIntegrationResul
   // operation's "action required" failure is no longer actionable.
   return result.outcome === "succeeded" || result.outcome === "unsupported";
 }
+
+// One scope per independently saved section. Request order governs status;
+// successful-commit order governs the snapshot restored when Settings closes.
+export function createSectionSaveScope() {
+  let lifecycle = 0;
+  let requested = 0;
+  let committed = 0;
+  return {
+    begin() {
+      const generation = lifecycle;
+      const request = ++requested;
+      return {
+        isCurrent: () => generation === lifecycle && request === requested,
+        commit(publish: () => void) {
+          if (generation !== lifecycle || request <= committed) return;
+          committed = request;
+          publish();
+        },
+      };
+    },
+    invalidate() { lifecycle += 1; },
+  };
+}

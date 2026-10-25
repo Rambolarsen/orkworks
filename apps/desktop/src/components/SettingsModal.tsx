@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type SetStateAction } from "react";
 import { ChevronRight } from "lucide-react";
 import { acceleratorFromKeyboardEvent } from "../hotkeyCapture";
 import type { AppSettings, DebugSettings, HotkeySettings, RetentionSettings } from "../appSettingsTypes";
@@ -16,7 +16,7 @@ import {
 } from "../harnessIntegrationPresentation";
 import { getHarnessDetectionStatus, integrationKeyForHarness, isHarnessDetected as isDetectedResult } from "../harnessDetection";
 import { normalizeActiveHarnessIds, selectableHarnesses } from "../newSessionDialogState";
-import { mergeIntegrationOperationFailures } from "../settingsController";
+import { createSectionSaveScope, mergeIntegrationOperationFailures } from "../settingsController";
 import HarnessCommandPathControl, { looksAbsolute } from "./HarnessCommandPathControl";
 import HarnessDetectionStatus from "./HarnessDetectionStatus";
 import HarnessIcon from "./HarnessIcon";
@@ -126,6 +126,13 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
   }, [initialSection]);
   const [draft, setDraft] = useState<HotkeySettings>(initialSettings.hotkeys);
   const [savedHotkeys, setSavedHotkeys] = useState<HotkeySettings>(initialSettings.hotkeys);
+  const hotkeyDraftRevision = useRef(0);
+  const sectionSaves = useRef({
+    hotkeys: createSectionSaveScope(),
+    retention: createSectionSaveScope(),
+    debug: createSectionSaveScope(),
+    providers: createSectionSaveScope(),
+  });
   const [capturing, setCapturing] = useState<HotkeyAction | null>(null);
   const [errors, setErrors] = useState<Partial<Record<HotkeyAction, string[]>>>({});
   const [hotkeySaveStatus, setHotkeySaveStatus] = useState<string | null>(null);
@@ -146,6 +153,7 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
   const [unavailablePeonProvider, setUnavailablePeonProvider] = useState<string | null>(null);
   const [manualModelOverride, setManualModelOverride] = useState(false);
   const peonVerificationGeneration = useRef(0);
+  const peonMutationGeneration = useRef(0);
   const modalLifecycleGeneration = useRef(0);
   const currentToolSaveRef = useRef<ToolSaveRequest | null>(null);
   const integrationStatusRequestGeneration = useRef(0);
@@ -178,6 +186,7 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
   }
 
   function invalidateAsyncState() {
+    for (const scope of Object.values(sectionSaves.current)) scope.invalidate();
     modalLifecycleGeneration.current += 1;
     currentToolSaveRef.current = null;
     integrationStatusRequestGeneration.current += 1;
@@ -266,7 +275,7 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
       if ((event.key === "Backspace" || event.key === "Delete") && isBareKey(event)) {
         const row = hotkeyRows.find((item) => item.action === capturing);
         if (row?.optional) {
-          setDraft((current) => ({ ...current, [capturing]: null }));
+          updateHotkeyDraft((current) => ({ ...current, [capturing]: null }));
           setCapturing(null);
         }
         return;
@@ -274,7 +283,7 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
 
       const accelerator = acceleratorFromKeyboardEvent(event);
       if (accelerator) {
-        setDraft((current) => ({ ...current, [capturing]: accelerator }));
+        updateHotkeyDraft((current) => ({ ...current, [capturing]: accelerator }));
         setCapturing(null);
       }
     };
@@ -432,28 +441,31 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
   }
 
   async function saveRetention(rt: RetentionSettings) {
+    const request = sectionSaves.current.retention.begin();
     setRetentionSaveStatus(null);
     setRetention(rt);
     try {
       const result = await window.orkworks.saveRetention(rt);
       if (!result.ok) throw new Error("save-retention failed");
-      setRetentionSaveStatus(result.retentionApplyStatus?.lastApplyError ? "Saved locally; sidecar pending" : "Saved");
-      mergeSavedSettings({ retention: clone(rt) });
+      request.commit(() => mergeSavedSettings({ retention: clone(rt) }));
+      if (request.isCurrent()) setRetentionSaveStatus(result.retentionApplyStatus?.lastApplyError ? "Saved locally; sidecar pending" : "Saved");
     } catch {
-      setRetentionSaveStatus("Session retention could not be saved.");
+      if (request.isCurrent()) setRetentionSaveStatus("Session retention could not be saved.");
     }
   }
 
   async function saveDebugSettings(debug: DebugSettings) {
+    const request = sectionSaves.current.debug.begin();
     setDebugSaveStatus(null);
     setDebugSettings(debug);
     try {
       const result = await window.orkworks.saveDebugSettings(debug);
+      request.commit(() => mergeSavedSettings({ debug: clone(result.settings.debug) }));
+      if (!request.isCurrent()) return;
       setDebugSettings(result.settings.debug);
       setDebugSaveStatus("Saved");
-      updateSavedSettings(result.settings);
     } catch {
-      setDebugSaveStatus("Debug settings could not be saved.");
+      if (request.isCurrent()) setDebugSaveStatus("Debug settings could not be saved.");
     }
   }
 
@@ -516,35 +528,45 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
     }
   }
 
+  function updateHotkeyDraft(update: SetStateAction<HotkeySettings>) {
+    hotkeyDraftRevision.current += 1;
+    setDraft(update);
+    setHotkeySaveStatus(null);
+  }
+
   async function saveHotkeysHandler() {
+    const request = sectionSaves.current.hotkeys.begin();
+    const draftRevision = hotkeyDraftRevision.current;
+    const isCurrentDraft = () => request.isCurrent() && draftRevision === hotkeyDraftRevision.current;
     setHotkeySaveStatus(null);
     setErrors({});
     try {
       const result = await window.orkworks.saveHotkeys(draft);
       if (!result.ok) {
-        setErrors(result.errors);
+        if (isCurrentDraft()) setErrors(result.errors);
         return;
       }
+      request.commit(() => {
+        setSavedHotkeys(clone(result.settings.hotkeys));
+        mergeSavedSettings({ hotkeys: clone(result.settings.hotkeys) });
+      });
+      if (!isCurrentDraft()) return;
       setDraft(clone(result.settings.hotkeys));
-      setSavedHotkeys(clone(result.settings.hotkeys));
       setHotkeySaveStatus("Saved");
-      updateSavedSettings(result.settings);
     } catch {
-      setHotkeySaveStatus("Hotkeys could not be saved.");
+      if (isCurrentDraft()) setHotkeySaveStatus("Hotkeys could not be saved.");
     }
   }
 
   function restoreHotkeyDefaults() {
-    setDraft(clone(defaultHotkeys));
+    updateHotkeyDraft(clone(defaultHotkeys));
     setErrors({});
-    setHotkeySaveStatus(null);
   }
 
   function cancelHotkeyChanges() {
     setCapturing(null);
-    setDraft(clone(savedHotkeys));
+    updateHotkeyDraft(clone(savedHotkeys));
     setErrors({});
-    setHotkeySaveStatus(null);
   }
 
   function toolDisplayState(harness: HarnessConfig): IntegrationDisplayState {
@@ -656,39 +678,54 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
     }
   }
 
+  function beginPeonMutation() {
+    const mutation = ++peonMutationGeneration.current;
+    const verification = peonVerificationGeneration.current;
+    const lifecycle = modalLifecycleGeneration.current;
+    return () => mutation === peonMutationGeneration.current
+      && verification === peonVerificationGeneration.current
+      && lifecycle === modalLifecycleGeneration.current;
+  }
+
   async function applyPeonSelection() {
     const requiresExplicitModel = peonSelection.provider !== "codex" || manualModelOverride;
     if (!peonVerification?.ok || (requiresExplicitModel && !peonSelection.model.trim())) return;
+    const isCurrent = beginPeonMutation();
     const selection = canonicalPeonSelection(peonSelection);
     setPeonSelection(selection);
     setPeonBusy(true);
     setPeonError(null);
     try {
       const applied = await window.orkworks.testAndApplyPeonProvider(selection);
+      if (!isCurrent()) return;
       setPeonApplied(applied);
       setPeonLocallyApplied(true);
       setProviderSaveStatus("Applied; save to persist");
     } catch (error) {
-      setPeonError(error instanceof Error ? error.message : "Peon Apply failed.");
+      if (isCurrent()) setPeonError(error instanceof Error ? error.message : "Peon Apply failed.");
     } finally {
-      setPeonBusy(false);
+      if (isCurrent()) setPeonBusy(false);
     }
   }
 
   async function savePeonSelection() {
     if (!peonApplyMatches) return;
+    const request = sectionSaves.current.providers.begin();
+    const isCurrentMutation = beginPeonMutation();
+    const isCurrent = () => request.isCurrent() && isCurrentMutation();
     setPeonBusy(true);
     try {
       const result = await window.orkworks.savePeonSelection(peonSelection);
       if (!result.ok) throw new Error(result.error);
+      request.commit(() => mergeSavedSettings({ providers: clone(result.settings.providers) }));
+      if (!isCurrent()) return;
       setProviderDraft(result.settings.providers);
       setPeonLocallyApplied(false);
       setProviderSaveStatus("Saved");
-      updateSavedSettings(result.settings);
     } catch (error) {
-      setPeonError(error instanceof Error ? error.message : "Peon Save failed.");
+      if (isCurrent()) setPeonError(error instanceof Error ? error.message : "Peon Save failed.");
     } finally {
-      setPeonBusy(false);
+      if (isCurrent()) setPeonBusy(false);
     }
   }
 
@@ -1103,7 +1140,7 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
                           variant="ghost"
                           size="sm"
                           onClick={() => {
-                            setDraft((current) => ({ ...current, [row.action]: defaultHotkeys[row.action] }));
+                            updateHotkeyDraft((current) => ({ ...current, [row.action]: defaultHotkeys[row.action] }));
                           }}
                         >
                           Reset
