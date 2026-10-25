@@ -1,0 +1,2136 @@
+{
+  "fixtureSchemaVersion": 1,
+  "seedCatalog": "hierarchy-claim-proof-vectors.json",
+  "seedCatalogSha256": "b078842638d904e3944c5d4b9192ba98b365963f0be982e936de1d947ccd15a6",
+  "inspectionBase": "b4328f0995f3b5e67d3991e0059074478df75894",
+  "scope": "Proposed compact storage encoding only; no grants, SQL, live claim, ledger admission, migration or physical qualification.",
+  "vectors": [
+    {
+      "id": "root-candidate-initial",
+      "seedProofDigest": "be80bf5c3023d7ba3728d3a72f9e5be170adbed21b0a5b4ebcbd24b736e2f36e",
+      "compactProof": {
+        "schemaVersion": 2,
+        "assignments": [
+          {
+            "kind": "root",
+            "workspaceId": "workspace",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-1",
+            "rootAssignmentId": "target-root",
+            "parentSessionId": "target-parent",
+            "bootstrapId": "target-bootstrap",
+            "bootstrapConfigurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "decision": {
+          "claimIdentity": {
+            "sidecarGeneration": "1111111111111111111111111111111111111111111111111111111111111111",
+            "sequence": "1"
+          },
+          "storageEpoch": "3333333333333333333333333333333333333333333333333333333333333333",
+          "admissionEpoch": "4444444444444444444444444444444444444444444444444444444444444444",
+          "action": "orkworks.result.submit.v1",
+          "requestDigest": "c8c57b3baf52418ef12addac91c7f850dc344b55fa7832fab268195053054aaa",
+          "authority": {
+            "kind": "producer",
+            "authorityGeneration": {
+              "kind": "parent-runtime",
+              "sidecarGeneration": "1111111111111111111111111111111111111111111111111111111111111111",
+              "generation": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            "assignment": 0
+          },
+          "precondition": {
+            "kind": "result-predecessor",
+            "predecessor": {
+              "kind": "no-head"
+            }
+          }
+        },
+        "record": {
+          "kind": "candidate",
+          "assignment": 0,
+          "candidateDigest": "a3024d40966dc214d7584c47819b6c84f9bb34533a444c9c1104e6af5ed10959"
+        }
+      },
+      "retryKey": {
+        "schemaVersion": 1,
+        "workspaceId": "workspace",
+        "admissionEpoch": "4444444444444444444444444444444444444444444444444444444444444444",
+        "action": "orkworks.result.submit.v1",
+        "idempotencyKey": "idempotency-key",
+        "kind": "producer-result",
+        "assignmentIdentity": {
+          "kind": "root",
+          "workspaceId": "workspace",
+          "runId": "4444444444444444444444444444444444444444444444444444444444444444-1",
+          "rootAssignmentId": "target-root",
+          "parentSessionId": "target-parent",
+          "bootstrapId": "target-bootstrap",
+          "bootstrapConfigurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "authorityGeneration": {
+          "kind": "parent-runtime",
+          "sidecarGeneration": "1111111111111111111111111111111111111111111111111111111111111111",
+          "generation": "2222222222222222222222222222222222222222222222222222222222222222"
+        }
+      },
+      "slotId": 0,
+      "expected": {
+        "proofDigest": "6f0ee5dae61edb4505311a54b9d568bf5fc0219b64e85f1a08283178506623d4",
+        "retryKeyDigest": "9ea3795a1a9850ca257b89b867e40212468ff8e022c3f34e2da51da2b43b2c1e",
+        "parts": {
+          "proofKey": 103,
+          "proofValue": 1527,
+          "slotKey": 350,
+          "slotValue": 1221,
+          "lookupKey": 64,
+          "lookupValue": 241
+        },
+        "total": 3506,
+        "replyBytes": 343,
+        "proofBytes": 1241,
+        "proofRowDigest": "e7c2175d85f912af84033536d4b7e7a7e103c3113118efeaf8d5a1210e1b0de1",
+        "slotRowDigest": "d43a08f446f2666579925f7c8121e0b45ca411f79caa0513a689c96620253f03",
+        "lookupRowDigest": "be8a5b16c00aad8e62ba2bb8662a9e1d099a8b27d8964010bb8c6a3cb66d91a8",
+        "remaining": 12878
+      }
+    },
+    {
+      "id": "root-candidate-correction-max",
+      "seedProofDigest": "8129422a63220746694a8d18911c614827890187656e3200b1c2aeb38616d9b3",
+      "compactProof": {
+        "schemaVersion": 2,
+        "assignments": [
+          {
+            "kind": "root",
+            "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807",
+            "rootAssignmentId": "target-root-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "parentSessionId": "target-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "bootstrapId": "target-bootstrap-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "bootstrapConfigurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "decision": {
+          "claimIdentity": {
+            "sidecarGeneration": "1111111111111111111111111111111111111111111111111111111111111111",
+            "sequence": "18446744073709551615"
+          },
+          "storageEpoch": "3333333333333333333333333333333333333333333333333333333333333333",
+          "admissionEpoch": "4444444444444444444444444444444444444444444444444444444444444444",
+          "action": "orkworks.result.submit.v1",
+          "requestDigest": "494bba125e0263f6ec9008c678f2e2aa9d47ced8b066f9713f0b85df77fee287",
+          "authority": {
+            "kind": "producer",
+            "authorityGeneration": {
+              "kind": "parent-runtime",
+              "sidecarGeneration": "1111111111111111111111111111111111111111111111111111111111111111",
+              "generation": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            "assignment": 0
+          },
+          "precondition": {
+            "kind": "result-predecessor",
+            "predecessor": {
+              "kind": "revision",
+              "resultRevision": 31,
+              "resultDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        },
+        "record": {
+          "kind": "candidate",
+          "assignment": 0,
+          "candidateDigest": "c54fd8e25e95bbdf8bb8ee7e1786779cf7e71c3e9aee7ded4809a05a2cca4ba2"
+        }
+      },
+      "retryKey": {
+        "schemaVersion": 1,
+        "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "admissionEpoch": "4444444444444444444444444444444444444444444444444444444444444444",
+        "action": "orkworks.result.submit.v1",
+        "idempotencyKey": "idempotency-key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "kind": "producer-result",
+        "assignmentIdentity": {
+          "kind": "root",
+          "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807",
+          "rootAssignmentId": "target-root-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "parentSessionId": "target-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "bootstrapId": "target-bootstrap-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "bootstrapConfigurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "authorityGeneration": {
+          "kind": "parent-runtime",
+          "sidecarGeneration": "1111111111111111111111111111111111111111111111111111111111111111",
+          "generation": "2222222222222222222222222222222222222222222222222222222222222222"
+        }
+      },
+      "slotId": 310,
+      "expected": {
+        "proofDigest": "38f41192b251bc4fbd244cca1a8d8ca96644eba4c761fc08dfea8b47eae03bc5",
+        "retryKeyDigest": "ab0faa6f576ba4e577d7cf87ee0e779586b75d9259d9c88aeab76bd759272aab",
+        "parts": {
+          "proofKey": 122,
+          "proofValue": 2149,
+          "slotKey": 833,
+          "slotValue": 1426,
+          "lookupKey": 64,
+          "lookupValue": 262
+        },
+        "total": 4856,
+        "replyBytes": 456,
+        "proofBytes": 1844,
+        "proofRowDigest": "fbd2401093c1cc2613c8ff5d1ddfbc3e47e09b0b9cc1148ebd5e06d8cca1f474",
+        "slotRowDigest": "1397d6a65b35bcffced89dbfb337ea9bdbcf889ba18ecfc9fa9df90965d81c9b",
+        "lookupRowDigest": "87b2eed7ab9edaf8fc3f36f603819c0f3836cf4b34d75057554c6663dd2518da",
+        "remaining": 11528
+      }
+    },
+    {
+      "id": "child-candidate-initial",
+      "seedProofDigest": "4786165bf784e3f594f041e46262b56d4ee3ea065385a1ae409a1365fb569ce0",
+      "compactProof": {
+        "schemaVersion": 2,
+        "assignments": [
+          {
+            "kind": "child",
+            "workspaceId": "workspace",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-1",
+            "planId": "target-plan",
+            "planRevision": 1,
+            "taskId": "target-task",
+            "taskVersion": 1,
+            "reservationId": "target-reservation",
+            "parentSessionId": "target-parent",
+            "childSessionId": "target-child",
+            "configurationId": "target-config",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "decision": {
+          "claimIdentity": {
+            "sidecarGeneration": "1111111111111111111111111111111111111111111111111111111111111111",
+            "sequence": "3"
+          },
+          "storageEpoch": "3333333333333333333333333333333333333333333333333333333333333333",
+          "admissionEpoch": "4444444444444444444444444444444444444444444444444444444444444444",
+          "action": "orkworks.result.submit.v1",
+          "requestDigest": "0ad8b9264a8b02146daba467f4eb5e3f4671d6141b12da19a2f3e539e7f15393",
+          "authority": {
+            "kind": "producer",
+            "authorityGeneration": {
+              "kind": "child-launch",
+              "sidecarGeneration": "1111111111111111111111111111111111111111111111111111111111111111",
+              "generation": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            "assignment": 0
+          },
+          "precondition": {
+            "kind": "result-predecessor",
+            "predecessor": {
+              "kind": "no-head"
+            }
+          }
+        },
+        "record": {
+          "kind": "candidate",
+          "assignment": 0,
+          "candidateDigest": "38a9de1845c89737733ecfaed34403f33a53be5d7ebe77b1ffed6104ae0b02ba"
+        }
+      },
+      "retryKey": {
+        "schemaVersion": 1,
+        "workspaceId": "workspace",
+        "admissionEpoch": "4444444444444444444444444444444444444444444444444444444444444444",
+        "action": "orkworks.result.submit.v1",
+        "idempotencyKey": "idempotency-key",
+        "kind": "producer-result",
+        "assignmentIdentity": {
+          "kind": "child",
+          "workspaceId": "workspace",
+          "runId": "4444444444444444444444444444444444444444444444444444444444444444-1",
+          "planId": "target-plan",
+          "planRevision": 1,
+          "taskId": "target-task",
+          "taskVersion": 1,
+          "reservationId": "target-reservation",
+          "parentSessionId": "target-parent",
+          "childSessionId": "target-child",
+          "configurationId": "target-config",
+          "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "authorityGeneration": {
+          "kind": "child-launch",
+          "sidecarGeneration": "1111111111111111111111111111111111111111111111111111111111111111",
+          "generation": "2222222222222222222222222222222222222222222222222222222222222222"
+        }
+      },
+      "slotId": 0,
+      "expected": {
+        "proofDigest": "fcc409bee69061efe40fb962ed853f300ad761f851395b216fcaa600f560b72f",
+        "retryKeyDigest": "782e224d1c60c2dabade2fce7a87eff28fc4c810c52fed09fef7572df932e82a",
+        "parts": {
+          "proofKey": 103,
+          "proofValue": 1633,
+          "slotKey": 458,
+          "slotValue": 1221,
+          "lookupKey": 64,
+          "lookupValue": 241
+        },
+        "total": 3720,
+        "replyBytes": 343,
+        "proofBytes": 1347,
+        "proofRowDigest": "d4bd549a099fe210b00486331fdaf360d180da16eea282616f7de4622cc59311",
+        "slotRowDigest": "7cd4ea9339319998c985596852b4581bb5bbe804b214acf4dfb350c1bb60d9e0",
+        "lookupRowDigest": "af430fc88803c4e359ea82ebbfe7fe6622d494ebde93e24fab23dd6fbab474f7",
+        "remaining": 12664
+      }
+    },
+    {
+      "id": "child-candidate-correction-max",
+      "seedProofDigest": "b24196588210b1b55505230676a196a926b331142623def3761cb3c507523cc5",
+      "compactProof": {
+        "schemaVersion": 2,
+        "assignments": [
+          {
+            "kind": "child",
+            "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807",
+            "planId": "target-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "planRevision": 64,
+            "taskId": "target-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "taskVersion": 2147483647,
+            "reservationId": "target-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "parentSessionId": "target-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "childSessionId": "target-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationId": "target-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "decision": {
+          "claimIdentity": {
+            "sidecarGeneration": "1111111111111111111111111111111111111111111111111111111111111111",
+            "sequence": "18446744073709551615"
+          },
+          "storageEpoch": "3333333333333333333333333333333333333333333333333333333333333333",
+          "admissionEpoch": "4444444444444444444444444444444444444444444444444444444444444444",
+          "action": "orkworks.result.submit.v1",
+          "requestDigest": "e4ffba35053af07ff452c8a2e1426956f6770f1c4cce6c4eab1799471ccd3bef",
+          "authority": {
+            "kind": "producer",
+            "authorityGeneration": {
+              "kind": "child-launch",
+              "sidecarGeneration": "1111111111111111111111111111111111111111111111111111111111111111",
+              "generation": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            "assignment": 0
+          },
+          "precondition": {
+            "kind": "result-predecessor",
+            "predecessor": {
+              "kind": "revision",
+              "resultRevision": 31,
+              "resultDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        },
+        "record": {
+          "kind": "candidate",
+          "assignment": 0,
+          "candidateDigest": "7441747700805da2eca67fb0107a2038645c18217c0e715f16b6122aa007e3dd"
+        }
+      },
+      "retryKey": {
+        "schemaVersion": 1,
+        "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "admissionEpoch": "4444444444444444444444444444444444444444444444444444444444444444",
+        "action": "orkworks.result.submit.v1",
+        "idempotencyKey": "idempotency-key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "kind": "producer-result",
+        "assignmentIdentity": {
+          "kind": "child",
+          "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807",
+          "planId": "target-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "planRevision": 64,
+          "taskId": "target-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "taskVersion": 2147483647,
+          "reservationId": "target-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "parentSessionId": "target-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "childSessionId": "target-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "configurationId": "target-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "authorityGeneration": {
+          "kind": "child-launch",
+          "sidecarGeneration": "1111111111111111111111111111111111111111111111111111111111111111",
+          "generation": "2222222222222222222222222222222222222222222222222222222222222222"
+        }
+      },
+      "slotId": 310,
+      "expected": {
+        "proofDigest": "082af6997ba018cc5774d44c5dbfdb72aca27406d7b51dac26e8e06c06323655",
+        "retryKeyDigest": "77246f9a259268a58d37b89360846159f83ab477f3e9b3fda0dbf76a18796f53",
+        "parts": {
+          "proofKey": 122,
+          "proofValue": 2611,
+          "slotKey": 1297,
+          "slotValue": 1426,
+          "lookupKey": 64,
+          "lookupValue": 262
+        },
+        "total": 5782,
+        "replyBytes": 456,
+        "proofBytes": 2306,
+        "proofRowDigest": "064af522698f66f7bfee648ec42ccec1311704df4dd862b461ef072885df976d",
+        "slotRowDigest": "817419367c50c5e3cb29c874c3c90c50e1f55a31c23569c4dbe1ee940d97b7f0",
+        "lookupRowDigest": "2e7141ee2a39293263de6abca85af321c0158591fd231d0d2e5119a0c0e68d61",
+        "remaining": 10602
+      }
+    },
+    {
+      "id": "child-evaluation-initial",
+      "seedProofDigest": "53cc778146296d7beb96baea57e4b25cc1eeede1ad000caac774343a1c679f9b",
+      "compactProof": {
+        "schemaVersion": 2,
+        "assignments": [
+          {
+            "kind": "child",
+            "workspaceId": "workspace",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-1",
+            "planId": "target-plan",
+            "planRevision": 1,
+            "taskId": "target-task",
+            "taskVersion": 1,
+            "reservationId": "target-reservation",
+            "parentSessionId": "target-parent",
+            "childSessionId": "target-child",
+            "configurationId": "target-config",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "kind": "child",
+            "workspaceId": "workspace",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-2",
+            "planId": "reviewer-plan",
+            "planRevision": 1,
+            "taskId": "reviewer-task",
+            "taskVersion": 1,
+            "reservationId": "reviewer-reservation",
+            "parentSessionId": "reviewer-parent",
+            "childSessionId": "reviewer-child",
+            "configurationId": "reviewer-config",
+            "configurationDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        ],
+        "decision": {
+          "claimIdentity": {
+            "sidecarGeneration": "1111111111111111111111111111111111111111111111111111111111111111",
+            "sequence": "5"
+          },
+          "storageEpoch": "3333333333333333333333333333333333333333333333333333333333333333",
+          "admissionEpoch": "4444444444444444444444444444444444444444444444444444444444444444",
+          "action": "orkworks.evaluation.submit.v1",
+          "requestDigest": "9d12d10011423a0ac18d621b0ea71aa5230b3d87ef9585558c30b96800b312e2",
+          "authority": {
+            "kind": "producer",
+            "authorityGeneration": {
+              "kind": "child-launch",
+              "sidecarGeneration": "1111111111111111111111111111111111111111111111111111111111111111",
+              "generation": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            "assignment": 1
+          },
+          "precondition": {
+            "kind": "evaluation-predecessor",
+            "result": {
+              "assignment": 0,
+              "resultRevision": 1,
+              "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            },
+            "reviewerIdentity": {
+              "kind": "child",
+              "assignment": 1
+            },
+            "predecessor": {
+              "kind": "no-head"
+            }
+          }
+        },
+        "record": {
+          "kind": "evaluation",
+          "reference": {
+            "assignment": 0,
+            "resultRevision": 1,
+            "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "reviewerIdentity": {
+              "kind": "child",
+              "assignment": 1
+            },
+            "evaluationRevision": 1,
+            "evaluationDigest": "7785ade6b90dfd9792c9927707d2cec2cdb06504a2be0b660ede37f8b1f15905"
+          }
+        }
+      },
+      "retryKey": {
+        "schemaVersion": 1,
+        "workspaceId": "workspace",
+        "admissionEpoch": "4444444444444444444444444444444444444444444444444444444444444444",
+        "action": "orkworks.evaluation.submit.v1",
+        "idempotencyKey": "idempotency-key",
+        "kind": "producer-evaluation",
+        "reviewerAssignment": {
+          "kind": "child",
+          "workspaceId": "workspace",
+          "runId": "4444444444444444444444444444444444444444444444444444444444444444-2",
+          "planId": "reviewer-plan",
+          "planRevision": 1,
+          "taskId": "reviewer-task",
+          "taskVersion": 1,
+          "reservationId": "reviewer-reservation",
+          "parentSessionId": "reviewer-parent",
+          "childSessionId": "reviewer-child",
+          "configurationId": "reviewer-config",
+          "configurationDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "authorityGeneration": {
+          "kind": "child-launch",
+          "sidecarGeneration": "1111111111111111111111111111111111111111111111111111111111111111",
+          "generation": "2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        "target": {
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "workspace",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-1",
+            "planId": "target-plan",
+            "planRevision": 1,
+            "taskId": "target-task",
+            "taskVersion": 1,
+            "reservationId": "target-reservation",
+            "parentSessionId": "target-parent",
+            "childSessionId": "target-child",
+            "configurationId": "target-config",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "resultRevision": 1,
+          "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      },
+      "slotId": 320,
+      "expected": {
+        "proofDigest": "0f9f689379e972133cfc174f410be1153fde7a23b1228c5fa629ebadb47e2b19",
+        "retryKeyDigest": "691a56f016906f5fd3451acd913f33344e8d6ca36060b54fa51f4335fd12ca9f",
+        "parts": {
+          "proofKey": 103,
+          "proofValue": 2447,
+          "slotKey": 460,
+          "slotValue": 2038,
+          "lookupKey": 64,
+          "lookupValue": 243
+        },
+        "total": 5355,
+        "replyBytes": 959,
+        "proofBytes": 2161,
+        "proofRowDigest": "a44fb0c325534dfbb2fab09cca6fbd193e47f5dab970eeb29631d1e7f689df6d",
+        "slotRowDigest": "aac46f24d23da73ceb77df27d6f107443e230760c5f2afc79d7a6c0944b4e1d6",
+        "lookupRowDigest": "a6aacd6433153495b75440139ea7f4f16a7e4a52dc85d0ae5b49ffe9d1a43c9f",
+        "remaining": 11029
+      }
+    },
+    {
+      "id": "child-evaluation-correction",
+      "seedProofDigest": "a713b82c56c98aa37f7e989b08b904c90460ffe6ccc72ea3ef9d4165271f0361",
+      "compactProof": {
+        "schemaVersion": 2,
+        "assignments": [
+          {
+            "kind": "child",
+            "workspaceId": "workspace",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-1",
+            "planId": "target-plan",
+            "planRevision": 1,
+            "taskId": "target-task",
+            "taskVersion": 1,
+            "reservationId": "target-reservation",
+            "parentSessionId": "target-parent",
+            "childSessionId": "target-child",
+            "configurationId": "target-config",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "kind": "child",
+            "workspaceId": "workspace",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-2",
+            "planId": "reviewer-plan",
+            "planRevision": 1,
+            "taskId": "reviewer-task",
+            "taskVersion": 1,
+            "reservationId": "reviewer-reservation",
+            "parentSessionId": "reviewer-parent",
+            "childSessionId": "reviewer-child",
+            "configurationId": "reviewer-config",
+            "configurationDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        ],
+        "decision": {
+          "claimIdentity": {
+            "sidecarGeneration": "1111111111111111111111111111111111111111111111111111111111111111",
+            "sequence": "6"
+          },
+          "storageEpoch": "3333333333333333333333333333333333333333333333333333333333333333",
+          "admissionEpoch": "4444444444444444444444444444444444444444444444444444444444444444",
+          "action": "orkworks.evaluation.submit.v1",
+          "requestDigest": "0b250fbb385f59ed9446ccbac633b4c901c39f654ce97075b3ac68e3690aeddc",
+          "authority": {
+            "kind": "producer",
+            "authorityGeneration": {
+              "kind": "child-launch",
+              "sidecarGeneration": "1111111111111111111111111111111111111111111111111111111111111111",
+              "generation": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            "assignment": 1
+          },
+          "precondition": {
+            "kind": "evaluation-predecessor",
+            "result": {
+              "assignment": 0,
+              "resultRevision": 1,
+              "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            },
+            "reviewerIdentity": {
+              "kind": "child",
+              "assignment": 1
+            },
+            "predecessor": {
+              "kind": "revision",
+              "evaluationRevision": 1,
+              "evaluationDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        },
+        "record": {
+          "kind": "evaluation",
+          "reference": {
+            "assignment": 0,
+            "resultRevision": 1,
+            "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "reviewerIdentity": {
+              "kind": "child",
+              "assignment": 1
+            },
+            "evaluationRevision": 2,
+            "evaluationDigest": "f9d24d11a1169d0dfd62f9292e4cb530627f3823cec189c01d8ee35227bba4ba"
+          }
+        }
+      },
+      "retryKey": {
+        "schemaVersion": 1,
+        "workspaceId": "workspace",
+        "admissionEpoch": "4444444444444444444444444444444444444444444444444444444444444444",
+        "action": "orkworks.evaluation.submit.v1",
+        "idempotencyKey": "idempotency-key",
+        "kind": "producer-evaluation",
+        "reviewerAssignment": {
+          "kind": "child",
+          "workspaceId": "workspace",
+          "runId": "4444444444444444444444444444444444444444444444444444444444444444-2",
+          "planId": "reviewer-plan",
+          "planRevision": 1,
+          "taskId": "reviewer-task",
+          "taskVersion": 1,
+          "reservationId": "reviewer-reservation",
+          "parentSessionId": "reviewer-parent",
+          "childSessionId": "reviewer-child",
+          "configurationId": "reviewer-config",
+          "configurationDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "authorityGeneration": {
+          "kind": "child-launch",
+          "sidecarGeneration": "1111111111111111111111111111111111111111111111111111111111111111",
+          "generation": "2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        "target": {
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "workspace",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-1",
+            "planId": "target-plan",
+            "planRevision": 1,
+            "taskId": "target-task",
+            "taskVersion": 1,
+            "reservationId": "target-reservation",
+            "parentSessionId": "target-parent",
+            "childSessionId": "target-child",
+            "configurationId": "target-config",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "resultRevision": 1,
+          "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      },
+      "slotId": 322,
+      "expected": {
+        "proofDigest": "45b40306a493b8a55265481b4809b66e5d1e0623d8a6bf30eb8a00194a9f8823",
+        "retryKeyDigest": "691a56f016906f5fd3451acd913f33344e8d6ca36060b54fa51f4335fd12ca9f",
+        "parts": {
+          "proofKey": 103,
+          "proofValue": 2557,
+          "slotKey": 460,
+          "slotValue": 2038,
+          "lookupKey": 64,
+          "lookupValue": 243
+        },
+        "total": 5465,
+        "replyBytes": 959,
+        "proofBytes": 2271,
+        "proofRowDigest": "beef5924e1461cc1d76d982684e5e27fc67e9abd5917b9119a148b39d927a009",
+        "slotRowDigest": "f7e02062f9e1faaee0087f07cfb5ecd080d2a95edf64e0a813c6059b4adf6265",
+        "lookupRowDigest": "8f450239abd89984148a017f2e22bb896737f7acbd8bdcedf81023da164617a3",
+        "remaining": 10919
+      }
+    },
+    {
+      "id": "child-evaluation-correction-max",
+      "seedProofDigest": "3e230d19c8e10ee833b66ed04910eebf535619927cdc4fac1609547945c818dc",
+      "compactProof": {
+        "schemaVersion": 2,
+        "assignments": [
+          {
+            "kind": "child",
+            "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807",
+            "planId": "target-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "planRevision": 64,
+            "taskId": "target-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "taskVersion": 2147483647,
+            "reservationId": "target-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "parentSessionId": "target-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "childSessionId": "target-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationId": "target-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "kind": "child",
+            "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775806",
+            "planId": "reviewer-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "planRevision": 64,
+            "taskId": "reviewer-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "taskVersion": 2147483647,
+            "reservationId": "reviewer-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "parentSessionId": "reviewer-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "childSessionId": "reviewer-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationId": "reviewer-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        ],
+        "decision": {
+          "claimIdentity": {
+            "sidecarGeneration": "1111111111111111111111111111111111111111111111111111111111111111",
+            "sequence": "18446744073709551615"
+          },
+          "storageEpoch": "3333333333333333333333333333333333333333333333333333333333333333",
+          "admissionEpoch": "4444444444444444444444444444444444444444444444444444444444444444",
+          "action": "orkworks.evaluation.submit.v1",
+          "requestDigest": "6b7e590e3feafc41fc3401b3e81de6a40ec109c454517575d649a10b3d992d0c",
+          "authority": {
+            "kind": "producer",
+            "authorityGeneration": {
+              "kind": "child-launch",
+              "sidecarGeneration": "1111111111111111111111111111111111111111111111111111111111111111",
+              "generation": "2222222222222222222222222222222222222222222222222222222222222222"
+            },
+            "assignment": 1
+          },
+          "precondition": {
+            "kind": "evaluation-predecessor",
+            "result": {
+              "assignment": 0,
+              "resultRevision": 32,
+              "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            },
+            "reviewerIdentity": {
+              "kind": "child",
+              "assignment": 1
+            },
+            "predecessor": {
+              "kind": "revision",
+              "evaluationRevision": 11,
+              "evaluationDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        },
+        "record": {
+          "kind": "evaluation",
+          "reference": {
+            "assignment": 0,
+            "resultRevision": 32,
+            "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "reviewerIdentity": {
+              "kind": "child",
+              "assignment": 1
+            },
+            "evaluationRevision": 12,
+            "evaluationDigest": "54cdc01a6f51b3274a21c7fdbb8a72a399247072baa0492744ccdbd06d6ccdea"
+          }
+        }
+      },
+      "retryKey": {
+        "schemaVersion": 1,
+        "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "admissionEpoch": "4444444444444444444444444444444444444444444444444444444444444444",
+        "action": "orkworks.evaluation.submit.v1",
+        "idempotencyKey": "idempotency-key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "kind": "producer-evaluation",
+        "reviewerAssignment": {
+          "kind": "child",
+          "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775806",
+          "planId": "reviewer-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "planRevision": 64,
+          "taskId": "reviewer-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "taskVersion": 2147483647,
+          "reservationId": "reviewer-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "parentSessionId": "reviewer-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "childSessionId": "reviewer-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "configurationId": "reviewer-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "configurationDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "authorityGeneration": {
+          "kind": "child-launch",
+          "sidecarGeneration": "1111111111111111111111111111111111111111111111111111111111111111",
+          "generation": "2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        "target": {
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807",
+            "planId": "target-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "planRevision": 64,
+            "taskId": "target-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "taskVersion": 2147483647,
+            "reservationId": "target-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "parentSessionId": "target-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "childSessionId": "target-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationId": "target-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "resultRevision": 32,
+          "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      },
+      "slotId": 1086,
+      "expected": {
+        "proofDigest": "e79259406189aff98d81c85300041ca881603e532abb154d498e3536598f2e19",
+        "retryKeyDigest": "27b49d914456b2c4dc2723c6f02d6f7c566b7210dd74795dd9814b5a6d62acbf",
+        "parts": {
+          "proofKey": 122,
+          "proofValue": 4261,
+          "slotKey": 1298,
+          "slotValue": 3495,
+          "lookupKey": 64,
+          "lookupValue": 263
+        },
+        "total": 9503,
+        "replyBytes": 2009,
+        "proofBytes": 3956,
+        "proofRowDigest": "edee83704d416ea5a322ddf411a17d0c57a09eb08a03189b6fd10002b2535c07",
+        "slotRowDigest": "76228e9d7f0e5f4a5ad1590e9662b6ce18152230723c35c537f8d45c0db595df",
+        "lookupRowDigest": "b8de33053685453375d36e3b90ae25c16e3f16ed085bdf8abc9b7b8a272c41c7",
+        "remaining": 6881
+      }
+    },
+    {
+      "id": "user-create-empty-slot",
+      "seedProofDigest": "016fc897422ed5ac97f40ba197410b701382321094ffd02b7eefe6def5453a68",
+      "compactProof": {
+        "schemaVersion": 2,
+        "assignments": [
+          {
+            "kind": "child",
+            "workspaceId": "workspace",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-1",
+            "planId": "target-plan",
+            "planRevision": 1,
+            "taskId": "target-task",
+            "taskVersion": 1,
+            "reservationId": "target-reservation",
+            "parentSessionId": "target-parent",
+            "childSessionId": "target-child",
+            "configurationId": "target-config",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "decision": {
+          "claimIdentity": {
+            "sidecarGeneration": "1111111111111111111111111111111111111111111111111111111111111111",
+            "sequence": "8"
+          },
+          "storageEpoch": "3333333333333333333333333333333333333333333333333333333333333333",
+          "admissionEpoch": "4444444444444444444444444444444444444444444444444444444444444444",
+          "action": "orkworks.user-evaluation.create.v1",
+          "requestDigest": "554fab77e26cd6939fb185240be1968fda05bcaf570e93e45938fd90d5a10cd1",
+          "authority": {
+            "kind": "workspace-ui"
+          },
+          "precondition": {
+            "kind": "user-slot",
+            "result": {
+              "assignment": 0,
+              "resultRevision": 1,
+              "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            },
+            "expectedUserSlot": {
+              "kind": "no-head"
+            }
+          }
+        },
+        "record": {
+          "kind": "evaluation",
+          "reference": {
+            "assignment": 0,
+            "resultRevision": 1,
+            "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "reviewerIdentity": {
+              "kind": "user",
+              "userReviewId": "issued-user-stream"
+            },
+            "evaluationRevision": 1,
+            "evaluationDigest": "d7c6b6cdeb7f93fdfeb30d17889c03e5db8e6af363b77ffc9450536aea09aa61"
+          }
+        }
+      },
+      "retryKey": {
+        "schemaVersion": 1,
+        "workspaceId": "workspace",
+        "admissionEpoch": "4444444444444444444444444444444444444444444444444444444444444444",
+        "action": "orkworks.user-evaluation.create.v1",
+        "idempotencyKey": "idempotency-key",
+        "kind": "workspace-ui",
+        "subject": {
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "workspace",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-1",
+            "planId": "target-plan",
+            "planRevision": 1,
+            "taskId": "target-task",
+            "taskVersion": 1,
+            "reservationId": "target-reservation",
+            "parentSessionId": "target-parent",
+            "childSessionId": "target-child",
+            "configurationId": "target-config",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "resultRevision": 1,
+          "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      },
+      "slotId": 2,
+      "expected": {
+        "proofDigest": "b90fd68dbed5632c7e2017d76f4873c034b23c59ef37a0c3544a3e3923274799",
+        "retryKeyDigest": "d89e36361a9c402c8da9506d9fbb9ff460aa787312ad13e50d009de37a07397b",
+        "parts": {
+          "proofKey": 103,
+          "proofValue": 1752,
+          "slotKey": 458,
+          "slotValue": 1289,
+          "lookupKey": 64,
+          "lookupValue": 241
+        },
+        "total": 3907,
+        "replyBytes": 397,
+        "proofBytes": 1466,
+        "proofRowDigest": "1fd5e51bfd6d60e5c955e22a46a417ab2f02eaed094e23234a5cab3afa5b6eda",
+        "slotRowDigest": "d216a405b147da37e337a101cffc5708527c10fb75199a6453462e408876b2ce",
+        "lookupRowDigest": "c0c5f820a5af9e08cbeae4dcabc03bded0a0b7bdf2f2ff8e3f40f0096dafb2bc",
+        "remaining": 12477
+      }
+    },
+    {
+      "id": "user-create-replacement",
+      "seedProofDigest": "518d139fd73919de59f95b9f483e6a19288f75e9324acfb8b1e3aa8bf6769d7d",
+      "compactProof": {
+        "schemaVersion": 2,
+        "assignments": [
+          {
+            "kind": "child",
+            "workspaceId": "workspace",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-1",
+            "planId": "target-plan",
+            "planRevision": 1,
+            "taskId": "target-task",
+            "taskVersion": 1,
+            "reservationId": "target-reservation",
+            "parentSessionId": "target-parent",
+            "childSessionId": "target-child",
+            "configurationId": "target-config",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "decision": {
+          "claimIdentity": {
+            "sidecarGeneration": "1111111111111111111111111111111111111111111111111111111111111111",
+            "sequence": "9"
+          },
+          "storageEpoch": "3333333333333333333333333333333333333333333333333333333333333333",
+          "admissionEpoch": "4444444444444444444444444444444444444444444444444444444444444444",
+          "action": "orkworks.user-evaluation.create.v1",
+          "requestDigest": "5fb84b310eb9fd8f3a0c20554b0b01e16e2d08d42629eceffea7f96b119f3a21",
+          "authority": {
+            "kind": "workspace-ui"
+          },
+          "precondition": {
+            "kind": "user-slot",
+            "result": {
+              "assignment": 0,
+              "resultRevision": 1,
+              "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            },
+            "expectedUserSlot": {
+              "kind": "invalidated",
+              "userReviewId": "prior-user-stream",
+              "dispositionDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        },
+        "record": {
+          "kind": "evaluation",
+          "reference": {
+            "assignment": 0,
+            "resultRevision": 1,
+            "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "reviewerIdentity": {
+              "kind": "user",
+              "userReviewId": "issued-user-stream"
+            },
+            "evaluationRevision": 1,
+            "evaluationDigest": "d7c6b6cdeb7f93fdfeb30d17889c03e5db8e6af363b77ffc9450536aea09aa61"
+          }
+        }
+      },
+      "retryKey": {
+        "schemaVersion": 1,
+        "workspaceId": "workspace",
+        "admissionEpoch": "4444444444444444444444444444444444444444444444444444444444444444",
+        "action": "orkworks.user-evaluation.create.v1",
+        "idempotencyKey": "idempotency-key",
+        "kind": "workspace-ui",
+        "subject": {
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "workspace",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-1",
+            "planId": "target-plan",
+            "planRevision": 1,
+            "taskId": "target-task",
+            "taskVersion": 1,
+            "reservationId": "target-reservation",
+            "parentSessionId": "target-parent",
+            "childSessionId": "target-child",
+            "configurationId": "target-config",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "resultRevision": 1,
+          "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      },
+      "slotId": 2,
+      "expected": {
+        "proofDigest": "34cc0163a107a83d855f50c9f9e3811ac3ea81b1258eae3deff94151290cdc89",
+        "retryKeyDigest": "d89e36361a9c402c8da9506d9fbb9ff460aa787312ad13e50d009de37a07397b",
+        "parts": {
+          "proofKey": 103,
+          "proofValue": 1878,
+          "slotKey": 458,
+          "slotValue": 1289,
+          "lookupKey": 64,
+          "lookupValue": 241
+        },
+        "total": 4033,
+        "replyBytes": 397,
+        "proofBytes": 1592,
+        "proofRowDigest": "3db687552bafca1fb22e68038ed29ede3f83f4dcbff90180014d1d9e7bb34133",
+        "slotRowDigest": "35388971dbcbcdad7650f3f9a1acdec875ab2da3e03e1697d763894bb4a4799c",
+        "lookupRowDigest": "8730d41ebd3d4e4543c6d05abd475df312d3dc6856a37816525a49a8d8cf62ca",
+        "remaining": 12351
+      }
+    },
+    {
+      "id": "user-create-replacement-max",
+      "seedProofDigest": "25e824f36a4ca49845ac6bd50dfe76e07de75ac122e608e4a125bfdc4921941a",
+      "compactProof": {
+        "schemaVersion": 2,
+        "assignments": [
+          {
+            "kind": "child",
+            "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807",
+            "planId": "target-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "planRevision": 64,
+            "taskId": "target-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "taskVersion": 2147483647,
+            "reservationId": "target-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "parentSessionId": "target-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "childSessionId": "target-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationId": "target-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "decision": {
+          "claimIdentity": {
+            "sidecarGeneration": "1111111111111111111111111111111111111111111111111111111111111111",
+            "sequence": "18446744073709551615"
+          },
+          "storageEpoch": "3333333333333333333333333333333333333333333333333333333333333333",
+          "admissionEpoch": "4444444444444444444444444444444444444444444444444444444444444444",
+          "action": "orkworks.user-evaluation.create.v1",
+          "requestDigest": "d6157b258fe5078ec09e94cd81bf99496af104bbbbc9ce7b00ab34d61b875130",
+          "authority": {
+            "kind": "workspace-ui"
+          },
+          "precondition": {
+            "kind": "user-slot",
+            "result": {
+              "assignment": 0,
+              "resultRevision": 32,
+              "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            },
+            "expectedUserSlot": {
+              "kind": "invalidated",
+              "userReviewId": "prior-user-stream-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "dispositionDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        },
+        "record": {
+          "kind": "evaluation",
+          "reference": {
+            "assignment": 0,
+            "resultRevision": 32,
+            "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "reviewerIdentity": {
+              "kind": "user",
+              "userReviewId": "issued-user-stream-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            "evaluationRevision": 1,
+            "evaluationDigest": "a8e8ef2841df48a14ff3343a4ee2e051782ea98bd39b4d94cfe701909fe02a29"
+          }
+        }
+      },
+      "retryKey": {
+        "schemaVersion": 1,
+        "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "admissionEpoch": "4444444444444444444444444444444444444444444444444444444444444444",
+        "action": "orkworks.user-evaluation.create.v1",
+        "idempotencyKey": "idempotency-key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "kind": "workspace-ui",
+        "subject": {
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807",
+            "planId": "target-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "planRevision": 64,
+            "taskId": "target-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "taskVersion": 2147483647,
+            "reservationId": "target-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "parentSessionId": "target-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "childSessionId": "target-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationId": "target-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "resultRevision": 32,
+          "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      },
+      "slotId": 318,
+      "expected": {
+        "proofDigest": "169580a8bacacf87e565cc51181b368c22c18f1de63473b96737fe361e206be5",
+        "retryKeyDigest": "733d9def91c5b33f847d06c5a97f622a9a5f8a156f11d99ec1114af21ffb553b",
+        "parts": {
+          "proofKey": 122,
+          "proofValue": 2976,
+          "slotKey": 1297,
+          "slotValue": 1642,
+          "lookupKey": 64,
+          "lookupValue": 262
+        },
+        "total": 6363,
+        "replyBytes": 620,
+        "proofBytes": 2671,
+        "proofRowDigest": "70deced4135bb2f4651370fb069e907dae409fd945b7de45e59e30e1fb81a796",
+        "slotRowDigest": "066cacef76da870ac80df39c6633864c5ad92319dc5118b81e081e9df5e1bf8d",
+        "lookupRowDigest": "aece5171f23bcf9befd03ec3bf9ddb09e3457a4da8451e0cad07b6fbecc07f87",
+        "remaining": 10021
+      }
+    },
+    {
+      "id": "user-correction",
+      "seedProofDigest": "a23a82f19e5ca29014dcd02d7fefb851dc5e3d07a17a87ce71694fdac33a891b",
+      "compactProof": {
+        "schemaVersion": 2,
+        "assignments": [
+          {
+            "kind": "child",
+            "workspaceId": "workspace",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-1",
+            "planId": "target-plan",
+            "planRevision": 1,
+            "taskId": "target-task",
+            "taskVersion": 1,
+            "reservationId": "target-reservation",
+            "parentSessionId": "target-parent",
+            "childSessionId": "target-child",
+            "configurationId": "target-config",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "decision": {
+          "claimIdentity": {
+            "sidecarGeneration": "1111111111111111111111111111111111111111111111111111111111111111",
+            "sequence": "11"
+          },
+          "storageEpoch": "3333333333333333333333333333333333333333333333333333333333333333",
+          "admissionEpoch": "4444444444444444444444444444444444444444444444444444444444444444",
+          "action": "orkworks.user-evaluation.correct.v1",
+          "requestDigest": "50b436cad39eb53bc087ebbbd3ea84a104a5ad33934238bd045160d885f7b462",
+          "authority": {
+            "kind": "workspace-ui"
+          },
+          "precondition": {
+            "kind": "evaluation-predecessor",
+            "result": {
+              "assignment": 0,
+              "resultRevision": 1,
+              "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            },
+            "reviewerIdentity": {
+              "kind": "user",
+              "userReviewId": "issued-user-stream"
+            },
+            "predecessor": {
+              "kind": "revision",
+              "evaluationRevision": 1,
+              "evaluationDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        },
+        "record": {
+          "kind": "evaluation",
+          "reference": {
+            "assignment": 0,
+            "resultRevision": 1,
+            "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "reviewerIdentity": {
+              "kind": "user",
+              "userReviewId": "issued-user-stream"
+            },
+            "evaluationRevision": 2,
+            "evaluationDigest": "922c39c13ff12b7fefe831ed0bc5f7f354caf33358337e05e1a1926564922cab"
+          }
+        }
+      },
+      "retryKey": {
+        "schemaVersion": 1,
+        "workspaceId": "workspace",
+        "admissionEpoch": "4444444444444444444444444444444444444444444444444444444444444444",
+        "action": "orkworks.user-evaluation.correct.v1",
+        "idempotencyKey": "idempotency-key",
+        "kind": "workspace-ui",
+        "subject": {
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "workspace",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-1",
+            "planId": "target-plan",
+            "planRevision": 1,
+            "taskId": "target-task",
+            "taskVersion": 1,
+            "reservationId": "target-reservation",
+            "parentSessionId": "target-parent",
+            "childSessionId": "target-child",
+            "configurationId": "target-config",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "resultRevision": 1,
+          "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      },
+      "slotId": 4,
+      "expected": {
+        "proofDigest": "e1e99ed416e5b32b15da35699a35f7fd3e31f0d4cca3e97eaa7f8c1bc12092f0",
+        "retryKeyDigest": "a992cd9910d26732fcc2f45ffefacd106867fcef376ea146a5d7960e984f299d",
+        "parts": {
+          "proofKey": 104,
+          "proofValue": 1943,
+          "slotKey": 458,
+          "slotValue": 1290,
+          "lookupKey": 64,
+          "lookupValue": 242
+        },
+        "total": 4101,
+        "replyBytes": 398,
+        "proofBytes": 1657,
+        "proofRowDigest": "1f6da62752c87053b70cb92bbea40d8f06a24aa2b770796cd14eb72c4ed6b718",
+        "slotRowDigest": "05e9a281bfba0478bfd71a2dfe3c5d16ccf55632222e1963f3c11973986f15e7",
+        "lookupRowDigest": "4562b1e14cfbe66c16c1a997a4c0ce3860adf858c6fa3c4fd236dd5fe1aa9ef0",
+        "remaining": 12283
+      }
+    },
+    {
+      "id": "user-correction-max",
+      "seedProofDigest": "73b3a85b19028ec3a5508aaf04ee36b2024da2dace67e593b9bd59aa9c966702",
+      "compactProof": {
+        "schemaVersion": 2,
+        "assignments": [
+          {
+            "kind": "child",
+            "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807",
+            "planId": "target-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "planRevision": 64,
+            "taskId": "target-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "taskVersion": 2147483647,
+            "reservationId": "target-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "parentSessionId": "target-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "childSessionId": "target-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationId": "target-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "decision": {
+          "claimIdentity": {
+            "sidecarGeneration": "1111111111111111111111111111111111111111111111111111111111111111",
+            "sequence": "18446744073709551615"
+          },
+          "storageEpoch": "3333333333333333333333333333333333333333333333333333333333333333",
+          "admissionEpoch": "4444444444444444444444444444444444444444444444444444444444444444",
+          "action": "orkworks.user-evaluation.correct.v1",
+          "requestDigest": "29113699d4d6a77f820d0ceb559885c4155108525f5e770efa57689bc50d996f",
+          "authority": {
+            "kind": "workspace-ui"
+          },
+          "precondition": {
+            "kind": "evaluation-predecessor",
+            "result": {
+              "assignment": 0,
+              "resultRevision": 32,
+              "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            },
+            "reviewerIdentity": {
+              "kind": "user",
+              "userReviewId": "issued-user-stream-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            "predecessor": {
+              "kind": "revision",
+              "evaluationRevision": 1,
+              "evaluationDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        },
+        "record": {
+          "kind": "evaluation",
+          "reference": {
+            "assignment": 0,
+            "resultRevision": 32,
+            "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "reviewerIdentity": {
+              "kind": "user",
+              "userReviewId": "issued-user-stream-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            "evaluationRevision": 2,
+            "evaluationDigest": "0368457b93370152b4dbcef8fb675af26ae3165de6da3417782695b9b43f72c7"
+          }
+        }
+      },
+      "retryKey": {
+        "schemaVersion": 1,
+        "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "admissionEpoch": "4444444444444444444444444444444444444444444444444444444444444444",
+        "action": "orkworks.user-evaluation.correct.v1",
+        "idempotencyKey": "idempotency-key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "kind": "workspace-ui",
+        "subject": {
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807",
+            "planId": "target-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "planRevision": 64,
+            "taskId": "target-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "taskVersion": 2147483647,
+            "reservationId": "target-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "parentSessionId": "target-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "childSessionId": "target-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationId": "target-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "resultRevision": 32,
+          "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      },
+      "slotId": 318,
+      "expected": {
+        "proofDigest": "203cf00ba94aa44a3b4e861a79a328fecc48e2e5c33906288cb3cad05200ecf6",
+        "retryKeyDigest": "7a4c1a4e5e4f0884b8577bf24bfa4f6150660e841bd587422339d3a9547de482",
+        "parts": {
+          "proofKey": 122,
+          "proofValue": 3039,
+          "slotKey": 1297,
+          "slotValue": 1642,
+          "lookupKey": 64,
+          "lookupValue": 262
+        },
+        "total": 6426,
+        "replyBytes": 621,
+        "proofBytes": 2734,
+        "proofRowDigest": "026d6109df2449dda21e551a200fb0da2a5879e24a64aaa918377af76e7ba10b",
+        "slotRowDigest": "b9db7f58b763c9ba9e825ae24b122f63836c69b515afcb1609b372e2eee01d00",
+        "lookupRowDigest": "0d601ab3541273a6cb7a45273f1b66cc1aa28be5b1818e365f90c269f6df766a",
+        "remaining": 9958
+      }
+    },
+    {
+      "id": "user-invalidation",
+      "seedProofDigest": "815bff982ecc359b003f3a1c43df2fb7eafcb8f26b759e8fb7e84423272faccc",
+      "compactProof": {
+        "schemaVersion": 2,
+        "assignments": [
+          {
+            "kind": "child",
+            "workspaceId": "workspace",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-1",
+            "planId": "target-plan",
+            "planRevision": 1,
+            "taskId": "target-task",
+            "taskVersion": 1,
+            "reservationId": "target-reservation",
+            "parentSessionId": "target-parent",
+            "childSessionId": "target-child",
+            "configurationId": "target-config",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "decision": {
+          "claimIdentity": {
+            "sidecarGeneration": "1111111111111111111111111111111111111111111111111111111111111111",
+            "sequence": "13"
+          },
+          "storageEpoch": "3333333333333333333333333333333333333333333333333333333333333333",
+          "admissionEpoch": "4444444444444444444444444444444444444444444444444444444444444444",
+          "action": "orkworks.user-evaluation.invalidate.v1",
+          "requestDigest": "624d8d5deb8c0e77e465713530bdb659d69d9e5f52b71673b3ebdd465ff18de0",
+          "authority": {
+            "kind": "workspace-ui"
+          },
+          "precondition": {
+            "kind": "evaluation-head",
+            "evaluation": {
+              "assignment": 0,
+              "resultRevision": 1,
+              "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "reviewerIdentity": {
+                "kind": "user",
+                "userReviewId": "issued-user-stream"
+              },
+              "evaluationRevision": 2,
+              "evaluationDigest": "922c39c13ff12b7fefe831ed0bc5f7f354caf33358337e05e1a1926564922cab"
+            }
+          }
+        },
+        "record": {
+          "kind": "disposition",
+          "evaluation": {
+            "assignment": 0,
+            "resultRevision": 1,
+            "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "reviewerIdentity": {
+              "kind": "user",
+              "userReviewId": "issued-user-stream"
+            },
+            "evaluationRevision": 2,
+            "evaluationDigest": "922c39c13ff12b7fefe831ed0bc5f7f354caf33358337e05e1a1926564922cab"
+          },
+          "dispositionRevision": 1,
+          "dispositionDigest": "e69a09f77fffc1d10eea4e20edc09b78c294bcc5ff03e615dffba2e89f68b028"
+        }
+      },
+      "retryKey": {
+        "schemaVersion": 1,
+        "workspaceId": "workspace",
+        "admissionEpoch": "4444444444444444444444444444444444444444444444444444444444444444",
+        "action": "orkworks.user-evaluation.invalidate.v1",
+        "idempotencyKey": "idempotency-key",
+        "kind": "workspace-ui",
+        "subject": {
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "workspace",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-1",
+            "planId": "target-plan",
+            "planRevision": 1,
+            "taskId": "target-task",
+            "taskVersion": 1,
+            "reservationId": "target-reservation",
+            "parentSessionId": "target-parent",
+            "childSessionId": "target-child",
+            "configurationId": "target-config",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "resultRevision": 1,
+          "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      },
+      "slotId": 3,
+      "expected": {
+        "proofDigest": "45fb6c16cad836cc90fbcd87fcac4fafdeae8422c8980199c4ce070d9b045bef",
+        "retryKeyDigest": "986be26b9f79c76c2089951d2701d06559f146b652711e8753fb4deb451aa2ef",
+        "parts": {
+          "proofKey": 104,
+          "proofValue": 2022,
+          "slotKey": 458,
+          "slotValue": 1296,
+          "lookupKey": 64,
+          "lookupValue": 242
+        },
+        "total": 4186,
+        "replyBytes": 402,
+        "proofBytes": 1736,
+        "proofRowDigest": "21b5b16ff4e386d90178b20a9c5408c5e4b29801751385bfca46a7a41315d957",
+        "slotRowDigest": "c0585cbf45b02995514cbb0840cdee3883548d55b63a6ece2bcd4b6480b97dae",
+        "lookupRowDigest": "9eb4833e1dbb2d010a58814b7956281337cc5eb7cae1758475b1e8b5e1f63de5",
+        "remaining": 12198
+      }
+    },
+    {
+      "id": "user-invalidation-max",
+      "seedProofDigest": "93cfe502933dd1512917bd9cfb37ebde38eb0b00b5beb74543a2374f80885b25",
+      "compactProof": {
+        "schemaVersion": 2,
+        "assignments": [
+          {
+            "kind": "child",
+            "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807",
+            "planId": "target-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "planRevision": 64,
+            "taskId": "target-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "taskVersion": 2147483647,
+            "reservationId": "target-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "parentSessionId": "target-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "childSessionId": "target-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationId": "target-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "decision": {
+          "claimIdentity": {
+            "sidecarGeneration": "1111111111111111111111111111111111111111111111111111111111111111",
+            "sequence": "18446744073709551615"
+          },
+          "storageEpoch": "3333333333333333333333333333333333333333333333333333333333333333",
+          "admissionEpoch": "4444444444444444444444444444444444444444444444444444444444444444",
+          "action": "orkworks.user-evaluation.invalidate.v1",
+          "requestDigest": "b5532b27b6ed121a9ed523f600de0e43a7c73b80943ebaabb23de32c05bb4016",
+          "authority": {
+            "kind": "workspace-ui"
+          },
+          "precondition": {
+            "kind": "evaluation-head",
+            "evaluation": {
+              "assignment": 0,
+              "resultRevision": 32,
+              "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "reviewerIdentity": {
+                "kind": "user",
+                "userReviewId": "issued-user-stream-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              },
+              "evaluationRevision": 2,
+              "evaluationDigest": "0368457b93370152b4dbcef8fb675af26ae3165de6da3417782695b9b43f72c7"
+            }
+          }
+        },
+        "record": {
+          "kind": "disposition",
+          "evaluation": {
+            "assignment": 0,
+            "resultRevision": 32,
+            "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "reviewerIdentity": {
+              "kind": "user",
+              "userReviewId": "issued-user-stream-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            "evaluationRevision": 2,
+            "evaluationDigest": "0368457b93370152b4dbcef8fb675af26ae3165de6da3417782695b9b43f72c7"
+          },
+          "dispositionRevision": 1,
+          "dispositionDigest": "15916a6379909c1fc6cd61792ccbc784bd32e0a8a6d80c81150775d3fc31b5f7"
+        }
+      },
+      "retryKey": {
+        "schemaVersion": 1,
+        "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "admissionEpoch": "4444444444444444444444444444444444444444444444444444444444444444",
+        "action": "orkworks.user-evaluation.invalidate.v1",
+        "idempotencyKey": "idempotency-key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "kind": "workspace-ui",
+        "subject": {
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807",
+            "planId": "target-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "planRevision": 64,
+            "taskId": "target-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "taskVersion": 2147483647,
+            "reservationId": "target-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "parentSessionId": "target-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "childSessionId": "target-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationId": "target-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "resultRevision": 32,
+          "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      },
+      "slotId": 317,
+      "expected": {
+        "proofDigest": "04e788d2645c5e19076e4412bf74aa0956d83b25ab44a2d49b1f281ba7e143b7",
+        "retryKeyDigest": "eb3dc4ab678a309f27664f10fa804896c6d6e3fe856dcb6d0fc8a835a3d6efe5",
+        "parts": {
+          "proofKey": 122,
+          "proofValue": 3118,
+          "slotKey": 1297,
+          "slotValue": 1652,
+          "lookupKey": 64,
+          "lookupValue": 262
+        },
+        "total": 6515,
+        "replyBytes": 625,
+        "proofBytes": 2813,
+        "proofRowDigest": "ce04581167a766b6b1b9cd96de61c50a51addfe122693692827cc5be2e47e051",
+        "slotRowDigest": "11f20f268415ab88babecc756cb3c57b9b376ac019479475581a24ca6204b50c",
+        "lookupRowDigest": "c681e85a4a6e837a1caec508e13c9c7cf42a02bfe08427b438f940c1181562ca",
+        "remaining": 9869
+      }
+    },
+    {
+      "id": "child-stream-invalidation",
+      "seedProofDigest": "93d0d24999f8cb9ee3993ee6053b63d29f371931f592649f95753767f16d2fb2",
+      "compactProof": {
+        "schemaVersion": 2,
+        "assignments": [
+          {
+            "kind": "child",
+            "workspaceId": "workspace",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-1",
+            "planId": "target-plan",
+            "planRevision": 1,
+            "taskId": "target-task",
+            "taskVersion": 1,
+            "reservationId": "target-reservation",
+            "parentSessionId": "target-parent",
+            "childSessionId": "target-child",
+            "configurationId": "target-config",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "kind": "child",
+            "workspaceId": "workspace",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-2",
+            "planId": "reviewer-plan",
+            "planRevision": 1,
+            "taskId": "reviewer-task",
+            "taskVersion": 1,
+            "reservationId": "reviewer-reservation",
+            "parentSessionId": "reviewer-parent",
+            "childSessionId": "reviewer-child",
+            "configurationId": "reviewer-config",
+            "configurationDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        ],
+        "decision": {
+          "claimIdentity": {
+            "sidecarGeneration": "1111111111111111111111111111111111111111111111111111111111111111",
+            "sequence": "15"
+          },
+          "storageEpoch": "3333333333333333333333333333333333333333333333333333333333333333",
+          "admissionEpoch": "4444444444444444444444444444444444444444444444444444444444444444",
+          "action": "orkworks.user-evaluation.invalidate.v1",
+          "requestDigest": "77ad12faa3aebb238a9405e987e0894408e5eba5ccacd215c14b15ba571b7fbf",
+          "authority": {
+            "kind": "workspace-ui"
+          },
+          "precondition": {
+            "kind": "evaluation-head",
+            "evaluation": {
+              "assignment": 0,
+              "resultRevision": 1,
+              "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "reviewerIdentity": {
+                "kind": "child",
+                "assignment": 1
+              },
+              "evaluationRevision": 2,
+              "evaluationDigest": "f9d24d11a1169d0dfd62f9292e4cb530627f3823cec189c01d8ee35227bba4ba"
+            }
+          }
+        },
+        "record": {
+          "kind": "disposition",
+          "evaluation": {
+            "assignment": 0,
+            "resultRevision": 1,
+            "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "reviewerIdentity": {
+              "kind": "child",
+              "assignment": 1
+            },
+            "evaluationRevision": 2,
+            "evaluationDigest": "f9d24d11a1169d0dfd62f9292e4cb530627f3823cec189c01d8ee35227bba4ba"
+          },
+          "dispositionRevision": 1,
+          "dispositionDigest": "263a31d635b302f1330bb1d5bcf1499d8391e9d09900f7d25a541175ed0f92bc"
+        }
+      },
+      "retryKey": {
+        "schemaVersion": 1,
+        "workspaceId": "workspace",
+        "admissionEpoch": "4444444444444444444444444444444444444444444444444444444444444444",
+        "action": "orkworks.user-evaluation.invalidate.v1",
+        "idempotencyKey": "idempotency-key",
+        "kind": "workspace-ui",
+        "subject": {
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "workspace",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-1",
+            "planId": "target-plan",
+            "planRevision": 1,
+            "taskId": "target-task",
+            "taskVersion": 1,
+            "reservationId": "target-reservation",
+            "parentSessionId": "target-parent",
+            "childSessionId": "target-child",
+            "configurationId": "target-config",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "resultRevision": 1,
+          "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      },
+      "slotId": 321,
+      "expected": {
+        "proofDigest": "ea7e191161c1bebfd63fa5c32d0ac5cbbd848b0862d08fa95a10673d481723c9",
+        "retryKeyDigest": "986be26b9f79c76c2089951d2701d06559f146b652711e8753fb4deb451aa2ef",
+        "parts": {
+          "proofKey": 104,
+          "proofValue": 2419,
+          "slotKey": 460,
+          "slotValue": 1861,
+          "lookupKey": 64,
+          "lookupValue": 244
+        },
+        "total": 5152,
+        "replyBytes": 825,
+        "proofBytes": 2133,
+        "proofRowDigest": "e0b2f7566f39c22ca387cabbb1b47a74fda2a0175945e56dec871502b241b56a",
+        "slotRowDigest": "1aa9dfb9af0b93cd4be0b652de0b6cf75e6eaaf055bcfacecb827476b8ad7c38",
+        "lookupRowDigest": "67cb49782dc3bd141943cb861eef184cedd06b20b3bc553039dc1e7d235be6e8",
+        "remaining": 11232
+      }
+    },
+    {
+      "id": "child-stream-invalidation-max",
+      "seedProofDigest": "90b25f7dbfbc11449159029776782b05c17830c960305341dc7cbb56cb0d5170",
+      "compactProof": {
+        "schemaVersion": 2,
+        "assignments": [
+          {
+            "kind": "child",
+            "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807",
+            "planId": "target-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "planRevision": 64,
+            "taskId": "target-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "taskVersion": 2147483647,
+            "reservationId": "target-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "parentSessionId": "target-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "childSessionId": "target-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationId": "target-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "kind": "child",
+            "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775806",
+            "planId": "reviewer-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "planRevision": 64,
+            "taskId": "reviewer-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "taskVersion": 2147483647,
+            "reservationId": "reviewer-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "parentSessionId": "reviewer-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "childSessionId": "reviewer-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationId": "reviewer-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        ],
+        "decision": {
+          "claimIdentity": {
+            "sidecarGeneration": "1111111111111111111111111111111111111111111111111111111111111111",
+            "sequence": "18446744073709551615"
+          },
+          "storageEpoch": "3333333333333333333333333333333333333333333333333333333333333333",
+          "admissionEpoch": "4444444444444444444444444444444444444444444444444444444444444444",
+          "action": "orkworks.user-evaluation.invalidate.v1",
+          "requestDigest": "07fff7dd695c9e9c88b27be759b38c2ba0f28251203f2976c7f8f667d9008384",
+          "authority": {
+            "kind": "workspace-ui"
+          },
+          "precondition": {
+            "kind": "evaluation-head",
+            "evaluation": {
+              "assignment": 0,
+              "resultRevision": 32,
+              "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "reviewerIdentity": {
+                "kind": "child",
+                "assignment": 1
+              },
+              "evaluationRevision": 12,
+              "evaluationDigest": "54cdc01a6f51b3274a21c7fdbb8a72a399247072baa0492744ccdbd06d6ccdea"
+            }
+          }
+        },
+        "record": {
+          "kind": "disposition",
+          "evaluation": {
+            "assignment": 0,
+            "resultRevision": 32,
+            "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "reviewerIdentity": {
+              "kind": "child",
+              "assignment": 1
+            },
+            "evaluationRevision": 12,
+            "evaluationDigest": "54cdc01a6f51b3274a21c7fdbb8a72a399247072baa0492744ccdbd06d6ccdea"
+          },
+          "dispositionRevision": 1,
+          "dispositionDigest": "66ebb7caca4801e709b07d7783506d07027e626b8440676cb0624a1952e159db"
+        }
+      },
+      "retryKey": {
+        "schemaVersion": 1,
+        "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "admissionEpoch": "4444444444444444444444444444444444444444444444444444444444444444",
+        "action": "orkworks.user-evaluation.invalidate.v1",
+        "idempotencyKey": "idempotency-key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "kind": "workspace-ui",
+        "subject": {
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807",
+            "planId": "target-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "planRevision": 64,
+            "taskId": "target-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "taskVersion": 2147483647,
+            "reservationId": "target-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "parentSessionId": "target-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "childSessionId": "target-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationId": "target-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "resultRevision": 32,
+          "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      },
+      "slotId": 1065,
+      "expected": {
+        "proofDigest": "31be938b786dbee5720bd48c65b3f7659da94b3291bb311188ab9ee538db84f4",
+        "retryKeyDigest": "eb3dc4ab678a309f27664f10fa804896c6d6e3fe856dcb6d0fc8a835a3d6efe5",
+        "parts": {
+          "proofKey": 122,
+          "proofValue": 4122,
+          "slotKey": 1298,
+          "slotValue": 3169,
+          "lookupKey": 64,
+          "lookupValue": 263
+        },
+        "total": 9038,
+        "replyBytes": 1763,
+        "proofBytes": 3817,
+        "proofRowDigest": "15550e59c28320a18780f9525a2b16489d6a9ba749ec3ada756eb1144d52c4c8",
+        "slotRowDigest": "12de6580968da153ac0005e3ba6fc1f2f520683488f54c0612aff7992d3f58af",
+        "lookupRowDigest": "3bf0a405f067782d9d09c41ad24765d20a4eafc8a4c7d18c1297887dc3d53e9e",
+        "remaining": 7346
+      }
+    }
+  ],
+  "widthBounds": [
+    {
+      "seedVector": "root-candidate-correction-max",
+      "classification": "field-width upper-bound construction; not an admitted ledger/artifact state",
+      "slotId": 1087,
+      "wireReceipt": {
+        "schemaVersion": 1,
+        "action": "orkworks.result.submit.v1",
+        "idempotencyKey": "idempotency-key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "requestDigest": "494bba125e0263f6ec9008c678f2e2aa9d47ced8b066f9713f0b85df77fee287",
+        "recordKind": "candidate",
+        "recordDigest": "c54fd8e25e95bbdf8bb8ee7e1786779cf7e71c3e9aee7ded4809a05a2cca4ba2",
+        "reviewerIdentity": null,
+        "recordRevision": null,
+        "artifact": null
+      },
+      "expected": {
+        "parts": {
+          "proofKey": 122,
+          "proofValue": 2149,
+          "slotKey": 834,
+          "slotValue": 1426,
+          "lookupKey": 64,
+          "lookupValue": 263
+        },
+        "total": 4858,
+        "remaining": 11526,
+        "replyBytes": 456
+      }
+    },
+    {
+      "seedVector": "child-candidate-correction-max",
+      "classification": "field-width upper-bound construction; not an admitted ledger/artifact state",
+      "slotId": 1087,
+      "wireReceipt": {
+        "schemaVersion": 1,
+        "action": "orkworks.result.submit.v1",
+        "idempotencyKey": "idempotency-key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "requestDigest": "e4ffba35053af07ff452c8a2e1426956f6770f1c4cce6c4eab1799471ccd3bef",
+        "recordKind": "candidate",
+        "recordDigest": "7441747700805da2eca67fb0107a2038645c18217c0e715f16b6122aa007e3dd",
+        "reviewerIdentity": null,
+        "recordRevision": null,
+        "artifact": null
+      },
+      "expected": {
+        "parts": {
+          "proofKey": 122,
+          "proofValue": 2611,
+          "slotKey": 1298,
+          "slotValue": 1426,
+          "lookupKey": 64,
+          "lookupValue": 263
+        },
+        "total": 5784,
+        "remaining": 10600,
+        "replyBytes": 456
+      }
+    },
+    {
+      "seedVector": "child-evaluation-correction-max",
+      "classification": "field-width upper-bound construction; not an admitted ledger/artifact state",
+      "slotId": 1087,
+      "wireReceipt": {
+        "schemaVersion": 1,
+        "action": "orkworks.evaluation.submit.v1",
+        "idempotencyKey": "idempotency-key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "requestDigest": "6b7e590e3feafc41fc3401b3e81de6a40ec109c454517575d649a10b3d992d0c",
+        "recordKind": "evaluation",
+        "recordDigest": "54cdc01a6f51b3274a21c7fdbb8a72a399247072baa0492744ccdbd06d6ccdea",
+        "reviewerIdentity": {
+          "kind": "child",
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775806",
+            "planId": "reviewer-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "planRevision": 64,
+            "taskId": "reviewer-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "taskVersion": 2147483647,
+            "reservationId": "reviewer-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "parentSessionId": "reviewer-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "childSessionId": "reviewer-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationId": "reviewer-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        },
+        "recordRevision": 12,
+        "artifact": {
+          "artifactId": "evaluation-artifact-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "version": 12,
+          "sizeBytes": 524288,
+          "contentDigest": "3889cc76c08a48957534866b8a433038869fdbe35f03266e767d884e5c35a241"
+        }
+      },
+      "expected": {
+        "parts": {
+          "proofKey": 122,
+          "proofValue": 4261,
+          "slotKey": 1298,
+          "slotValue": 3495,
+          "lookupKey": 64,
+          "lookupValue": 263
+        },
+        "total": 9503,
+        "remaining": 6881,
+        "replyBytes": 2010
+      }
+    },
+    {
+      "seedVector": "user-create-replacement-max",
+      "classification": "field-width upper-bound construction; not an admitted ledger/artifact state",
+      "slotId": 1087,
+      "wireReceipt": {
+        "schemaVersion": 1,
+        "action": "orkworks.user-evaluation.create.v1",
+        "idempotencyKey": "idempotency-key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "requestDigest": "d6157b258fe5078ec09e94cd81bf99496af104bbbbc9ce7b00ab34d61b875130",
+        "recordKind": "evaluation",
+        "recordDigest": "a8e8ef2841df48a14ff3343a4ee2e051782ea98bd39b4d94cfe701909fe02a29",
+        "reviewerIdentity": {
+          "kind": "user",
+          "userReviewId": "issued-user-stream-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        },
+        "recordRevision": 1,
+        "artifact": null
+      },
+      "expected": {
+        "parts": {
+          "proofKey": 122,
+          "proofValue": 2976,
+          "slotKey": 1298,
+          "slotValue": 1642,
+          "lookupKey": 64,
+          "lookupValue": 263
+        },
+        "total": 6365,
+        "remaining": 10019,
+        "replyBytes": 620
+      }
+    },
+    {
+      "seedVector": "user-correction-max",
+      "classification": "field-width upper-bound construction; not an admitted ledger/artifact state",
+      "slotId": 1087,
+      "wireReceipt": {
+        "schemaVersion": 1,
+        "action": "orkworks.user-evaluation.correct.v1",
+        "idempotencyKey": "idempotency-key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "requestDigest": "29113699d4d6a77f820d0ceb559885c4155108525f5e770efa57689bc50d996f",
+        "recordKind": "evaluation",
+        "recordDigest": "0368457b93370152b4dbcef8fb675af26ae3165de6da3417782695b9b43f72c7",
+        "reviewerIdentity": {
+          "kind": "user",
+          "userReviewId": "issued-user-stream-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        },
+        "recordRevision": 2,
+        "artifact": null
+      },
+      "expected": {
+        "parts": {
+          "proofKey": 122,
+          "proofValue": 3039,
+          "slotKey": 1298,
+          "slotValue": 1642,
+          "lookupKey": 64,
+          "lookupValue": 263
+        },
+        "total": 6428,
+        "remaining": 9956,
+        "replyBytes": 621
+      }
+    },
+    {
+      "seedVector": "user-invalidation-max",
+      "classification": "field-width upper-bound construction; not an admitted ledger/artifact state",
+      "slotId": 1087,
+      "wireReceipt": {
+        "schemaVersion": 1,
+        "action": "orkworks.user-evaluation.invalidate.v1",
+        "idempotencyKey": "idempotency-key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "requestDigest": "b5532b27b6ed121a9ed523f600de0e43a7c73b80943ebaabb23de32c05bb4016",
+        "recordKind": "disposition",
+        "recordDigest": "15916a6379909c1fc6cd61792ccbc784bd32e0a8a6d80c81150775d3fc31b5f7",
+        "reviewerIdentity": {
+          "kind": "user",
+          "userReviewId": "issued-user-stream-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        },
+        "recordRevision": 1,
+        "artifact": null
+      },
+      "expected": {
+        "parts": {
+          "proofKey": 122,
+          "proofValue": 3118,
+          "slotKey": 1298,
+          "slotValue": 1652,
+          "lookupKey": 64,
+          "lookupValue": 263
+        },
+        "total": 6517,
+        "remaining": 9867,
+        "replyBytes": 625
+      }
+    },
+    {
+      "seedVector": "child-stream-invalidation-max",
+      "classification": "field-width upper-bound construction; not an admitted ledger/artifact state",
+      "slotId": 1087,
+      "wireReceipt": {
+        "schemaVersion": 1,
+        "action": "orkworks.user-evaluation.invalidate.v1",
+        "idempotencyKey": "idempotency-key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "requestDigest": "07fff7dd695c9e9c88b27be759b38c2ba0f28251203f2976c7f8f667d9008384",
+        "recordKind": "disposition",
+        "recordDigest": "66ebb7caca4801e709b07d7783506d07027e626b8440676cb0624a1952e159db",
+        "reviewerIdentity": {
+          "kind": "child",
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775806",
+            "planId": "reviewer-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "planRevision": 64,
+            "taskId": "reviewer-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "taskVersion": 2147483647,
+            "reservationId": "reviewer-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "parentSessionId": "reviewer-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "childSessionId": "reviewer-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationId": "reviewer-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        },
+        "recordRevision": 1,
+        "artifact": null
+      },
+      "expected": {
+        "parts": {
+          "proofKey": 122,
+          "proofValue": 4122,
+          "slotKey": 1298,
+          "slotValue": 3169,
+          "lookupKey": 64,
+          "lookupValue": 263
+        },
+        "total": 9038,
+        "remaining": 7346,
+        "replyBytes": 1763
+      }
+    }
+  ],
+  "initializationManifest": {
+    "schemaVersion": 3,
+    "workspaceId": "w",
+    "storageEpoch": "0000000000000000000000000000000000000000000000000000000000000000",
+    "commitSequence": "1",
+    "predecessor": null,
+    "commandKind": "initialize-store",
+    "claim": null,
+    "changes": []
+  },
+  "initializationDigest": "653c8ee7806cc31c7f45f738dd626296896bcafc495ce901bcf5f992828573f6"
+}

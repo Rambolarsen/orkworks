@@ -190,3 +190,5 @@ Dated design records; these do not establish current product behavior.
 
 - [Hierarchy claim-proof metadata and storage commitment v2](2026-10-25-hierarchy-claim-proof-design.md) — Proposed exact nonsecret authority evidence, versioned hashes, receipt/commit joins and recovery vectors; no migration or runtime approval.
 - [Native automatic approval-route signal](2026-10-25-codex-automatic-approval-signal-design.md) — Proposed upstream no-human-route contract that avoids creating false waits without clearing existing attention.
+
+- [Compact exact hierarchy claim and receipt bindings](2026-10-25-hierarchy-compact-bindings-design.md) — Proposed proof-v2/storage-v3 codecs and reconstructable retry keys, with bounded logical-byte evidence; schema acceptance and native qualification remain gated.
