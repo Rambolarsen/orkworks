@@ -122,6 +122,12 @@ provenance. Summary snapshots atomically set or clear `summary`, `summarySource`
 the sidecar-assigned `agent_reported` source and cannot replace a `user_selected`
 reference.
 
+Codex UI program status uses `attentionSource: backend_inference` and
+`attentionOrigin: codex_terminal`. It is best-effort terminal evidence, not
+native approval authority. A runtime-local activation flag prevents late hooks
+and competing inference from replacing it; a fresh runtime resets that flag.
+Explicit user/agent attention remains higher priority. See [ADR 0093](../adr/0093-codex-terminal-program-status.md).
+
 Authenticated live-session metadata GET/PATCH operations expose the revision and
 strict field-scoped updates. Validation-only PATCH does not mutate the record or
 ownership. Producer migration remains pending under

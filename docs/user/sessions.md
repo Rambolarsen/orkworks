@@ -138,10 +138,17 @@ Published installers may still use the earlier panel layout.
 Peon is OrkWorks’ AI observer. With a provider configured, it reads recent
 terminal output and produces summaries and attention signals. Some coding
 tools can also report events through an explicitly installed integration.
-For Codex and OpenCode, an active integration reports prompt-driven **Needs
-You**; a status you set yourself can also show **Needs You**. Peon still
-supplies summaries but does not infer **Needs You** from chat text for those
-tools.
+For OpenCode, an active integration reports prompt-driven **Needs You**.
+Current source builds also read Codex's own terminal status: manual prompts
+show **Needs You**, while automatic approval review stays **Working**.
+This works without reinstalling hooks. Codex versions that do not emit this
+status retain the earlier hook behavior, which can show a false wait during
+automatic review. Published installers may have earlier behavior.
+
+Codex terminal detection is best effort and can miss an uncommon prompt.
+A status you set yourself, or one explicitly reported by an agent, remains
+protected. Peon still supplies summaries but does not infer **Needs You** from
+chat text for Codex and OpenCode.
 
 In current source builds, the GitHub Copilot CLI integration recognizes
 permission and clarification prompts. Once it has reported a prompt, submitting

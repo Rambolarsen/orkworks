@@ -7,7 +7,7 @@ tags: ["orkworks", "architecture"]
 
 # Codex deterministic attention hooks
 
-- Status: accepted
+- Status: superseded for OSC 7501 runtimes by [ADR 0093](0093-codex-terminal-program-status.md); retained for legacy runtimes
 - Deciders: Lars-Erik, Codex
 - Date: 2026-09-07
 

@@ -1666,6 +1666,10 @@ impl SessionApplication {
         }
 
         let attention_policy = match sessions_guard.get(session_id) {
+            Some(handle) if handle.runtime.codex_terminal_status_active => {
+                metadata::PeonAttentionPolicy::PreserveAttention
+            }
+
             Some(handle)
                 if matches!(
                     handle
@@ -4069,6 +4073,11 @@ impl SessionApplication {
         let workspace = workspace_guard.as_ref().ok_or(SessionError::Conflict)?;
         let mut sessions = self.state.sessions.lock().unwrap();
         let handle = sessions.get(&signal.session_id);
+        if signal.source == "codex_hook"
+            && handle.is_some_and(|handle| handle.runtime.codex_terminal_status_active)
+        {
+            return Ok(metadata::AttentionMergeResult::Ignored);
+        }
 
         if signal.source == "agent"
             && !signal.activate_work_hook
@@ -4380,6 +4389,106 @@ impl SessionApplication {
         )
     }
 
+    /// Apply best-effort UI status only to this live Codex runtime. Terminal
+    /// evidence can replace its hooks, never separate user/agent attention.
+    pub(crate) fn apply_codex_terminal_status(
+        &self,
+        id: &str,
+        generation: u64,
+        status: crate::runtime::codex_terminal_status::Status,
+    ) -> bool {
+        use crate::runtime::codex_terminal_status::Status;
+        let workspace = self.state.workspace.lock().unwrap();
+        let Some(workspace) = workspace.as_ref() else {
+            return false;
+        };
+        let mut sessions = self.state.sessions.lock().unwrap();
+        let Some(handle) = sessions.get_mut(id) else {
+            return false;
+        };
+        if handle.runtime.run_generation() != generation
+            || handle.info.lifecycle != "alive"
+            || handle.info.lifecycle_phase != "active"
+            || handle
+                .info
+                .harness_id
+                .as_deref()
+                .or(handle.info.harness.as_deref())
+                != Some("codex")
+        {
+            return false;
+        }
+        if status == Status::Unknown && !handle.runtime.codex_terminal_status_active {
+            return false;
+        }
+        handle.runtime.codex_terminal_status_active = true;
+        let can_replace = |source: &str, origin: &str| {
+            if source == "user" || (source == "agent" && origin != "harness_hook") {
+                return false;
+            }
+            status != Status::Unknown || origin == "codex_terminal"
+        };
+        if !can_replace(
+            handle.info.attention_source().unwrap_or("unknown"),
+            handle.info.attention_origin().unwrap_or("legacy_unknown"),
+        ) {
+            return false;
+        }
+        let observed = match status {
+            Status::Working => Some("working"),
+            Status::Blocked => Some("waiting_for_input"),
+            Status::Idle => Some("idle"),
+            Status::Failed => Some("failed"),
+            Status::Unknown => None,
+        };
+        let result =
+            workspace
+                .metadata
+                .mutate_session_optional(id, WriteScope::ATTENTION, |meta| {
+                    if meta.lifecycle != "alive"
+                        || meta.lifecycle_phase != "active"
+                        || !can_replace(meta.attention_source(), meta.attention_origin())
+                    {
+                        return Ok(false);
+                    }
+                    meta.observed_status = observed.map(str::to_owned);
+                    meta.attention = metadata::canonical_attention(observed);
+                    meta.needs_user_input = None;
+                    meta.detected_question = None;
+                    meta.suggested_options = None;
+                    meta.provenance.attention_source = Some(
+                        if observed.is_some() {
+                            "backend_inference"
+                        } else {
+                            "unknown"
+                        }
+                        .into(),
+                    );
+                    meta.provenance.attention_origin = Some("codex_terminal".into());
+                    meta.provenance.attention_confidence = Some(0.8);
+                    meta.provenance.attention_updated_at = Some(iso_now());
+                    Ok(true)
+                });
+        let stored = match result {
+            Ok(Some(record)) => record.metadata,
+            Ok(None) => return false,
+            Err(error) => {
+                tracing::warn!(session_id = id, %error, "could not persist Codex terminal status");
+                return false;
+            }
+        };
+        handle.runtime.attention_owner.accepted_write();
+        handle.info.observed_status = stored.observed_status;
+        handle.info.attention = stored.attention;
+        handle.info.needs_user_input = stored.needs_user_input;
+        handle.info.detected_question = stored.detected_question;
+        handle.info.suggested_options = stored.suggested_options;
+        handle.info.provenance = stored.provenance;
+        handle.pending_work_signal = None;
+        self.state.updates.sessions_changed();
+        true
+    }
+
     /// Commits a runtime-observed process transition before publishing its live
     /// attention mirror. A generation fence rejects output from a replaced run.
     pub(crate) fn persist_process_transition(
@@ -4395,6 +4504,7 @@ impl SessionApplication {
                 handle.runtime.run_generation() == generation
                     && handle.info.lifecycle == "alive"
                     && !handle.active_work_hook
+                    && !handle.runtime.codex_terminal_status_active
                     && handle.info.attention_source() != Some("user")
             })
         }) {
@@ -10404,6 +10514,402 @@ mod tests {
         assert_eq!(saved.observed_status.as_deref(), Some("waiting_for_input"));
         assert_eq!(saved.attention.as_deref(), Some("needs_you"));
         authority.remove(id);
+    }
+
+    fn codex_terminal_status_fixture(id: &str) -> (tempfile::TempDir, Arc<AppState>, u64) {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let mut meta = crate::test_support::test_session_metadata(
+            id,
+            "Status",
+            root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        meta.harness = "codex".into();
+        meta.lifecycle = "alive".into();
+        meta.lifecycle_phase = "active".into();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
+        let mut handle = attention_test_handle(id, root.path());
+        handle.info.harness = Some("codex".into());
+        handle.info.harness_id = Some("codex".into());
+        handle.info.lifecycle = "alive".into();
+        handle.info.lifecycle_phase = "active".into();
+        let generation = handle.runtime.run_generation();
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+        (root, state, generation)
+    }
+
+    #[test]
+    fn codex_terminal_status_persists_manual_and_automatic_traces() {
+        use crate::runtime::codex_terminal_status::{Reader, Status};
+        let id = "terminal-status";
+        let (_root, state, generation) = codex_terminal_status_fixture(id);
+        let app = SessionApplication::new(state.clone());
+        let mut reader = Reader::default();
+        for (frame, expected) in [
+            ("state=idle:app=codex", Some("idle")),
+            ("state=working:app=codex", Some("working")),
+            ("state=blocked:app=codex:kind=permission", Some("needs_you")),
+            ("state=working:app=codex", Some("working")),
+            ("state=done:app=codex", Some("idle")),
+            ("state=working:app=codex", Some("working")),
+            ("state=done:app=codex", Some("idle")),
+            ("state=clear", None),
+        ] {
+            for status in reader.feed(format!("\x1b]7501;{frame}\x07").as_bytes()) {
+                assert!(app.apply_codex_terminal_status(id, generation, status));
+            }
+            assert_eq!(
+                state.sessions.lock().unwrap()[id].info.attention.as_deref(),
+                expected
+            );
+            let saved = state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap();
+            assert_eq!(saved.attention.as_deref(), expected);
+        }
+        assert!(!app.apply_codex_terminal_status(id, generation + 1, Status::Blocked));
+        assert!(state.sessions.lock().unwrap()[id].info.attention.is_none());
+    }
+
+    #[test]
+    fn codex_terminal_status_never_replaces_explicit_attention_in_either_store() {
+        use crate::runtime::codex_terminal_status::Status;
+        for source in ["agent", "user"] {
+            for live in [false, true] {
+                let id = "terminal-preserves-explicit";
+                let (_root, state, generation) = codex_terminal_status_fixture(id);
+                let app = SessionApplication::new(state.clone());
+                assert!(app.apply_codex_terminal_status(id, generation, Status::Blocked));
+                if live {
+                    let mut sessions = state.sessions.lock().unwrap();
+                    let info = &mut sessions.get_mut(id).unwrap().info;
+                    info.provenance.attention_source = Some(source.into());
+                    info.provenance.attention_origin = Some(
+                        if source == "agent" {
+                            "direct_agent"
+                        } else {
+                            "user"
+                        }
+                        .into(),
+                    );
+                } else {
+                    state
+                        .workspace
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .unwrap()
+                        .metadata
+                        .mutate_session_optional(id, WriteScope::ATTENTION, |meta| {
+                            meta.provenance.attention_source = Some(source.into());
+                            meta.provenance.attention_origin = Some(
+                                if source == "agent" {
+                                    "direct_agent"
+                                } else {
+                                    "user"
+                                }
+                                .into(),
+                            );
+                            meta.provenance.attention_updated_at =
+                                Some("2000-01-01T00:00:00Z".into());
+                            Ok(true)
+                        })
+                        .unwrap();
+                }
+                for status in [
+                    Status::Working,
+                    Status::Unknown,
+                    Status::Idle,
+                    Status::Failed,
+                ] {
+                    assert!(!app.apply_codex_terminal_status(id, generation, status));
+                    assert_eq!(
+                        state.sessions.lock().unwrap()[id].info.attention.as_deref(),
+                        Some("needs_you")
+                    );
+                    assert_eq!(
+                        state
+                            .workspace
+                            .lock()
+                            .unwrap()
+                            .as_ref()
+                            .unwrap()
+                            .metadata
+                            .read_session(id)
+                            .unwrap()
+                            .attention
+                            .as_deref(),
+                        Some("needs_you")
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn codex_terminal_status_clear_respects_explicit_source_with_retained_origin() {
+        use crate::runtime::codex_terminal_status::Status;
+        let id = "terminal-retained-origin";
+        let (_root, state, generation) = codex_terminal_status_fixture(id);
+        let app = SessionApplication::new(state.clone());
+        assert!(app.apply_codex_terminal_status(id, generation, Status::Blocked));
+        for source in ["agent", "user"] {
+            // Legacy writers may change only the source and retain the old origin.
+            state
+                .sessions
+                .lock()
+                .unwrap()
+                .get_mut(id)
+                .unwrap()
+                .info
+                .provenance
+                .attention_source = Some(source.into());
+            assert!(!app.apply_codex_terminal_status(id, generation, Status::Unknown));
+            assert_eq!(
+                state.sessions.lock().unwrap()[id].info.attention.as_deref(),
+                Some("needs_you")
+            );
+        }
+    }
+
+    #[test]
+    fn codex_terminal_status_supersedes_hook_and_ignores_late_permission_reports() {
+        use crate::runtime::codex_terminal_status::Status;
+        let id = "terminal-late-hook";
+        let (_root, state, generation) = codex_terminal_status_fixture(id);
+        let app = SessionApplication::new(state.clone());
+        let hook = || AttentionMergeSignal {
+            session_id: id.into(),
+            observed_status: "waiting_for_input".into(),
+            message: None,
+            plan_path: metadata::PlanPathUpdate::Unchanged,
+            timestamp: iso_now(),
+            source: "codex_hook".into(),
+            confidence: 1.0,
+            observed_at: None,
+            hook_receipt_sequence: None,
+            reject_stale_observed_at: false,
+            update_hook_timestamp: false,
+            clear_pending_work_signal: true,
+            require_alive: true,
+            activate_work_hook: true,
+            opencode_authority: None,
+            debug_hint_mutation: None,
+        };
+        assert_eq!(
+            app.apply_attention_signal(hook()),
+            Ok(metadata::AttentionMergeResult::Accepted)
+        );
+        assert_eq!(
+            state.sessions.lock().unwrap()[id].info.attention.as_deref(),
+            Some("needs_you")
+        );
+        assert!(app.apply_codex_terminal_status(id, generation, Status::Working));
+        assert_eq!(
+            app.apply_attention_signal(hook()),
+            Ok(metadata::AttentionMergeResult::Ignored)
+        );
+        assert_eq!(
+            state.sessions.lock().unwrap()[id].info.attention.as_deref(),
+            Some("working")
+        );
+        assert!(app.apply_codex_terminal_status(id, generation, Status::Unknown));
+        assert_eq!(
+            app.apply_attention_signal(hook()),
+            Ok(metadata::AttentionMergeResult::Ignored)
+        );
+        assert!(state.sessions.lock().unwrap()[id].info.attention.is_none());
+    }
+
+    #[test]
+    fn codex_terminal_status_rejects_ended_foreign_and_failed_persistence() {
+        use crate::runtime::codex_terminal_status::Status;
+        let id = "terminal-invalid-runtime";
+        let (_root, state, generation) = codex_terminal_status_fixture(id);
+        let app = SessionApplication::new(state.clone());
+        for (harness, lifecycle) in [("codex", "dead"), ("claude-code", "alive")] {
+            let mut sessions = state.sessions.lock().unwrap();
+            let info = &mut sessions.get_mut(id).unwrap().info;
+            info.harness_id = Some(harness.into());
+            info.lifecycle = lifecycle.into();
+            drop(sessions);
+            assert!(!app.apply_codex_terminal_status(id, generation, Status::Working));
+        }
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .get_mut(id)
+            .unwrap()
+            .info
+            .harness_id = Some("codex".into());
+        // A failed atomic replacement cannot publish a live status.
+        let workspace = state.workspace.lock().unwrap();
+        let path = workspace
+            .as_ref()
+            .unwrap()
+            .metadata
+            .sessions_dir()
+            .join(format!("{id}.json"));
+        std::fs::create_dir(path.with_extension("json.tmp")).unwrap();
+        drop(workspace);
+        assert!(!app.apply_codex_terminal_status(id, generation, Status::Working));
+        assert!(state.sessions.lock().unwrap()[id].info.attention.is_none());
+    }
+
+    #[test]
+    fn codex_terminal_status_preserves_attention_during_peon_and_input_inference() {
+        use crate::runtime::codex_terminal_status::Status;
+        let id = "terminal-inference";
+        let (_root, state, generation) = codex_terminal_status_fixture(id);
+        let app = SessionApplication::new(state.clone());
+        for (status, expected) in [
+            (Status::Blocked, Some("needs_you")),
+            (Status::Working, Some("working")),
+            (Status::Unknown, None),
+            (Status::Failed, Some("failed")),
+        ] {
+            assert!(app.apply_codex_terminal_status(id, generation, status));
+            let inference = crate::peon::PeonInference {
+                observed_status: Some("working".into()),
+                phase: None,
+                summary: Some("Updated summary".into()),
+                next_action: None,
+                needs_user_input: Some(true),
+                detected_question: Some("Question?".into()),
+                suggested_options: None,
+                blocker_description: None,
+                failed_command: None,
+                failed_test: None,
+                capacity_hints: None,
+                confidence: 0.8,
+                detected_harness: None,
+                detected_model: None,
+                harness_session_id: None,
+                workflow_observations: Vec::new(),
+            };
+            let result = app.persist_peon_observation_for_test(
+                id,
+                Some(&inference),
+                None,
+                Some("Updated summary"),
+                &iso_now(),
+            );
+            assert!(result.inference_persisted);
+            assert!(!app.persist_process_transition(
+                id,
+                Some(generation),
+                crate::runtime::observed_status::ProcessTransition::CommittedWorking
+            ));
+            let saved = state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap();
+            assert_eq!(saved.attention.as_deref(), expected);
+            assert_eq!(saved.summary.as_deref(), Some("Updated summary"));
+            assert!(saved.detected_question.is_none());
+            assert_eq!(
+                state.sessions.lock().unwrap()[id].info.attention.as_deref(),
+                expected
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn codex_terminal_status_flows_through_real_pty() {
+        use crate::runtime::session_runtime::{
+            start_session_runtime, RuntimeCommand, SessionRuntime,
+        };
+        let id = "terminal-real-pty";
+        let (root, state, _) = codex_terminal_status_fixture(id);
+        let (runtime, control_rx) = SessionRuntime::live(24, 80);
+        let control = runtime.control_tx.clone();
+        let output = runtime.output_tx.clone();
+        let mut events = output.subscribe();
+        let (kill_tx, kill_rx) = tokio::sync::watch::channel(false);
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(id).unwrap();
+            handle.runtime = runtime;
+            handle.kill_tx = kill_tx.clone();
+        }
+        // Fake emitter only: exercise production ingestion without launching a coding harness.
+        let script = "import os, signal, tty\nsignal.alarm(10)\ntty.setraw(0)\nos.write(1, b'\\x1b]7501;state=blocked:app=codex:kind=permission\\x07BLOCKED')\nos.read(0,1)\nos.write(1, b'\\x1b]7501;state=working:app=codex\\x1b\\\\WORKING')\nos.read(0,1)";
+        start_session_runtime(
+            state.clone(),
+            id.into(),
+            harness::CommandSpec {
+                program: "/usr/bin/python3".into(),
+                args: vec!["-u".into(), "-c".into(), script.into()],
+                cwd: root.path().display().to_string(),
+            },
+            None,
+            control_rx,
+            output,
+            kill_rx,
+            portable_pty::PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+        )
+        .await
+        .unwrap();
+        wait_for_pty_delivery_output(&mut events, "BLOCKED").await;
+        assert_eq!(
+            state.sessions.lock().unwrap()[id].info.attention.as_deref(),
+            Some("needs_you")
+        );
+        control
+            .send(RuntimeCommand::Input {
+                data: "y".into(),
+                accepted: None,
+            })
+            .await
+            .unwrap();
+        wait_for_pty_delivery_output(&mut events, "WORKING").await;
+        assert_eq!(
+            state.sessions.lock().unwrap()[id].info.attention.as_deref(),
+            Some("working")
+        );
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap()
+                .attention
+                .as_deref(),
+            Some("working")
+        );
+        kill_tx.send(true).unwrap();
     }
 
     #[test]

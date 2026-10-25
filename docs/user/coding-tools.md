@@ -68,6 +68,11 @@ diagnostic is recorded in sidecar logs.
 
 ### Codex hook reports
 
+Current source builds use Codex's terminal status for attention when the
+running version emits it. This does not require hook network access or a new
+hook approval. The networking guidance below remains relevant to other hook
+reports and attention fallback on older, non-emitting versions.
+
 Codex hook trust and command network access are separate. Approving OrkWorks'
 hooks with `/hooks` allows them to run; it does not let their commands reach
 OrkWorks' local sidecar. If Codex's `workspace-write` network access is off,

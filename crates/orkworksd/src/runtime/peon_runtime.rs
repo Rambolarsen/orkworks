@@ -925,7 +925,10 @@ where
                                 handle.runtime.min_peon_output_revision,
                                 &handle.runtime.identity(),
                             ))
-                            .then_some(handle.active_work_hook)
+                            .then_some(
+                                handle.active_work_hook
+                                    || handle.runtime.codex_terminal_status_active,
+                            )
                         })
                     };
                     let Some(active_work_hook) = active_work_hook else {
@@ -1109,6 +1112,7 @@ where
                     if handle.info.status != "running"
                         || handle.info.lifecycle_phase != "active"
                         || handle.active_work_hook
+                        || handle.runtime.codex_terminal_status_active
                         || crate::runtime::prompt_authority::registry().is_active(id)
                         || !matches!(
                             handle.info.observed_status.as_deref(),
