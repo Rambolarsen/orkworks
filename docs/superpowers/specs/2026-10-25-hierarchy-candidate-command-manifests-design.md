@@ -443,3 +443,20 @@ BLOB projection and subject-preparation are new choices for separate review.
 Fixture cap witnesses establish no production defaults, approved bootstrap,
 admitted history or physical/native eligibility. Existing codecs/catalogs are
 unchanged; all producer, authority, custody and executable-plan gates remain.
+
+## Scoped source-profile choices accepted — 2026-10-25
+
+The owner [accepted two #1061 choices](2026-10-25-hierarchy-empty-output-profile-design.md#owner-acceptance-and-handoff--2026-10-25)
+for further design/qualification: decoded canonical candidate/result bodies in
+row commitments, and explicit subject-preparation with summary/checkpoint and
+thirteen initialized quota rows for the synthetic witness. This supersedes pending
+review for those choices only. Technical definitions, catalog/checker bytes,
+source/wire fields, quota values and claim/lease policy are unchanged.
+
+Bootstrap snapshot/membership binding remains UNVERIFIED; cap witnesses remain
+fixture-only. The production preparation/authority/atomicity contract, aggregate
+source/payload defaults, custody/affected-set codecs, expanded source paths,
+native/physical/resource/finalization ordering, shared custody and executable-plan
+approvals retain their gates. No database, migration, probe or runtime approval
+is supplied. #740 stays deferred/no-go until November; keep #744/#746 open.
+Next is the source-owned bootstrap/preparation producer-contract proposal.
