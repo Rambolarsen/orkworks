@@ -48,9 +48,11 @@ function text(tree) {
 // Exercise the real modal's handlers, state and effects; native IPC and its
 // parent-owned save callback are the external dependencies. Child components
 // remain React elements, so detection is supplied through their real callback.
-async function fixture(t, { active = ["copilot"], detection, save, groupedStatus, section = "tools", settings = {} } = {}) {
+async function fixture(t, { active = ["copilot"], detection, save, groupedStatus, section = "tools", settings = {}, saveRetention } = {}) {
   const tools = [harness("codex", "Codex"), harness("copilot", "Copilot"), harness("plain", "Plain", null)];
   const calls = [];
+  const savedSettings = [];
+  const verifications = [];
   const previousWindow = globalThis.window;
   globalThis.window = { addEventListener() {}, removeEventListener() {}, orkworks: {
     getHarnessIntegrationStatus: async (id) => {
@@ -60,12 +62,19 @@ async function fixture(t, { active = ["copilot"], detection, save, groupedStatus
     getGroupedHarnessIntegrationStatus: async (adapterId, targetId) => groupedStatus
       ? groupedStatus(adapterId, targetId)
       : { ok: true, group: { key: { adapterId, targetId }, consumers: [], status: detected(adapterId).status } },
+    saveRetention: async (draft) => {
+      calls.push(["retention", draft]);
+      return saveRetention ? saveRetention(draft) : { ok: true };
+    },
     saveHotkeys: async (draft) => {
       calls.push(["hotkeys", draft]);
       return { ok: true, settings: { ...props.initialSettings, hotkeys: structuredClone(draft) } };
     },
     getAppliedPeonProvider: async () => ({ provider: null, model: null, reasoningEffort: null, ollamaBaseUrl: null, appliedAt: null, connectionRevision: 0 }),
-    verifyPeonProvider: async () => ({ ok: false, provider: "ollama", capabilities: { connectivity: false, modelDiscovery: false, providerDefault: false, testInference: false }, models: [], ollamaBaseUrl: null, generation: 0 }),
+    verifyPeonProvider: async (provider, url) => {
+      verifications.push([provider, url]);
+      return { ok: false, provider, capabilities: { connectivity: false, modelDiscovery: false, providerDefault: false, testInference: false }, models: [], ollamaBaseUrl: null, generation: 0 };
+    },
   } };
   const hotkeys = { newSession: "Ctrl+N", toggleSessionsPanel: "Ctrl+1", toggleDetailPanel: "Ctrl+2", toggleTerminalPanel: "Ctrl+3", toggleCapacityPanel: "Ctrl+4", toggleRecommendationsPanel: "Ctrl+5", resetLayout: null };
   const props = {
@@ -74,7 +83,7 @@ async function fixture(t, { active = ["copilot"], detection, save, groupedStatus
     currentWorkspacePath: "/workspace", updateStatus: null, updateCurrentVersion: null, updateChannel: null,
     onCheckForUpdates() {}, onDownloadUpdate() {}, harnesses: tools, documentRevision: null,
     onRefreshHarnesses: async () => ({ documentRevision: null, harnesses: tools }),
-    activeHarnessIds: active, providerRuntime: null, onSectionChange() {}, onClose() {}, onSaved() {},
+    activeHarnessIds: active, providerRuntime: null, onSectionChange() {}, onClose() {}, onSaved(settings) { savedSettings.push(settings); },
     onSaveActiveHarnesses: async (ids, scope) => {
       calls.push(["save", ids, scope]);
       return save ? save(ids, scope) : { activeHarnesses: { outcome: "persisted" }, integrations: {} };
@@ -120,7 +129,7 @@ async function fixture(t, { active = ["copilot"], detection, save, groupedStatus
   const toggle = (name) => nodes(render()).find((node) => node.props?.ariaLabel === name);
   const saveButton = () => nodes(render()).find((node) => node.type?.name === "Button" && ["Save", "Saving..."].includes(text(node)));
   const close = () => nodes(render()).find((node) => node.props?.onClick && node.props["aria-label"] === "Close settings").props.onClick();
-  return { render, settle, calls, toggle, saveButton, close, unmount };
+  return { render, settle, calls, savedSettings, verifications, toggle, saveButton, close, unmount };
 }
 
 test("turning off stays draft-only; immediate enable saves the live draft and scopes reconciliation", async (t) => {
@@ -300,5 +309,87 @@ for (const action of ["newSession", "toggleSessionsPanel", "toggleDetailPanel", 
     assert.equal(view.saveButton().props.disabled, true);
     assert.equal(button("Cancel").props.disabled, true);
     assert.match(text(view.render()), /Saved/);
+  });
+}
+
+
+for (const [field, label] of [["maxSessions", "Max sessions to keep"], ["maxAgeDays", "Auto-delete sessions older than (days)"]]) {
+  test(`retention ${field} keeps draft edits local and saves bounded values on blur`, async (t) => {
+    const view = await fixture(t, { section: "retention" });
+    const input = () => nodes(view.render()).filter((node) => node.props?.className === "retention-row")
+      .filter((row) => text(row).includes(label)).flatMap(nodes).find((node) => node.props?.type === "number");
+    const initial = input().props.value;
+    input().props.onChange({ target: { value: "75" } });
+    assert.equal(input().props.value, 75);
+    assert.deepEqual(view.calls, []);
+    view.close();
+    assert.equal(input().props.value, initial);
+    for (const [raw, expected] of [["75", 75], ["-4", 0], ["1200", 999], ["3.8", 3], ["", 0]]) {
+      input().props.onChange({ target: { value: raw } });
+      input().props.onBlur({ target: { value: raw } });
+      await view.settle();
+      const expectedRetention = { maxSessions: 50, maxAgeDays: 30, [field]: expected };
+      assert.deepEqual(view.calls.at(-1), ["retention", expectedRetention]);
+      assert.deepEqual(view.savedSettings.at(-1).retention, expectedRetention);
+      assert.match(text(view.render()), /Saved/);
+      input().props.onChange({ target: { value: "22" } });
+      view.close();
+      assert.equal(input().props.value, expected);
+      assert.doesNotMatch(text(view.render()), /Saved/);
+    }
+  });
+}
+
+for (const [name, saveRetention, status, committed] of [
+  ["pending sidecar application", async () => ({ ok: true, retentionApplyStatus: { lastApplyError: "offline" } }), "Saved locally; sidecar pending", true],
+  ["rejected persistence", async () => ({ ok: false }), "Session retention could not be saved.", false],
+  ["transport failure", async () => { throw new Error("offline"); }, "Session retention could not be saved.", false],
+]) {
+  test(`retention preserves ${name} status and committed snapshot`, async (t) => {
+    const view = await fixture(t, { section: "retention", saveRetention });
+    const input = () => nodes(view.render()).find((node) => node.props?.type === "number");
+    input().props.onBlur({ target: { value: "75" } });
+    await view.settle();
+    assert.ok(text(view.render()).includes(status));
+    assert.equal(input().props.value, 75);
+    assert.equal(view.savedSettings.length, committed ? 1 : 0);
+    view.close();
+    assert.equal(input().props.value, committed ? 75 : 50);
+    assert.ok(!text(view.render()).includes(status));
+  });
+}
+
+test("closing discards unsaved hotkeys and clears their saved status", async (t) => {
+  const defaults = { newSession: "Ctrl+Shift+N", toggleSessionsPanel: "Ctrl+1", toggleDetailPanel: "Ctrl+2", toggleTerminalPanel: "Ctrl+3", toggleCapacityPanel: "Ctrl+4", toggleRecommendationsPanel: "Ctrl+5", resetLayout: null };
+  const view = await fixture(t, { section: "hotkeys", settings: { defaultHotkeys: defaults } });
+  const button = (label) => nodes(view.render()).find((node) => node.type?.name === "Button" && text(node) === label);
+  button("Restore defaults").props.onClick();
+  view.close();
+  assert.equal(view.saveButton().props.disabled, true);
+  assert.deepEqual(view.calls, []);
+  button("Restore defaults").props.onClick();
+  view.saveButton().props.onClick();
+  await view.settle();
+  assert.match(text(view.render()), /Saved/);
+  view.close();
+  assert.doesNotMatch(text(view.render()), /Saved/);
+  assert.equal(view.saveButton().props.disabled, true);
+});
+
+for (const [name, providers, selection] of [
+  ["legacy", { peonModel: "legacy-model", ollamaBaseUrl: "http://localhost:11434", providers: [] }, ["ollama", "http://localhost:11434"]],
+  ["explicit", { peonSelection: { provider: "codex", model: "chosen-model" }, peonModel: "legacy-model", providers: [] }, ["codex", undefined]],
+]) {
+  test(`provider ${name} selection is consistent when opening and discarding`, async (t) => {
+    const view = await fixture(t, { section: "providers", settings: { providers } });
+    const selects = () => nodes(view.render()).filter((node) => node.type === "select");
+    assert.deepEqual(view.verifications, [selection]);
+    assert.equal(selects()[0].props.value, selection[0]);
+    assert.equal(selects()[1].props.value, providers.peonSelection?.model ?? providers.peonModel);
+    selects()[0].props.onChange({ target: { value: "other-provider" } });
+    await view.settle();
+    view.close();
+    assert.equal(selects()[0].props.value, selection[0]);
+    assert.equal(selects()[1].props.value, providers.peonSelection?.model ?? providers.peonModel);
   });
 }
