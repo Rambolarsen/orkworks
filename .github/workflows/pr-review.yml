@@ -170,7 +170,10 @@ jobs:
                 else (.[-1].body | capture("<!-- orkworks-automated-review: sha=(?<sha>[0-9a-f]{40}) -->").sha)
                 end' <<<"$comments_json")"
 
-          review_base="$BASE_SHA"
+          # Initial/forced reviews cover only the PR contribution. A base tip
+          # that advanced after the fork includes unrelated base-only changes.
+          pr_diff_base="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
+          review_base="$pr_diff_base"
           if [[ "$marker_sha" =~ ^[0-9a-f]{40}$ ]] \
             && git cat-file -e "${marker_sha}^{commit}" 2>/dev/null \
             && git merge-base --is-ancestor "$marker_sha" "$HEAD_SHA"; then
@@ -199,7 +202,7 @@ jobs:
           fi
           if [ "$FORCE_REVIEW" = true ]; then
             read -r force_files force_lines < <(
-              git diff --numstat --find-renames "$BASE_SHA" "$HEAD_SHA" -- apps/desktop crates/orkworksd |
+              git diff --numstat --find-renames "$pr_diff_base" "$HEAD_SHA" -- apps/desktop crates/orkworksd |
                 awk 'tolower($NF) !~ /\.md$/ {
                   files += 1
                   if ($1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/) lines += $1 + $2
@@ -211,7 +214,7 @@ jobs:
             else
               relevant_code_changed=false
             fi
-            review_diff_base="$BASE_SHA"
+            review_diff_base="$pr_diff_base"
           fi
           if [ "$relevant_code_changed" = true ] \
             && { [ "$over_review_threshold" = true ] || [ "$FORCE_REVIEW" = true ]; } \

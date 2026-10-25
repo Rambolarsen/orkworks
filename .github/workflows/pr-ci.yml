@@ -16,6 +16,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: python3 scripts/pr-review-diagnostics_test.py
+      - run: python3 scripts/pr-review-scope_test.py
+      - run: bash scripts/pr-review-delta.test.sh
 
   local-analysis:
     name: Local analysis helper (${{ matrix.os }})
