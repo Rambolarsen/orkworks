@@ -433,3 +433,13 @@ Next bounded design task: define one source profile's complete canonical
 before/after command bytes, summary/lineage and owner-cap rows, preserving the
 remaining authority and native qualification gates. Review new schema/default
 choices separately before dependent implementation.
+
+## Exact logical source-profile witness — 2026-10-25
+
+The [empty-output profile proposal](2026-10-25-hierarchy-empty-output-profile-design.md)
+pins complete synthetic preparation/admission/acceptance row projections,
+manifests, summary checkpoints and shared ledger/cap comparisons. Decoded source
+BLOB projection and subject-preparation are new choices for separate review.
+Fixture cap witnesses establish no production defaults, approved bootstrap,
+admitted history or physical/native eligibility. Existing codecs/catalogs are
+unchanged; all producer, authority, custody and executable-plan gates remain.
