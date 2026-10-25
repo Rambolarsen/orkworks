@@ -22,3 +22,5 @@ Capability research, validation results, and evidence fixtures.
 - [Repository assessment runtime validation](repository-assessment-runtime.md) — Deterministic safety evidence and the failed selected-model usefulness gate for #931.
 
 - [Hierarchy writer and storage qualification](hierarchy-writer-storage-qualification.md) — Inspected persistence seams, missing writer coverage and required crash evidence.
+
+- [Hierarchy claim-proof action fixtures and combined byte budgets](hierarchy-claim-proof-fixtures.md) — Reproducible child/UI/Unicode/maximum-width vectors and conservative 16 KiB slot packing results.
