@@ -1,0 +1,406 @@
+{
+  "fixtureSchemaVersion": 1,
+  "seedCatalog": "hierarchy-claim-proof-vectors.json",
+  "seedCatalogSha256": "b078842638d904e3944c5d4b9192ba98b365963f0be982e936de1d947ccd15a6",
+  "scope": "Synthetic format-3 encoding/width constructions only; no admitted source/ledger history, authority, command manifest or physical/native qualification.",
+  "vectors": [
+    {
+      "id": "candidate-outcome-reserved",
+      "key": {
+        "assignmentIdentity": {
+          "kind": "child",
+          "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807",
+          "planId": "target-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "planRevision": 64,
+          "taskId": "target-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "taskVersion": 2147483647,
+          "reservationId": "target-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "parentSessionId": "target-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "childSessionId": "target-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "configurationId": "target-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "slotId": 311
+      },
+      "value": {
+        "schemaVersion": 3,
+        "state": "reserved",
+        "purpose": "candidate-outcome",
+        "reservation": {
+          "kind": "candidate",
+          "candidateDigest": "7441747700805da2eca67fb0107a2038645c18217c0e715f16b6122aa007e3dd"
+        },
+        "lastCommit": {
+          "storageEpoch": "3333333333333333333333333333333333333333333333333333333333333333",
+          "commitSequence": "18446744073709551615",
+          "changeDigest": "9999999999999999999999999999999999999999999999999999999999999999"
+        }
+      },
+      "expected": {
+        "bytes": 1704,
+        "rowDigest": "147c48f170aea7093c98e2f4ce8d668b84dcf06b42334e5e07a416fb674586fe"
+      }
+    },
+    {
+      "id": "pre-result-user-credit",
+      "key": {
+        "assignmentIdentity": {
+          "kind": "child",
+          "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807",
+          "planId": "target-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "planRevision": 64,
+          "taskId": "target-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "taskVersion": 2147483647,
+          "reservationId": "target-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "parentSessionId": "target-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "childSessionId": "target-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "configurationId": "target-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "slotId": 312
+      },
+      "value": {
+        "schemaVersion": 3,
+        "state": "reserved",
+        "purpose": "user-evaluation",
+        "reservation": {
+          "kind": "candidate",
+          "candidateDigest": "7441747700805da2eca67fb0107a2038645c18217c0e715f16b6122aa007e3dd"
+        },
+        "lastCommit": {
+          "storageEpoch": "3333333333333333333333333333333333333333333333333333333333333333",
+          "commitSequence": "18446744073709551615",
+          "changeDigest": "9999999999999999999999999999999999999999999999999999999999999999"
+        }
+      },
+      "expected": {
+        "bytes": 1702,
+        "rowDigest": "8f714c0df9fd7eca4e7072bd11e7fb1fd0b129289435bdbe28ca82a1cb49e34c"
+      }
+    },
+    {
+      "id": "result-user-write",
+      "key": {
+        "assignmentIdentity": {
+          "kind": "child",
+          "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807",
+          "planId": "target-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "planRevision": 64,
+          "taskId": "target-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "taskVersion": 2147483647,
+          "reservationId": "target-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "parentSessionId": "target-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "childSessionId": "target-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "configurationId": "target-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "slotId": 312
+      },
+      "value": {
+        "schemaVersion": 3,
+        "state": "reserved",
+        "purpose": "user-evaluation",
+        "reservation": {
+          "kind": "result",
+          "resultRevision": 32,
+          "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "stream": null
+        },
+        "lastCommit": {
+          "storageEpoch": "3333333333333333333333333333333333333333333333333333333333333333",
+          "commitSequence": "18446744073709551615",
+          "changeDigest": "9999999999999999999999999999999999999999999999999999999999999999"
+        }
+      },
+      "expected": {
+        "bytes": 1730,
+        "rowDigest": "8ccba158d5b89539344183365f9ea92418247765427cca0dc2b2181d6c104db3"
+      }
+    },
+    {
+      "id": "earmarked-user-invalidation",
+      "key": {
+        "assignmentIdentity": {
+          "kind": "child",
+          "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807",
+          "planId": "target-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "planRevision": 64,
+          "taskId": "target-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "taskVersion": 2147483647,
+          "reservationId": "target-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "parentSessionId": "target-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "childSessionId": "target-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "configurationId": "target-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "slotId": 313
+      },
+      "value": {
+        "schemaVersion": 3,
+        "state": "reserved",
+        "purpose": "user-invalidation",
+        "reservation": {
+          "kind": "result",
+          "resultRevision": 32,
+          "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "stream": {
+            "kind": "user",
+            "userReviewId": "uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu"
+          }
+        },
+        "lastCommit": {
+          "storageEpoch": "3333333333333333333333333333333333333333333333333333333333333333",
+          "commitSequence": "18446744073709551615",
+          "changeDigest": "9999999999999999999999999999999999999999999999999999999999999999"
+        }
+      },
+      "expected": {
+        "bytes": 1889,
+        "rowDigest": "f6b0f12fdd12f00c4437783660e1010de2de148ebe0d9714075fe988127aee87"
+      }
+    },
+    {
+      "id": "child-invalidation-width",
+      "key": {
+        "assignmentIdentity": {
+          "kind": "child",
+          "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807",
+          "planId": "target-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "planRevision": 64,
+          "taskId": "target-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "taskVersion": 2147483647,
+          "reservationId": "target-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "parentSessionId": "target-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "childSessionId": "target-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "configurationId": "target-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "slotId": 1087
+      },
+      "value": {
+        "schemaVersion": 3,
+        "state": "reserved",
+        "purpose": "child-invalidation",
+        "reservation": {
+          "kind": "result",
+          "resultRevision": 32,
+          "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "stream": {
+            "kind": "child",
+            "assignmentIdentity": {
+              "kind": "child",
+              "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775806",
+              "planId": "reviewer-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "planRevision": 64,
+              "taskId": "reviewer-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "taskVersion": 2147483647,
+              "reservationId": "reviewer-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "parentSessionId": "reviewer-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "childSessionId": "reviewer-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "configurationId": "reviewer-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "configurationDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          }
+        },
+        "lastCommit": {
+          "storageEpoch": "3333333333333333333333333333333333333333333333333333333333333333",
+          "commitSequence": "18446744073709551615",
+          "changeDigest": "9999999999999999999999999999999999999999999999999999999999999999"
+        }
+      },
+      "expected": {
+        "bytes": 3029,
+        "rowDigest": "7899432c32a53c8d57256e0b472cc6f5eeec3320751160a5fe522d4353c86edf"
+      }
+    },
+    {
+      "id": "accepted-outcome",
+      "key": {
+        "assignmentIdentity": {
+          "kind": "child",
+          "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807",
+          "planId": "target-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "planRevision": 64,
+          "taskId": "target-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "taskVersion": 2147483647,
+          "reservationId": "target-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "parentSessionId": "target-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "childSessionId": "target-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "configurationId": "target-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "slotId": 311
+      },
+      "value": {
+        "schemaVersion": 3,
+        "state": "consumed",
+        "purpose": "candidate-outcome",
+        "receipt": {
+          "kind": "candidate-finalization",
+          "candidate": {
+            "key": {
+              "kind": "assignment-result-candidate",
+              "identity": {
+                "assignmentIdentity": {
+                  "kind": "child",
+                  "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                  "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807",
+                  "planId": "target-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                  "planRevision": 64,
+                  "taskId": "target-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                  "taskVersion": 2147483647,
+                  "reservationId": "target-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                  "parentSessionId": "target-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                  "childSessionId": "target-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                  "configurationId": "target-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                  "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                },
+                "candidateDigest": "7441747700805da2eca67fb0107a2038645c18217c0e715f16b6122aa007e3dd"
+              }
+            },
+            "digest": "7441747700805da2eca67fb0107a2038645c18217c0e715f16b6122aa007e3dd"
+          },
+          "responseBase64": "eyJjYW5kaWRhdGVEaWdlc3QiOiI3NDQxNzQ3NzAwODA1ZGEyZWNhNjdmYjAxMDdhMjAzODY0NWMxODIxN2MwZTcxNWYxNmI2MTIyYWEwMDdlM2RkIiwib3V0Y29tZSI6ImFjY2VwdGVkIiwicmVhc29uQ29kZSI6bnVsbCwicmVzdWx0Ijp7ImFzc2lnbm1lbnRJZGVudGl0eSI6eyJjaGlsZFNlc3Npb25JZCI6InRhcmdldC1jaGlsZC14eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4IiwiY29uZmlndXJhdGlvbkRpZ2VzdCI6ImFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWEiLCJjb25maWd1cmF0aW9uSWQiOiJ0YXJnZXQtY29uZmlnLXh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eCIsImtpbmQiOiJjaGlsZCIsInBhcmVudFNlc3Npb25JZCI6InRhcmdldC1wYXJlbnQteHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4IiwicGxhbklkIjoidGFyZ2V0LXBsYW4teHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHgiLCJwbGFuUmV2aXNpb24iOjY0LCJyZXNlcnZhdGlvbklkIjoidGFyZ2V0LXJlc2VydmF0aW9uLXh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHgiLCJydW5JZCI6IjQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQtOTIyMzM3MjAzNjg1NDc3NTgwNyIsInRhc2tJZCI6InRhcmdldC10YXNrLXh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4IiwidGFza1ZlcnNpb24iOjIxNDc0ODM2NDcsIndvcmtzcGFjZUlkIjoid29ya3NwYWNlLXh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHgifSwicmVzdWx0RGlnZXN0IjoiZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZCIsInJlc3VsdFJldmlzaW9uIjozMn0sInNjaGVtYVZlcnNpb24iOjF9",
+          "commit": {
+            "storageEpoch": "3333333333333333333333333333333333333333333333333333333333333333",
+            "commitSequence": "18446744073709551615",
+            "changeDigest": "9999999999999999999999999999999999999999999999999999999999999999"
+          }
+        },
+        "lastCommit": {
+          "storageEpoch": "3333333333333333333333333333333333333333333333333333333333333333",
+          "commitSequence": "18446744073709551615",
+          "changeDigest": "9999999999999999999999999999999999999999999999999999999999999999"
+        }
+      },
+      "expected": {
+        "bytes": 5431,
+        "rowDigest": "5e4a14c5b6dbe77fa1486670665508482d6503cb538ebd380f8f8d855aab0a72"
+      },
+      "response": {
+        "schemaVersion": 1,
+        "candidateDigest": "7441747700805da2eca67fb0107a2038645c18217c0e715f16b6122aa007e3dd",
+        "outcome": "accepted",
+        "result": {
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807",
+            "planId": "target-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "planRevision": 64,
+            "taskId": "target-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "taskVersion": 2147483647,
+            "reservationId": "target-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "parentSessionId": "target-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "childSessionId": "target-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationId": "target-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "resultRevision": 32,
+          "resultDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        },
+        "reasonCode": null
+      }
+    },
+    {
+      "id": "rejected-outcome-width",
+      "key": {
+        "assignmentIdentity": {
+          "kind": "child",
+          "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807",
+          "planId": "target-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "planRevision": 64,
+          "taskId": "target-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "taskVersion": 2147483647,
+          "reservationId": "target-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "parentSessionId": "target-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "childSessionId": "target-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "configurationId": "target-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "slotId": 311
+      },
+      "value": {
+        "schemaVersion": 3,
+        "state": "consumed",
+        "purpose": "candidate-outcome",
+        "receipt": {
+          "kind": "candidate-finalization",
+          "candidate": {
+            "key": {
+              "kind": "assignment-result-candidate",
+              "identity": {
+                "assignmentIdentity": {
+                  "kind": "child",
+                  "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                  "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807",
+                  "planId": "target-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                  "planRevision": 64,
+                  "taskId": "target-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                  "taskVersion": 2147483647,
+                  "reservationId": "target-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                  "parentSessionId": "target-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                  "childSessionId": "target-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                  "configurationId": "target-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                  "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                },
+                "candidateDigest": "7441747700805da2eca67fb0107a2038645c18217c0e715f16b6122aa007e3dd"
+              }
+            },
+            "digest": "7441747700805da2eca67fb0107a2038645c18217c0e715f16b6122aa007e3dd"
+          },
+          "responseBase64": "eyJjYW5kaWRhdGVEaWdlc3QiOiI3NDQxNzQ3NzAwODA1ZGEyZWNhNjdmYjAxMDdhMjAzODY0NWMxODIxN2MwZTcxNWYxNmI2MTIyYWEwMDdlM2RkIiwib3V0Y29tZSI6InJlamVjdGVkIiwicmVhc29uQ29kZSI6InJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJyIiwicmVzdWx0IjpudWxsLCJzY2hlbWFWZXJzaW9uIjoxfQ==",
+          "commit": {
+            "storageEpoch": "3333333333333333333333333333333333333333333333333333333333333333",
+            "commitSequence": "18446744073709551615",
+            "changeDigest": "9999999999999999999999999999999999999999999999999999999999999999"
+          }
+        },
+        "lastCommit": {
+          "storageEpoch": "3333333333333333333333333333333333333333333333333333333333333333",
+          "commitSequence": "18446744073709551615",
+          "changeDigest": "9999999999999999999999999999999999999999999999999999999999999999"
+        }
+      },
+      "expected": {
+        "bytes": 3759,
+        "rowDigest": "ed878715cc237e9631c935fcb97ebe70bf7c79a75abd641b7d63a897244c2718"
+      },
+      "response": {
+        "schemaVersion": 1,
+        "candidateDigest": "7441747700805da2eca67fb0107a2038645c18217c0e715f16b6122aa007e3dd",
+        "outcome": "rejected",
+        "result": null,
+        "reasonCode": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"
+      }
+    }
+  ],
+  "accounting": {
+    "slotBytes": 16384,
+    "assignmentSlots": 1088,
+    "assignmentBytes": 17825792,
+    "candidateSlots": 10,
+    "candidateBytes": 163840,
+    "releasedUserSlots": 8,
+    "releasedBytes": 131072,
+    "childSlots": 2,
+    "childBytes": 32768,
+    "admissionCoreRows": 16,
+    "acceptedFinalizationCoreRows": 14,
+    "rejectedFinalizationCoreRows": 12,
+    "terminalDispositionCoreRows": 11,
+    "childWriteCoreRows": 8,
+    "commandBytes": 16777216,
+    "admissionRemainder": 16613376,
+    "finalizationSlotAllowance": 147456,
+    "finalizationRemainder": 16629760
+  }
+}

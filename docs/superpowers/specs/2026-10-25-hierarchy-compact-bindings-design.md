@@ -479,3 +479,12 @@ Next bounded design work: specify the remaining reserved-slot and internal
 finalization metadata with their separate authority/retention joins, then account
 for those rows and the new lookup row in complete-command/row/reservation limits.
 This is preparation for a separate review, not permission to implement or probe.
+
+## Reserved-slot and internal-outcome follow-up — 2026-10-25
+
+The [slot/finalization proposal](2026-10-25-hierarchy-slot-finalization-design.md)
+adds closed proposed reserved and internal-outcome variants with separate
+authority/source/retention joins, encoding fixtures and command-row/reservation
+accounting. It preserves the accepted claimed-mutation codec. This is a new
+proposal for separate review, not owner acceptance, complete-command/native
+qualification or runtime authorization. Existing goldens and limits are unchanged.

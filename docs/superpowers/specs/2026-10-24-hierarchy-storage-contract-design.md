@@ -486,3 +486,12 @@ No physical/whole-command qualification, remaining domain/reserved/finalization
 schema/default acceptance, migration, probe, executable plan or runtime approval
 follows. The linked record lists the remaining gates and next bounded metadata/
 budget design work. #740 stays deferred/no-go until November; keep #744/#746 open.
+
+## Reserved-slot and internal-outcome follow-up — 2026-10-25
+
+The [slot/finalization proposal](2026-10-25-hierarchy-slot-finalization-design.md)
+adds closed proposed reserved and internal-outcome variants with separate
+authority/source/retention joins, encoding fixtures and command-row/reservation
+accounting. It preserves the accepted claimed-mutation codec. This is a new
+proposal for separate review, not owner acceptance, complete-command/native
+qualification or runtime authorization. Existing goldens and limits are unchanged.
