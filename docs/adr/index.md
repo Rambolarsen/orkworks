@@ -109,3 +109,5 @@ Decision records and their original rationale and consequences.
 - [Read-only selected-session Git changes](0091-read-only-session-git-changes.md) — Bounded authenticated inspection with distinct worktree and branch comparisons.
 
 - [Workspace update stream](0092-workspace-update-stream.md) — Changed rows, shared recommendation invalidation and authoritative recovery.
+
+- [Codex terminal program status](0093-codex-terminal-program-status.md) — Best-effort UI attention after a runtime emits OSC 7501.

@@ -17,3 +17,5 @@ pub(crate) mod terminal_http;
 mod terminal_replay_modes;
 pub(crate) mod terminal_runtime;
 pub(crate) mod workspace_gc;
+
+pub(crate) mod codex_terminal_status;

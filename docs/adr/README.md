@@ -65,7 +65,7 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0048](./0048-improve-workflow-accept-sends-fix-prompt-to-active-session.md) | improve_workflow gains an explicit accept action that sends a fix prompt to the active session | accepted |
 | [0049](./0049-codex-app-server-peon-model-discovery.md) | Codex app-server is the live Peon model catalog | accepted |
 | [0050](./0050-taskmaster-recommendation-aware-agent-handoff.md) | Taskmaster recommendation-aware agent handoff | accepted |
-| [0051](./0051-codex-deterministic-attention-hooks.md) | Codex deterministic attention hooks | accepted |
+| [0051](./0051-codex-deterministic-attention-hooks.md) | Codex deterministic attention hooks | superseded for OSC 7501 runtimes by ADR 0093; retained for legacy runtimes |
 | [0052](./0052-single-writer-workspace-lease.md) | Single-writer workspace lease for the sidecar | accepted |
 | [0053](./0053-taskmaster-knowledge-and-analysis.md) | Taskmaster knowledge distribution and independent analysis | superseded by 0054 |
 | [0054](./0054-taskmaster-honors-managed-cli-policy.md) | Taskmaster reuses CLI logins and honors managed policy | accepted |
@@ -116,3 +116,5 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 - [Read-only selected-session Git changes](0091-read-only-session-git-changes.md) — Bounded authenticated inspection with distinct worktree and branch comparisons.
 
 - [Workspace update stream](0092-workspace-update-stream.md) — Changed rows, shared recommendation invalidation and authoritative recovery.
+
+- [Codex terminal program status](0093-codex-terminal-program-status.md) — Best-effort UI attention; supersedes ADR 0051 for emitting runtimes.

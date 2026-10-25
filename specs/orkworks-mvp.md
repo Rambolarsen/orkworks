@@ -326,6 +326,21 @@ write-before-publish. OrkWorks never edits tracked/shareable configuration,
 `.gitignore`, or arbitrary user hook commands. See
 [ADR 0026](../docs/adr/0026-resolved-harness-capability-registry.md).
 
+### Codex terminal program status
+
+For a live Codex runtime that emits OSC 7501, the sidecar uses the displayed
+UI's program status as best-effort attention. The first valid Codex frame
+supersedes its hook attention; late hooks cannot reopen a wait. Working,
+blocked permission/question/auth, idle/done and error map to Working, Needs You,
+Idle and Failed. Clear/unknown withdraws only terminal-owned attention.
+Explicit user and agent attention remains protected in both live and durable
+state, regardless of age. Peon summaries continue, but Peon and input heuristics
+do not replace attention in this mode. A fresh runtime starts inactive;
+non-emitting versions retain existing behavior. Terminal bytes are not an
+authenticated channel and uncommon prompts may be missed. This accepted
+tradeoff requires no observer, producer migration, new hook trust or native
+approval-control capability. See [ADR 0093](../docs/adr/0093-codex-terminal-program-status.md).
+
 ### Deterministic harness-supplied signals
 
 Alongside Peon's LLM-based inference, some harnesses expose deterministic, higher-confidence signals that OrkWorks can consume directly instead of inferring them from terminal output:

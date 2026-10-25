@@ -35,6 +35,24 @@ fixture and version/feature evidence are added beside the binding.
 | Aider (not installed) | [Notifications](https://aider.chat/docs/usage/notifications.html) | `--notifications-command` runs when the LLM finishes a response and Aider is waiting for the next input. The callback has no native Aider session ID or structured event payload and does not distinguish an ordinary completed response from a response containing a question. OrkWorks correlates its reporter to the launched session through its inherited session environment. Current OrkWorks launch augmentation reports it as `waiting_for_input`. | Limited: the official contract is unversioned and no live fixture is available in this environment. The callback's session correlation does not make completion a prompt signal; it should not write attention state, so Peon remains the attention fallback even when notification integration is enabled. No repository Aider config is edited. |
 | Generic shell | No deterministic extension point | None. | Unsupported; all integration mutation requests are no-ops with a conflict response. |
 
+### Codex terminal status
+
+The sidecar reads live OSC 7501 frames for Codex sessions (ADR 0093). Once a
+runtime emits a valid Codex state, its terminal status replaces hook attention;
+the hook mappings below then apply only to legacy non-emitting runtimes.
+Working, blocked permission/question/auth, idle/done and error map to Working,
+Needs You, Idle and Failed. Clear/unknown withdraws only this source's own
+attention. The bounded parser supports chunked ST/BEL frames and ignores
+foreign/malformed output. It does not consume replayed history.
+
+This is best-effort UI evidence at `backend_inference` priority with
+`codex_terminal` origin. Explicit user/agent attention is never overwritten;
+Peon summaries continue without competing attention inference. Silence does not
+clear a wait. Input waits for the next UI status rather than guessing a clear.
+No hook reinstall, configuration, native observer or API-only marker is needed.
+See the [approved design](../superpowers/specs/2026-10-25-codex-automatic-approval-signal-design.md)
+for the live evidence and accepted missed/spoofed-frame limitations.
+
 ### Prompt attention authority
 
 Codex's source reporter also has a marker-gated API-only instruction path for
@@ -70,7 +88,7 @@ startup and the installed diagnostic separately remain closed until the
 owned-listener contract in [#763](https://github.com/Rambolarsen/orkworks/issues/763)
 proves the target before bearer delivery.
 
-Codex's `PermissionRequest` maps to `waiting_for_input`, with one known
+For a runtime without OSC 7501, Codex's `PermissionRequest` maps to `waiting_for_input`, with one known
 exception: it also fires when `approvals_reviewer = "auto_review"` resolves the
 request with no human prompt. `PreToolUse` and `PostToolUse` are capture-only
 for the #690 verification gate; their redacted payloads may help establish

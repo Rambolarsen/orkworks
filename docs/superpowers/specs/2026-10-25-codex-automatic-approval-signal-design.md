@@ -1,18 +1,79 @@
 ---
 type: Design Proposal
-title: Prevent false Codex permission waits with a native approval-route signal
-description: Propose a conservative upstream per-request signal that avoids automatic-review waits without clearing existing attention.
-tags: [orkworks, codex, hooks, attention, upstream]
-status: draft
+title: Codex attention from terminal program status
+description: Use the tested OSC 7501 UI status signal to avoid false permission waits during automatic review.
+tags: [orkworks, codex, attention]
+status: stable
+workflow_status: accepted
 ---
 
-# Prevent false Codex permission waits with a native approval-route signal
+# Codex attention from terminal program status
 
-Status: proposed; runtime implementation and upstream submission not approved.
-The owner requested a revised design after the human-run hook failure tests.
-Tracks [#690](https://github.com/Rambolarsen/orkworks/issues/690).
-This document proposes an alternative preventative path. It does not amend an
-accepted runtime contract, activate a capability, or qualify the installed binary.
+Owner approved best-effort detection and implementation on 2026-10-25 after
+human-run manual and automatic approval tests. Tracks [#690](https://github.com/Rambolarsen/orkworks/issues/690).
+
+## Decision
+
+Read Codex's existing OSC 7501 protocol in the sidecar's live PTY reader.
+The first recognized `app=codex` state activates terminal status for that runtime;
+subsequent Codex attention hooks are ignored, including delayed reports.
+Identity reporting, labels, hook trust, and other harnesses remain unchanged.
+A runtime that never emits this protocol retains existing behavior.
+
+Map `working` to Working, `blocked` with permission/question/auth to Needs You,
+`idle` and `done` to Idle, and `error` to Failed. `clear` or an unknown
+Codex state withdraws only terminal-owned attention; neither means Working.
+Clear/unknown before activation has no effect, as there is no terminal-owned
+attention to withdraw. Malformed or foreign frames have no effect. Parse raw bytes incrementally,
+accept ST/BEL termination, and bound each payload to 256 bytes. Do not replay
+persisted terminal history into status or add terminal-title/text fallbacks.
+
+This is best-effort presentation evidence, not authenticated native approval
+ownership. Persist at `backend_inference` priority with `codex_terminal` origin.
+It may replace Codex hook and inferred attention, but never explicit user or
+agent attention, even if stale. Revalidate both live and persisted provenance
+under the existing workspace/session/metadata transaction locks. Writes from
+legacy external JSON producers retain their existing uncoordinated-race limit.
+Peon can still update summaries but cannot infer attention for an activated
+runtime. Input alone does not clear its prompt; the next UI status does.
+A new runtime starts inactive; session exit keeps its existing lifecycle path.
+
+No observer server, completion queue, API-only marker, hook reinstall, new
+configuration, or dependency is required. Dormant native and completion gates
+stay closed. No upstream communication is part of this implementation.
+
+## Evidence and limits
+
+Pinned [Codex 0.164.0 encoder](https://github.com/openai/codex/blob/6aaac694803004a63c6f393d153c96d22521a6b9/codex-rs/tui/src/terminal_program_status.rs)
+emits status without title/notification configuration. The UI derives blocked
+status from incomplete approval/question/auth views, including queued views.
+Human-run macOS tests observed manual idle → working → blocked → working →
+done, with working returning 12.6 seconds before done. Automatic review emitted
+idle → working → done with no blocked frame. Both diagnostic commands actually
+executed. The disposable parser passed every split boundary and real-PTY tests.
+These are bounded experiments, not exhaustive platform/version qualification.
+
+Terminal output is spoofable and may omit an uncommon prompt. UI thread switches
+follow the displayed thread, not an authenticated aggregate of all children.
+Missing updates can leave a stale display; silence never implies resolution.
+The owner accepted these limitations to avoid the observer infrastructure.
+
+## Implementation and verification plan
+
+1. Add a bounded streaming parser and literal protocol fixtures; prove chunk
+   splits, malformed/foreign frames, unknown states and recovery.
+2. Connect live PTY ingestion and existing transactional attention storage.
+   Test manual/automatic traces, late hooks, user/agent preservation, replacement
+   runtimes, persistence failure and clear. Disable competing inferred attention
+   only for activated runtimes; preserve legacy behavior otherwise.
+3. Synchronize ADR/spec/contracts, run the Rust suite and repository verification,
+   complete current-diff code review, and update the existing PR #1042.
+
+Plan review: Ready. Dependencies 1 (one sidecar); blast radius 2 (Codex attention);
+state changes 2 (existing tuple, additive origin); reversibility 1 (revert and
+restart); uncertainty 2 (live tested, best-effort limitations accepted). Total 8.
+
+## Original route-field proposal (historical)
 
 ## Problem and evidence
 
@@ -234,7 +295,7 @@ No native process, conversation, or installed diagnostic was launched for this
 read-only design audit. #690 remains unresolved.
 
 
-## Fresh review disposition
+## Historical route-field review disposition
 
 The independent builder check found no important accidental omissions. It
 confirmed that exclusive-route feasibility and retry/configuration lifecycle

@@ -513,6 +513,7 @@ pub(crate) struct SessionRuntime {
     native_observer_pause: Option<tokio::sync::watch::Sender<bool>>,
     #[cfg(test)]
     diagnostic_cleanup: Option<tokio::sync::watch::Receiver<bool>>,
+    pub(crate) codex_terminal_status_active: bool,
     pub(crate) attention_owner: super::observed_status::AttentionOwner,
     pub(crate) control_tx: mpsc::Sender<RuntimeCommand>,
     pub(crate) output_tx: broadcast::Sender<RuntimeEvent>,
@@ -556,6 +557,7 @@ impl SessionRuntime {
                 run_generation: next_runtime_generation(),
                 startup_spawned: false,
                 attention_owner: super::observed_status::AttentionOwner::default(),
+                codex_terminal_status_active: false,
                 native_approval: None,
                 #[cfg(test)]
                 native_diagnostic: None,
@@ -604,6 +606,7 @@ impl SessionRuntime {
             run_generation: next_runtime_generation(),
             startup_spawned: false,
             attention_owner: super::observed_status::AttentionOwner::default(),
+            codex_terminal_status_active: false,
             native_approval: None,
             #[cfg(test)]
             native_diagnostic: None,
@@ -1811,11 +1814,12 @@ fn complete_initial_editor_prompt(
         handle.runtime.run_generation() == generation
             && handle.info.lifecycle == "alive"
             && !handle.active_work_hook
+            && !handle.runtime.codex_terminal_status_active
     }) {
         if should_infer_working(
             &handle.info.lifecycle,
             initial.qualifying_work_output,
-            handle.active_work_hook,
+            handle.active_work_hook || handle.runtime.codex_terminal_status_active,
             startup_grace_ends_at,
         ) {
             handle.pending_work_signal = None;
@@ -2298,6 +2302,8 @@ async fn start_session_runtime_inner(
         let mut pending_commands = VecDeque::from(pending_commands);
         let mut persist_buffer: Vec<u8> = Vec::new();
         let mut pending_utf8: Vec<u8> = Vec::new();
+        let mut codex_status_reader =
+            is_codex_session.then(super::codex_terminal_status::Reader::default);
         let mut pending_persist_batches: VecDeque<Vec<crate::metadata::TerminalOutputRecord>> =
             VecDeque::new();
         let mut kill_requested = false;
@@ -2579,6 +2585,12 @@ async fn start_session_runtime_inner(
                 ) => {
                     match event {
                         DriverEvent::Output(data) => {
+                            if let Some(reader) = &mut codex_status_reader {
+                                for status in reader.feed(&data) {
+                                    crate::session_application::SessionApplication::new(driver_state.clone())
+                                        .apply_codex_terminal_status(&driver_id, run_generation, status);
+                                }
+                            }
                             if let Some(initial) = &mut initial_editor {
                                 initial.observe_output(&data, tokio::time::Instant::now());
                             }
@@ -2644,7 +2656,7 @@ async fn start_session_runtime_inner(
                                     if should_infer_working(
                                         &handle.info.lifecycle,
                                         has_qualifying_work_signal,
-                                        handle.active_work_hook,
+                                        handle.active_work_hook || handle.runtime.codex_terminal_status_active,
                                         startup_grace_ends_at,
                                     ) {
                                         promoted_working = true;

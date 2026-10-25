@@ -111,6 +111,8 @@ pub enum PeonMergeOutcome {
 pub enum PeonAttentionPolicy<'a> {
     Infer,
     NonPrompt,
+    /// An observed terminal-status channel owns attention; summaries still merge.
+    PreserveAttention,
     PreserveHook {
         status: &'a str,
         confidence: f64,
@@ -2335,8 +2337,12 @@ impl MetadataStore {
                 }
                 _ => false,
             };
-            let infer_attention = !matches!(policy, PeonAttentionPolicy::NonPrompt);
-            let mut attention_allowed = !protected_hook_matches
+            let infer_attention = !matches!(
+                policy,
+                PeonAttentionPolicy::NonPrompt | PeonAttentionPolicy::PreserveAttention
+            );
+            let mut attention_allowed = !matches!(policy, PeonAttentionPolicy::PreserveAttention)
+                && !protected_hook_matches
                 && source_priority::can_overwrite(
                     "peon",
                     meta.attention_source(),
@@ -2427,6 +2433,7 @@ impl MetadataStore {
 
             if attention_allowed {
                 match policy {
+                    PeonAttentionPolicy::PreserveAttention => {}
                     PeonAttentionPolicy::Infer
                     | PeonAttentionPolicy::NonPrompt
                     | PeonAttentionPolicy::PreserveHook { .. } => {
