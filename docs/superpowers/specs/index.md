@@ -201,3 +201,5 @@ Dated design records; these do not establish current product behavior.
 - [Explicit session worktree reporting](2026-10-25-session-worktree-location-design.md) — Proposed authenticated task-worktree binding, honest location sources and unchanged native gates.
 
 - [Root bootstrap and subject-preparation producer contract](2026-10-25-root-preparation-producer-design.md) — Scoped identity-first draft/source flow accepted for further design; exact bindings retain source-valid fixture, authority and runtime qualification gates.
+
+- [Current hierarchy summary detail projection](2026-10-26-hierarchy-summary-detail-design.md) — Proposed authoritative result details and exact local viewed-summary behavior under existing read budgets.

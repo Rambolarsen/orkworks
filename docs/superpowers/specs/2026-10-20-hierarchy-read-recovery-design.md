@@ -456,3 +456,14 @@ plans identifying every writer, storage adapter and shared codec/crash fixture
 when their upstream gates permit. Required native capability evidence,
 architecture/ADR review and scoped implementation approval remain open. Keep
 #746 open; recording accepted written choices does not establish runtime availability.
+
+## Separate current-summary detail proposal — 2026-10-26
+
+The [#1089 current-summary detail proposal](2026-10-26-hierarchy-summary-detail-design.md)
+addresses the missing authoritative outcome/finding and completeness/quality read
+identified by the production projection review. It proposes a separately bound
+read and explicit complete material display before local viewed marking, within
+the existing detail budgets. Source/material codecs, summary revision semantics
+and the narrow immutable-record read are unchanged. The new response/display/
+viewing choices await scoped owner/producer review; no runtime handoff or broader
+projection acceptance follows from merging the proposal.
