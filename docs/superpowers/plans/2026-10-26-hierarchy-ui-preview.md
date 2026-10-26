@@ -14,7 +14,7 @@ coding tool or sidecar. This makes the hierarchy tangible while #740 remains
 deferred.
 
 **Status:** Owner-approved for this bounded preview scope on 2026-10-26. This document
-proposes a fixture-only development exception to the broader runtime handoff;
+records the accepted fixture-only development exception to the broader runtime handoff;
 it is not approval of #746's production projection or of orchestration launches.
 The owner authorized preparing this first UI slice on 2026-10-26. The owner replied “go ahead” after reviewing the concrete plan and scope
 exception. Execution is tracked by [#1084](https://github.com/Rambolarsen/orkworks/issues/1084).
@@ -87,8 +87,8 @@ All changes belong to this session's `hierarchy-preview` worktree/branch.
 | `docs/superpowers/specs/2026-10-04-agent-hierarchy-ui-design.md` | Record approved preview boundary and reviewed observations without upgrading runtime eligibility |
 
 Keep fixture data outside `src/`. The ordinary Vite entry must never import the
-preview entry or synthetic scenarios. Use the preview script's temporary output
-instead of modifying production Vite inputs; clean up that output on shutdown.
+preview entry or synthetic scenarios. Use the preview script's in-memory output instead of modifying production Vite
+inputs; release it when the server shuts down.
 Bind to loopback with a configurable strict port (default 5276); report port
 conflicts rather than attaching to another checkout's server. The script bundles
 only the preview entry and serves only its generated HTML/JS/CSS artifacts.
@@ -98,13 +98,13 @@ It does not serve workspace source files, accept mutations or proxy requests.
 
 ### 1. Presentation model and interaction state
 
-- [ ] Define small readonly records for root, stages, task keys, phases, supplied
+- [x] Define small readonly records for root, stages, task keys, phases, supplied
   status/result, dependencies and skill display states. Separate focused and
   inspected keys; retain stable order across activity/status updates.
-- [ ] Add failing pure tests, then implement keyboard-visible ordering, focus
+- [x] Add failing pure tests, then implement keyboard-visible ordering, focus
   movement, inspection, manual disclosure protection and disappearing-node
   fallback to a surviving stage/root.
-- [ ] Cover repeated labels in different revisions, stage append without focus
+- [x] Cover repeated labels in different revisions, stage append without focus
   theft, all blocker causes on a refused collapse, manual reopening, and
   scenario replacement resetting local state rather than leaking inspection.
 
@@ -113,20 +113,20 @@ from `apps/desktop/` exits zero, after observed red/green development.
 
 ### 2. Interactive overview and isolated preview
 
-- [ ] Implement Timeline and Tree from the same logical outline, using a single
+- [x] Implement Timeline and Tree from the same logical outline, using a single
   roving treeitem tab stop and a sibling focused-node toolbar. Implement the
   hierarchy spec's Up/Down/Home/End, Left/Right, type-ahead, Space inspection,
   Enter-to-details and Escape-to-invoker behavior; Tab leaves normally.
-- [ ] Show at most three skill badges plus overflow. Keep selected/unconfirmed
+- [x] Show at most three skill badges plus overflow. Keep selected/unconfirmed
   delivery separate from loaded and reported/observed usage. Details expose
   full labels and all supplied skills; unassessed values never appear as zero.
-- [ ] Supply scenarios for mixed research/execution stages, planned/starting/live/
+- [x] Supply scenarios for mixed research/execution stages, planned/starting/live/
   remembered/missing-session tasks, a missing parent, blocked work, repeated
   labels across revisions, stale evidence and many tasks/long labels.
-- [ ] Add the explicit preview command and synthetic banner. All inputs render
+- [x] Add the explicit preview command and synthetic banner. All inputs render
   as text, including markup-like labels. Preview operation performs no API,
   WebSocket, Electron IPC, credential, filesystem-write or coding-tool operation
-  from the renderer. The preview script writes only its disposable build output.
+  from the renderer. The preview script keeps generated build output in memory.
 
 Pass: `pnpm --dir apps/desktop preview:workflow` serves a usable preview on
 loopback. Switching scenarios and presentations preserves the declared behavior.
@@ -135,21 +135,22 @@ and fixture data, verified through emitted bundle inspection.
 
 ### 3. Browser behavior, layout and handoff
 
-- [ ] Add DOM tests before implementation for focus versus inspection, refused
+- [x] Add DOM tests before implementation for focus versus inspection, refused
   collapse, visible collapsed blockers, plain-text rendering, badge delivery/use
   separation, scenario reset and disabled/absent terminal commands.
-- [ ] Exercise the real component at wide, medium and compact widths, 360px and
+- [x] Exercise the real component at wide, medium and compact widths, 360px and
   200% text zoom; assert no document-wide horizontal overflow or clipped actions.
   Check reduced motion and keyboard access to complete labels/details. Reuse
   the existing Electron fixture runner approach, not the large shell fixture.
-- [ ] Fail tests on unexpected fetch, WebSocket or bridge access. Assert one
+- [x] Fail tests on unexpected fetch, WebSocket or bridge access. Assert one
   logical outline and no terminal mount; preserve focus when changing views.
-- [ ] Capture and inspect wide/compact screenshots and walk through finding a
+- [x] Capture and inspect wide/compact screenshots and walk through finding a
   blocker, inspecting skills, changing view and returning focus. Record actual
   observations and limits; DOM checks do not establish screen-reader support.
-- [ ] Run desktop type-check, focused tests, production renderer build and
+- [x] Run desktop type-check, focused tests, production renderer build and
   `bash scripts/verify-repo.sh`; run docs and worktree currency checks. Complete
-  current-diff `/code-review low`, required CI and ordinary branch/PR workflow.
+  current-diff `/code-review medium` (size escalation); required CI and the
+  ordinary branch/PR merge gate remain tracked in PR #1078.
 
 Pass: focused tests and required verification pass, screenshots show readable
 labels/actions, and a user can review the preview without any tool-capability
@@ -162,7 +163,7 @@ The principal uncertainty was whether a fixture-backed UI would still activate
 the gated Workflow destination. Current `shellNavigation.ts` supports Terminal
 and Review only, and the hierarchy spec requires projection agreement before
 production integration. A separate fixture entry avoids changing those contracts;
-this preview exception still needs explicit owner acceptance before code.
+the owner accepted this preview exception before code.
 
 The likely project blind spot is mistaking polished synthetic cards for verified
 orchestration. Keep the banner permanent, backend-derived values explicitly
@@ -175,7 +176,7 @@ protocol by convenience.
 | --- | --- | --- |
 | Dependencies | 2 | Existing React/CSS/esbuild and shell direction; production contracts remain outside this slice |
 | Blast radius | 1 | New component and opt-in preview entry; no App or shell navigation edits |
-| State changes | 1 | Memory-only presentation state and disposable preview output |
+| State changes | 1 | Memory-only presentation state and generated preview output |
 | Reversibility | 1 | Remove preview command/component; no migration or saved user state |
 | Uncertainty | 2 | Existing DOM runner pattern; actual layout/keyboard behavior verified during implementation |
 
@@ -184,8 +185,9 @@ Total: 7/25. Ratings size review effort; they do not grant approval.
 ## Plan review and approval gate
 
 Reviewed once against the linked UI proposal, current shell navigation, desktop
-build inputs and existing Electron/esbuild test pattern. Disposition: **Ready
-for owner scope/plan review**, not executable production handoff. The review
+build inputs and existing Electron/esbuild test pattern. Initial disposition:
+**Ready for owner scope/plan review**; subsequent approval is recorded below.
+This remains outside the executable production handoff. The review
 removed shell integration and automatic collapse from this slice, made fixture
 identity distinct from wire contracts, and required production-bundle isolation.
 
@@ -214,10 +216,29 @@ contract acceptance.
   validation artifacts rather than released product captures.
 - Renderer type-check and production Vite build pass; emitted assets contain no
   preview/scenario markers. Full repository verification and current-head review
-  remain in progress; completion is recorded with the PR's final evidence.
+  completed successfully; final counts and review are recorded below.
 
 Implementation refinement: the preview script holds the generated HTML/JS/CSS
 in memory rather than writing temporary build files. It serves only those exact
 artifacts and cleans up by closing the server; this removes filesystem cleanup
 without changing the approved preview behavior. No production navigation, wire
 contract, storage, source-valid fixture or coding-tool eligibility was added.
+
+### Final verification and review
+
+`bash scripts/verify-repo.sh` passed under Node 22.23.4: 2,271 Rust unit tests
+plus integration tests, 13 reporter tests, native ABI repair, 1,544 desktop tests
+(2 skipped), desktop type-check/build, documentation build, whitespace and
+documentation/worktree currency. Existing Rust dead-code/drop-reference and
+Vite/VitePress chunk warnings do not arise from changed Rust or build configuration;
+no unrelated cleanup was included. Another owner's merged worktree was left
+untouched when it appeared in an earlier currency check.
+
+A read-only Luna-tier `/code-review medium` covered code head
+`0cfe119ca7f6817b3d91202602b94248855f5b3d` against planning head
+`49d85eb0b93f38ae51b21da7997f81668e27d3a3`: no actionable findings. Medium
+effort reflects the code/test diff size. Native assistive-technology validation
+was explicitly declined and remains unclaimed; the reviewer did not independently
+rerun verification. The authenticated sidecar audit found no matching active
+hierarchy/preview recommendation requiring tie-off. Required CI and merge
+disposition are recorded in PR #1078.
