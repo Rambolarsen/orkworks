@@ -282,8 +282,15 @@ mandatory parent delivery eligibility is still required before launch/resume.
 `taskVersion`, `reservationId`, `parentSessionId`, `configurationId`,
 `configurationDigest`, `childSessionId`, `sidecarGeneration`, `launchGeneration`,
 `adapterGeneration`, `evidenceStoreGeneration`. Numeric bounds and generation
-namespaces remain #743's; all child assignment members and the latest admitted launch match, including
-retained terminal-launch evidence validated by the sidecar.
+namespaces remain #743's. Shared run/plan/revision/task/reservation/parent/child/
+configuration members and the latest admitted launch must match, including
+retained terminal-launch evidence validated by the sidecar. The same-named
+`taskVersion` values have different owners: #744's child identity copies frozen
+#742 `assignmentTaskVersion`; #743's binding keeps its task-state/launch-binding
+version. Validate each against its own authoritative source. Their equality is
+not a join condition, and neither value repairs an absent or invalid other
+binding. Do not rewrite a retained #744 identity/result digest when task state
+or a skill binding changes.
 Current binding sidecarGeneration also equals the envelope lifetime; retained
 old-lifetime receipts stay historical in details. It cannot decorate a current
 badge after resume with old-launch evidence.
@@ -585,6 +592,8 @@ source change; transport-shape acceptance alone never establishes a valid join.
 | Exact retained plan has two tasks in batch 0 with declaration indices 0 and 1 | Valid ordering; same batch is allowed, duplicate declaration index/task ID is not |
 | Two retained revisions reuse a task label/ID under distinct planRevision values | Separate nodes and assignment/result/skill/viewed state; never replace the earlier path |
 | Valid bound child has accepted result and staged candidate, but canonical lifecycle is alive | Both result and pending candidate remain distinct; child still consumes capacity and prevents group collapse |
+| Child identity keeps admission taskVersion 1; independently valid #743 evidence binding has taskVersion 2 with the same shared identity and current launch | Valid join when each version matches its own source; no forced equality, identity rewrite or transferred delivery proof |
+| Evidence taskVersion matches the #744 identity but differs from its authoritative #743 binding | Reject current evidence; matching the frozen result identity is insufficient |
 | Valid bound child's latest launch changes while same session ID remains | Old binding cannot confirm current skills or supply a task navigation target; fresh sidecar snapshot required |
 | Root/stage/task has the same actual session ID as another owner | Invalid-structure, rather than duplicated canonical session or guessed parentage |
 | Child usage count `"9007199254740993"` / sequence `"18446744073709551615"` in valid current binding | Exact strings survive DTO/IPC; narrower source count limits still win; no Number conversion |
@@ -644,3 +653,16 @@ Producer agreement remains pending for all four choices, including material
 fields/classifications, summary budgets, publication/recovery semantics and
 narrow detail scope. Broader projection acceptance, runtime storage
 qualification, capability evidence and executable-plan gates remain open.
+
+## Contract review — 2026-10-26
+
+The [production projection review](../../validation/hierarchy-projection-contract-review.md)
+separates frozen evaluation identity from skill task-state versions. It also
+records that the closed overview summary currently returns only overall result
+and revision, while the accepted narrow record read supplies only whole-record
+freshness. Neither supplies authoritative current per-outcome/finding details or
+aggregate completeness/quality. Do not label raw reviewer claims as those current
+aggregates or mark a full material summary viewed from record inspection alone.
+A scoped read-projection proposal or explicit first-slice deferral is required
+before that UI/detail handoff is executable. This note adds no wire fields, read
+route, quota change or runtime authority.
