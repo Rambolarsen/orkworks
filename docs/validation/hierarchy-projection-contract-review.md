@@ -111,7 +111,8 @@ is not proof that the current material summary was displayed. A changed summary
 token alone supplies no missing current detail content. No auto-collapse/viewed
 claim follows merely from decoding an evaluation record.
 
-**Requested next specification:** Define a bounded, source-owned current-summary/
+**Requested next specification:** Tracked by
+[#1089](https://github.com/Rambolarsen/orkworks/issues/1089). Define a bounded, source-owned current-summary/
 aggregate detail read (or explicitly defer those UI details and dependent
 viewed-summary behavior in the first production slice). A proposed read must
 name exact assignment/result/summary/snapshot binding, authoritative fields and
