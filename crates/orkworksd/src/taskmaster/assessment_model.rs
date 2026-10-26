@@ -93,7 +93,7 @@ pub(crate) fn parse_assessment_response(
         "unverified checks",
     )?;
     for check in &response.unverified_checks {
-        validate_prose(check, MAX_CHECK_CHARS, true)?;
+        validate_prospective_prose(check, MAX_CHECK_CHARS, true)?;
     }
 
     let known_hashes: HashSet<&str> = facts.iter().map(|fact| fact.sha256.as_str()).collect();
@@ -164,11 +164,29 @@ fn validate_unique_bounded(values: &[String], limit: usize, label: &str) -> Resu
 }
 
 pub(super) fn validate_prose(value: &str, limit: usize, required: bool) -> Result<(), String> {
+    validate_prose_for(value, limit, required, false)
+}
+
+/// Future checks may name desired evidence without asserting that it exists.
+pub(super) fn validate_prospective_prose(
+    value: &str,
+    limit: usize,
+    required: bool,
+) -> Result<(), String> {
+    validate_prose_for(value, limit, required, true)
+}
+
+fn validate_prose_for(
+    value: &str,
+    limit: usize,
+    required: bool,
+    prospective: bool,
+) -> Result<(), String> {
     let char_count = value.chars().count();
     if char_count > limit
         || has_control(value)
         || (required && value.trim().is_empty())
-        || contains_command_or_verification_claim(value)
+        || contains_command_or_verification_claim(value, prospective)
     {
         return Err("assessment contains unsafe or out-of-bounds text".into());
     }
@@ -179,7 +197,7 @@ fn has_control(value: &str) -> bool {
     value.chars().any(char::is_control)
 }
 
-fn contains_command_or_verification_claim(value: &str) -> bool {
+fn contains_command_or_verification_claim(value: &str, prospective: bool) -> bool {
     let lower = value.to_ascii_lowercase();
     let words: Vec<&str> = lower
         .split(|character: char| !character.is_ascii_alphanumeric())
@@ -232,14 +250,14 @@ fn contains_command_or_verification_claim(value: &str) -> bool {
         bare_command || contains_embedded_literal_command(&lower)
     };
     if contains_imperative_command(&lower)
-        || contains_tool_invocation(&words)
+        || contains_tool_invocation(value, &words)
         || contains_direct_command(value)
         || (shell_operator && contains_command_token(&words))
         || semicolon_command
     {
         return true;
     }
-    has_completed_verification_claim(&lower)
+    has_completed_verification_claim(&lower, prospective)
 }
 
 fn contains_command_token(words: &[&str]) -> bool {
@@ -358,6 +376,20 @@ fn contains_imperative_command(text: &str) -> bool {
             if pair[0] == "run" && pair[1] == "through" {
                 return false;
             }
+            // "Use of ..." is a noun phrase. Prepositional usage with a
+            // following predicate is a subject, not an instruction to invoke a tool.
+            let nominal_use = pair[0] == "use"
+                && (pair[1] == "of"
+                    || (matches!(
+                        pair[1],
+                        "across" | "in" | "within" | "throughout" | "during"
+                    ) && words[index + 2..].iter().any(|word| {
+                        matches!(*word, "is" | "are" | "was" | "were" | "remains" | "remain")
+                    })));
+            if nominal_use && !contains_embedded_literal_command(sentence) {
+                return false;
+            }
+
             // A configuration description or an indirect question is not an
             // instruction to the reader. Explicit tool syntax is checked separately.
             let addressed_reader = words[..index].iter().any(|word| {
@@ -445,49 +477,106 @@ fn contains_imperative_command(text: &str) -> bool {
     })
 }
 
-fn contains_tool_invocation(words: &[&str]) -> bool {
-    words.windows(2).any(|pair| match pair[0] {
-        "cargo" => matches!(
-            pair[1],
-            "test" | "build" | "check" | "fmt" | "run" | "clippy"
-        ),
-        "pnpm" | "npm" | "yarn" => matches!(
-            pair[1],
-            "test" | "build" | "check" | "run" | "install" | "exec" | "dlx"
-        ),
-        "git" => matches!(
-            pair[1],
-            "config"
-                | "status"
-                | "diff"
-                | "add"
-                | "commit"
-                | "switch"
-                | "branch"
-                | "checkout"
-                | "log"
-                | "show"
-                | "push"
-                | "pull"
-                | "fetch"
-                | "reset"
-                | "clean"
-                | "worktree"
-                | "merge"
-                | "rebase"
-        ),
-        "bash" | "sh" | "python" | "node" => {
-            pair[1].starts_with('-') || pair[1].contains('.') || pair[1].contains('/')
-        }
-        // Articles after Make introduce a prose object; "just reports" is
-        // an adverbial description. Literal/quoted command starts stay rejected.
-        "make" => !matches!(pair[1], "a" | "an" | "the" | "sure"),
-        "just" => !matches!(pair[1], "reports" | "prints" | "emits" | "describes"),
-        _ => false,
-    })
+fn contains_tool_invocation(text: &str, words: &[&str]) -> bool {
+    words
+        .windows(2)
+        .enumerate()
+        .any(|(index, pair)| match pair[0] {
+            "cargo" => matches!(
+                pair[1],
+                "test" | "build" | "check" | "fmt" | "run" | "clippy"
+            ),
+            "pnpm" | "npm" | "yarn" => matches!(
+                pair[1],
+                "test" | "build" | "check" | "run" | "install" | "exec" | "dlx"
+            ),
+            "git" => matches!(
+                pair[1],
+                "config"
+                    | "status"
+                    | "diff"
+                    | "add"
+                    | "commit"
+                    | "switch"
+                    | "branch"
+                    | "checkout"
+                    | "log"
+                    | "show"
+                    | "push"
+                    | "pull"
+                    | "fetch"
+                    | "reset"
+                    | "clean"
+                    | "worktree"
+                    | "merge"
+                    | "rebase"
+            ),
+            "bash" | "sh" | "python" | "node" => {
+                pair[1].starts_with('-') || pair[1].contains('.') || pair[1].contains('/')
+            }
+            // Keep arbitrary recipe names conservative. Exempt grammatical
+            // prose constructions, not every unknown make/just target.
+            "make" => {
+                let descriptive_complement = index == 0
+                    && text.trim_start().starts_with("Make ")
+                    && words.last().is_some_and(|word| {
+                        matches!(
+                            *word,
+                            "explicit"
+                                | "clear"
+                                | "clearer"
+                                | "easier"
+                                | "visible"
+                                | "discoverable"
+                                | "usable"
+                        )
+                    });
+                !matches!(pair[1], "a" | "an" | "the" | "sure")
+                    && !(descriptive_complement
+                        && !is_recipe_target(pair[1])
+                        && !is_recipe_introduction(words, index)
+                        && !contains_embedded_literal_command(&text.to_ascii_lowercase()))
+            }
+            "just" => {
+                let descriptive_adverb = index > 0
+                    && matches!(words[index - 1], "is" | "are" | "was" | "were")
+                    && !is_recipe_target(pair[1])
+                    && !is_recipe_introduction(words, index)
+                    && !contains_embedded_literal_command(&text.to_ascii_lowercase());
+                !matches!(pair[1], "reports" | "prints" | "emits" | "describes")
+                    && !descriptive_adverb
+            }
+            _ => false,
+        })
 }
 
-fn has_completed_verification_claim(text: &str) -> bool {
+fn is_recipe_introduction(words: &[&str], index: usize) -> bool {
+    index >= 2
+        && words[index - 1] == "is"
+        && matches!(
+            words[index - 2],
+            "command" | "check" | "step" | "invocation" | "recipe"
+        )
+}
+
+fn is_recipe_target(word: &str) -> bool {
+    matches!(
+        word,
+        "test"
+            | "tests"
+            | "build"
+            | "check"
+            | "lint"
+            | "fmt"
+            | "install"
+            | "clean"
+            | "deploy"
+            | "release"
+            | "run"
+    )
+}
+
+fn has_completed_verification_claim(text: &str, prospective: bool) -> bool {
     const CHECKS: [&str; 11] = [
         "test",
         "tests",
@@ -515,6 +604,15 @@ fn has_completed_verification_claim(text: &str) -> bool {
         "green",
         "completed",
     ];
+    // A desired evidence fragment is not an exception for an attached claim.
+    // Keeping this to one clause also rejects relative assertions like
+    // "Evidence of verified tests, which passed" without broadening the
+    // completed-claim word list for ordinary repository descriptions.
+    let prospective = prospective
+        && prose_clauses(text)
+            .filter(|clause| !clause.trim().is_empty())
+            .count()
+            == 1;
     prose_clauses(text).any(|clause| {
         let words = clause
             .split(|ch: char| !ch.is_ascii_alphanumeric())
@@ -553,7 +651,49 @@ fn has_completed_verification_claim(text: &str) -> bool {
                     )
                 })
             });
-            let qualified = before.contains(&"whether")
+            // Prospective evidence noun phrases describe a desired check,
+            // not a completed outcome. Do not exempt a following assertion,
+            // such as "Evidence of verified tests is retained" or "tests passed".
+            let prospective_modifier = prospective
+                && words.starts_with(&["evidence", "of"])
+                && matches!(
+                    *word,
+                    "verified" | "successful" | "completed" | "passing" | "green"
+                )
+                && words
+                    .get(index + 1)
+                    .is_some_and(|word| CHECKS.contains(word))
+                && words[2..index].iter().all(|word| {
+                    matches!(
+                        *word,
+                        "a" | "an" | "the" | "consistently" | "reliably" | "independently"
+                    )
+                })
+                && !words.iter().any(|word| {
+                    matches!(
+                        *word,
+                        "is" | "are"
+                            | "was"
+                            | "were"
+                            | "has"
+                            | "have"
+                            | "had"
+                            | "shows"
+                            | "confirms"
+                            | "demonstrates"
+                            | "establishes"
+                            | "proves"
+                            | "exists"
+                            | "exist"
+                            | "records"
+                            | "record"
+                            | "confirmed"
+                            | "validated"
+                            | "demonstrated"
+                    )
+                });
+            let qualified = prospective_modifier
+                || before.contains(&"whether")
                 || modal_predicate
                 || local.iter().any(|word| {
                     matches!(
@@ -792,6 +932,39 @@ mod tests {
         let mut target = proposed();
         target["proposal"]["targetSurface"] = json!("shell");
         assert!(parse(&target).is_err());
+    }
+
+    #[test]
+    fn retained_prose_corpus_covers_complete_workflow_responses() {
+        let cases: Vec<Value> =
+            serde_json::from_str(include_str!("../../tests/fixtures/assessment-prose.json"))
+                .unwrap();
+        for case in cases {
+            let text = &case["text"];
+            for field in ["summary", "title", "proposal", "check", "reason"] {
+                let expected = case["accept"].as_bool().unwrap()
+                    && (case["prospectiveOnly"] != true || field == "check");
+                let mut response = if field == "reason" {
+                    no_proposal()
+                } else {
+                    proposed()
+                };
+                match field {
+                    "summary" => response["summary"] = text.clone(),
+                    "title" => response["proposal"]["title"] = text.clone(),
+                    "proposal" => response["proposal"]["summary"] = text.clone(),
+                    "check" => response["unverifiedChecks"] = json!([text]),
+                    "reason" => response["noProposalReason"] = text.clone(),
+                    _ => unreachable!(),
+                }
+                assert_eq!(
+                    parse(&response).is_ok(),
+                    expected,
+                    "workflow {} in {field}: {text}",
+                    case["id"]
+                );
+            }
+        }
     }
 
     #[test]

@@ -97,7 +97,7 @@ pub(crate) fn decode(
             _ => return Err("Invalid readiness rating or unassessed reason".into()),
         }
         super::assessment_model::validate_prose(&row.rationale, 500, true)?;
-        super::assessment_model::validate_prose(&row.next_transition, 500, false)?;
+        super::assessment_model::validate_prospective_prose(&row.next_transition, 500, false)?;
         for limit in &row.limits {
             super::assessment_model::validate_prose(limit, 200, true)?;
         }
@@ -161,6 +161,62 @@ mod tests {
         let parsed = decode(&v.to_string(), 1, &rubric()).unwrap();
         assert_eq!(parsed.totals(), (13, None, None));
     }
+    #[test]
+    fn qualified_readiness_outputs_remain_decodable_without_provider_calls() {
+        let evidence: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../docs/validation/fixtures/repository-readiness-2026-10-25/qualified-matrix.json"
+        )).unwrap();
+        for sample in evidence["samples"].as_array().unwrap() {
+            let input = &evidence["inputsByOriginalSha256"]
+                [sample["providerInputSha256"].as_str().unwrap()];
+            let rubric: ReadinessRubric = serde_json::from_value(input["rubric"].clone()).unwrap();
+            let parsed = decode(
+                &sample["output"].to_string(),
+                input["repositoryFacts"].as_array().unwrap().len(),
+                &rubric,
+            )
+            .unwrap();
+            assert_eq!(parsed.totals(), (11, None, None), "{}", sample["sample"]);
+        }
+    }
+
+    #[test]
+    fn retained_prose_corpus_covers_complete_readiness_responses() {
+        let cases: Vec<serde_json::Value> =
+            serde_json::from_str(include_str!("../../tests/fixtures/assessment-prose.json"))
+                .unwrap();
+        for case in cases {
+            let text = &case["text"];
+            for field in [
+                "summary",
+                "rationale",
+                "nextTransition",
+                "limits",
+                "unassessedReason",
+            ] {
+                let expected = case["accept"].as_bool().unwrap()
+                    && (case["prospectiveOnly"] != true || field == "nextTransition");
+                let mut response = result(2);
+                match field {
+                    "summary" => response["summary"] = text.clone(),
+                    "limits" => response["concepts"][0]["limits"] = serde_json::json!([text]),
+                    "unassessedReason" => {
+                        response["concepts"][0]["maturity"] = serde_json::Value::Null;
+                        response["concepts"][0]["confidence"] = serde_json::Value::Null;
+                        response["concepts"][0][field] = text.clone();
+                    }
+                    _ => response["concepts"][0][field] = text.clone(),
+                }
+                assert_eq!(
+                    decode(&response.to_string(), 1, &rubric()).is_ok(),
+                    expected,
+                    "readiness {} in {field}: {text}",
+                    case["id"]
+                );
+            }
+        }
+    }
+
     #[test]
     fn scoring_rejects_forged_refs_ratings_missing_rows_and_extra_score() {
         for mutate in [0, 1, 2, 3, 4, 5, 6, 7] {
