@@ -858,6 +858,53 @@ mod integration_tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn grammatical_readiness_response_survives_publication_and_history_reload() {
+        let (f, runtime) = setup();
+        let captured = capture(&f.state, &runtime).unwrap();
+        let response = json!({
+            "version": 1,
+            "summary": "Use of scoped instructions is not established.",
+            "concepts": captured.rubric.concepts.iter().map(|concept| json!({
+                "conceptId": concept.concept_id,
+                "maturity": 2,
+                "confidence": "medium",
+                "repositoryFactIds": [0],
+                "rubricPageId": concept.page_id,
+                "rationale": "Currentness and use across common tasks are not established.",
+                "limits": ["This is just documentation", "Make workflow ownership explicit"],
+                "nextTransition": "Evidence of verified build reliability",
+                "unassessedReason": null,
+            })).collect::<Vec<_>>(),
+        });
+        std::fs::write(
+            f.dir.path().join("provider-response.readiness-final"),
+            response.to_string(),
+        )
+        .unwrap();
+        assert_eq!(
+            schedule_with_runtime(f.state.clone(), runtime).outcome,
+            "scheduled"
+        );
+        let store = ReadinessStore::new(&f.workspace_root());
+        let run = terminal_run(&store).await;
+        assert_eq!(run.state, RunState::Succeeded, "{run:?}");
+        let reloaded = ReadinessStore::new(&f.workspace_root()).history().unwrap();
+        assert_eq!(reloaded.snapshots.len(), 1);
+        let saved = reloaded.snapshots[0].data.as_ref().unwrap();
+        assert_eq!(saved.overall_score, Some(50));
+        assert_eq!(
+            saved.concepts[0].next_transition,
+            "Evidence of verified build reliability"
+        );
+        let mut invalid = reloaded.snapshots[0].clone();
+        invalid.id = uuid::Uuid::new_v4().to_string();
+        invalid.data.as_mut().unwrap().concepts[0].next_transition =
+            "Evidence of verified tests, which passed".into();
+        assert!(store.append(invalid).is_err());
+        assert_eq!(store.history().unwrap().snapshots.len(), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn complete_run_uses_two_calls_retains_history_and_reruns_unchanged_inputs() {
         let (f, runtime) = setup();
         let response = schedule_with_runtime(f.state.clone(), runtime.clone());

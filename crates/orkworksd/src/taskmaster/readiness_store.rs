@@ -481,7 +481,7 @@ fn validate_snapshot(s: &Snapshot) -> Result<(), String> {
                 _ => return Err("Invalid saved readiness score state".into()),
             }
             super::assessment_model::validate_prose(&row.rationale, 500, true)?;
-            super::assessment_model::validate_prose(&row.next_transition, 500, false)?;
+            super::assessment_model::validate_prospective_prose(&row.next_transition, 500, false)?;
             if row.limits.len() > 4 {
                 return Err("Invalid saved readiness limits".into());
             }
