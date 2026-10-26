@@ -430,3 +430,16 @@ Next bounded design task: full source-valid bootstrap/run/approval/retained-sour
 and transition byte fixtures for the accepted root flow. Close any missing source
 codec before labeling a fixture source-valid; review new schema/default choices
 separately before dependent implementation.
+
+
+## Component-byte progress — 2026-10-26
+
+The [component fixtures and source-closure audit](../../validation/root-preparation-components.md)
+pin the closed run-definition and approval-request bytes and their boundary
+rejections. These are not full bootstrap, retained-source or transition fixtures.
+Inspection also identified root assignment, executable-identity and provenance
+codec gaps in #741, alongside the already open #742 initial-state/attachment
+codecs. Close and review those source definitions before constructing complete
+source-valid fixtures; repeated synthetic digests cannot supply missing objects.
+No reviewed source schema, previous catalog, quota, authority or eligibility
+changes. All acceptance and runtime gates above remain open.
