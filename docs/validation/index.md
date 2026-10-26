@@ -28,3 +28,4 @@ Capability research, validation results, and evidence fixtures.
 - [Repository readiness runtime validation](repository-readiness-runtime.md) — Signed starter, retained failures and qualified GPT-6.1-Sol low-effort semantic evidence.
 
 - [Root preparation component bytes and source-closure audit](root-preparation-components.md) — Run/approval golden bytes and the missing source/lifecycle codecs that block complete preparation fixtures.
+- [Hierarchy production projection contract review](hierarchy-projection-contract-review.md) — Independent task-version meanings and the missing current-summary detail read.

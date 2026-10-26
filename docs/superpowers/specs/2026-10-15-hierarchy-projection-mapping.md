@@ -64,8 +64,15 @@ unknown fields to strict upstream records to make the UI convenient.
 #742 sidecar/launch generations are opaque 64-character lowercase hex values;
 adapter generation is #741's bounded ASCII capability identity. #743's evidence
 store generation is a separate positive bounded integer. Compare each in its
-own namespace. `taskVersion` and reservation identity are part of evidence joins,
-not substitutes for the stable navigation key. Preserve #742's canonical decimal
+own namespace. #744 child `AssignmentIdentity.taskVersion` is the frozen
+#742 reservation `assignmentTaskVersion`, not the current coordination counter.
+#743 skill-evidence `binding.taskVersion` retains its independently validated
+task-state/launch-binding semantics. Match the shared run/plan/revision/task,
+reservation/parent/child/configuration members, but validate these two task-version
+values against their respective source records rather than requiring equality.
+Never replace either with the other or backfill missing admission evidence from
+today's task state. Reservation identity and each source-specific version remain
+part of their own joins, not substitutes for the stable navigation key. Preserve #742's canonical decimal
 string `runSequence` losslessly; never coerce it through JavaScript Number.
 #744's u64 artifact versions/metadata similarly need a reviewed lossless
 cross-language encoding before runtime projection; this logical mapping does
@@ -145,7 +152,7 @@ prompts, paths, transcripts, credentials or capability evidence are included.
 | `A1` | Child identity: `kind=child`, `workspaceId=workspace-a`, `runId=R`, `planId=execution-a`, `planRevision=2`, `taskId=I1`, `taskVersion=1`, `reservationId=reservation-a`, `parentSessionId=parent-a`, `childSessionId=child-a`, `configurationId=config-a`, `configurationDigest=D(config-a)` |
 | `B1` | Root identity: `kind=root`, `workspaceId=workspace-a`, `runId=R`, `rootAssignmentId=root-a`, `parentSessionId=parent-a`, `bootstrapId=bootstrap-a`, `bootstrapConfigurationDigest=D(bootstrap-a)` |
 | `E1` | Evaluation reference: `assignmentIdentity=A1`, `resultRevision=1`, `resultDigest=D(result-a)`, `reviewerIdentity={kind:user,userReviewId:user-review-a}`, `evaluationRevision=1`, `evaluationDigest=D(evaluation-a)` |
-| `S1` | #743 child skill projection: `skillSnapshotId=skill-a`, `skillVersion=v1`, `skillContentDigest=D(skill-a)`; binding contains A1's run/plan/task/reservation/parent/child/configuration members plus `sidecarGeneration=G(sidecar-a)`, `launchGeneration=G(launch-a)`, `adapterGeneration=fixture-adapter-a`, `evidenceStoreGeneration=1` |
+| `S1` | #743 child skill projection: `skillSnapshotId=skill-a`, `skillVersion=v1`, `skillContentDigest=D(skill-a)`; binding matches A1's run/plan/revision/task/reservation/parent/child/configuration members, has independently source-validated `taskVersion=2` (A1 retains admission version 1), plus `sidecarGeneration=G(sidecar-a)`, `launchGeneration=G(launch-a)`, `adapterGeneration=fixture-adapter-a`, `evidenceStoreGeneration=1` |
 | `U1` | Stable reported-use event `fixture-stream-a:1`, `workspaceSequence=1`, source `assigned_session_self_report`, `processOriginVerified=false`; delivery remains `selected_unconfirmed`, observed use Unknown/unsupported |
 
 All outcomes in the following table are supplied by an authoritative synthetic
@@ -159,6 +166,8 @@ its explicitly stated inputs; table rows do not mutate one shared scenario.
 | F03 revision reuse | New navigation tuple `(R, execution-a, 3, I1)` repeats I1's label | New row identity; no copied evaluation, loaded badge, viewed summary or approval |
 | F04 root with missing session | Valid B1/bootstrap and run reference remain; parent-a is absent; child-a survives | Parent session unavailable, selected bootstrap skills unconfirmed/unknown; child-a remains ordinarily selectable; no replacement/resume |
 | F05 usage without delivery | S1 accepts U1, then receives the same event again | Outlined badge, Reported use, details say reported by assigned session; at most one visible highlight; no confirmed loading/process claim |
+| F05a independent task versions | A1 retains frozen admission taskVersion 1; S1 has independently valid evidence-binding taskVersion 2 for the same reservation/configuration/child/latest launch | Validate each version against its owner; do not reject current skill evidence solely because 1 differs from 2; never mutate A1 or rehash its result |
+| F05b invalid source-specific version | S1 claims taskVersion 2 but its authoritative #743 source binding proves 3; other identities match | Reject current evidence; equality with A1 would not repair a mismatched #743 binding |
 | F06 stale skill binding | A1 resumes with `launchGeneration=G(launch-b)`; S1 still names launch-a | No current Loaded/use promotion; retain source-labeled history only; adapter generation alone cannot bridge launches |
 | F07 finalization pending | Accepted A1 result 1/E1 pass remains; new candidate is staged, then rejected | Show exact accepted revision separately from awaiting finalization/rejection; candidate never inherits Meets requirements |
 | F08 partial/conflicting review | Current projection says required failure plus stale other outcomes; alternative input has threshold conflict and no established failure | Needs rework in first case; Unassessed in second; preserve unknown/conflicting details; no averaging |
@@ -227,3 +236,13 @@ Producer agreement remains pending for all four choices, including material
 fields/classifications, summary budgets, publication/recovery semantics and
 narrow detail scope. Broader projection acceptance, runtime storage
 qualification, capability evidence and executable-plan gates remain open.
+
+## Contract review — 2026-10-26
+
+The [production projection review](../../validation/hierarchy-projection-contract-review.md)
+corrects the cross-contract task-version equality implied by the earlier mapping.
+The accepted #742/#744 admission-version boundary and #743's own evidence binding
+remain unchanged; no source record or digest bytes are rewritten. The review
+also identifies a missing authoritative current-summary/outcome detail projection.
+Keep the broader consumer handoff pending that explicit scope/codec decision and
+producer agreement; a fixture-backed UI preview is not production source proof.
