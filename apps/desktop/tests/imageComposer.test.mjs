@@ -12,6 +12,31 @@ if (process.versions.electron) {
     try {
       await win.loadFile(process.env.ORKWORKS_IMAGE_UI_DIR+'/index.html');
       await wait('window.fixture && document.querySelector("#nsd-harness").value==="codex"');
+      // The coding tool owns the catalog, including deferred and failed discovery.
+      await wait('document.querySelector("#nsd-model")?.tagName==="SELECT"');
+      await wait('document.querySelector("#nsd-model").options.length===3');
+      assert.equal(await evaluate('document.querySelector("#nsd-model").value'),'','Unknown saved models must fall back to tool default');
+      await evaluate('fixture.choose("#nsd-model","codex-fast")');
+      await evaluate('document.querySelector(".new-session-confirm").click()');
+      await wait('fixture.submitted.length===1');
+      assert.equal(await evaluate('fixture.submitted.pop().model'),'codex-fast');
+      await evaluate('fixture.choose("#nsd-harness","other")');
+      await wait('document.querySelector("#nsd-model").options.length===1');
+      await evaluate('document.querySelector(".new-session-confirm").click()');
+      await wait('fixture.submitted.length===1');
+      assert.equal(await evaluate('fixture.submitted.pop().model'),undefined,'Pending discovery must not submit a stale default');
+      await evaluate('fixture.choose("#nsd-harness","codex");fixture.finishOther({models:["other-only"]})');
+      await wait('document.querySelector("#nsd-model").options.length===3');
+      assert.deepEqual(await evaluate('Array.from(document.querySelector("#nsd-model").options, option=>option.value)'),['','codex-fast','codex-review']);
+      await evaluate('fixture.failModels=true;fixture.choose("#nsd-harness","other")');
+      await wait('document.querySelector("#nsd-model").options.length===1');
+      await evaluate('document.querySelector(".new-session-confirm").click()');
+      await wait('fixture.submitted.length===1');
+      assert.equal(await evaluate('fixture.submitted.pop().model'),undefined,'Failed discovery must use tool default');
+      await evaluate('fixture.choose("#nsd-harness","generic-shell")');
+      await wait('document.querySelector("#nsd-model").options.length===1');
+      await evaluate('fixture.choose("#nsd-harness","codex")');
+      await wait('document.querySelector("#nsd-model").options.length===3');
       // Drop, paste (including mixed text), and picker all use real browser File/Blob decoding.
       await evaluate('fixture.drop([fixture.file("drop.png")])');
       await wait('document.querySelectorAll(".new-session-image-list li").length===1');
@@ -82,16 +107,18 @@ if (process.versions.electron) {
         import Composer from './src/components/NewSessionDialog';import './src/styles/tokens.css';import './src/App.css';
         window.fixture={png:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',submitted:[],revoked:0,pickerClicks:0,errors:[]};
         const fixture=window.fixture;
+        localStorage.setItem('orkworks-new-session-harnessId','codex');localStorage.setItem('orkworks-new-session-model','removed-model');
+        fixture.choose=(selector,value)=>{const select=document.querySelector(selector);select.value=value;select.dispatchEvent(new Event('change',{bubbles:true}))};
         window.addEventListener('error',event=>fixture.errors.push(event.message));
         const originalRevoke=URL.revokeObjectURL.bind(URL);URL.revokeObjectURL=url=>{fixture.revoked++;originalRevoke(url)};
-        window.orkworks={getBackendUrl:async()=>'http://fixture',getProviderModels:async()=>({models:[]}),getHarnessIntegrationStatus:async()=>({ok:true,status:{toolDetected:true}})};
+        window.orkworks={getBackendUrl:async()=>'http://fixture',getProviderModels:async id=>{if(id==='codex')return {models:['codex-fast','codex-review']};if(id==='other'){if(fixture.failModels)throw new Error('offline');return new Promise(resolve=>fixture.finishOther=resolve)}return {models:[]}},getHarnessIntegrationStatus:async()=>({ok:true,status:{toolDetected:true}})};
         window.fetch=async()=>new Response(JSON.stringify({version:1,supportedHarnesses:['codex']}));
         fixture.file=name=>new File([Uint8Array.from(atob(fixture.png),char=>char.charCodeAt(0))],name,{type:'image/png'});
         fixture.drop=files=>{const data=new DataTransfer();files.forEach(file=>data.items.add(file));document.querySelector('.new-session-composer').dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:data}))};
         fixture.paste=(file,text)=>{const data=new DataTransfer();data.items.add(file);if(text)data.setData('text/plain',text);const prompt=document.querySelector('#nsd-prompt');prompt.focus();const event=new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:data});prompt.dispatchEvent(event);return event.defaultPrevented};
         fixture.picker=files=>{const data=new DataTransfer();files.forEach(file=>data.items.add(file));const input=document.querySelector('input[type=file]');input.files=data.files;input.dispatchEvent(new Event('change',{bubbles:true}))};
         fixture.delayedDrop=()=>{const file=fixture.file('late.png');const read=file.arrayBuffer.bind(file);file.arrayBuffer=()=>new Promise(resolve=>{fixture.finishRead=async()=>resolve(await read())});fixture.drop([file])};
-        function App(){const[visible,setVisible]=useState(true);const[generation,setGeneration]=useState(0);fixture.hide=()=>setVisible(false);fixture.show=()=>{setGeneration(n=>n+1);setVisible(true)};return visible?<Composer key={generation} workspacePath='/tmp/image-workspace' harnesses={[{id:'codex',name:'Codex',launch:{command:'codex',args:[]}},{id:'generic-shell',name:'Shell',launch:{command:'sh',args:[]}}]} providerRuntime={null} onCancel={()=>setVisible(false)} onConfirm={async options=>{if(fixture.fail)throw new Error('fixture creation failed');fixture.submitted.push(options)}}/>:<p>Closed</p>}
+        function App(){const[visible,setVisible]=useState(true);const[generation,setGeneration]=useState(0);fixture.hide=()=>setVisible(false);fixture.show=()=>{setGeneration(n=>n+1);setVisible(true)};return visible?<Composer key={generation} workspacePath='/tmp/image-workspace' harnesses={[{id:'codex',name:'Codex',launch:{command:'codex',args:[]}},{id:'other',name:'Other',defaultModel:'unlisted-default',launch:{command:'other',args:[]}},{id:'generic-shell',name:'Shell',launch:{command:'sh',args:[]}}]} providerRuntime={null} onCancel={()=>setVisible(false)} onConfirm={async options=>{if(fixture.fail)throw new Error('fixture creation failed');fixture.submitted.push(options)}}/>:<p>Closed</p>}
         createRoot(document.getElementById('root')).render(<App/>);
       `},bundle:true,write:false,outdir:directory,format:'iife',platform:'browser',define:{'process.env.NODE_ENV':'"development"'}});
       // Exercise the shipped CSP: an attachment row alone does not prove its thumbnail loaded.

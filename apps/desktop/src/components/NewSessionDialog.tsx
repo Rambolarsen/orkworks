@@ -71,7 +71,9 @@ export default function NewSessionDialog({ workspacePath = "", harnesses, provid
   const [imageError, setImageError] = useState("");
   const [imageTools, setImageTools] = useState<string[]>([]);
   const fileInput = useRef<HTMLInputElement>(null);
-  const [models, setModels] = useState<string[]>([]);
+  const [modelCatalog, setModelCatalog] = useState<{ harnessId: string; models: string[] } | null>(null);
+  const models = modelCatalog?.harnessId === draft.harnessId ? modelCatalog.models : [];
+  const selectedModel = models.includes(draft.model) ? draft.model : "";
   const [confirmBusy, setConfirmBusy] = useState(false);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const confirmationGeneration = useRef(0);
@@ -154,13 +156,13 @@ export default function NewSessionDialog({ workspacePath = "", harnesses, provid
     async function load() {
       try {
         const resp: ProviderModelsResponse = await window.orkworks.getProviderModels(draft.harnessId);
-        if (!cancelled) setModels(resp.models);
+        if (!cancelled) setModelCatalog({ harnessId: draft.harnessId, models: resp.models });
       } catch {
-        if (!cancelled) setModels([]);
+        if (!cancelled) setModelCatalog({ harnessId: draft.harnessId, models: [] });
       }
     }
+    setModelCatalog(null);
     if (draft.harnessId) load();
-    else setModels([]);
     return () => { cancelled = true; };
   }, [draft.harnessId]);
 
@@ -199,7 +201,7 @@ export default function NewSessionDialog({ workspacePath = "", harnesses, provid
       }
       if (generation !== confirmationGeneration.current) return;
       const harnessId = draft.harnessId || undefined;
-      const model = draft.model.trim() || undefined;
+      const model = selectedModel || undefined;
       if (harnessId) localStorage.setItem(LS_HARNESS_KEY, harnessId);
       if (model) localStorage.setItem(LS_MODEL_KEY, model);
       else localStorage.removeItem(LS_MODEL_KEY);
@@ -212,7 +214,7 @@ export default function NewSessionDialog({ workspacePath = "", harnesses, provid
     } finally {
       if (generation === confirmationGeneration.current) setConfirmBusy(false);
     }
-  }, [confirmBusy, detectedHarnessIds, draft.harnessId, draft.model, imageTools, initialPrompt, onConfirm, selectable, workspacePath]);
+  }, [confirmBusy, detectedHarnessIds, draft.harnessId, selectedModel, imageTools, initialPrompt, onConfirm, selectable, workspacePath]);
 
   function handleKeyDown(e: React.KeyboardEvent) {
     // Buttons own Enter so keyboard attachment/removal/cancellation cannot submit.
@@ -309,22 +311,18 @@ export default function NewSessionDialog({ workspacePath = "", harnesses, provid
 
             <div className="new-session-row">
               <label className="new-session-label" htmlFor="nsd-model">Model</label>
-              <input
-                key={draft.harnessId}
+              <select
                 id="nsd-model"
-                className="new-session-input"
-                type="text"
-                disabled={confirmBusy}
-                list="nsd-model-suggestions"
-                defaultValue={draft.model}
+                className="new-session-select"
+                disabled={confirmBusy || models.length === 0}
+                value={selectedModel}
                 onChange={(e) => setDraft((current) => ({ ...current, model: e.target.value }))}
-                placeholder="default"
-              />
-              <datalist id="nsd-model-suggestions">
-                {models.map((m) => (
-                  <option key={m} value={m} />
+              >
+                <option value="">Coding tool default</option>
+                {models.map((model) => (
+                  <option key={model} value={model}>{model}</option>
                 ))}
-              </datalist>
+              </select>
             </div>
           </div>
         </div>
