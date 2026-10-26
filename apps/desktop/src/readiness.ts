@@ -48,3 +48,28 @@ export function defaultBaseline(snapshots:ReadinessSnapshot[]):ReadinessSnapshot
  return snapshots.slice(1).find(snapshot=>snapshot.data?.coverage===14&&snapshot.data.comparisonFingerprint===current.data!.comparisonFingerprint);
 }
 export const conceptLabel=(id:string)=>id.split('-').map(word=>word[0].toUpperCase()+word.slice(1)).join(' ');
+
+// Only render fixed local descriptions: persisted codes are not trusted prose.
+export function readinessFailureMessage(code:string|null|undefined):string {
+ const stages:Record<string,string>={discovery:'Selecting evidence',evidence:'Reading evidence',scoring:'Scoring readiness',publication:'Saving the assessment'};
+ const causes:Record<string,string>={
+  provider_timeout:'the model request timed out. Retry or check Taskmaster model settings.',
+  provider_authentication:'the model provider requires authentication. Check its login.',
+  provider_model:'the selected model was unavailable. Check the model ID in Taskmaster settings.',
+  provider_unsupported:'the provider does not support the assessment request. Check the coding tool version and Taskmaster settings.',
+  provider_request:'the provider rejected the request. Check the model ID and reasoning effort in Taskmaster settings.',
+  provider_unavailable:'the model provider could not complete the request. Check its availability.',
+  invalid_response:'the model returned an invalid assessment response. No score was saved.',
+  invalid_citations:'the model cited evidence outside the supplied assessment context. No score was saved.',
+  invalid_prose:'the model response failed assessment text validation. No score was saved.',
+  invalid_rating:'the model returned inconsistent ratings or coverage. No score was saved.',
+  inputs_changed:'the workspace or assessment inputs changed. Assess again once they are stable.',
+  evidence_unavailable:'the permitted repository evidence could not be read. Check access and exclusions.',
+  evidence_limit:'the selected evidence exceeded the assessment allowance. No score was saved.',
+  prompt_limit:'the assessment context exceeded its size limit. No score was saved.',
+  metadata_unavailable:'assessment history could not be read or saved. Check local storage access.',
+ };
+ const match=/^(discovery|evidence|scoring|publication)_(.+)$/.exec(code??'');
+ if(!match||!Object.hasOwn(causes,match[2]))return 'The assessment could not finish. Try Assess readiness again.';
+ return `${stages[match[1]]}: ${causes[match[2]]}`;
+}

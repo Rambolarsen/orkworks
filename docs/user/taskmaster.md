@@ -164,6 +164,13 @@ attempts preserve previous results; repository changes mark the last assessment
 for a rerun. Reducing Taskmaster context access redacts affected historical scores
 and evidence, and expanding access again does not restore them.
 
+Current source reports the failed stage and a safe reason when a readiness
+attempt cannot finish, such as a model timeout, invalid response, changed inputs,
+or unavailable history storage. Older attempts with only a generic failure code
+remain generic. Input changes interrupt an attempt; they do not replace a saved
+score. Workflow assessments likewise retain safe provider and validation reasons
+without exposing raw provider output.
+
 This feature requires complete verified signed Brain rubric guidance and an
 available configured Taskmaster model. Signed publication and the generated
 starter are verified. The [qualified fixture profile](../validation/repository-readiness-runtime.md#qualified-profile)

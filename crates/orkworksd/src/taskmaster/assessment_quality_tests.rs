@@ -227,7 +227,7 @@ fn check_retained_quality_evidence(output: &Path) {
                     && record.error_summary.as_deref().is_some_and(|error| {
                         (error.starts_with("Taskmaster returned invalid discovery output:")
                             && directory.join("discovery-output.json").is_file())
-                            || (error == "Taskmaster returned an invalid assessment"
+                            || (error.starts_with("Taskmaster returned an invalid assessment")
                                 && directory.join("final-output.json").is_file())
                     });
                 if !case.starts_with("positive") || !rejected_response {

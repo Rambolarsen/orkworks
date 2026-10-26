@@ -44,7 +44,10 @@ if prompt.get('protocol') != 'taskmaster-discovery-v1' and response.with_suffix(
     import time
     response.with_suffix('.final-started').write_text('started')
     while not response.with_suffix('.final-release').exists(): time.sleep(0.01)
-if prompt.get('protocol') == 'taskmaster-readiness-discovery-v1':
+override = response.with_suffix('.readiness-discovery' if prompt.get('protocol') == 'taskmaster-readiness-discovery-v1' else '.readiness-final')
+if prompt.get('protocol', '').startswith('taskmaster-readiness') and override.exists():
+    output = override.read_text()
+elif prompt.get('protocol') == 'taskmaster-readiness-discovery-v1':
     output = json.dumps({'version':1,'requestedFileIds':[]})
 elif prompt.get('protocol') == 'taskmaster-readiness-v1':
     output = json.dumps({'version':1,'summary':'Observed repository guidance','concepts':[{'conceptId':c['conceptId'],'maturity':2,'confidence':'medium','repositoryFactIds':[0],'rubricPageId':c['pageId'],'rationale':'Documented repository guidance','limits':['Runtime behavior remains unverified'],'nextTransition':'Evidence of workflow integration','unassessedReason':None} for c in prompt['rubric']['concepts']]})
@@ -1842,6 +1845,10 @@ async fn unsupported_native_response_schema_fails_once_without_unconstrained_ret
     assert!(record.report.is_none());
     assert!(record.pending_recommendation.is_none());
     assert_eq!(
+        record.error_summary.as_deref(),
+        Some("Taskmaster discovery provider request failed (provider_unsupported)")
+    );
+    assert_eq!(
         fs::read_to_string(fixture.marker.with_extension("count"))
             .unwrap()
             .len(),
@@ -1868,4 +1875,63 @@ fn evidence_interruption_persists_its_terminal_state_in_one_save() {
     assert!(saved.input_manifest.is_none());
     assert!(saved.phase.is_none());
     assert!(saved.pending_recommendation.is_none());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn final_assessment_failure_preserves_safe_validation_category() {
+    let fixture = AssessmentFixture::new();
+    fixture.prepare_response("no_proposal");
+    let mut response: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&fixture.response).unwrap()).unwrap();
+    response["summary"] = serde_json::json!("pnpm test /private-account-secret");
+    fs::write(&fixture.response, response.to_string()).unwrap();
+    assert_eq!(
+        schedule(fixture.state.clone(), fixture.runtime_root.clone()).status,
+        AssessmentRequestStatus::Scheduled
+    );
+    let record = fixture.wait_for_terminal().await;
+    assert_eq!(record.state, AssessmentState::Failed);
+    assert_eq!(
+        record.error_summary.as_deref(),
+        Some("Taskmaster returned an invalid assessment (invalid_prose)")
+    );
+    let saved: AssessmentRecord = AssessmentStore::new(&fixture.workspace_root())
+        .load()
+        .unwrap()
+        .unwrap();
+    assert_eq!(saved.error_summary, record.error_summary);
+    assert!(!serde_json::to_string(&saved)
+        .unwrap()
+        .contains("private-account-secret"));
+}
+
+#[test]
+fn rejected_workflow_dispatch_preserves_input_change_interruption() {
+    let fixture = AssessmentFixture::new();
+    let runtime = TaskmasterRuntime::open(fixture.runtime_root.clone());
+    let snapshot = capture_current_snapshot(&fixture.state, &fixture.runtime_root, None).unwrap();
+    fs::write(
+        snapshot.workspace_path.join("README.md"),
+        "Changed before provider dispatch",
+    )
+    .unwrap();
+    let error = invoke_assessment_stage(
+        &fixture.state,
+        &runtime,
+        &snapshot,
+        discovery_prompt(&snapshot).unwrap(),
+        crate::providers::native_inference::NativeResponseShape::DiscoveryV1,
+    )
+    .unwrap_err();
+    assert_eq!(error, "Assessment inputs changed before provider dispatch");
+    let store = AssessmentStore::new(&fixture.workspace_root());
+    let mut record = fixture.pending_record();
+    finish_provider_failure(&store, &mut record, &error);
+    let saved: AssessmentRecord = store.load().unwrap().unwrap();
+    assert_eq!(saved.state, AssessmentState::Interrupted);
+    assert_eq!(
+        saved.error_summary.as_deref(),
+        Some("Assessment inputs changed before provider dispatch")
+    );
+    assert!(!fixture.marker.exists());
 }
