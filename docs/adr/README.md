@@ -122,3 +122,5 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 - [Explicit session task-worktree binding](0094-explicit-session-worktree-binding.md) — Authenticated durable worktree reports supersede launch-directory fallback.
 
 - [Repository agent-readiness scores and local history](0095-repository-agent-readiness-history.md) — Accepted (#1063); implementation and signed rubric delivery tracked separately.
+
+- [Readiness workflow suggestions](0096-readiness-workflow-suggestions.md) — Proposed (#1091); concrete design awaits owner approval.

@@ -409,3 +409,15 @@ selected-model quality evidence as detailed in the implementation plan. The
 feature is unavailable until complete signed rubric delivery and those gates
 pass. Proposed specification merge alone does not establish runtime or installer
 availability.
+
+## Proposed assessment-to-suggestion flow (#1091)
+
+The owner requested a fix for readiness scores that do not lead to actionable
+next steps. The [concrete design and implementation plan](../docs/superpowers/plans/2026-10-26-readiness-suggestions.md)
+and [proposed ADR 0096](../docs/adr/0096-readiness-workflow-suggestions.md)
+define explicit **Assess and suggest**: save readiness history, then seek one
+grounded suggestion through the existing workflow assessment. They cover the
+four-call combined bound, shared lease, fresh evidence, exact result linkage,
+independent stage failure, no-replay recovery and model qualification.
+This proposal does not change the accepted standalone contract above; dependent
+runtime work awaits owner approval of that concrete design.
