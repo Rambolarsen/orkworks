@@ -883,6 +883,8 @@ pub(crate) fn recover_workspace_record_under_lease(
     Ok(())
 }
 
+const DISPATCH_INPUTS_CHANGED: &str = "Assessment inputs changed before provider dispatch";
+
 fn invoke_assessment_stage(
     state: &Arc<crate::AppState>,
     runtime: &super::runtime::TaskmasterRuntime,
@@ -899,6 +901,7 @@ fn invoke_assessment_stage(
         .selection
         .as_ref()
         .ok_or("Taskmaster provider selection is unavailable")?;
+    let mut inputs_changed = false;
     let mut dispatch_gate = |start: &mut dyn FnMut() -> std::io::Result<()>| {
         let mut dispatched = None;
         let mut check_workspace = || {
@@ -919,7 +922,7 @@ fn invoke_assessment_stage(
             }
             dispatched = Some(start());
         };
-        if snapshot.evaluation.custom_inference.is_some() {
+        let result = if snapshot.evaluation.custom_inference.is_some() {
             // The custom transport already holds the harness, persistence, and
             // runtime-data guards while invoking this gate. Re-entering
             // with_current_evaluation here would deadlock on those same locks.
@@ -938,7 +941,9 @@ fn invoke_assessment_stage(
                 .ok()
                 .filter(|is_current| *is_current)
                 .and(dispatched)
-        }
+        };
+        inputs_changed |= result.is_none();
+        result
     };
     let output = if let Some(captured) = snapshot.evaluation.custom_inference.as_ref() {
         runtime.invoke_custom_inference_with_dispatch_gate(
@@ -963,11 +968,24 @@ fn invoke_assessment_stage(
     } else {
         return Err("Taskmaster provider transport is unavailable".into());
     };
+    if inputs_changed {
+        return Err(DISPATCH_INPUTS_CHANGED.into());
+    }
     #[cfg(test)]
     if let Ok(output) = &output {
         quality_tests::capture_stage_output(&prompt, output);
     }
-    output.map_err(|_| "Taskmaster provider request failed".into())
+    output.map_err(|error| {
+        let cause = super::assessment_failure::provider_code(&error);
+        if cause == "inputs_changed" {
+            return DISPATCH_INPUTS_CHANGED.into();
+        }
+        let stage = match response_shape {
+            crate::providers::native_inference::NativeResponseShape::DiscoveryV1 => "discovery",
+            _ => "assessment",
+        };
+        format!("Taskmaster {stage} provider request failed ({})", cause)
+    })
 }
 
 fn discovery_prompt(snapshot: &AssessmentSnapshot) -> Result<String, String> {
@@ -1055,7 +1073,7 @@ fn run_assessment(
     ) {
         Ok(output) => output,
         Err(error) => {
-            fail_assessment(&store, &mut record, &error);
+            finish_provider_failure(&store, &mut record, &error);
             return;
         }
     };
@@ -1230,7 +1248,7 @@ fn run_assessment(
         ) {
             Ok(output) => output,
             Err(error) => {
-                fail_assessment(&store, &mut record, &error);
+                finish_provider_failure(&store, &mut record, &error);
                 return;
             }
         };
@@ -1245,11 +1263,14 @@ fn run_assessment(
                 .unwrap_or_default(),
         ) {
             Ok(parsed) => parsed,
-            Err(_) => {
+            Err(error) => {
                 fail_assessment(
                     &store,
                     &mut record,
-                    "Taskmaster returned an invalid assessment",
+                    &format!(
+                        "Taskmaster returned an invalid assessment ({})",
+                        super::assessment_failure::response_code(&error)
+                    ),
                 );
                 return;
             }
@@ -1468,6 +1489,18 @@ fn run_assessment(
                 "Assessment inputs changed before publication",
             );
         }
+    }
+}
+
+fn finish_provider_failure(
+    store: &super::assessment_store::AssessmentStore,
+    record: &mut super::assessment_report::AssessmentRecord,
+    reason: &str,
+) {
+    if reason == DISPATCH_INPUTS_CHANGED {
+        interrupt_assessment(store, record, reason);
+    } else {
+        fail_assessment(store, record, reason);
     }
 }
 

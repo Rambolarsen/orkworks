@@ -28,3 +28,20 @@ test('older responses cannot restore a score after a newer redacted history',asy
 test('an unavailable history read clears retained source-derived presentation',async t=>{
  const view=await fixture(t,status([snapshot()]));assert.equal(view.summary().data.overallScore,50);const error=deferred();view.queue.push(error.promise);view.tick();error.reject(Error('access changed'));await view.settle();assert.equal(view.summary(),undefined);
 });
+
+function displayedText(tree){return nodes(tree).flatMap(node=>{const children=node.props?.children;return(Array.isArray(children)?children:[children]).filter(x=>typeof x==='string');}).join(' ');}
+test('failed readiness shows safe stage and cause while retaining earlier score',async t=>{
+ const initial=status([snapshot()]);initial.run={id:'failed',state:'failed',phase:null,startedAt:'2026-10-25T00:00:00Z',completedAt:'2026-10-25T00:01:00Z',errorCode:'scoring_provider_timeout'};
+ const view=await fixture(t,initial);const text=displayedText(view.render());assert.match(text,/scoring/i);assert.match(text,/timed out/i);assert.equal(view.summary().data.overallScore,50);
+});
+test('unknown readiness error codes never become displayed provider text',async t=>{
+ const initial=status();initial.run={id:'failed',state:'failed',phase:null,startedAt:'2026-10-25T00:00:00Z',completedAt:'2026-10-25T00:01:00Z',errorCode:'private-account-secret'};
+ const view=await fixture(t,initial);assert.doesNotMatch(displayedText(view.render()),/private-account-secret/);
+});
+
+for(const [code,expected] of [['evidence_inputs_changed',/inputs changed/i],['publication_metadata_unavailable',/history could not be read or saved/i],['assessment_failed',/try assess readiness again/i]]){
+ test(`readiness describes ${code} without exposing the code`,async t=>{
+  const initial=status();initial.run={id:'failed',state:code==='evidence_inputs_changed'?'interrupted':'failed',phase:null,startedAt:'2026-10-25T00:00:00Z',completedAt:'2026-10-25T00:01:00Z',errorCode:code};
+  const view=await fixture(t,initial);const text=displayedText(view.render());assert.match(text,expected);assert.doesNotMatch(text,new RegExp(code));
+ });
+}

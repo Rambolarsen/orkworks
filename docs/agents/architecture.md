@@ -1128,6 +1128,11 @@ implemented separately from the one-improvement workflow assessment.
 `readiness_store.rs` owns capped atomic snapshots, attempt recovery and redaction.
 The shared safe collector has an explicit readiness purpose/version while
 legacy workflow manifests retain their existing representation.
+Assessment failures retain fixed provider/validation categories without raw model
+output or provider diagnostics. Readiness adds the failed stage to its existing
+error code; Recommendations renders only known local descriptions and keeps
+legacy generic failures readable. Changed-input attempts are interrupted, and
+failed reruns preserve previously completed snapshots.
 
 Authenticated empty-body `POST /taskmaster/assess-readiness` admits a manual run;
 `GET /taskmaster/readiness` projects only the selected workspace's local history

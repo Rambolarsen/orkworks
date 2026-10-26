@@ -286,7 +286,8 @@ fn invoke(
         .settings
         .selection
         .as_ref()
-        .ok_or("Taskmaster selection is unavailable")?;
+        .ok_or("provider_unavailable")?;
+    let mut inputs_changed = false;
     let mut gate = |start: &mut dyn FnMut() -> std::io::Result<()>| {
         let mut result = None;
         if c.evaluation.custom_inference.is_some() {
@@ -301,9 +302,11 @@ fn invoke(
                 },
             );
             if ok != Ok(true) {
+                inputs_changed = true;
                 return None;
             }
         }
+        inputs_changed |= result.is_none();
         result
     };
     let result = if let Some(custom) = c.evaluation.custom_inference.as_ref() {
@@ -326,11 +329,14 @@ fn invoke(
                 &mut gate,
             )
     } else {
-        return Err("Taskmaster transport is unavailable".into());
+        return Err("provider_unavailable".into());
     };
+    if inputs_changed {
+        return Err("inputs_changed".into());
+    }
     #[cfg(test)]
     quality_tests::capture_stage(&prompt, &result);
-    result.map_err(|_| "Readiness provider failed".into())
+    result.map_err(|error| super::assessment_failure::provider_code(&error).to_owned())
 }
 pub(crate) fn schedule(state: Arc<crate::AppState>, runtime_root: PathBuf) -> Admission {
     if tokio::runtime::Handle::try_current().is_err() {
@@ -380,7 +386,7 @@ fn schedule_with_runtime(
     tokio::task::spawn_blocking(move || {
         let _lease = lease;
         let result = execute(&state, &runtime, c.clone(), &mut run);
-        if result.is_err() {
+        if let Err(code) = result {
             let _ = runtime.with_workspace_settings(&c.path, |settings| {
                 let lock = state
                     .workspace
@@ -405,7 +411,12 @@ fn schedule_with_runtime(
                 if store.run()?.is_some_and(|saved| {
                     saved.id == run.id && !matches!(saved.state, RunState::Interrupted)
                 }) {
-                    run.finish(RunState::Failed, Some("assessment_failed"));
+                    let state = if code.ends_with("_inputs_changed") {
+                        RunState::Interrupted
+                    } else {
+                        RunState::Failed
+                    };
+                    run.finish(state, Some(&code));
                     store.save_run(&run)?;
                 }
                 Ok::<(), String>(())
@@ -431,6 +442,15 @@ fn refresh_after_evidence(c: &mut Capture) -> Result<(), String> {
     Ok(())
 }
 
+fn execution_failure(stage: &str, error: &str) -> String {
+    let cause = if error == "Readiness inputs changed" {
+        "inputs_changed"
+    } else {
+        "metadata_unavailable"
+    };
+    format!("{stage}_{cause}")
+}
+
 fn execute(
     state: &Arc<crate::AppState>,
     runtime: &TaskmasterRuntime,
@@ -439,42 +459,64 @@ fn execute(
 ) -> Result<(), String> {
     let store = ReadinessStore::new(&c.root);
     run.state = RunState::Running;
-    guarded(state, runtime, &c, || store.save_run(run))?;
+    guarded(state, runtime, &c, || store.save_run(run))
+        .map_err(|error| execution_failure("discovery", &error))?;
     let output = invoke(
         state,
         runtime,
         &c,
-        prompt(&c, true)?,
+        prompt(&c, true).map_err(|_| "discovery_prompt_limit")?,
         NativeResponseShape::ReadinessDiscoveryV1,
-    )?;
-    let ids = super::readiness_model::decode_discovery(&output, c.repository.catalog.len())?;
+    )
+    .map_err(|cause| format!("discovery_{cause}"))?;
+    let ids = super::readiness_model::decode_discovery(&output, c.repository.catalog.len())
+        .map_err(|error| {
+            format!(
+                "discovery_{}",
+                super::assessment_failure::response_code(&error)
+            )
+        })?;
     guarded(state, runtime, &c, || {
         run.phase = Some(Phase::ReadingEvidence);
         store.save_run(run)
-    })?;
-    if c.repository.follow_up(&ids, "repository agent readiness instructions architecture domain setup tooling verification feedback oversight")?==FollowUp::EvidenceLimit{return Err("Readiness evidence selection exceeds its limits".into())}
+    })
+    .map_err(|error| execution_failure("evidence", &error))?;
+    if c.repository.follow_up(
+        &ids,
+        "repository agent readiness instructions architecture domain setup tooling verification feedback oversight",
+    ).map_err(|_| "evidence_evidence_unavailable")? == FollowUp::EvidenceLimit {
+        return Err("evidence_evidence_limit".into());
+    }
     c.repository.bind_discovery(
         &serde_json::to_string(&json!({"version":1,"requestedFileIds":ids}))
-            .map_err(|_| "Invalid discovery")?,
+            .map_err(|_| "evidence_invalid_response")?,
     );
-    refresh_after_evidence(&mut c)?;
+    refresh_after_evidence(&mut c).map_err(|_| "evidence_inputs_changed")?;
     guarded(state, runtime, &c, || {
         run.phase = Some(Phase::ScoringReadiness);
         run.input_identity = Some(c.identity.clone());
         store.save_run(run)
-    })?;
+    })
+    .map_err(|error| execution_failure("scoring", &error))?;
     let output = invoke(
         state,
         runtime,
         &c,
-        prompt(&c, false)?,
+        prompt(&c, false).map_err(|_| "scoring_prompt_limit")?,
         NativeResponseShape::ReadinessV1,
-    )?;
-    let response = super::readiness_model::decode(&output, c.repository.facts.len(), &c.rubric)?;
+    )
+    .map_err(|cause| format!("scoring_{cause}"))?;
+    let response = super::readiness_model::decode(&output, c.repository.facts.len(), &c.rubric)
+        .map_err(|error| {
+            format!(
+                "scoring_{}",
+                super::assessment_failure::response_code(&error)
+            )
+        })?;
     if !c.repository.manifest().instruction_coverage_complete
         && response.concepts.iter().any(|row| row.maturity.is_some())
     {
-        return Err("Readiness ratings require governing instruction coverage".into());
+        return Err("scoring_evidence_unavailable".into());
     }
     let cited = response
         .concepts
@@ -485,7 +527,7 @@ fn execute(
         .evaluation
         .knowledge
         .as_ref()
-        .ok_or("Knowledge unavailable")?;
+        .ok_or("scoring_inputs_changed")?;
     let knowledge = bundle
         .pages
         .iter()
@@ -516,10 +558,11 @@ fn execute(
         for id in &mut row.repository_fact_ids {
             *id = cited_ids
                 .binary_search(id)
-                .map_err(|_| "Unknown evidence")?;
+                .map_err(|_| "scoring_invalid_citations")?;
         }
     }
-    let data = SnapshotData::from_response(c.identity.clone(), response, facts, knowledge)?;
+    let data = SnapshotData::from_response(c.identity.clone(), response, facts, knowledge)
+        .map_err(|_| "publication_invalid_response")?;
     let snapshot = Snapshot {
         id: run.id.clone(),
         started_at: run.started_at.clone(),
@@ -532,6 +575,7 @@ fn execute(
         run.finish(RunState::Succeeded, None);
         store.save_run(run)
     })
+    .map_err(|error| execution_failure("publication", &error))
 }
 pub(crate) fn status(state: &Arc<crate::AppState>, runtime_root: PathBuf) -> Status {
     let empty = |path, reason| Status {
@@ -726,6 +770,93 @@ mod integration_tests {
         std::fs::write(f.dir.path().join("provider-dispatched.release"), "go").unwrap();
         (f, runtime)
     }
+    async fn terminal_run(store: &ReadinessStore) -> Run {
+        for _ in 0..3000 {
+            if let Some(run) = store.run().unwrap() {
+                if !matches!(run.state, RunState::Queued | RunState::Running) {
+                    return run;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        panic!("readiness attempt did not finish");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn readiness_failure_diagnostics_survive_reload_without_provider_text() {
+        for (override_file, output, expected) in [
+            (
+                "provider-response.readiness-discovery",
+                "private response /secret/account",
+                "discovery_invalid_response",
+            ),
+            (
+                "provider-response.reject-schema",
+                "",
+                "discovery_provider_unsupported",
+            ),
+            (
+                "provider-response.readiness-final",
+                "private response /secret/account",
+                "scoring_invalid_response",
+            ),
+        ] {
+            let (f, runtime) = setup();
+            std::fs::write(f.dir.path().join(override_file), output).unwrap();
+            assert_eq!(
+                schedule_with_runtime(f.state.clone(), runtime).outcome,
+                "scheduled"
+            );
+            let store = ReadinessStore::new(&f.workspace_root());
+            let run = terminal_run(&store).await;
+            assert_eq!(run.state, RunState::Failed);
+            assert_eq!(run.error_code.as_deref(), Some(expected));
+            let reopened = ReadinessStore::new(&f.workspace_root());
+            assert_eq!(
+                reopened.run().unwrap().unwrap().error_code.as_deref(),
+                Some(expected)
+            );
+            assert!(reopened.history().unwrap().snapshots.is_empty());
+            let saved =
+                std::fs::read_to_string(f.workspace_root().join("readiness-run.json")).unwrap();
+            assert!(!saved.contains("private response"));
+            assert!(!saved.contains("/secret/account"));
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn changed_inputs_interrupt_readiness_instead_of_becoming_generic_failure() {
+        let (f, runtime) = setup();
+        std::fs::remove_file(f.dir.path().join("provider-dispatched.release")).unwrap();
+        assert_eq!(
+            schedule_with_runtime(f.state.clone(), runtime).outcome,
+            "scheduled"
+        );
+        for _ in 0..3000 {
+            if f.dir.path().join("provider-dispatched").exists() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert!(f.dir.path().join("provider-dispatched").exists());
+        let workspace = f
+            .state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .path
+            .clone();
+        std::fs::write(workspace.join("README.md"), "Changed repository evidence").unwrap();
+        std::fs::write(f.dir.path().join("provider-dispatched.release"), "go").unwrap();
+        let store = ReadinessStore::new(&f.workspace_root());
+        let run = terminal_run(&store).await;
+        assert_eq!(run.state, RunState::Interrupted);
+        assert_eq!(run.error_code.as_deref(), Some("evidence_inputs_changed"));
+        assert!(store.history().unwrap().snapshots.is_empty());
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn complete_run_uses_two_calls_retains_history_and_reruns_unchanged_inputs() {
         let (f, runtime) = setup();
@@ -786,6 +917,23 @@ mod integration_tests {
                 .len(),
             4
         );
+        let retained_snapshots = store.history().unwrap().snapshots;
+        std::fs::write(
+            f.dir.path().join("provider-response.readiness-final"),
+            "invalid private response",
+        )
+        .unwrap();
+        assert_eq!(
+            schedule_with_runtime(f.state.clone(), runtime.clone()).outcome,
+            "scheduled"
+        );
+        let failed = terminal_run(&store).await;
+        assert_eq!(
+            failed.error_code.as_deref(),
+            Some("scoring_invalid_response")
+        );
+        assert_eq!(store.history().unwrap().snapshots, retained_snapshots);
+
         let mut settings = runtime
             .with_workspace_settings(
                 &f.state.workspace.lock().unwrap().as_ref().unwrap().path,
@@ -800,6 +948,22 @@ mod integration_tests {
             .iter()
             .all(|s| s.redacted && s.data.is_none()));
     }
+    #[test]
+    fn rejected_readiness_dispatch_reports_changed_inputs_without_calling_provider() {
+        let (f, runtime) = setup();
+        let captured = capture(&f.state, &runtime).unwrap();
+        std::fs::write(captured.path.join("README.md"), "Changed before dispatch").unwrap();
+        let result = invoke(
+            &f.state,
+            &runtime,
+            &captured,
+            prompt(&captured, true).unwrap(),
+            NativeResponseShape::ReadinessDiscoveryV1,
+        );
+        assert_eq!(result.unwrap_err(), "inputs_changed");
+        assert!(!f.dir.path().join("provider-dispatched").exists());
+    }
+
     #[test]
     fn guarded_callbacks_hold_workspace_identity_through_publication() {
         let (f, runtime) = setup();

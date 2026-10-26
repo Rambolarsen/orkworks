@@ -1,5 +1,5 @@
 import {useEffect,useRef,useState} from 'react';
-import {defaultBaseline,parseReadinessStatus,type ReadinessStatus} from '../readiness';
+import {defaultBaseline,parseReadinessStatus,readinessFailureMessage,type ReadinessStatus} from '../readiness';
 import ReadinessSummary from './ReadinessSummary';
 interface Props{workspacePath:string;disabled:boolean;onBusyChange:(busy:boolean)=>void}
 const phaseLabels={collecting_evidence:'Collecting evidence',reading_evidence:'Reading evidence',scoring_readiness:'Scoring readiness'};
@@ -25,7 +25,7 @@ export default function ReadinessPanel({workspacePath,disabled,onBusyChange}:Pro
   <div className="readiness-heading"><div><h3>Agent readiness</h3><p>Assess, improve, and see your repository evolve.</p></div><button type="button" disabled={disabled||requesting||running} onClick={()=>void start()}>{running?'Assessing readiness…':requesting?'Requesting…':'Assess readiness'}</button></div>
   {running&&<p role="status">{status?.run?.phase?phaseLabels[status.run.phase]:'Collecting evidence'}…</p>}
   {message&&<p role="status">{message}</p>}{error&&<p className="recommendation-error" role="alert">{error}</p>}
-  {(status?.run?.state==='failed'||status?.run?.state==='interrupted')&&<p>The latest attempt {status.run.state==='failed'?'failed':'was interrupted'}. Previous assessments are retained.</p>}
+  {(status?.run?.state==='failed'||status?.run?.state==='interrupted')&&<p>The latest attempt {status.run.state==='failed'?'failed':'was interrupted'}. Previous assessments are retained. {readinessFailureMessage(status.run.errorCode)}</p>}
   {status?.reasonCode&&<p>Readiness history is unavailable ({status.reasonCode.replaceAll('_',' ')}).</p>}
   {!selected&&!running&&!status?.reasonCode&&<p>No readiness assessment yet. Assess this workspace to establish a baseline.</p>}
   {selected&&<>
