@@ -219,6 +219,15 @@ transcript, raw output file, arbitrary evidence body or new cross-workspace scan
 is fetched to assemble details. Missing currentness proof is unavailable, never
 permission to compute it from terminal prose or unbounded rehash work.
 
+The existing run snapshot version must also invalidate for every visible field
+of this detail projection, including per-outcome source health, participant
+eligibility and metric changes that leave material and overview display bytes
+unchanged. Publish that invalidation under the same boundary before another
+current detail read; equal versions cannot stand for differing detail data.
+This is explicit proposed writer/invalidation coverage for the new read, not a
+new counter or a change to durable material revision semantics. Incomplete writer
+coverage makes the detail operation unavailable until qualified.
+
 Assemble outside the short publication lock and revalidate before serving. If
 snapshot/selection/material/head/health changes, return stale-reference and require
 a fresh overview plus explicit reselection. Do not retarget to the latest accepted
@@ -307,7 +316,7 @@ reviewed qualification/implementation handoff after this schema is accepted.
 | Ratings 2 and 3; no other failure | Quality Unassessed, conflict visible; never average to a pass/failure |
 | Missing quality dimension plus current uncontested rating 1 | Quality Unassessed, preserved known failure; no zero or fully assessed claim |
 | Rating 3 with an established below-standard dimension | No quality-3 pass display; current claims preserved; overall remains Needs rework |
-| Optional-only correction / numeric below-standard rating changes with material unchanged | Fresh snapshot/detail required; unchanged material token/viewed identity, no implicit source rewrite |
+| Optional-only correction / numeric below-standard rating or detail-only currentness changes with material unchanged | Advance snapshot for changed detail data; old expected version fails; unchanged material token/viewed identity, no implicit source rewrite |
 | Finding disputed by current evidence, then dispute evidence becomes stale | New authoritative material/currentness; ineffective dispute cannot suppress a current finding; exact source references remain labelled |
 | Missing admitted summary row / initial summary capacity unavailable | Unavailable; read never creates a row or revision 1 |
 | Snapshot/head/token/workspace changes during read or before paint | Failure/drop and no new viewed mark; no retargeting or automatic refresh selection |
@@ -341,3 +350,8 @@ That check raises no blocking planning question; it is not owner/producer
 acceptance, executed codec evidence or native/runtime qualification. No proposed
 source field, metric presentation, viewed behavior or bound becomes accepted by
 that result alone.
+
+After the builder check, an author clarification explicitly lists detail-only
+source/metric changes in snapshot invalidation coverage. It implements the
+draft's intended exact-snapshot coherence without adding a counter or material
+field. No second independent review of that clarification is claimed.
