@@ -15,9 +15,9 @@ const compiledTrust = await compile("InferenceTrustSettings");
 
 // Drive this component's state/effect boundary without replacing its render,
 // selection, save, or discovery logic. IPC is the external dependency.
-async function fixture(t, { state = "execution_inactive", missing = false, effort, trust = false, provider = "custom", workspacePath = null, knowledgeError = null, runStatus = { workspacePath: "/workspace", activeAttempt: null, latestOutcome: null }, pendingModels = null } = {}) {
-  const settings = { enabled: true, selection: { provider, model: " vendor/opaque model ", reasoningEffort: effort }, contextLevel: "workflow_context", excludedPaths: [], dailyEvaluationLimit: 8, minIntervalMinutes: 60, automaticKnowledgeUpdates: true, workspaceOverrides: {} };
-  const providers = ["custom", "codex", "ollama", "claude-code"].map((id) => ({ id, label: id, state: id === "custom" ? state : "ready", models: ["static-model"], supportsReasoningEffort: false }));
+async function fixture(t, { state = "execution_inactive", missing = false, effort, trust = false, provider = "custom", workspacePath = null, knowledgeError = null, runStatus = { workspacePath: "/workspace", activeAttempt: null, latestOutcome: null }, pendingModels = null, model = " vendor/opaque model " } = {}) {
+  const settings = { enabled: true, selection: { provider, model, reasoningEffort: effort }, contextLevel: "workflow_context", excludedPaths: [], dailyEvaluationLimit: 8, minIntervalMinutes: 60, automaticKnowledgeUpdates: true, workspaceOverrides: {} };
+  const providers = ["custom", "codex", "ollama", "claude-code"].map((id) => ({ id, label: id, state: id === "custom" ? state : "ready", models: ["codex", "ollama"].includes(id) ? [] : ["static-model"], supportsReasoningEffort: false }));
   let status = { settings, effectiveSettings: settings, providers: missing ? [] : providers, remainingEvaluations: 8, analysisStatus: state, knowledgeVersion: null, lastEvaluatedAt: null, workspacePath, knowledgeUpdate: { version: null, lastSuccessfulUpdate: null, lastError: knowledgeError } };
   let discovery = 0, modelRefresh = 0;
   let currentRunStatus = runStatus;
@@ -29,7 +29,7 @@ async function fixture(t, { state = "execution_inactive", missing = false, effor
   globalThis.window = { setInterval: (callback) => { intervalCallbacks.push(callback); return intervalCallbacks.length; }, clearInterval: () => {}, addEventListener: () => {}, removeEventListener: () => {}, orkworks: {
     getTaskmasterSettings: async () => structuredClone(status),
     getTaskmasterRunStatus: async () => structuredClone(currentRunStatus),
-    refreshTaskmasterModels: async () => { modelRefresh++; return pendingModels ? await pendingModels : ["live-model"]; },
+    refreshTaskmasterModels: async (...args) => { modelRefresh++; return typeof pendingModels === "function" ? await pendingModels(...args) : pendingModels ? await pendingModels : ["live-model"]; },
     getProviderModels: async () => { discovery++; return { models: ["discovered"] }; },
     saveTaskmasterSettings: async (value) => { saves.push(structuredClone(value)); return { ...structuredClone(status), settings: value, effectiveSettings: value }; },
     getInferenceTrust: async () => [{ id: "custom", name: "Custom", state: approved ? "approved" : "approval_required", resolvedPath: "/tools/custom", revision: { documentRevision: "a".repeat(64), generation: "0", digest: "b".repeat(64) }, definition: { command: "custom", args: [], input: "stdin", timeoutSecs: 60 } }],
@@ -80,17 +80,18 @@ test("Taskmaster renders inactive custom state without requesting model discover
   assert.equal(nodes(tree).find((node) => node.type === "input" && node.props.list)?.props.value, " vendor/opaque model ");
 });
 
-test("Codex and Ollama refresh suggestions only on request and keep model entry editable", async (t) => {
+test("Codex and Ollama load suggestions automatically and allow explicit refresh", async (t) => {
   for (const provider of ["codex", "ollama"]) {
     const view = await fixture(t, { provider });
-    assert.equal(view.modelRefresh(), 0, "opening Settings must not discover models");
+    view.render(); await view.settle();
+    assert.equal(view.modelRefresh(), 1, "opening Settings loads models for the selected provider");
     view.render(); await view.settle();
     const button = nodes(view.render()).find((node) => node.type === "button" && text(node).includes("Refresh model suggestions"));
     assert.ok(button, `${provider} refresh action`);
     button.props.onClick();
     await view.settle();
     const tree = view.render();
-    assert.equal(view.modelRefresh(), 1);
+    assert.equal(view.modelRefresh(), 2);
     assert.match(text(tree), /Showing 1 live model suggestions/);
     assert.ok(nodes(tree).some((node) => node.type === "option" && node.props.value === "live-model"));
     assert.ok(nodes(tree).some((node) => node.type === "input" && node.props.list && node.props.value === " vendor/opaque model "));
@@ -109,10 +110,8 @@ test("Claude Code and custom providers keep static suggestions without live refr
 test("a model refresh result is discarded after the selected provider changes", async (t) => {
   let resolveModels;
   const pendingModels = new Promise((resolve) => { resolveModels = resolve; });
-  const view = await fixture(t, { provider: "codex", pendingModels });
+  const view = await fixture(t, { provider: "codex", pendingModels: (provider) => provider === "codex" ? pendingModels : [] });
   view.render(); await view.settle();
-  const refresh = nodes(view.render()).find((node) => node.type === "button" && text(node).includes("Refresh model suggestions"));
-  refresh.props.onClick();
   nodes(view.render()).find((node) => node.type === "select" && node.props.value === "codex").props.onChange({ target: { value: "ollama" } });
   view.render(); await view.settle();
   resolveModels(["stale-codex-model"]);
@@ -191,5 +190,77 @@ test("Taskmaster explains the verified knowledge prerequisite while preserving p
   const tree = view.render(); await view.settle();
   assert.match(text(tree), /Verified reference knowledge required/);
   assert.ok(nodes(tree).some((node) => node.type === "input" && node.props.list));
-  assert.equal(view.modelRefresh(), 0);
+  assert.equal(view.modelRefresh(), 1);
+});
+
+
+test("static models appear in a visible picker and a blank model gets a draft default", async (t) => {
+  const view = await fixture(t, { provider: "claude-code", model: "" });
+  view.render(); await view.settle();
+  const tree = view.render();
+  const picker = nodes(tree).find((node) => node.type === "select" && node.props["aria-label"] === "Model");
+  assert.ok(picker, "models must be visible in a dropdown");
+  assert.equal(picker.props.value, "static-model");
+  assert.equal(view.saves.length, 0, "default is draft-only");
+});
+
+test("automatic discovery defaults a blank model but preserves edits during loading", async (t) => {
+  for (const edited of [null, "my-model", ""]) {
+    let resolveModels;
+    const view = await fixture(t, { provider: "codex", model: "", pendingModels: new Promise((resolve) => { resolveModels = resolve; }) });
+    view.render(); await view.settle();
+    if (edited !== null) nodes(view.render()).find((node) => node.type === "input" && node.props.list).props.onChange({ target: { value: edited } });
+    resolveModels(["first-live", "second-live"]);
+    await view.settle(); view.render(); await view.settle();
+    const input = nodes(view.render()).find((node) => node.type === "input" && node.props.list);
+    assert.equal(input.props.value, edited ?? "first-live");
+    assert.equal(view.saves.length, 0);
+  }
+});
+
+test("switching providers uses that provider's default and picking a model updates the draft", async (t) => {
+  const view = await fixture(t, { provider: "codex" });
+  view.render(); await view.settle();
+  nodes(view.render()).find((node) => node.type === "select" && node.props.value === "codex").props.onChange({ target: { value: "claude-code" } });
+  view.render(); await view.settle();
+  const picker = nodes(view.render()).find((node) => node.type === "select" && node.props["aria-label"] === "Model");
+  assert.equal(picker.props.value, "static-model");
+  picker.props.onChange({ target: { value: "" } });
+  view.render(); await view.settle();
+  assert.equal(nodes(view.render()).find((node) => node.type === "input" && node.props.list).props.value, "");
+});
+
+
+test("failed automatic discovery keeps the saved model usable and refresh can retry", async (t) => {
+  let fail = true;
+  const view = await fixture(t, { provider: "codex", pendingModels: async () => {
+    if (fail) throw new Error("offline");
+    return ["recovered-model"];
+  } });
+  view.render(); await view.settle();
+  assert.match(text(view.render()), /offline/);
+  assert.equal(nodes(view.render()).find((node) => node.type === "input" && node.props.list).props.value, " vendor/opaque model ");
+  fail = false;
+  nodes(view.render()).find((node) => node.type === "button" && text(node).includes("Refresh model suggestions")).props.onClick();
+  await view.settle();
+  assert.doesNotMatch(text(view.render()), /offline/);
+  assert.ok(nodes(view.render()).some((node) => node.type === "option" && node.props.value === "recovered-model"));
+});
+
+
+test("Ollama discovery follows the draft URL and ignores a previous URL's result", async (t) => {
+  let resolveOld;
+  const urls = [];
+  const old = new Promise((resolve) => { resolveOld = resolve; });
+  const view = await fixture(t, { provider: "ollama", model: "", pendingModels: async (provider, url) => {
+    assert.equal(provider, "ollama"); urls.push(url);
+    return url === "http://127.0.0.1:11434" ? old : ["draft-url-model"];
+  } });
+  view.render(); await view.settle();
+  nodes(view.render()).find((node) => node.type === "input" && node.props.value === "http://127.0.0.1:11434").props.onChange({ target: { value: "http://127.0.0.1:22434" } });
+  view.render(); await view.settle(); view.render(); await view.settle();
+  resolveOld(["stale-url-model"]); await view.settle();
+  assert.deepEqual(urls, ["http://127.0.0.1:11434", "http://127.0.0.1:22434"]);
+  assert.equal(nodes(view.render()).find((node) => node.type === "input" && node.props.list).props.value, "draft-url-model");
+  assert.doesNotMatch(text(view.render()), /stale-url-model/);
 });

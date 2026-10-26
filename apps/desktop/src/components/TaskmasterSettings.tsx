@@ -15,6 +15,7 @@ export default function TaskmasterSettings({ currentWorkspacePath }: { currentWo
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [refreshed, setRefreshed] = useState<{ key: string; models: string[] } | null>(null);
   const refreshGeneration = useRef(0);
+  const editedModels = useRef(new Set<string>());
   const runStatusWorkspace = useRef<string | null>(null);
   useEffect(() => {
     let disposed = false;
@@ -63,6 +64,25 @@ export default function TaskmasterSettings({ currentWorkspacePath }: { currentWo
   }, [refreshKey]);
   const canRefreshModels = provider === "codex" || provider === "ollama";
   const models = refreshed?.key === refreshKey ? refreshed.models : selectedProvider?.models ?? [];
+  const modelEditKey = JSON.stringify([workspace, refreshKey]);
+  useEffect(() => {
+    if (canRefreshModels) void refreshModels();
+    return () => { refreshGeneration.current++; };
+  }, [refreshKey]);
+  useEffect(() => {
+    const first = models[0];
+    if (!first || !provider || effective?.selection?.model || editedModels.current.has(modelEditKey)) return;
+    edit({ selection: { ...effective!.selection!, model: first } });
+  }, [models, modelEditKey, effective?.selection?.model]);
+  function editModel(model: string) {
+    editedModels.current.add(modelEditKey);
+    edit({ selection: { ...effective!.selection!, model } });
+  }
+  function changeProvider(id: string) {
+    const key = JSON.stringify([workspace, `${id}\n${id === "ollama" ? "http://127.0.0.1:11434" : ""}`]);
+    editedModels.current.delete(key);
+    edit({ selection: id ? { provider: id, model: "" } : null });
+  }
   async function refreshModels() {
     if (!canRefreshModels) return;
     const key = refreshKey;
@@ -116,7 +136,7 @@ export default function TaskmasterSettings({ currentWorkspacePath }: { currentWo
     {workspace && <button type="button" disabled={busy} onClick={() => { setDraft(editTaskmasterScope(draft, workspace, null)); setSaved(false); }}>Use global defaults for this workspace</button>}
     <label className="taskmaster-checkbox"><input type="checkbox" checked={effective.enabled} onChange={(event) => edit({ enabled: event.target.checked })} /> Discover improvements in the background</label>
     <label>Taskmaster model provider
-      <select value={provider} onChange={(event) => edit({ selection: event.target.value ? { provider: event.target.value, model: "" } : null })}>
+      <select value={provider} onChange={(event) => changeProvider(event.target.value)}>
         <option value="">Not configured — deterministic recommendations only</option>
         {provider && !selectedProvider && <option value={provider} disabled>{provider} — unavailable (saved selection)</option>}
         {providers.map((item) => <option key={item.id} value={item.id} disabled={!supportsTaskmasterAnalysis(item)}>{item.label}{item.state !== "ready" ? ` — ${item.state.replaceAll("_", " ")}` : ""}</option>)}
@@ -126,13 +146,19 @@ export default function TaskmasterSettings({ currentWorkspacePath }: { currentWo
       {selectedProvider?.state === "execution_inactive" && <p role="status">Adapter approved. Custom background execution is not active in this build.</p>}
       {selectedProvider?.state === "approval_required" && <p role="status">Approve this adapter below before it can become eligible for background execution.</p>}
       <label>Model
-        <input list="taskmaster-model-options" value={effective.selection?.model ?? ""} onChange={(event) => edit({ selection: { ...effective.selection!, model: event.target.value } })} placeholder="Model ID" />
+        <select aria-label="Model" value={models.includes(effective.selection?.model ?? "") ? effective.selection!.model : ""} onChange={(event) => editModel(event.target.value)}>
+          <option value="">Custom model ID</option>
+          {models.map((model) => <option key={model} value={model}>{model}</option>)}
+        </select>
+      </label>
+      <label>Model ID (editable)
+        <input list="taskmaster-model-options" value={effective.selection?.model ?? ""} onChange={(event) => editModel(event.target.value)} placeholder="Model ID" />
         <datalist id="taskmaster-model-options">{models.map((model) => <option key={model} value={model} />)}</datalist>
       </label>
-      <p className="settings-section-copy">Enter the model ID used by your provider. Opening these settings does not run discovery; built-in Codex and Ollama suggestions can be refreshed on request.</p>
+      <p className="settings-section-copy">Choose a suggested model or enter a custom model ID. The first suggestion fills an empty model; existing selections are kept. Codex and Ollama models load automatically.</p>
       {canRefreshModels && <>
         <button type="button" disabled={refreshBusy} onClick={() => void refreshModels()}>{refreshBusy ? "Refreshing models…" : "Refresh model suggestions"}</button>
-        <p className="settings-section-copy" aria-live="polite">{refreshed?.key === refreshKey ? `Showing ${models.length} live model suggestions.` : "Refresh to load the provider's current model list."}</p>
+        <p className="settings-section-copy" aria-live="polite">{refreshBusy ? "Loading the provider's current model list…" : refreshed?.key === refreshKey ? `Showing ${models.length} live model suggestions.` : "Model suggestions unavailable. Retry refresh or enter a model ID."}</p>
         {refreshError && <p role="alert">{refreshError}</p>}
       </>}
       <label>Reasoning effort (optional)

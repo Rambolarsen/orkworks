@@ -398,12 +398,14 @@ these limits. Explain that allowed context may be sent to the chosen provider.
 Show knowledge version, last successful update, remaining background
 evaluations, provider/configuration availability, and expandable recommendation
 provenance. The Taskmaster model picker shows suggestions for the selected
-provider and continues to allow manual model IDs. Opening Settings does not
-discover models or execute a provider command. A user may explicitly refresh
-models for built-in Taskmaster providers with live discovery: Codex uses its
-app-server model list and Ollama lists models at the Taskmaster selection's
-draft URL. Claude Code uses its built-in static catalog. Refresh performs model
-listing only; it does not run inference, apply settings, or mutate Peon
+provider in a visible dropdown and continues to allow manual model IDs. When
+Settings opens or the selected provider or draft Ollama URL changes, load models
+for built-in Taskmaster providers with live discovery. Keep an explicit refresh
+action for retries. Codex uses its app-server model list and Ollama lists models at the Taskmaster selection's
+draft URL. Claude Code uses its built-in static catalog. When the model is blank,
+select the first suggestion as a draft default. Preserve saved/custom model IDs
+and edits made while discovery is pending; defaults never save automatically.
+Refresh performs model listing only; it does not run inference, apply settings, or mutate Peon
 selection or runtime state. Use the shared provider-discovery implementation
 where safe behind a separate Electron-authorized Taskmaster request, bound to
 Taskmaster's selected provider and draft connection settings. Do not send the
@@ -481,8 +483,8 @@ reuse remains distinct and displays only its own current committed report.
   bypass dismissal or rewrite accepted work.
 - Daily limits survive restarts; background provider failures consume a reservation.
 - Taskmaster suggestions change with the selected provider. Codex and Ollama
-  live refresh is explicit, uses Taskmaster draft settings, and never applies
-  Peon settings or runs inference. Claude presents its built-in catalog; custom
+  models load automatically, support explicit refresh, use Taskmaster draft settings,
+  and never apply Peon settings or run inference. Claude presents its built-in catalog; custom
   providers remain static/free-text and do not run discovery commands.
 - Taskmaster reports queued/running/latest outcome separately from provider
   availability, surfaces failures in Recommendations and Settings, scopes
