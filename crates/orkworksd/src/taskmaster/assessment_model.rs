@@ -539,7 +539,7 @@ fn contains_tool_invocation(text: &str, words: &[&str]) -> bool {
             }
             "just" => {
                 let descriptive_adverb = index > 0
-                    && matches!(words[index - 1], "is" | "are" | "was" | "were")
+                    && is_copula(words[index - 1])
                     && !is_recipe_target(pair[1])
                     && !is_recipe_introduction(words, index)
                     && !contains_embedded_literal_command(&text.to_ascii_lowercase());
@@ -550,11 +550,17 @@ fn contains_tool_invocation(text: &str, words: &[&str]) -> bool {
         })
 }
 
+fn is_copula(word: &str) -> bool {
+    matches!(word, "is" | "are" | "was" | "were")
+}
+
 fn is_recipe_introduction(words: &[&str], index: usize) -> bool {
     index >= 2
-        && words[index - 1] == "is"
+        && is_copula(words[index - 1])
         && matches!(
-            words[index - 2],
+            words[index - 2]
+                .strip_suffix('s')
+                .unwrap_or(words[index - 2]),
             "command" | "check" | "step" | "invocation" | "recipe"
         )
 }
@@ -574,6 +580,99 @@ fn is_recipe_target(word: &str) -> bool {
             | "release"
             | "run"
     )
+}
+
+// This is a deliberately bounded positive grammar, not a verb denylist or
+// a general English parser. Unknown extensions keep the original conservative
+// completed-claim policy. The caller enables it only for future-check fields.
+fn prospective_evidence_fragment(text: &str) -> bool {
+    let text = text.trim();
+    let body = text.strip_suffix('.').unwrap_or(text);
+    if !body.chars().all(|ch| ch.is_ascii_alphabetic() || ch == ' ') {
+        return false;
+    }
+    let words = body.split_whitespace().collect::<Vec<_>>();
+    let Some(mut rest) = words.as_slice().strip_prefix(&["evidence", "of"]) else {
+        return false;
+    };
+    if rest
+        .first()
+        .is_some_and(|word| matches!(*word, "a" | "an" | "the"))
+    {
+        rest = &rest[1..];
+    }
+    while rest
+        .first()
+        .is_some_and(|word| matches!(*word, "consistently" | "reliably" | "independently"))
+    {
+        rest = &rest[1..];
+    }
+    let [modifier, check, tail @ ..] = rest else {
+        return false;
+    };
+    if !matches!(
+        *modifier,
+        "verified" | "successful" | "completed" | "passing" | "green"
+    ) || !matches!(
+        *check,
+        "test" | "tests" | "check" | "checks" | "build" | "lint" | "format" | "verification" | "ci"
+    ) {
+        return false;
+    }
+    let tail = if tail.first().is_some_and(|word| {
+        matches!(
+            *word,
+            "reliability"
+                | "quality"
+                | "coverage"
+                | "results"
+                | "outcomes"
+                | "consistency"
+                | "repeatability"
+        )
+    }) {
+        &tail[1..]
+    } else {
+        tail
+    };
+    if tail.is_empty() {
+        return true;
+    }
+    let Some(mut rest) = tail.strip_prefix(&["and"]) else {
+        return false;
+    };
+    if rest
+        .first()
+        .is_some_and(|word| matches!(*word, "a" | "an" | "the"))
+    {
+        rest = &rest[1..];
+    }
+    let Some((noun, modifiers)) = rest.split_last() else {
+        return false;
+    };
+    matches!(
+        *noun,
+        "setup"
+            | "environment"
+            | "environments"
+            | "build"
+            | "tests"
+            | "verification"
+            | "coverage"
+            | "results"
+            | "outcomes"
+    ) && modifiers.iter().all(|word| {
+        matches!(
+            *word,
+            "predictable"
+                | "local"
+                | "reproducible"
+                | "reliable"
+                | "repeatable"
+                | "consistent"
+                | "clean"
+        )
+    })
 }
 
 fn has_completed_verification_claim(text: &str, prospective: bool) -> bool {
@@ -604,15 +703,9 @@ fn has_completed_verification_claim(text: &str, prospective: bool) -> bool {
         "green",
         "completed",
     ];
-    // A desired evidence fragment is not an exception for an attached claim.
-    // Keeping this to one clause also rejects relative assertions like
-    // "Evidence of verified tests, which passed" without broadening the
-    // completed-claim word list for ordinary repository descriptions.
-    let prospective = prospective
-        && prose_clauses(text)
-            .filter(|clause| !clause.trim().is_empty())
-            .count()
-            == 1;
+    if prospective && prospective_evidence_fragment(text) {
+        return false;
+    }
     prose_clauses(text).any(|clause| {
         let words = clause
             .split(|ch: char| !ch.is_ascii_alphanumeric())
@@ -651,49 +744,7 @@ fn has_completed_verification_claim(text: &str, prospective: bool) -> bool {
                     )
                 })
             });
-            // Prospective evidence noun phrases describe a desired check,
-            // not a completed outcome. Do not exempt a following assertion,
-            // such as "Evidence of verified tests is retained" or "tests passed".
-            let prospective_modifier = prospective
-                && words.starts_with(&["evidence", "of"])
-                && matches!(
-                    *word,
-                    "verified" | "successful" | "completed" | "passing" | "green"
-                )
-                && words
-                    .get(index + 1)
-                    .is_some_and(|word| CHECKS.contains(word))
-                && words[2..index].iter().all(|word| {
-                    matches!(
-                        *word,
-                        "a" | "an" | "the" | "consistently" | "reliably" | "independently"
-                    )
-                })
-                && !words.iter().any(|word| {
-                    matches!(
-                        *word,
-                        "is" | "are"
-                            | "was"
-                            | "were"
-                            | "has"
-                            | "have"
-                            | "had"
-                            | "shows"
-                            | "confirms"
-                            | "demonstrates"
-                            | "establishes"
-                            | "proves"
-                            | "exists"
-                            | "exist"
-                            | "records"
-                            | "record"
-                            | "confirmed"
-                            | "validated"
-                            | "demonstrated"
-                    )
-                });
-            let qualified = prospective_modifier
-                || before.contains(&"whether")
+            let qualified = before.contains(&"whether")
                 || modal_predicate
                 || local.iter().any(|word| {
                     matches!(

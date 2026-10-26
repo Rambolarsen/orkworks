@@ -58,5 +58,12 @@
   {"id": "confirmed-check-claim", "text": "Evidence of verified tests, confirmed by CI", "accept": false},
   {"id": "validated-check-claim", "text": "Evidence of verified tests, validated by CI", "accept": false},
   {"id": "demonstrated-check-claim", "text": "Evidence of verified tests, demonstrated by CI", "accept": false},
-  {"id": "relative-completed-claim", "text": "Evidence of verified tests, which passed", "accept": false}
+  {"id": "relative-completed-claim", "text": "Evidence of verified tests, which passed", "accept": false},
+  {"id": "factual-remains-claim", "text": "Evidence of verified tests remains available.", "accept": false},
+  {"id": "factual-came-claim", "text": "Evidence of passing tests came from CI.", "accept": false},
+  {"id": "past-recipe-introduction", "text": "The proposed check was just custom-recipe.", "accept": false},
+  {"id": "plural-recipe-introduction", "text": "The proposed checks are just custom-recipe.", "accept": false},
+  {"id": "past-plural-recipe-introduction", "text": "The proposed recipes were just custom-recipe.", "accept": false},
+  {"id": "past-descriptive-just", "text": "That was just documentation.", "accept": true},
+  {"id": "plural-descriptive-just", "text": "Those were just descriptions.", "accept": true}
 ]

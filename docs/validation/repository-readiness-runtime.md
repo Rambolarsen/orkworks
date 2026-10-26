@@ -213,7 +213,10 @@ adds a retained prose corpus under
 ordinary make/just phrasing, prospective evidence, executable commands,
 arbitrary recipe names, completed-check claims and control characters. Both
 complete response decoders exercise every case in each of five prose positions;
-the cases do not waive schema, citation, rating or size checks. Prospective
+the cases do not waive schema, citation, rating or size checks. A scheduler
+regression also publishes a complete grammatical readiness response and reloads
+its saved history; the independent storage validator uses the same prospective
+transition policy and still rejects attached completed-check claims. Prospective
 verification noun phrases are allowed only in readiness next transitions and
 workflow unverified checks. Descriptive fields retain completed-claim rejection.
 
@@ -227,7 +230,8 @@ now accepts the reproduced grammatical constructions, while other ambiguous
 phrasing remains conservative. The Make exception is sentence-initial,
 capitalized prose; embedded raw lowercase make retains its prior conservative
 rejection, even when it could be read as English. Prospective verification
-exceptions apply only to a single-clause evidence fragment, not an attached
-completed-check assertion. Removing prompt workarounds would change the
+exceptions use a bounded positive grammar for a single evidence noun fragment,
+not a finite-verb denylist. Unknown extensions retain conservative rejection;
+past/plural command introductions and attached factual predicates remain blocked. Removing prompt workarounds would change the
 qualified input and requires separately retained provider evidence; the
 existing model-specific qualification above is not expanded by these tests.
