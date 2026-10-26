@@ -134,3 +134,12 @@ until November; this review ran no model, capability, native or database probe.
 
 Validation for this review is documentation metadata/index/link/build checks and
 source comparison. No new runtime test or production behavior is claimed.
+
+## R2 proposal handoff — 2026-10-26
+
+The [current-summary detail proposal](../superpowers/specs/2026-10-26-hierarchy-summary-detail-design.md)
+addresses the missing read shape with an exact current selector, existing material,
+source-labelled per-outcome annotations, current metric displays and explicit
+viewed-summary presentation. This is a proposed resolution under #1089, not owner/
+producer acceptance or a replacement for the immutable-record codec. R1's version
+correction and all source/capability/runtime gates remain unchanged.
