@@ -23,7 +23,8 @@
     "checksum:release": "node scripts/releaseMetadata.mjs --checksums",
     "smoke:windows-installer": "node scripts/windowsInstallerSmokeTest.mjs",
     "dist": "pnpm build:native && tsc -p tsconfig.node.json && node scripts/build-preload.mjs && vite build && node scripts/package-release.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "preview:workflow": "node scripts/preview-workflow.mjs"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",

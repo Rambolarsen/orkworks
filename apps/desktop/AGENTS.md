@@ -45,6 +45,17 @@ Run these commands from `apps/desktop/`. Linux desktop tests require Xvfb
 (`xvfb-run`) when no display is available; the Electron layout test starts its
 own virtual display. GitHub-hosted Ubuntu runners include Xvfb.
 
+## Isolated workflow preview
+
+Run `pnpm --dir apps/desktop preview:workflow` from the repository root to inspect
+synthetic hierarchy scenarios without Electron, a sidecar or a coding tool. The
+loopback-only preview defaults to port 5276; set
+`ORKWORKS_WORKFLOW_PREVIEW_PORT` for another strict port (0 chooses an available
+port). Stop with Ctrl+C. The preview is an explicit development entry, excluded
+from the production renderer bundle. It does not qualify orchestration or change
+ordinary-session behavior. See the
+[approved preview plan](../../docs/superpowers/plans/2026-10-26-hierarchy-ui-preview.md).
+
 ## Electron and renderer boundary
 
 `electron/` (Electron main process) and `src/` (renderer) must never import from each other. They use separate TypeScript configs and separate `rootDir` settings. A cross-boundary import that creates stray compiled artifacts or requires a `rootDir` change is a design error, not a configuration problem.
