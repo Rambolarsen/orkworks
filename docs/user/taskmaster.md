@@ -54,11 +54,13 @@ bundle both angles). Both are suggestions you review and act on yourself.
 
 ## Model choices and analysis status
 
-In Taskmaster settings, model suggestions follow the selected provider. For
-built-in Codex and Ollama, choose **Refresh models** to request the provider's
-current model list; opening Settings does not make a provider request. Claude
-Code and custom providers keep their configured suggestions, and you can still
-enter a model ID manually.
+In current source builds, **Settings → Recommendations** shows a model dropdown
+for the selected provider. Built-in Codex and Ollama load their current lists
+automatically; **Refresh model suggestions** retries or updates the list. Claude
+Code and custom providers use configured suggestions. An empty model gets the
+first suggestion as a draft default; saved models and edits made while loading
+are preserved. You can enter a custom model ID, and changes wait for **Save
+recommendation settings**. Older installers may require manual refresh.
 
 Taskmaster shows analysis activity separately from provider readiness. The
 Settings page and Recommendations panel report when an analysis is queued or

@@ -43,9 +43,12 @@ verified inference-only transport before they
 can be used for unattended analysis; ordinary coding-tool launch commands do
 not satisfy that requirement.
 
-Model suggestions are static; enter your provider's model ID directly when it
-is not listed. Opening Recommendations settings does not run model-discovery
-commands. Model IDs are preserved unchanged and must be nonempty, at most
+In current source builds, Recommendations settings automatically loads built-in
+Codex and Ollama model suggestions and offers a dropdown plus custom model entry.
+Claude Code and custom providers use static suggestions. An empty model defaults
+to the first suggestion without saving; existing IDs and edits during loading
+are kept. Use **Refresh model suggestions** to retry. Older installers may
+require manual refresh. Model IDs must be nonempty, at most
 256 UTF-8 bytes, and contain no control characters. Built-in Codex and Claude
 profiles additionally require ASCII letters, digits, or `-._/:@+`; unsupported
 model values are rejected when saving. Reasoning effort must be
