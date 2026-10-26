@@ -13,16 +13,15 @@ skills, switch between Timeline and Tree, and find blockers without a running
 coding tool or sidecar. This makes the hierarchy tangible while #740 remains
 deferred.
 
-**Status:** Ready for owner review of this bounded preview scope. This document
+**Status:** Owner-approved for this bounded preview scope on 2026-10-26. This document
 proposes a fixture-only development exception to the broader runtime handoff;
 it is not approval of #746's production projection or of orchestration launches.
-The owner authorized preparing this first UI slice on 2026-10-26. Implementation
-waits for approval of this concrete plan and scope exception.
+The owner authorized preparing this first UI slice on 2026-10-26. The owner replied “go ahead” after reviewing the concrete plan and scope
+exception. Execution is tracked by [#1084](https://github.com/Rambolarsen/orkworks/issues/1084).
 
 **Tracking:** [#746](https://github.com/Rambolarsen/orkworks/issues/746), within
-[#738](https://github.com/Rambolarsen/orkworks/issues/738). Create a scoped
-implementation issue before code starts; link this plan and record the owner
-approval there and in the hierarchy interaction specification.
+[#738](https://github.com/Rambolarsen/orkworks/issues/738). Implementation: [#1084](https://github.com/Rambolarsen/orkworks/issues/1084);
+the owner approval is recorded there and in the hierarchy interaction specification.
 
 **Sources:** [hierarchy interaction proposal](../specs/2026-10-04-agent-hierarchy-ui-design.md),
 [accepted shell design](../specs/2026-10-05-application-shell-navigation-design.md),
@@ -190,9 +189,35 @@ for owner scope/plan review**, not executable production handoff. The review
 removed shell integration and automatic collapse from this slice, made fixture
 identity distinct from wire contracts, and required production-bundle isolation.
 
-Approval requested: accept this fixture-only development preview exception and
-its concrete implementation plan. That approval permits this slice only;
+The owner accepted this fixture-only development preview exception and concrete
+implementation plan on 2026-10-26. That approval permits this slice only;
 #740 eligibility, production projection/storage, live session navigation and
-orchestration launch remain subject to their existing gates. After approval,
-record it on #746, create the scoped implementation issue, and implement on this
-owned branch through its PR. Do not infer broader contract acceptance.
+orchestration launch remain subject to their existing gates. Approval was recorded on #746 and implementation issue #1084 was created before
+code. The owned branch and PR #1078 carry implementation. Do not infer broader
+contract acceptance.
+
+## Execution evidence
+
+- Pure state regressions: five passing cases covering identity, inspection,
+  collapse protection, append/removal and scenario reset; missing module observed
+  before implementation.
+- Electron DOM/layout regression passes with the real component at 1280, 1000,
+  700 and 360 CSS px, 200% root text size and emulated reduced motion. It checks
+  keyboard navigation, collapse refusal, static evidence distinctions, scenario
+  reset and forbidden bridge/network access. Offscreen focus is exercised with
+  explicit DOM focus events; this is not native screen-reader qualification.
+- Real loopback server regression passes: generated assets only, CSP with
+  connect-src none, read-only methods, invalid port rejection and occupied-port
+  failure.
+- Wide and compact Electron screenshots were rendered and inspected: task
+  labels, blockers and controls wrap within the viewport. Screenshots are local
+  validation artifacts rather than released product captures.
+- Renderer type-check and production Vite build pass; emitted assets contain no
+  preview/scenario markers. Full repository verification and current-head review
+  remain in progress; completion is recorded with the PR's final evidence.
+
+Implementation refinement: the preview script holds the generated HTML/JS/CSS
+in memory rather than writing temporary build files. It serves only those exact
+artifacts and cleans up by closing the server; this removes filesystem cleanup
+without changing the approved preview behavior. No production navigation, wire
+contract, storage, source-valid fixture or coding-tool eligibility was added.

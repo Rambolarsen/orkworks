@@ -793,3 +793,14 @@ Documentation validation for this task: VitePress build/dead links, doc drift,
 diff whitespace, SVG render/overflow inspection and bounded independent
 correctness/completeness review. No live model probes, capability enforcement
 tests or product behavior are implied by passing those checks.
+
+## Approved fixture-only preview — 2026-10-26
+
+The owner approved the [isolated UI preview plan](../plans/2026-10-26-hierarchy-ui-preview.md)
+after review of draft PR #1078. [#1084](https://github.com/Rambolarsen/orkworks/issues/1084)
+owns this bounded development exception: synthetic Timeline/Tree interaction,
+inspection, protected manual collapse, skill display and keyboard/layout checks
+without a production Workflow destination, real sessions, backend or tool probes.
+Automatic collapse and live receipt animations remain deferred. This approval
+does not accept the broader production projection/storage contracts, qualify
+#740 adapters or authorize orchestration/session integration.
