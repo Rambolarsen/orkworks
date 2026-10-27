@@ -510,6 +510,32 @@ fn run_suggestion(
             })
         },
     );
+    if result
+        .as_ref()
+        .is_ok_and(|response| response.status == AssessmentRequestStatus::Scheduled)
+    {
+        match super::assessment_store::AssessmentStore::new(&c.root)
+            .load::<super::assessment_report::AssessmentRecord>()
+        {
+            Ok(Some(child))
+                if child.id == assessment_id
+                    && child.state
+                        == super::assessment_report::AssessmentState::PendingRecommendation =>
+            {
+                // The child's pending marker owns publication/recovery. The
+                // parent was durably linked before dispatch; leave it active
+                // until that exact child commits or is interrupted by recovery.
+                return;
+            }
+            Err(error) => {
+                // An unreadable child may also have committed a pending marker.
+                // Preserve linkage rather than declaring an unrecoverable failure.
+                tracing::warn!(%error, "combined suggestion child state unavailable; preserving recovery linkage");
+                return;
+            }
+            _ => {}
+        }
+    }
     // The workflow owner may classify an input change as a failed assessment.
     // The combined operation still distinguishes an invalidated continuation
     // from a model/provider failure, including access changes during discovery.
@@ -1426,6 +1452,81 @@ mod integration_tests {
         assert_eq!(
             status(&f.state, f.runtime_root.clone()).freshness,
             "changed"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn combined_pending_publication_stays_recoverable_until_the_exact_child_commits() {
+        let (f, runtime) = production_fixture("proposed");
+        let root = f.workspace_root();
+        // Fresh continuation has four successful saves through its durable
+        // pending marker; final commit and immediate reconciliation then fail.
+        super::super::assessment_store::set_save_failures(&root, 4, 2);
+        assert_eq!(
+            schedule_mode(f.state.clone(), runtime.clone(), true).outcome,
+            "scheduled"
+        );
+        let store = super::super::assessment_store::AssessmentStore::new(&root);
+        for _ in 0..3000 {
+            if store
+                .load::<super::super::assessment_report::AssessmentRecord>()
+                .unwrap()
+                .is_some_and(|r| {
+                    r.state
+                        == super::super::assessment_report::AssessmentState::PendingRecommendation
+                })
+                && runtime.try_analysis_lease().unwrap().is_some()
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        let child = store
+            .load::<super::super::assessment_report::AssessmentRecord>()
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            child.state,
+            super::super::assessment_report::AssessmentState::PendingRecommendation
+        );
+        let recommendation_id = child.pending_recommendation.as_ref().unwrap().id.clone();
+        let parent = super::super::readiness_suggestions::load(&root)
+            .unwrap()
+            .unwrap();
+        assert!(
+            matches!(parent.state, RunState::Queued | RunState::Running),
+            "pending child was terminalized: {parent:?}"
+        );
+        assert_eq!(parent.assessment_id.as_deref(), Some(child.id.as_str()));
+        let application = crate::session_application::SessionApplication::new(f.state.clone());
+        assert!(application
+            .get_recommendation(&recommendation_id)
+            .unwrap()
+            .is_none());
+        let visible = status(&f.state, f.runtime_root.clone());
+        let recovered = visible.suggestion_run.unwrap().run;
+        assert_eq!(recovered.state, RunState::Succeeded);
+        assert_eq!(
+            recovered.recommendation_id.as_deref(),
+            Some(recommendation_id.as_str())
+        );
+        assert_eq!(
+            recovered.reason_code.as_deref(),
+            Some("recommendation_created")
+        );
+        assert_eq!(
+            std::fs::read(f.dir.path().join("provider-dispatched.count"))
+                .unwrap()
+                .len(),
+            4
+        );
+        assert_eq!(
+            ReadinessStore::new(&root)
+                .history()
+                .unwrap()
+                .snapshots
+                .len(),
+            1
         );
     }
 

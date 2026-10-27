@@ -12,3 +12,12 @@ baseline/improved pairs. Healthy-2 rates durable memory 1 rather than 2; this is
 retained rather than hidden. Independent semantic review **failed qualification** on that unsupported
 underrating. Its full scope and disposition are recorded in the [runtime validation](../../repository-readiness-runtime.md).
 These synthetic artifacts contain no live workspace evidence or credentials.
+
+
+`workflow-trials.json` separately retains exact source bytes and provider outputs,
+reports and hashes for targeted positive, healthy and refuted suggestion-stage
+trials. Two of three positive proposals were grounded; the third was rejected
+as invalid prose and remains zero credit. All three healthy and all three refuted
+cases returned no proposal. The wrapper file was not supplied in the refuted
+trials, so no delegation verification is credited. The old harness did not save
+exact prompts; these trials cannot establish complete matrix qualification.

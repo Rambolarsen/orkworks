@@ -297,3 +297,38 @@ state/phase/child combinations are validated; missing, unfinished or mismatched
 children remain interrupted. The focused readiness set passes 33 tests with the
 explicit live trial harness ignored. Final review and full-verifier evidence are
 recorded on the PR after this correction.
+
+
+### Targeted suggestion-stage trials
+
+The existing workflow quality harness separately evaluated three positive,
+three healthy and three refuted synthetic repositories with GPT-6.1-Sol low.
+Independent review found both surfaced positive proposals grounded and bounded
+to repairing the skipped package test script that CI delegates to, with checks
+left unverified. The third positive response was rejected as `invalid_prose`
+and receives zero credit; no failed trial was repaired or repeated.
+
+All healthy and refuted trials completed with no proposal. In refuted trials the
+wrapper source actually delegates to the test suite, but was not supplied to the
+model: the response correctly leaves its behavior unknown rather than claiming
+verification or inferring a defect. Exact fixture sources, outputs and reports
+are retained in the [supplemental corpus](fixtures/readiness-suggestions-2026-10-27/index.md).
+The existing harness did not retain exact prompts. Filtered invocations report a
+failed whole-matrix adjudication because old-noise/scoped families and review.json
+files were not supplied. These targeted outcomes (2/3 positive, 0/3 healthy,
+0/3 refuted proposals) do not qualify the full matrix or general model behavior.
+
+The unsupported readiness underrating remains tracked in
+[#1097](https://github.com/Rambolarsen/orkworks/issues/1097); collector-3 scoring
+continues to display its unqualified status.
+
+### Pending-publication review correction
+
+Automated review found that a combined parent was terminalized while its exact
+workflow child still held a recoverable pending-publication marker. An injected
+final-commit and immediate-reconciliation failure reproduced the incorrect failed
+parent. The parent now retains its durable child linkage while publication is
+pending or its result is unreadable. Existing child recovery resolves publication
+before the parent reconciles to the exact recommendation; it dispatches no new
+inference. The regression also checks that the pending card is hidden, the score
+is retained, and provider-call count remains four.

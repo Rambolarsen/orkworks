@@ -1,0 +1,422 @@
+{
+  "selection": {
+    "provider": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoningEffort": "low"
+  },
+  "scope": "Targeted positive, healthy and refuted trials; not whole-matrix qualification",
+  "inputLimit": "Exact prompts were not retained by the existing harness. Source bytes, outputs, reports and hashes are preserved.",
+  "trials": [
+    {
+      "trial": "positive-1",
+      "artifacts": {
+        "discovery-output.json": {
+          "sha256": "466314d105c8e690eabb254935bfc46f0ee8dc6cedf451948f66a927694a3f88",
+          "text": "{\"candidate\":{\"hypothesis\":\"The package test script contains only a skipped-suite message, and the CI unit step delegates to that script despite the repository requirement for meaningful unit coverage. A bounded replacement with behavioral unit verification could provide evidence for arithmetic changes; review of the existing test and implementation could confirm or refute the required scope. Proposed validation would distinguish expected arithmetic behavior from a deliberate defect and remains unverified.\",\"targetSurface\":\"tooling\",\"title\":\"CI unit verification coverage gap\"},\"knowledgePageIds\":[\"concepts/verification.md\",\"principles/small-reversible-changes.md\"],\"outcome\":\"inspect\",\"reason\":null,\"repositoryFactHashes\":[\"ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a\",\"1369b1baa84bff48e22a5aaa9e3651a91146fc03b96e8b8c37ae8ad30284f218\",\"ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b\"],\"requestedFileIds\":[0,1,2,4,5],\"version\":1}"
+        },
+        "final-output.json": {
+          "sha256": "074728fc411fd44ec92c7f8f651cf1a9dc32ae6fc2bba805522bbfcfbf7a7a64",
+          "text": "{\n  \"knowledgePageIds\": [\n    \"concepts/verification.md\",\n    \"principles/small-reversible-changes.md\"\n  ],\n  \"noProposalReason\": null,\n  \"outcome\": \"proposed\",\n  \"proposal\": {\n    \"summary\": \"The package test script would replace its skipped-suite message with behavioral verification through the existing arithmetic unit test, with TypeScript compatibility for the CI Node version. This bounded configuration change would give the CI unit step arithmetic regression evidence without a broader testing redesign. Validation scope would cover test discovery, expected arithmetic behavior, defect detection, and CI failure propagation. Restoration of the prior package configuration would provide rollback.\",\n    \"targetSurface\": \"tooling\",\n    \"title\": \"Behavioral verification through the package test script\"\n  },\n  \"repositoryFactHashes\": [\n    \"ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a\",\n    \"1369b1baa84bff48e22a5aaa9e3651a91146fc03b96e8b8c37ae8ad30284f218\",\n    \"ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b\",\n    \"c9585fa52f80c44b6a45d3675d3f133df3e293eac2281168dec8798c7e782e11\",\n    \"d0ea6f33d17132678d4ecd944c2a2dd48dc55a7f7063c21c10d19320645bd2c4\"\n  ],\n  \"summary\": \"The supplied configuration supports the coverage-gap hypothesis: the CI unit step delegates to a package test script containing only a skipped-suite message. An existing arithmetic test and implementation narrow the opportunity to test-script wiring rather than new test coverage; the current delegation provides no behavioral evidence for arithmetic changes.\",\n  \"unverifiedChecks\": [\n    \"Whether the proposed package configuration discovers the existing arithmetic test with TypeScript compatibility on the CI Node version remains unverified.\",\n    \"Whether the existing arithmetic implementation satisfies the connected unit test remains unverified.\",\n    \"Whether a deliberate arithmetic defect produces a unit-test failure and a CI unit-step failure remains unverified.\",\n    \"Whether restoration of the prior package configuration leaves unrelated repository behavior unchanged remains unverified.\"\n  ],\n  \"version\": 1\n}"
+        },
+        "result.json": {
+          "sha256": "efa8d3940b7223ad778400cc8ce545e0f1f2349313f9a6b790f5fcd962d3d956",
+          "text": "{\n  \"inputManifest\": {\n    \"contextLevel\": \"source_code\",\n    \"excludedPaths\": [],\n    \"collectorVersion\": 3,\n    \"promptVersion\": \"taskmaster-assessment-v2\",\n    \"catalogDigest\": \"495b95516858224c08d83ce7a67a4db17f2bdf9963619993c3ef4dc7c42e0115\",\n    \"catalogComplete\": true,\n    \"instructionCoverageComplete\": true,\n    \"files\": [\n      {\n        \"path\": \"AGENTS.md\",\n        \"sha256\": \"ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a\",\n        \"bytes\": 166,\n        \"seed\": true,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 166,\n        \"excerptDigest\": \"ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a\"\n      },\n      {\n        \"path\": \"package.json\",\n        \"sha256\": \"1369b1baa84bff48e22a5aaa9e3651a91146fc03b96e8b8c37ae8ad30284f218\",\n        \"bytes\": 137,\n        \"seed\": true,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 137,\n        \"excerptDigest\": \"1369b1baa84bff48e22a5aaa9e3651a91146fc03b96e8b8c37ae8ad30284f218\"\n      },\n      {\n        \"path\": \".github/workflows/ci.yml\",\n        \"sha256\": \"ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b\",\n        \"bytes\": 299,\n        \"seed\": true,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 299,\n        \"excerptDigest\": \"ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b\"\n      },\n      {\n        \"path\": \"README.md\",\n        \"sha256\": \"1f648a4e0859bf5dc6dde908181ecd75efd6bf297d4aceaf985390e87a0edbae\",\n        \"bytes\": 107,\n        \"seed\": true,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 107,\n        \"excerptDigest\": \"1f648a4e0859bf5dc6dde908181ecd75efd6bf297d4aceaf985390e87a0edbae\"\n      },\n      {\n        \"path\": \"src/add.test.ts\",\n        \"sha256\": \"c9585fa52f80c44b6a45d3675d3f133df3e293eac2281168dec8798c7e782e11\",\n        \"bytes\": 167,\n        \"seed\": false,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 167,\n        \"excerptDigest\": \"c9585fa52f80c44b6a45d3675d3f133df3e293eac2281168dec8798c7e782e11\"\n      },\n      {\n        \"path\": \"src/add.ts\",\n        \"sha256\": \"d0ea6f33d17132678d4ecd944c2a2dd48dc55a7f7063c21c10d19320645bd2c4\",\n        \"bytes\": 60,\n        \"seed\": false,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 60,\n        \"excerptDigest\": \"d0ea6f33d17132678d4ecd944c2a2dd48dc55a7f7063c21c10d19320645bd2c4\"\n      }\n    ],\n    \"requestedFileIds\": [\n      0,\n      1,\n      2,\n      4,\n      5\n    ],\n    \"discoveryDigest\": \"466314d105c8e690eabb254935bfc46f0ee8dc6cedf451948f66a927694a3f88\",\n    \"redacted\": false\n  },\n  \"phase\": \"assessing\",\n  \"formatVersion\": 2,\n  \"id\": \"quality-positive-1\",\n  \"state\": \"succeeded\",\n  \"startedAt\": \"2026-10-27T06:16:53.714933+00:00\",\n  \"completedAt\": \"2026-10-27T06:17:21.806098+00:00\",\n  \"report\": {\n    \"id\": \"quality-positive-1\",\n    \"workspacePath\": \"/private/tmp/orkworks-workflow-quality-20261027-1091/positive-1/workspace\",\n    \"workspaceInstance\": 1,\n    \"observedAt\": \"2026-10-27T06:17:21.806098+00:00\",\n    \"provider\": \"codex\",\n    \"model\": \"gpt-6.1-sol\",\n    \"bundleVersion\": \"brain-3\",\n    \"knowledgeIdentity\": {\n      \"bundle_sha256\": \"ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511\",\n      \"format_version\": 2,\n      \"privacy_policy_version\": 1,\n      \"public_key_sha256\": \"a35da5934c629903f8f31db5067a9c5086f8372c34e3d917c9efb7decfd465dd\",\n      \"sequence\": 3,\n      \"version\": \"brain-3\"\n    },\n    \"inputFingerprint\": \"6d24777ad27481246000a86225f19158823bd893479ec2ff1da03067f9ffc4c6\",\n    \"contextLevel\": \"source_code\",\n    \"excludedPaths\": [],\n    \"outcome\": \"proposed\",\n    \"summary\": \"The supplied configuration supports the coverage-gap hypothesis: the CI unit step delegates to a package test script containing only a skipped-suite message. An existing arithmetic test and implementation narrow the opportunity to test-script wiring rather than new test coverage; the current delegation provides no behavioral evidence for arithmetic changes.\",\n    \"proposal\": {\n      \"targetSurface\": \"tooling\",\n      \"title\": \"Behavioral verification through the package test script\",\n      \"summary\": \"The package test script would replace its skipped-suite message with behavioral verification through the existing arithmetic unit test, with TypeScript compatibility for the CI Node version. This bounded configuration change would give the CI unit step arithmetic regression evidence without a broader testing redesign. Validation scope would cover test discovery, expected arithmetic behavior, defect detection, and CI failure propagation. Restoration of the prior package configuration would provide rollback.\"\n    },\n    \"noProposalReason\": null,\n    \"unverifiedChecks\": [\n      \"Whether the proposed package configuration discovers the existing arithmetic test with TypeScript compatibility on the CI Node version remains unverified.\",\n      \"Whether the existing arithmetic implementation satisfies the connected unit test remains unverified.\",\n      \"Whether a deliberate arithmetic defect produces a unit-test failure and a CI unit-step failure remains unverified.\",\n      \"Whether restoration of the prior package configuration leaves unrelated repository behavior unchanged remains unverified.\"\n    ],\n    \"repositoryEvidence\": [\n      {\n        \"path\": \"package.json\",\n        \"sha256\": \"1369b1baa84bff48e22a5aaa9e3651a91146fc03b96e8b8c37ae8ad30284f218\",\n        \"excerpt\": \"{\\\"name\\\":\\\"assessment-fixture\\\",\\\"packageManager\\\":\\\"pnpm@11.24.0\\\",\\\"private\\\":true,\\\"scripts\\\":{\\\"test\\\":\\\"echo unit-tests-skipped\\\"},\\\"type\\\":\\\"module\\\"}\",\n        \"observedAt\": \"2026-10-27T06:16:53.776687+00:00\"\n      },\n      {\n        \"path\": \"src/add.test.ts\",\n        \"sha256\": \"c9585fa52f80c44b6a45d3675d3f133df3e293eac2281168dec8798c7e782e11\",\n        \"excerpt\": \"import { test } from 'node:test';\\nimport assert from 'node:assert/strict';\\nimport { add } from './add.ts';\\ntest('adds two numbers', () => assert.equal(add(2, 3), 5));\\n\",\n        \"observedAt\": \"2026-10-27T06:16:53.776687+00:00\"\n      },\n      {\n        \"path\": \"AGENTS.md\",\n        \"sha256\": \"ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a\",\n        \"excerpt\": \"# Workflow\\nEvery change requires meaningful unit tests and CI must execute the unit suite. A passing no-op is not test evidence. Keep changes bounded and reviewable.\\n\",\n        \"observedAt\": \"2026-10-27T06:16:53.776687+00:00\"\n      },\n      {\n        \"path\": \"src/add.ts\",\n        \"sha256\": \"d0ea6f33d17132678d4ecd944c2a2dd48dc55a7f7063c21c10d19320645bd2c4\",\n        \"excerpt\": \"export function add(a: number, b: number) { return a + b; }\\n\",\n        \"observedAt\": \"2026-10-27T06:16:53.776687+00:00\"\n      },\n      {\n        \"path\": \".github/workflows/ci.yml\",\n        \"sha256\": \"ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b\",\n        \"excerpt\": \"name: CI\\non: [push, pull_request]\\njobs:\\n  unit:\\n    runs-on: ubuntu-latest\\n    steps:\\n      - uses: actions/checkout@v4\\n      - uses: pnpm/action-setup@v4\\n      - uses: actions/setup-node@v4\\n        with:\\n          node-version: 22\\n      - run: pnpm install --frozen-lockfile\\n      - run: pnpm test\\n\",\n        \"observedAt\": \"2026-10-27T06:16:53.776687+00:00\"\n      }\n    ],\n    \"knowledgeEvidence\": [\n      {\n        \"pageId\": \"concepts/verification.md\",\n        \"title\": \"Verification\",\n        \"status\": \"active\",\n        \"bundleVersion\": \"brain-3\",\n        \"sha256\": \"236d50079afc0527204a03f4347091837b8dad997b7889735ab1cf62a3b10e76\",\n        \"excerpt\": \"\\n# Verification\\n\\n## Purpose\\n\\nAn agent that can't validate its own change is forced to either guess it's correct or hand every change to a human to check. Verification is the capability that lets an agent (or a human) confirm a change did what it was supposed to, ideally with the smallest check that gives a confident answer.\\n\\n## Desired outcomes\\n\\n- An agent can run a check after making a change and get a trustworthy pass/fail signal.\\n- The agent can pick a targeted check for the kind of change it\"\n      },\n      {\n        \"pageId\": \"principles/small-reversible-changes.md\",\n        \"title\": \"Small, reversible changes\",\n        \"status\": \"active\",\n        \"bundleVersion\": \"brain-3\",\n        \"sha256\": \"b67adff16633fd8a33306ee7af3c96ee779f86abece9c9dac4f3277d8791c2c8\",\n        \"excerpt\": \"\\n# Small, reversible changes\\n\\n## Intent\\n\\nEvery proposed repository improvement should be small enough to review in one sitting and easy to undo if it doesn't help. Aim for the next easiest meaningful improvement rather than a large redesign.\\n\\n## Rationale\\n\\nLarge, hard-to-reverse changes carry compounding risk: they're harder to review, harder to validate in isolation, and expensive to undo if they turn out not to help. A sequence of small, validated, reversible steps reaches the same destination\"\n      }\n    ],\n    \"recommendationId\": \"recommendation-4cfa97573f78db34\"\n  },\n  \"pendingRecommendation\": null,\n  \"errorSummary\": null,\n  \"reused\": false\n}"
+        }
+      },
+      "sources": {
+        "AGENTS.md": {
+          "sha256": "ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a",
+          "text": "# Workflow\nEvery change requires meaningful unit tests and CI must execute the unit suite. A passing no-op is not test evidence. Keep changes bounded and reviewable.\n"
+        },
+        "README.md": {
+          "sha256": "1f648a4e0859bf5dc6dde908181ecd75efd6bf297d4aceaf985390e87a0edbae",
+          "text": "A small TypeScript library. Unit tests validate arithmetic behavior. CI should run the package test suite.\n"
+        },
+        "package.json": {
+          "sha256": "1369b1baa84bff48e22a5aaa9e3651a91146fc03b96e8b8c37ae8ad30284f218",
+          "text": "{\"name\":\"assessment-fixture\",\"packageManager\":\"pnpm@11.24.0\",\"private\":true,\"scripts\":{\"test\":\"echo unit-tests-skipped\"},\"type\":\"module\"}"
+        },
+        "pnpm-lock.yaml": {
+          "sha256": "15709a4944e0a189685e0bc13e56d1d0d37a88e24d8b7ecc2415e5d4b1eff1ee",
+          "text": "lockfileVersion: '9.0'\nsettings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\nimporters:\n  .: {}\n"
+        },
+        ".github/workflows/ci.yml": {
+          "sha256": "ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b",
+          "text": "name: CI\non: [push, pull_request]\njobs:\n  unit:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: pnpm/action-setup@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 22\n      - run: pnpm install --frozen-lockfile\n      - run: pnpm test\n"
+        },
+        "src/add.ts": {
+          "sha256": "d0ea6f33d17132678d4ecd944c2a2dd48dc55a7f7063c21c10d19320645bd2c4",
+          "text": "export function add(a: number, b: number) { return a + b; }\n"
+        },
+        "src/add.test.ts": {
+          "sha256": "c9585fa52f80c44b6a45d3675d3f133df3e293eac2281168dec8798c7e782e11",
+          "text": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { add } from './add.ts';\ntest('adds two numbers', () => assert.equal(add(2, 3), 5));\n"
+        }
+      }
+    },
+    {
+      "trial": "positive-2",
+      "artifacts": {
+        "discovery-output.json": {
+          "sha256": "5634d90bb72452e3847bdb7d02a3926abea3a13ee61b573f969b0e5dd859a403",
+          "text": "{\"candidate\":{\"hypothesis\":\"The package test script contains only a skipped-suite message, and the CI unit step delegates to that script despite the repository requirement for meaningful unit tests. A bounded replacement with actual unit-suite coverage could provide behavioral evidence; related test and implementation files could confirm the appropriate scope, with deliberate arithmetic defects as proposed validation and a single-change rollback.\",\"targetSurface\":\"tooling\",\"title\":\"CI unit-suite evidence gap\"},\"knowledgePageIds\":[\"concepts/verification.md\",\"principles/small-reversible-changes.md\"],\"outcome\":\"inspect\",\"reason\":null,\"repositoryFactHashes\":[\"ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a\",\"1369b1baa84bff48e22a5aaa9e3651a91146fc03b96e8b8c37ae8ad30284f218\",\"ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b\"],\"requestedFileIds\":[0,1,2,4,5],\"version\":1}"
+        },
+        "final-output.json": {
+          "sha256": "66228b9ec1a9398fb518423e7909e122d2d9b428dad372305a57fe6183c9b3e1",
+          "text": "{\"knowledgePageIds\":[\"concepts/verification.md\",\"principles/small-reversible-changes.md\"],\"noProposalReason\":null,\"outcome\":\"proposed\",\"proposal\":{\"summary\":\"The package test script would replace its skipped-suite message with an actual unit-suite entry point covering the existing arithmetic test, including TypeScript compatibility with the CI Node version. This bounded configuration change would give the existing CI unit step behavioral evidence rather than a skipped-suite message, without unrelated implementation changes. Validation scope would cover test discovery, arithmetic assertions, deliberate arithmetic defects, and CI failure propagation. Restoration of the prior configuration would provide a single-change rollback.\",\"targetSurface\":\"tooling\",\"title\":\"CI unit-suite evidence gap\"},\"repositoryFactHashes\":[\"ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a\",\"1369b1baa84bff48e22a5aaa9e3651a91146fc03b96e8b8c37ae8ad30284f218\",\"ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b\",\"c9585fa52f80c44b6a45d3675d3f133df3e293eac2281168dec8798c7e782e11\",\"d0ea6f33d17132678d4ecd944c2a2dd48dc55a7f7063c21c10d19320645bd2c4\"],\"summary\":\"The supplied package test script contains only a skipped-suite message, and the CI unit step delegates to it despite an existing arithmetic test and an explicit unit-suite requirement. This concrete configuration gap leaves that CI step without arithmetic behavioral evidence; broader test absence is not established.\",\"unverifiedChecks\":[\"Whether the proposed test configuration discovers the existing arithmetic test remains unverified.\",\"Whether TypeScript test support is compatible with the CI Node version and dependency configuration remains unverified.\",\"Whether a deliberate arithmetic defect produces an assertion failure and CI unit-step failure remains unverified.\",\"Whether restoration of the prior configuration fully reverses the bounded change remains unverified.\"],\"version\":1}"
+        },
+        "result.json": {
+          "sha256": "6cd12580b59ac9af9bf29fa2642658b0c215f90a2bf6864ca60cfe642ac71e51",
+          "text": "{\n  \"inputManifest\": {\n    \"contextLevel\": \"source_code\",\n    \"excludedPaths\": [],\n    \"collectorVersion\": 3,\n    \"promptVersion\": \"taskmaster-assessment-v2\",\n    \"catalogDigest\": \"495b95516858224c08d83ce7a67a4db17f2bdf9963619993c3ef4dc7c42e0115\",\n    \"catalogComplete\": true,\n    \"instructionCoverageComplete\": true,\n    \"files\": [\n      {\n        \"path\": \"AGENTS.md\",\n        \"sha256\": \"ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a\",\n        \"bytes\": 166,\n        \"seed\": true,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 166,\n        \"excerptDigest\": \"ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a\"\n      },\n      {\n        \"path\": \"package.json\",\n        \"sha256\": \"1369b1baa84bff48e22a5aaa9e3651a91146fc03b96e8b8c37ae8ad30284f218\",\n        \"bytes\": 137,\n        \"seed\": true,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 137,\n        \"excerptDigest\": \"1369b1baa84bff48e22a5aaa9e3651a91146fc03b96e8b8c37ae8ad30284f218\"\n      },\n      {\n        \"path\": \".github/workflows/ci.yml\",\n        \"sha256\": \"ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b\",\n        \"bytes\": 299,\n        \"seed\": true,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 299,\n        \"excerptDigest\": \"ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b\"\n      },\n      {\n        \"path\": \"README.md\",\n        \"sha256\": \"1f648a4e0859bf5dc6dde908181ecd75efd6bf297d4aceaf985390e87a0edbae\",\n        \"bytes\": 107,\n        \"seed\": true,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 107,\n        \"excerptDigest\": \"1f648a4e0859bf5dc6dde908181ecd75efd6bf297d4aceaf985390e87a0edbae\"\n      },\n      {\n        \"path\": \"src/add.test.ts\",\n        \"sha256\": \"c9585fa52f80c44b6a45d3675d3f133df3e293eac2281168dec8798c7e782e11\",\n        \"bytes\": 167,\n        \"seed\": false,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 167,\n        \"excerptDigest\": \"c9585fa52f80c44b6a45d3675d3f133df3e293eac2281168dec8798c7e782e11\"\n      },\n      {\n        \"path\": \"src/add.ts\",\n        \"sha256\": \"d0ea6f33d17132678d4ecd944c2a2dd48dc55a7f7063c21c10d19320645bd2c4\",\n        \"bytes\": 60,\n        \"seed\": false,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 60,\n        \"excerptDigest\": \"d0ea6f33d17132678d4ecd944c2a2dd48dc55a7f7063c21c10d19320645bd2c4\"\n      }\n    ],\n    \"requestedFileIds\": [\n      0,\n      1,\n      2,\n      4,\n      5\n    ],\n    \"discoveryDigest\": \"5634d90bb72452e3847bdb7d02a3926abea3a13ee61b573f969b0e5dd859a403\",\n    \"redacted\": false\n  },\n  \"phase\": \"assessing\",\n  \"formatVersion\": 2,\n  \"id\": \"quality-positive-2\",\n  \"state\": \"succeeded\",\n  \"startedAt\": \"2026-10-27T06:17:21.968167+00:00\",\n  \"completedAt\": \"2026-10-27T06:17:46.255190+00:00\",\n  \"report\": {\n    \"id\": \"quality-positive-2\",\n    \"workspacePath\": \"/private/tmp/orkworks-workflow-quality-20261027-1091/positive-2/workspace\",\n    \"workspaceInstance\": 2,\n    \"observedAt\": \"2026-10-27T06:17:46.255190+00:00\",\n    \"provider\": \"codex\",\n    \"model\": \"gpt-6.1-sol\",\n    \"bundleVersion\": \"brain-3\",\n    \"knowledgeIdentity\": {\n      \"bundle_sha256\": \"ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511\",\n      \"format_version\": 2,\n      \"privacy_policy_version\": 1,\n      \"public_key_sha256\": \"a35da5934c629903f8f31db5067a9c5086f8372c34e3d917c9efb7decfd465dd\",\n      \"sequence\": 3,\n      \"version\": \"brain-3\"\n    },\n    \"inputFingerprint\": \"4e6dd14bf68bf7b0251521d14aa960e70af262c472ef44c61fecfaccb46b8205\",\n    \"contextLevel\": \"source_code\",\n    \"excludedPaths\": [],\n    \"outcome\": \"proposed\",\n    \"summary\": \"The supplied package test script contains only a skipped-suite message, and the CI unit step delegates to it despite an existing arithmetic test and an explicit unit-suite requirement. This concrete configuration gap leaves that CI step without arithmetic behavioral evidence; broader test absence is not established.\",\n    \"proposal\": {\n      \"targetSurface\": \"tooling\",\n      \"title\": \"CI unit-suite evidence gap\",\n      \"summary\": \"The package test script would replace its skipped-suite message with an actual unit-suite entry point covering the existing arithmetic test, including TypeScript compatibility with the CI Node version. This bounded configuration change would give the existing CI unit step behavioral evidence rather than a skipped-suite message, without unrelated implementation changes. Validation scope would cover test discovery, arithmetic assertions, deliberate arithmetic defects, and CI failure propagation. Restoration of the prior configuration would provide a single-change rollback.\"\n    },\n    \"noProposalReason\": null,\n    \"unverifiedChecks\": [\n      \"Whether the proposed test configuration discovers the existing arithmetic test remains unverified.\",\n      \"Whether TypeScript test support is compatible with the CI Node version and dependency configuration remains unverified.\",\n      \"Whether a deliberate arithmetic defect produces an assertion failure and CI unit-step failure remains unverified.\",\n      \"Whether restoration of the prior configuration fully reverses the bounded change remains unverified.\"\n    ],\n    \"repositoryEvidence\": [\n      {\n        \"path\": \"package.json\",\n        \"sha256\": \"1369b1baa84bff48e22a5aaa9e3651a91146fc03b96e8b8c37ae8ad30284f218\",\n        \"excerpt\": \"{\\\"name\\\":\\\"assessment-fixture\\\",\\\"packageManager\\\":\\\"pnpm@11.24.0\\\",\\\"private\\\":true,\\\"scripts\\\":{\\\"test\\\":\\\"echo unit-tests-skipped\\\"},\\\"type\\\":\\\"module\\\"}\",\n        \"observedAt\": \"2026-10-27T06:17:22.029317+00:00\"\n      },\n      {\n        \"path\": \"src/add.test.ts\",\n        \"sha256\": \"c9585fa52f80c44b6a45d3675d3f133df3e293eac2281168dec8798c7e782e11\",\n        \"excerpt\": \"import { test } from 'node:test';\\nimport assert from 'node:assert/strict';\\nimport { add } from './add.ts';\\ntest('adds two numbers', () => assert.equal(add(2, 3), 5));\\n\",\n        \"observedAt\": \"2026-10-27T06:17:22.029317+00:00\"\n      },\n      {\n        \"path\": \"AGENTS.md\",\n        \"sha256\": \"ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a\",\n        \"excerpt\": \"# Workflow\\nEvery change requires meaningful unit tests and CI must execute the unit suite. A passing no-op is not test evidence. Keep changes bounded and reviewable.\\n\",\n        \"observedAt\": \"2026-10-27T06:17:22.029317+00:00\"\n      },\n      {\n        \"path\": \"src/add.ts\",\n        \"sha256\": \"d0ea6f33d17132678d4ecd944c2a2dd48dc55a7f7063c21c10d19320645bd2c4\",\n        \"excerpt\": \"export function add(a: number, b: number) { return a + b; }\\n\",\n        \"observedAt\": \"2026-10-27T06:17:22.029317+00:00\"\n      },\n      {\n        \"path\": \".github/workflows/ci.yml\",\n        \"sha256\": \"ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b\",\n        \"excerpt\": \"name: CI\\non: [push, pull_request]\\njobs:\\n  unit:\\n    runs-on: ubuntu-latest\\n    steps:\\n      - uses: actions/checkout@v4\\n      - uses: pnpm/action-setup@v4\\n      - uses: actions/setup-node@v4\\n        with:\\n          node-version: 22\\n      - run: pnpm install --frozen-lockfile\\n      - run: pnpm test\\n\",\n        \"observedAt\": \"2026-10-27T06:17:22.029317+00:00\"\n      }\n    ],\n    \"knowledgeEvidence\": [\n      {\n        \"pageId\": \"concepts/verification.md\",\n        \"title\": \"Verification\",\n        \"status\": \"active\",\n        \"bundleVersion\": \"brain-3\",\n        \"sha256\": \"236d50079afc0527204a03f4347091837b8dad997b7889735ab1cf62a3b10e76\",\n        \"excerpt\": \"\\n# Verification\\n\\n## Purpose\\n\\nAn agent that can't validate its own change is forced to either guess it's correct or hand every change to a human to check. Verification is the capability that lets an agent (or a human) confirm a change did what it was supposed to, ideally with the smallest check that gives a confident answer.\\n\\n## Desired outcomes\\n\\n- An agent can run a check after making a change and get a trustworthy pass/fail signal.\\n- The agent can pick a targeted check for the kind of change it\"\n      },\n      {\n        \"pageId\": \"principles/small-reversible-changes.md\",\n        \"title\": \"Small, reversible changes\",\n        \"status\": \"active\",\n        \"bundleVersion\": \"brain-3\",\n        \"sha256\": \"b67adff16633fd8a33306ee7af3c96ee779f86abece9c9dac4f3277d8791c2c8\",\n        \"excerpt\": \"\\n# Small, reversible changes\\n\\n## Intent\\n\\nEvery proposed repository improvement should be small enough to review in one sitting and easy to undo if it doesn't help. Aim for the next easiest meaningful improvement rather than a large redesign.\\n\\n## Rationale\\n\\nLarge, hard-to-reverse changes carry compounding risk: they're harder to review, harder to validate in isolation, and expensive to undo if they turn out not to help. A sequence of small, validated, reversible steps reaches the same destination\"\n      }\n    ],\n    \"recommendationId\": \"recommendation-f8cecf0105a2f98a\"\n  },\n  \"pendingRecommendation\": null,\n  \"errorSummary\": null,\n  \"reused\": false\n}"
+        }
+      },
+      "sources": {
+        "AGENTS.md": {
+          "sha256": "ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a",
+          "text": "# Workflow\nEvery change requires meaningful unit tests and CI must execute the unit suite. A passing no-op is not test evidence. Keep changes bounded and reviewable.\n"
+        },
+        "README.md": {
+          "sha256": "1f648a4e0859bf5dc6dde908181ecd75efd6bf297d4aceaf985390e87a0edbae",
+          "text": "A small TypeScript library. Unit tests validate arithmetic behavior. CI should run the package test suite.\n"
+        },
+        "package.json": {
+          "sha256": "1369b1baa84bff48e22a5aaa9e3651a91146fc03b96e8b8c37ae8ad30284f218",
+          "text": "{\"name\":\"assessment-fixture\",\"packageManager\":\"pnpm@11.24.0\",\"private\":true,\"scripts\":{\"test\":\"echo unit-tests-skipped\"},\"type\":\"module\"}"
+        },
+        "pnpm-lock.yaml": {
+          "sha256": "15709a4944e0a189685e0bc13e56d1d0d37a88e24d8b7ecc2415e5d4b1eff1ee",
+          "text": "lockfileVersion: '9.0'\nsettings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\nimporters:\n  .: {}\n"
+        },
+        ".github/workflows/ci.yml": {
+          "sha256": "ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b",
+          "text": "name: CI\non: [push, pull_request]\njobs:\n  unit:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: pnpm/action-setup@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 22\n      - run: pnpm install --frozen-lockfile\n      - run: pnpm test\n"
+        },
+        "src/add.ts": {
+          "sha256": "d0ea6f33d17132678d4ecd944c2a2dd48dc55a7f7063c21c10d19320645bd2c4",
+          "text": "export function add(a: number, b: number) { return a + b; }\n"
+        },
+        "src/add.test.ts": {
+          "sha256": "c9585fa52f80c44b6a45d3675d3f133df3e293eac2281168dec8798c7e782e11",
+          "text": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { add } from './add.ts';\ntest('adds two numbers', () => assert.equal(add(2, 3), 5));\n"
+        }
+      }
+    },
+    {
+      "trial": "positive-3",
+      "artifacts": {
+        "discovery-output.json": {
+          "sha256": "0e75f077c93d266be79e82e0a009310c315d0e3301e19214796d7e8897753157",
+          "text": "{\"candidate\":{\"hypothesis\":\"The package test script contains only a skipped-suite message, while the CI unit step delegates to that script and repository instructions require meaningful unit tests. Replacing the placeholder with a unit-suite entry point could provide behavioral evidence for changes. Related test files could establish the appropriate test framework and scope; proposed validation would compare detection of an intentional arithmetic defect with the unchanged behavior. Validation remains unverified, and rollback would be limited to the test-script change.\",\"targetSurface\":\"tooling\",\"title\":\"CI unit-suite delegation gap\"},\"knowledgePageIds\":[\"concepts/verification.md\",\"principles/small-reversible-changes.md\",\"playbooks/bounded-workflow-assessment.md\"],\"outcome\":\"inspect\",\"reason\":null,\"repositoryFactHashes\":[\"ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a\",\"1369b1baa84bff48e22a5aaa9e3651a91146fc03b96e8b8c37ae8ad30284f218\",\"ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b\"],\"requestedFileIds\":[0,1,2,4,5],\"version\":1}"
+        },
+        "final-output.json": {
+          "sha256": "2c91b6850d7e56a48285d07ef6c6ab51a61d6dbec2a3b3669657ff66290fb313",
+          "text": "{\"knowledgePageIds\":[\"concepts/verification.md\",\"principles/small-reversible-changes.md\",\"playbooks/bounded-workflow-assessment.md\"],\"noProposalReason\":null,\"outcome\":\"proposed\",\"proposal\":{\"summary\":\"The package test script would replace its skipped-suite message with an entry point for the existing Node unit tests, with TypeScript compatibility appropriate to the CI Node version. This bounded script change would give the delegating CI unit step behavioral evidence for arithmetic changes rather than a skipped-suite message. Validation scope would cover existing arithmetic expectations, intentional-defect detection, failure propagation, and CI environment compatibility. Restoration of the prior package test script would provide rollback.\",\"targetSurface\":\"tooling\",\"title\":\"CI unit-suite delegation gap\"},\"repositoryFactHashes\":[\"ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a\",\"1369b1baa84bff48e22a5aaa9e3651a91146fc03b96e8b8c37ae8ad30284f218\",\"ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b\",\"c9585fa52f80c44b6a45d3675d3f133df3e293eac2281168dec8798c7e782e11\"],\"summary\":\"The supplied package test script contains only a skipped-suite message, and the CI unit step delegates to that script. An existing Node arithmetic test supplies a concrete suite target, while repository instructions require meaningful unit evidence. The current delegation therefore provides no behavioral evidence from that test; a bounded script replacement addresses this specific verification gap without broader workflow changes.\",\"unverifiedChecks\":[\"Whether the proposed test entry point supports the TypeScript test under the CI Node version remains unverified.\",\"Whether the existing arithmetic test is discovered and its unchanged expectations hold remains unverified.\",\"Whether an intentional arithmetic defect produces a test failure and a corresponding CI unit-step failure remains unverified.\",\"Whether restoration of the prior package test script fully reverses the configuration change remains unverified.\"],\"version\":1}"
+        },
+        "result.json": {
+          "sha256": "6e871225a6ad098426825f3aa5fb589e4f1929938338b0d34f2a38df84f0e014",
+          "text": "{\n  \"formatVersion\": 2,\n  \"id\": \"quality-positive-3\",\n  \"state\": \"failed\",\n  \"startedAt\": \"2026-10-27T06:17:46.417021+00:00\",\n  \"completedAt\": \"2026-10-27T06:18:11.646587+00:00\",\n  \"report\": null,\n  \"pendingRecommendation\": null,\n  \"errorSummary\": \"Taskmaster returned an invalid assessment (invalid_prose)\",\n  \"reused\": false\n}"
+        }
+      },
+      "sources": {
+        "AGENTS.md": {
+          "sha256": "ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a",
+          "text": "# Workflow\nEvery change requires meaningful unit tests and CI must execute the unit suite. A passing no-op is not test evidence. Keep changes bounded and reviewable.\n"
+        },
+        "README.md": {
+          "sha256": "1f648a4e0859bf5dc6dde908181ecd75efd6bf297d4aceaf985390e87a0edbae",
+          "text": "A small TypeScript library. Unit tests validate arithmetic behavior. CI should run the package test suite.\n"
+        },
+        "package.json": {
+          "sha256": "1369b1baa84bff48e22a5aaa9e3651a91146fc03b96e8b8c37ae8ad30284f218",
+          "text": "{\"name\":\"assessment-fixture\",\"packageManager\":\"pnpm@11.24.0\",\"private\":true,\"scripts\":{\"test\":\"echo unit-tests-skipped\"},\"type\":\"module\"}"
+        },
+        "pnpm-lock.yaml": {
+          "sha256": "15709a4944e0a189685e0bc13e56d1d0d37a88e24d8b7ecc2415e5d4b1eff1ee",
+          "text": "lockfileVersion: '9.0'\nsettings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\nimporters:\n  .: {}\n"
+        },
+        ".github/workflows/ci.yml": {
+          "sha256": "ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b",
+          "text": "name: CI\non: [push, pull_request]\njobs:\n  unit:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: pnpm/action-setup@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 22\n      - run: pnpm install --frozen-lockfile\n      - run: pnpm test\n"
+        },
+        "src/add.ts": {
+          "sha256": "d0ea6f33d17132678d4ecd944c2a2dd48dc55a7f7063c21c10d19320645bd2c4",
+          "text": "export function add(a: number, b: number) { return a + b; }\n"
+        },
+        "src/add.test.ts": {
+          "sha256": "c9585fa52f80c44b6a45d3675d3f133df3e293eac2281168dec8798c7e782e11",
+          "text": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { add } from './add.ts';\ntest('adds two numbers', () => assert.equal(add(2, 3), 5));\n"
+        }
+      }
+    },
+    {
+      "trial": "healthy-1",
+      "artifacts": {
+        "discovery-output.json": {
+          "sha256": "f4020905a8ed891423236f504f7bcb8140bae2acdd4e2087b1eae8426f573ed5",
+          "text": "{\"candidate\":null,\"knowledgePageIds\":[\"playbooks/bounded-workflow-assessment.md\",\"concepts/verification.md\"],\"outcome\":\"no_candidate\",\"reason\":\"The supplied configuration connects the CI unit step to the package test script and a specific unit test file, consistent with the repository requirement for meaningful unit coverage. Actual behavioral coverage and CI outcomes remain unknown; the supplied facts identify no concrete workflow gap, and uncertainty alone does not support a recommendation.\",\"repositoryFactHashes\":[\"ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a\",\"86d5f1e4298e83a67b4e797cab15b7e4cb76302b9db4db7aaf87af39e0ced656\",\"ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b\"],\"requestedFileIds\":[],\"version\":1}"
+        },
+        "result.json": {
+          "sha256": "d1a586312713e5810618bf59062dc424ec39dd56175212c6d38dbdf4f25818ce",
+          "text": "{\n  \"inputManifest\": {\n    \"contextLevel\": \"source_code\",\n    \"excludedPaths\": [],\n    \"collectorVersion\": 3,\n    \"promptVersion\": \"taskmaster-assessment-v2\",\n    \"catalogDigest\": \"495b95516858224c08d83ce7a67a4db17f2bdf9963619993c3ef4dc7c42e0115\",\n    \"catalogComplete\": true,\n    \"instructionCoverageComplete\": true,\n    \"files\": [\n      {\n        \"path\": \"AGENTS.md\",\n        \"sha256\": \"ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a\",\n        \"bytes\": 166,\n        \"seed\": true,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 166,\n        \"excerptDigest\": \"ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a\"\n      },\n      {\n        \"path\": \"package.json\",\n        \"sha256\": \"86d5f1e4298e83a67b4e797cab15b7e4cb76302b9db4db7aaf87af39e0ced656\",\n        \"bytes\": 168,\n        \"seed\": true,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 168,\n        \"excerptDigest\": \"86d5f1e4298e83a67b4e797cab15b7e4cb76302b9db4db7aaf87af39e0ced656\"\n      },\n      {\n        \"path\": \".github/workflows/ci.yml\",\n        \"sha256\": \"ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b\",\n        \"bytes\": 299,\n        \"seed\": true,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 299,\n        \"excerptDigest\": \"ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b\"\n      },\n      {\n        \"path\": \"README.md\",\n        \"sha256\": \"1f648a4e0859bf5dc6dde908181ecd75efd6bf297d4aceaf985390e87a0edbae\",\n        \"bytes\": 107,\n        \"seed\": true,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 107,\n        \"excerptDigest\": \"1f648a4e0859bf5dc6dde908181ecd75efd6bf297d4aceaf985390e87a0edbae\"\n      }\n    ],\n    \"requestedFileIds\": [],\n    \"discoveryDigest\": \"f4020905a8ed891423236f504f7bcb8140bae2acdd4e2087b1eae8426f573ed5\",\n    \"redacted\": false\n  },\n  \"phase\": \"assessing\",\n  \"formatVersion\": 2,\n  \"id\": \"quality-healthy-1\",\n  \"state\": \"succeeded\",\n  \"startedAt\": \"2026-10-27T06:20:22.274318+00:00\",\n  \"completedAt\": \"2026-10-27T06:20:32.288916+00:00\",\n  \"report\": {\n    \"id\": \"quality-healthy-1\",\n    \"workspacePath\": \"/private/tmp/orkworks-workflow-healthy-20261027-1091/healthy-1/workspace\",\n    \"workspaceInstance\": 1,\n    \"observedAt\": \"2026-10-27T06:20:32.288916+00:00\",\n    \"provider\": \"codex\",\n    \"model\": \"gpt-6.1-sol\",\n    \"bundleVersion\": \"brain-3\",\n    \"knowledgeIdentity\": {\n      \"bundle_sha256\": \"ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511\",\n      \"format_version\": 2,\n      \"privacy_policy_version\": 1,\n      \"public_key_sha256\": \"a35da5934c629903f8f31db5067a9c5086f8372c34e3d917c9efb7decfd465dd\",\n      \"sequence\": 3,\n      \"version\": \"brain-3\"\n    },\n    \"inputFingerprint\": \"723c5d15ed0e65b5ddd18784476b92aeb6b378499b20ee5b53a1c86f93889cd9\",\n    \"contextLevel\": \"source_code\",\n    \"excludedPaths\": [],\n    \"outcome\": \"no_proposal\",\n    \"summary\": \"Repository discovery completed without a justified proposal.\",\n    \"proposal\": null,\n    \"noProposalReason\": \"The supplied configuration connects the CI unit step to the package test script and a specific unit test file, consistent with the repository requirement for meaningful unit coverage. Actual behavioral coverage and CI outcomes remain unknown; the supplied facts identify no concrete workflow gap, and uncertainty alone does not support a recommendation.\",\n    \"unverifiedChecks\": [],\n    \"repositoryEvidence\": [],\n    \"knowledgeEvidence\": [],\n    \"recommendationId\": null\n  },\n  \"pendingRecommendation\": null,\n  \"errorSummary\": null,\n  \"reused\": false\n}"
+        }
+      },
+      "sources": {
+        "AGENTS.md": {
+          "sha256": "ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a",
+          "text": "# Workflow\nEvery change requires meaningful unit tests and CI must execute the unit suite. A passing no-op is not test evidence. Keep changes bounded and reviewable.\n"
+        },
+        "README.md": {
+          "sha256": "1f648a4e0859bf5dc6dde908181ecd75efd6bf297d4aceaf985390e87a0edbae",
+          "text": "A small TypeScript library. Unit tests validate arithmetic behavior. CI should run the package test suite.\n"
+        },
+        "package.json": {
+          "sha256": "86d5f1e4298e83a67b4e797cab15b7e4cb76302b9db4db7aaf87af39e0ced656",
+          "text": "{\"name\":\"assessment-fixture\",\"packageManager\":\"pnpm@11.24.0\",\"private\":true,\"scripts\":{\"test\":\"node --experimental-strip-types --test src/add.test.ts\"},\"type\":\"module\"}"
+        },
+        "pnpm-lock.yaml": {
+          "sha256": "15709a4944e0a189685e0bc13e56d1d0d37a88e24d8b7ecc2415e5d4b1eff1ee",
+          "text": "lockfileVersion: '9.0'\nsettings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\nimporters:\n  .: {}\n"
+        },
+        ".github/workflows/ci.yml": {
+          "sha256": "ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b",
+          "text": "name: CI\non: [push, pull_request]\njobs:\n  unit:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: pnpm/action-setup@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 22\n      - run: pnpm install --frozen-lockfile\n      - run: pnpm test\n"
+        },
+        "src/add.ts": {
+          "sha256": "d0ea6f33d17132678d4ecd944c2a2dd48dc55a7f7063c21c10d19320645bd2c4",
+          "text": "export function add(a: number, b: number) { return a + b; }\n"
+        },
+        "src/add.test.ts": {
+          "sha256": "c9585fa52f80c44b6a45d3675d3f133df3e293eac2281168dec8798c7e782e11",
+          "text": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { add } from './add.ts';\ntest('adds two numbers', () => assert.equal(add(2, 3), 5));\n"
+        }
+      }
+    },
+    {
+      "trial": "healthy-2",
+      "artifacts": {
+        "discovery-output.json": {
+          "sha256": "df6869a12e43491c6e4146ca66b07bd6485f35bc168d9935358622d31457ab2e",
+          "text": "{\"candidate\":null,\"knowledgePageIds\":[\"playbooks/bounded-workflow-assessment.md\",\"concepts/verification.md\"],\"outcome\":\"no_candidate\",\"reason\":\"The supplied configuration connects the CI unit step to the package test script and a specific unit test file, consistent with the repository requirement for unit coverage. Configuration alone does not establish behavioral coverage or compatibility, but the supplied facts contain no concrete mismatch or other positive evidence of a bounded improvement opportunity; unseen test contents remain unknown.\",\"repositoryFactHashes\":[\"ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a\",\"86d5f1e4298e83a67b4e797cab15b7e4cb76302b9db4db7aaf87af39e0ced656\",\"ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b\"],\"requestedFileIds\":[],\"version\":1}"
+        },
+        "result.json": {
+          "sha256": "6d7429d1c14ef92d1039c82dcd955c3f28a26c18db60a98eded7b86d15015afa",
+          "text": "{\n  \"inputManifest\": {\n    \"contextLevel\": \"source_code\",\n    \"excludedPaths\": [],\n    \"collectorVersion\": 3,\n    \"promptVersion\": \"taskmaster-assessment-v2\",\n    \"catalogDigest\": \"495b95516858224c08d83ce7a67a4db17f2bdf9963619993c3ef4dc7c42e0115\",\n    \"catalogComplete\": true,\n    \"instructionCoverageComplete\": true,\n    \"files\": [\n      {\n        \"path\": \"AGENTS.md\",\n        \"sha256\": \"ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a\",\n        \"bytes\": 166,\n        \"seed\": true,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 166,\n        \"excerptDigest\": \"ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a\"\n      },\n      {\n        \"path\": \"package.json\",\n        \"sha256\": \"86d5f1e4298e83a67b4e797cab15b7e4cb76302b9db4db7aaf87af39e0ced656\",\n        \"bytes\": 168,\n        \"seed\": true,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 168,\n        \"excerptDigest\": \"86d5f1e4298e83a67b4e797cab15b7e4cb76302b9db4db7aaf87af39e0ced656\"\n      },\n      {\n        \"path\": \".github/workflows/ci.yml\",\n        \"sha256\": \"ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b\",\n        \"bytes\": 299,\n        \"seed\": true,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 299,\n        \"excerptDigest\": \"ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b\"\n      },\n      {\n        \"path\": \"README.md\",\n        \"sha256\": \"1f648a4e0859bf5dc6dde908181ecd75efd6bf297d4aceaf985390e87a0edbae\",\n        \"bytes\": 107,\n        \"seed\": true,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 107,\n        \"excerptDigest\": \"1f648a4e0859bf5dc6dde908181ecd75efd6bf297d4aceaf985390e87a0edbae\"\n      }\n    ],\n    \"requestedFileIds\": [],\n    \"discoveryDigest\": \"df6869a12e43491c6e4146ca66b07bd6485f35bc168d9935358622d31457ab2e\",\n    \"redacted\": false\n  },\n  \"phase\": \"assessing\",\n  \"formatVersion\": 2,\n  \"id\": \"quality-healthy-2\",\n  \"state\": \"succeeded\",\n  \"startedAt\": \"2026-10-27T06:20:32.431600+00:00\",\n  \"completedAt\": \"2026-10-27T06:20:44.232945+00:00\",\n  \"report\": {\n    \"id\": \"quality-healthy-2\",\n    \"workspacePath\": \"/private/tmp/orkworks-workflow-healthy-20261027-1091/healthy-2/workspace\",\n    \"workspaceInstance\": 2,\n    \"observedAt\": \"2026-10-27T06:20:44.232945+00:00\",\n    \"provider\": \"codex\",\n    \"model\": \"gpt-6.1-sol\",\n    \"bundleVersion\": \"brain-3\",\n    \"knowledgeIdentity\": {\n      \"bundle_sha256\": \"ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511\",\n      \"format_version\": 2,\n      \"privacy_policy_version\": 1,\n      \"public_key_sha256\": \"a35da5934c629903f8f31db5067a9c5086f8372c34e3d917c9efb7decfd465dd\",\n      \"sequence\": 3,\n      \"version\": \"brain-3\"\n    },\n    \"inputFingerprint\": \"bd3b90a73cb9967f2148faee4614980830a44c9deb0d30053c5b2080922a161c\",\n    \"contextLevel\": \"source_code\",\n    \"excludedPaths\": [],\n    \"outcome\": \"no_proposal\",\n    \"summary\": \"Repository discovery completed without a justified proposal.\",\n    \"proposal\": null,\n    \"noProposalReason\": \"The supplied configuration connects the CI unit step to the package test script and a specific unit test file, consistent with the repository requirement for unit coverage. Configuration alone does not establish behavioral coverage or compatibility, but the supplied facts contain no concrete mismatch or other positive evidence of a bounded improvement opportunity; unseen test contents remain unknown.\",\n    \"unverifiedChecks\": [],\n    \"repositoryEvidence\": [],\n    \"knowledgeEvidence\": [],\n    \"recommendationId\": null\n  },\n  \"pendingRecommendation\": null,\n  \"errorSummary\": null,\n  \"reused\": false\n}"
+        }
+      },
+      "sources": {
+        "AGENTS.md": {
+          "sha256": "ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a",
+          "text": "# Workflow\nEvery change requires meaningful unit tests and CI must execute the unit suite. A passing no-op is not test evidence. Keep changes bounded and reviewable.\n"
+        },
+        "README.md": {
+          "sha256": "1f648a4e0859bf5dc6dde908181ecd75efd6bf297d4aceaf985390e87a0edbae",
+          "text": "A small TypeScript library. Unit tests validate arithmetic behavior. CI should run the package test suite.\n"
+        },
+        "package.json": {
+          "sha256": "86d5f1e4298e83a67b4e797cab15b7e4cb76302b9db4db7aaf87af39e0ced656",
+          "text": "{\"name\":\"assessment-fixture\",\"packageManager\":\"pnpm@11.24.0\",\"private\":true,\"scripts\":{\"test\":\"node --experimental-strip-types --test src/add.test.ts\"},\"type\":\"module\"}"
+        },
+        "pnpm-lock.yaml": {
+          "sha256": "15709a4944e0a189685e0bc13e56d1d0d37a88e24d8b7ecc2415e5d4b1eff1ee",
+          "text": "lockfileVersion: '9.0'\nsettings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\nimporters:\n  .: {}\n"
+        },
+        ".github/workflows/ci.yml": {
+          "sha256": "ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b",
+          "text": "name: CI\non: [push, pull_request]\njobs:\n  unit:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: pnpm/action-setup@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 22\n      - run: pnpm install --frozen-lockfile\n      - run: pnpm test\n"
+        },
+        "src/add.ts": {
+          "sha256": "d0ea6f33d17132678d4ecd944c2a2dd48dc55a7f7063c21c10d19320645bd2c4",
+          "text": "export function add(a: number, b: number) { return a + b; }\n"
+        },
+        "src/add.test.ts": {
+          "sha256": "c9585fa52f80c44b6a45d3675d3f133df3e293eac2281168dec8798c7e782e11",
+          "text": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { add } from './add.ts';\ntest('adds two numbers', () => assert.equal(add(2, 3), 5));\n"
+        }
+      }
+    },
+    {
+      "trial": "healthy-3",
+      "artifacts": {
+        "discovery-output.json": {
+          "sha256": "44254b60e41327ecbfcedb3b07f082ac54379fbba2ed4f3809785c24e7e026ac",
+          "text": "{\"candidate\":null,\"knowledgePageIds\":[\"playbooks/bounded-workflow-assessment.md\",\"concepts/verification.md\"],\"outcome\":\"no_candidate\",\"reason\":\"The supplied configuration connects the CI unit step to the package test script and a concrete unit test file, consistent with repository requirements. These facts establish intended verification wiring, not behavioral evidence; they identify no concrete workflow gap. Test contents and actual CI behavior remain unknown rather than evidence of a defect.\",\"repositoryFactHashes\":[\"ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a\",\"86d5f1e4298e83a67b4e797cab15b7e4cb76302b9db4db7aaf87af39e0ced656\",\"ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b\"],\"requestedFileIds\":[],\"version\":1}"
+        },
+        "result.json": {
+          "sha256": "f93fcdb592138cd0cae1fcf081af6b88f1ae49effa8f93914a13dcf59804a7dd",
+          "text": "{\n  \"inputManifest\": {\n    \"contextLevel\": \"source_code\",\n    \"excludedPaths\": [],\n    \"collectorVersion\": 3,\n    \"promptVersion\": \"taskmaster-assessment-v2\",\n    \"catalogDigest\": \"495b95516858224c08d83ce7a67a4db17f2bdf9963619993c3ef4dc7c42e0115\",\n    \"catalogComplete\": true,\n    \"instructionCoverageComplete\": true,\n    \"files\": [\n      {\n        \"path\": \"AGENTS.md\",\n        \"sha256\": \"ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a\",\n        \"bytes\": 166,\n        \"seed\": true,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 166,\n        \"excerptDigest\": \"ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a\"\n      },\n      {\n        \"path\": \"package.json\",\n        \"sha256\": \"86d5f1e4298e83a67b4e797cab15b7e4cb76302b9db4db7aaf87af39e0ced656\",\n        \"bytes\": 168,\n        \"seed\": true,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 168,\n        \"excerptDigest\": \"86d5f1e4298e83a67b4e797cab15b7e4cb76302b9db4db7aaf87af39e0ced656\"\n      },\n      {\n        \"path\": \".github/workflows/ci.yml\",\n        \"sha256\": \"ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b\",\n        \"bytes\": 299,\n        \"seed\": true,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 299,\n        \"excerptDigest\": \"ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b\"\n      },\n      {\n        \"path\": \"README.md\",\n        \"sha256\": \"1f648a4e0859bf5dc6dde908181ecd75efd6bf297d4aceaf985390e87a0edbae\",\n        \"bytes\": 107,\n        \"seed\": true,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 107,\n        \"excerptDigest\": \"1f648a4e0859bf5dc6dde908181ecd75efd6bf297d4aceaf985390e87a0edbae\"\n      }\n    ],\n    \"requestedFileIds\": [],\n    \"discoveryDigest\": \"44254b60e41327ecbfcedb3b07f082ac54379fbba2ed4f3809785c24e7e026ac\",\n    \"redacted\": false\n  },\n  \"phase\": \"assessing\",\n  \"formatVersion\": 2,\n  \"id\": \"quality-healthy-3\",\n  \"state\": \"succeeded\",\n  \"startedAt\": \"2026-10-27T06:20:44.369146+00:00\",\n  \"completedAt\": \"2026-10-27T06:20:54.242265+00:00\",\n  \"report\": {\n    \"id\": \"quality-healthy-3\",\n    \"workspacePath\": \"/private/tmp/orkworks-workflow-healthy-20261027-1091/healthy-3/workspace\",\n    \"workspaceInstance\": 3,\n    \"observedAt\": \"2026-10-27T06:20:54.242265+00:00\",\n    \"provider\": \"codex\",\n    \"model\": \"gpt-6.1-sol\",\n    \"bundleVersion\": \"brain-3\",\n    \"knowledgeIdentity\": {\n      \"bundle_sha256\": \"ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511\",\n      \"format_version\": 2,\n      \"privacy_policy_version\": 1,\n      \"public_key_sha256\": \"a35da5934c629903f8f31db5067a9c5086f8372c34e3d917c9efb7decfd465dd\",\n      \"sequence\": 3,\n      \"version\": \"brain-3\"\n    },\n    \"inputFingerprint\": \"4b400eed5ffd1806e8ef96d1d5036d7e9aa7629c3ba6ed241b5cdb91448c16e1\",\n    \"contextLevel\": \"source_code\",\n    \"excludedPaths\": [],\n    \"outcome\": \"no_proposal\",\n    \"summary\": \"Repository discovery completed without a justified proposal.\",\n    \"proposal\": null,\n    \"noProposalReason\": \"The supplied configuration connects the CI unit step to the package test script and a concrete unit test file, consistent with repository requirements. These facts establish intended verification wiring, not behavioral evidence; they identify no concrete workflow gap. Test contents and actual CI behavior remain unknown rather than evidence of a defect.\",\n    \"unverifiedChecks\": [],\n    \"repositoryEvidence\": [],\n    \"knowledgeEvidence\": [],\n    \"recommendationId\": null\n  },\n  \"pendingRecommendation\": null,\n  \"errorSummary\": null,\n  \"reused\": false\n}"
+        }
+      },
+      "sources": {
+        "AGENTS.md": {
+          "sha256": "ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a",
+          "text": "# Workflow\nEvery change requires meaningful unit tests and CI must execute the unit suite. A passing no-op is not test evidence. Keep changes bounded and reviewable.\n"
+        },
+        "README.md": {
+          "sha256": "1f648a4e0859bf5dc6dde908181ecd75efd6bf297d4aceaf985390e87a0edbae",
+          "text": "A small TypeScript library. Unit tests validate arithmetic behavior. CI should run the package test suite.\n"
+        },
+        "package.json": {
+          "sha256": "86d5f1e4298e83a67b4e797cab15b7e4cb76302b9db4db7aaf87af39e0ced656",
+          "text": "{\"name\":\"assessment-fixture\",\"packageManager\":\"pnpm@11.24.0\",\"private\":true,\"scripts\":{\"test\":\"node --experimental-strip-types --test src/add.test.ts\"},\"type\":\"module\"}"
+        },
+        "pnpm-lock.yaml": {
+          "sha256": "15709a4944e0a189685e0bc13e56d1d0d37a88e24d8b7ecc2415e5d4b1eff1ee",
+          "text": "lockfileVersion: '9.0'\nsettings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\nimporters:\n  .: {}\n"
+        },
+        ".github/workflows/ci.yml": {
+          "sha256": "ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b",
+          "text": "name: CI\non: [push, pull_request]\njobs:\n  unit:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: pnpm/action-setup@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 22\n      - run: pnpm install --frozen-lockfile\n      - run: pnpm test\n"
+        },
+        "src/add.ts": {
+          "sha256": "d0ea6f33d17132678d4ecd944c2a2dd48dc55a7f7063c21c10d19320645bd2c4",
+          "text": "export function add(a: number, b: number) { return a + b; }\n"
+        },
+        "src/add.test.ts": {
+          "sha256": "c9585fa52f80c44b6a45d3675d3f133df3e293eac2281168dec8798c7e782e11",
+          "text": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { add } from './add.ts';\ntest('adds two numbers', () => assert.equal(add(2, 3), 5));\n"
+        }
+      }
+    },
+    {
+      "trial": "refuted-1",
+      "artifacts": {
+        "discovery-output.json": {
+          "sha256": "21b7d96b4480c53a13b648cb388d8273edc1ce1d44849753ca8535bccee9b1ad",
+          "text": "{\"candidate\":null,\"knowledgePageIds\":[\"playbooks/bounded-workflow-assessment.md\",\"principles/evidence-over-trends.md\"],\"outcome\":\"no_candidate\",\"reason\":\"The supplied facts show a unit-testing requirement, a package test script delegated to a verification script, and CI configuration referencing that package script. They provide no positive evidence of a skipped suite, defective test selection, or another concrete workflow problem; verification-script behavior and test coverage remain unknown.\",\"repositoryFactHashes\":[\"ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a\",\"2af2258caceeeca4d2e536e88ea198dc7a97610185e6e46bcdfdd6c10016d3a9\",\"ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b\"],\"requestedFileIds\":[],\"version\":1}"
+        },
+        "result.json": {
+          "sha256": "ca3f6790f98580d42c0343f37769b9c43df58a003895d96ee7482fd9825b895a",
+          "text": "{\n  \"inputManifest\": {\n    \"contextLevel\": \"source_code\",\n    \"excludedPaths\": [],\n    \"collectorVersion\": 3,\n    \"promptVersion\": \"taskmaster-assessment-v2\",\n    \"catalogDigest\": \"96a7de7687ef387706587aba0739d829fe5daf96e31bfc99c8c80c3cb208fffa\",\n    \"catalogComplete\": true,\n    \"instructionCoverageComplete\": true,\n    \"files\": [\n      {\n        \"path\": \"AGENTS.md\",\n        \"sha256\": \"ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a\",\n        \"bytes\": 166,\n        \"seed\": true,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 166,\n        \"excerptDigest\": \"ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a\"\n      },\n      {\n        \"path\": \"package.json\",\n        \"sha256\": \"2af2258caceeeca4d2e536e88ea198dc7a97610185e6e46bcdfdd6c10016d3a9\",\n        \"bytes\": 136,\n        \"seed\": true,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 136,\n        \"excerptDigest\": \"2af2258caceeeca4d2e536e88ea198dc7a97610185e6e46bcdfdd6c10016d3a9\"\n      },\n      {\n        \"path\": \".github/workflows/ci.yml\",\n        \"sha256\": \"ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b\",\n        \"bytes\": 299,\n        \"seed\": true,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 299,\n        \"excerptDigest\": \"ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b\"\n      },\n      {\n        \"path\": \"README.md\",\n        \"sha256\": \"1f648a4e0859bf5dc6dde908181ecd75efd6bf297d4aceaf985390e87a0edbae\",\n        \"bytes\": 107,\n        \"seed\": true,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 107,\n        \"excerptDigest\": \"1f648a4e0859bf5dc6dde908181ecd75efd6bf297d4aceaf985390e87a0edbae\"\n      }\n    ],\n    \"requestedFileIds\": [],\n    \"discoveryDigest\": \"21b7d96b4480c53a13b648cb388d8273edc1ce1d44849753ca8535bccee9b1ad\",\n    \"redacted\": false\n  },\n  \"phase\": \"assessing\",\n  \"formatVersion\": 2,\n  \"id\": \"quality-refuted-1\",\n  \"state\": \"succeeded\",\n  \"startedAt\": \"2026-10-27T06:21:34.900259+00:00\",\n  \"completedAt\": \"2026-10-27T06:21:46.893364+00:00\",\n  \"report\": {\n    \"id\": \"quality-refuted-1\",\n    \"workspacePath\": \"/private/tmp/orkworks-workflow-refuted-20261027-1091/refuted-1/workspace\",\n    \"workspaceInstance\": 1,\n    \"observedAt\": \"2026-10-27T06:21:46.893364+00:00\",\n    \"provider\": \"codex\",\n    \"model\": \"gpt-6.1-sol\",\n    \"bundleVersion\": \"brain-3\",\n    \"knowledgeIdentity\": {\n      \"bundle_sha256\": \"ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511\",\n      \"format_version\": 2,\n      \"privacy_policy_version\": 1,\n      \"public_key_sha256\": \"a35da5934c629903f8f31db5067a9c5086f8372c34e3d917c9efb7decfd465dd\",\n      \"sequence\": 3,\n      \"version\": \"brain-3\"\n    },\n    \"inputFingerprint\": \"2fa10701f1795881aebcd0bc6b433071335a6a219ea416f26115113a9911f08e\",\n    \"contextLevel\": \"source_code\",\n    \"excludedPaths\": [],\n    \"outcome\": \"no_proposal\",\n    \"summary\": \"Repository discovery completed without a justified proposal.\",\n    \"proposal\": null,\n    \"noProposalReason\": \"The supplied facts show a unit-testing requirement, a package test script delegated to a verification script, and CI configuration referencing that package script. They provide no positive evidence of a skipped suite, defective test selection, or another concrete workflow problem; verification-script behavior and test coverage remain unknown.\",\n    \"unverifiedChecks\": [],\n    \"repositoryEvidence\": [],\n    \"knowledgeEvidence\": [],\n    \"recommendationId\": null\n  },\n  \"pendingRecommendation\": null,\n  \"errorSummary\": null,\n  \"reused\": false\n}"
+        }
+      },
+      "sources": {
+        "AGENTS.md": {
+          "sha256": "ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a",
+          "text": "# Workflow\nEvery change requires meaningful unit tests and CI must execute the unit suite. A passing no-op is not test evidence. Keep changes bounded and reviewable.\n"
+        },
+        "README.md": {
+          "sha256": "1f648a4e0859bf5dc6dde908181ecd75efd6bf297d4aceaf985390e87a0edbae",
+          "text": "A small TypeScript library. Unit tests validate arithmetic behavior. CI should run the package test suite.\n"
+        },
+        "package.json": {
+          "sha256": "2af2258caceeeca4d2e536e88ea198dc7a97610185e6e46bcdfdd6c10016d3a9",
+          "text": "{\"name\":\"assessment-fixture\",\"packageManager\":\"pnpm@11.24.0\",\"private\":true,\"scripts\":{\"test\":\"node scripts/verify.ts\"},\"type\":\"module\"}"
+        },
+        "pnpm-lock.yaml": {
+          "sha256": "15709a4944e0a189685e0bc13e56d1d0d37a88e24d8b7ecc2415e5d4b1eff1ee",
+          "text": "lockfileVersion: '9.0'\nsettings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\nimporters:\n  .: {}\n"
+        },
+        ".github/workflows/ci.yml": {
+          "sha256": "ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b",
+          "text": "name: CI\non: [push, pull_request]\njobs:\n  unit:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: pnpm/action-setup@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 22\n      - run: pnpm install --frozen-lockfile\n      - run: pnpm test\n"
+        },
+        "src/add.ts": {
+          "sha256": "d0ea6f33d17132678d4ecd944c2a2dd48dc55a7f7063c21c10d19320645bd2c4",
+          "text": "export function add(a: number, b: number) { return a + b; }\n"
+        },
+        "src/add.test.ts": {
+          "sha256": "c9585fa52f80c44b6a45d3675d3f133df3e293eac2281168dec8798c7e782e11",
+          "text": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { add } from './add.ts';\ntest('adds two numbers', () => assert.equal(add(2, 3), 5));\n"
+        },
+        "scripts/verify.ts": {
+          "sha256": "98ce53d667b798332119ecbf6b7035354227ee373985879b033070d5c2eb50d2",
+          "text": "// This entry point runs the real unit suite and propagates failures.\nimport { spawnSync } from 'node:child_process';\nconst result = spawnSync('pnpm', ['exec', 'node', '--experimental-strip-types', '--test', 'src/add.test.ts'], { stdio: 'inherit' });\nprocess.exit(result.status ?? 1);\n"
+        }
+      }
+    },
+    {
+      "trial": "refuted-2",
+      "artifacts": {
+        "discovery-output.json": {
+          "sha256": "2597bd019802179da15e996c69b6b344b018271b082e8dad2ffba7d8975d37c8",
+          "text": "{\"candidate\":null,\"knowledgePageIds\":[\"playbooks/bounded-workflow-assessment.md\",\"concepts/verification.md\"],\"outcome\":\"no_candidate\",\"reason\":\"The supplied configuration connects the CI unit step to the package test script and a TypeScript verification entry point. Its behavioral coverage remains unknown because the verification implementation is not supplied. The unit-test requirement establishes applicability, but neither that requirement nor script delegation provides positive evidence of a coverage gap or another concrete workflow problem.\",\"repositoryFactHashes\":[\"ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a\",\"2af2258caceeeca4d2e536e88ea198dc7a97610185e6e46bcdfdd6c10016d3a9\",\"ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b\"],\"requestedFileIds\":[],\"version\":1}"
+        },
+        "result.json": {
+          "sha256": "8e57f85e6dffea6abaf615d9020890012dc957f232db9920ac57099be1a138d6",
+          "text": "{\n  \"inputManifest\": {\n    \"contextLevel\": \"source_code\",\n    \"excludedPaths\": [],\n    \"collectorVersion\": 3,\n    \"promptVersion\": \"taskmaster-assessment-v2\",\n    \"catalogDigest\": \"96a7de7687ef387706587aba0739d829fe5daf96e31bfc99c8c80c3cb208fffa\",\n    \"catalogComplete\": true,\n    \"instructionCoverageComplete\": true,\n    \"files\": [\n      {\n        \"path\": \"AGENTS.md\",\n        \"sha256\": \"ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a\",\n        \"bytes\": 166,\n        \"seed\": true,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 166,\n        \"excerptDigest\": \"ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a\"\n      },\n      {\n        \"path\": \"package.json\",\n        \"sha256\": \"2af2258caceeeca4d2e536e88ea198dc7a97610185e6e46bcdfdd6c10016d3a9\",\n        \"bytes\": 136,\n        \"seed\": true,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 136,\n        \"excerptDigest\": \"2af2258caceeeca4d2e536e88ea198dc7a97610185e6e46bcdfdd6c10016d3a9\"\n      },\n      {\n        \"path\": \".github/workflows/ci.yml\",\n        \"sha256\": \"ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b\",\n        \"bytes\": 299,\n        \"seed\": true,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 299,\n        \"excerptDigest\": \"ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b\"\n      },\n      {\n        \"path\": \"README.md\",\n        \"sha256\": \"1f648a4e0859bf5dc6dde908181ecd75efd6bf297d4aceaf985390e87a0edbae\",\n        \"bytes\": 107,\n        \"seed\": true,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 107,\n        \"excerptDigest\": \"1f648a4e0859bf5dc6dde908181ecd75efd6bf297d4aceaf985390e87a0edbae\"\n      }\n    ],\n    \"requestedFileIds\": [],\n    \"discoveryDigest\": \"2597bd019802179da15e996c69b6b344b018271b082e8dad2ffba7d8975d37c8\",\n    \"redacted\": false\n  },\n  \"phase\": \"assessing\",\n  \"formatVersion\": 2,\n  \"id\": \"quality-refuted-2\",\n  \"state\": \"succeeded\",\n  \"startedAt\": \"2026-10-27T06:21:47.029400+00:00\",\n  \"completedAt\": \"2026-10-27T06:21:59.352154+00:00\",\n  \"report\": {\n    \"id\": \"quality-refuted-2\",\n    \"workspacePath\": \"/private/tmp/orkworks-workflow-refuted-20261027-1091/refuted-2/workspace\",\n    \"workspaceInstance\": 2,\n    \"observedAt\": \"2026-10-27T06:21:59.352154+00:00\",\n    \"provider\": \"codex\",\n    \"model\": \"gpt-6.1-sol\",\n    \"bundleVersion\": \"brain-3\",\n    \"knowledgeIdentity\": {\n      \"bundle_sha256\": \"ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511\",\n      \"format_version\": 2,\n      \"privacy_policy_version\": 1,\n      \"public_key_sha256\": \"a35da5934c629903f8f31db5067a9c5086f8372c34e3d917c9efb7decfd465dd\",\n      \"sequence\": 3,\n      \"version\": \"brain-3\"\n    },\n    \"inputFingerprint\": \"dfd02635cc94b26cbd7b4f3ab83e61210723a434e6edd31a1d4772e63843f3a8\",\n    \"contextLevel\": \"source_code\",\n    \"excludedPaths\": [],\n    \"outcome\": \"no_proposal\",\n    \"summary\": \"Repository discovery completed without a justified proposal.\",\n    \"proposal\": null,\n    \"noProposalReason\": \"The supplied configuration connects the CI unit step to the package test script and a TypeScript verification entry point. Its behavioral coverage remains unknown because the verification implementation is not supplied. The unit-test requirement establishes applicability, but neither that requirement nor script delegation provides positive evidence of a coverage gap or another concrete workflow problem.\",\n    \"unverifiedChecks\": [],\n    \"repositoryEvidence\": [],\n    \"knowledgeEvidence\": [],\n    \"recommendationId\": null\n  },\n  \"pendingRecommendation\": null,\n  \"errorSummary\": null,\n  \"reused\": false\n}"
+        }
+      },
+      "sources": {
+        "AGENTS.md": {
+          "sha256": "ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a",
+          "text": "# Workflow\nEvery change requires meaningful unit tests and CI must execute the unit suite. A passing no-op is not test evidence. Keep changes bounded and reviewable.\n"
+        },
+        "README.md": {
+          "sha256": "1f648a4e0859bf5dc6dde908181ecd75efd6bf297d4aceaf985390e87a0edbae",
+          "text": "A small TypeScript library. Unit tests validate arithmetic behavior. CI should run the package test suite.\n"
+        },
+        "package.json": {
+          "sha256": "2af2258caceeeca4d2e536e88ea198dc7a97610185e6e46bcdfdd6c10016d3a9",
+          "text": "{\"name\":\"assessment-fixture\",\"packageManager\":\"pnpm@11.24.0\",\"private\":true,\"scripts\":{\"test\":\"node scripts/verify.ts\"},\"type\":\"module\"}"
+        },
+        "pnpm-lock.yaml": {
+          "sha256": "15709a4944e0a189685e0bc13e56d1d0d37a88e24d8b7ecc2415e5d4b1eff1ee",
+          "text": "lockfileVersion: '9.0'\nsettings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\nimporters:\n  .: {}\n"
+        },
+        ".github/workflows/ci.yml": {
+          "sha256": "ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b",
+          "text": "name: CI\non: [push, pull_request]\njobs:\n  unit:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: pnpm/action-setup@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 22\n      - run: pnpm install --frozen-lockfile\n      - run: pnpm test\n"
+        },
+        "src/add.ts": {
+          "sha256": "d0ea6f33d17132678d4ecd944c2a2dd48dc55a7f7063c21c10d19320645bd2c4",
+          "text": "export function add(a: number, b: number) { return a + b; }\n"
+        },
+        "src/add.test.ts": {
+          "sha256": "c9585fa52f80c44b6a45d3675d3f133df3e293eac2281168dec8798c7e782e11",
+          "text": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { add } from './add.ts';\ntest('adds two numbers', () => assert.equal(add(2, 3), 5));\n"
+        },
+        "scripts/verify.ts": {
+          "sha256": "98ce53d667b798332119ecbf6b7035354227ee373985879b033070d5c2eb50d2",
+          "text": "// This entry point runs the real unit suite and propagates failures.\nimport { spawnSync } from 'node:child_process';\nconst result = spawnSync('pnpm', ['exec', 'node', '--experimental-strip-types', '--test', 'src/add.test.ts'], { stdio: 'inherit' });\nprocess.exit(result.status ?? 1);\n"
+        }
+      }
+    },
+    {
+      "trial": "refuted-3",
+      "artifacts": {
+        "discovery-output.json": {
+          "sha256": "58b20565d751eaf1fd94be7a25124ee031249ab0f7e61e712a99e9a758e1944a",
+          "text": "{\"candidate\":null,\"knowledgePageIds\":[\"playbooks/bounded-workflow-assessment.md\",\"concepts/verification.md\",\"principles/evidence-over-trends.md\"],\"outcome\":\"no_candidate\",\"reason\":\"The supplied configuration connects the CI unit step to the package test script and its verification entry point, consistent with the stated unit-testing requirement. The verification entry point's behavior is unknown; its name and delegation structure provide no positive evidence of skipped tests or another concrete workflow gap. A recommendation would therefore depend on unsupported assumptions.\",\"repositoryFactHashes\":[\"ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a\",\"2af2258caceeeca4d2e536e88ea198dc7a97610185e6e46bcdfdd6c10016d3a9\",\"ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b\"],\"requestedFileIds\":[],\"version\":1}"
+        },
+        "result.json": {
+          "sha256": "a84a83692f8f07d98dadbdb7495a6fd2cf127e4c568636523ba03e9c405c64f7",
+          "text": "{\n  \"inputManifest\": {\n    \"contextLevel\": \"source_code\",\n    \"excludedPaths\": [],\n    \"collectorVersion\": 3,\n    \"promptVersion\": \"taskmaster-assessment-v2\",\n    \"catalogDigest\": \"96a7de7687ef387706587aba0739d829fe5daf96e31bfc99c8c80c3cb208fffa\",\n    \"catalogComplete\": true,\n    \"instructionCoverageComplete\": true,\n    \"files\": [\n      {\n        \"path\": \"AGENTS.md\",\n        \"sha256\": \"ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a\",\n        \"bytes\": 166,\n        \"seed\": true,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 166,\n        \"excerptDigest\": \"ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a\"\n      },\n      {\n        \"path\": \"package.json\",\n        \"sha256\": \"2af2258caceeeca4d2e536e88ea198dc7a97610185e6e46bcdfdd6c10016d3a9\",\n        \"bytes\": 136,\n        \"seed\": true,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 136,\n        \"excerptDigest\": \"2af2258caceeeca4d2e536e88ea198dc7a97610185e6e46bcdfdd6c10016d3a9\"\n      },\n      {\n        \"path\": \".github/workflows/ci.yml\",\n        \"sha256\": \"ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b\",\n        \"bytes\": 299,\n        \"seed\": true,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 299,\n        \"excerptDigest\": \"ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b\"\n      },\n      {\n        \"path\": \"README.md\",\n        \"sha256\": \"1f648a4e0859bf5dc6dde908181ecd75efd6bf297d4aceaf985390e87a0edbae\",\n        \"bytes\": 107,\n        \"seed\": true,\n        \"excerptStart\": 0,\n        \"excerptEnd\": 107,\n        \"excerptDigest\": \"1f648a4e0859bf5dc6dde908181ecd75efd6bf297d4aceaf985390e87a0edbae\"\n      }\n    ],\n    \"requestedFileIds\": [],\n    \"discoveryDigest\": \"58b20565d751eaf1fd94be7a25124ee031249ab0f7e61e712a99e9a758e1944a\",\n    \"redacted\": false\n  },\n  \"phase\": \"assessing\",\n  \"formatVersion\": 2,\n  \"id\": \"quality-refuted-3\",\n  \"state\": \"succeeded\",\n  \"startedAt\": \"2026-10-27T06:21:59.485955+00:00\",\n  \"completedAt\": \"2026-10-27T06:22:13.905437+00:00\",\n  \"report\": {\n    \"id\": \"quality-refuted-3\",\n    \"workspacePath\": \"/private/tmp/orkworks-workflow-refuted-20261027-1091/refuted-3/workspace\",\n    \"workspaceInstance\": 3,\n    \"observedAt\": \"2026-10-27T06:22:13.905437+00:00\",\n    \"provider\": \"codex\",\n    \"model\": \"gpt-6.1-sol\",\n    \"bundleVersion\": \"brain-3\",\n    \"knowledgeIdentity\": {\n      \"bundle_sha256\": \"ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511\",\n      \"format_version\": 2,\n      \"privacy_policy_version\": 1,\n      \"public_key_sha256\": \"a35da5934c629903f8f31db5067a9c5086f8372c34e3d917c9efb7decfd465dd\",\n      \"sequence\": 3,\n      \"version\": \"brain-3\"\n    },\n    \"inputFingerprint\": \"f38059c51d557d877cd7c5a8d3aa5b808f90c1872fd97835258f164da8ccef51\",\n    \"contextLevel\": \"source_code\",\n    \"excludedPaths\": [],\n    \"outcome\": \"no_proposal\",\n    \"summary\": \"Repository discovery completed without a justified proposal.\",\n    \"proposal\": null,\n    \"noProposalReason\": \"The supplied configuration connects the CI unit step to the package test script and its verification entry point, consistent with the stated unit-testing requirement. The verification entry point's behavior is unknown; its name and delegation structure provide no positive evidence of skipped tests or another concrete workflow gap. A recommendation would therefore depend on unsupported assumptions.\",\n    \"unverifiedChecks\": [],\n    \"repositoryEvidence\": [],\n    \"knowledgeEvidence\": [],\n    \"recommendationId\": null\n  },\n  \"pendingRecommendation\": null,\n  \"errorSummary\": null,\n  \"reused\": false\n}"
+        }
+      },
+      "sources": {
+        "AGENTS.md": {
+          "sha256": "ccb8c72bacdd5852e938a208d973c09026606e799bad78faa32812d63c03580a",
+          "text": "# Workflow\nEvery change requires meaningful unit tests and CI must execute the unit suite. A passing no-op is not test evidence. Keep changes bounded and reviewable.\n"
+        },
+        "README.md": {
+          "sha256": "1f648a4e0859bf5dc6dde908181ecd75efd6bf297d4aceaf985390e87a0edbae",
+          "text": "A small TypeScript library. Unit tests validate arithmetic behavior. CI should run the package test suite.\n"
+        },
+        "package.json": {
+          "sha256": "2af2258caceeeca4d2e536e88ea198dc7a97610185e6e46bcdfdd6c10016d3a9",
+          "text": "{\"name\":\"assessment-fixture\",\"packageManager\":\"pnpm@11.24.0\",\"private\":true,\"scripts\":{\"test\":\"node scripts/verify.ts\"},\"type\":\"module\"}"
+        },
+        "pnpm-lock.yaml": {
+          "sha256": "15709a4944e0a189685e0bc13e56d1d0d37a88e24d8b7ecc2415e5d4b1eff1ee",
+          "text": "lockfileVersion: '9.0'\nsettings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\nimporters:\n  .: {}\n"
+        },
+        ".github/workflows/ci.yml": {
+          "sha256": "ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b",
+          "text": "name: CI\non: [push, pull_request]\njobs:\n  unit:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: pnpm/action-setup@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 22\n      - run: pnpm install --frozen-lockfile\n      - run: pnpm test\n"
+        },
+        "src/add.ts": {
+          "sha256": "d0ea6f33d17132678d4ecd944c2a2dd48dc55a7f7063c21c10d19320645bd2c4",
+          "text": "export function add(a: number, b: number) { return a + b; }\n"
+        },
+        "src/add.test.ts": {
+          "sha256": "c9585fa52f80c44b6a45d3675d3f133df3e293eac2281168dec8798c7e782e11",
+          "text": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { add } from './add.ts';\ntest('adds two numbers', () => assert.equal(add(2, 3), 5));\n"
+        },
+        "scripts/verify.ts": {
+          "sha256": "98ce53d667b798332119ecbf6b7035354227ee373985879b033070d5c2eb50d2",
+          "text": "// This entry point runs the real unit suite and propagates failures.\nimport { spawnSync } from 'node:child_process';\nconst result = spawnSync('pnpm', ['exec', 'node', '--experimental-strip-types', '--test', 'src/add.test.ts'], { stdio: 'inherit' });\nprocess.exit(result.status ?? 1);\n"
+        }
+      }
+    }
+  ]
+}

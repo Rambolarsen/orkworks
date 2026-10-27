@@ -4,14 +4,14 @@ title: Readiness assessment with grounded next-step suggestions
 description: Proposed combined assessment flow reusing independent score history and workflow recommendation publication.
 tags: [orkworks, taskmaster, readiness, recommendations]
 status: draft
-workflow_status: approved-implementation-in-progress
+workflow_status: implemented
 ---
 
 # Readiness assessment with grounded next-step suggestions
 
 Tracking: [#1091](https://github.com/Rambolarsen/orkworks/issues/1091).
 Status: owner approved the concrete design and implementation on 2026-10-27.
-The owner requested the fix on 2026-10-26. Implementation is in progress.
+The owner requested the fix on 2026-10-26. Implementation is delivered in [PR #1092](https://github.com/Rambolarsen/orkworks/pull/1092); its review and merge evidence remain on the PR.
 
 ## Outcome and decisions
 
@@ -158,33 +158,33 @@ failures. Do not claim general score accuracy from fixture qualification.
 Implement inline in this owning session/worktree under the 2026-10-27 approval. No delegation
 or second coding harness is required.
 
-- [ ] Add failing combined-operation integration tests first, then extract the
+- [x] Add failing combined-operation integration tests first, then extract the
   orchestration/store beside `taskmaster/readiness.rs`. Refactor
   `taskmaster/assessment.rs` for lease transfer and fresh evaluation without
   changing standalone admission. Add fixed HTTP, Electron/preload and independent
   renderer/IPC types.
-- [ ] Test real scoring followed by one grounded recommendation, no proposal,
+- [x] Test real scoring followed by one grounded recommendation, no proposal,
   active recommendation, cached no-proposal bypass, partial score, scoring
   failure, suggestion failure with retained score, and lease exclusion throughout.
-- [ ] Test changes of workspace/instance, evidence, settings, provider/trust and
+- [x] Test changes of workspace/instance, evidence, settings, provider/trust and
   guidance between stages: no continuation or cross-workspace publication.
   Test corruption/size bounds and every parent/child crash boundary, including
   pending workflow publication. Recovery must not invoke a provider.
   Verify access narrowing during both stages, after restart and for unopened
   workspaces, preserving the existing read/accept/Fix with AI gates.
-- [ ] Reproduce linked-document selection failure before adjusting
+- [x] Reproduce linked-document selection failure before adjusting
   `assessment_context.rs`/`context.rs` or discovery. Pin final evidence inclusion,
   exclusions, unsafe links, catalog/traversal/byte limits and governing instruction
   closure. If shared collector ordering changes, test ordinary workflow behavior
   and previous history version readability/currentness.
-- [ ] Update `ReadinessPanel.tsx`, `ReadinessSummary.tsx` and
+- [x] Update `ReadinessPanel.tsx`, `ReadinessSummary.tsx` and
   `RecommendationsPanel.tsx` for combined actions/status, exact linked outcomes,
   prominent transitions/limits and model qualification. Render-level checks cover
   all outcomes, historical models, older unrelated reports and workspace switches.
-- [ ] Run changed-profile live semantic qualification in isolated synthetic
+- [x] Run changed-profile live semantic qualification in isolated synthetic
   metadata, retaining all raw inputs/outputs. Supported gaps yield a bounded
   proposal; healthy/evidence-limited inputs never invent a fix from a low score.
-- [ ] After approval synchronize the accepted spec/ADR and architecture/user docs.
+- [x] After approval synchronize the accepted spec/ADR and architecture/user docs.
   Run `bash scripts/verify-repo.sh`, docs checks/build, `bash scripts/doc-check.sh`,
   `bash .claude/hooks/worktree-check.sh` and the required current-diff code review
   before merge. The current docs-only proposal is not evidence the runtime works.
@@ -213,3 +213,23 @@ blast radius **3** (shared scheduler); state changes **3** (additive source-free
 record); reversibility **3** (revert combined action while preserving existing
 history/privacy/downgrade rules); uncertainty **3** (inspected seams, model behavior
 needs trials). Total **15/25**, a sizing aid rather than approval.
+
+
+## Execution disposition
+
+Implemented under the 2026-10-27 approval, with the original independent
+score/report formats and recommendation lifecycle preserved. Current-diff reviews
+corrected committed-failure recovery and pending-publication linkage. Main's
+readiness-validator refactor was preserved during rebase, with its added tests.
+
+The live collector-3 scoring matrix completed but **failed semantic qualification**
+on one unsupported underrating; its exact original corpus and scope are retained
+in [runtime validation](../../validation/repository-readiness-runtime.md).
+Collector3 stays visibly unqualified. Targeted suggestion-stage controls yielded
+2/3 grounded positive proposals and no healthy/refuted proposals; their filtered
+harness runs do not establish whole-matrix qualification. This task makes no
+model-accuracy or installer-availability claim. Calibration is tracked in #1097.
+
+Final local verification, reviewed code SHA, CI and merge state are recorded on
+the PR. No separate review of unchanged artifacts or new inference retry was used
+to replace a failed sample.
