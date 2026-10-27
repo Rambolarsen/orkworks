@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowUpRight, ChevronDown, Paperclip } from "lucide-react";
 import type { HarnessConfig, CreateSessionOptions, IntegrationStatusResult } from "../harnessTypes";
 import type { ProviderModelsResponse } from "../providerTypes";
 import type { ProviderRuntimeResponse } from "../api";
@@ -252,41 +253,12 @@ export default function NewSessionDialog({ workspacePath = "", harnesses, provid
       }}>
       <div className="new-session-composer-card">
         <header className="new-session-header">
-          <h2 id="new-session-title">New agent session</h2>
-        </header>
-
-        <div className="new-session-body">
-          <div className="new-session-row new-session-row--prompt">
-            <label className="new-session-label" htmlFor="nsd-prompt">Initial prompt</label>
-            <textarea
-              ref={promptRef}
-              id="nsd-prompt"
-              className="new-session-textarea"
-              value={initialPrompt}
-              onChange={(e) => setInitialPrompt(e.target.value)}
-              placeholder="Optional - sent when the agent session starts"
-              rows={7}
-              disabled={confirmBusy}
-            />
-          </div>
-          <div className="new-session-images">
-            <input ref={fileInput} type="file" accept={IMAGE_ACCEPT} multiple hidden aria-label="Choose image files" onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ""; void addImages(files); }} />
-            <button type="button" className="new-session-attach" disabled={confirmBusy || imageBusy} onClick={() => fileInput.current?.click()}>Attach images</button>
-            <span className="new-session-image-hint">Paste or drop images · PNG, JPEG, WebP · 5 MiB each</span>
-            {imageBusy && <span role="status">Preparing images…</span>}
-            {images.length > 0 && <ul className="new-session-image-list" aria-label="Attached images">{images.map((image) => <li key={image.id}>
-              <img src={image.previewUrl} alt={image.name} /><span title={image.name}>{image.name}</span>
-              <button type="button" aria-label={`Remove ${image.name}`} disabled={confirmBusy || imageBusy} onClick={() => { releaseImages([image]); imagesRef.current = imagesRef.current.filter((entry) => entry.id !== image.id); setImages(imagesRef.current); }}>Remove</button>
-            </li>)}</ul>}
-            {imageUnsupported && <p role="status">Image context is not verified for this coding tool/version/platform. Choose a supported tool or remove the images.</p>}
-            {imageError && <p className="new-session-image-error" role="alert">{imageError}</p>}
-          </div>
-          <div className="new-session-controls">
-            <div className="new-session-row">
-              <label className="new-session-label" htmlFor="nsd-harness">Coding tool</label>
+          <p className="new-session-introduction">
+            <span className="new-session-phrase">Hi, I’m <span className="new-session-choice">
               <select
                 id="nsd-harness"
                 className="new-session-select"
+                aria-label="Coding tool"
                 value={draft.harnessId}
                 onChange={(e) => handleHarnessChange(e.target.value)}
                 disabled={confirmBusy || (selectable.length === 0 && !pendingHarness)}
@@ -307,37 +279,71 @@ export default function NewSessionDialog({ workspacePath = "", harnesses, provid
                   </>
                 )}
               </select>
-            </div>
-
-            <div className="new-session-row">
-              <label className="new-session-label" htmlFor="nsd-model">Model</label>
+              <ChevronDown size={16} aria-hidden="true" />
+            </span>,</span>{" "}
+            <span className="new-session-phrase">using <span className="new-session-choice">
               <select
                 id="nsd-model"
                 className="new-session-select"
+                aria-label="Model"
                 disabled={confirmBusy || models.length === 0}
                 value={selectedModel}
                 onChange={(e) => setDraft((current) => ({ ...current, model: e.target.value }))}
               >
-                <option value="">Coding tool default</option>
+                <option value="">{!draft.harnessId || draft.harnessId === "generic-shell" ? "default settings" : "my default model"}</option>
                 {models.map((model) => (
                   <option key={model} value={model}>{model}</option>
                 ))}
               </select>
-            </div>
-          </div>
-        </div>
+              <ChevronDown size={16} aria-hidden="true" />
+            </span>.</span>
+          </p>
+          <h2 id="new-session-title"><label htmlFor="nsd-prompt">What can I do for you today?</label></h2>
+        </header>
 
-        <footer className="new-session-footer">
-          <button type="button" className="new-session-cancel" onClick={handleCancel}>Cancel</button>
-          <button
-            type="button"
-            className="new-session-confirm"
-            onClick={handleConfirm}
-            disabled={confirmBusy || imageBusy || imageUnsupported || !canStartNewSession(selectable, draft.harnessId, detectedHarnessIds)}
-          >
-            {confirmBusy ? "Starting…" : "Start"}
-          </button>
-        </footer>
+        <div className="new-session-body">
+          <div className="new-session-row new-session-row--prompt">
+            <textarea
+              ref={promptRef}
+              id="nsd-prompt"
+              className="new-session-textarea"
+              aria-label="Initial prompt"
+              aria-describedby="nsd-prompt-hint"
+              value={initialPrompt}
+              onChange={(e) => setInitialPrompt(e.target.value)}
+              placeholder="Tell me what you’re working on…"
+              rows={7}
+              disabled={confirmBusy}
+            />
+          </div>
+          <div className="new-session-images">
+            <input ref={fileInput} type="file" accept={IMAGE_ACCEPT} multiple hidden aria-label="Choose image files" onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ""; void addImages(files); }} />
+            <button type="button" className="new-session-attach" disabled={confirmBusy || imageBusy} onClick={() => fileInput.current?.click()}><Paperclip size={16} aria-hidden="true" /> Attach images</button>
+            <span className="new-session-image-hint">Or paste or drop · PNG, JPEG, WebP · 5 MiB each</span>
+            {imageBusy && <span role="status">Preparing images…</span>}
+            {images.length > 0 && <ul className="new-session-image-list" aria-label="Attached images">{images.map((image) => <li key={image.id}>
+              <img src={image.previewUrl} alt={image.name} /><span title={image.name}>{image.name}</span>
+              <button type="button" aria-label={`Remove ${image.name}`} disabled={confirmBusy || imageBusy} onClick={() => { releaseImages([image]); imagesRef.current = imagesRef.current.filter((entry) => entry.id !== image.id); setImages(imagesRef.current); }}>Remove</button>
+            </li>)}</ul>}
+            {imageUnsupported && <p role="status">Image context is not verified for this coding tool/version/platform. Choose a supported tool or remove the images.</p>}
+            {imageError && <p className="new-session-image-error" role="alert">{imageError}</p>}
+          </div>
+
+          <footer className="new-session-footer">
+            <span id="nsd-prompt-hint" className="new-session-prompt-hint">A prompt is optional. Enter to start · Shift+Enter for a new line</span>
+            <div className="new-session-actions">
+              <button type="button" className="new-session-cancel" onClick={handleCancel}>Cancel</button>
+              <button
+                type="button"
+                className="new-session-confirm"
+                onClick={handleConfirm}
+                disabled={confirmBusy || imageBusy || imageUnsupported || !canStartNewSession(selectable, draft.harnessId, detectedHarnessIds)}
+              >
+                {confirmBusy ? "Starting…" : "Start session"} <ArrowUpRight size={16} aria-hidden="true" />
+              </button>
+            </div>
+          </footer>
+        </div>
       </div>
     </section>
   );

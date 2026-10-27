@@ -712,7 +712,8 @@ The first useful MVP should include:
 - fixed, resizable shell with a compact Sessions sidebar, one central context,
   and an optional contextual inspector
 - New session uses a transient composer in the main content pane with a large
-  prompt and coding tool/model controls below it. Empty workspaces show this
+  prompt and inline coding tool/model choices in a friendly introduction above it.
+  Image attachments share the prompt surface. Empty workspaces show this
   composer. Cancel returns to previous content; Start opens the created terminal
   only after successful creation. Existing sessions continue running. Creation
   drafts are workspace-scoped presentation state and never restored as actions.

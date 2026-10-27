@@ -1023,6 +1023,7 @@ if (process.versions.electron) {
           assert.equal(await evaluate('!!document.querySelector("[data-shell-region=terminal]")'),false);
           await waitFor('document.activeElement.id==="nsd-prompt"');
           if (process.env.ORKWORKS_CAPTURE_COMPOSER) {
+            await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
             const {writeFileSync} = await import('node:fs');
             writeFileSync(process.env.ORKWORKS_CAPTURE_COMPOSER+'-wide.png',(await win.webContents.capturePage()).toPNG());
           }
@@ -1069,6 +1070,7 @@ if (process.versions.electron) {
           const bounds = await evaluate(`(()=>{const prompt=document.querySelector('#nsd-prompt').getBoundingClientRect();const model=document.querySelector('#nsd-model').getBoundingClientRect();const start=document.querySelector('.new-session-confirm').getBoundingClientRect();return {promptRight:prompt.right,modelRight:model.right,startBottom:start.bottom,width:innerWidth,height:innerHeight};})()`);
           assert.ok(bounds.promptRight<=bounds.width && bounds.modelRight<=bounds.width && bounds.startBottom<=bounds.height,'compact composer controls stay inside the viewport');
           if (process.env.ORKWORKS_CAPTURE_COMPOSER) {
+            await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
             const {writeFileSync} = await import('node:fs');
             writeFileSync(process.env.ORKWORKS_CAPTURE_COMPOSER+'-compact.png',(await win.webContents.capturePage()).toPNG());
           }
