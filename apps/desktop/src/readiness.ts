@@ -3,8 +3,8 @@ export const conceptIds = ['context-discovery','progressive-disclosure','instruc
 export interface ReadinessRow { conceptId:string; maturity:number|null; confidence:'low'|'medium'|'high'|null; repositoryFactHashes:string[]; rubricPageId:string; rationale:string; limits:string[]; nextTransition:string; unassessedReason:string|null }
 export interface ReadinessData {
  workspacePath:string; inputFingerprint:string; comparisonFingerprint:string; git:{headOid:string|null;dirty:boolean|null};
- inferenceIdentity:{selection?:{provider:string;model:string;reasoningEffort?:string}}; knowledgeIdentity:{version?:string}; rubricDigest:string;
- versions?:{prompt?:string;collector?:number};
+ inferenceIdentity:{selection?:{provider:string;model:string;reasoningEffort?:string};custom?:unknown;native?:{profile?:string}|null}; knowledgeIdentity:{version?:string;bundle_sha256?:string}; rubricDigest:string;
+ versions?:{prompt?:string;collector?:number;discoverySchema?:number;finalSchema?:number;scoring?:number};
  summary:string; concepts:ReadinessRow[]; coverage:number; rawTotal:number|null; overallScore:number|null;
  repositoryEvidence:{factId:string;path:string;sha256:string;excerpt:string;observedAt:string}[];
  knowledgeEvidence:{pageId:string;title:string;status:string;bundleVersion:string;sha256:string;excerpt:string}[];
@@ -202,7 +202,9 @@ export function readinessFailureMessage(code:string|null|undefined):string {
 export function readinessQualification(data:ReadinessData):string {
  const selection=data.inferenceIdentity.selection;
  if(selection?.provider==='codex'&&selection.model==='gpt-6-luna'&&selection.reasoningEffort==='medium')return 'This model profile failed retained readiness qualification. These ratings may be unreliable. Consider a qualified profile in Taskmaster settings.';
- if(selection?.provider==='codex'&&selection.model==='gpt-6.1-sol'&&selection.reasoningEffort==='low'&&data.versions?.prompt==='taskmaster-readiness-v1'&&data.versions?.collector===2)return 'This profile passed the original readiness fixture qualification. That does not establish accuracy for every repository.';
+ const reviewed=selection?.provider==='codex'&&selection.model==='gpt-6.1-sol'&&selection.reasoningEffort==='low'&&data.inferenceIdentity.custom===null&&data.inferenceIdentity.native?.profile==='Codex'&&data.rubricDigest==='9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e'&&data.knowledgeIdentity.bundle_sha256==='ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511'&&data.versions?.discoverySchema===1&&data.versions?.finalSchema===1&&data.versions?.scoring===1;
+ if(reviewed&&data.versions?.prompt==='taskmaster-readiness-v2'&&data.versions?.collector===3)return 'This configuration passed the retained readiness fixture qualification. Ratings can vary on unchanged evidence. This does not establish accuracy for every repository.';
+ if(reviewed&&data.versions?.prompt==='taskmaster-readiness-v1'&&data.versions?.collector===2)return 'This profile passed the original readiness fixture qualification. That does not establish accuracy for every repository.';
  return 'This model profile and assessment configuration have no retained readiness qualification. Treat ratings as evidence-limited estimates.';
 }
 export function readinessSuggestionMessage(run:ReadinessSuggestionRun):string {

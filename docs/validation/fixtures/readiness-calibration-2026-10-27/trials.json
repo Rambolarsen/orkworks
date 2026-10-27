@@ -1,0 +1,907 @@
+{
+  "selection": {
+    "provider": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoningEffort": "low"
+  },
+  "versions": {
+    "collector": 3,
+    "discoverySchema": 1,
+    "finalSchema": 1,
+    "prompt": "taskmaster-readiness-v2",
+    "scoring": 1
+  },
+  "rubricDigest": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+  "knowledgeIdentity": {
+    "bundle_sha256": "ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511",
+    "format_version": 2,
+    "privacy_policy_version": 1,
+    "public_key_sha256": "a35da5934c629903f8f31db5067a9c5086f8372c34e3d917c9efb7decfd465dd",
+    "sequence": 3,
+    "version": "brain-3"
+  },
+  "trials": [
+    {
+      "trial": "baseline-1",
+      "ok": true,
+      "error": null,
+      "sha256": {
+        "baseline-1-discovery-input.json": "3ffa26e4aa32bf6278f0a645ba3de88bc40fa204f2cb32d76c92cdcf8dad47b8",
+        "baseline-1-discovery-output.json": "fc8c203bc1da94b53b5e4dbff461535d01fbb9c160e4142e453907bcff33eada",
+        "baseline-1-final-input.json": "491ce66c37480d373d7386eee494f4900bbd5c3cf7a66b50df3b65f92a6fc422",
+        "baseline-1-final-output.json": "d9936271a68d614c90a14bf6947a702f861b618cbbfa0eb8dd71496e8d9e303e"
+      },
+      "coverage": 11,
+      "overallScore": null,
+      "ratings": [
+        {
+          "conceptId": "context-discovery",
+          "maturity": 3,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "progressive-disclosure",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "instruction-scoping",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "architecture-awareness",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "domain-knowledge",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "environment-reproducibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "tool-accessibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "task-decomposition",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "verification",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "observability",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "change-safety",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "feedback-loops",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "durable-memory",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "human-oversight",
+          "maturity": 2,
+          "confidence": "high"
+        }
+      ],
+      "sourceSha256": {
+        ".github/workflows/ci.yml": "ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b",
+        ".node-version": "a0e27aeeac42d6102f4ff2bce40d8fb011c07e5cb28eff3c9d77e68df29e5dd6",
+        "AGENTS.md": "68a0ebf69c1638a6ea2883b51e8c07af397bc9b474ab1c7f07b2d5f9cf48dfe2",
+        "README.md": "dd79961ddf606b64f62bf075ab44dbb207559a297d0fcf348e1bbae9edc4b04b",
+        "docs/architecture.md": "f1693566484194859059352d40b95de7a4069ba5bc3afde0ecdc469f96d036e7",
+        "docs/domain.md": "f20d17202867ecd0d8ca18da0ceda06d3988b8f368fe041d57b41fa9c66fd60a",
+        "docs/lessons.md": "7b8150cc072424ee1858e66e625e3fdcd8edec71fb88e331d9fa53499077a2fd",
+        "package.json": "40f9817991562b311834d810ce2cc8fc6839b5c300b3b0191dc3579ef73d1f74",
+        "pnpm-lock.yaml": "15709a4944e0a189685e0bc13e56d1d0d37a88e24d8b7ecc2415e5d4b1eff1ee",
+        "src/catalog.test.ts": "683c4eaba43b054a7dce65c398b5902163363400041fb7e7013e22d04f244eeb",
+        "src/catalog.ts": "2162b7d71312db8324fd844b5f31728352e0a1c396c573337d140dcb837bb5a2"
+      }
+    },
+    {
+      "trial": "baseline-2",
+      "ok": true,
+      "error": null,
+      "sha256": {
+        "baseline-2-discovery-input.json": "3ffa26e4aa32bf6278f0a645ba3de88bc40fa204f2cb32d76c92cdcf8dad47b8",
+        "baseline-2-discovery-output.json": "3aa2740f6107ad9050e077235e5e6c08bb55d9403f00c5360bc0e633c1699a21",
+        "baseline-2-final-input.json": "491ce66c37480d373d7386eee494f4900bbd5c3cf7a66b50df3b65f92a6fc422",
+        "baseline-2-final-output.json": "00eab46bef2f59651acf84bebcfce113da94212346c1ff030032ae8f63dca4d0"
+      },
+      "coverage": 11,
+      "overallScore": null,
+      "ratings": [
+        {
+          "conceptId": "context-discovery",
+          "maturity": 3,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "progressive-disclosure",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "instruction-scoping",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "architecture-awareness",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "domain-knowledge",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "environment-reproducibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "tool-accessibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "task-decomposition",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "verification",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "observability",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "change-safety",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "feedback-loops",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "durable-memory",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "human-oversight",
+          "maturity": 2,
+          "confidence": "high"
+        }
+      ],
+      "sourceSha256": {
+        ".github/workflows/ci.yml": "ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b",
+        ".node-version": "a0e27aeeac42d6102f4ff2bce40d8fb011c07e5cb28eff3c9d77e68df29e5dd6",
+        "AGENTS.md": "68a0ebf69c1638a6ea2883b51e8c07af397bc9b474ab1c7f07b2d5f9cf48dfe2",
+        "README.md": "dd79961ddf606b64f62bf075ab44dbb207559a297d0fcf348e1bbae9edc4b04b",
+        "docs/architecture.md": "f1693566484194859059352d40b95de7a4069ba5bc3afde0ecdc469f96d036e7",
+        "docs/domain.md": "f20d17202867ecd0d8ca18da0ceda06d3988b8f368fe041d57b41fa9c66fd60a",
+        "docs/lessons.md": "7b8150cc072424ee1858e66e625e3fdcd8edec71fb88e331d9fa53499077a2fd",
+        "package.json": "40f9817991562b311834d810ce2cc8fc6839b5c300b3b0191dc3579ef73d1f74",
+        "pnpm-lock.yaml": "15709a4944e0a189685e0bc13e56d1d0d37a88e24d8b7ecc2415e5d4b1eff1ee",
+        "src/catalog.test.ts": "683c4eaba43b054a7dce65c398b5902163363400041fb7e7013e22d04f244eeb",
+        "src/catalog.ts": "2162b7d71312db8324fd844b5f31728352e0a1c396c573337d140dcb837bb5a2"
+      }
+    },
+    {
+      "trial": "baseline-3",
+      "ok": true,
+      "error": null,
+      "sha256": {
+        "baseline-3-discovery-input.json": "3ffa26e4aa32bf6278f0a645ba3de88bc40fa204f2cb32d76c92cdcf8dad47b8",
+        "baseline-3-discovery-output.json": "fc8c203bc1da94b53b5e4dbff461535d01fbb9c160e4142e453907bcff33eada",
+        "baseline-3-final-input.json": "491ce66c37480d373d7386eee494f4900bbd5c3cf7a66b50df3b65f92a6fc422",
+        "baseline-3-final-output.json": "d33379f7cdf383955d1a125c3956eae5662c4e7b5054e7b05fe1352f32fcab82"
+      },
+      "coverage": 11,
+      "overallScore": null,
+      "ratings": [
+        {
+          "conceptId": "context-discovery",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "progressive-disclosure",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "instruction-scoping",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "architecture-awareness",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "domain-knowledge",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "environment-reproducibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "tool-accessibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "task-decomposition",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "verification",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "observability",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "change-safety",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "feedback-loops",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "durable-memory",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "human-oversight",
+          "maturity": 2,
+          "confidence": "high"
+        }
+      ],
+      "sourceSha256": {
+        ".github/workflows/ci.yml": "ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b",
+        ".node-version": "a0e27aeeac42d6102f4ff2bce40d8fb011c07e5cb28eff3c9d77e68df29e5dd6",
+        "AGENTS.md": "68a0ebf69c1638a6ea2883b51e8c07af397bc9b474ab1c7f07b2d5f9cf48dfe2",
+        "README.md": "dd79961ddf606b64f62bf075ab44dbb207559a297d0fcf348e1bbae9edc4b04b",
+        "docs/architecture.md": "f1693566484194859059352d40b95de7a4069ba5bc3afde0ecdc469f96d036e7",
+        "docs/domain.md": "f20d17202867ecd0d8ca18da0ceda06d3988b8f368fe041d57b41fa9c66fd60a",
+        "docs/lessons.md": "7b8150cc072424ee1858e66e625e3fdcd8edec71fb88e331d9fa53499077a2fd",
+        "package.json": "40f9817991562b311834d810ce2cc8fc6839b5c300b3b0191dc3579ef73d1f74",
+        "pnpm-lock.yaml": "15709a4944e0a189685e0bc13e56d1d0d37a88e24d8b7ecc2415e5d4b1eff1ee",
+        "src/catalog.test.ts": "683c4eaba43b054a7dce65c398b5902163363400041fb7e7013e22d04f244eeb",
+        "src/catalog.ts": "2162b7d71312db8324fd844b5f31728352e0a1c396c573337d140dcb837bb5a2"
+      }
+    },
+    {
+      "trial": "improved-1",
+      "ok": true,
+      "error": null,
+      "sha256": {
+        "improved-1-discovery-input.json": "632e942aeec756419be8aa8d636175f2813ba8e4e937408740e8af55d7b46f92",
+        "improved-1-discovery-output.json": "3aa2740f6107ad9050e077235e5e6c08bb55d9403f00c5360bc0e633c1699a21",
+        "improved-1-final-input.json": "881fac1712cfb8b899823037ed336e575d4596647159c55fd4f0b44dc4a9ce96",
+        "improved-1-final-output.json": "7241c58c7601ab95499e8dc650d8a7b5165dfbe21f3e0856e1141986ae7424e3"
+      },
+      "coverage": 11,
+      "overallScore": null,
+      "ratings": [
+        {
+          "conceptId": "context-discovery",
+          "maturity": 3,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "progressive-disclosure",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "instruction-scoping",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "architecture-awareness",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "domain-knowledge",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "environment-reproducibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "tool-accessibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "task-decomposition",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "verification",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "observability",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "change-safety",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "feedback-loops",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "durable-memory",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "human-oversight",
+          "maturity": 2,
+          "confidence": "high"
+        }
+      ],
+      "sourceSha256": {
+        ".github/workflows/ci.yml": "ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b",
+        ".node-version": "a0e27aeeac42d6102f4ff2bce40d8fb011c07e5cb28eff3c9d77e68df29e5dd6",
+        "AGENTS.md": "68a0ebf69c1638a6ea2883b51e8c07af397bc9b474ab1c7f07b2d5f9cf48dfe2",
+        "README.md": "dd79961ddf606b64f62bf075ab44dbb207559a297d0fcf348e1bbae9edc4b04b",
+        "docs/architecture.md": "f1693566484194859059352d40b95de7a4069ba5bc3afde0ecdc469f96d036e7",
+        "docs/domain.md": "7299fb412eacab5cde8b6bb735915981df7e9637f712b1f39625972ab6d4136c",
+        "docs/lessons.md": "7b8150cc072424ee1858e66e625e3fdcd8edec71fb88e331d9fa53499077a2fd",
+        "package.json": "40f9817991562b311834d810ce2cc8fc6839b5c300b3b0191dc3579ef73d1f74",
+        "pnpm-lock.yaml": "15709a4944e0a189685e0bc13e56d1d0d37a88e24d8b7ecc2415e5d4b1eff1ee",
+        "src/catalog.test.ts": "683c4eaba43b054a7dce65c398b5902163363400041fb7e7013e22d04f244eeb",
+        "src/catalog.ts": "2162b7d71312db8324fd844b5f31728352e0a1c396c573337d140dcb837bb5a2"
+      }
+    },
+    {
+      "trial": "improved-2",
+      "ok": true,
+      "error": null,
+      "sha256": {
+        "improved-2-discovery-input.json": "632e942aeec756419be8aa8d636175f2813ba8e4e937408740e8af55d7b46f92",
+        "improved-2-discovery-output.json": "3aa2740f6107ad9050e077235e5e6c08bb55d9403f00c5360bc0e633c1699a21",
+        "improved-2-final-input.json": "881fac1712cfb8b899823037ed336e575d4596647159c55fd4f0b44dc4a9ce96",
+        "improved-2-final-output.json": "20d900747e75d7873d9c13ecc070b94b5aa1baec917f97adc117a455fcc21a04"
+      },
+      "coverage": 11,
+      "overallScore": null,
+      "ratings": [
+        {
+          "conceptId": "context-discovery",
+          "maturity": 3,
+          "confidence": "medium"
+        },
+        {
+          "conceptId": "progressive-disclosure",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "instruction-scoping",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "architecture-awareness",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "domain-knowledge",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "environment-reproducibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "tool-accessibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "task-decomposition",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "verification",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "observability",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "change-safety",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "feedback-loops",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "durable-memory",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "human-oversight",
+          "maturity": 2,
+          "confidence": "high"
+        }
+      ],
+      "sourceSha256": {
+        ".github/workflows/ci.yml": "ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b",
+        ".node-version": "a0e27aeeac42d6102f4ff2bce40d8fb011c07e5cb28eff3c9d77e68df29e5dd6",
+        "AGENTS.md": "68a0ebf69c1638a6ea2883b51e8c07af397bc9b474ab1c7f07b2d5f9cf48dfe2",
+        "README.md": "dd79961ddf606b64f62bf075ab44dbb207559a297d0fcf348e1bbae9edc4b04b",
+        "docs/architecture.md": "f1693566484194859059352d40b95de7a4069ba5bc3afde0ecdc469f96d036e7",
+        "docs/domain.md": "7299fb412eacab5cde8b6bb735915981df7e9637f712b1f39625972ab6d4136c",
+        "docs/lessons.md": "7b8150cc072424ee1858e66e625e3fdcd8edec71fb88e331d9fa53499077a2fd",
+        "package.json": "40f9817991562b311834d810ce2cc8fc6839b5c300b3b0191dc3579ef73d1f74",
+        "pnpm-lock.yaml": "15709a4944e0a189685e0bc13e56d1d0d37a88e24d8b7ecc2415e5d4b1eff1ee",
+        "src/catalog.test.ts": "683c4eaba43b054a7dce65c398b5902163363400041fb7e7013e22d04f244eeb",
+        "src/catalog.ts": "2162b7d71312db8324fd844b5f31728352e0a1c396c573337d140dcb837bb5a2"
+      }
+    },
+    {
+      "trial": "improved-3",
+      "ok": true,
+      "error": null,
+      "sha256": {
+        "improved-3-discovery-input.json": "632e942aeec756419be8aa8d636175f2813ba8e4e937408740e8af55d7b46f92",
+        "improved-3-discovery-output.json": "3aa2740f6107ad9050e077235e5e6c08bb55d9403f00c5360bc0e633c1699a21",
+        "improved-3-final-input.json": "881fac1712cfb8b899823037ed336e575d4596647159c55fd4f0b44dc4a9ce96",
+        "improved-3-final-output.json": "fb3684a697d8622ffa1eb64d3e8b0093d63e33a1a0ac2dd086a85f31ce86ee23"
+      },
+      "coverage": 11,
+      "overallScore": null,
+      "ratings": [
+        {
+          "conceptId": "context-discovery",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "progressive-disclosure",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "instruction-scoping",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "architecture-awareness",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "domain-knowledge",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "environment-reproducibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "tool-accessibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "task-decomposition",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "verification",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "observability",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "change-safety",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "feedback-loops",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "durable-memory",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "human-oversight",
+          "maturity": 2,
+          "confidence": "high"
+        }
+      ],
+      "sourceSha256": {
+        ".github/workflows/ci.yml": "ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b",
+        ".node-version": "a0e27aeeac42d6102f4ff2bce40d8fb011c07e5cb28eff3c9d77e68df29e5dd6",
+        "AGENTS.md": "68a0ebf69c1638a6ea2883b51e8c07af397bc9b474ab1c7f07b2d5f9cf48dfe2",
+        "README.md": "dd79961ddf606b64f62bf075ab44dbb207559a297d0fcf348e1bbae9edc4b04b",
+        "docs/architecture.md": "f1693566484194859059352d40b95de7a4069ba5bc3afde0ecdc469f96d036e7",
+        "docs/domain.md": "7299fb412eacab5cde8b6bb735915981df7e9637f712b1f39625972ab6d4136c",
+        "docs/lessons.md": "7b8150cc072424ee1858e66e625e3fdcd8edec71fb88e331d9fa53499077a2fd",
+        "package.json": "40f9817991562b311834d810ce2cc8fc6839b5c300b3b0191dc3579ef73d1f74",
+        "pnpm-lock.yaml": "15709a4944e0a189685e0bc13e56d1d0d37a88e24d8b7ecc2415e5d4b1eff1ee",
+        "src/catalog.test.ts": "683c4eaba43b054a7dce65c398b5902163363400041fb7e7013e22d04f244eeb",
+        "src/catalog.ts": "2162b7d71312db8324fd844b5f31728352e0a1c396c573337d140dcb837bb5a2"
+      }
+    },
+    {
+      "trial": "healthy-1",
+      "ok": true,
+      "error": null,
+      "sha256": {
+        "healthy-1-discovery-input.json": "632e942aeec756419be8aa8d636175f2813ba8e4e937408740e8af55d7b46f92",
+        "healthy-1-discovery-output.json": "3aa2740f6107ad9050e077235e5e6c08bb55d9403f00c5360bc0e633c1699a21",
+        "healthy-1-final-input.json": "881fac1712cfb8b899823037ed336e575d4596647159c55fd4f0b44dc4a9ce96",
+        "healthy-1-final-output.json": "6267c66a3cc5cf6ece3fbe58e477371a3f8d8a4b3a3246bfe2a0918b6029b76e"
+      },
+      "coverage": 11,
+      "overallScore": null,
+      "ratings": [
+        {
+          "conceptId": "context-discovery",
+          "maturity": 1,
+          "confidence": "medium"
+        },
+        {
+          "conceptId": "progressive-disclosure",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "instruction-scoping",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "architecture-awareness",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "domain-knowledge",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "environment-reproducibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "tool-accessibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "task-decomposition",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "verification",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "observability",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "change-safety",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "feedback-loops",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "durable-memory",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "human-oversight",
+          "maturity": 2,
+          "confidence": "high"
+        }
+      ],
+      "sourceSha256": {
+        ".github/workflows/ci.yml": "ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b",
+        ".node-version": "a0e27aeeac42d6102f4ff2bce40d8fb011c07e5cb28eff3c9d77e68df29e5dd6",
+        "AGENTS.md": "68a0ebf69c1638a6ea2883b51e8c07af397bc9b474ab1c7f07b2d5f9cf48dfe2",
+        "README.md": "dd79961ddf606b64f62bf075ab44dbb207559a297d0fcf348e1bbae9edc4b04b",
+        "docs/architecture.md": "f1693566484194859059352d40b95de7a4069ba5bc3afde0ecdc469f96d036e7",
+        "docs/domain.md": "7299fb412eacab5cde8b6bb735915981df7e9637f712b1f39625972ab6d4136c",
+        "docs/lessons.md": "7b8150cc072424ee1858e66e625e3fdcd8edec71fb88e331d9fa53499077a2fd",
+        "package.json": "40f9817991562b311834d810ce2cc8fc6839b5c300b3b0191dc3579ef73d1f74",
+        "pnpm-lock.yaml": "15709a4944e0a189685e0bc13e56d1d0d37a88e24d8b7ecc2415e5d4b1eff1ee",
+        "src/catalog.test.ts": "683c4eaba43b054a7dce65c398b5902163363400041fb7e7013e22d04f244eeb",
+        "src/catalog.ts": "2162b7d71312db8324fd844b5f31728352e0a1c396c573337d140dcb837bb5a2"
+      }
+    },
+    {
+      "trial": "healthy-2",
+      "ok": true,
+      "error": null,
+      "sha256": {
+        "healthy-2-discovery-input.json": "632e942aeec756419be8aa8d636175f2813ba8e4e937408740e8af55d7b46f92",
+        "healthy-2-discovery-output.json": "fc8c203bc1da94b53b5e4dbff461535d01fbb9c160e4142e453907bcff33eada",
+        "healthy-2-final-input.json": "881fac1712cfb8b899823037ed336e575d4596647159c55fd4f0b44dc4a9ce96",
+        "healthy-2-final-output.json": "71b59d1b47338d5e51e814fa8aab1ff6f97924a8c9a7131c540bac31f18b8313"
+      },
+      "coverage": 11,
+      "overallScore": null,
+      "ratings": [
+        {
+          "conceptId": "context-discovery",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "progressive-disclosure",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "instruction-scoping",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "architecture-awareness",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "domain-knowledge",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "environment-reproducibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "tool-accessibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "task-decomposition",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "verification",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "observability",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "change-safety",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "feedback-loops",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "durable-memory",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "human-oversight",
+          "maturity": 2,
+          "confidence": "high"
+        }
+      ],
+      "sourceSha256": {
+        ".github/workflows/ci.yml": "ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b",
+        ".node-version": "a0e27aeeac42d6102f4ff2bce40d8fb011c07e5cb28eff3c9d77e68df29e5dd6",
+        "AGENTS.md": "68a0ebf69c1638a6ea2883b51e8c07af397bc9b474ab1c7f07b2d5f9cf48dfe2",
+        "README.md": "dd79961ddf606b64f62bf075ab44dbb207559a297d0fcf348e1bbae9edc4b04b",
+        "docs/architecture.md": "f1693566484194859059352d40b95de7a4069ba5bc3afde0ecdc469f96d036e7",
+        "docs/domain.md": "7299fb412eacab5cde8b6bb735915981df7e9637f712b1f39625972ab6d4136c",
+        "docs/lessons.md": "7b8150cc072424ee1858e66e625e3fdcd8edec71fb88e331d9fa53499077a2fd",
+        "package.json": "40f9817991562b311834d810ce2cc8fc6839b5c300b3b0191dc3579ef73d1f74",
+        "pnpm-lock.yaml": "15709a4944e0a189685e0bc13e56d1d0d37a88e24d8b7ecc2415e5d4b1eff1ee",
+        "src/catalog.test.ts": "683c4eaba43b054a7dce65c398b5902163363400041fb7e7013e22d04f244eeb",
+        "src/catalog.ts": "2162b7d71312db8324fd844b5f31728352e0a1c396c573337d140dcb837bb5a2"
+      }
+    },
+    {
+      "trial": "healthy-3",
+      "ok": true,
+      "error": null,
+      "sha256": {
+        "healthy-3-discovery-input.json": "632e942aeec756419be8aa8d636175f2813ba8e4e937408740e8af55d7b46f92",
+        "healthy-3-discovery-output.json": "3aa2740f6107ad9050e077235e5e6c08bb55d9403f00c5360bc0e633c1699a21",
+        "healthy-3-final-input.json": "881fac1712cfb8b899823037ed336e575d4596647159c55fd4f0b44dc4a9ce96",
+        "healthy-3-final-output.json": "125f9e3477979f08ed783e413c8f624092bc881c9f7196fa24928dcc381e2dfc"
+      },
+      "coverage": 11,
+      "overallScore": null,
+      "ratings": [
+        {
+          "conceptId": "context-discovery",
+          "maturity": 3,
+          "confidence": "medium"
+        },
+        {
+          "conceptId": "progressive-disclosure",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "instruction-scoping",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "architecture-awareness",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "domain-knowledge",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "environment-reproducibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "tool-accessibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "task-decomposition",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "verification",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "observability",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "change-safety",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "feedback-loops",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "durable-memory",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "human-oversight",
+          "maturity": 2,
+          "confidence": "high"
+        }
+      ],
+      "sourceSha256": {
+        ".github/workflows/ci.yml": "ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b",
+        ".node-version": "a0e27aeeac42d6102f4ff2bce40d8fb011c07e5cb28eff3c9d77e68df29e5dd6",
+        "AGENTS.md": "68a0ebf69c1638a6ea2883b51e8c07af397bc9b474ab1c7f07b2d5f9cf48dfe2",
+        "README.md": "dd79961ddf606b64f62bf075ab44dbb207559a297d0fcf348e1bbae9edc4b04b",
+        "docs/architecture.md": "f1693566484194859059352d40b95de7a4069ba5bc3afde0ecdc469f96d036e7",
+        "docs/domain.md": "7299fb412eacab5cde8b6bb735915981df7e9637f712b1f39625972ab6d4136c",
+        "docs/lessons.md": "7b8150cc072424ee1858e66e625e3fdcd8edec71fb88e331d9fa53499077a2fd",
+        "package.json": "40f9817991562b311834d810ce2cc8fc6839b5c300b3b0191dc3579ef73d1f74",
+        "pnpm-lock.yaml": "15709a4944e0a189685e0bc13e56d1d0d37a88e24d8b7ecc2415e5d4b1eff1ee",
+        "src/catalog.test.ts": "683c4eaba43b054a7dce65c398b5902163363400041fb7e7013e22d04f244eeb",
+        "src/catalog.ts": "2162b7d71312db8324fd844b5f31728352e0a1c396c573337d140dcb837bb5a2"
+      }
+    }
+  ]
+}
