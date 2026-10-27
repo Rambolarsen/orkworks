@@ -45,3 +45,20 @@ test('unassessed priority areas explain the missing evidence beside the score',(
  const visible=html.replace(/<details[\s\S]*?<\/details>/g,'');
  assert.match(visible,/Not assessed/);assert.match(visible,/do not establish this capability/);
 });
+
+
+test('individual score details show only cited evidence and suppress incompatible deltas', () => {
+ const current = snapshot('new', 75), baseline = snapshot('old', 50);
+ current.data.repositoryEvidence = [
+  { factId: 'a'.repeat(64), path: 'README.md', excerpt: 'Cited excerpt', observedAt: 'now' },
+  { factId: 'b'.repeat(64), path: 'other.md', excerpt: 'Unrelated excerpt', observedAt: 'now' },
+ ];
+ baseline.data.comparisonFingerprint = 'different';
+ baseline.data.concepts = [{ ...row, maturity: 1, confidence: 'low' }];
+ const html = renderToStaticMarkup(createElement(Summary, { snapshot: current, baseline, freshness: 'current' }));
+ const area = html.match(/<details class="readiness-area">([\s\S]*?)<\/details>/)[1];
+ assert.match(area, /Cited excerpt/);
+ assert.doesNotMatch(area, /Unrelated excerpt|<span>\+2<\/span>/);
+ assert.match(area, /previously low/);
+ assert.match(html, /Assessment conditions changed/);
+});
