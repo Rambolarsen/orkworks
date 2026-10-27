@@ -29,3 +29,5 @@ Capability research, validation results, and evidence fixtures.
 
 - [Root preparation component bytes and source-closure audit](root-preparation-components.md) — Run/approval golden bytes and the missing source/lifecycle codecs that block complete preparation fixtures.
 - [Hierarchy production projection contract review](hierarchy-projection-contract-review.md) — Independent task-version meanings and the missing current-summary detail read.
+
+- [Root preparation source-codec component evidence](root-preparation-source-components.md) — Accepted component-only source schemas, independently generated golden bytes and structural rejection tests; complete source/runtime qualification remains open.

@@ -1391,3 +1391,22 @@ codecs, aggregate/custody and native authority/resource qualification, #740 and
 executable-plan approvals remain gates; no runtime work or eligibility is approved.
 The earlier synthetic bootstrap binding stays UNVERIFIED. Keep component issues
 open; next is the bounded root-flow source-valid byte/transition fixture task.
+
+## Proposed root source codecs — 2026-10-26
+
+The [root source-codec proposal](2026-10-26-root-preparation-source-codecs-design.md)
+addresses the component audit’s root assignment, executable identity, snapshot
+provenance and initial run/parent membership gaps. Its new nested schemas, limits
+and initial-input/attachment choices are proposed for scoped owner review, not
+accepted by the earlier draft/source-flow approval. Full source-valid fixtures,
+complete storage/lifecycle effects, #740 capability evidence and separately
+approved runtime plans remain gated. Existing source bytes and catalogs are
+unchanged.
+
+## Root source codecs accepted for component fixtures — 2026-10-27
+
+The owner's “yes, go ahead” accepts the
+[source-codec choices](2026-10-26-root-preparation-source-codecs-design.md#owner-acceptance-and-component-handoff--2026-10-27)
+for documentation-only component fixtures. The earlier proposed follow-up is
+superseded only within that scope. No full bootstrap/source/transition validity,
+storage/native qualification, #740 eligibility or executable plan is accepted.

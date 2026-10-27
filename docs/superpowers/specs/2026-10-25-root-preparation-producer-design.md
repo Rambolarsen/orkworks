@@ -443,3 +443,22 @@ codecs. Close and review those source definitions before constructing complete
 source-valid fixtures; repeated synthetic digests cannot supply missing objects.
 No reviewed source schema, previous catalog, quota, authority or eligibility
 changes. All acceptance and runtime gates above remain open.
+
+## Proposed root source codecs — 2026-10-26
+
+The [root source-codec proposal](2026-10-26-root-preparation-source-codecs-design.md)
+addresses the component audit’s root assignment, executable identity, snapshot
+provenance and initial run/parent membership gaps. Its new nested schemas, limits
+and initial-input/attachment choices are proposed for scoped owner review, not
+accepted by the earlier draft/source-flow approval. Full source-valid fixtures,
+complete storage/lifecycle effects, #740 capability evidence and separately
+approved runtime plans remain gated. Existing source bytes and catalogs are
+unchanged.
+
+## Root source codecs accepted for component fixtures — 2026-10-27
+
+The owner's “yes, go ahead” accepts the
+[source-codec choices](2026-10-26-root-preparation-source-codecs-design.md#owner-acceptance-and-component-handoff--2026-10-27)
+for documentation-only component fixtures. The earlier proposed follow-up is
+superseded only within that scope. No full bootstrap/source/transition validity,
+storage/native qualification, #740 eligibility or executable plan is accepted.

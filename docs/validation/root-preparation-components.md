@@ -110,3 +110,13 @@ remain in the producer contract; this component checker does not execute them.
 Excluded-action authority ordering, native storage/resource qualification, shared
 custody, #740 eligibility and separately approved executable plans remain open.
 Keep all four component issues open; this deliverable closes no runtime gate.
+
+## Source-codec component follow-up — 2026-10-27
+
+The owner accepted the [root source-codec slice](../superpowers/specs/2026-10-26-root-preparation-source-codecs-design.md#owner-acceptance-and-component-handoff--2026-10-27)
+for [documentation component fixtures](root-preparation-source-components.md).
+This closes proposed field/variant choices for the five audited records at the
+component level, not complete nested permission/evidence codecs, full source
+custody, mutable lifecycle/storage effects or native qualification. The audit
+above records the inspected pre-amendment gaps; its remaining full-source gates
+still apply. The original four run/approval vectors and checker remain unchanged.
