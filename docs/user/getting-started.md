@@ -72,7 +72,7 @@ menu keyboard shortcuts remain available while it is hidden.
 2. Open **Settings** and review **Coding tools**. Enable the tool you installed
    and check its detection status.
 3. Choose **New session**, enter a small task you can verify, select the coding
-   tool and optional model, then choose **Start**. The session uses the active
+   tool and optional model, then choose **Start session**. The session uses the active
    workspace.
 4. Work in the embedded terminal as usual. The sessions list and Details panel
    keep the session’s context nearby.
