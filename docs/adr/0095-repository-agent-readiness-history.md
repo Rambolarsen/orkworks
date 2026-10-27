@@ -9,7 +9,7 @@ workflow_status: approved
 
 # Repository agent-readiness scores and local history
 
-- Status: accepted; owner approved the concrete design and runtime implementation on 2026-10-25
+- Status: superseded in part by ADR 0096 on 2026-10-27; retained boundaries are listed below
 - Deciders: repository owner
 - Date: 2026-10-25
 - Tracking: [#1063](https://github.com/Rambolarsen/orkworks/issues/1063)
@@ -62,3 +62,12 @@ Exact rubric publication review and the plan's verification gates remain require
 readiness files are backward-compatible absence; once retained metadata exists,
 forward fixes preserve redaction fences and binary downgrade is unsupported.
 ADRs 0085–0087 remain accepted for the existing workflow assessment.
+
+
+## Supersession, 2026-10-27
+
+[ADR 0096](0096-readiness-workflow-suggestions.md) supersedes this decision only
+for the absence of an explicit combined **Assess and suggest** action. The
+separate score/history store, signed rubric, evidence bounds, privacy and
+historical comparison decisions remain authoritative by reference. Scoring alone
+still creates no recommendation.

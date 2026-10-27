@@ -27,6 +27,7 @@ pub(crate) mod readiness;
 pub(crate) mod readiness_model;
 pub(crate) mod readiness_rubric;
 pub(crate) mod readiness_store;
+pub(crate) mod readiness_suggestions;
 pub(crate) mod rollup;
 pub(crate) mod runtime;
 pub(crate) mod store;

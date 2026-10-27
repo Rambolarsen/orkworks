@@ -45,3 +45,32 @@ for(const [code,expected] of [['evidence_inputs_changed',/inputs changed/i],['pu
   const view=await fixture(t,initial);const text=displayedText(view.render());assert.match(text,expected);assert.doesNotMatch(text,new RegExp(code));
  });
 }
+
+
+test('combined assessment is primary and scoring alone remains available',async t=>{
+ const view=await fixture(t,status());
+ const buttons=nodes(view.render()).filter(node=>node.type==='button');
+ assert.equal(buttons[0].props.children,'Assess and suggest');
+ assert.ok(buttons.some(button=>button.props.children==='Assess readiness'));
+ assert.match(displayedText(view.render()),/four model calls/i);
+});
+
+
+test('combined action invokes only its privileged method and reports the scheduled run',async t=>{
+ const view=await fixture(t,status());let combined=0,score=0;
+ window.orkworks.requestReadinessSuggestion=async()=>{combined++;return{outcome:'scheduled',runId:'combined',reasonCode:null};};
+ window.orkworks.requestReadinessAssessment=async()=>{score++;return{outcome:'scheduled',runId:'score',reasonCode:null};};
+ view.queue.push(Promise.resolve(status()));
+ const button=nodes(view.render()).find(node=>node.type==='button'&&node.props.children==='Assess and suggest');
+ button.props.onClick();await view.settle();
+ assert.equal(combined,1);assert.equal(score,0);
+ assert.match(displayedText(view.render()),/Assessment and suggestion requested/);
+});
+test('combined no-proposal reason comes only from its linked current assessment',async t=>{
+ const initial=status([snapshot()]);initial.suggestionRun={id:'combo',state:'succeeded',phase:'finished',readinessRunId:'one',assessmentId:'assessment-one',recommendationId:null,reasonCode:'no_proposal',noProposalReason:'The supplied guidance already covers this workflow.'};
+ const view=await fixture(t,initial);assert.match(displayedText(view.render()),/already covers this workflow/);
+});
+test('suggestion-stage failure retains the saved score and describes the failure',async t=>{
+ const initial=status([snapshot()]);initial.suggestionRun={id:'combo',state:'failed',phase:'finished',readinessRunId:'one',assessmentId:'assessment-one',recommendationId:null,reasonCode:'suggestion_failed',noProposalReason:null};
+ const view=await fixture(t,initial);assert.equal(view.summary().data.overallScore,50);assert.match(displayedText(view.render()),/saved score is retained/i);
+});

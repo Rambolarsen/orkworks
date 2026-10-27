@@ -26,6 +26,25 @@ pub(crate) async fn assess(
     ))
     .into_response()
 }
+pub(crate) async fn assess_and_suggest(
+    State(state): State<Arc<crate::AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if let Err(status) = super::taskmaster_settings_handlers::authorize_taskmaster_request(&headers)
+    {
+        return status.into_response();
+    }
+    if !body.is_empty() {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    let runtime = super::taskmaster_settings_handlers::runtime_for(&state);
+    Json(crate::taskmaster::readiness::schedule_combined(
+        state,
+        runtime.root_path().to_path_buf(),
+    ))
+    .into_response()
+}
 pub(crate) async fn get_status(
     State(state): State<Arc<crate::AppState>>,
     headers: HeaderMap,
@@ -68,6 +87,22 @@ mod tests {
         );
         assert_eq!(
             assess(
+                State(state.clone()),
+                headers.clone(),
+                Bytes::from_static(b"{}")
+            )
+            .await
+            .status(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            assess_and_suggest(State(state.clone()), HeaderMap::new(), Bytes::new())
+                .await
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            assess_and_suggest(
                 State(state.clone()),
                 headers.clone(),
                 Bytes::from_static(b"{}")

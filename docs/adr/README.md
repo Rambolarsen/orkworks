@@ -123,4 +123,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 
 - [Repository agent-readiness scores and local history](0095-repository-agent-readiness-history.md) — Accepted (#1063); implementation and signed rubric delivery tracked separately.
 
-- [Readiness workflow suggestions](0096-readiness-workflow-suggestions.md) — Proposed (#1091); concrete design awaits owner approval.
+- [Readiness workflow suggestions](0096-readiness-workflow-suggestions.md) — Accepted (#1091); owner approved design and implementation on 2026-10-27.

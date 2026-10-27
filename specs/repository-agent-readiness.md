@@ -14,9 +14,10 @@ of future agent performance.
 This specification adds a distinct **Assess readiness** action and history within the
 existing Recommendations surface. **Assess workflow**, **Analyze now**, their
 reports, recommendations and admission rules retain their accepted behavior.
-Readiness runs do not create recommendations or execute fixes in this first
-version. Details describe possible next improvements; the user can use the
-existing workflow assessment and coding-session paths separately.
+Standalone readiness runs do not create recommendations or execute fixes. The
+accepted **Assess and suggest** extension below connects scoring to the existing
+workflow assessment without changing score-history or recommendation ownership.
+Details also describe evidence and possible improvement needs.
 
 The architecture rationale is in [ADR 0095](../docs/adr/0095-repository-agent-readiness-history.md).
 The [implementation plan](../docs/superpowers/plans/2026-10-25-repository-agent-readiness.md)
@@ -410,14 +411,15 @@ feature is unavailable until complete signed rubric delivery and those gates
 pass. Proposed specification merge alone does not establish runtime or installer
 availability.
 
-## Proposed assessment-to-suggestion flow (#1091)
+## Accepted assessment-to-suggestion flow (#1091)
 
 The owner requested a fix for readiness scores that do not lead to actionable
 next steps. The [concrete design and implementation plan](../docs/superpowers/plans/2026-10-26-readiness-suggestions.md)
-and [proposed ADR 0096](../docs/adr/0096-readiness-workflow-suggestions.md)
-define explicit **Assess and suggest**: save readiness history, then seek one
+and [ADR 0096](../docs/adr/0096-readiness-workflow-suggestions.md)
+were approved by the owner on 2026-10-27 and define explicit **Assess and suggest**: save readiness history, then seek one
 grounded suggestion through the existing workflow assessment. They cover the
 four-call combined bound, shared lease, fresh evidence, exact result linkage,
 independent stage failure, no-replay recovery and model qualification.
-This proposal does not change the accepted standalone contract above; dependent
-runtime work awaits owner approval of that concrete design.
+The standalone scoring contract above remains in force. The linked design is
+the authoritative combined-action contract; implementation and model qualification
+evidence do not establish availability in a published installer.

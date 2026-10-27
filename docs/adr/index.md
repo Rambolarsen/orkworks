@@ -116,4 +116,4 @@ Decision records and their original rationale and consequences.
 
 - [Repository agent-readiness scores and local history](0095-repository-agent-readiness-history.md) — Accepted manual scoring, signed complete rubric and historical access boundaries.
 
-- [Readiness workflow suggestions](0096-readiness-workflow-suggestions.md) — Proposed combined action retaining independent score and recommendation owners.
+- [Readiness workflow suggestions](0096-readiness-workflow-suggestions.md) — Accepted combined action retaining independent score and recommendation owners.

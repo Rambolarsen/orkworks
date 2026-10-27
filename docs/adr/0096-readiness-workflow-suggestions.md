@@ -3,13 +3,13 @@ type: Architecture Decision
 title: Readiness assessment followed by a grounded workflow suggestion
 description: Proposed combined action preserving independent score history and workflow recommendation publication.
 tags: [orkworks, architecture, taskmaster, readiness]
-status: draft
-workflow_status: awaiting-owner-design-approval
+status: stable
+workflow_status: approved
 ---
 
 # Readiness assessment followed by a grounded workflow suggestion
 
-- Status: proposed, 2026-10-26; dependent runtime work is not approved
+- Status: accepted; owner approved the concrete design and implementation on 2026-10-27
 - Tracking: [#1091](https://github.com/Rambolarsen/orkworks/issues/1091)
 - Concrete design/checks: [readiness suggestions plan](../superpowers/plans/2026-10-26-readiness-suggestions.md)
 
@@ -20,7 +20,7 @@ ADR 0095 intentionally separates scores from workflow recommendations. Preserve
 those evidence/storage boundaries while connecting the user-facing workflow.
 Low scores can reflect missing evidence or model limitations rather than defects.
 
-## Proposed decision
+## Decision
 
 Add explicit **Assess and suggest**. A sidecar operation saves readiness history,
 then seeks one suggestion through the existing workflow assessment under the same
@@ -41,8 +41,7 @@ history and the established recommendation lifecycle. The combined action may
 cost four provider calls and can honestly yield no proposal. It adds a bounded
 progress record and lease-transfer seam.
 
-On acceptance this supersedes ADR 0095 only for the absence of a combined action;
+This supersedes ADR 0095 only for the absence of a combined action;
 retain its score storage, signed rubric, history and privacy decisions by
-reference. Link/mark that supersession and update the accepted spec when the owner
-approves this concrete design. This proposed record changes no runtime behavior
-and establishes neither model quality nor installer availability.
+reference. Approval establishes the implementation contract, not model quality
+or availability in a published installer.

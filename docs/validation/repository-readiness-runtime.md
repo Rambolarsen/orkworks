@@ -235,3 +235,52 @@ not a finite-verb denylist. Unknown extensions retain conservative rejection;
 past/plural command introductions and attached factual predicates remain blocked. Removing prompt workarounds would change the
 qualified input and requires separately retained provider evidence; the
 existing model-specific qualification above is not expanded by these tests.
+
+
+## Combined assessment follow-up (#1091)
+
+The owner approved [Assess and suggest](../superpowers/plans/2026-10-26-readiness-suggestions.md)
+on 2026-10-27. Its regression first reproduced an HTTP 404 and missing visible
+next steps/model limits. The combined route now reuses readiness and the existing
+workflow assessment under one analysis lease; synthetic transport checks cover
+one grounded recommendation in four calls, fresh evaluation after a cached
+no-proposal, active-card admission, independent stage failure, input changes and
+exact-child recovery. These deterministic checks do not qualify a model.
+
+A 2,100-file skill-tree fixture reproduced starvation of linked architecture and
+domain guidance from the bounded catalog. Collector version 3 prioritizes current
+documentation during traversal and catalog selection. It retains exclusions,
+unsafe-link checks and existing byte/path/depth bounds. Version-2 historical
+manifests remain readable and cannot masquerade as current version-3 input.
+The original qualification above applies to its retained collector/prompt inputs;
+new collector qualification must be supported by separately retained trials.
+
+
+### Collector-3 live trial disposition
+
+**FAIL: Codex GPT-6.1-Sol, low effort, collector 3**, evaluated on 2026-10-27
+with the unchanged readiness-v1 prompt and signed brain-3. All nine uncached
+two-call trials completed without repair, retry, rejection or timeout. The
+[exact retained synthetic inputs and outputs](fixtures/readiness-suggestions-2026-10-27/index.md)
+include byte hashes and all ratings. Independent semantic review inspected all
+126 rows: 99 rated, 27 unassessed. The three unknown areas remained unassessed in
+every trial; all snapshots honestly have 11/14 coverage and no overall number.
+Domain knowledge improved 1 to 2 in all three controlled pairs. No execution,
+reliability, CI outcome, technical enforcement or unsupported complete-coverage
+claim was found.
+
+One finding prevents qualification: healthy-2 rates durable memory 1 because it
+claims the root guide lacks a capture procedure. Supplied fact 0 explicitly
+instructs recording lessons in a named persistent file, which supports the rubric's
+known low-friction capture action at level 2. Other trials correctly rate this
+same fact set 2. The conservative underrating and all original outputs are
+retained; no failed sample was repaired or replaced.
+
+The application therefore makes no qualification claim for collector 3. Its
+model-profile notice says the current configuration is unqualified; the original
+collector-2 qualification remains limited to its original retained inputs.
+Scores/area transitions are never fed into proposal evidence. The combined
+workflow uses independent current repository citations and the existing
+recommendation authority contract. These trials do not qualify arbitrary repos,
+real-world performance or end-to-end combined workflow inference. Follow-up
+model calibration requires its own retained evidence rather than a silent retry.

@@ -1,0 +1,759 @@
+{
+  "selection": {
+    "provider": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoningEffort": "low"
+  },
+  "collectorVersion": 3,
+  "promptVersion": "taskmaster-readiness-v1",
+  "rubricDigest": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+  "trials": [
+    {
+      "trial": "baseline-1",
+      "sha256": {
+        "baseline-1-discovery-input.json": "3ffa26e4aa32bf6278f0a645ba3de88bc40fa204f2cb32d76c92cdcf8dad47b8",
+        "baseline-1-discovery-output.json": "fc8c203bc1da94b53b5e4dbff461535d01fbb9c160e4142e453907bcff33eada",
+        "baseline-1-final-input.json": "c4121c0a4a45acc04bae6df368c41f3befce6056bf8bfe53698ffc2992d2f58e",
+        "baseline-1-final-output.json": "4dbf5ef1675286f092667680359a9520780f4ee8617219f2e9e52654187600ca"
+      },
+      "coverage": 11,
+      "overallScore": null,
+      "ratings": [
+        {
+          "conceptId": "context-discovery",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "progressive-disclosure",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "instruction-scoping",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "architecture-awareness",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "domain-knowledge",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "environment-reproducibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "tool-accessibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "task-decomposition",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "verification",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "observability",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "change-safety",
+          "maturity": 1,
+          "confidence": "medium"
+        },
+        {
+          "conceptId": "feedback-loops",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "durable-memory",
+          "maturity": 2,
+          "confidence": "medium"
+        },
+        {
+          "conceptId": "human-oversight",
+          "maturity": 2,
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "trial": "baseline-2",
+      "sha256": {
+        "baseline-2-discovery-input.json": "3ffa26e4aa32bf6278f0a645ba3de88bc40fa204f2cb32d76c92cdcf8dad47b8",
+        "baseline-2-discovery-output.json": "3aa2740f6107ad9050e077235e5e6c08bb55d9403f00c5360bc0e633c1699a21",
+        "baseline-2-final-input.json": "c4121c0a4a45acc04bae6df368c41f3befce6056bf8bfe53698ffc2992d2f58e",
+        "baseline-2-final-output.json": "7e770590bce99db693516ff4765d795cae3f51c4a52848a340206e33f2ea9290"
+      },
+      "coverage": 11,
+      "overallScore": null,
+      "ratings": [
+        {
+          "conceptId": "context-discovery",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "progressive-disclosure",
+          "maturity": 2,
+          "confidence": "medium"
+        },
+        {
+          "conceptId": "instruction-scoping",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "architecture-awareness",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "domain-knowledge",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "environment-reproducibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "tool-accessibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "task-decomposition",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "verification",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "observability",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "change-safety",
+          "maturity": 1,
+          "confidence": "medium"
+        },
+        {
+          "conceptId": "feedback-loops",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "durable-memory",
+          "maturity": 2,
+          "confidence": "medium"
+        },
+        {
+          "conceptId": "human-oversight",
+          "maturity": 2,
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "trial": "baseline-3",
+      "sha256": {
+        "baseline-3-discovery-input.json": "3ffa26e4aa32bf6278f0a645ba3de88bc40fa204f2cb32d76c92cdcf8dad47b8",
+        "baseline-3-discovery-output.json": "3aa2740f6107ad9050e077235e5e6c08bb55d9403f00c5360bc0e633c1699a21",
+        "baseline-3-final-input.json": "c4121c0a4a45acc04bae6df368c41f3befce6056bf8bfe53698ffc2992d2f58e",
+        "baseline-3-final-output.json": "516ac8b3f5327e845a5c3cbba6cc967ddc0cfefd140a8c4de65f8ee6322be422"
+      },
+      "coverage": 11,
+      "overallScore": null,
+      "ratings": [
+        {
+          "conceptId": "context-discovery",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "progressive-disclosure",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "instruction-scoping",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "architecture-awareness",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "domain-knowledge",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "environment-reproducibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "tool-accessibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "task-decomposition",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "verification",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "observability",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "change-safety",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "feedback-loops",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "durable-memory",
+          "maturity": 2,
+          "confidence": "medium"
+        },
+        {
+          "conceptId": "human-oversight",
+          "maturity": 2,
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "trial": "improved-1",
+      "sha256": {
+        "improved-1-discovery-input.json": "632e942aeec756419be8aa8d636175f2813ba8e4e937408740e8af55d7b46f92",
+        "improved-1-discovery-output.json": "3aa2740f6107ad9050e077235e5e6c08bb55d9403f00c5360bc0e633c1699a21",
+        "improved-1-final-input.json": "d42a28ee50026df25ecba1addcec7abdcd62f3b3916f38fa64388b879d8e7181",
+        "improved-1-final-output.json": "ff031ca95d68a8152083b256c995fd960fed90b009d09307d4ddbc106707b13d"
+      },
+      "coverage": 11,
+      "overallScore": null,
+      "ratings": [
+        {
+          "conceptId": "context-discovery",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "progressive-disclosure",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "instruction-scoping",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "architecture-awareness",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "domain-knowledge",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "environment-reproducibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "tool-accessibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "task-decomposition",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "verification",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "observability",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "change-safety",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "feedback-loops",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "durable-memory",
+          "maturity": 2,
+          "confidence": "medium"
+        },
+        {
+          "conceptId": "human-oversight",
+          "maturity": 2,
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "trial": "improved-2",
+      "sha256": {
+        "improved-2-discovery-input.json": "632e942aeec756419be8aa8d636175f2813ba8e4e937408740e8af55d7b46f92",
+        "improved-2-discovery-output.json": "3aa2740f6107ad9050e077235e5e6c08bb55d9403f00c5360bc0e633c1699a21",
+        "improved-2-final-input.json": "d42a28ee50026df25ecba1addcec7abdcd62f3b3916f38fa64388b879d8e7181",
+        "improved-2-final-output.json": "5b6a4bc741a13dcddc634437b1b92081e2649e8ced1c87d169d1bcf5ff72a441"
+      },
+      "coverage": 11,
+      "overallScore": null,
+      "ratings": [
+        {
+          "conceptId": "context-discovery",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "progressive-disclosure",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "instruction-scoping",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "architecture-awareness",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "domain-knowledge",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "environment-reproducibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "tool-accessibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "task-decomposition",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "verification",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "observability",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "change-safety",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "feedback-loops",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "durable-memory",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "human-oversight",
+          "maturity": 2,
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "trial": "improved-3",
+      "sha256": {
+        "improved-3-discovery-input.json": "632e942aeec756419be8aa8d636175f2813ba8e4e937408740e8af55d7b46f92",
+        "improved-3-discovery-output.json": "3aa2740f6107ad9050e077235e5e6c08bb55d9403f00c5360bc0e633c1699a21",
+        "improved-3-final-input.json": "d42a28ee50026df25ecba1addcec7abdcd62f3b3916f38fa64388b879d8e7181",
+        "improved-3-final-output.json": "a40a50c59980481cca183163fbadb952091a426b81562ac26bb2d9cfb5ac8d2e"
+      },
+      "coverage": 11,
+      "overallScore": null,
+      "ratings": [
+        {
+          "conceptId": "context-discovery",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "progressive-disclosure",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "instruction-scoping",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "architecture-awareness",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "domain-knowledge",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "environment-reproducibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "tool-accessibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "task-decomposition",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "verification",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "observability",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "change-safety",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "feedback-loops",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "durable-memory",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "human-oversight",
+          "maturity": 2,
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "trial": "healthy-1",
+      "sha256": {
+        "healthy-1-discovery-input.json": "632e942aeec756419be8aa8d636175f2813ba8e4e937408740e8af55d7b46f92",
+        "healthy-1-discovery-output.json": "3aa2740f6107ad9050e077235e5e6c08bb55d9403f00c5360bc0e633c1699a21",
+        "healthy-1-final-input.json": "d42a28ee50026df25ecba1addcec7abdcd62f3b3916f38fa64388b879d8e7181",
+        "healthy-1-final-output.json": "55f95b980bc5790e7d2db76bc74170789f5a6f789d32678949e2fc3b01e01ca6"
+      },
+      "coverage": 11,
+      "overallScore": null,
+      "ratings": [
+        {
+          "conceptId": "context-discovery",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "progressive-disclosure",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "instruction-scoping",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "architecture-awareness",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "domain-knowledge",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "environment-reproducibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "tool-accessibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "task-decomposition",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "verification",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "observability",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "change-safety",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "feedback-loops",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "durable-memory",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "human-oversight",
+          "maturity": 2,
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "trial": "healthy-2",
+      "sha256": {
+        "healthy-2-discovery-input.json": "632e942aeec756419be8aa8d636175f2813ba8e4e937408740e8af55d7b46f92",
+        "healthy-2-discovery-output.json": "3aa2740f6107ad9050e077235e5e6c08bb55d9403f00c5360bc0e633c1699a21",
+        "healthy-2-final-input.json": "d42a28ee50026df25ecba1addcec7abdcd62f3b3916f38fa64388b879d8e7181",
+        "healthy-2-final-output.json": "2ba84514cd5a7d5187e426f18e253c87eb8c64f63d55ba9808c7ebb535ec0521"
+      },
+      "coverage": 11,
+      "overallScore": null,
+      "ratings": [
+        {
+          "conceptId": "context-discovery",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "progressive-disclosure",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "instruction-scoping",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "architecture-awareness",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "domain-knowledge",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "environment-reproducibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "tool-accessibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "task-decomposition",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "verification",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "observability",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "change-safety",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "feedback-loops",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "durable-memory",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "human-oversight",
+          "maturity": 2,
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "trial": "healthy-3",
+      "sha256": {
+        "healthy-3-discovery-input.json": "632e942aeec756419be8aa8d636175f2813ba8e4e937408740e8af55d7b46f92",
+        "healthy-3-discovery-output.json": "3aa2740f6107ad9050e077235e5e6c08bb55d9403f00c5360bc0e633c1699a21",
+        "healthy-3-final-input.json": "d42a28ee50026df25ecba1addcec7abdcd62f3b3916f38fa64388b879d8e7181",
+        "healthy-3-final-output.json": "2719c30dda4fcbe2a1b5d2e4f815362c2619f6b5b7e28edd2f60926f20c1d545"
+      },
+      "coverage": 11,
+      "overallScore": null,
+      "ratings": [
+        {
+          "conceptId": "context-discovery",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "progressive-disclosure",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "instruction-scoping",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "architecture-awareness",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "domain-knowledge",
+          "maturity": 2,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "environment-reproducibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "tool-accessibility",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "task-decomposition",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "verification",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "observability",
+          "maturity": null,
+          "confidence": null
+        },
+        {
+          "conceptId": "change-safety",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "feedback-loops",
+          "maturity": 1,
+          "confidence": "high"
+        },
+        {
+          "conceptId": "durable-memory",
+          "maturity": 2,
+          "confidence": "medium"
+        },
+        {
+          "conceptId": "human-oversight",
+          "maturity": 2,
+          "confidence": "high"
+        }
+      ]
+    }
+  ]
+}

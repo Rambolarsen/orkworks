@@ -654,7 +654,7 @@ function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePat
           <button type="button" disabled={!hasWorkspace || !taskmasterReady} onClick={() => void refresh()}>Reload</button>
         </div>
       </div>
-      {workspacePath && taskmasterReady && <ReadinessPanel key={workspacePath} workspacePath={workspacePath} disabled={analysisBusy || assessmentBusy || Boolean(currentRunStatus?.activeAttempt)} onBusyChange={setReadinessBusy} />}
+      {workspacePath && taskmasterReady && <ReadinessPanel key={workspacePath} workspacePath={workspacePath} disabled={analysisBusy || assessmentBusy || Boolean(currentRunStatus?.activeAttempt)} onBusyChange={setReadinessBusy} onSuggestion={(id) => { void refresh(); if (id) setOriginFilter("analysis"); }} />}
       {hasWorkspace && taskmasterReady && <TaskmasterAnalysisStatus
         status={currentRunStatus}
         requesting={analysisBusy}

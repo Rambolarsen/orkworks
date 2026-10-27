@@ -8,7 +8,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub(super) const COLLECTOR_VERSION: u8 = 2;
+pub(super) const COLLECTOR_VERSION: u8 = 3;
 const MAX_PREFIX: usize = 8192;
 const MAX_TOTAL: usize = 65536;
 
@@ -48,7 +48,7 @@ fn valid_digest(text: &str) -> bool {
 }
 impl InputManifest {
     pub(crate) fn validate(&self) -> Result<(), String> {
-        if self.collector_version != COLLECTOR_VERSION
+        if !matches!(self.collector_version, 2 | COLLECTOR_VERSION)
             || match self.purpose.as_deref() {
                 None => self.prompt_version != super::assessment::ASSESSMENT_PROMPT_VERSION,
                 Some("readiness") => self.prompt_version != "taskmaster-readiness-v1",
@@ -505,6 +505,7 @@ impl RepositoryContext {
             }
         }
         if changed
+            || self.manifest.collector_version != saved.collector_version
             || self.manifest.context_level != saved.context_level
             || self.manifest.excluded_paths != saved.excluded_paths
             || self.manifest.catalog_digest != saved.catalog_digest
@@ -534,6 +535,7 @@ impl RepositoryContext {
     pub(crate) fn restore(mut self, saved: &InputManifest) -> Result<Self, String> {
         saved.validate()?;
         if saved.redacted
+            || self.manifest.collector_version != saved.collector_version
             || self.manifest.context_level != saved.context_level
             || self.manifest.excluded_paths != saved.excluded_paths
             || self.manifest.catalog_digest != saved.catalog_digest
@@ -754,6 +756,72 @@ mod tests {
                 Err(RevalidationError::Unavailable)
             ));
         }
+    }
+
+    #[test]
+    fn linked_guidance_reaches_the_catalog_before_large_skill_trees_exhaust_the_budget() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join(".agents/skills")).unwrap();
+        fs::create_dir_all(dir.path().join("docs/agents")).unwrap();
+        fs::write(
+            dir.path().join("AGENTS.md"),
+            "See [architecture](docs/agents/architecture.md) and [domain](docs/agents/domain.md).",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("docs/agents/architecture.md"),
+            "The inventory module owns stock transitions.",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("docs/agents/domain.md"),
+            "Stock quantities cannot be negative.",
+        )
+        .unwrap();
+        for i in 0..2100 {
+            fs::write(
+                dir.path()
+                    .join(format!(".agents/skills/distractor-{i:04}.md")),
+                "Generic skill instructions",
+            )
+            .unwrap();
+        }
+        let mut context = RepositoryContext::collect_for_readiness(
+            dir.path(),
+            ContextLevel::SourceCode,
+            &[],
+            "now",
+        )
+        .unwrap();
+        let ids = ["docs/agents/architecture.md", "docs/agents/domain.md"]
+            .iter()
+            .map(|path| {
+                context
+                    .catalog
+                    .iter()
+                    .position(|entry| entry == path)
+                    .expect("linked guidance was starved from the bounded catalog")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            context.follow_up(&ids, "architecture domain").unwrap(),
+            FollowUp::Read
+        );
+        assert!(context
+            .facts
+            .iter()
+            .any(|fact| fact.excerpt.contains("cannot be negative")));
+        let excluded = RepositoryContext::collect_for_readiness(
+            dir.path(),
+            ContextLevel::SourceCode,
+            &["docs".into()],
+            "later",
+        )
+        .unwrap();
+        assert!(excluded
+            .catalog
+            .iter()
+            .all(|path| !path.starts_with("docs/")));
     }
 
     #[test]

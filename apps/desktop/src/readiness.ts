@@ -4,13 +4,15 @@ export interface ReadinessRow { conceptId:string; maturity:number|null; confiden
 export interface ReadinessData {
  workspacePath:string; inputFingerprint:string; comparisonFingerprint:string; git:{headOid:string|null;dirty:boolean|null};
  inferenceIdentity:{selection?:{provider:string;model:string;reasoningEffort?:string}}; knowledgeIdentity:{version?:string}; rubricDigest:string;
+ versions?:{prompt?:string;collector?:number};
  summary:string; concepts:ReadinessRow[]; coverage:number; rawTotal:number|null; overallScore:number|null;
  repositoryEvidence:{factId:string;path:string;sha256:string;excerpt:string;observedAt:string}[];
  knowledgeEvidence:{pageId:string;title:string;status:string;bundleVersion:string;sha256:string;excerpt:string}[];
 }
 export interface ReadinessSnapshot {id:string;startedAt:string;completedAt:string;redacted:boolean;data:ReadinessData|null}
 export interface ReadinessRun {id:string;state:'queued'|'running'|'succeeded'|'failed'|'interrupted';phase:'collecting_evidence'|'reading_evidence'|'scoring_readiness'|null;startedAt:string;completedAt:string|null;errorCode:string|null}
-export interface ReadinessStatus {workspacePath:string|null;run:ReadinessRun|null;snapshots:ReadinessSnapshot[];freshness:'none'|'current'|'changed'|'unknown'|'redacted';retentionLimit:number;reasonCode:string|null}
+export interface ReadinessSuggestionRun {id:string;state:"queued"|"running"|"succeeded"|"failed"|"interrupted";phase:"scoring"|"suggesting"|"finished";readinessRunId:string|null;assessmentId:string|null;recommendationId:string|null;reasonCode:string|null;noProposalReason?:string|null}
+export interface ReadinessStatus {suggestionRun?:ReadinessSuggestionRun|null;workspacePath:string|null;run:ReadinessRun|null;snapshots:ReadinessSnapshot[];freshness:'none'|'current'|'changed'|'unknown'|'redacted';retentionLimit:number;reasonCode:string|null}
 export interface ReadinessAdmission {outcome:'scheduled'|'already_running'|'unavailable';runId:string|null;reasonCode:string|null}
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -119,6 +121,20 @@ function validateSnapshot(value: unknown, ids: Set<string>): void {
   validateData(snapshot.data);
 }
 
+function validateSuggestionRun(value: unknown): void {
+  const run = object(value);
+  if (
+    !text(run.id, 128) ||
+    !['queued', 'running', 'succeeded', 'failed', 'interrupted'].includes(run.state as string) ||
+    !['scoring', 'suggesting', 'finished'].includes(run.phase as string) ||
+    ![run.readinessRunId, run.assessmentId, run.recommendationId].every(id => id === null || text(id, 128)) ||
+    !(run.reasonCode === null || text(run.reasonCode, 128)) ||
+    !(run.noProposalReason == null || text(run.noProposalReason, 1000))
+  ) {
+    throw Error('Invalid readiness suggestion');
+  }
+}
+
 export function parseReadinessStatus(value: unknown): ReadinessStatus {
   const status = object(value);
   if (
@@ -129,6 +145,7 @@ export function parseReadinessStatus(value: unknown): ReadinessStatus {
   ) {
     throw Error('Invalid readiness status');
   }
+  if (status.suggestionRun != null) validateSuggestionRun(status.suggestionRun);
   const ids = new Set<string>();
   for (const snapshot of status.snapshots) validateSnapshot(snapshot, ids);
 
@@ -180,4 +197,20 @@ export function readinessFailureMessage(code:string|null|undefined):string {
  const match=/^(discovery|evidence|scoring|publication)_(.+)$/.exec(code??'');
  if(!match||!Object.hasOwn(causes,match[2]))return 'The assessment could not finish. Try Assess readiness again.';
  return `${stages[match[1]]}: ${causes[match[2]]}`;
+}
+
+export function readinessQualification(data:ReadinessData):string {
+ const selection=data.inferenceIdentity.selection;
+ if(selection?.provider==='codex'&&selection.model==='gpt-6-luna'&&selection.reasoningEffort==='medium')return 'This model profile failed retained readiness qualification. These ratings may be unreliable. Consider a qualified profile in Taskmaster settings.';
+ if(selection?.provider==='codex'&&selection.model==='gpt-6.1-sol'&&selection.reasoningEffort==='low'&&data.versions?.prompt==='taskmaster-readiness-v1'&&data.versions?.collector===2)return 'This profile passed the original readiness fixture qualification. That does not establish accuracy for every repository.';
+ return 'This model profile and assessment configuration have no retained readiness qualification. Treat ratings as evidence-limited estimates.';
+}
+export function readinessSuggestionMessage(run:ReadinessSuggestionRun):string {
+ if(run.state==='queued'||run.state==='running')return run.phase==='suggesting'?'Finding a next improvement…':'Scoring readiness…';
+ if(run.state==='interrupted')return 'Assessment and suggestion was interrupted. Any saved score is retained. Assess again when the workspace and settings are stable.';
+ if(run.state==='failed')return 'The combined assessment could not finish. Any saved score is retained. Check Taskmaster settings and try again.';
+ if(run.reasonCode==='active_recommendation')return 'An active Brain recommendation is available below. Complete or dismiss it before requesting another improvement.';
+ if(run.reasonCode==='recommendation_created')return 'A grounded improvement is available in Analysis below. Review it before choosing Fix with AI.';
+ if(run.reasonCode==='no_proposal')return run.noProposalReason??'No supported change was identified. A low score may reflect missing evidence rather than a confirmed defect.';
+ return 'The linked suggestion is no longer available or its inputs have changed. Assess again for a current result.';
 }

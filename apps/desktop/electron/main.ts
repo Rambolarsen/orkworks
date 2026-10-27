@@ -622,7 +622,7 @@ app.whenReady().then(async () => {
     }
     return result.models as string[];
   }
-  async function readinessRequest(resource: "readiness" | "assess-readiness"): Promise<Record<string, unknown>> {
+  async function readinessRequest(resource: "readiness" | "assess-readiness" | "assess-and-suggest"): Promise<Record<string, unknown>> {
     return withReadyBackendGeneration(async (port, token) => taskmasterRequest(port, token, resource));
   }
   async function readTaskmasterRunStatus(): Promise<Record<string, unknown>> {
@@ -1494,6 +1494,7 @@ app.whenReady().then(async () => {
   ipcMain.handle("get-taskmaster-settings", () => readTaskmasterSettings());
   ipcMain.handle("get-readiness-status", () => readinessRequest("readiness"));
   ipcMain.handle("assess-repository-readiness", () => readinessRequest("assess-readiness"));
+  ipcMain.handle("assess-and-suggest", () => readinessRequest("assess-and-suggest"));
   ipcMain.handle("get-taskmaster-run-status", () => readTaskmasterRunStatus());
   ipcMain.handle("assess-taskmaster-workflow", () => requestTaskmasterAssessment());
   ipcMain.handle("refresh-taskmaster-models", (_event, provider: unknown, ollamaBaseUrl?: unknown) => refreshTaskmasterModels(provider, ollamaBaseUrl));

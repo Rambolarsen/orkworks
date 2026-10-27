@@ -4,14 +4,14 @@ title: Readiness assessment with grounded next-step suggestions
 description: Proposed combined assessment flow reusing independent score history and workflow recommendation publication.
 tags: [orkworks, taskmaster, readiness, recommendations]
 status: draft
-workflow_status: awaiting-owner-design-approval
+workflow_status: approved-implementation-in-progress
 ---
 
 # Readiness assessment with grounded next-step suggestions
 
 Tracking: [#1091](https://github.com/Rambolarsen/orkworks/issues/1091).
-Status: concrete proposal; dependent runtime work awaits owner design approval.
-The owner requested the fix on 2026-10-26, establishing the desired outcome.
+Status: owner approved the concrete design and implementation on 2026-10-27.
+The owner requested the fix on 2026-10-26. Implementation is in progress.
 
 ## Outcome and decisions
 
@@ -155,7 +155,7 @@ failures. Do not claim general score accuracy from fixture qualification.
 
 ## Implementation and verification
 
-After approval, implement inline in this owning session/worktree. No delegation
+Implement inline in this owning session/worktree under the 2026-10-27 approval. No delegation
 or second coding harness is required.
 
 - [ ] Add failing combined-operation integration tests first, then extract the
@@ -203,7 +203,7 @@ matching no-proposal reports, so the combined action needs fresh evaluation.
 A low score may still honestly yield no proposal. That is an outcome to explain,
 not a reason to weaken grounding or promise recommendations for every run.
 
-Review disposition: **Ready for owner design review; runtime gated**. Scope,
+Review disposition: **Approved for implementation on 2026-10-27**. Scope,
 simplicity, clarity and requirement coverage reviewed inline. Lease transfer,
 cached outcomes, exact linkage, partial failure, privacy and recovery checks are
 included. Implementation and changed-profile semantic acceptance remain unproven.

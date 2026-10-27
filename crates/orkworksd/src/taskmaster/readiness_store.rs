@@ -233,7 +233,11 @@ impl ReadinessStore {
     pub(crate) fn new(root: &Path) -> Self {
         Self { root: root.into() }
     }
-    fn read<T: DeserializeOwned>(&self, name: &str, cap: usize) -> Result<Option<T>, String> {
+    pub(super) fn read<T: DeserializeOwned>(
+        &self,
+        name: &str,
+        cap: usize,
+    ) -> Result<Option<T>, String> {
         let path = self.root.join(name);
         let file = match std::fs::File::open(path) {
             Ok(file) => file,
@@ -248,7 +252,12 @@ impl ReadinessStore {
             .map(Some)
             .map_err(|_| "Readiness metadata is invalid".into())
     }
-    fn write(&self, name: &str, value: &impl Serialize, cap: usize) -> Result<(), String> {
+    pub(super) fn write(
+        &self,
+        name: &str,
+        value: &impl Serialize,
+        cap: usize,
+    ) -> Result<(), String> {
         let bytes =
             serde_json::to_vec(value).map_err(|_| "Readiness metadata cannot be encoded")?;
         if bytes.len() > cap {

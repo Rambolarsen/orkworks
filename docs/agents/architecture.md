@@ -1150,3 +1150,26 @@ dependencies remain pending under [#1063](https://github.com/Rambolarsen/orkwork
 and [Brain PR #127](https://github.com/Rambolarsen/brain/pull/127); source wiring
 does not establish released-installer availability. See
 [ADR 0095](../adr/0095-repository-agent-readiness-history.md).
+
+
+### Combined readiness and workflow suggestion
+
+[ADR 0096](../adr/0096-readiness-workflow-suggestions.md) adds authenticated,
+empty-body `POST /taskmaster/assess-and-suggest`. The readiness owner keeps the
+installation-wide analysis lease through scoring and a fresh workflow assessment;
+`assessment::run_fresh_under_lease` reuses existing current-input checks and
+recommendation publication. Standalone scoring remains independent. The combined
+ceiling is four calls, with no retries or wider per-stage evidence allowance.
+
+`taskmaster/readiness_suggestions.rs` owns an atomic, source-free 8-KiB
+`readiness-suggestion-run.json` with exact child and recommendation IDs. Existing
+readiness history and workflow report formats are unchanged. Recovery reconciles
+children first, then the parent, without replaying inference. A failed suggestion
+preserves its committed score. Readiness status projects the exact linked
+no-proposal report through existing current-input/access checks; standalone scores
+do not inherit prior combined results. Fix with AI retains its explicit approval.
+
+Collector version 3 prioritizes current documentation in bounded traversal and
+catalog selection before large generic skill trees. Version-2 manifests remain
+valid for historical display, but cannot restore as current version-3 inputs.
+This changes evidence selection, not privacy permissions or collector bounds.

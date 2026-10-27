@@ -36,6 +36,7 @@ pub(crate) struct Status {
     pub freshness: String,
     pub retention_limit: usize,
     pub reason_code: Option<String>,
+    pub suggestion_run: Option<super::readiness_suggestions::SuggestionStatus>,
 }
 #[derive(Clone)]
 struct Capture {
@@ -74,7 +75,7 @@ fn identity(
         collector: repository.manifest(),
         observations_digest: hash(&observations)?,
     };
-    let versions = json!({"collector":2,"discoverySchema":1,"finalSchema":1,"prompt":PROMPT_VERSION,"scoring":1});
+    let versions = json!({"collector":super::assessment_context::COLLECTOR_VERSION,"discoverySchema":1,"finalSchema":1,"prompt":PROMPT_VERSION,"scoring":1});
     let full = inference_identity(e);
     let stable_custom=full["custom"].as_object().map(|custom|json!({"adapter":custom.get("adapter"),"capability":custom.get("capability"),"trustGeneration":custom.get("trust_generation")}));
     let guidance = e.knowledge.as_ref().map(|b| {
@@ -349,6 +350,19 @@ fn schedule_with_runtime(
     state: Arc<crate::AppState>,
     runtime: Arc<TaskmasterRuntime>,
 ) -> Admission {
+    schedule_mode(state, runtime, false)
+}
+pub(crate) fn schedule_combined(state: Arc<crate::AppState>, runtime_root: PathBuf) -> Admission {
+    if tokio::runtime::Handle::try_current().is_err() {
+        return admission("unavailable", None, Some("runtime_unavailable"));
+    }
+    schedule_mode(state, Arc::new(TaskmasterRuntime::open(runtime_root)), true)
+}
+fn schedule_mode(
+    state: Arc<crate::AppState>,
+    runtime: Arc<TaskmasterRuntime>,
+    combined: bool,
+) -> Admission {
     let lease = match runtime.try_analysis_lease() {
         Ok(Some(lease)) => lease,
         Ok(None) => return admission("already_running", None, Some("analysis_busy")),
@@ -359,6 +373,16 @@ fn schedule_with_runtime(
         Err(_) => return admission("unavailable", None, Some("readiness_unavailable")),
     };
     let store = ReadinessStore::new(&c.root);
+    if super::assessment::recover_workspace_record_under_lease(
+        &state,
+        runtime.root_path(),
+        &c.root,
+        &lease,
+    )
+    .is_err()
+    {
+        return admission("unavailable", None, Some("metadata_unavailable"));
+    }
     let prepared = runtime.with_workspace_settings(&c.path, |settings| {
         let lock = state
             .workspace
@@ -379,14 +403,48 @@ fn schedule_with_runtime(
     }
     let mut run = Run::queued();
     run.input_identity = Some(c.identity.clone());
+    let mut parent = combined.then(|| super::readiness_suggestions::SuggestionRun::queued(&run.id));
+    if let Some(parent) = &parent {
+        if guarded(&state, &runtime, &c, || {
+            super::readiness_suggestions::save(&c.root, parent)
+        })
+        .is_err()
+        {
+            return admission("unavailable", None, Some("metadata_unavailable"));
+        }
+    }
     if guarded(&state, &runtime, &c, || store.save_run(&run)).is_err() {
         return admission("unavailable", None, Some("inputs_changed"));
     }
-    let id = run.id.clone();
+    let id = parent
+        .as_ref()
+        .map_or_else(|| run.id.clone(), |p| p.id.clone());
     tokio::task::spawn_blocking(move || {
-        let _lease = lease;
         let result = execute(&state, &runtime, c.clone(), &mut run);
+        if let Ok(final_capture) = &result {
+            if let Some(parent) = &mut parent {
+                run_suggestion(&state, &runtime, final_capture, parent, &lease);
+            }
+        }
         if let Err(code) = result {
+            if let Some(parent) = &mut parent {
+                let changed = code.ends_with("_inputs_changed");
+                parent.finish(
+                    if changed {
+                        RunState::Interrupted
+                    } else {
+                        RunState::Failed
+                    },
+                    if changed {
+                        "inputs_changed"
+                    } else {
+                        "scoring_failed"
+                    },
+                );
+                if let Err(error) = super::readiness_suggestions::save(&c.root, parent) {
+                    tracing::warn!(%error, "could not finalize combined assessment");
+                }
+            }
             let _ = runtime.with_workspace_settings(&c.path, |settings| {
                 let lock = state
                     .workspace
@@ -425,6 +483,99 @@ fn schedule_with_runtime(
     });
     admission("scheduled", Some(id), None)
 }
+fn run_suggestion(
+    state: &Arc<crate::AppState>,
+    runtime: &TaskmasterRuntime,
+    c: &Capture,
+    parent: &mut super::readiness_suggestions::SuggestionRun,
+    lease: &std::fs::File,
+) {
+    use super::assessment::AssessmentRequestStatus;
+    parent.state = RunState::Running;
+    parent.phase = super::readiness_suggestions::Phase::Suggesting;
+    let assessment_id = format!("assessment-{}", uuid::Uuid::new_v4());
+    parent.assessment_id = Some(assessment_id.clone());
+    let result = super::assessment::run_fresh_under_lease(
+        state,
+        runtime,
+        &c.path,
+        &c.root,
+        c.instance,
+        &c.evaluation,
+        &assessment_id,
+        lease,
+        || {
+            guarded(state, runtime, c, || {
+                super::readiness_suggestions::save(&c.root, parent)
+            })
+        },
+    );
+    // The workflow owner may classify an input change as a failed assessment.
+    // The combined operation still distinguishes an invalidated continuation
+    // from a model/provider failure, including access changes during discovery.
+    if guarded(state, runtime, c, || Ok(())).is_err() {
+        parent.finish(RunState::Interrupted, "inputs_changed");
+        if let Err(error) = super::readiness_suggestions::save(&c.root, parent) {
+            tracing::warn!(%error, "could not record interrupted combined suggestion");
+        }
+        return;
+    }
+    let finish = match result {
+        Ok(response) if response.status == AssessmentRequestStatus::ActiveRecommendation => {
+            parent.assessment_id = None;
+            parent.recommendation_id = response.recommendation.map(|r| r.id);
+            parent.finish(RunState::Succeeded, "active_recommendation");
+            Ok(())
+        }
+        Ok(_) => {
+            let record = super::assessment_store::AssessmentStore::new(&c.root)
+                .load::<super::assessment_report::AssessmentRecord>();
+            match record {
+                Ok(Some(record))
+                    if record.id == assessment_id
+                        && record.state == super::assessment_report::AssessmentState::Succeeded =>
+                {
+                    if let Some(report) = record.report {
+                        parent.recommendation_id = report.recommendation_id;
+                        let code = if parent.recommendation_id.is_some() {
+                            "recommendation_created"
+                        } else {
+                            "no_proposal"
+                        };
+                        parent.finish(RunState::Succeeded, code);
+                        Ok(())
+                    } else {
+                        Err("suggestion_failed")
+                    }
+                }
+                Ok(Some(record))
+                    if record.id == assessment_id
+                        && record.state
+                            == super::assessment_report::AssessmentState::Interrupted =>
+                {
+                    Err("inputs_changed")
+                }
+                _ => Err("suggestion_failed"),
+            }
+        }
+        Err(error) if error.contains("changed") => Err("inputs_changed"),
+        Err(_) => Err("suggestion_failed"),
+    };
+    if let Err(code) = finish {
+        parent.finish(
+            if code == "inputs_changed" {
+                RunState::Interrupted
+            } else {
+                RunState::Failed
+            },
+            code,
+        );
+    }
+    if let Err(error) = super::readiness_suggestions::save(&c.root, parent) {
+        tracing::warn!(%error, "could not finalize combined suggestion; recovery will reconcile child result");
+    }
+}
+
 fn refresh_after_evidence(c: &mut Capture) -> Result<(), String> {
     let refreshed = identity(
         &c.path,
@@ -456,7 +607,7 @@ fn execute(
     runtime: &TaskmasterRuntime,
     mut c: Capture,
     run: &mut Run,
-) -> Result<(), String> {
+) -> Result<Capture, String> {
     let store = ReadinessStore::new(&c.root);
     run.state = RunState::Running;
     guarded(state, runtime, &c, || store.save_run(run))
@@ -575,7 +726,8 @@ fn execute(
         run.finish(RunState::Succeeded, None);
         store.save_run(run)
     })
-    .map_err(|error| execution_failure("publication", &error))
+    .map_err(|error| execution_failure("publication", &error))?;
+    Ok(c)
 }
 pub(crate) fn status(state: &Arc<crate::AppState>, runtime_root: PathBuf) -> Status {
     let empty = |path, reason| Status {
@@ -585,6 +737,7 @@ pub(crate) fn status(state: &Arc<crate::AppState>, runtime_root: PathBuf) -> Sta
         freshness: "none".into(),
         retention_limit: 100,
         reason_code: reason,
+        suggestion_run: None,
     };
     let runtime = TaskmasterRuntime::open(runtime_root);
     let selected = state.workspace.lock().ok().and_then(|lock| {
@@ -601,6 +754,18 @@ pub(crate) fn status(state: &Arc<crate::AppState>, runtime_root: PathBuf) -> Sta
     };
     let path_text = path.to_str().map(str::to_owned);
     let lease = runtime.try_analysis_lease().ok().flatten();
+    if let Some(lease) = &lease {
+        if super::assessment::recover_workspace_record_under_lease(
+            state,
+            runtime.root_path(),
+            &root,
+            lease,
+        )
+        .is_err()
+        {
+            return empty(path_text, Some("metadata_unavailable".into()));
+        }
+    }
     let result = runtime.with_workspace_settings(&path, |settings| {
         let lock = state
             .workspace
@@ -670,6 +835,19 @@ pub(crate) fn status(state: &Arc<crate::AppState>, runtime_root: PathBuf) -> Sta
             }
         }
     }
+    let parent = match super::readiness_suggestions::load(&root) {
+        Ok(parent) => parent,
+        Err(_) => return empty(path_text, Some("metadata_unavailable".into())),
+    };
+    let suggestion_run = parent
+        .clone()
+        .filter(|p| {
+            matches!(p.state, RunState::Queued | RunState::Running)
+                || snapshots
+                    .last()
+                    .is_some_and(|s| Some(&s.id) == p.readiness_run_id.as_ref())
+        })
+        .map(|p| super::readiness_suggestions::project(state, &runtime, p));
     // Recheck access under serialized current settings before exposing any snapshots.
     let allowed = runtime.with_workspace_settings(&path, |settings| {
         let lock = state
@@ -685,7 +863,7 @@ pub(crate) fn status(state: &Arc<crate::AppState>, runtime_root: PathBuf) -> Sta
         let store = ReadinessStore::new(&root);
         store.reconcile(settings)?;
         let current = store.history()?;
-        if current.snapshots != snapshots {
+        if current.snapshots != snapshots || super::readiness_suggestions::load(&root)? != parent {
             return Err("Readiness access changed".into());
         }
         Ok::<(), String>(())
@@ -701,6 +879,7 @@ pub(crate) fn status(state: &Arc<crate::AppState>, runtime_root: PathBuf) -> Sta
         freshness: freshness.into(),
         retention_limit: 100,
         reason_code: None,
+        suggestion_run,
     }
 }
 
@@ -770,6 +949,486 @@ mod integration_tests {
         std::fs::write(f.dir.path().join("provider-dispatched.release"), "go").unwrap();
         (f, runtime)
     }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn combined_readiness_publishes_one_grounded_suggestion_through_the_real_router() {
+        let _token = crate::test_support::open_plan_token::set("combined-test-token").await;
+        let f = AssessmentFixture::new();
+        f.prepare_response("proposed");
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let addr = listener.local_addr().unwrap();
+        let app = crate::build_router(f.state.clone());
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let response = reqwest::Client::new()
+            .post(format!("http://{addr}/taskmaster/assess-and-suggest"))
+            .header("x-orkworks-open-plan-token", "combined-test-token")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        let body: Value = response.json().await.unwrap();
+        assert_eq!(body["outcome"], "scheduled", "{body}");
+        let path = f.workspace_root().join("readiness-suggestion-run.json");
+        let mut saved = Value::Null;
+        for _ in 0..3000 {
+            if let Ok(bytes) = std::fs::read(&path) {
+                saved = serde_json::from_slice(&bytes).unwrap();
+                if matches!(
+                    saved["state"].as_str(),
+                    Some("succeeded" | "failed" | "interrupted")
+                ) {
+                    break;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert_eq!(saved["state"], "succeeded", "{saved}");
+        assert_eq!(saved["reasonCode"], "recommendation_created", "{saved}");
+        assert_eq!(
+            ReadinessStore::new(&f.workspace_root())
+                .history()
+                .unwrap()
+                .snapshots
+                .len(),
+            1
+        );
+        let records = f
+            .state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .list()
+            .unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(saved["recommendationId"], records[0].id);
+        assert_eq!(
+            std::fs::read(f.dir.path().join("provider-dispatched.count"))
+                .unwrap()
+                .len(),
+            4
+        );
+        server.abort();
+    }
+
+    async fn combined_terminal(root: &Path) -> super::super::readiness_suggestions::SuggestionRun {
+        for _ in 0..3000 {
+            if let Some(run) = super::super::readiness_suggestions::load(root).unwrap() {
+                if !matches!(run.state, RunState::Queued | RunState::Running) {
+                    if TaskmasterRuntime::open(root.join("taskmaster"))
+                        .try_analysis_lease()
+                        .unwrap()
+                        .is_some()
+                    {
+                        return run;
+                    }
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        panic!("combined operation did not finish");
+    }
+    fn production_fixture(outcome: &str) -> (AssessmentFixture, Arc<TaskmasterRuntime>) {
+        let f = AssessmentFixture::new();
+        f.prepare_response(outcome);
+        let runtime = Arc::new(TaskmasterRuntime::open(f.runtime_root.clone()));
+        (f, runtime)
+    }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn combined_fresh_request_bypasses_cached_no_proposal_and_links_only_its_own_report() {
+        let (f, runtime) = production_fixture("no_proposal");
+        assert_eq!(
+            super::super::assessment::schedule(f.state.clone(), f.runtime_root.clone()).status,
+            super::super::assessment::AssessmentRequestStatus::Scheduled
+        );
+        let assessment = super::super::assessment_store::AssessmentStore::new(&f.workspace_root());
+        for _ in 0..3000 {
+            if assessment
+                .load::<super::super::assessment_report::AssessmentRecord>()
+                .unwrap()
+                .is_some_and(|r| {
+                    r.state == super::super::assessment_report::AssessmentState::Succeeded
+                })
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        // A committed child report can precede release of the worker's lease.
+        for _ in 0..3000 {
+            if runtime.try_analysis_lease().unwrap().is_some() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        let old = assessment
+            .load::<super::super::assessment_report::AssessmentRecord>()
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            schedule_mode(f.state.clone(), runtime.clone(), true).outcome,
+            "scheduled"
+        );
+        let parent = combined_terminal(&f.workspace_root()).await;
+        assert_eq!(
+            parent.reason_code.as_deref(),
+            Some("no_proposal"),
+            "{parent:?}"
+        );
+        assert_ne!(parent.assessment_id.as_deref(), Some(old.id.as_str()));
+        assert_eq!(
+            std::fs::read(f.dir.path().join("provider-dispatched.count"))
+                .unwrap()
+                .len(),
+            6
+        );
+        let projected = status(&f.state, f.runtime_root.clone());
+        assert!(projected
+            .suggestion_run
+            .unwrap()
+            .no_proposal_reason
+            .unwrap()
+            .contains("adequately supported"));
+        let mut unrelated = parent.clone();
+        unrelated.assessment_id = Some("assessment-unrelated".into());
+        super::super::readiness_suggestions::save(&f.workspace_root(), &unrelated).unwrap();
+        assert!(status(&f.state, f.runtime_root.clone())
+            .suggestion_run
+            .unwrap()
+            .no_proposal_reason
+            .is_none());
+        super::super::readiness_suggestions::save(&f.workspace_root(), &parent).unwrap();
+        assert_eq!(
+            schedule_with_runtime(f.state.clone(), runtime).outcome,
+            "scheduled"
+        );
+        terminal_run(&ReadinessStore::new(&f.workspace_root())).await;
+        assert!(
+            status(&f.state, f.runtime_root.clone())
+                .suggestion_run
+                .is_none(),
+            "standalone score inherited an older suggestion"
+        );
+    }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn combined_stage_failures_retain_only_committed_scores() {
+        for scoring in [true, false] {
+            let (f, runtime) = production_fixture("proposed");
+            std::fs::write(
+                f.dir.path().join(if scoring {
+                    "provider-response.readiness-final"
+                } else {
+                    "provider-response.json"
+                }),
+                "invalid private response /account/secret",
+            )
+            .unwrap();
+            assert_eq!(
+                schedule_mode(f.state.clone(), runtime, true).outcome,
+                "scheduled"
+            );
+            let parent = combined_terminal(&f.workspace_root()).await;
+            assert_eq!(parent.state, RunState::Failed, "{parent:?}");
+            assert_eq!(
+                parent.reason_code.as_deref(),
+                Some(if scoring {
+                    "scoring_failed"
+                } else {
+                    "suggestion_failed"
+                })
+            );
+            assert_eq!(
+                ReadinessStore::new(&f.workspace_root())
+                    .history()
+                    .unwrap()
+                    .snapshots
+                    .len(),
+                if scoring { 0 } else { 1 }
+            );
+            assert!(!std::fs::read_to_string(
+                f.workspace_root().join("readiness-suggestion-run.json")
+            )
+            .unwrap()
+            .contains("private response"));
+        }
+    }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn combined_existing_active_recommendation_allows_scoring_without_new_analysis() {
+        let (f, runtime) = production_fixture("proposed");
+        assert_eq!(
+            schedule_mode(f.state.clone(), runtime.clone(), true).outcome,
+            "scheduled"
+        );
+        let first = combined_terminal(&f.workspace_root()).await;
+        assert_eq!(first.reason_code.as_deref(), Some("recommendation_created"));
+        assert_eq!(
+            schedule_mode(f.state.clone(), runtime.clone(), true).outcome,
+            "scheduled"
+        );
+        let second = combined_terminal(&f.workspace_root()).await;
+        assert_eq!(
+            second.reason_code.as_deref(),
+            Some("active_recommendation"),
+            "{second:?}"
+        );
+        assert_eq!(second.recommendation_id, first.recommendation_id);
+        assert!(second.assessment_id.is_none());
+        assert_eq!(
+            std::fs::read(f.dir.path().join("provider-dispatched.count"))
+                .unwrap()
+                .len(),
+            6
+        );
+    }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn combined_continuation_revalidates_evidence_instance_and_configuration_before_dispatch()
+    {
+        for change in ["evidence", "instance", "settings"] {
+            let (f, runtime) = production_fixture("proposed");
+            let root = f.workspace_root();
+            let c = capture(&f.state, &runtime).unwrap();
+            let lease = runtime.try_analysis_lease().unwrap().unwrap();
+            let mut run = Run::queued();
+            ReadinessStore::new(&root).save_run(&run).unwrap();
+            let mut parent = super::super::readiness_suggestions::SuggestionRun::queued(&run.id);
+            super::super::readiness_suggestions::save(&root, &parent).unwrap();
+            let state = f.state.clone();
+            let rt = runtime.clone();
+            let final_capture =
+                tokio::task::spawn_blocking(move || execute(&state, &rt, c, &mut run))
+                    .await
+                    .unwrap()
+                    .unwrap();
+            match change {
+                "evidence" => std::fs::write(
+                    final_capture.path.join("README.md"),
+                    "Changed current evidence",
+                )
+                .unwrap(),
+                "instance" => crate::test_support::swap_workspace(&f.state, &final_capture.path),
+                _ => {
+                    runtime
+                        .replace_settings(final_capture.evaluation.settings.clone())
+                        .unwrap();
+                }
+            }
+            run_suggestion(&f.state, &runtime, &final_capture, &mut parent, &lease);
+            assert_eq!(parent.state, RunState::Interrupted, "{change}: {parent:?}");
+            assert_eq!(
+                std::fs::read(f.dir.path().join("provider-dispatched.count"))
+                    .unwrap()
+                    .len(),
+                2
+            );
+            assert_eq!(
+                ReadinessStore::new(&root)
+                    .history()
+                    .unwrap()
+                    .snapshots
+                    .len(),
+                1
+            );
+        }
+    }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn combined_recovery_joins_exact_committed_children_without_replaying_inference() {
+        let (f, runtime) = production_fixture("no_proposal");
+        let root = f.workspace_root();
+        assert_eq!(
+            schedule_mode(f.state.clone(), runtime.clone(), true).outcome,
+            "scheduled"
+        );
+        let mut parent = combined_terminal(&root).await;
+        parent.state = RunState::Running;
+        parent.phase = super::super::readiness_suggestions::Phase::Suggesting;
+        parent.completed_at = None;
+        parent.reason_code = None;
+        super::super::readiness_suggestions::save(&root, &parent).unwrap();
+        let lease = runtime.try_analysis_lease().unwrap().unwrap();
+        super::super::assessment::recover_workspace_record_under_lease(
+            &f.state,
+            &f.runtime_root,
+            &root,
+            &lease,
+        )
+        .unwrap();
+        assert_eq!(
+            super::super::readiness_suggestions::load(&root)
+                .unwrap()
+                .unwrap()
+                .reason_code
+                .as_deref(),
+            Some("no_proposal")
+        );
+        parent.assessment_id = Some("assessment-unrelated".into());
+        super::super::readiness_suggestions::save(&root, &parent).unwrap();
+        super::super::assessment::recover_workspace_record_under_lease(
+            &f.state,
+            &f.runtime_root,
+            &root,
+            &lease,
+        )
+        .unwrap();
+        assert_eq!(
+            super::super::readiness_suggestions::load(&root)
+                .unwrap()
+                .unwrap()
+                .state,
+            RunState::Interrupted
+        );
+        assert_eq!(
+            std::fs::read(f.dir.path().join("provider-dispatched.count"))
+                .unwrap()
+                .len(),
+            4
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn combined_holds_lease_through_suggestion_and_fences_access_or_instance_changes() {
+        for change in ["access", "instance"] {
+            let (f, runtime) = production_fixture("proposed");
+            let root = f.workspace_root();
+            std::fs::write(
+                f.dir.path().join("provider-response.block-workflow"),
+                "block",
+            )
+            .unwrap();
+            assert_eq!(
+                schedule_mode(f.state.clone(), runtime.clone(), true).outcome,
+                "scheduled"
+            );
+            for _ in 0..3000 {
+                if f.dir
+                    .path()
+                    .join("provider-response.workflow-started")
+                    .exists()
+                {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+            assert!(f
+                .dir
+                .path()
+                .join("provider-response.workflow-started")
+                .exists());
+            assert_eq!(
+                ReadinessStore::new(&root)
+                    .history()
+                    .unwrap()
+                    .snapshots
+                    .len(),
+                1
+            );
+            assert!(runtime.try_analysis_lease().unwrap().is_none());
+            assert_eq!(
+                schedule_with_runtime(f.state.clone(), runtime.clone()).outcome,
+                "already_running"
+            );
+            let path = f
+                .state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .path
+                .clone();
+            if change == "access" {
+                let mut settings = runtime
+                    .with_workspace_settings(&path, Clone::clone)
+                    .unwrap();
+                settings.context_level = super::super::runtime::ContextLevel::SessionObservations;
+                runtime.replace_settings(settings.clone()).unwrap();
+                super::super::assessment_access::reconcile_metadata(&root, &settings).unwrap();
+            } else {
+                crate::test_support::swap_workspace(&f.state, &path);
+            }
+            std::fs::write(
+                f.dir.path().join("provider-response.workflow-release"),
+                "go",
+            )
+            .unwrap();
+            let parent = combined_terminal(&root).await;
+            assert_eq!(parent.state, RunState::Interrupted, "{change}: {parent:?}");
+            assert!(f
+                .state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .recommendation_store
+                .list()
+                .unwrap()
+                .is_empty());
+            assert_eq!(
+                std::fs::read(f.dir.path().join("provider-dispatched.count"))
+                    .unwrap()
+                    .len(),
+                3
+            );
+            if change == "access" {
+                assert!(ReadinessStore::new(&root).history().unwrap().snapshots[0]
+                    .data
+                    .is_none());
+                let result = status(&f.state, f.runtime_root.clone());
+                assert!(result.suggestion_run.unwrap().no_proposal_reason.is_none());
+            }
+        }
+    }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn combined_partial_score_can_seek_a_suggestion_without_inventing_a_total() {
+        let (f, runtime) = production_fixture("no_proposal");
+        let captured = capture(&f.state, &runtime).unwrap();
+        let response = json!({"version":1,"summary":"Bounded repository evidence", "concepts":captured.rubric.concepts.iter().enumerate().map(|(i,c)| {
+            if i == 0 {json!({"conceptId":c.concept_id,"maturity":null,"confidence":null,"repositoryFactIds":[],"rubricPageId":c.page_id,"rationale":"Evidence is incomplete","limits":[],"nextTransition":"Evidence of workflow integration","unassessedReason":"Insufficient supplied evidence"})}
+            else {json!({"conceptId":c.concept_id,"maturity":2,"confidence":"medium","repositoryFactIds":[0],"rubricPageId":c.page_id,"rationale":"Documented repository guidance","limits":[],"nextTransition":"Evidence of workflow integration","unassessedReason":null})}
+        }).collect::<Vec<_>>()});
+        std::fs::write(
+            f.dir.path().join("provider-response.readiness-final"),
+            response.to_string(),
+        )
+        .unwrap();
+        assert_eq!(
+            schedule_mode(f.state.clone(), runtime, true).outcome,
+            "scheduled"
+        );
+        let parent = combined_terminal(&f.workspace_root()).await;
+        assert_eq!(parent.reason_code.as_deref(), Some("no_proposal"));
+        let history = ReadinessStore::new(&f.workspace_root()).history().unwrap();
+        let data = history.snapshots[0].data.as_ref().unwrap();
+        assert_eq!(data.coverage, 13);
+        assert_eq!(data.overall_score, None);
+    }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn historical_collector_two_scores_remain_readable_but_not_current() {
+        let (f, runtime) = production_fixture("no_proposal");
+        assert_eq!(
+            schedule_with_runtime(f.state.clone(), runtime).outcome,
+            "scheduled"
+        );
+        let store = ReadinessStore::new(&f.workspace_root());
+        terminal_run(&store).await;
+        let mut old = store.history().unwrap().snapshots[0].clone();
+        old.id = uuid::Uuid::new_v4().to_string();
+        let data = old.data.as_mut().unwrap();
+        data.identity.input_manifest.collector.collector_version = 2;
+        data.identity.versions["collector"] = json!(2);
+        store.append(old).unwrap();
+        assert_eq!(store.history().unwrap().snapshots.len(), 2);
+        assert_eq!(
+            status(&f.state, f.runtime_root.clone()).freshness,
+            "changed"
+        );
+    }
+
     async fn terminal_run(store: &ReadinessStore) -> Run {
         for _ in 0..3000 {
             if let Some(run) = store.run().unwrap() {

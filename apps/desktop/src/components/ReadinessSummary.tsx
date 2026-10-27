@@ -1,4 +1,4 @@
-import { compareReadiness, conceptLabel, type ReadinessSnapshot, type ReadinessStatus } from '../readiness';
+import { compareReadiness, conceptLabel, readinessQualification, type ReadinessSnapshot, type ReadinessStatus } from '../readiness';
 interface Props {snapshot:ReadinessSnapshot;baseline?:ReadinessSnapshot|null;freshness:ReadinessStatus['freshness']}
 export default function ReadinessSummary({snapshot,baseline,freshness}:Props){
  const data=snapshot.data;
@@ -15,6 +15,17 @@ export default function ReadinessSummary({snapshot,baseline,freshness}:Props){
   {freshness==='unknown'&&<p className="readiness-notice">Currentness could not be verified. This is a saved assessment.</p>}
   <p>Assessed at <time dateTime={snapshot.completedAt}>{new Date(snapshot.completedAt).toLocaleString()}</time> · {data.git.headOid?`Commit ${data.git.headOid.slice(0,10)}`:'No commit available'} · {data.git.dirty===true?'uncommitted changes':data.git.dirty===false?'clean worktree':'worktree state unknown'}</p>
   <p>{data.summary}</p>
+  <p className="readiness-notice">{readinessQualification(data)}</p>
+  <section aria-label="What to improve next">
+   <h4>What to improve next</h4>
+   <p>These are evidence and improvement needs from the saved assessment, not confirmed defects. Assess and suggest checks current evidence for one actionable fix.</p>
+   <ol>{[...data.concepts].filter(row=>row.nextTransition||row.unassessedReason).sort((a,b)=>(a.maturity??-1)-(b.maturity??-1)).slice(0,3).map(row=><li key={row.conceptId}>
+    <strong>{conceptLabel(row.conceptId)}</strong>{row.confidence&&<span> · {row.confidence} confidence</span>}
+    {row.unassessedReason&&<p><strong>Not assessed:</strong> {row.unassessedReason}</p>}
+    {row.nextTransition&&<p>{row.nextTransition}</p>}
+    {row.limits.length>0&&<ul>{row.limits.map((limit,i)=><li key={i}>{limit}</li>)}</ul>}
+   </li>)}</ol>
+  </section>
   {baseline&&<p>Baseline: {baseline.data?.overallScore??'Partial/redacted'}{baseline.data?.overallScore!==null&&baseline.data?' / 100':''} · {new Date(baseline.completedAt).toLocaleString()}{comparison.reason?` · ${comparison.reason}`:''}</p>}
   {data.inputFingerprint && baseline?.data?.inputFingerprint === data.inputFingerprint && <p>Same assessed inputs — score differences may reflect model variability.</p>}
   <details><summary>Individual scores ({data.concepts.length})</summary>
