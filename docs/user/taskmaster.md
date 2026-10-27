@@ -173,12 +173,16 @@ without exposing raw provider output.
 
 This feature requires complete verified signed Brain rubric guidance and an
 available configured Taskmaster model. Signed publication and the generated
-starter are verified. The [qualified fixture profile](../validation/repository-readiness-runtime.md#qualified-profile)
-is Codex **GPT-6.1-Sol with low reasoning effort**; GPT-6-Luna medium did not meet
-the quality bar. Select the desired model in Taskmaster settings, which are shared
-with other Taskmaster analysis. The feature does not change your model selection.
-Source validation does not establish availability in an existing installer. Existing **Assess workflow** continues
-to suggest one bounded improvement separately.
+starter are verified. The [original qualified fixture profile](../validation/repository-readiness-runtime.md#qualified-profile)
+was Codex **GPT-6.1-Sol with low reasoning effort**, evaluated against an earlier
+readiness collector version; GPT-6-Luna medium did not meet the quality bar.
+Current source ships a newer collector that did not retain that qualification, so
+Settings currently shows every profile, including GPT-6.1-Sol low, as having no
+retained readiness qualification. Select the desired model in Taskmaster settings,
+which are shared with other Taskmaster analysis. The feature does not change your
+model selection. Source validation does not establish availability in an existing
+installer. Existing **Assess workflow** continues to suggest one bounded
+improvement separately.
 
 
 ### Get a concrete next step after scoring

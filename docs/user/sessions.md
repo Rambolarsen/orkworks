@@ -21,7 +21,7 @@ to the previous view. Existing sessions keep running while you compose.
 Published installers may still show the earlier creation popup.
 
 Current source builds can include images when starting a verified Codex version
-(currently Codex 0.163.0 on macOS arm64). Paste a screenshot, drop image files
+(currently Codex 0.163.0 or 0.164.0 on macOS arm64). Paste a screenshot, drop image files
 into the composer, or choose **Attach images**. Review the thumbnails and use
 **Remove** before starting. PNG, JPEG, and WebP are supported, up to eight images,
 5 MiB each and 20 MiB total. An image-only start asks the agent to describe them.
