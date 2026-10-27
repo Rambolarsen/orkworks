@@ -26,7 +26,50 @@ if (process.versions.electron) {
       await fresh();
       const scenario = process.env.ORKWORKS_SHELL_SCENARIO;
       const click = async command => evaluate('(()=>{const b=document.querySelector("[data-shell-command=' + command + ']");b.focus();b.click()})()');
-      if (scenario === 'open-session-app') {
+      if (scenario === 'app-review-terminal-links') {
+        await waitFor('fixture.runtime()?.terminal.element?.isConnected');
+        const activatePath = async (historical = false) => {
+          const point = await evaluate(`(()=>{
+            const screen=document.querySelector('.terminal-container .xterm-screen');
+            const rect=screen.getBoundingClientRect();
+            const term=fixture.runtime()?.terminal;
+            return {x:Math.round(rect.x+rect.width/${historical ? 80 : 'term.cols'}*3),y:Math.round(rect.y+rect.height/${historical ? 24 : 'term.rows'}*0.5)};
+          })()`);
+          win.webContents.sendInputEvent({type:'mouseMove',...point});
+          await waitFor('document.querySelector(".xterm-cursor-pointer")');
+          win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...point});
+          win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,...point});
+        };
+        await evaluate('fixture.output("specs/clicked.md\\r\\n")');
+        await waitFor('fixture.runtime().terminal.buffer.active.getLine(0)?.translateToString(true)==="specs/clicked.md"');
+        await activatePath();
+        assert.deepEqual(await evaluate('fixture.planSelections'), [['created','specs/clicked.md']]);
+        await waitFor('fixture.reads.length===1');
+        await waitFor('document.querySelector("[data-shell-region=review]")?.textContent.includes("Clicked document")');
+        assert.deepEqual(await evaluate('fixture.planSelections'), [['created','specs/clicked.md']]);
+        assert.equal(await evaluate('fixture.prompts'), 0, 'reading never requests an independent review');
+        await evaluate('document.querySelector("[data-review-return]").click()');
+        await waitFor('fixture.runtime()?.terminal.element?.isConnected');
+        await evaluate('fixture.selectionFailure=true');
+        await activatePath();
+        await waitFor('document.body.textContent.includes("Document is unavailable")');
+        assert.equal(await evaluate('!!document.querySelector("[data-shell-region=review]")'),false);
+        await evaluate('fixture.selectionFailure=false;fixture.deferSelection=true');
+        await activatePath();
+        await waitFor('!!fixture.finishSelection');
+        await evaluate('document.querySelector("[data-session-id=other] .session-row-select").click()');
+        await waitFor('document.querySelector(".shell-context h1").textContent==="other"');
+        await evaluate('fixture.finishSelection()');
+        await waitFor('document.querySelector(".historical-terminal-size")');
+        assert.equal(await evaluate('!!document.querySelector("[data-shell-region=review]")'),false,'late selection cannot open another session');
+        assert.deepEqual(await evaluate('fixture.reads'), ['created']);
+        await evaluate('fixture.deferSelection=false');
+        await activatePath(true);
+        await waitFor('document.querySelector("[data-shell-region=review]")?.textContent.includes("Other session plan")');
+        assert.deepEqual(await evaluate('fixture.planSelections.at(-1)'), ['other','specs/history.md']);
+        assert.deepEqual(await evaluate('fixture.errors'), []);
+        return;
+      } else if (scenario === 'open-session-app') {
         await waitFor('document.querySelector("[data-session-app-trigger]").textContent.includes("ChatGPT")');
         assert.deepEqual(await evaluate('fixture.nativeOpened'), [], 'rendering never opens an application');
         await evaluate('document.querySelector("[data-session-app-trigger]").click()');
@@ -1475,7 +1518,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['recommendation-status-error','app-review-changes','open-session-app','sidebar-icon-rail','app-review-archived-stale','recommendations-main','inspector-dismissal','inspector-overlay','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','sidebar-icon-rail','app-review-archived-stale','recommendations-main','inspector-dismissal','inspector-overlay','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
@@ -1535,9 +1578,11 @@ if (process.versions.electron) {
           });
           if ((${JSON.stringify(scenario)}.startsWith('app-'))) {
             fixture.posts=0;fixture.navigation=[];fixture.navigationRebuilds=0;fixture.cancelNavigationRebuild=true;fixture.navigationDiagnostic=${JSON.stringify(scenario)}.includes('navigation-recovery')?'corrupt_record':null;fixture.activeWrites=0;fixture.reads=[];fixture.navigationReads=0;
-            fixture.plan='# Current plan';fixture.savedSurface=${JSON.stringify(scenario)}.includes('restore')||${JSON.stringify(scenario)}==='app-review-opening-navigation'?'review':'terminal';
+            fixture.plan='# Current plan';fixture.planSelections=[];
+            if(${JSON.stringify(scenario)}==='app-review-terminal-links')fixture.plan='# Clicked document';fixture.savedSurface=${JSON.stringify(scenario)}.includes('restore')||${JSON.stringify(scenario)}==='app-review-opening-navigation'?'review':'terminal';
             const reviewSession=id=>({id,label:id,harness:'generic-shell',harnessId:'generic-shell',lifecycle:'alive',status:'running',cwd:'/tmp/test',created_at:'2026-10-13T10:00:00Z',memoryState:'live',resumeStrategy:'none',hasOpenablePlan:true,repoRoot:'/tmp/test',branch:'feature'});
             fixture.sessionList=${JSON.stringify(scenario)}.startsWith('app-review')?[reviewSession('created'),reviewSession('other')]:[];
+            if(${JSON.stringify(scenario)}==='app-review-terminal-links'){fixture.sessionList[0].hasOpenablePlan=false;fixture.sessionList[1].lifecycle='dead';fixture.sessionList[1].status='ended';}
             if(${JSON.stringify(scenario)}==='app-review-empty-navigation-recovery')fixture.sessionList=[];
             if(${JSON.stringify(scenario)}==='app-review-stale-read-restore')fixture.deferRead=true;
             if(${JSON.stringify(scenario)}==='app-review-unreadable-restore')fixture.unreadable=true;
@@ -1555,6 +1600,7 @@ if (process.versions.electron) {
               getProviderModels:async()=>({models:[]}),getWorkspaceNavigation:async()=>{if(${JSON.stringify(scenario)}==='app-review-pending-navigation-recovery'&&fixture.navigationReads++){return new Promise((resolve,reject)=>{fixture.resolveNewNavigation=resolve;fixture.rejectNewNavigation=reject})}if(${JSON.stringify(scenario)}==='app-review-delayed-navigation-recovery'&&!fixture.navigationReads++){return new Promise((resolve,reject)=>{fixture.resolveOldNavigation=resolve;fixture.rejectOldNavigation=reject})}if(${JSON.stringify(scenario)}==='app-review-stale-restore')await new Promise(resolve=>fixture.resolveNavigation=resolve);return {lastCentralSurface:fixture.savedSurface,revision:0,diagnostic:fixture.navigationDiagnostic}},
               completeWorkspaceNavigation:async surface=>{if(["corrupt_record","unsupported_version"].includes(fixture.navigationDiagnostic))return {ok:false,diagnostic:fixture.navigationDiagnostic};fixture.navigation.push(surface);if(${JSON.stringify(scenario)}==='app-review-create-persistence')fixture.savedSurface=surface;return {ok:true}},
               rebuildWorkspaceNavigation:async()=>{fixture.navigationRebuilds++;if(fixture.deferNavigationRebuild)await new Promise(resolve=>fixture.finishNavigationRebuild=resolve);if(fixture.cancelNavigationRebuild)return {ok:false,diagnostic:'user_cancelled'};fixture.navigationDiagnostic=null;return {ok:true}},
+              selectTerminalPlan:async (id,path)=>{fixture.planSelections.push([id,path]);if(fixture.selectionFailure)throw new Error('Document is unavailable');if(fixture.deferSelection)await new Promise(resolve=>fixture.finishSelection=resolve)},
               getPlanContent:async id=>{fixture.reads.push(id);if(fixture.deferRead)return new Promise((resolve,reject)=>{fixture.resolveRead=resolve;fixture.rejectRead=reject});if(fixture.unreadable)throw new Error('Missing plan');return id==='other'?'# Other session plan':fixture.plan},
               requestPlanReview:async id=>{fixture.prompts++;fixture.promptSession=id;await new Promise((resolve,reject)=>{fixture.finishPrompt=resolve;fixture.rejectPrompt=reject})},
             });
@@ -1568,7 +1614,7 @@ if (process.versions.electron) {
                 fixture.sessionList=[created];return response(created);
               }
               if(path.endsWith('/summary-log'))return response({entries:[]});
-              if(path==='/sessions/other/terminal-output')return response({lines:['saved output'],cols:80,rows:24});
+              if(path==='/sessions/other/terminal-output')return response({lines:[${JSON.stringify(scenario)}==='app-review-terminal-links'?'specs/history.md':'saved output'],cols:80,rows:24});
               if(path==='/sessions'){if(['app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery'].includes(${JSON.stringify(scenario)})&&!fixture.sessionsReleased)await new Promise(resolve=>fixture.releaseSessions=()=>{fixture.sessionsReleased=true;resolve()});return response(fixture.sessionList);}
               if(path==='/harnesses')return response({harnesses:[],documentRevision:null});
               if(path==='/providers')return response({providers:[],appliedRevision:null});

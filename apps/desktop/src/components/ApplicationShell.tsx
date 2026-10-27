@@ -36,6 +36,7 @@ interface Props {
   reviewLoading?: boolean;
   reviewError?: boolean;
   onOpenReview?: () => void;
+  onSelectPlan?: (sessionId: string, path: string) => Promise<void>;
   onRequestPlanReview?: (sessionId: string) => Promise<void>;
   onNavigate?: () => void;
   onCloseReview?: () => void;
@@ -468,7 +469,7 @@ export default function ApplicationShell(props: Props) {
         {props.newSessionContent && <section hidden={!showComposer} className="shell-region shell-region--central shell-composer-region" aria-label="New agent session" data-shell-region="new-session">{props.newSessionContent}</section>}
         {showTerminal && <section className="shell-region shell-region--central" aria-label="Terminal" data-shell-region="terminal">
           <TerminalPanel key={`${session?.id ?? "none"}-${props.resumeTick}`} backendStatus={props.backendStatus} session={session}
-            onBackendUnavailable={props.onBackendUnavailable} onRetryBackend={props.onRetryBackend} />
+            onBackendUnavailable={props.onBackendUnavailable} onRetryBackend={props.onRetryBackend} onSelectPlan={props.onSelectPlan} />
         </section>}
         {showReview && <section className="shell-region shell-region--central" aria-label="Review" data-shell-region="review">
           <header className="shell-region-header">
