@@ -228,3 +228,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Repository agent-readiness scoring and history](2026-10-25-repository-agent-readiness.md) — Approved rubric, scoring, history and verification delivery for #1063.
 
 - [Hierarchy UI preview](2026-10-26-hierarchy-ui-preview.md) — Fixture-backed interaction preview and bounded implementation handoff.
+
+- [Readiness assessment and grounded suggestions](2026-10-26-readiness-suggestions.md) — Approved combined action, evidence, qualification and recovery for #1091.

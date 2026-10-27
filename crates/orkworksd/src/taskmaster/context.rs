@@ -213,6 +213,10 @@ pub(super) fn context_priority(
         )
     {
         0
+    } else if path.components().count() == 1 && matches!(name, "docs" | "doc" | "documentation") {
+        // Make linked project guidance discoverable before large source/skill
+        // trees exhaust the unchanged traversal allowance.
+        2
     } else if matches!(name, "AGENTS.md" | "CLAUDE.md") {
         1
     } else if matches!(
@@ -220,6 +224,11 @@ pub(super) fn context_priority(
         "Cargo.toml" | "package.json" | "pyproject.toml" | "go.mod"
     ) {
         2
+    } else if path.starts_with("docs")
+        || path.starts_with("doc")
+        || path.starts_with("documentation")
+    {
+        2 // Preserve current documentation in the bounded catalog ahead of generic skill trees.
     } else if score > 0
         || path.starts_with(".github")
         || path.starts_with("docs/agents")

@@ -40,6 +40,10 @@ schema_path = pathlib.Path(args[args.index('--output-schema') + 1]) if '--output
 response.with_suffix('.' + stage + '-schema').write_text(schema_path.read_text() if schema_path else 'null')
 response.with_suffix('.' + stage + '-schema-path').write_text(str(schema_path) if schema_path else '')
 response.with_suffix('.' + stage + '-constraint').write_text(json.dumps(prompt.get('nativeResponseConstraint')))
+if prompt.get('protocol') == 'taskmaster-discovery-v1' and response.with_suffix('.block-workflow').exists():
+    import time
+    response.with_suffix('.workflow-started').write_text('started')
+    while not response.with_suffix('.workflow-release').exists(): time.sleep(0.01)
 if prompt.get('protocol') != 'taskmaster-discovery-v1' and response.with_suffix('.block-final').exists():
     import time
     response.with_suffix('.final-started').write_text('started')

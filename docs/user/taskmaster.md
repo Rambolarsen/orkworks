@@ -179,3 +179,27 @@ the quality bar. Select the desired model in Taskmaster settings, which are shar
 with other Taskmaster analysis. The feature does not change your model selection.
 Source validation does not establish availability in an existing installer. Existing **Assess workflow** continues
 to suggest one bounded improvement separately.
+
+
+### Get a concrete next step after scoring
+
+Current source adds **Assess and suggest** as the primary readiness action. It
+first saves the score, then asks the existing workflow assessment for one
+improvement supported by current repository evidence and signed Brain guidance.
+The combined action can make up to four model calls with your configured
+Taskmaster model. **Assess readiness** remains available for scoring alone.
+
+The result shows a recommendation, an existing active recommendation, or a reason
+why no supported change was identified. Review a recommendation before choosing
+**Fix with AI**. A low score may reflect missing evidence rather than a defect;
+it does not require a recommendation. If finding a suggestion fails or is
+interrupted, the saved score remains available. Changes of workspace, evidence
+or Taskmaster configuration interrupt the continuation instead of carrying it
+into another workspace or model selection.
+
+**What to improve next** exposes the lowest-rated or unassessed areas and their
+evidence limits beside the score. These are investigation needs, not confirmed
+fixes. The model-profile note describes retained qualification limits; OrkWorks
+does not change your model automatically. Historical assessments keep their own
+model and evidence identity. Source delivery does not establish availability in
+your installed release.

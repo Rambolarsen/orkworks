@@ -1,0 +1,160 @@
+{
+  "concepts": [
+    {
+      "conceptId": "context-discovery",
+      "confidence": "high",
+      "limits": ["Setup and test behavior remain unverified.", "Entry-point accuracy during practical tasks is not established."],
+      "maturity": 1,
+      "nextTransition": "Evidence of accurate setup, build applicability, test guidance and conventions supporting independent task completion.",
+      "rationale": "Root guidance identifies setup, tests, package conventions and deeper documentation. Supplied text supports discoverability rather than demonstrated practical usability.",
+      "repositoryFactIds": [0, 1, 3],
+      "rubricPageId": "playbooks/agent-readiness-rubric.md",
+      "unassessedReason": null
+    },
+    {
+      "conceptId": "progressive-disclosure",
+      "confidence": "high",
+      "limits": ["Documentation maintenance alongside repository changes is unknown."],
+      "maturity": 2,
+      "nextTransition": "Evidence of layered guidance aligned with workflow boundaries and maintained alongside repository changes.",
+      "rationale": "Short root guidance routes setup, architecture, domain terminology and lessons to separate topic-specific documents, supporting selective context retrieval for common tasks.",
+      "repositoryFactIds": [0, 3, 4, 5, 6],
+      "rubricPageId": "playbooks/agent-readiness-rubric.md",
+      "unassessedReason": null
+    },
+    {
+      "conceptId": "instruction-scoping",
+      "confidence": null,
+      "limits": ["The supplied root guide does not establish subsystem-specific instruction coverage.", "Omitted material establishes no absence of scoped instructions."],
+      "maturity": null,
+      "nextTransition": "Evidence of sectioned or nested subsystem instructions and their relationship to repository boundaries.",
+      "rationale": "Topic links establish documentation routing but provide insufficient evidence of subsystem-specific rules or their applicability.",
+      "repositoryFactIds": [0],
+      "rubricPageId": "playbooks/agent-readiness-rubric.md",
+      "unassessedReason": "The supplied evidence establishes neither scoped subsystem instructions nor their absence."
+    },
+    {
+      "conceptId": "architecture-awareness",
+      "confidence": "high",
+      "limits": ["Maintenance alongside structural changes is unknown.", "Behavioral correctness remains unverified."],
+      "maturity": 2,
+      "nextTransition": "Evidence of architecture documentation maintenance alongside structural changes.",
+      "rationale": "Root-linked architecture documentation identifies the catalog factory, storage ownership, validation location and test location. These descriptions align with the supplied source and support locating common changes.",
+      "repositoryFactIds": [0, 4, 7, 8],
+      "rubricPageId": "playbooks/agent-readiness-rubric.md",
+      "unassessedReason": null
+    },
+    {
+      "conceptId": "domain-knowledge",
+      "confidence": "high",
+      "limits": ["The glossary explicitly lacks detailed definitions and business invariants.", "Source-level rules do not establish documented domain knowledge."],
+      "maturity": 1,
+      "nextTransition": "Evidence of specific documented domain definitions and invariants sufficient for common catalog changes.",
+      "rationale": "Root-linked domain documentation names products, SKU and stock, but explicitly lacks the detail needed for independent application of domain rules.",
+      "repositoryFactIds": [0, 5],
+      "rubricPageId": "playbooks/agent-readiness-rubric.md",
+      "unassessedReason": null
+    },
+    {
+      "conceptId": "environment-reproducibility",
+      "confidence": "high",
+      "limits": ["Clean-checkout environment reliability remains unverified.", "CI configuration establishes intended automation rather than consistent results."],
+      "maturity": 1,
+      "nextTransition": "Evidence of reliable environment preparation from a clean checkout using the documented setup sequence.",
+      "rationale": "The README documents setup and tool versions, with matching package metadata and CI setup intent. No supplied outcome establishes a working clean-checkout environment.",
+      "repositoryFactIds": [1, 2, 3],
+      "rubricPageId": "playbooks/agent-readiness-rubric.md",
+      "unassessedReason": null
+    },
+    {
+      "conceptId": "tool-accessibility",
+      "confidence": "high",
+      "limits": ["Actual tool availability and installation reliability remain unverified."],
+      "maturity": 1,
+      "nextTransition": "Evidence of reliable environment alignment with the documented tool requirements.",
+      "rationale": "Node and package-manager versions are explicitly documented and represented in package metadata. CI configuration adds provisioning intent without establishing actual availability.",
+      "repositoryFactIds": [1, 2, 3],
+      "rubricPageId": "playbooks/agent-readiness-rubric.md",
+      "unassessedReason": null
+    },
+    {
+      "conceptId": "task-decomposition",
+      "confidence": null,
+      "limits": ["A small-plan expectation does not establish a decomposition example or modeled workflow."],
+      "maturity": null,
+      "nextTransition": "Evidence of a concrete decomposed task example or a documented stepwise workflow.",
+      "rationale": "The root guide requests a small plan and focused tests, but supplies no task breakdown or explicit decomposition model.",
+      "repositoryFactIds": [0],
+      "rubricPageId": "playbooks/agent-readiness-rubric.md",
+      "unassessedReason": "The supplied planning expectation is insufficient for Discoverable maturity, while omitted task history prevents an Implicit rating."
+    },
+    {
+      "conceptId": "verification",
+      "confidence": "high",
+      "limits": ["No change-type-to-targeted-check mapping is supplied.", "Test outcomes, failure detection and CI reliability remain unverified."],
+      "maturity": 1,
+      "nextTransition": "Evidence of documented targeted-check selection based on the kind of catalog change.",
+      "rationale": "The README documents a test entry point and package metadata defines it. Tests and CI configuration establish validation intent, not targeted selection or reliable outcomes.",
+      "repositoryFactIds": [1, 2, 3, 7],
+      "rubricPageId": "playbooks/agent-readiness-rubric.md",
+      "unassessedReason": null
+    },
+    {
+      "conceptId": "observability",
+      "confidence": null,
+      "limits": ["The lessons file contains no task outcomes.", "CI configuration provides no observed results or change history."],
+      "maturity": null,
+      "nextTransition": "Evidence of an actual change or outcome record with contextual detail.",
+      "rationale": "An empty lessons destination and CI configuration establish recording opportunities rather than records of what happened.",
+      "repositoryFactIds": [2, 3, 6],
+      "rubricPageId": "playbooks/agent-readiness-rubric.md",
+      "unassessedReason": "No actual outcome record is supplied, and omitted logs or history prevent a conclusion that records are absent."
+    },
+    {
+      "conceptId": "change-safety",
+      "confidence": "high",
+      "limits": ["Technical enforcement, protected branches and permission constraints are not established."],
+      "maturity": 1,
+      "nextTransition": "Evidence of deliberate structural confirmation or permission barriers for common destructive actions.",
+      "rationale": "The root guide identifies data deletion and publishing as approval-sensitive activities and prohibits autonomous deployment. These are documented safeguards rather than technical barriers.",
+      "repositoryFactIds": [0],
+      "rubricPageId": "playbooks/agent-readiness-rubric.md",
+      "unassessedReason": null
+    },
+    {
+      "conceptId": "feedback-loops",
+      "confidence": "high",
+      "limits": ["The designated lessons file contains no completed task outcomes.", "Feedback into instructions or tooling is not established."],
+      "maturity": 1,
+      "nextTransition": "Evidence of specific recorded outcomes with enough context for future corrective action.",
+      "rationale": "The root guide directs lessons to a designated durable document. That document establishes an outcome-recording mechanism despite its currently empty outcome history.",
+      "repositoryFactIds": [0, 6],
+      "rubricPageId": "playbooks/agent-readiness-rubric.md",
+      "unassessedReason": null
+    },
+    {
+      "conceptId": "durable-memory",
+      "confidence": "medium",
+      "limits": ["Actual capture frequency and session-end habits are not established.", "The lessons file explicitly reports no curation process."],
+      "maturity": 2,
+      "nextTransition": "Evidence of habitual durable capture as part of ordinary task completion.",
+      "rationale": "The root guide identifies a specific lessons document and a direct recording convention, providing a clear low-friction destination for durable knowledge.",
+      "repositoryFactIds": [0, 6],
+      "rubricPageId": "playbooks/agent-readiness-rubric.md",
+      "unassessedReason": null
+    },
+    {
+      "conceptId": "human-oversight",
+      "confidence": "high",
+      "limits": ["Required review and approval are stated expectations rather than demonstrated structural enforcement."],
+      "maturity": 2,
+      "nextTransition": "Evidence of structurally enforced review or authorization boundaries for the documented risk categories.",
+      "rationale": "The root guide distinguishes ordinary changes from API changes, deletion and publishing, with maintainer consultation for higher-risk categories and review before merge.",
+      "repositoryFactIds": [0],
+      "rubricPageId": "playbooks/agent-readiness-rubric.md",
+      "unassessedReason": null
+    }
+  ],
+  "summary": "Supplied evidence supports discoverable setup, tools, validation and safety guidance, with usable documentation routing, architecture descriptions, durable capture conventions and oversight categories. Domain documentation remains skeletal. Instruction scoping, task decomposition and observability remain unassessed because their required evidence is insufficient. Configuration and policy establish intent rather than observed reliability, technical enforcement or ongoing maintenance. No overall score is assigned.",
+  "version": 1
+}

@@ -235,3 +235,100 @@ not a finite-verb denylist. Unknown extensions retain conservative rejection;
 past/plural command introductions and attached factual predicates remain blocked. Removing prompt workarounds would change the
 qualified input and requires separately retained provider evidence; the
 existing model-specific qualification above is not expanded by these tests.
+
+
+## Combined assessment follow-up (#1091)
+
+The owner approved [Assess and suggest](../superpowers/plans/2026-10-26-readiness-suggestions.md)
+on 2026-10-27. Its regression first reproduced an HTTP 404 and missing visible
+next steps/model limits. The combined route now reuses readiness and the existing
+workflow assessment under one analysis lease; synthetic transport checks cover
+one grounded recommendation in four calls, fresh evaluation after a cached
+no-proposal, active-card admission, independent stage failure, input changes and
+exact-child recovery. These deterministic checks do not qualify a model.
+
+A 2,100-file skill-tree fixture reproduced starvation of linked architecture and
+domain guidance from the bounded catalog. Collector version 3 prioritizes current
+documentation during traversal and catalog selection. It retains exclusions,
+unsafe-link checks and existing byte/path/depth bounds. Version-2 historical
+manifests remain readable and cannot masquerade as current version-3 input.
+The original qualification above applies to its retained collector/prompt inputs;
+new collector qualification must be supported by separately retained trials.
+
+
+### Collector-3 live trial disposition
+
+**FAIL: Codex GPT-6.1-Sol, low effort, collector 3**, evaluated on 2026-10-27
+with the unchanged readiness-v1 prompt and signed brain-3. All nine uncached
+two-call trials completed without repair, retry, rejection or timeout. The
+[exact retained synthetic inputs and outputs](fixtures/readiness-suggestions-2026-10-27/index.md)
+include byte hashes and all ratings. Independent semantic review inspected all
+126 rows: 99 rated, 27 unassessed. The three unknown areas remained unassessed in
+every trial; all snapshots honestly have 11/14 coverage and no overall number.
+Domain knowledge improved 1 to 2 in all three controlled pairs. No execution,
+reliability, CI outcome, technical enforcement or unsupported complete-coverage
+claim was found.
+
+One finding prevents qualification: healthy-2 rates durable memory 1 because it
+claims the root guide lacks a capture procedure. Supplied fact 0 explicitly
+instructs recording lessons in a named persistent file, which supports the rubric's
+known low-friction capture action at level 2. Other trials correctly rate this
+same fact set 2. The conservative underrating and all original outputs are
+retained; no failed sample was repaired or replaced.
+
+The application therefore makes no qualification claim for collector 3. Its
+model-profile notice says the current configuration is unqualified; the original
+collector-2 qualification remains limited to its original retained inputs.
+Scores/area transitions are never fed into proposal evidence. The combined
+workflow uses independent current repository citations and the existing
+recommendation authority contract. These trials do not qualify arbitrary repos,
+real-world performance or end-to-end combined workflow inference. Follow-up
+model calibration requires its own retained evidence rather than a silent retry.
+
+
+### Current-diff review recovery correction
+
+The independent medium-effort code review of `0948957f` found that an exact
+committed failed suggestion child could be reported as interrupted after a crash
+before parent finalization. New regressions reproduced this for both score and
+suggestion failures, and rejected a suggesting phase without a child identity.
+Recovery now preserves exact terminal failures with fixed stage codes. Persisted
+state/phase/child combinations are validated; missing, unfinished or mismatched
+children remain interrupted. The focused readiness set passes 33 tests with the
+explicit live trial harness ignored. Final review and full-verifier evidence are
+recorded on the PR after this correction.
+
+
+### Targeted suggestion-stage trials
+
+The existing workflow quality harness separately evaluated three positive,
+three healthy and three refuted synthetic repositories with GPT-6.1-Sol low.
+Independent review found both surfaced positive proposals grounded and bounded
+to repairing the skipped package test script that CI delegates to, with checks
+left unverified. The third positive response was rejected as `invalid_prose`
+and receives zero credit; no failed trial was repaired or repeated.
+
+All healthy and refuted trials completed with no proposal. In refuted trials the
+wrapper source actually delegates to the test suite, but was not supplied to the
+model: the response correctly leaves its behavior unknown rather than claiming
+verification or inferring a defect. Exact fixture sources, outputs and reports
+are retained in the [supplemental corpus](fixtures/readiness-suggestions-2026-10-27/index.md).
+The existing harness did not retain exact prompts. Filtered invocations report a
+failed whole-matrix adjudication because old-noise/scoped families and review.json
+files were not supplied. These targeted outcomes (2/3 positive, 0/3 healthy,
+0/3 refuted proposals) do not qualify the full matrix or general model behavior.
+
+The unsupported readiness underrating remains tracked in
+[#1097](https://github.com/Rambolarsen/orkworks/issues/1097); collector-3 scoring
+continues to display its unqualified status.
+
+### Pending-publication review correction
+
+Automated review found that a combined parent was terminalized while its exact
+workflow child still held a recoverable pending-publication marker. An injected
+final-commit and immediate-reconciliation failure reproduced the incorrect failed
+parent. The parent now retains its durable child linkage while publication is
+pending or its result is unreadable. Existing child recovery resolves publication
+before the parent reconciles to the exact recommendation; it dispatches no new
+inference. The regression also checks that the pending card is hidden, the score
+is retained, and provider-call count remains four.

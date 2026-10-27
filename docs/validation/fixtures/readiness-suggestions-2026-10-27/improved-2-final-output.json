@@ -1,0 +1,160 @@
+{
+  "concepts": [
+    {
+      "conceptId": "context-discovery",
+      "confidence": "high",
+      "limits": ["Setup reliability and entry-point maintenance history remain unverified."],
+      "maturity": 1,
+      "nextTransition": "Evidence of accurate build and test coverage and dependable entry-point guidance for a clean-checkout task.",
+      "rationale": "Root guidance documents prerequisites, testing, conventions, and links to architecture and domain detail. Operational accuracy beyond the supplied text remains unverified.",
+      "repositoryFactIds": [0, 1, 3],
+      "rubricPageId": "playbooks/agent-readiness-rubric.md",
+      "unassessedReason": null
+    },
+    {
+      "conceptId": "progressive-disclosure",
+      "confidence": "high",
+      "limits": ["Maintenance alongside repository changes is unknown."],
+      "maturity": 2,
+      "nextTransition": "Evidence of workflow-aligned guidance layers maintained alongside repository changes.",
+      "rationale": "Concise root guidance routes setup, architecture, domain rules, and lessons to separate documents with relevant detail for common catalog tasks.",
+      "repositoryFactIds": [0, 3, 4, 5, 6],
+      "rubricPageId": "playbooks/agent-readiness-rubric.md",
+      "unassessedReason": null
+    },
+    {
+      "conceptId": "instruction-scoping",
+      "confidence": null,
+      "limits": ["Topic links do not establish subsystem-specific instruction coverage."],
+      "maturity": null,
+      "nextTransition": "Evidence of subsystem instruction boundaries and their discoverable routing.",
+      "rationale": "The supplied guide covers one catalog library and links topic documentation. Subsystem-specific instruction organization is not established.",
+      "repositoryFactIds": [0, 4],
+      "rubricPageId": "playbooks/agent-readiness-rubric.md",
+      "unassessedReason": "The supplied evidence establishes neither scoped subsystem instructions nor the absence of such instructions."
+    },
+    {
+      "conceptId": "architecture-awareness",
+      "confidence": "high",
+      "limits": ["Documentation maintenance alongside structural changes is unknown."],
+      "maturity": 2,
+      "nextTransition": "Evidence of architecture documentation updates alongside structural changes.",
+      "rationale": "Root-linked architecture documentation identifies the factory, product map, validation responsibility, and test location. Supplied source aligns with these structural descriptions.",
+      "repositoryFactIds": [0, 4, 7, 8],
+      "rubricPageId": "playbooks/agent-readiness-rubric.md",
+      "unassessedReason": null
+    },
+    {
+      "conceptId": "domain-knowledge",
+      "confidence": "high",
+      "limits": ["Documentation updates alongside domain changes are unknown."],
+      "maturity": 2,
+      "nextTransition": "Evidence of domain documentation maintenance alongside changes to catalog rules.",
+      "rationale": "The root-linked glossary specifies SKU identity, duplicate rejection, stock units, and invalid stock values. Supplied source and test definitions align with these documented rules.",
+      "repositoryFactIds": [0, 5, 7, 8],
+      "rubricPageId": "playbooks/agent-readiness-rubric.md",
+      "unassessedReason": null
+    },
+    {
+      "conceptId": "environment-reproducibility",
+      "confidence": "high",
+      "limits": ["Clean-checkout setup reliability remains unverified.", "CI configuration establishes intended automation only."],
+      "maturity": 1,
+      "nextTransition": "Evidence of reliable environment preparation from a clean checkout using the documented sequence.",
+      "rationale": "The README documents setup and prerequisites. Package metadata and CI configuration specify toolchain expectations without establishing a working environment.",
+      "repositoryFactIds": [1, 2, 3],
+      "rubricPageId": "playbooks/agent-readiness-rubric.md",
+      "unassessedReason": null
+    },
+    {
+      "conceptId": "tool-accessibility",
+      "confidence": "high",
+      "limits": ["Tool availability and installation reliability remain unverified."],
+      "maturity": 1,
+      "nextTransition": "Evidence of reliable tool availability and version alignment from the documented requirements.",
+      "rationale": "Node and package-manager requirements are explicit in the README and package metadata. CI provisioning describes intended availability rather than demonstrated accessibility.",
+      "repositoryFactIds": [1, 2, 3],
+      "rubricPageId": "playbooks/agent-readiness-rubric.md",
+      "unassessedReason": null
+    },
+    {
+      "conceptId": "task-decomposition",
+      "confidence": null,
+      "limits": ["A small-plan expectation does not establish a decomposition example or procedure."],
+      "maturity": null,
+      "nextTransition": "Evidence of a repository task broken into reviewable steps or a documented decomposition workflow.",
+      "rationale": "The guide requests a small plan and focused tests, but supplies no stepwise task example or decomposition model.",
+      "repositoryFactIds": [0],
+      "rubricPageId": "playbooks/agent-readiness-rubric.md",
+      "unassessedReason": "Neither a qualifying decomposition example nor evidence of its absence is supplied."
+    },
+    {
+      "conceptId": "verification",
+      "confidence": "high",
+      "limits": ["Change-type selection of targeted checks is not established.", "Test outcomes and CI reliability remain unverified."],
+      "maturity": 1,
+      "nextTransition": "Evidence of documented check selection by change type rather than only a general test entry point.",
+      "rationale": "The README documents a test entry point and the repository defines catalog invariant tests. CI configuration adds intended automation without observed results or reliability.",
+      "repositoryFactIds": [1, 2, 3, 7],
+      "rubricPageId": "playbooks/agent-readiness-rubric.md",
+      "unassessedReason": null
+    },
+    {
+      "conceptId": "observability",
+      "confidence": null,
+      "limits": ["The lessons document contains no task outcomes.", "Change history and observed CI records are not supplied."],
+      "maturity": null,
+      "nextTransition": "Evidence of a persistent change or outcome record describing repository activity.",
+      "rationale": "The supplied material includes intended CI automation and an empty lessons mechanism, not a record of repository activity.",
+      "repositoryFactIds": [2, 3, 6],
+      "rubricPageId": "playbooks/agent-readiness-rubric.md",
+      "unassessedReason": "Available evidence does not establish activity records or their repository-wide absence."
+    },
+    {
+      "conceptId": "change-safety",
+      "confidence": "high",
+      "limits": ["Technical guardrails and deliberate confirmation mechanisms are not established."],
+      "maturity": 1,
+      "nextTransition": "Evidence of explicit confirmation or permission barriers for common destructive actions.",
+      "rationale": "The guide identifies data deletion, publishing, and API changes as requiring maintainer consultation and prohibits autonomous deployment. These are documented safeguards rather than technical enforcement.",
+      "repositoryFactIds": [0],
+      "rubricPageId": "playbooks/agent-readiness-rubric.md",
+      "unassessedReason": null
+    },
+    {
+      "conceptId": "feedback-loops",
+      "confidence": "high",
+      "limits": ["No completed task outcomes appear in the designated lessons document."],
+      "maturity": 1,
+      "nextTransition": "Evidence of specific, findable lessons with actionable context for future work.",
+      "rationale": "The guide designates a durable lessons document, establishing an outcome-recording mechanism. The document explicitly contains no completed task outcomes.",
+      "repositoryFactIds": [0, 6],
+      "rubricPageId": "playbooks/agent-readiness-rubric.md",
+      "unassessedReason": null
+    },
+    {
+      "conceptId": "durable-memory",
+      "confidence": "high",
+      "limits": ["Habitual capture and curation are not established."],
+      "maturity": 2,
+      "nextTransition": "Evidence of routine session knowledge capture as part of the repository workflow.",
+      "rationale": "The guide explicitly directs lessons to a named document, and that document identifies its durable-capture purpose. This provides a clear, low-friction capture destination and procedure.",
+      "repositoryFactIds": [0, 6],
+      "rubricPageId": "playbooks/agent-readiness-rubric.md",
+      "unassessedReason": null
+    },
+    {
+      "conceptId": "human-oversight",
+      "confidence": "high",
+      "limits": ["Structural enforcement of review and authorization is not established."],
+      "maturity": 2,
+      "nextTransition": "Evidence of structurally enforced review or authorization at consequential decision boundaries.",
+      "rationale": "The guide distinguishes ordinary changes from API changes, deletion, publishing, and deployment. Maintainer consultation and review expectations provide concrete risk-based oversight guidance.",
+      "repositoryFactIds": [0],
+      "rubricPageId": "playbooks/agent-readiness-rubric.md",
+      "unassessedReason": null
+    }
+  ],
+  "summary": "Supplied evidence supports usable architecture and domain documentation, layered discovery, explicit oversight guidance, and a clear durable-memory destination. Setup, tool requirements, testing, safety expectations, and feedback capture are discoverable. Operational reliability, maintenance history, enforcement, and habitual feedback remain unverified. Instruction scoping, task decomposition, and observability remain unassessed because bounded evidence does not establish their rubric conditions or their absence.",
+  "version": 1
+}

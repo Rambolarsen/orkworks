@@ -87,3 +87,12 @@ for (const [name, mutate, error] of malformedCases) {
   assert.throws(() => parseReadinessStatus(value), error);
  });
 }
+
+test('combined assessment transport is an authorized empty-body POST',async()=>{
+ const calls:{url:string;init?:RequestInit}[]=[];
+ const fetcher=async(url:string,init?:RequestInit)=>{calls.push({url,init});return new Response('{}');};
+ await taskmasterRequest(1234,'token','assess-and-suggest' as any,undefined,fetcher);
+ assert.equal(calls[0].url,'http://127.0.0.1:1234/taskmaster/assess-and-suggest');
+ assert.equal(calls[0].init?.method,'POST');
+ await assert.rejects(taskmasterRequest(1234,'token','assess-and-suggest' as any,{},fetcher));
+});

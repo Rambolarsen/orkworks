@@ -178,6 +178,7 @@ declare global {
       refreshTaskmasterModels: (provider: "codex" | "ollama", ollamaBaseUrl?: string) => Promise<string[]>;
       requestTaskmasterAnalysis: () => Promise<import("./api").ManualTaskmasterAnalysisResponse>;
       getReadinessStatus: () => Promise<unknown>;
+      requestReadinessSuggestion: () => Promise<import("./readiness").ReadinessAdmission>;
       requestReadinessAssessment: () => Promise<import("./readiness").ReadinessAdmission>;
       requestTaskmasterAssessment: () => Promise<import("./api").TaskmasterAssessmentRequestResponse>;
       dismissTaskmasterRecommendation: (id: string, reason?: string) => Promise<void>;

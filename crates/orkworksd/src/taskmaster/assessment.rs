@@ -771,6 +771,16 @@ pub(crate) fn recover_workspace_record_under_lease(
     workspace_root: &Path,
     _analysis_lease: &std::fs::File,
 ) -> Result<(), String> {
+    recover_children_under_lease(state, runtime_root, workspace_root, _analysis_lease)?;
+    super::readiness_suggestions::recover(workspace_root)
+}
+
+fn recover_children_under_lease(
+    state: &Arc<crate::AppState>,
+    runtime_root: &Path,
+    workspace_root: &Path,
+    _analysis_lease: &std::fs::File,
+) -> Result<(), String> {
     use super::assessment_report::{recover_with, AssessmentState};
     super::readiness_store::ReadinessStore::new(workspace_root).recover()?;
     let store = super::assessment_store::AssessmentStore::new(workspace_root);
@@ -1042,21 +1052,41 @@ fn run_assessment(
     mut record: super::assessment_report::AssessmentRecord,
     _analysis_lease: std::fs::File,
 ) {
-    use super::assessment_report::{AssessmentReport, AssessmentState};
-    let runtime = super::runtime::TaskmasterRuntime::open(runtime_root.clone());
+    use super::assessment_report::AssessmentState;
     let store = super::assessment_store::AssessmentStore::new(&workspace_root);
     record.state = AssessmentState::Running;
     record.phase = Some(super::assessment_report::AssessmentPhase::Discovering);
     if store.save(&record).is_err() {
         return;
     }
-    let mut snapshot = match capture_current_snapshot(&state, &runtime_root, None) {
+    let snapshot = match capture_current_snapshot(&state, &runtime_root, None) {
         Ok(snapshot) if snapshot.workspace_path == expected_workspace => snapshot,
         _ => {
             fail_assessment(&store, &mut record, "Assessment inputs are unavailable");
             return;
         }
     };
+    run_captured_assessment(
+        state,
+        runtime_root,
+        workspace_root,
+        record,
+        _analysis_lease,
+        snapshot,
+    );
+}
+
+fn run_captured_assessment(
+    state: Arc<crate::AppState>,
+    runtime_root: PathBuf,
+    workspace_root: PathBuf,
+    mut record: super::assessment_report::AssessmentRecord,
+    _analysis_lease: std::fs::File,
+    mut snapshot: AssessmentSnapshot,
+) {
+    use super::assessment_report::{AssessmentReport, AssessmentState};
+    let runtime = super::runtime::TaskmasterRuntime::open(runtime_root.clone());
+    let store = super::assessment_store::AssessmentStore::new(&workspace_root);
     let discovery_prompt = match discovery_prompt(&snapshot) {
         Ok(prompt) => prompt,
         Err(error) => {
@@ -2171,3 +2201,107 @@ fn input_fingerprint_excluding(
 #[cfg(test)]
 #[path = "assessment_quality_tests.rs"]
 mod quality_tests;
+
+/// Fresh manual continuation. The caller retains the same analysis lease across
+/// scoring and suggestion; standalone admission and cache behavior are unchanged.
+pub(crate) fn run_fresh_under_lease(
+    state: &Arc<crate::AppState>,
+    runtime: &super::runtime::TaskmasterRuntime,
+    workspace_path: &Path,
+    workspace_root: &Path,
+    workspace_instance: u64,
+    expected_evaluation: &super::runtime::EvaluationSnapshot,
+    id: &str,
+    lease: &std::fs::File,
+    mut before_dispatch: impl FnMut() -> Result<(), String>,
+) -> Result<AssessmentRequestResponse, String> {
+    use super::assessment_report::{AssessmentRecord, AssessmentState};
+    runtime
+        .assessment_knowledge_availability()
+        .map_err(str::to_owned)?;
+    reconcile_current_workspace(state, runtime, workspace_path, workspace_root)?;
+    let store = super::assessment_store::AssessmentStore::new(workspace_root);
+    let previous = store.load::<AssessmentRecord>()?;
+    if previous.as_ref().is_some_and(|r| {
+        matches!(
+            r.state,
+            AssessmentState::Queued
+                | AssessmentState::Running
+                | AssessmentState::PendingRecommendation
+        )
+    }) {
+        return Err("Assessment recovery must finish before continuation".into());
+    }
+    let previous_id = previous
+        .as_ref()
+        .and_then(|r| r.report.as_ref())
+        .and_then(|r| r.recommendation_id.as_deref());
+    if let Some(active) = active_assessment_recommendation(
+        state,
+        runtime.root_path(),
+        workspace_path,
+        previous.as_ref(),
+        previous_id,
+    )? {
+        before_dispatch()?;
+        return Ok(active_recommendation_response(active));
+    }
+    let expected_key = expected_evaluation.cache_key("")?;
+    let mut record = AssessmentRecord {
+        format_version: 2,
+        input_manifest: None,
+        phase: Some(super::assessment_report::AssessmentPhase::Discovering),
+        id: id.into(),
+        state: AssessmentState::Running,
+        started_at: chrono::Utc::now().to_rfc3339(),
+        completed_at: None,
+        report: None,
+        pending_recommendation: None,
+        error_summary: None,
+        reused: false,
+    };
+    // The parent binds the exact child ID before this write or any provider call.
+    before_dispatch()?;
+    store.save(&record)?;
+    // A new assessment starts from fresh seeds. Capturing before replacing the
+    // old report would restore its old discovery selection and invalidate the
+    // first dispatch immediately after this record is written.
+    let snapshot = match capture_current_snapshot(state, runtime.root_path(), None) {
+        Ok(snapshot)
+            if workspace_identity_matches(
+                &snapshot.workspace_path,
+                snapshot.workspace_instance,
+                workspace_path,
+                workspace_instance,
+            ) && snapshot
+                .evaluation
+                .cache_key("")
+                .is_ok_and(|key| key == expected_key) =>
+        {
+            snapshot
+        }
+        _ => {
+            finish_provider_failure(&store, &mut record, DISPATCH_INPUTS_CHANGED);
+            return Err("Assessment inputs changed before continuation".into());
+        }
+    };
+    if let Err(error) = before_dispatch() {
+        finish_provider_failure(&store, &mut record, DISPATCH_INPUTS_CHANGED);
+        return Err(error);
+    }
+    run_captured_assessment(
+        state.clone(),
+        runtime.root_path().to_path_buf(),
+        workspace_root.to_path_buf(),
+        record,
+        lease
+            .try_clone()
+            .map_err(|_| "Analysis lease is unavailable")?,
+        snapshot,
+    );
+    Ok(AssessmentRequestResponse {
+        status: AssessmentRequestStatus::Scheduled,
+        recommendation: None,
+        message: None,
+    })
+}

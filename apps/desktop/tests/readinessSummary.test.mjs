@@ -23,3 +23,25 @@ test('identical assessed inputs are labeled as model variability rather than rep
  const current=snapshot('new',75),baseline=snapshot('old',50);current.data.inputFingerprint='a'.repeat(64);baseline.data.inputFingerprint='a'.repeat(64);
  const html=renderToStaticMarkup(createElement(Summary,{snapshot:current,baseline,freshness:'current'}));assert.match(html,/Same assessed inputs/);assert.match(html,/model variability/);
 });
+
+
+test('next improvement needs and their limits are visible outside collapsed details',()=>{
+ const html=renderToStaticMarkup(createElement(Summary,{snapshot:snapshot('new',75),freshness:'current'}));
+ const visible=html.replace(/<details[\s\S]*?<\/details>/g,'');
+ assert.match(visible,/What to improve next/);
+ assert.match(visible,/Retained failure evidence/);
+ assert.match(visible,/Runtime behavior remains unverified/);
+});
+test('Luna medium qualification failure is visible beside a historical score',()=>{
+ const saved=snapshot('saved',46);saved.data.inferenceIdentity.selection={provider:'codex',model:'gpt-6-luna',reasoningEffort:'medium'};
+ const html=renderToStaticMarkup(createElement(Summary,{snapshot:saved,freshness:'changed'}));
+ assert.match(html,/failed.*readiness qualification/i);assert.match(html,/46/);
+});
+
+
+test('unassessed priority areas explain the missing evidence beside the score',()=>{
+ const saved=snapshot('partial',null);saved.data.concepts=[{...row,maturity:null,confidence:null,unassessedReason:'The supplied excerpts do not establish this capability.'}];saved.data.coverage=0;saved.data.rawTotal=null;
+ const html=renderToStaticMarkup(createElement(Summary,{snapshot:saved,freshness:'current'}));
+ const visible=html.replace(/<details[\s\S]*?<\/details>/g,'');
+ assert.match(visible,/Not assessed/);assert.match(visible,/do not establish this capability/);
+});
