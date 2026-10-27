@@ -19,7 +19,7 @@ test("Details follows the visible subject without selecting a session", () => {
 test("TerminalPanel uses read-only replay only for dead sessions", () => {
   const source = readFileSync(new URL("../src/components/TerminalPanel.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /<HistoricalTerminal sessionId=\{session\.id\} \/>/);
+  assert.match(source, /<HistoricalTerminal sessionId=\{session\.id\} onSelectPlan=\{onSelectPlan\} \/>/);
   assert.match(source, /<CenterPanel[\s\S]*?backendStatus=\{backendStatus\}[\s\S]*?sessionId=\{session\.id\}[\s\S]*?\/>/);
 });
 

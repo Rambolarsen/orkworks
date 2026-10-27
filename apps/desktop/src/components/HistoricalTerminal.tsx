@@ -6,13 +6,18 @@ import { getTerminalOutput } from "../api";
 import { loadTerminalReplay } from "../terminalReplay";
 import { computeReplayScale, availableContentBox } from "../terminalReplayScale";
 import { orkworksTerminalTheme } from "../terminalTheme";
-import { terminalLinkHandler } from "../terminalLinks";
+import { createTerminalPlanLinkProvider, terminalLinkHandler } from "../terminalLinks";
 import EmptyState from "./EmptyState";
 
 type ReplayState = "loading" | "empty" | "error" | "loaded";
 
-export default function HistoricalTerminal({ sessionId }: { sessionId: string }) {
+export default function HistoricalTerminal({ sessionId, onSelectPlan }: {
+  sessionId: string;
+  onSelectPlan?: (sessionId: string, path: string) => Promise<void>;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const onSelectPlanRef = useRef(onSelectPlan);
+  onSelectPlanRef.current = onSelectPlan;
   const [replay, setReplay] = useState<{
     sessionId: string;
     state: ReplayState;
@@ -23,6 +28,7 @@ export default function HistoricalTerminal({ sessionId }: { sessionId: string })
     let current = true;
     let terminal: Terminal | null = null;
     let observer: ResizeObserver | null = null;
+    let planLinks: { dispose(): void } | undefined;
     let loadedSize: { cols: number; rows: number } | null = null;
 
     setReplay({ sessionId, state: "loading", size: null });
@@ -45,6 +51,8 @@ export default function HistoricalTerminal({ sessionId }: { sessionId: string })
             linkHandler: terminalLinkHandler(window.orkworks.openExternalLink),
             ...(hasFixedSize ? { cols, rows } : {}),
           });
+          planLinks = terminal.registerLinkProvider(createTerminalPlanLinkProvider(terminal,
+            path => onSelectPlanRef.current?.(sessionId, path) ?? Promise.resolve()));
           if (!container) return terminal;
           terminal.open(container);
 
@@ -133,6 +141,7 @@ export default function HistoricalTerminal({ sessionId }: { sessionId: string })
     return () => {
       current = false;
       observer?.disconnect();
+      planLinks?.dispose();
       terminal?.dispose();
     };
   }, [sessionId]);

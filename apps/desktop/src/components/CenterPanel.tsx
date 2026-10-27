@@ -3,6 +3,7 @@ import "@xterm/xterm/css/xterm.css";
 import { disposeTerminal, ensureTerminal, getTerminal } from "../terminalStore";
 import { computeTerminalInteractivity } from "../terminalPresentation";
 import { attachTerminalAfterBackendReady } from "../terminalAttach";
+import { createTerminalPlanLinkProvider } from "../terminalLinks";
 import EmptyState from "./EmptyState";
 
 interface CenterPanelProps {
@@ -11,13 +12,16 @@ interface CenterPanelProps {
   starting: boolean;
   onBackendUnavailable: () => void;
   onRetryBackend: () => void;
+  onSelectPlan?: (sessionId: string, path: string) => Promise<void>;
 }
 
-function CenterPanel({ backendStatus, sessionId, starting, onBackendUnavailable, onRetryBackend }: CenterPanelProps) {
+function CenterPanel({ backendStatus, sessionId, starting, onBackendUnavailable, onRetryBackend, onSelectPlan }: CenterPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const activeIdRef = useRef<string | null>(null);
   const startingRef = useRef(starting);
   startingRef.current = starting;
+  const onSelectPlanRef = useRef(onSelectPlan);
+  onSelectPlanRef.current = onSelectPlan;
 
   // Deliberately has no `starting` dependency: the attach effect below re-runs
   // whenever this callback's identity changes, and it unconditionally refocuses
@@ -81,16 +85,24 @@ function CenterPanel({ backendStatus, sessionId, starting, onBackendUnavailable,
     }
     if (backendStatus !== "connected" || !sessionId) return;
     let cancelled = false;
+    let planLinks: { dispose(): void } | undefined;
+    const attach = () => {
+      const handle = getTerminal(sessionId);
+      if (!handle) return;
+      planLinks = handle.terminal.registerLinkProvider(createTerminalPlanLinkProvider(handle.terminal,
+        path => onSelectPlanRef.current?.(sessionId, path) ?? Promise.resolve()));
+      attachTerminal(sessionId);
+    };
 
     if (getTerminal(sessionId)) {
-      attachTerminal(sessionId);
+      attach();
     } else {
       void attachTerminalAfterBackendReady(
         () => window.orkworks.getBackendUrl(),
         () => cancelled,
         (baseUrl) => {
           ensureTerminal(sessionId, baseUrl);
-          attachTerminal(sessionId);
+          attach();
         },
         onBackendUnavailable,
       );
@@ -98,6 +110,7 @@ function CenterPanel({ backendStatus, sessionId, starting, onBackendUnavailable,
 
     return () => {
       cancelled = true;
+      planLinks?.dispose();
       getTerminal(sessionId)?.resizeObserver.disconnect();
     };
   }, [backendStatus, sessionId, attachTerminal, onBackendUnavailable]);

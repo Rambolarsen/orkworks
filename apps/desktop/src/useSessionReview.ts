@@ -36,13 +36,17 @@ export function useSessionReview(sessionId: string | null, generation: number, e
     setError(false);
   }, []);
   useEffect(() => { close(); return () => { ++request.current; }; }, [sessionId, generation, enabled, close]);
-  const load = useCallback(async (persist = true, restoring = false) => {
+  const load = useCallback(async (persist = true, restoring = false, printedPath?: string) => {
     if (!sessionId || !enabled) return;
     const token = ++request.current;
     setLoading(true);
     // Never retain old document bytes across a refresh that may fail validation.
     setDocument(null);
     try {
+      if (printedPath !== undefined) {
+        await window.orkworks.selectTerminalPlan(sessionId, printedPath);
+        if (request.current !== token) return;
+      }
       const content = await window.orkworks.getPlanContent(sessionId);
       const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(content));
       if (request.current !== token) return;
@@ -53,7 +57,12 @@ export function useSessionReview(sessionId: string | null, generation: number, e
       previousDigest.current = artifactId;
       setDocument(next);
       setError(false);
-    } catch {
+    } catch (error) {
+      // A rejected click stays in Terminal and reports the sidecar's explanation.
+      if (printedPath !== undefined) {
+        if (request.current === token) throw error;
+        return;
+      }
       if (request.current === token && onUnavailableRef.current(sessionId, generation, persist, restoring)) setError(true);
     } finally {
       if (request.current === token) setLoading(false);

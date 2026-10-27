@@ -359,9 +359,13 @@ function App() {
         || navigationIntent.current === reviewLoadIntent.current);
   const review = useSessionReview(activeSessionId, shellNavigation.workspaceGeneration,
     // A picker attempt can be cancelled without changing the workspace generation.
-    backendStatus === "connected" && !!activeSession?.hasOpenablePlan,
+    backendStatus === "connected" && !!activeSession,
     (document, persist) => {
       if (!acceptReviewResult(document.generation, persist)) return false;
+      // A clicked artifact may be selected before polling reports availability.
+      // The successful validated read is current evidence for this exact session.
+      setSessions(previous => previous.map(session => session.id === document.sessionId
+        ? { ...session, hasOpenablePlan: true } : session));
       dispatchShellNavigation({ type: "review-opened", sessionId: document.sessionId,
         artifactId: document.artifactId, generation: document.generation });
       if (persist) void saveNavigation("review");
@@ -378,6 +382,13 @@ function App() {
     reviewLoadIntent.current = ++navigationIntent.current;
     void review.load();
   }, [review.load]);
+  const selectTerminalPlan = useCallback((sessionId: string, path: string) => {
+    if (!workspaceSessionController.isAdmissionEnabled() || sessionId !== activeSessionId) {
+      return Promise.reject(new Error("Select the session again before opening its document."));
+    }
+    reviewLoadIntent.current = ++navigationIntent.current;
+    return review.load(true, false, path);
+  }, [activeSessionId, review.load, workspaceSessionController]);
   const refreshReview = useCallback(() => {
     reviewLoadIntent.current = ++navigationIntent.current;
     void review.load(false);
@@ -910,6 +921,7 @@ function App() {
           if (review.loading && !review.error && shellNavigation.centralSurface.kind === "terminal") review.close();
         }}
         onOpenReview={openReview}
+        onSelectPlan={selectTerminalPlan}
         onRequestPlanReview={requestIndependentReview}
         onCloseReview={closeReview}
         reviewContent={activeSessionId ? <ReviewPanel key={`${shellNavigation.workspaceGeneration}-${activeSessionId}`}

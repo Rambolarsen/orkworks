@@ -22,7 +22,7 @@ new Function("require", "module", "exports", outputText)((id) => {
   return require(id);
 }, component, component.exports);
 const TerminalPanel = component.exports.default;
-const props = { backendStatus: "ready", onBackendUnavailable() {}, onRetryBackend() {} };
+const props = { backendStatus: "ready", onBackendUnavailable() {}, onRetryBackend() {}, async onSelectPlan() {} };
 
 test("terminal without a selection shows the empty state", () => {
   const view = TerminalPanel({ ...props, session: null });
@@ -33,7 +33,7 @@ test("terminal without a selection shows the empty state", () => {
 test("dead session selects read-only history with its session id", () => {
   const view = TerminalPanel({ ...props, session: { id: "ended", lifecycle: "dead", status: "done" } });
   assert.equal(view.type, children["./HistoricalTerminal"]);
-  assert.deepEqual(view.props, { sessionId: "ended" });
+  assert.deepEqual(view.props, { sessionId: "ended", onSelectPlan: props.onSelectPlan });
 });
 
 for (const lifecycle of [undefined, "creating", "alive", "stopping"]) {
@@ -51,5 +51,5 @@ for (const lifecycle of [undefined, "creating", "alive", "stopping"]) {
 test("archived session with stale alive metadata selects read-only history", () => {
   const view = TerminalPanel({...props, session:{id:"saved",sessionState:"archived",lifecycle:"alive",status:"running"}});
   assert.equal(view.type, children["./HistoricalTerminal"]);
-  assert.deepEqual(view.props, {sessionId:"saved"});
+  assert.deepEqual(view.props, {sessionId:"saved", onSelectPlan: props.onSelectPlan});
 });
