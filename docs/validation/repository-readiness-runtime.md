@@ -318,9 +318,10 @@ failed whole-matrix adjudication because old-noise/scoped families and review.js
 files were not supplied. These targeted outcomes (2/3 positive, 0/3 healthy,
 0/3 refuted proposals) do not qualify the full matrix or general model behavior.
 
-The unsupported readiness underrating remains tracked in
-[#1097](https://github.com/Rambolarsen/orkworks/issues/1097); collector-3 scoring
-continues to display its unqualified status.
+The prompt-v1 unsupported readiness underrating was tracked in
+[#1097](https://github.com/Rambolarsen/orkworks/issues/1097); collector-3 prompt-v1 scoring
+retains its unqualified status. The separately retained prompt-v2 calibration
+is recorded below.
 
 ### Pending-publication review correction
 
@@ -332,3 +333,64 @@ pending or its result is unreadable. Existing child recovery resolves publicatio
 before the parent reconciles to the exact recommendation; it dispatches no new
 inference. The regression also checks that the pending card is hidden, the score
 is retained, and provider-call count remains four.
+
+
+## Collector-3 prompt-v2 calibration (#1097)
+
+The retained healthy-2 disagreement was adjudicated against its exact signed
+rubric and supplied facts. Durable-memory level 2 requires a known, low-friction
+capture action with a clear place and procedure. Fact 0 explicitly says
+“Document lessons in docs/lessons.md.” Fact 6 identifies that persistent file as
+the lessons destination. Together they supply both the action and destination;
+a separate procedural document is not a rubric prerequisite. The empty lessons
+record limits evidence for habitual capture (level 3) and curation (level 4),
+not the documented procedure at level 2. Healthy-2's claim that no capture
+procedure is described is contradicted by fact 0. Its original rating, rationale,
+confidence, input and output remain unchanged in the failed corpus above.
+
+The smallest calibration change is general scoring guidance in
+`taskmaster-readiness-v2`: select the highest fully supported level, check the
+next level against all supplied facts, and avoid adding requirements absent
+from the signed definition. A documented action and destination can establish
+a known procedure without establishing habitual usage, observed results or
+curation. No fixture path, concept-specific rating override, rubric modification,
+new evidence access or retry is introduced. Collector 3, response/discovery
+schemas and scoring arithmetic retain their versions. Persisted v1 manifests
+remain readable; new v2 inputs have a distinct comparison identity.
+
+
+**PASS: Codex GPT-6.1-Sol low, collector 3, prompt-v2**, evaluated on
+2026-10-27 against signed brain-3 and the unchanged rubric digest
+`9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e`.
+The [separate calibration corpus](fixtures/readiness-calibration-2026-10-27/index.md)
+retains all nine original discovery/final input/output pairs, source bytes and
+hashes, per-trial results and independent semantic review. All nine two-call
+trials completed without repair, retry, rejection or timeout. A source-hash
+check confirms only the domain glossary changes between baseline and improved;
+healthy sources are byte-identical to improved. Both the old and new corpora's
+36 input/output byte hashes were verified.
+
+Independent review checked all 126 rows against their own paired inputs:
+99 rated rows supported and 27 Unassessed rows justified. Every run has 11/14
+coverage and no overall number. Durable memory is 2 in all nine trials. Domain
+knowledge changes 1 to 2 in 3/3 baseline/improved pairs. No completed execution,
+reliability, habitual capture, curation, technical enforcement or complete-score
+claim is invented. Scoping, decomposition and observability remain unassessed.
+
+Context discovery varies: baseline/improved trials 1–2 rate 3, trial 3 rates 1;
+healthy trials 1–2 rate 1 and trial 3 rates 3. The exact final inputs within each
+source group match, including all improved/healthy final inputs. Review accepts
+both levels as defensible readings of documented routing versus unverified
+operational accuracy. This variability is explicit uncertainty, not a claimed
+repository regression or effect of the glossary change. Other maturity/null
+values remain stable except the intended domain gain. Confidence also varies.
+
+The qualification notice now names only this exact profile, rubric and signed
+guidance identity with unchanged discovery/final/scoring schemas and native
+Codex transport. It explicitly warns that ratings can vary on unchanged
+evidence. Original collector-2/prompt-v1 qualification remains separate;
+collector-3/prompt-v1, different rubrics/guidance, custom transports and other
+model/effort configurations remain unqualified. No live model selection was
+changed. These synthetic trials do not establish general accuracy, real-world
+performance, full fourteen-area scoring, combined suggestion-stage inference,
+or availability in a published installer.

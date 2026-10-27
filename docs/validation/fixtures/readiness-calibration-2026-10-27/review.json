@@ -1,0 +1,142 @@
+{
+  "reviewer": {
+    "model": "gpt-6-luna",
+    "reasoningEffort": "high",
+    "independentContext": true
+  },
+  "disposition": "pass",
+  "scope": {
+    "selection": {
+      "provider": "codex",
+      "model": "gpt-6.1-sol",
+      "reasoningEffort": "low"
+    },
+    "versions": {
+      "collector": 3,
+      "discoverySchema": 1,
+      "finalSchema": 1,
+      "prompt": "taskmaster-readiness-v2",
+      "scoring": 1
+    },
+    "rubricDigest": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+    "knowledgeIdentity": {
+      "bundle_sha256": "ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511",
+      "format_version": 2,
+      "privacy_policy_version": 1,
+      "public_key_sha256": "a35da5934c629903f8f31db5067a9c5086f8372c34e3d917c9efb7decfd465dd",
+      "sequence": 3,
+      "version": "brain-3"
+    }
+  },
+  "rowsReviewed": 126,
+  "ratedRows": 99,
+  "unassessedRows": 27,
+  "controlledDomainPairs": {
+    "improved": 3,
+    "total": 3
+  },
+  "unsupportedRatings": [],
+  "fabricatedExecutionCapabilityOrCompleteScore": false,
+  "originalDisagreement": {
+    "input": "../readiness-suggestions-2026-10-27/healthy-2-final-input.json",
+    "output": "../readiness-suggestions-2026-10-27/healthy-2-final-output.json",
+    "row": "concepts[12]",
+    "disposition": "unsupported underrating",
+    "supportedMaturity": 2,
+    "facts": [
+      0,
+      6
+    ],
+    "reason": "The explicit instruction to document lessons in the designated persistent file supplies a known capture action and clear destination. A separate procedural document is not required. Habitual capture and curation remain unestablished."
+  },
+  "uncertainty": [
+    "Context discovery varies from 1 to 3 on identical supplied final evidence. Both are defensible readings of documented routing versus unverified operational accuracy. Do not attribute this variation to repository improvement.",
+    "Synthetic fixture qualification does not establish general accuracy, real-world performance, full fourteen-area scoring or combined suggestion-stage inference."
+  ],
+  "reviewCorrections": [
+    "An initial cross-paired input finding was retracted. Each trial was subsequently reviewed against its own exact final input/output pair."
+  ],
+  "trials": [
+    {
+      "trial": "baseline-1",
+      "input": "baseline-1-final-input.json",
+      "output": "baseline-1-final-output.json",
+      "rowsReviewed": 14,
+      "supportedRatedRows": 11,
+      "justifiedUnassessedRows": 3,
+      "unsupportedFindings": []
+    },
+    {
+      "trial": "baseline-2",
+      "input": "baseline-2-final-input.json",
+      "output": "baseline-2-final-output.json",
+      "rowsReviewed": 14,
+      "supportedRatedRows": 11,
+      "justifiedUnassessedRows": 3,
+      "unsupportedFindings": []
+    },
+    {
+      "trial": "baseline-3",
+      "input": "baseline-3-final-input.json",
+      "output": "baseline-3-final-output.json",
+      "rowsReviewed": 14,
+      "supportedRatedRows": 11,
+      "justifiedUnassessedRows": 3,
+      "unsupportedFindings": []
+    },
+    {
+      "trial": "improved-1",
+      "input": "improved-1-final-input.json",
+      "output": "improved-1-final-output.json",
+      "rowsReviewed": 14,
+      "supportedRatedRows": 11,
+      "justifiedUnassessedRows": 3,
+      "unsupportedFindings": []
+    },
+    {
+      "trial": "improved-2",
+      "input": "improved-2-final-input.json",
+      "output": "improved-2-final-output.json",
+      "rowsReviewed": 14,
+      "supportedRatedRows": 11,
+      "justifiedUnassessedRows": 3,
+      "unsupportedFindings": []
+    },
+    {
+      "trial": "improved-3",
+      "input": "improved-3-final-input.json",
+      "output": "improved-3-final-output.json",
+      "rowsReviewed": 14,
+      "supportedRatedRows": 11,
+      "justifiedUnassessedRows": 3,
+      "unsupportedFindings": []
+    },
+    {
+      "trial": "healthy-1",
+      "input": "healthy-1-final-input.json",
+      "output": "healthy-1-final-output.json",
+      "rowsReviewed": 14,
+      "supportedRatedRows": 11,
+      "justifiedUnassessedRows": 3,
+      "unsupportedFindings": []
+    },
+    {
+      "trial": "healthy-2",
+      "input": "healthy-2-final-input.json",
+      "output": "healthy-2-final-output.json",
+      "rowsReviewed": 14,
+      "supportedRatedRows": 11,
+      "justifiedUnassessedRows": 3,
+      "unsupportedFindings": []
+    },
+    {
+      "trial": "healthy-3",
+      "input": "healthy-3-final-input.json",
+      "output": "healthy-3-final-output.json",
+      "rowsReviewed": 14,
+      "supportedRatedRows": 11,
+      "justifiedUnassessedRows": 3,
+      "unsupportedFindings": []
+    }
+  ]
+}

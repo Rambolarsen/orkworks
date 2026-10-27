@@ -12,3 +12,5 @@ Captured fixture context for reproducible validation.
 - [Repository readiness qualification](repository-readiness-2026-10-25/index.md) — Synthetic inputs, outputs and hashes for the qualified model profile.
 
 - [Readiness collector-3 trials](readiness-suggestions-2026-10-27/index.md) — Exact inputs/outputs and ratings for the combined-flow follow-up qualification.
+
+- [Readiness calibration](readiness-calibration-2026-10-27/index.md) — Separate collector-3 prompt-v2 trials, hashes, source bytes and independent semantic review.

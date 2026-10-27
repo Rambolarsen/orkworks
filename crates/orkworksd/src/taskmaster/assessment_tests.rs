@@ -53,7 +53,7 @@ if prompt.get('protocol', '').startswith('taskmaster-readiness') and override.ex
     output = override.read_text()
 elif prompt.get('protocol') == 'taskmaster-readiness-discovery-v1':
     output = json.dumps({'version':1,'requestedFileIds':[]})
-elif prompt.get('protocol') == 'taskmaster-readiness-v1':
+elif prompt.get('protocol') == 'taskmaster-readiness-v2':
     output = json.dumps({'version':1,'summary':'Observed repository guidance','concepts':[{'conceptId':c['conceptId'],'maturity':2,'confidence':'medium','repositoryFactIds':[0],'rubricPageId':c['pageId'],'rationale':'Documented repository guidance','limits':['Runtime behavior remains unverified'],'nextTransition':'Evidence of workflow integration','unassessedReason':None} for c in prompt['rubric']['concepts']]})
 elif prompt.get('protocol') == 'taskmaster-discovery-v1':
     override = response.with_suffix('.discovery')

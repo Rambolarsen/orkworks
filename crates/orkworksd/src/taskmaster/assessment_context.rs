@@ -51,7 +51,10 @@ impl InputManifest {
         if !matches!(self.collector_version, 2 | COLLECTOR_VERSION)
             || match self.purpose.as_deref() {
                 None => self.prompt_version != super::assessment::ASSESSMENT_PROMPT_VERSION,
-                Some("readiness") => self.prompt_version != "taskmaster-readiness-v1",
+                Some("readiness") => !matches!(
+                    self.prompt_version.as_str(),
+                    "taskmaster-readiness-v1" | super::readiness::PROMPT_VERSION
+                ),
                 _ => true,
             }
             || self.files.len() > 32
@@ -158,7 +161,7 @@ impl RepositoryContext {
     ) -> Result<Self, String> {
         let mut context = Self::collect(workspace, level, excluded, observed_at)?;
         context.manifest.purpose = Some("readiness".into());
-        context.manifest.prompt_version = "taskmaster-readiness-v1".into();
+        context.manifest.prompt_version = super::readiness::PROMPT_VERSION.into();
         Ok(context)
     }
     pub(crate) fn collect(
