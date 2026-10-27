@@ -12,30 +12,138 @@ export interface ReadinessSnapshot {id:string;startedAt:string;completedAt:strin
 export interface ReadinessRun {id:string;state:'queued'|'running'|'succeeded'|'failed'|'interrupted';phase:'collecting_evidence'|'reading_evidence'|'scoring_readiness'|null;startedAt:string;completedAt:string|null;errorCode:string|null}
 export interface ReadinessStatus {workspacePath:string|null;run:ReadinessRun|null;snapshots:ReadinessSnapshot[];freshness:'none'|'current'|'changed'|'unknown'|'redacted';retentionLimit:number;reasonCode:string|null}
 export interface ReadinessAdmission {outcome:'scheduled'|'already_running'|'unavailable';runId:string|null;reasonCode:string|null}
-const object=(x:unknown):Record<string,unknown>=>{if(!x||typeof x!=='object'||Array.isArray(x))throw Error('Invalid readiness response');return x as Record<string,unknown>};
-const text=(x:unknown,max:number)=>typeof x==='string'&&x.length<=max;
-const digest=(x:unknown)=>typeof x==='string'&&/^[0-9a-f]{64}$/.test(x);
-export function parseReadinessStatus(value:unknown):ReadinessStatus {
- const v=object(value);
- if(!(v.workspacePath===null||text(v.workspacePath,4096))||!Array.isArray(v.snapshots)||v.snapshots.length>100||v.retentionLimit!==100||!['none','current','changed','unknown','redacted'].includes(v.freshness as string)||!(v.reasonCode===null||text(v.reasonCode,128)))throw Error('Invalid readiness status');
- const ids=new Set<string>();
- for(const item of v.snapshots){const s=object(item);if(!text(s.id,128)||ids.has(s.id as string)||!text(s.startedAt,40)||!text(s.completedAt,40)||typeof s.redacted!=='boolean')throw Error('Invalid readiness snapshot');ids.add(s.id as string);
-  if(s.redacted){if(s.data!==null)throw Error('Redacted readiness contains source data');continue;}
-  const d=object(s.data);if(!digest(d.comparisonFingerprint)||!digest(d.inputFingerprint)||!text(d.summary,1000)||!Array.isArray(d.concepts)||d.concepts.length!==14||!Array.isArray(d.repositoryEvidence)||d.repositoryEvidence.length>32||!Array.isArray(d.knowledgeEvidence)||d.knowledgeEvidence.length>14)throw Error('Invalid readiness details');
-  let coverage=0,total=0;
-  d.concepts.forEach((item,index)=>{const row=object(item);if(row.conceptId!==conceptIds[index]||!text(row.rationale,500)||!text(row.nextTransition,500)||!Array.isArray(row.limits)||row.limits.length>4||row.limits.some(x=>!text(x,200))||!Array.isArray(row.repositoryFactHashes)||row.repositoryFactHashes.length>8||row.repositoryFactHashes.some(x=>!digest(x))||!text(row.rubricPageId,256))throw Error('Invalid readiness row');
-   if(row.maturity===null){if(row.confidence!==null||!text(row.unassessedReason,500)||!row.unassessedReason)throw Error('Invalid unassessed row');}
-   else{if(!Number.isInteger(row.maturity)||(row.maturity as number)<0||(row.maturity as number)>4||!['low','medium','high'].includes(row.confidence as string)||row.unassessedReason!==null||row.repositoryFactHashes.length===0)throw Error('Invalid readiness rating');coverage++;total+=row.maturity as number;}
-  });
-  if(d.coverage!==coverage||d.rawTotal!==(coverage===14?total:null)||d.overallScore!==(coverage===14?Math.floor((100*total+28)/56):null))throw Error('Invalid readiness totals');
-  for(const item of d.repositoryEvidence){const fact=object(item);if(!digest(fact.factId)||!text(fact.path,512)||!digest(fact.sha256)||!text(fact.excerpt,4000)||!text(fact.observedAt,40))throw Error('Invalid readiness evidence');}
-  for(const item of d.knowledgeEvidence){const page=object(item);if(!text(page.pageId,256)||!digest(page.sha256)||!text(page.title,512)||!text(page.excerpt,4000))throw Error('Invalid readiness knowledge');}
-  object(d.inferenceIdentity);object(d.knowledgeIdentity);
-  const git=object(d.git);if(!(git.headOid===null||text(git.headOid,64))||!(git.dirty===null||typeof git.dirty==='boolean')||!digest(d.rubricDigest))throw Error('Invalid readiness provenance');
- }
- if(v.run!==null){const run=object(v.run);if(!text(run.id,128)||!['queued','running','succeeded','failed','interrupted'].includes(run.state as string)||!(run.phase===null||['collecting_evidence','reading_evidence','scoring_readiness'].includes(run.phase as string)))throw Error('Invalid readiness progress');}
- return v as unknown as ReadinessStatus;
+function object(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw Error('Invalid readiness response');
+  }
+  return value as Record<string, unknown>;
 }
+
+const text = (value: unknown, max: number) => typeof value === 'string' && value.length <= max;
+const digest = (value: unknown) => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value);
+
+function validateRow(value: unknown, index: number): number | null {
+  const row = object(value);
+  if (
+    row.conceptId !== conceptIds[index] ||
+    !text(row.rationale, 500) || !text(row.nextTransition, 500) ||
+    !Array.isArray(row.limits) || row.limits.length > 4 || row.limits.some(x => !text(x, 200)) ||
+    !Array.isArray(row.repositoryFactHashes) || row.repositoryFactHashes.length > 8 ||
+    row.repositoryFactHashes.some(x => !digest(x)) || !text(row.rubricPageId, 256)
+  ) {
+    throw Error('Invalid readiness row');
+  }
+
+  if (row.maturity === null) {
+    if (row.confidence !== null || !text(row.unassessedReason, 500) || !row.unassessedReason) {
+      throw Error('Invalid unassessed row');
+    }
+    return null;
+  }
+  if (
+    !Number.isInteger(row.maturity) || (row.maturity as number) < 0 || (row.maturity as number) > 4 ||
+    !['low', 'medium', 'high'].includes(row.confidence as string) ||
+    row.unassessedReason !== null || row.repositoryFactHashes.length === 0
+  ) {
+    throw Error('Invalid readiness rating');
+  }
+  return row.maturity as number;
+}
+
+function validateData(value: unknown): void {
+  const data = object(value);
+  if (
+    !digest(data.comparisonFingerprint) || !digest(data.inputFingerprint) || !text(data.summary, 1000) ||
+    !Array.isArray(data.concepts) || data.concepts.length !== 14 ||
+    !Array.isArray(data.repositoryEvidence) || data.repositoryEvidence.length > 32 ||
+    !Array.isArray(data.knowledgeEvidence) || data.knowledgeEvidence.length > 14
+  ) {
+    throw Error('Invalid readiness details');
+  }
+
+  let coverage = 0;
+  let total = 0;
+  data.concepts.forEach((item, index) => {
+    const maturity = validateRow(item, index);
+    if (maturity !== null) {
+      coverage++;
+      total += maturity;
+    }
+  });
+  if (
+    data.coverage !== coverage || data.rawTotal !== (coverage === 14 ? total : null) ||
+    data.overallScore !== (coverage === 14 ? Math.floor((100 * total + 28) / 56) : null)
+  ) {
+    throw Error('Invalid readiness totals');
+  }
+
+  for (const item of data.repositoryEvidence) {
+    const fact = object(item);
+    if (
+      !digest(fact.factId) || !text(fact.path, 512) || !digest(fact.sha256) ||
+      !text(fact.excerpt, 4000) || !text(fact.observedAt, 40)
+    ) {
+      throw Error('Invalid readiness evidence');
+    }
+  }
+  for (const item of data.knowledgeEvidence) {
+    const page = object(item);
+    if (!text(page.pageId, 256) || !digest(page.sha256) || !text(page.title, 512) || !text(page.excerpt, 4000)) {
+      throw Error('Invalid readiness knowledge');
+    }
+  }
+  object(data.inferenceIdentity);
+  object(data.knowledgeIdentity);
+  const git = object(data.git);
+  if (
+    !(git.headOid === null || text(git.headOid, 64)) ||
+    !(git.dirty === null || typeof git.dirty === 'boolean') || !digest(data.rubricDigest)
+  ) {
+    throw Error('Invalid readiness provenance');
+  }
+}
+
+function validateSnapshot(value: unknown, ids: Set<string>): void {
+  const snapshot = object(value);
+  if (
+    !text(snapshot.id, 128) || ids.has(snapshot.id as string) ||
+    !text(snapshot.startedAt, 40) || !text(snapshot.completedAt, 40) || typeof snapshot.redacted !== 'boolean'
+  ) {
+    throw Error('Invalid readiness snapshot');
+  }
+  ids.add(snapshot.id as string);
+  if (snapshot.redacted) {
+    if (snapshot.data !== null) throw Error('Redacted readiness contains source data');
+    return;
+  }
+  validateData(snapshot.data);
+}
+
+export function parseReadinessStatus(value: unknown): ReadinessStatus {
+  const status = object(value);
+  if (
+    !(status.workspacePath === null || text(status.workspacePath, 4096)) ||
+    !Array.isArray(status.snapshots) || status.snapshots.length > 100 || status.retentionLimit !== 100 ||
+    !['none', 'current', 'changed', 'unknown', 'redacted'].includes(status.freshness as string) ||
+    !(status.reasonCode === null || text(status.reasonCode, 128))
+  ) {
+    throw Error('Invalid readiness status');
+  }
+  const ids = new Set<string>();
+  for (const snapshot of status.snapshots) validateSnapshot(snapshot, ids);
+
+  if (status.run !== null) {
+    const run = object(status.run);
+    if (
+      !text(run.id, 128) || !['queued', 'running', 'succeeded', 'failed', 'interrupted'].includes(run.state as string) ||
+      !(run.phase === null || ['collecting_evidence', 'reading_evidence', 'scoring_readiness'].includes(run.phase as string))
+    ) {
+      throw Error('Invalid readiness progress');
+    }
+  }
+  return status as unknown as ReadinessStatus;
+}
+
 export function compareReadiness(current:ReadinessSnapshot,baseline:ReadinessSnapshot|null|undefined):{delta:number|null;reason:string|null}{
  if(!baseline)return{delta:null,reason:'No earlier comparable assessment'};
  if(!current.data||!baseline.data)return{delta:null,reason:'Assessment evidence was redacted'};
