@@ -8,3 +8,6 @@ compose.yaml    text eol=lf
 rust-toolchain.toml text eol=lf
 apps/desktop/patches/*.patch whitespace=-blank-at-eol
 .dockerignore   text eol=lf
+
+# Preserve the independently generated source-component catalog on Windows.
+docs/validation/root-preparation-source-vectors.json text eol=lf

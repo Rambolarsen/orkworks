@@ -6,7 +6,7 @@
     "docs:dev": "pnpm docs:check && vitepress dev",
     "docs:build": "pnpm docs:check && vitepress build",
     "docs:preview": "vitepress preview",
-    "docs:check": "node .vitepress/okf.mjs && node --test validation/root-preparation-components.test.mjs"
+    "docs:check": "node .vitepress/okf.mjs && node --test validation/root-preparation-components.test.mjs validation/root-preparation-source-components.test.mjs"
   },
   "devDependencies": {
     "vitepress": "^1.6.4",

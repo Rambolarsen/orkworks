@@ -1,0 +1,120 @@
+{
+  "schemaVersion": 1,
+  "classification": "synthetic-component-only",
+  "bindings": {
+    "run": {
+      "admissionEpoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "bootstrapConfigurationDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "goal": "Review café 🛠\n",
+      "goalDigest": "e502bf30d9a5934d497e37f8b8eda2428c1fc0698aa9df3e7c7d6e666aa8f88c",
+      "maxParallelChildren": 1,
+      "parentSessionId": "parent-1",
+      "repositoryBindingDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "runDefinitionDigest": "24082b40dec59b9ddb10ddfce800973bb94b58fda26e5ad4230d37fc41a65ab5",
+      "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+      "runSequence": "1",
+      "schemaVersion": 1,
+      "sourceWorktreeBindingDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "workspaceId": "workspace-1"
+    },
+    "rootAssignmentId": "root-source-fixture"
+  },
+  "initialInput": {
+    "schemaVersion": 1,
+    "workspaceId": "workspace-1",
+    "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+    "preparationRevision": 1,
+    "inputRevision": 1,
+    "goalDigest": "e502bf30d9a5934d497e37f8b8eda2428c1fc0698aa9df3e7c7d6e666aa8f88c",
+    "bootstrapConfigurationDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "decision": null,
+    "records": []
+  },
+  "inputDigest": "06c10b7c5a8aaf94b9c67bde4145a646da8f464400d16136917eb937a6a66c22",
+  "unverified": [
+    "native paths and executable contents",
+    "source and reference custody",
+    "permission enforcement and adapter eligibility",
+    "session attachment proof",
+    "atomic storage effects and runtime authority"
+  ],
+  "vectors": [
+    {
+      "id": "inline-unicode",
+      "kind": "assignment",
+      "canonical": "{\"criteria\":[{\"description\":\"Retain uncertainty.\",\"id\":\"C1\",\"requirement\":\"required\"}],\"dependencies\":[],\"description\":\"Review supplied evidence.\\n\",\"expectedOutput\":\"A bounded proposal.\",\"inputs\":[{\"content\":\"Exact café 🛠\\n\",\"contentDigest\":\"a980a4419faa54f6d6ab620a26dc64d841732b30083ba93285cc576e57c6b008\",\"id\":\"goal-note\",\"kind\":\"inline\"}],\"label\":\"Coordinate café 🛠\",\"schemaVersion\":1,\"worktreeScope\":{\"kind\":\"source-worktree\",\"readPaths\":[\"docs/spec.md\"],\"repositoryBindingDigest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"sourceWorktreeBindingDigest\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"writePaths\":[]}}",
+      "bytes": 676,
+      "sha256": "2302adeb9a7f502a7fcbb5eb89fb4b17eb6be299451df648652e2ac43aa5a6d6"
+    },
+    {
+      "id": "reference-unbound",
+      "kind": "assignment",
+      "canonical": "{\"criteria\":[{\"description\":\"Retain uncertainty.\",\"id\":\"C1\",\"requirement\":\"required\"}],\"dependencies\":[],\"description\":\"Review supplied evidence.\\n\",\"expectedOutput\":\"A bounded proposal.\",\"inputs\":[{\"contentDigest\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"id\":\"retained\",\"kind\":\"reference\",\"reference\":\"reviewed-note\",\"sourceIdentity\":\"catalog\",\"sourceRevision\":\"v1\"}],\"label\":\"Coordinate café 🛠\",\"schemaVersion\":1,\"worktreeScope\":{\"kind\":\"source-worktree\",\"readPaths\":[\"docs/spec.md\"],\"repositoryBindingDigest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"sourceWorktreeBindingDigest\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"writePaths\":[]}}",
+      "bytes": 724,
+      "sha256": "5b801fbe5e408677180e8d561a6793c090978792bb2b5c2a8ab555b3bfd0a7b6"
+    },
+    {
+      "id": "local-native",
+      "kind": "provenance",
+      "canonical": "{\"kind\":\"local\",\"schemaVersion\":1,\"sourceIdentity\":\"fixture-catalog\",\"sourceKind\":\"repository\",\"sourcePath\":{\"base64\":\"L2ZpeHR1cmUvcmVwby9BR0VOVFMubWQ=\",\"encoding\":\"unix-bytes\"},\"sourceRevision\":\"fixture-rev-1\"}",
+      "bytes": 211,
+      "sha256": "dbacf9a686ddb08ac377daed9ce6f9b2ca21a9a8eb571a498f887bb0ed08743a"
+    },
+    {
+      "id": "nonlocal",
+      "kind": "provenance",
+      "canonical": "{\"kind\":\"nonlocal\",\"schemaVersion\":1,\"sourceIdentity\":\"fixture-catalog\",\"sourceKind\":\"bundled\",\"sourceRevision\":\"fixture-rev-1\"}",
+      "bytes": 128,
+      "sha256": "606b79585a876216a6bcae41f474a0d1871cadd7c7ba66710a4a6bc1f3adb08a"
+    },
+    {
+      "id": "windows-native",
+      "kind": "provenance",
+      "canonical": "{\"kind\":\"local\",\"schemaVersion\":1,\"sourceIdentity\":\"fixture-catalog\",\"sourceKind\":\"repository\",\"sourcePath\":{\"base64\":\"QwA6AFwAZgBpAHgAdAB1AHIAZQBcAEEARwBFAE4AVABTAC4AbQBkAA==\",\"encoding\":\"windows-utf16le\"},\"sourceRevision\":\"fixture-rev-1\"}",
+      "bytes": 240,
+      "sha256": "783f74c4358e2dc4d4b7a285c3031244d26f0fba50e95ae9b70a65fd78b06013"
+    },
+    {
+      "id": "direct",
+      "kind": "executable",
+      "canonical": "{\"executable\":{\"contentDigest\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"path\":{\"base64\":\"L2ZpeHR1cmUvYmluL3Rvb2w=\",\"encoding\":\"unix-bytes\"}},\"kind\":\"direct\",\"schemaVersion\":1}",
+      "bytes": 202,
+      "sha256": "cecefc1454ab64c5ae1fd5642d8616f15810c6a8f363902339e33681e83dc8e5"
+    },
+    {
+      "id": "wrapped",
+      "kind": "executable",
+      "canonical": "{\"components\":[{\"contentDigest\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"kind\":\"interpreter\",\"path\":{\"base64\":\"L2ZpeHR1cmUvaW50ZXJwcmV0ZXI=\",\"encoding\":\"unix-bytes\"}},{\"contentDigest\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"kind\":\"wrapper\",\"path\":{\"base64\":\"L2ZpeHR1cmUvd3JhcHBlcg==\",\"encoding\":\"unix-bytes\"}},{\"contentDigest\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"kind\":\"package-manifest\",\"path\":{\"base64\":\"L2ZpeHR1cmUvcGFja2FnZS1tYW5pZmVzdA==\",\"encoding\":\"unix-bytes\"}},{\"contentDigest\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"kind\":\"package-file\",\"path\":{\"base64\":\"L2ZpeHR1cmUvcGFja2FnZS1maWxl\",\"encoding\":\"unix-bytes\"}}],\"executable\":{\"contentDigest\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"path\":{\"base64\":\"L2ZpeHR1cmUvYmluL3Rvb2w=\",\"encoding\":\"unix-bytes\"}},\"kind\":\"wrapped\",\"schemaVersion\":1}",
+      "bytes": 940,
+      "sha256": "8e9e212e918a2842d86450764109442cf26f3b40f41ee9e8ecf8168f9b236ff6"
+    },
+    {
+      "id": "initial-input",
+      "kind": "input",
+      "canonical": "{\"bootstrapConfigurationDigest\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"decision\":null,\"goalDigest\":\"e502bf30d9a5934d497e37f8b8eda2428c1fc0698aa9df3e7c7d6e666aa8f88c\",\"inputRevision\":1,\"preparationRevision\":1,\"records\":[],\"runId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1\",\"schemaVersion\":1,\"workspaceId\":\"workspace-1\"}",
+      "bytes": 373,
+      "sha256": "8cb34e0dfc3ab029190ee71ffcac7b8cb1e80a3df08aaf091fb35e61133353be"
+    },
+    {
+      "id": "initial-state",
+      "kind": "state",
+      "canonical": "{\"blockers\":[],\"bootstrapConfigurationDigest\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"currentPlan\":null,\"inputDigest\":\"06c10b7c5a8aaf94b9c67bde4145a646da8f464400d16136917eb937a6a66c22\",\"inputRevision\":1,\"parentRuntime\":null,\"parentSessionId\":\"parent-1\",\"pauseReason\":null,\"pendingClarification\":null,\"planReferences\":[],\"preparationRevision\":1,\"resumeTarget\":null,\"runDefinitionDigest\":\"24082b40dec59b9ddb10ddfce800973bb94b58fda26e5ad4230d37fc41a65ab5\",\"runId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1\",\"runVersion\":1,\"schemaVersion\":1,\"stageContinueRequired\":false,\"state\":\"assessing\",\"workspaceId\":\"workspace-1\"}",
+      "bytes": 669,
+      "sha256": "ffeef114aafe44ab546cb09969c098c50efe773924e18e252fda402f99081090"
+    },
+    {
+      "id": "reserved",
+      "kind": "attachment",
+      "canonical": "{\"bootstrapConfigurationDigest\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"kind\":\"reserved\",\"parentSessionId\":\"parent-1\",\"rootAssignmentId\":\"root-source-fixture\",\"runId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1\",\"schemaVersion\":1,\"workspaceId\":\"workspace-1\"}",
+      "bytes": 310,
+      "sha256": "29ea90cec1dde5395a3d730e9167f6c9d309907f5675bcae5b13da7904958e05"
+    },
+    {
+      "id": "attached",
+      "kind": "attachment",
+      "canonical": "{\"bootstrapConfigurationDigest\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"kind\":\"attached\",\"launchGeneration\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"parentSessionId\":\"parent-1\",\"rootAssignmentId\":\"root-source-fixture\",\"runId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1\",\"schemaVersion\":1,\"sidecarGeneration\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workspaceId\":\"workspace-1\"}",
+      "bytes": 483,
+      "sha256": "4d6a34a8ac7af10c9fefe9f7c77f76d00dddbbf17e018d41f271202556c3103a"
+    }
+  ]
+}

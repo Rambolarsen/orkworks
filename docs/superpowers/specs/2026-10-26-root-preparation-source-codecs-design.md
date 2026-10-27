@@ -12,8 +12,9 @@ Tracking: [#741](https://github.com/Rambolarsen/orkworks/issues/741),
 [#742](https://github.com/Rambolarsen/orkworks/issues/742); initiative
 [#738](https://github.com/Rambolarsen/orkworks/issues/738).
 Inspection base: `273a02f184076c6b607c8eede03f9b8cb9ea281f`.
-**Proposed for scoped owner review. No schema acceptance, runtime implementation,
-source-valid full bootstrap, migration or eligible coding-tool profile is claimed.**
+**Scoped source codecs accepted for documentation component fixtures on 2026-10-27.
+No runtime implementation, source-valid full bootstrap, migration or eligible
+coding-tool profile is claimed.**
 
 ## Intent and boundary
 
@@ -311,3 +312,18 @@ and capped capability work remains deferred until November. Native authority
 ordering, resource/shared custody qualification, complete production quotas and
 a separately approved executable plan remain independent gates. Keep #741/#742
 and the broader component issues open.
+
+## Owner acceptance and component handoff — 2026-10-27
+
+The owner answered “yes, go ahead” after the concrete draft PR #1093 and its
+schema-approval question were presented. This accepts the five source-codec
+choices and the initial null-decision manifest/first-attachment slice for
+component fixture/checker work. It does not approve a production wire migration,
+complete mutable lifecycle/storage command, native execution or adapter eligibility.
+The earlier proposed-status wording records the pre-acceptance design history.
+
+The [component evidence](../../validation/root-preparation-source-components.md)
+retains independent Python-derived bytes and structural rejection tests. These
+are synthetic components only; the source-valid bootstrap, retained source rows,
+atomic effects and capability/native gates named above remain open. Preserve the
+original 2026-10-26 run/approval catalog and the older unverified bootstrap seed.

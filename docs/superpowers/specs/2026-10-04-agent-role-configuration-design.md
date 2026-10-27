@@ -1310,3 +1310,11 @@ accepted by the earlier draft/source-flow approval. Full source-valid fixtures,
 complete storage/lifecycle effects, #740 capability evidence and separately
 approved runtime plans remain gated. Existing source bytes and catalogs are
 unchanged.
+
+## Root source codecs accepted for component fixtures — 2026-10-27
+
+The owner's “yes, go ahead” accepts the
+[source-codec choices](2026-10-26-root-preparation-source-codecs-design.md#owner-acceptance-and-component-handoff--2026-10-27)
+for documentation-only component fixtures. The earlier proposed follow-up is
+superseded only within that scope. No full bootstrap/source/transition validity,
+storage/native qualification, #740 eligibility or executable plan is accepted.
