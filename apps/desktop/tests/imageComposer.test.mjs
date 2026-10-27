@@ -12,6 +12,9 @@ if (process.versions.electron) {
     try {
       await win.loadFile(process.env.ORKWORKS_IMAGE_UI_DIR+'/index.html');
       await wait('window.fixture && document.querySelector("#nsd-harness").value==="codex"');
+      assert.equal(await evaluate('document.querySelector("#nsd-harness").getAttribute("aria-label")'),'Coding tool','the inline tool selector has an accessible product name');
+      assert.equal(await evaluate('document.querySelector("#nsd-model").getAttribute("aria-label")'),'Model','the inline model selector remains named');
+      assert.equal(await evaluate('document.querySelector("#nsd-prompt").getAttribute("aria-label")'),'Initial prompt','the conversational prompt remains named');
       // The coding tool owns the catalog, including deferred and failed discovery.
       await wait('document.querySelector("#nsd-model")?.tagName==="SELECT"');
       await wait('document.querySelector("#nsd-model").options.length===3');
