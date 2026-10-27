@@ -284,3 +284,16 @@ workflow uses independent current repository citations and the existing
 recommendation authority contract. These trials do not qualify arbitrary repos,
 real-world performance or end-to-end combined workflow inference. Follow-up
 model calibration requires its own retained evidence rather than a silent retry.
+
+
+### Current-diff review recovery correction
+
+The independent medium-effort code review of `0948957f` found that an exact
+committed failed suggestion child could be reported as interrupted after a crash
+before parent finalization. New regressions reproduced this for both score and
+suggestion failures, and rejected a suggesting phase without a child identity.
+Recovery now preserves exact terminal failures with fixed stage codes. Persisted
+state/phase/child combinations are validated; missing, unfinished or mismatched
+children remain interrupted. The focused readiness set passes 33 tests with the
+explicit live trial harness ignored. Final review and full-verifier evidence are
+recorded on the PR after this correction.

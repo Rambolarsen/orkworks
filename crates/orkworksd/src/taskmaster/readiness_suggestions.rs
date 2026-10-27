@@ -100,6 +100,39 @@ impl SuggestionRun {
         {
             return Err("Combined assessment metadata is invalid".into());
         }
+        let valid_stage = match self.phase {
+            Phase::Scoring => self.assessment_id.is_none() && self.recommendation_id.is_none(),
+            Phase::Suggesting => {
+                self.state == RunState::Running
+                    && self.assessment_id.is_some()
+                    && self.recommendation_id.is_none()
+            }
+            Phase::Finished => match self.state {
+                RunState::Interrupted => {
+                    self.recommendation_id.is_none()
+                        && matches!(
+                            self.reason_code.as_deref(),
+                            Some("interrupted" | "inputs_changed")
+                        )
+                }
+                RunState::Failed => {
+                    self.recommendation_id.is_none()
+                        && match self.reason_code.as_deref() {
+                            Some("scoring_failed") => self.assessment_id.is_none(),
+                            Some("suggestion_failed" | "guidance_unavailable") => {
+                                self.assessment_id.is_some()
+                            }
+                            Some("metadata_unavailable") => true,
+                            _ => false,
+                        }
+                }
+                RunState::Succeeded => true,
+                _ => false,
+            },
+        };
+        if !valid_stage {
+            return Err("Combined assessment stage is inconsistent".into());
+        }
         if self.state == RunState::Succeeded
             && !match self.reason_code.as_deref() {
                 Some("no_proposal") => {
@@ -143,8 +176,22 @@ pub(crate) fn recover(root: &Path) -> Result<(), String> {
         .snapshots
         .iter()
         .any(|s| Some(&s.id) == parent.readiness_run_id.as_ref());
+    if !score_exists && parent.phase == Phase::Scoring {
+        if ReadinessStore::new(root).run()?.is_some_and(|child| {
+            Some(&child.id) == parent.readiness_run_id.as_ref() && child.state == RunState::Failed
+        }) {
+            parent.finish(RunState::Failed, "scoring_failed");
+            return save(root, &parent);
+        }
+    }
     if score_exists && parent.assessment_id.is_some() {
         if let Some(record) = AssessmentStore::new(root).load::<AssessmentRecord>()? {
+            if Some(&record.id) == parent.assessment_id.as_ref()
+                && record.state == AssessmentState::Failed
+            {
+                parent.finish(RunState::Failed, "suggestion_failed");
+                return save(root, &parent);
+            }
             if Some(&record.id) == parent.assessment_id.as_ref()
                 && record.state == AssessmentState::Succeeded
             {
@@ -255,6 +302,71 @@ mod tests {
             "success without exact child identities was accepted"
         );
     }
+    #[test]
+    fn recovery_preserves_exact_committed_stage_failures() {
+        use super::super::readiness_store::{Run, Snapshot};
+        for suggestion in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let mut score = Run::queued();
+            let mut parent = SuggestionRun::queued(&score.id);
+            if suggestion {
+                ReadinessStore::new(root.path())
+                    .append(Snapshot {
+                        id: score.id.clone(),
+                        started_at: score.started_at.clone(),
+                        completed_at: now(),
+                        redacted: true,
+                        data: None,
+                    })
+                    .unwrap();
+                let id = format!("assessment-{}", uuid::Uuid::new_v4());
+                parent.state = RunState::Running;
+                parent.phase = Phase::Suggesting;
+                parent.assessment_id = Some(id.clone());
+                AssessmentStore::new(root.path())
+                    .save(&AssessmentRecord {
+                        format_version: 2,
+                        input_manifest: None,
+                        phase: None,
+                        id,
+                        state: AssessmentState::Failed,
+                        started_at: now(),
+                        completed_at: Some(now()),
+                        report: None,
+                        pending_recommendation: None,
+                        error_summary: Some("Taskmaster returned an invalid assessment".into()),
+                        reused: false,
+                    })
+                    .unwrap();
+            } else {
+                score.finish(RunState::Failed, Some("scoring_invalid_response"));
+                ReadinessStore::new(root.path()).save_run(&score).unwrap();
+            }
+            save(root.path(), &parent).unwrap();
+            recover(root.path()).unwrap();
+            let recovered = load(root.path()).unwrap().unwrap();
+            assert_eq!(recovered.state, RunState::Failed, "suggestion={suggestion}");
+            assert_eq!(
+                recovered.reason_code.as_deref(),
+                Some(if suggestion {
+                    "suggestion_failed"
+                } else {
+                    "scoring_failed"
+                })
+            );
+        }
+    }
+    #[test]
+    fn persisted_phase_and_child_id_combinations_cannot_contradict_each_other() {
+        let root = tempfile::tempdir().unwrap();
+        let mut run = SuggestionRun::queued(&uuid::Uuid::new_v4().to_string());
+        run.phase = Phase::Suggesting;
+        assert!(
+            save(root.path(), &run).is_err(),
+            "suggestion phase without a child identity was accepted"
+        );
+    }
+
     #[test]
     fn interrupted_scoring_is_recovered_without_inference_or_destroying_the_record() {
         let root = tempfile::tempdir().unwrap();
