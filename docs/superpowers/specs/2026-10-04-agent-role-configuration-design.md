@@ -1318,3 +1318,17 @@ The owner's “yes, go ahead” accepts the
 for documentation-only component fixtures. The earlier proposed follow-up is
 superseded only within that scope. No full bootstrap/source/transition validity,
 storage/native qualification, #740 eligibility or executable plan is accepted.
+
+
+## Remaining root source schema proposal — 2026-10-27
+
+After merged PR #1093, the [remaining root-bootstrap source proposal](2026-10-27-root-bootstrap-source-schemas-design.md)
+closes selected root-only permission/coordination entries, requirement links,
+platform/settings/model source records, capability leaves and exact rendering
+choices for owner review. Its new fields/defaults/action identities remain
+proposed; no dependent fixtures or checker changes are delivered. The accepted
+root-assignment/provenance/executable and initial-membership codecs remain
+unchanged. This is not acceptance of the broader component, a verified profile
+or a runtime execution plan. #740 stays deferred/no-go until November; source
+custody, native identity/authority, complete lifecycle/storage effects and
+separately approved executable plans retain their independent gates.
