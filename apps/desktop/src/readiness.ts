@@ -1,19 +1,114 @@
 // Renderer contract, independent of Electron and Rust types.
 export const conceptIds = ['context-discovery','progressive-disclosure','instruction-scoping','architecture-awareness','domain-knowledge','environment-reproducibility','tool-accessibility','task-decomposition','verification','observability','change-safety','feedback-loops','durable-memory','human-oversight'] as const;
-export interface ReadinessRow { conceptId:string; maturity:number|null; confidence:'low'|'medium'|'high'|null; repositoryFactHashes:string[]; rubricPageId:string; rationale:string; limits:string[]; nextTransition:string; unassessedReason:string|null }
-export interface ReadinessData {
- workspacePath:string; inputFingerprint:string; comparisonFingerprint:string; git:{headOid:string|null;dirty:boolean|null};
- inferenceIdentity:{selection?:{provider:string;model:string;reasoningEffort?:string};custom?:unknown;native?:{profile?:string}|null}; knowledgeIdentity:{version?:string;bundle_sha256?:string}; rubricDigest:string;
- versions?:{prompt?:string;collector?:number;discoverySchema?:number;finalSchema?:number;scoring?:number};
- summary:string; concepts:ReadinessRow[]; coverage:number; rawTotal:number|null; overallScore:number|null;
- repositoryEvidence:{factId:string;path:string;sha256:string;excerpt:string;observedAt:string}[];
- knowledgeEvidence:{pageId:string;title:string;status:string;bundleVersion:string;sha256:string;excerpt:string}[];
+export interface ReadinessRow {
+  conceptId: string;
+  maturity: number | null;
+  confidence: 'low' | 'medium' | 'high' | null;
+  repositoryFactHashes: string[];
+  rubricPageId: string;
+  rationale: string;
+  limits: string[];
+  nextTransition: string;
+  unassessedReason: string | null;
 }
-export interface ReadinessSnapshot {id:string;startedAt:string;completedAt:string;redacted:boolean;data:ReadinessData|null}
-export interface ReadinessRun {id:string;state:'queued'|'running'|'succeeded'|'failed'|'interrupted';phase:'collecting_evidence'|'reading_evidence'|'scoring_readiness'|null;startedAt:string;completedAt:string|null;errorCode:string|null}
-export interface ReadinessSuggestionRun {id:string;state:"queued"|"running"|"succeeded"|"failed"|"interrupted";phase:"scoring"|"suggesting"|"finished";readinessRunId:string|null;assessmentId:string|null;recommendationId:string|null;reasonCode:string|null;noProposalReason?:string|null}
-export interface ReadinessStatus {suggestionRun?:ReadinessSuggestionRun|null;workspacePath:string|null;run:ReadinessRun|null;snapshots:ReadinessSnapshot[];freshness:'none'|'current'|'changed'|'unknown'|'redacted';retentionLimit:number;reasonCode:string|null}
-export interface ReadinessAdmission {outcome:'scheduled'|'already_running'|'unavailable';runId:string|null;reasonCode:string|null}
+
+export interface ReadinessData {
+  workspacePath: string;
+  inputFingerprint: string;
+  comparisonFingerprint: string;
+  git: {
+    headOid: string | null;
+    dirty: boolean | null;
+  };
+  inferenceIdentity: {
+    selection?: {
+      provider: string;
+      model: string;
+      reasoningEffort?: string;
+    };
+    custom?: unknown;
+    native?: {
+      profile?: string;
+    } | null;
+  };
+  knowledgeIdentity: {
+    version?: string;
+    bundle_sha256?: string;
+  };
+  rubricDigest: string;
+  versions?: {
+    prompt?: string;
+    collector?: number;
+    discoverySchema?: number;
+    finalSchema?: number;
+    scoring?: number;
+  };
+  summary: string;
+  concepts: ReadinessRow[];
+  coverage: number;
+  rawTotal: number | null;
+  overallScore: number | null;
+  repositoryEvidence: {
+    factId: string;
+    path: string;
+    sha256: string;
+    excerpt: string;
+    observedAt: string;
+  }[];
+  knowledgeEvidence: {
+    pageId: string;
+    title: string;
+    status: string;
+    bundleVersion: string;
+    sha256: string;
+    excerpt: string;
+  }[];
+}
+
+export interface ReadinessSnapshot {
+  id: string;
+  startedAt: string;
+  completedAt: string;
+  redacted: boolean;
+  data: ReadinessData | null;
+}
+
+export interface ReadinessRun {
+  id: string;
+  state: 'queued' | 'running' | 'succeeded' | 'failed' | 'interrupted';
+  phase: 'collecting_evidence' | 'reading_evidence' | 'scoring_readiness' | null;
+  startedAt: string;
+  completedAt: string | null;
+  errorCode: string | null;
+}
+
+export interface ReadinessSuggestionRun {
+  id: string;
+  state: 'queued' | 'running' | 'succeeded' | 'failed' | 'interrupted';
+  phase: 'scoring' | 'suggesting' | 'finished';
+  readinessRunId: string | null;
+  assessmentId: string | null;
+  recommendationId: string | null;
+  reasonCode: string | null;
+  noProposalReason?: string | null;
+}
+
+export interface ReadinessStatus {
+  suggestionRun?: ReadinessSuggestionRun | null;
+  workspacePath: string | null;
+  run: ReadinessRun | null;
+  snapshots: ReadinessSnapshot[];
+  freshness: 'none' | 'current' | 'changed' | 'unknown' | 'redacted';
+  retentionLimit: number;
+  reasonCode: string | null;
+}
+
+export interface ReadinessAdmission {
+  outcome: 'scheduled' | 'already_running' | 'unavailable';
+  runId: string | null;
+  reasonCode: string | null;
+}
+
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw Error('Invalid readiness response');
