@@ -10,13 +10,13 @@ const snapshot=()=>({id:'one',startedAt:'2026-10-25T00:00:00.000Z',completedAt:'
 const status=(snapshots=[])=>({workspacePath:'/repo',run:null,snapshots,freshness:'current',retentionLimit:100,reasonCode:null});
 const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return{promise,resolve,reject};};
 function nodes(tree){if(Array.isArray(tree))return tree.flatMap(nodes);if(!tree||typeof tree!=='object')return[];return[tree,...nodes(tree.props?.children)];}
-async function fixture(t,initial){
+async function fixture(t,initial,props={}){
  const queue=[Promise.resolve(initial)];let tick;
  const prior=globalThis.window;globalThis.window={setInterval:f=>{tick=f;return 1},clearInterval:()=>{},orkworks:{getReadinessStatus:()=>queue.shift(),requestReadinessAssessment:async()=>({outcome:'unavailable',runId:null,reasonCode:null})}};t.after(()=>globalThis.window=prior);
  let stateIndex=0,effectIndex=0;const values=[],deps=[],effects=[];
  const hooks={...React,useRef:initial=>hooks.useState({current:initial})[0],useState(initial){const i=stateIndex++;if(!(i in values))values[i]=initial;return[values[i],next=>values[i]=typeof next==='function'?next(values[i]):next];},useEffect(callback,next){const i=effectIndex++;if(!deps[i]||next.some((x,j)=>x!==deps[i][j]))effects.push(callback);deps[i]=next;}};
  const module={exports:{}};new Function('require','module','exports',compiled.outputFiles[0].text)(id=>id==='react'?hooks:require(id),module,module.exports);
- const onBusyChange=()=>{};const render=()=>{stateIndex=0;effectIndex=0;return module.exports.default({workspacePath:'/repo',disabled:false,onBusyChange});};
+ const onBusyChange=()=>{};const render=()=>{stateIndex=0;effectIndex=0;return module.exports.default({workspacePath:'/repo',disabled:false,onBusyChange,...props});};
  const settle=async()=>{while(effects.length)effects.shift()();await new Promise(setImmediate);};render();await settle();
  return{render,settle,queue,tick:()=>tick(),summary:()=>nodes(render()).find(node=>node.props?.snapshot)?.props.snapshot};
 }
@@ -73,4 +73,53 @@ test('combined no-proposal reason comes only from its linked current assessment'
 test('suggestion-stage failure retains the saved score and describes the failure',async t=>{
  const initial=status([snapshot()]);initial.suggestionRun={id:'combo',state:'failed',phase:'finished',readinessRunId:'one',assessmentId:'assessment-one',recommendationId:null,reasonCode:'suggestion_failed',noProposalReason:null};
  const view=await fixture(t,initial);assert.equal(view.summary().data.overallScore,50);assert.match(displayedText(view.render()),/saved score is retained/i);
+});
+
+
+test('history selectors preserve zero scores, redaction labels and baseline reset', async t => {
+ const recent = snapshot(), older = snapshot();
+ recent.id = 'recent'; older.id = 'older';
+ Object.assign(older.data, { overallScore: 0, rawTotal: 0 });
+ older.data.concepts.forEach(row => row.maturity = 0);
+ const redacted = { ...snapshot(), id: 'redacted', redacted: true, data: null };
+ const view = await fixture(t, status([recent, older, redacted]));
+ const selects = () => nodes(view.render()).filter(node => node.type === 'select');
+ const summary = () => nodes(view.render()).find(node => node.props?.snapshot).props;
+ assert.equal(summary().baseline.id, 'older');
+ for (const select of selects()) {
+  const options = nodes(select).filter(node => node.type === 'option');
+  assert.match(options.find(option => option.props.value === 'older').props.children.join(''), /0\/100/);
+  assert.match(options.find(option => option.props.value === 'redacted').props.children.join(''), /Redacted/);
+ }
+ selects()[1].props.onChange({ target: { value: '' } });
+ assert.equal(summary().baseline, undefined);
+ selects()[0].props.onChange({ target: { value: 'older' } });
+ assert.equal(summary().snapshot.id, 'older');
+ assert.equal(summary().baseline, undefined);
+ selects()[0].props.onChange({ target: { value: 'recent' } });
+ assert.equal(summary().baseline.id, 'older');
+});
+
+test('standalone assessment remains separate from the combined request', async t => {
+ const view = await fixture(t, status());
+ let score = 0;
+ window.orkworks.requestReadinessAssessment = async () => { score++; return { outcome: 'scheduled' }; };
+ window.orkworks.requestReadinessSuggestion = async () => { assert.fail('Combined action must not be invoked'); };
+ view.queue.push(Promise.resolve(status()));
+ nodes(view.render()).find(node => node.type === 'button' && node.props.children === 'Assess readiness').props.onClick();
+ await view.settle();
+ assert.equal(score, 1);
+ assert.match(displayedText(view.render()), /Readiness assessment requested/);
+});
+
+test('a completed suggestion is surfaced once across status refreshes', async t => {
+ const initial = status();
+ initial.suggestionRun = { id: 'combo', state: 'succeeded', phase: 'finished', readinessRunId: 'one', assessmentId: 'assessment-one', recommendationId: 'recommendation-one', reasonCode: null, noProposalReason: null };
+ const surfaced = [];
+ const view = await fixture(t, initial, { onSuggestion: id => surfaced.push(id) });
+ view.render(); await view.settle();
+ assert.deepEqual(surfaced, ['recommendation-one']);
+ view.queue.push(Promise.resolve(structuredClone(initial))); view.tick(); await view.settle();
+ view.render(); await view.settle();
+ assert.deepEqual(surfaced, ['recommendation-one']);
 });
