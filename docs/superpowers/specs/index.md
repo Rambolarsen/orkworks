@@ -204,3 +204,5 @@ Dated design records; these do not establish current product behavior.
 
 - [Current hierarchy summary detail projection](2026-10-26-hierarchy-summary-detail-design.md) — Proposed authoritative result details and exact local viewed-summary behavior under existing read budgets.
 - [Root preparation source codecs and initial membership](2026-10-26-root-preparation-source-codecs-design.md) — Proposed root-only assignment, provenance, executable chain and initial membership records for scoped review before component fixtures.
+
+- [Remaining root bootstrap source schemas](2026-10-27-root-bootstrap-source-schemas-design.md) — Proposed root-only coordination, requirement/settings/model records and exact rendering for review before dependent fixtures.
