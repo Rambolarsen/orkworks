@@ -331,14 +331,14 @@ test("resumeChoices maps backend resumeOptions into chooser rows", () => {
   });
   const choices = resumeChoices(session);
   assert.equal(choices.length, 2);
-  assert.deepEqual(choices[0], { label: "Resume latest in folder", sub: "Newest session in specs", recommended: true, unavailable: false });
-  assert.deepEqual(choices[1], { label: "Resume this exact session", sub: "not available — process ended", recommended: false, unavailable: true });
+  assert.deepEqual(choices[0], { strategy: "latest_cwd", label: "Resume latest in folder", sub: "Newest session in specs", recommended: true, unavailable: false });
+  assert.deepEqual(choices[1], { strategy: "exact", label: "Resume this exact session", sub: "not available — process ended", recommended: false, unavailable: true });
 });
 
 test("resumeChoices synthesizes a single row when the backend sends no resumeOptions", () => {
   const session = baseSession({ memoryState: "resumable", resumeStrategy: "exact" });
   const choices = resumeChoices(session);
-  assert.deepEqual(choices, [{ label: "Resume session", sub: "Reattach to this exact session", recommended: true, unavailable: false }]);
+  assert.deepEqual(choices, [{ strategy: "exact", label: "Resume session", sub: "Reattach to this exact session", recommended: true, unavailable: false }]);
 });
 
 test("resumeChoices is empty when there is no resume strategy at all", () => {
