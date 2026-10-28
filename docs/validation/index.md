@@ -36,3 +36,4 @@ Capability research, validation results, and evidence fixtures.
 - [Hierarchy summary-detail component fixtures](hierarchy-summary-components.md) — Independent display request/response bytes and rejection, metric and viewed-identity cases; source and runtime qualification remain separate.
 
 - [Root bootstrap source-byte evidence](root-bootstrap-components.md) — Independent root-only source bytes, exact rendering and adversarial checks with explicit unverified gates.
+- [Summary-detail source joins and compact packing audit](summary-source-packing.md) — Exact narrow logical source joins, maximum request widths and conditional complete response bounds; full producer currentness remains unqualified.
