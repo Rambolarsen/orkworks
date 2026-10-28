@@ -38,9 +38,7 @@ export const VOCAB = {
   resumeNoteRemembered: "Not live · OrkWorks kept the memory, not the process.",
   cueReplyInTerminal: "Reply in the terminal to continue.",
   reviewDiffAction: "Review diff",
-  markHandledAction: "Mark handled",
   diffReviewComingSoon: "Diff review isn't wired up yet — tracked as a follow-up.",
-  markHandledComingSoon: "Marking sessions handled isn't wired up yet — tracked as a follow-up.",
 } as const;
 
 /** Plain-language attention label. Pairs with attentionTone() for visual weight. */
@@ -348,7 +346,6 @@ export function resumeChoices(session: SessionInfo): ResumeChoice[] {
 export type DetailActionZone =
   | { kind: "none" }
   | { kind: "cue"; text: string }
-  | { kind: "buttons" }
   | { kind: "plan" }
   | { kind: "resume"; options: ResumeChoice[]; note?: string };
 
@@ -364,6 +361,5 @@ export function detailActionZone(session: SessionInfo, tone: AttentionTone): Det
     };
   }
   if (tone === "needs-you") return { kind: "cue", text: VOCAB.cueReplyInTerminal };
-  if (tone === "done") return { kind: "buttons" };
   return { kind: "none" };
 }

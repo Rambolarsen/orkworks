@@ -358,9 +358,9 @@ test("detailActionZone prefers the resume chooser for non-live sessions", () => 
   }
 });
 
-test("detailActionZone shows a cue for a live needs-you session, buttons when done, nothing otherwise", () => {
+test("detailActionZone shows a cue for a live needs-you session and no placeholder when done", () => {
   assert.deepEqual(detailActionZone(baseSession(), "needs-you"), { kind: "cue", text: VOCAB.cueReplyInTerminal });
-  assert.deepEqual(detailActionZone(baseSession(), "done"), { kind: "buttons" });
+  assert.deepEqual(detailActionZone(baseSession(), "done"), { kind: "none" });
   assert.deepEqual(detailActionZone(baseSession(), "working"), { kind: "none" });
   assert.deepEqual(detailActionZone(baseSession(), "neutral"), { kind: "none" });
 });
