@@ -206,3 +206,5 @@ Dated design records; these do not establish current product behavior.
 - [Root preparation source codecs and initial membership](2026-10-26-root-preparation-source-codecs-design.md) — Proposed root-only assignment, provenance, executable chain and initial membership records for scoped review before component fixtures.
 
 - [Remaining root bootstrap source schemas](2026-10-27-root-bootstrap-source-schemas-design.md) — Proposed root-only coordination, requirement/settings/model records and exact rendering for review before dependent fixtures.
+
+- [Research report source codecs for evidence fixtures](2026-10-28-research-report-source-codecs-design.md) — Proposed closed report/finding/reference leaves and exact descriptor joins before R2 source fixtures.
