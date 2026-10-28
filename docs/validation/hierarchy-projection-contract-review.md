@@ -143,3 +143,16 @@ source-labelled per-outcome annotations, current metric displays and explicit
 viewed-summary presentation. This is a proposed resolution under #1089, not owner/
 producer acceptance or a replacement for the immutable-record codec. R1's version
 correction and all source/capability/runtime gates remain unchanged.
+
+## R2 scoped design acceptance — 2026-10-28
+
+The owner [accepted the concrete current-summary read, metric display and viewed-summary choices](../superpowers/specs/2026-10-26-hierarchy-summary-detail-design.md#scoped-owner-acceptance-and-review-handoff--2026-10-28)
+for documentation fixtures and further qualification after an authored comparison
+with #744 aggregation/currentness, read/recovery and #746 viewing contracts found
+no blocking mismatch. This resolves the pending owner decision for R2's proposed
+read representation; it is not independent producer agreement, executed fixture
+evidence or a production UI/detail handoff. The stale-C1 versus stale-optional-O
+counterexample remains in the logical case inventory. #1089 remains open for the
+bounded fixture and producer/qualification handoff; source/packing, writer/storage,
+native, #740 and executable runtime-plan gates remain independent. R1 and all
+existing technical definitions and fixture bytes are unchanged.

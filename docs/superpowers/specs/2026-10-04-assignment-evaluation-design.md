@@ -2161,3 +2161,15 @@ codecs, aggregate/custody and native authority/resource qualification, #740 and
 executable-plan approvals remain gates; no runtime work or eligibility is approved.
 The earlier synthetic bootstrap binding stays UNVERIFIED. Keep component issues
 open; next is the bounded root-flow source-valid byte/transition fixture task.
+
+## Scoped current-summary display acceptance — 2026-10-28
+
+The owner [accepted #1089's current-summary read/display/viewing choices](2026-10-26-hierarchy-summary-detail-design.md#scoped-owner-acceptance-and-review-handoff--2026-10-28)
+for documentation fixtures and further qualification after an authored comparison
+with this aggregate contract. The sidecar remains the aggregate owner; conservative
+completeness counts and quality disagreement displays preserve uncertainty and
+independent failures. No source/material schema, summary-revision rule or numeric
+budget changes. The new read's exact bindings and detail-only snapshot invalidation
+need executable documentation cases and producer/writer qualification. This is
+scoped design acceptance, not independent producer evidence or broad component,
+storage/native, #740 or runtime-plan approval. Keep #744 and #1089 open.
