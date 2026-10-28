@@ -181,22 +181,24 @@ export default function NewSessionDialog({ workspacePath = "", harnesses, provid
     const selectedHarness = selectable.find((harness) => harness.id === draft.harnessId);
     const generation = confirmationGeneration.current;
     setConfirmBusy(true);
+    setImageError("");
     try {
       if (selectedHarness && selectedHarness.id !== "generic-shell") {
         try {
           const freshStatus = await getHarnessDetectionStatus(selectedHarness);
           if (generation !== confirmationGeneration.current) return;
+          if (freshStatus.ok !== true) {
+            setImageError(`Cannot check ${selectedHarness.name} availability. Check the coding tool settings and try again.`);
+            return;
+          }
+          if (!freshStatus.status.toolDetected) {
+            setImageError(`${selectedHarness.name} could not be found. Check that it is installed and try again.`);
+            return;
+          }
           setDetectionStatuses((current) => ({ ...current, [selectedHarness.id]: freshStatus }));
-          if (freshStatus.ok !== true || !freshStatus.status.toolDetected) return;
-        } catch (error) {
+        } catch {
           if (generation !== confirmationGeneration.current) return;
-          setDetectionStatuses((current) => ({
-            ...current,
-            [selectedHarness.id]: {
-              ok: false,
-              error: error instanceof Error ? error.message : "Coding tool detection unavailable.",
-            },
-          }));
+          setImageError(`Cannot check ${selectedHarness.name} availability. Check the coding tool settings and try again.`);
           return;
         }
       }
