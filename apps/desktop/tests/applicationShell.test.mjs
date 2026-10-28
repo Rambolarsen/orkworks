@@ -1066,9 +1066,12 @@ if (process.versions.electron) {
           await click('details');
           await waitFor('document.querySelector(".session-detail .resume-split-button")');
           assert.equal(await evaluate('[...document.querySelectorAll(".session-detail .resume-split-button button")].every(button=>button.disabled)'),true,'Details uses the same pending state');
-          await click('details');
-          await evaluate('fixture.setResuming([])');
+          await evaluate('fixture.setResuming([]);fixture.setPreferences(old=>({...old,inspectorWidth:280}))');
           await waitFor('!document.querySelector("[data-shell-resume]").disabled');
+          await evaluate('document.querySelector(".session-detail [data-resume-toggle]").click()');
+          await waitFor('document.querySelector(".session-detail [data-resume-options]")');
+          assert.ok(await evaluate('(()=>{const panel=document.querySelector(".session-detail").getBoundingClientRect();const menu=document.querySelector(".session-detail [data-resume-options]").getBoundingClientRect();return menu.left>=panel.left&&menu.right<=panel.right})()'),'Details choices stay inside the narrow inspector scrollport');
+          await click('details');
           await evaluate('fixture.resumed=[];document.querySelector("[data-resume-toggle]").click()');
           await waitFor('document.querySelector("[data-resume-options]")');
           assert.deepEqual(await evaluate('fixture.resumed'),[],'opening choices does not resume');
@@ -1722,7 +1725,7 @@ if (process.versions.electron) {
             const [activeSessionId,setActiveSessionId]=useState('coding');
             fixture.activeSessionId=activeSessionId;
             fixture.select=setActiveSessionId;
-            const [preferences,setPreferences]=useState({sessionsWidth:240,inspectorWidth:320,sessionsVisible:true,density:'low'});
+            const [preferences,setPreferences]=useState({sessionsWidth:240,inspectorWidth:320,sessionsVisible:true,density:'low'});fixture.setPreferences=setPreferences;
             return <ApplicationShell centralSurface={reviewing ? {kind:"review",sessionId:activeSessionId,artifactId:"plan"} : {kind:"terminal",sessionId:activeSessionId}} onCloseReview={()=>setReviewing(false)} reviewContent={<p>Current plan</p>} sessions={empty ? [] : ((${JSON.stringify(scenario)}==='sidebar-controls'?['coding','other',...Array.from({length:80},(_,i)=>'history-'+i)]:['coding','other']).map((id,i)=>({id,name:id,cwd:'/tmp/test',harnessId:'codex',harness:'codex',lifecycle:'alive',status:'running',attention:(${JSON.stringify(scenario)}==='actions' && id==='other'?'needs_you':'idle'),...sessionState,label:id,createdAt:'2026-10-10T10:00:00Z',lastActivityAt:i?'2026-10-10T09:00:00Z':'2026-10-10T10:00:00Z'})))}
               workspace={{path:'/tmp/test',workspaceIdentity:${JSON.stringify(scenario)}==='open-session-app'?'/real/test':'/tmp/test'}} workspaceControl={<div className="shell-workspace-control"><span className="titlebar-text">test</span><WorkspaceHistoryDropdown triggerLabel="⇄" triggerClassName="titlebar-switch-button" triggerAriaLabel="Switch workspace" currentWorkspacePath="/tmp/test" isSwitching={false} onOpenPath={()=>{fixture.workspaceOpens++;setGeneration(n=>n+1)}} onOpenOtherFolder={()=>{}} onError={()=>{}}/></div>} onOpenSettings={()=>fixture.settingsOpened++} onCreateSession={()=>{fixture.sessionsCreated++;if(${JSON.stringify(scenario)}==='new-session'){setCreating(true);fixture.command('new-session')}}} activeSessionId={activeSessionId} workspaceGeneration={generation}
               newSessionContent={creating ? <NewSessionDialog key={generation} harnesses={[]} providerRuntime={null} onConfirm={async opts=>{fixture.submitted=opts;fixture.finishCreate=new Promise(resolve=>fixture.resolveCreate=resolve);await fixture.finishCreate;setCreating(false);fixture.command("terminal")}} onCancel={()=>fixture.command("cancel-new-session")}/> : null}

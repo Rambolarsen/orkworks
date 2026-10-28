@@ -5584,6 +5584,10 @@ impl Drop for ResumeAdmission {
                     saved.final_observed_status_snapshot.clone();
                 current.resume = saved.resume.clone();
                 current.resume_options = saved.resume_options.clone();
+                current.harness_session_id_source = saved.harness_session_id_source.clone();
+                current.harness_session_id_confidence = saved.harness_session_id_confidence;
+                current.harness_session_id_captured_at =
+                    saved.harness_session_id_captured_at.clone();
                 current.resumed_from = saved.resumed_from.clone();
                 if current.attention_source() != "user" {
                     current.attention = saved.attention.clone();
@@ -5782,6 +5786,23 @@ async fn resume_session_workflow(
         )
     };
 
+    // A non-exact resume starts a fresh native conversation binding, just as a
+    // new launch does. Retain the previous metadata only for admission rollback.
+    let resume_native_session_id = if strategy == harness::ResumeStrategy::Exact {
+        meta.resume
+            .as_ref()
+            .and_then(|resume| resume.harness_session_id.clone())
+    } else {
+        None
+    };
+    let mut resumed_memory = meta.resume.clone();
+    if let Some(memory) = resumed_memory.as_mut() {
+        memory.harness_session_id = resume_native_session_id.clone();
+        if strategy != harness::ResumeStrategy::Exact {
+            memory.last_seen_at = None;
+        }
+    }
+
     let (kill_tx, _kill_rx) = tokio::sync::watch::channel(false);
     let info = SessionInfo {
         worktree_binding: meta.worktree_binding.clone(),
@@ -5836,10 +5857,10 @@ async fn resume_session_workflow(
         peon_diagnostics: None,
         memory_state: MemoryState::Live,
         resume_strategy: strategy.clone(),
-        resume: meta.resume.clone(),
+        resume: resumed_memory.clone(),
         resume_options: metadata::derive_resume_options(
             &strategy,
-            meta.resume.as_ref(),
+            resumed_memory.as_ref(),
             resume_flags.0,
             resume_flags.1,
             resume_flags.2,
@@ -5910,8 +5931,13 @@ async fn resume_session_workflow(
                     stored_meta.connectivity = connectivity_for_status("creating").to_string();
                     stored_meta.terminal_outcome = None;
                     stored_meta.last_activity = now.clone();
-                    stored_meta.resume = meta.resume.clone();
-                    stored_meta.resume_options = meta.resume_options.clone();
+                    stored_meta.resume = resumed_memory.clone();
+                    stored_meta.resume_options = info.resume_options.clone();
+                    if strategy != harness::ResumeStrategy::Exact {
+                        stored_meta.harness_session_id_source = None;
+                        stored_meta.harness_session_id_confidence = None;
+                        stored_meta.harness_session_id_captured_at = None;
+                    }
                     stored_meta.resumed_from = meta.resumed_from.clone();
                     Ok(())
                 });
@@ -5931,13 +5957,7 @@ async fn resume_session_workflow(
             &startup_id,
             Some(&startup_harness_id),
             &startup_executable,
-            (meta.harness == startup_harness_id)
-                .then(|| {
-                    meta.resume
-                        .as_ref()
-                        .and_then(|resume| resume.harness_session_id.as_deref())
-                })
-                .flatten(),
+            resume_native_session_id.as_deref(),
         ) {
             Ok(()) => {
                 crate::runtime::session_runtime::start_session_runtime(

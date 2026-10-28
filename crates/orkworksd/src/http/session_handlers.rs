@@ -3240,7 +3240,7 @@ mod tests {
         let resume = harness::ResumeMemory {
             state: harness::ResumeState::Available,
             preferred_strategy: harness::ResumeStrategy::LatestCwd,
-            harness_session_id: None,
+            harness_session_id: Some("previous-native-id".into()),
             latest_fallback: true,
             last_seen_at: Some("before".into()),
         };
@@ -3288,6 +3288,9 @@ mod tests {
         metadata.lifecycle_phase = "ended".into();
         metadata.lifecycle = "ended".into();
         metadata.resume = Some(resume);
+        metadata.harness_session_id_source = Some("opencode_env".into());
+        metadata.harness_session_id_confidence = Some(1.0);
+        metadata.harness_session_id_captured_at = Some("before".into());
         {
             let ws = state.workspace.lock().unwrap();
             ws.as_ref().unwrap().metadata.write_session(&metadata);
@@ -3320,6 +3323,43 @@ mod tests {
         server.abort();
         let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(body["resumeStrategy"], "latest_repo");
+        assert!(
+            body["resume"].get("harnessSessionId").is_none(),
+            "fallback must not retain the previous conversation ID"
+        );
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(&session_id)
+            .unwrap();
+        assert!(stored.resume.unwrap().harness_session_id.is_none());
+        assert!(stored.harness_session_id_source.is_none());
+        assert!(stored.harness_session_id_confidence.is_none());
+        assert!(stored.harness_session_id_captured_at.is_none());
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .merge_harness_session_report(
+                    &session_id,
+                    &metadata::HarnessSessionReport {
+                        harness_session_id: "actual-fallback-id".into(),
+                        source: "opencode_env".into(),
+                        confidence: 0.98,
+                    },
+                    "later"
+                ),
+            metadata::HarnessSessionMergeResult::Accepted
+        );
+
         assert_eq!(body["peonDiagnostics"]["schedulerState"], "completed");
         assert_eq!(body["peonDiagnostics"]["observationCount"], 0);
         assert!(state.sessions.lock().unwrap()[&session_id].resume_in_progress);
@@ -4029,6 +4069,9 @@ mod tests {
         );
         metadata.lifecycle_phase = "ended".into();
         metadata.lifecycle = "dead".into();
+        metadata.harness_session_id_source = Some("claude_hook".into());
+        metadata.harness_session_id_confidence = Some(1.0);
+        metadata.harness_session_id_captured_at = Some("before".into());
         let ws_guard = state.workspace.lock().unwrap();
         let ws = ws_guard.as_ref().unwrap();
         ws.metadata.write_session(&metadata);
@@ -4051,6 +4094,9 @@ mod tests {
             let mut creating = metadata.clone();
             creating.status = "creating".into();
             creating.lifecycle_phase = "creating".into();
+            creating.harness_session_id_source = None;
+            creating.harness_session_id_confidence = None;
+            creating.harness_session_id_captured_at = None;
             ws.metadata.write_session(&creating);
             ws.metadata.clear_terminal_size(session_id);
         }
@@ -4067,6 +4113,18 @@ mod tests {
         let ws_guard = state.workspace.lock().unwrap();
         let ws = ws_guard.as_ref().unwrap();
         let restored_metadata = ws.metadata.read_session(session_id).unwrap();
+        assert_eq!(
+            restored_metadata.harness_session_id_source,
+            metadata.harness_session_id_source
+        );
+        assert_eq!(
+            restored_metadata.harness_session_id_confidence,
+            metadata.harness_session_id_confidence
+        );
+        assert_eq!(
+            restored_metadata.harness_session_id_captured_at,
+            metadata.harness_session_id_captured_at
+        );
         assert_eq!(restored_metadata.status, "ended");
         assert_eq!(restored_metadata.lifecycle_phase, "ended");
         assert_eq!(ws.metadata.read_terminal_size(session_id), Some((120, 40)));

@@ -755,6 +755,10 @@ The first useful MVP should include:
   harness/session availability, and reject unavailable choices without falling
   back to another strategy. Existing bodyless resume requests keep the backend
   default for compatibility; current desktop controls send an explicit strategy.
+  Only exact resume retains the previous native-conversation binding. A confirmed
+  fallback captures the conversation actually opened using fresh-run reporting;
+  an unobserved identity remains unknown. Preserve existing pre-spawn rollback,
+  including prior native-ID provenance, and Codex exact-only identity rules.
 - **Help → Learn More** opens the public OrkWorks homepage
   (`https://rambolarsen.github.io/orkworks/`) in the default browser.
 - The selected-session top bar offers an **Open in…** dropdown for the

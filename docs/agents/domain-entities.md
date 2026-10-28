@@ -57,7 +57,11 @@ File: `crates/orkworksd/src/metadata.rs`
   Desktop resume choices retain each option's `strategy` through the controller
   and optional `{ strategy }` request body. The sidecar revalidates that choice;
   no selected-strategy field is added to persisted session metadata. Bodyless
-  legacy requests retain backend default selection.
+  legacy requests retain backend default selection. Exact resume preserves the
+  captured native ID. A confirmed non-exact run clears the old ID, last-seen
+  time and native-ID source/confidence/capture timestamp until the conversation
+  actually opened reports its identity. Cancellation before spawn restores the
+  prior ID and its provenance through the existing admission rollback.
 - `lineChanges` is an optional **API-only** Git-context projection containing
   `additions` and `deletions` for live uncommitted text changes against `HEAD`,
   including staged/unstaged changes and non-ignored new files (empty-tree

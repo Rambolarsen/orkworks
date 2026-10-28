@@ -23,11 +23,11 @@ export default function ResumeChooser({ options, onSelect, header = false, pendi
     ?? options.find(option => !option.unavailable);
 
   useLayoutEffect(() => {
-    if (!open || !panel.current) return;
+    if (!header || !open || !panel.current) return;
     const bounds = panel.current.getBoundingClientRect();
     const shift = bounds.left < 12 ? 12 - bounds.left : Math.min(0, window.innerWidth - 12 - bounds.right);
     panel.current.style.transform = `translateX(${shift}px)`;
-  }, [open]);
+  }, [open, header]);
   useEffect(() => {
     if (!open) return;
     const outside = (event: PointerEvent) => {
@@ -59,7 +59,7 @@ export default function ResumeChooser({ options, onSelect, header = false, pendi
   };
   const cancel = () => { setPending(null); trigger.current?.focus(); };
 
-  return <div className="resume-menu" ref={root} onKeyDown={event => {
+  return <div className={header ? "resume-menu" : "resume-menu resume-menu--details"} ref={root} onKeyDown={event => {
     if (event.key === "Escape" && open) {
       event.preventDefault(); event.stopPropagation(); setOpen(false); arrow.current?.focus();
     }

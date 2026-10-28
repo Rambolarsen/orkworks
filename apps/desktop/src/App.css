@@ -3127,3 +3127,6 @@ html, body, #root {
 .resume-warning footer { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
 .resume-warning button { padding: 8px 12px; border: 1px solid var(--border-default); border-radius: 5px; color: var(--text-primary); background: var(--surface-2); cursor: pointer; }
 .resume-warning [data-resume-confirm] { border-color: var(--attention-blocked); }
+
+.resume-menu--details { min-width: 0; }
+.resume-menu--details .resume-menu-popover { position: static; width: 100%; box-sizing: border-box; margin-top: 6px; }

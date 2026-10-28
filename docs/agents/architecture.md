@@ -1080,7 +1080,12 @@ arrow opens explicit choices. The shared header/Details chooser confirms every
 non-exact choice in a modal warning before dispatch. Cancel is initially focused.
 The selected strategy travels through the controller to `POST /sessions/:id/resume`
 as an optional `{ strategy }` body. Bodyless legacy callers retain default
-selection; supplied choices are revalidated and never silently substituted. When the
+selection; supplied choices are revalidated and never silently substituted.
+Only exact resume may carry the prior native ID into command interpolation or
+seed a new prompt-authority generation. Non-exact resume uses the existing
+fresh-launch first-binding behavior and clears stale native-ID provenance;
+pre-spawn cancellation restores the original metadata snapshot, including
+native-ID provenance. Codex remains exact-only. When the
 sidebar is collapsed at medium and wide widths, an icon-only navigation rail
 retains New session, Recommendations and Settings, and an expand
 button restores its saved width using the existing visibility preference.
