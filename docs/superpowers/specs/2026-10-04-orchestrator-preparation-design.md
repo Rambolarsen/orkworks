@@ -1410,3 +1410,15 @@ The owner's “yes, go ahead” accepts the
 for documentation-only component fixtures. The earlier proposed follow-up is
 superseded only within that scope. No full bootstrap/source/transition validity,
 storage/native qualification, #740 eligibility or executable plan is accepted.
+
+
+## Root bootstrap source schemas accepted for documentation fixtures — 2026-10-28
+
+The owner accepted the named root-only choices in the
+[source-schema decision](2026-10-27-root-bootstrap-source-schemas-design.md#owner-acceptance-and-fixture-handoff--2026-10-28)
+for documentation fixtures and rejection checks. The
+[synthetic byte packet](../../validation/root-bootstrap-components.md) binds a
+complete explicitly unverified source to its run and retained artifact bytes.
+This is no adapter eligibility, runtime approval, native/custody qualification or
+complete draft/receipt/storage transition proof. Broader component gates and
+#740's deferred/no-go status remain unchanged.

@@ -1332,3 +1332,15 @@ unchanged. This is not acceptance of the broader component, a verified profile
 or a runtime execution plan. #740 stays deferred/no-go until November; source
 custody, native identity/authority, complete lifecycle/storage effects and
 separately approved executable plans retain their independent gates.
+
+
+## Root bootstrap source schemas accepted for documentation fixtures — 2026-10-28
+
+The owner accepted the named root-only choices in the
+[source-schema decision](2026-10-27-root-bootstrap-source-schemas-design.md#owner-acceptance-and-fixture-handoff--2026-10-28)
+for documentation fixtures and rejection checks. The
+[synthetic byte packet](../../validation/root-bootstrap-components.md) binds a
+complete explicitly unverified source to its run and retained artifact bytes.
+This is no adapter eligibility, runtime approval, native/custody qualification or
+complete draft/receipt/storage transition proof. Broader component gates and
+#740's deferred/no-go status remain unchanged.

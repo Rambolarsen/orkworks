@@ -34,3 +34,5 @@ Capability research, validation results, and evidence fixtures.
 
 - [Skill management qualification](skills-management.md) — Known-root discovery evidence and the initial local APM installation profile.
 - [Hierarchy summary-detail component fixtures](hierarchy-summary-components.md) — Independent display request/response bytes and rejection, metric and viewed-identity cases; source and runtime qualification remain separate.
+
+- [Root bootstrap source-byte evidence](root-bootstrap-components.md) — Independent root-only source bytes, exact rendering and adversarial checks with explicit unverified gates.
