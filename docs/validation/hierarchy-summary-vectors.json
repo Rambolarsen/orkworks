@@ -1,0 +1,1426 @@
+{
+  "fixtureSchemaVersion": 1,
+  "evidenceKind": "synthetic-display-components-not-source-valid",
+  "vectors": [
+    {
+      "id": "r2-required-stale",
+      "context": {
+        "workspaceId": "w",
+        "runId": "run",
+        "sidecarGeneration": "aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda",
+        "snapshotVersion": 1,
+        "selection": {
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "w",
+            "runId": "run",
+            "planId": "p",
+            "planRevision": 1,
+            "taskId": "t",
+            "taskVersion": 1,
+            "reservationId": "res",
+            "parentSessionId": "parent",
+            "childSessionId": "worker",
+            "configurationId": "cfg",
+            "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+          },
+          "accepted": {
+            "kind": "result",
+            "reference": {
+              "assignmentIdentity": {
+                "kind": "child",
+                "workspaceId": "w",
+                "runId": "run",
+                "planId": "p",
+                "planRevision": 1,
+                "taskId": "t",
+                "taskVersion": 1,
+                "reservationId": "res",
+                "parentSessionId": "parent",
+                "childSessionId": "worker",
+                "configurationId": "cfg",
+                "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+              },
+              "resultRevision": 1,
+              "resultDigest": "c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b"
+            }
+          },
+          "summaryRevision": "1"
+        },
+        "evaluations": [
+          {
+            "assignmentIdentity": {
+              "kind": "child",
+              "workspaceId": "w",
+              "runId": "run",
+              "planId": "p",
+              "planRevision": 1,
+              "taskId": "t",
+              "taskVersion": 1,
+              "reservationId": "res",
+              "parentSessionId": "parent",
+              "childSessionId": "worker",
+              "configurationId": "cfg",
+              "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+            },
+            "resultRevision": 1,
+            "resultDigest": "c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b",
+            "reviewerIdentity": {
+              "kind": "user",
+              "userReviewId": "user-review"
+            },
+            "evaluationRevision": 1,
+            "evaluationDigest": "36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9"
+          }
+        ],
+        "fresh": true
+      },
+      "rendererRequest": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":1,\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"}}",
+        "utf8Bytes": 875,
+        "sha256": "356bd22d20b1c11d627b31fa2723e3bef9beb4a3cf97ae126f7b8ff05b0d300c"
+      },
+      "mainRequest": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":1,\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"},\"sidecarGeneration\":\"aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda\",\"workspaceId\":\"w\"}",
+        "utf8Bytes": 980,
+        "sha256": "fadb719bfd05ac40beb0099481301ee8eef82c2d0c661f4f41e67cc747bc3627"
+      },
+      "response": {
+        "canonicalUtf8": "{\"detail\":{\"completeness\":{\"percentage\":{\"kind\":\"unassessed\"},\"required\":2,\"satisfied\":0,\"unassessed\":1,\"unsatisfied\":1},\"criteria\":[{\"description\":\"First required outcome — æ.\",\"id\":\"c1\",\"requirement\":\"required\"},{\"description\":\"Second required outcome.\",\"id\":\"c2\",\"requirement\":\"required\"},{\"description\":\"Optional context only.\",\"id\":\"o\",\"requirement\":\"optional\"}],\"evaluations\":[{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"evaluationRevision\":1,\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1,\"reviewerIdentity\":{\"kind\":\"user\",\"userReviewId\":\"user-review\"}}],\"findingSources\":[],\"material\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"criteriaSnapshotDigest\":\"6033d369f110ff78aeba9c1d8c507e7df5aee7b9af53b7b2e0e315131047293c\",\"overall\":\"needs-rework\",\"requiredFindings\":[],\"requiredOutcomes\":[{\"disposition\":\"unassessed\",\"target\":{\"id\":\"c1\",\"kind\":\"criterion\"}},{\"disposition\":\"needs-rework\",\"target\":{\"id\":\"c2\",\"kind\":\"criterion\"}},{\"disposition\":\"meets\",\"target\":{\"id\":\"d\",\"kind\":\"quality-dimension\"}},{\"disposition\":\"meets\",\"target\":{\"kind\":\"rating\"}}],\"rubricSnapshotDigest\":\"55b65dbe70db707f71ff8d763f33c0229c1606694b83e68be0da4dcd02c0d4e6\",\"schemaVersion\":1},\"outcomes\":[{\"assessments\":[{\"claimed\":\"unsatisfied\",\"effective\":\"unassessed\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[\"stale-evidence\"],\"sourceState\":\"stale\"}],\"fullyAssessed\":false,\"target\":{\"id\":\"c1\",\"kind\":\"criterion\"}},{\"assessments\":[{\"claimed\":\"unsatisfied\",\"effective\":\"unsatisfied\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"c2\",\"kind\":\"criterion\"}},{\"assessments\":[{\"claimed\":\"meets\",\"effective\":\"meets\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"d\",\"kind\":\"quality-dimension\"}},{\"assessments\":[{\"claimed\":3,\"effective\":3,\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"kind\":\"rating\"}}],\"quality\":{\"kind\":\"rating\",\"value\":3},\"rubric\":{\"dimensions\":[{\"description\":\"Correctness.\",\"id\":\"d\"}],\"evaluatorRole\":\"review\",\"id\":\"rubric\",\"version\":1}},\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"},\"sidecarGeneration\":\"aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda\",\"snapshotVersion\":1,\"workspaceId\":\"w\"}",
+        "utf8Bytes": 4529,
+        "sha256": "7e29f60f284e69bcdf6fc9b08aca5f2972ff01ce34992fa2c60f94cd787246b1"
+      }
+    },
+    {
+      "id": "r2-optional-stale",
+      "context": {
+        "workspaceId": "w",
+        "runId": "run",
+        "sidecarGeneration": "aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda",
+        "snapshotVersion": 2,
+        "selection": {
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "w",
+            "runId": "run",
+            "planId": "p",
+            "planRevision": 1,
+            "taskId": "t",
+            "taskVersion": 1,
+            "reservationId": "res",
+            "parentSessionId": "parent",
+            "childSessionId": "worker",
+            "configurationId": "cfg",
+            "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+          },
+          "accepted": {
+            "kind": "result",
+            "reference": {
+              "assignmentIdentity": {
+                "kind": "child",
+                "workspaceId": "w",
+                "runId": "run",
+                "planId": "p",
+                "planRevision": 1,
+                "taskId": "t",
+                "taskVersion": 1,
+                "reservationId": "res",
+                "parentSessionId": "parent",
+                "childSessionId": "worker",
+                "configurationId": "cfg",
+                "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+              },
+              "resultRevision": 1,
+              "resultDigest": "c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b"
+            }
+          },
+          "summaryRevision": "2"
+        },
+        "evaluations": [
+          {
+            "assignmentIdentity": {
+              "kind": "child",
+              "workspaceId": "w",
+              "runId": "run",
+              "planId": "p",
+              "planRevision": 1,
+              "taskId": "t",
+              "taskVersion": 1,
+              "reservationId": "res",
+              "parentSessionId": "parent",
+              "childSessionId": "worker",
+              "configurationId": "cfg",
+              "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+            },
+            "resultRevision": 1,
+            "resultDigest": "c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b",
+            "reviewerIdentity": {
+              "kind": "user",
+              "userReviewId": "user-review"
+            },
+            "evaluationRevision": 1,
+            "evaluationDigest": "36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9"
+          }
+        ],
+        "fresh": true
+      },
+      "rendererRequest": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":2,\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"2\"}}",
+        "utf8Bytes": 875,
+        "sha256": "d2e57c20088aa486813199857d5d62854345c94cd188c78aa23c510f74758b3e"
+      },
+      "mainRequest": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":2,\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"2\"},\"sidecarGeneration\":\"aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda\",\"workspaceId\":\"w\"}",
+        "utf8Bytes": 980,
+        "sha256": "913d37016343d5370ca033ae4ec1dd03ade728bb7d0e7faddbc663729410c411"
+      },
+      "response": {
+        "canonicalUtf8": "{\"detail\":{\"completeness\":{\"percentage\":{\"denominator\":2,\"kind\":\"assessed\",\"numerator\":0},\"required\":2,\"satisfied\":0,\"unassessed\":0,\"unsatisfied\":2},\"criteria\":[{\"description\":\"First required outcome — æ.\",\"id\":\"c1\",\"requirement\":\"required\"},{\"description\":\"Second required outcome.\",\"id\":\"c2\",\"requirement\":\"required\"},{\"description\":\"Optional context only.\",\"id\":\"o\",\"requirement\":\"optional\"}],\"evaluations\":[{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"evaluationRevision\":1,\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1,\"reviewerIdentity\":{\"kind\":\"user\",\"userReviewId\":\"user-review\"}}],\"findingSources\":[],\"material\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"criteriaSnapshotDigest\":\"6033d369f110ff78aeba9c1d8c507e7df5aee7b9af53b7b2e0e315131047293c\",\"overall\":\"needs-rework\",\"requiredFindings\":[],\"requiredOutcomes\":[{\"disposition\":\"needs-rework\",\"target\":{\"id\":\"c1\",\"kind\":\"criterion\"}},{\"disposition\":\"needs-rework\",\"target\":{\"id\":\"c2\",\"kind\":\"criterion\"}},{\"disposition\":\"meets\",\"target\":{\"id\":\"d\",\"kind\":\"quality-dimension\"}},{\"disposition\":\"meets\",\"target\":{\"kind\":\"rating\"}}],\"rubricSnapshotDigest\":\"55b65dbe70db707f71ff8d763f33c0229c1606694b83e68be0da4dcd02c0d4e6\",\"schemaVersion\":1},\"outcomes\":[{\"assessments\":[{\"claimed\":\"unsatisfied\",\"effective\":\"unsatisfied\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"c1\",\"kind\":\"criterion\"}},{\"assessments\":[{\"claimed\":\"unsatisfied\",\"effective\":\"unsatisfied\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"c2\",\"kind\":\"criterion\"}},{\"assessments\":[{\"claimed\":\"meets\",\"effective\":\"meets\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"d\",\"kind\":\"quality-dimension\"}},{\"assessments\":[{\"claimed\":3,\"effective\":3,\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"kind\":\"rating\"}}],\"quality\":{\"kind\":\"rating\",\"value\":3},\"rubric\":{\"dimensions\":[{\"description\":\"Correctness.\",\"id\":\"d\"}],\"evaluatorRole\":\"review\",\"id\":\"rubric\",\"version\":1}},\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"2\"},\"sidecarGeneration\":\"aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda\",\"snapshotVersion\":2,\"workspaceId\":\"w\"}",
+        "utf8Bytes": 4545,
+        "sha256": "df7131f7bd8dee1eb8c2e6203f5e1569e4878a7a781dab7a7d3a4320d62b51b3"
+      }
+    },
+    {
+      "id": "failure-plus-unassessed",
+      "context": {
+        "workspaceId": "w",
+        "runId": "run",
+        "sidecarGeneration": "aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda",
+        "snapshotVersion": 1,
+        "selection": {
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "w",
+            "runId": "run",
+            "planId": "p",
+            "planRevision": 1,
+            "taskId": "t",
+            "taskVersion": 1,
+            "reservationId": "res",
+            "parentSessionId": "parent",
+            "childSessionId": "worker",
+            "configurationId": "cfg",
+            "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+          },
+          "accepted": {
+            "kind": "result",
+            "reference": {
+              "assignmentIdentity": {
+                "kind": "child",
+                "workspaceId": "w",
+                "runId": "run",
+                "planId": "p",
+                "planRevision": 1,
+                "taskId": "t",
+                "taskVersion": 1,
+                "reservationId": "res",
+                "parentSessionId": "parent",
+                "childSessionId": "worker",
+                "configurationId": "cfg",
+                "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+              },
+              "resultRevision": 1,
+              "resultDigest": "c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b"
+            }
+          },
+          "summaryRevision": "1"
+        },
+        "evaluations": [
+          {
+            "assignmentIdentity": {
+              "kind": "child",
+              "workspaceId": "w",
+              "runId": "run",
+              "planId": "p",
+              "planRevision": 1,
+              "taskId": "t",
+              "taskVersion": 1,
+              "reservationId": "res",
+              "parentSessionId": "parent",
+              "childSessionId": "worker",
+              "configurationId": "cfg",
+              "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+            },
+            "resultRevision": 1,
+            "resultDigest": "c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b",
+            "reviewerIdentity": {
+              "kind": "child",
+              "assignmentIdentity": {
+                "kind": "child",
+                "workspaceId": "w",
+                "runId": "run",
+                "planId": "p",
+                "planRevision": 1,
+                "taskId": "review",
+                "taskVersion": 1,
+                "reservationId": "review-res",
+                "parentSessionId": "parent",
+                "childSessionId": "reviewer",
+                "configurationId": "review-cfg",
+                "configurationDigest": "0a4a265652ad9bb7e331e98951cc298c2f460894ee23c83d467d9dad62c7fc6c"
+              }
+            },
+            "evaluationRevision": 1,
+            "evaluationDigest": "3258680fa24e03f645fce3c0bbc7f515b73c041045229e51337d90ea0e31a2b4"
+          },
+          {
+            "assignmentIdentity": {
+              "kind": "child",
+              "workspaceId": "w",
+              "runId": "run",
+              "planId": "p",
+              "planRevision": 1,
+              "taskId": "t",
+              "taskVersion": 1,
+              "reservationId": "res",
+              "parentSessionId": "parent",
+              "childSessionId": "worker",
+              "configurationId": "cfg",
+              "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+            },
+            "resultRevision": 1,
+            "resultDigest": "c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b",
+            "reviewerIdentity": {
+              "kind": "user",
+              "userReviewId": "user-review"
+            },
+            "evaluationRevision": 1,
+            "evaluationDigest": "36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9"
+          }
+        ],
+        "fresh": true
+      },
+      "rendererRequest": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":1,\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"}}",
+        "utf8Bytes": 875,
+        "sha256": "356bd22d20b1c11d627b31fa2723e3bef9beb4a3cf97ae126f7b8ff05b0d300c"
+      },
+      "mainRequest": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":1,\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"},\"sidecarGeneration\":\"aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda\",\"workspaceId\":\"w\"}",
+        "utf8Bytes": 980,
+        "sha256": "fadb719bfd05ac40beb0099481301ee8eef82c2d0c661f4f41e67cc747bc3627"
+      },
+      "response": {
+        "canonicalUtf8": "{\"detail\":{\"completeness\":{\"percentage\":{\"kind\":\"unassessed\"},\"required\":2,\"satisfied\":1,\"unassessed\":1,\"unsatisfied\":0},\"criteria\":[{\"description\":\"First required outcome — æ.\",\"id\":\"c1\",\"requirement\":\"required\"},{\"description\":\"Second required outcome.\",\"id\":\"c2\",\"requirement\":\"required\"},{\"description\":\"Optional context only.\",\"id\":\"o\",\"requirement\":\"optional\"}],\"evaluations\":[{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"evaluationDigest\":\"3258680fa24e03f645fce3c0bbc7f515b73c041045229e51337d90ea0e31a2b4\",\"evaluationRevision\":1,\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1,\"reviewerIdentity\":{\"assignmentIdentity\":{\"childSessionId\":\"reviewer\",\"configurationDigest\":\"0a4a265652ad9bb7e331e98951cc298c2f460894ee23c83d467d9dad62c7fc6c\",\"configurationId\":\"review-cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"review-res\",\"runId\":\"run\",\"taskId\":\"review\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"kind\":\"child\"}},{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"evaluationRevision\":1,\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1,\"reviewerIdentity\":{\"kind\":\"user\",\"userReviewId\":\"user-review\"}}],\"findingSources\":[],\"material\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"criteriaSnapshotDigest\":\"6033d369f110ff78aeba9c1d8c507e7df5aee7b9af53b7b2e0e315131047293c\",\"overall\":\"needs-rework\",\"requiredFindings\":[],\"requiredOutcomes\":[{\"disposition\":\"needs-rework\",\"target\":{\"id\":\"c1\",\"kind\":\"criterion\"}},{\"disposition\":\"meets\",\"target\":{\"id\":\"c2\",\"kind\":\"criterion\"}},{\"disposition\":\"meets\",\"target\":{\"id\":\"d\",\"kind\":\"quality-dimension\"}},{\"disposition\":\"meets\",\"target\":{\"kind\":\"rating\"}}],\"rubricSnapshotDigest\":\"55b65dbe70db707f71ff8d763f33c0229c1606694b83e68be0da4dcd02c0d4e6\",\"schemaVersion\":1},\"outcomes\":[{\"assessments\":[{\"claimed\":\"unassessed\",\"effective\":\"unassessed\",\"evaluationDigest\":\"3258680fa24e03f645fce3c0bbc7f515b73c041045229e51337d90ea0e31a2b4\",\"participates\":true,\"reasons\":[\"declared-unassessed\"],\"sourceState\":\"current\"},{\"claimed\":\"unsatisfied\",\"effective\":\"unsatisfied\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":false,\"target\":{\"id\":\"c1\",\"kind\":\"criterion\"}},{\"assessments\":[{\"claimed\":\"satisfied\",\"effective\":\"satisfied\",\"evaluationDigest\":\"3258680fa24e03f645fce3c0bbc7f515b73c041045229e51337d90ea0e31a2b4\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"},{\"claimed\":\"satisfied\",\"effective\":\"satisfied\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"c2\",\"kind\":\"criterion\"}},{\"assessments\":[{\"claimed\":\"meets\",\"effective\":\"meets\",\"evaluationDigest\":\"3258680fa24e03f645fce3c0bbc7f515b73c041045229e51337d90ea0e31a2b4\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"},{\"claimed\":\"meets\",\"effective\":\"meets\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"d\",\"kind\":\"quality-dimension\"}},{\"assessments\":[{\"claimed\":3,\"effective\":3,\"evaluationDigest\":\"3258680fa24e03f645fce3c0bbc7f515b73c041045229e51337d90ea0e31a2b4\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"},{\"claimed\":3,\"effective\":3,\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"kind\":\"rating\"}}],\"quality\":{\"kind\":\"rating\",\"value\":3},\"rubric\":{\"dimensions\":[{\"description\":\"Correctness.\",\"id\":\"d\"}],\"evaluatorRole\":\"review\",\"id\":\"rubric\",\"version\":1}},\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"},\"sidecarGeneration\":\"aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda\",\"snapshotVersion\":1,\"workspaceId\":\"w\"}",
+        "utf8Bytes": 6169,
+        "sha256": "037a42ae4fb1c9343ca59dbc5e0055553b7c3d7ea606cdad2d93571e5daba04d"
+      }
+    },
+    {
+      "id": "ratings-0-2",
+      "context": {
+        "workspaceId": "w",
+        "runId": "run",
+        "sidecarGeneration": "aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda",
+        "snapshotVersion": 1,
+        "selection": {
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "w",
+            "runId": "run",
+            "planId": "p",
+            "planRevision": 1,
+            "taskId": "t",
+            "taskVersion": 1,
+            "reservationId": "res",
+            "parentSessionId": "parent",
+            "childSessionId": "worker",
+            "configurationId": "cfg",
+            "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+          },
+          "accepted": {
+            "kind": "result",
+            "reference": {
+              "assignmentIdentity": {
+                "kind": "child",
+                "workspaceId": "w",
+                "runId": "run",
+                "planId": "p",
+                "planRevision": 1,
+                "taskId": "t",
+                "taskVersion": 1,
+                "reservationId": "res",
+                "parentSessionId": "parent",
+                "childSessionId": "worker",
+                "configurationId": "cfg",
+                "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+              },
+              "resultRevision": 1,
+              "resultDigest": "c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b"
+            }
+          },
+          "summaryRevision": "1"
+        },
+        "evaluations": [
+          {
+            "assignmentIdentity": {
+              "kind": "child",
+              "workspaceId": "w",
+              "runId": "run",
+              "planId": "p",
+              "planRevision": 1,
+              "taskId": "t",
+              "taskVersion": 1,
+              "reservationId": "res",
+              "parentSessionId": "parent",
+              "childSessionId": "worker",
+              "configurationId": "cfg",
+              "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+            },
+            "resultRevision": 1,
+            "resultDigest": "c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b",
+            "reviewerIdentity": {
+              "kind": "child",
+              "assignmentIdentity": {
+                "kind": "child",
+                "workspaceId": "w",
+                "runId": "run",
+                "planId": "p",
+                "planRevision": 1,
+                "taskId": "review",
+                "taskVersion": 1,
+                "reservationId": "review-res",
+                "parentSessionId": "parent",
+                "childSessionId": "reviewer",
+                "configurationId": "review-cfg",
+                "configurationDigest": "0a4a265652ad9bb7e331e98951cc298c2f460894ee23c83d467d9dad62c7fc6c"
+              }
+            },
+            "evaluationRevision": 1,
+            "evaluationDigest": "3258680fa24e03f645fce3c0bbc7f515b73c041045229e51337d90ea0e31a2b4"
+          },
+          {
+            "assignmentIdentity": {
+              "kind": "child",
+              "workspaceId": "w",
+              "runId": "run",
+              "planId": "p",
+              "planRevision": 1,
+              "taskId": "t",
+              "taskVersion": 1,
+              "reservationId": "res",
+              "parentSessionId": "parent",
+              "childSessionId": "worker",
+              "configurationId": "cfg",
+              "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+            },
+            "resultRevision": 1,
+            "resultDigest": "c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b",
+            "reviewerIdentity": {
+              "kind": "user",
+              "userReviewId": "user-review"
+            },
+            "evaluationRevision": 1,
+            "evaluationDigest": "36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9"
+          }
+        ],
+        "fresh": true
+      },
+      "rendererRequest": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":1,\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"}}",
+        "utf8Bytes": 875,
+        "sha256": "356bd22d20b1c11d627b31fa2723e3bef9beb4a3cf97ae126f7b8ff05b0d300c"
+      },
+      "mainRequest": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":1,\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"},\"sidecarGeneration\":\"aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda\",\"workspaceId\":\"w\"}",
+        "utf8Bytes": 980,
+        "sha256": "fadb719bfd05ac40beb0099481301ee8eef82c2d0c661f4f41e67cc747bc3627"
+      },
+      "response": {
+        "canonicalUtf8": "{\"detail\":{\"completeness\":{\"percentage\":{\"denominator\":2,\"kind\":\"assessed\",\"numerator\":2},\"required\":2,\"satisfied\":2,\"unassessed\":0,\"unsatisfied\":0},\"criteria\":[{\"description\":\"First required outcome — æ.\",\"id\":\"c1\",\"requirement\":\"required\"},{\"description\":\"Second required outcome.\",\"id\":\"c2\",\"requirement\":\"required\"},{\"description\":\"Optional context only.\",\"id\":\"o\",\"requirement\":\"optional\"}],\"evaluations\":[{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"evaluationDigest\":\"3258680fa24e03f645fce3c0bbc7f515b73c041045229e51337d90ea0e31a2b4\",\"evaluationRevision\":1,\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1,\"reviewerIdentity\":{\"assignmentIdentity\":{\"childSessionId\":\"reviewer\",\"configurationDigest\":\"0a4a265652ad9bb7e331e98951cc298c2f460894ee23c83d467d9dad62c7fc6c\",\"configurationId\":\"review-cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"review-res\",\"runId\":\"run\",\"taskId\":\"review\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"kind\":\"child\"}},{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"evaluationRevision\":1,\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1,\"reviewerIdentity\":{\"kind\":\"user\",\"userReviewId\":\"user-review\"}}],\"findingSources\":[],\"material\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"criteriaSnapshotDigest\":\"6033d369f110ff78aeba9c1d8c507e7df5aee7b9af53b7b2e0e315131047293c\",\"overall\":\"needs-rework\",\"requiredFindings\":[],\"requiredOutcomes\":[{\"disposition\":\"meets\",\"target\":{\"id\":\"c1\",\"kind\":\"criterion\"}},{\"disposition\":\"meets\",\"target\":{\"id\":\"c2\",\"kind\":\"criterion\"}},{\"disposition\":\"meets\",\"target\":{\"id\":\"d\",\"kind\":\"quality-dimension\"}},{\"disposition\":\"needs-rework\",\"target\":{\"kind\":\"rating\"}}],\"rubricSnapshotDigest\":\"55b65dbe70db707f71ff8d763f33c0229c1606694b83e68be0da4dcd02c0d4e6\",\"schemaVersion\":1},\"outcomes\":[{\"assessments\":[{\"claimed\":\"satisfied\",\"effective\":\"satisfied\",\"evaluationDigest\":\"3258680fa24e03f645fce3c0bbc7f515b73c041045229e51337d90ea0e31a2b4\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"},{\"claimed\":\"satisfied\",\"effective\":\"satisfied\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"c1\",\"kind\":\"criterion\"}},{\"assessments\":[{\"claimed\":\"satisfied\",\"effective\":\"satisfied\",\"evaluationDigest\":\"3258680fa24e03f645fce3c0bbc7f515b73c041045229e51337d90ea0e31a2b4\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"},{\"claimed\":\"satisfied\",\"effective\":\"satisfied\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"c2\",\"kind\":\"criterion\"}},{\"assessments\":[{\"claimed\":\"meets\",\"effective\":\"meets\",\"evaluationDigest\":\"3258680fa24e03f645fce3c0bbc7f515b73c041045229e51337d90ea0e31a2b4\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"},{\"claimed\":\"meets\",\"effective\":\"meets\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"d\",\"kind\":\"quality-dimension\"}},{\"assessments\":[{\"claimed\":2,\"effective\":2,\"evaluationDigest\":\"3258680fa24e03f645fce3c0bbc7f515b73c041045229e51337d90ea0e31a2b4\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"},{\"claimed\":0,\"effective\":0,\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"kind\":\"rating\"}}],\"quality\":{\"kind\":\"disagreed\",\"values\":[0,2]},\"rubric\":{\"dimensions\":[{\"description\":\"Correctness.\",\"id\":\"d\"}],\"evaluatorRole\":\"review\",\"id\":\"rubric\",\"version\":1}},\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"},\"sidecarGeneration\":\"aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda\",\"snapshotVersion\":1,\"workspaceId\":\"w\"}",
+        "utf8Bytes": 6177,
+        "sha256": "ac5e160cec138e5531297f4fb57088b1540d0379d53a01dc3aab95f690483f3b"
+      }
+    },
+    {
+      "id": "ratings-2-3",
+      "context": {
+        "workspaceId": "w",
+        "runId": "run",
+        "sidecarGeneration": "aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda",
+        "snapshotVersion": 1,
+        "selection": {
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "w",
+            "runId": "run",
+            "planId": "p",
+            "planRevision": 1,
+            "taskId": "t",
+            "taskVersion": 1,
+            "reservationId": "res",
+            "parentSessionId": "parent",
+            "childSessionId": "worker",
+            "configurationId": "cfg",
+            "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+          },
+          "accepted": {
+            "kind": "result",
+            "reference": {
+              "assignmentIdentity": {
+                "kind": "child",
+                "workspaceId": "w",
+                "runId": "run",
+                "planId": "p",
+                "planRevision": 1,
+                "taskId": "t",
+                "taskVersion": 1,
+                "reservationId": "res",
+                "parentSessionId": "parent",
+                "childSessionId": "worker",
+                "configurationId": "cfg",
+                "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+              },
+              "resultRevision": 1,
+              "resultDigest": "c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b"
+            }
+          },
+          "summaryRevision": "1"
+        },
+        "evaluations": [
+          {
+            "assignmentIdentity": {
+              "kind": "child",
+              "workspaceId": "w",
+              "runId": "run",
+              "planId": "p",
+              "planRevision": 1,
+              "taskId": "t",
+              "taskVersion": 1,
+              "reservationId": "res",
+              "parentSessionId": "parent",
+              "childSessionId": "worker",
+              "configurationId": "cfg",
+              "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+            },
+            "resultRevision": 1,
+            "resultDigest": "c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b",
+            "reviewerIdentity": {
+              "kind": "child",
+              "assignmentIdentity": {
+                "kind": "child",
+                "workspaceId": "w",
+                "runId": "run",
+                "planId": "p",
+                "planRevision": 1,
+                "taskId": "review",
+                "taskVersion": 1,
+                "reservationId": "review-res",
+                "parentSessionId": "parent",
+                "childSessionId": "reviewer",
+                "configurationId": "review-cfg",
+                "configurationDigest": "0a4a265652ad9bb7e331e98951cc298c2f460894ee23c83d467d9dad62c7fc6c"
+              }
+            },
+            "evaluationRevision": 1,
+            "evaluationDigest": "3258680fa24e03f645fce3c0bbc7f515b73c041045229e51337d90ea0e31a2b4"
+          },
+          {
+            "assignmentIdentity": {
+              "kind": "child",
+              "workspaceId": "w",
+              "runId": "run",
+              "planId": "p",
+              "planRevision": 1,
+              "taskId": "t",
+              "taskVersion": 1,
+              "reservationId": "res",
+              "parentSessionId": "parent",
+              "childSessionId": "worker",
+              "configurationId": "cfg",
+              "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+            },
+            "resultRevision": 1,
+            "resultDigest": "c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b",
+            "reviewerIdentity": {
+              "kind": "user",
+              "userReviewId": "user-review"
+            },
+            "evaluationRevision": 1,
+            "evaluationDigest": "36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9"
+          }
+        ],
+        "fresh": true
+      },
+      "rendererRequest": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":1,\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"}}",
+        "utf8Bytes": 875,
+        "sha256": "356bd22d20b1c11d627b31fa2723e3bef9beb4a3cf97ae126f7b8ff05b0d300c"
+      },
+      "mainRequest": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":1,\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"},\"sidecarGeneration\":\"aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda\",\"workspaceId\":\"w\"}",
+        "utf8Bytes": 980,
+        "sha256": "fadb719bfd05ac40beb0099481301ee8eef82c2d0c661f4f41e67cc747bc3627"
+      },
+      "response": {
+        "canonicalUtf8": "{\"detail\":{\"completeness\":{\"percentage\":{\"denominator\":2,\"kind\":\"assessed\",\"numerator\":2},\"required\":2,\"satisfied\":2,\"unassessed\":0,\"unsatisfied\":0},\"criteria\":[{\"description\":\"First required outcome — æ.\",\"id\":\"c1\",\"requirement\":\"required\"},{\"description\":\"Second required outcome.\",\"id\":\"c2\",\"requirement\":\"required\"},{\"description\":\"Optional context only.\",\"id\":\"o\",\"requirement\":\"optional\"}],\"evaluations\":[{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"evaluationDigest\":\"3258680fa24e03f645fce3c0bbc7f515b73c041045229e51337d90ea0e31a2b4\",\"evaluationRevision\":1,\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1,\"reviewerIdentity\":{\"assignmentIdentity\":{\"childSessionId\":\"reviewer\",\"configurationDigest\":\"0a4a265652ad9bb7e331e98951cc298c2f460894ee23c83d467d9dad62c7fc6c\",\"configurationId\":\"review-cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"review-res\",\"runId\":\"run\",\"taskId\":\"review\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"kind\":\"child\"}},{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"evaluationRevision\":1,\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1,\"reviewerIdentity\":{\"kind\":\"user\",\"userReviewId\":\"user-review\"}}],\"findingSources\":[],\"material\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"criteriaSnapshotDigest\":\"6033d369f110ff78aeba9c1d8c507e7df5aee7b9af53b7b2e0e315131047293c\",\"overall\":\"unassessed\",\"requiredFindings\":[],\"requiredOutcomes\":[{\"disposition\":\"meets\",\"target\":{\"id\":\"c1\",\"kind\":\"criterion\"}},{\"disposition\":\"meets\",\"target\":{\"id\":\"c2\",\"kind\":\"criterion\"}},{\"disposition\":\"meets\",\"target\":{\"id\":\"d\",\"kind\":\"quality-dimension\"}},{\"disposition\":\"conflicted\",\"target\":{\"kind\":\"rating\"}}],\"rubricSnapshotDigest\":\"55b65dbe70db707f71ff8d763f33c0229c1606694b83e68be0da4dcd02c0d4e6\",\"schemaVersion\":1},\"outcomes\":[{\"assessments\":[{\"claimed\":\"satisfied\",\"effective\":\"satisfied\",\"evaluationDigest\":\"3258680fa24e03f645fce3c0bbc7f515b73c041045229e51337d90ea0e31a2b4\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"},{\"claimed\":\"satisfied\",\"effective\":\"satisfied\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"c1\",\"kind\":\"criterion\"}},{\"assessments\":[{\"claimed\":\"satisfied\",\"effective\":\"satisfied\",\"evaluationDigest\":\"3258680fa24e03f645fce3c0bbc7f515b73c041045229e51337d90ea0e31a2b4\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"},{\"claimed\":\"satisfied\",\"effective\":\"satisfied\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"c2\",\"kind\":\"criterion\"}},{\"assessments\":[{\"claimed\":\"meets\",\"effective\":\"meets\",\"evaluationDigest\":\"3258680fa24e03f645fce3c0bbc7f515b73c041045229e51337d90ea0e31a2b4\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"},{\"claimed\":\"meets\",\"effective\":\"meets\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"d\",\"kind\":\"quality-dimension\"}},{\"assessments\":[{\"claimed\":3,\"effective\":3,\"evaluationDigest\":\"3258680fa24e03f645fce3c0bbc7f515b73c041045229e51337d90ea0e31a2b4\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"},{\"claimed\":2,\"effective\":2,\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":false,\"target\":{\"kind\":\"rating\"}}],\"quality\":{\"kind\":\"unassessed\"},\"rubric\":{\"dimensions\":[{\"description\":\"Correctness.\",\"id\":\"d\"}],\"evaluatorRole\":\"review\",\"id\":\"rubric\",\"version\":1}},\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"},\"sidecarGeneration\":\"aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda\",\"snapshotVersion\":1,\"workspaceId\":\"w\"}",
+        "utf8Bytes": 6160,
+        "sha256": "70335e4c8e3372d0c20a20a84a4fca5f98d31999c499972f996fe9313d8ba741"
+      }
+    },
+    {
+      "id": "missing-dimension-rating-1",
+      "context": {
+        "workspaceId": "w",
+        "runId": "run",
+        "sidecarGeneration": "aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda",
+        "snapshotVersion": 1,
+        "selection": {
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "w",
+            "runId": "run",
+            "planId": "p",
+            "planRevision": 1,
+            "taskId": "t",
+            "taskVersion": 1,
+            "reservationId": "res",
+            "parentSessionId": "parent",
+            "childSessionId": "worker",
+            "configurationId": "cfg",
+            "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+          },
+          "accepted": {
+            "kind": "result",
+            "reference": {
+              "assignmentIdentity": {
+                "kind": "child",
+                "workspaceId": "w",
+                "runId": "run",
+                "planId": "p",
+                "planRevision": 1,
+                "taskId": "t",
+                "taskVersion": 1,
+                "reservationId": "res",
+                "parentSessionId": "parent",
+                "childSessionId": "worker",
+                "configurationId": "cfg",
+                "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+              },
+              "resultRevision": 1,
+              "resultDigest": "c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b"
+            }
+          },
+          "summaryRevision": "1"
+        },
+        "evaluations": [
+          {
+            "assignmentIdentity": {
+              "kind": "child",
+              "workspaceId": "w",
+              "runId": "run",
+              "planId": "p",
+              "planRevision": 1,
+              "taskId": "t",
+              "taskVersion": 1,
+              "reservationId": "res",
+              "parentSessionId": "parent",
+              "childSessionId": "worker",
+              "configurationId": "cfg",
+              "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+            },
+            "resultRevision": 1,
+            "resultDigest": "c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b",
+            "reviewerIdentity": {
+              "kind": "user",
+              "userReviewId": "user-review"
+            },
+            "evaluationRevision": 1,
+            "evaluationDigest": "36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9"
+          }
+        ],
+        "fresh": true
+      },
+      "rendererRequest": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":1,\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"}}",
+        "utf8Bytes": 875,
+        "sha256": "356bd22d20b1c11d627b31fa2723e3bef9beb4a3cf97ae126f7b8ff05b0d300c"
+      },
+      "mainRequest": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":1,\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"},\"sidecarGeneration\":\"aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda\",\"workspaceId\":\"w\"}",
+        "utf8Bytes": 980,
+        "sha256": "fadb719bfd05ac40beb0099481301ee8eef82c2d0c661f4f41e67cc747bc3627"
+      },
+      "response": {
+        "canonicalUtf8": "{\"detail\":{\"completeness\":{\"percentage\":{\"denominator\":2,\"kind\":\"assessed\",\"numerator\":2},\"required\":2,\"satisfied\":2,\"unassessed\":0,\"unsatisfied\":0},\"criteria\":[{\"description\":\"First required outcome — æ.\",\"id\":\"c1\",\"requirement\":\"required\"},{\"description\":\"Second required outcome.\",\"id\":\"c2\",\"requirement\":\"required\"},{\"description\":\"Optional context only.\",\"id\":\"o\",\"requirement\":\"optional\"}],\"evaluations\":[{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"evaluationRevision\":1,\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1,\"reviewerIdentity\":{\"kind\":\"user\",\"userReviewId\":\"user-review\"}}],\"findingSources\":[],\"material\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"criteriaSnapshotDigest\":\"6033d369f110ff78aeba9c1d8c507e7df5aee7b9af53b7b2e0e315131047293c\",\"overall\":\"needs-rework\",\"requiredFindings\":[],\"requiredOutcomes\":[{\"disposition\":\"meets\",\"target\":{\"id\":\"c1\",\"kind\":\"criterion\"}},{\"disposition\":\"meets\",\"target\":{\"id\":\"c2\",\"kind\":\"criterion\"}},{\"disposition\":\"unassessed\",\"target\":{\"id\":\"d\",\"kind\":\"quality-dimension\"}},{\"disposition\":\"needs-rework\",\"target\":{\"kind\":\"rating\"}}],\"rubricSnapshotDigest\":\"55b65dbe70db707f71ff8d763f33c0229c1606694b83e68be0da4dcd02c0d4e6\",\"schemaVersion\":1},\"outcomes\":[{\"assessments\":[{\"claimed\":\"satisfied\",\"effective\":\"satisfied\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"c1\",\"kind\":\"criterion\"}},{\"assessments\":[{\"claimed\":\"satisfied\",\"effective\":\"satisfied\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"c2\",\"kind\":\"criterion\"}},{\"assessments\":[{\"claimed\":\"unassessed\",\"effective\":\"unassessed\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[\"declared-unassessed\"],\"sourceState\":\"current\"}],\"fullyAssessed\":false,\"target\":{\"id\":\"d\",\"kind\":\"quality-dimension\"}},{\"assessments\":[{\"claimed\":1,\"effective\":1,\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"kind\":\"rating\"}}],\"quality\":{\"kind\":\"unassessed\"},\"rubric\":{\"dimensions\":[{\"description\":\"Correctness.\",\"id\":\"d\"}],\"evaluatorRole\":\"review\",\"id\":\"rubric\",\"version\":1}},\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"},\"sidecarGeneration\":\"aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda\",\"snapshotVersion\":1,\"workspaceId\":\"w\"}",
+        "utf8Bytes": 4561,
+        "sha256": "511203542fc9ada752a912797e22bf323d12e636ce24ddac20881394da987061"
+      }
+    },
+    {
+      "id": "rating-3-below-standard",
+      "context": {
+        "workspaceId": "w",
+        "runId": "run",
+        "sidecarGeneration": "aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda",
+        "snapshotVersion": 1,
+        "selection": {
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "w",
+            "runId": "run",
+            "planId": "p",
+            "planRevision": 1,
+            "taskId": "t",
+            "taskVersion": 1,
+            "reservationId": "res",
+            "parentSessionId": "parent",
+            "childSessionId": "worker",
+            "configurationId": "cfg",
+            "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+          },
+          "accepted": {
+            "kind": "result",
+            "reference": {
+              "assignmentIdentity": {
+                "kind": "child",
+                "workspaceId": "w",
+                "runId": "run",
+                "planId": "p",
+                "planRevision": 1,
+                "taskId": "t",
+                "taskVersion": 1,
+                "reservationId": "res",
+                "parentSessionId": "parent",
+                "childSessionId": "worker",
+                "configurationId": "cfg",
+                "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+              },
+              "resultRevision": 1,
+              "resultDigest": "c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b"
+            }
+          },
+          "summaryRevision": "1"
+        },
+        "evaluations": [
+          {
+            "assignmentIdentity": {
+              "kind": "child",
+              "workspaceId": "w",
+              "runId": "run",
+              "planId": "p",
+              "planRevision": 1,
+              "taskId": "t",
+              "taskVersion": 1,
+              "reservationId": "res",
+              "parentSessionId": "parent",
+              "childSessionId": "worker",
+              "configurationId": "cfg",
+              "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+            },
+            "resultRevision": 1,
+            "resultDigest": "c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b",
+            "reviewerIdentity": {
+              "kind": "user",
+              "userReviewId": "user-review"
+            },
+            "evaluationRevision": 1,
+            "evaluationDigest": "36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9"
+          }
+        ],
+        "fresh": true
+      },
+      "rendererRequest": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":1,\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"}}",
+        "utf8Bytes": 875,
+        "sha256": "356bd22d20b1c11d627b31fa2723e3bef9beb4a3cf97ae126f7b8ff05b0d300c"
+      },
+      "mainRequest": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":1,\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"},\"sidecarGeneration\":\"aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda\",\"workspaceId\":\"w\"}",
+        "utf8Bytes": 980,
+        "sha256": "fadb719bfd05ac40beb0099481301ee8eef82c2d0c661f4f41e67cc747bc3627"
+      },
+      "response": {
+        "canonicalUtf8": "{\"detail\":{\"completeness\":{\"percentage\":{\"denominator\":2,\"kind\":\"assessed\",\"numerator\":2},\"required\":2,\"satisfied\":2,\"unassessed\":0,\"unsatisfied\":0},\"criteria\":[{\"description\":\"First required outcome — æ.\",\"id\":\"c1\",\"requirement\":\"required\"},{\"description\":\"Second required outcome.\",\"id\":\"c2\",\"requirement\":\"required\"},{\"description\":\"Optional context only.\",\"id\":\"o\",\"requirement\":\"optional\"}],\"evaluations\":[{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"evaluationRevision\":1,\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1,\"reviewerIdentity\":{\"kind\":\"user\",\"userReviewId\":\"user-review\"}}],\"findingSources\":[],\"material\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"criteriaSnapshotDigest\":\"6033d369f110ff78aeba9c1d8c507e7df5aee7b9af53b7b2e0e315131047293c\",\"overall\":\"needs-rework\",\"requiredFindings\":[],\"requiredOutcomes\":[{\"disposition\":\"meets\",\"target\":{\"id\":\"c1\",\"kind\":\"criterion\"}},{\"disposition\":\"meets\",\"target\":{\"id\":\"c2\",\"kind\":\"criterion\"}},{\"disposition\":\"needs-rework\",\"target\":{\"id\":\"d\",\"kind\":\"quality-dimension\"}},{\"disposition\":\"meets\",\"target\":{\"kind\":\"rating\"}}],\"rubricSnapshotDigest\":\"55b65dbe70db707f71ff8d763f33c0229c1606694b83e68be0da4dcd02c0d4e6\",\"schemaVersion\":1},\"outcomes\":[{\"assessments\":[{\"claimed\":\"satisfied\",\"effective\":\"satisfied\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"c1\",\"kind\":\"criterion\"}},{\"assessments\":[{\"claimed\":\"satisfied\",\"effective\":\"satisfied\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"c2\",\"kind\":\"criterion\"}},{\"assessments\":[{\"claimed\":\"below-standard\",\"effective\":\"below-standard\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"d\",\"kind\":\"quality-dimension\"}},{\"assessments\":[{\"claimed\":3,\"effective\":3,\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"kind\":\"rating\"}}],\"quality\":{\"kind\":\"unassessed\"},\"rubric\":{\"dimensions\":[{\"description\":\"Correctness.\",\"id\":\"d\"}],\"evaluatorRole\":\"review\",\"id\":\"rubric\",\"version\":1}},\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"},\"sidecarGeneration\":\"aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda\",\"snapshotVersion\":1,\"workspaceId\":\"w\"}",
+        "utf8Bytes": 4542,
+        "sha256": "1805df97bc5045e0de52b209d671b274b1e274c998c09f86488110250215eb8a"
+      }
+    },
+    {
+      "id": "meets",
+      "context": {
+        "workspaceId": "w",
+        "runId": "run",
+        "sidecarGeneration": "aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda",
+        "snapshotVersion": 1,
+        "selection": {
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "w",
+            "runId": "run",
+            "planId": "p",
+            "planRevision": 1,
+            "taskId": "t",
+            "taskVersion": 1,
+            "reservationId": "res",
+            "parentSessionId": "parent",
+            "childSessionId": "worker",
+            "configurationId": "cfg",
+            "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+          },
+          "accepted": {
+            "kind": "result",
+            "reference": {
+              "assignmentIdentity": {
+                "kind": "child",
+                "workspaceId": "w",
+                "runId": "run",
+                "planId": "p",
+                "planRevision": 1,
+                "taskId": "t",
+                "taskVersion": 1,
+                "reservationId": "res",
+                "parentSessionId": "parent",
+                "childSessionId": "worker",
+                "configurationId": "cfg",
+                "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+              },
+              "resultRevision": 1,
+              "resultDigest": "c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b"
+            }
+          },
+          "summaryRevision": "1"
+        },
+        "evaluations": [
+          {
+            "assignmentIdentity": {
+              "kind": "child",
+              "workspaceId": "w",
+              "runId": "run",
+              "planId": "p",
+              "planRevision": 1,
+              "taskId": "t",
+              "taskVersion": 1,
+              "reservationId": "res",
+              "parentSessionId": "parent",
+              "childSessionId": "worker",
+              "configurationId": "cfg",
+              "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+            },
+            "resultRevision": 1,
+            "resultDigest": "c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b",
+            "reviewerIdentity": {
+              "kind": "user",
+              "userReviewId": "user-review"
+            },
+            "evaluationRevision": 1,
+            "evaluationDigest": "36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9"
+          }
+        ],
+        "fresh": true
+      },
+      "rendererRequest": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":1,\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"}}",
+        "utf8Bytes": 875,
+        "sha256": "356bd22d20b1c11d627b31fa2723e3bef9beb4a3cf97ae126f7b8ff05b0d300c"
+      },
+      "mainRequest": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":1,\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"},\"sidecarGeneration\":\"aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda\",\"workspaceId\":\"w\"}",
+        "utf8Bytes": 980,
+        "sha256": "fadb719bfd05ac40beb0099481301ee8eef82c2d0c661f4f41e67cc747bc3627"
+      },
+      "response": {
+        "canonicalUtf8": "{\"detail\":{\"completeness\":{\"percentage\":{\"denominator\":2,\"kind\":\"assessed\",\"numerator\":2},\"required\":2,\"satisfied\":2,\"unassessed\":0,\"unsatisfied\":0},\"criteria\":[{\"description\":\"First required outcome — æ.\",\"id\":\"c1\",\"requirement\":\"required\"},{\"description\":\"Second required outcome.\",\"id\":\"c2\",\"requirement\":\"required\"},{\"description\":\"Optional context only.\",\"id\":\"o\",\"requirement\":\"optional\"}],\"evaluations\":[{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"evaluationRevision\":1,\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1,\"reviewerIdentity\":{\"kind\":\"user\",\"userReviewId\":\"user-review\"}}],\"findingSources\":[],\"material\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"criteriaSnapshotDigest\":\"6033d369f110ff78aeba9c1d8c507e7df5aee7b9af53b7b2e0e315131047293c\",\"overall\":\"meets-requirements\",\"requiredFindings\":[],\"requiredOutcomes\":[{\"disposition\":\"meets\",\"target\":{\"id\":\"c1\",\"kind\":\"criterion\"}},{\"disposition\":\"meets\",\"target\":{\"id\":\"c2\",\"kind\":\"criterion\"}},{\"disposition\":\"meets\",\"target\":{\"id\":\"d\",\"kind\":\"quality-dimension\"}},{\"disposition\":\"meets\",\"target\":{\"kind\":\"rating\"}}],\"rubricSnapshotDigest\":\"55b65dbe70db707f71ff8d763f33c0229c1606694b83e68be0da4dcd02c0d4e6\",\"schemaVersion\":1},\"outcomes\":[{\"assessments\":[{\"claimed\":\"satisfied\",\"effective\":\"satisfied\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"c1\",\"kind\":\"criterion\"}},{\"assessments\":[{\"claimed\":\"satisfied\",\"effective\":\"satisfied\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"c2\",\"kind\":\"criterion\"}},{\"assessments\":[{\"claimed\":\"meets\",\"effective\":\"meets\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"d\",\"kind\":\"quality-dimension\"}},{\"assessments\":[{\"claimed\":3,\"effective\":3,\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"kind\":\"rating\"}}],\"quality\":{\"kind\":\"rating\",\"value\":3},\"rubric\":{\"dimensions\":[{\"description\":\"Correctness.\",\"id\":\"d\"}],\"evaluatorRole\":\"review\",\"id\":\"rubric\",\"version\":1}},\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"},\"sidecarGeneration\":\"aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda\",\"snapshotVersion\":1,\"workspaceId\":\"w\"}",
+        "utf8Bytes": 4529,
+        "sha256": "ab584b6c3e59a98a39a4ef4917eff70a14cb7d2ed08dab14092aa591e3430811"
+      }
+    },
+    {
+      "id": "root-meets",
+      "context": {
+        "workspaceId": "w",
+        "runId": "run",
+        "sidecarGeneration": "aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda",
+        "snapshotVersion": 1,
+        "selection": {
+          "assignmentIdentity": {
+            "kind": "root",
+            "workspaceId": "w",
+            "runId": "run",
+            "rootAssignmentId": "root",
+            "parentSessionId": "parent",
+            "bootstrapId": "boot",
+            "bootstrapConfigurationDigest": "79a5f3b35f9d60eb4929d56da6b450c0273ff91021a5c74e39c52bdb1f7194b1"
+          },
+          "accepted": {
+            "kind": "result",
+            "reference": {
+              "assignmentIdentity": {
+                "kind": "root",
+                "workspaceId": "w",
+                "runId": "run",
+                "rootAssignmentId": "root",
+                "parentSessionId": "parent",
+                "bootstrapId": "boot",
+                "bootstrapConfigurationDigest": "79a5f3b35f9d60eb4929d56da6b450c0273ff91021a5c74e39c52bdb1f7194b1"
+              },
+              "resultRevision": 1,
+              "resultDigest": "c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b"
+            }
+          },
+          "summaryRevision": "1"
+        },
+        "evaluations": [
+          {
+            "assignmentIdentity": {
+              "kind": "root",
+              "workspaceId": "w",
+              "runId": "run",
+              "rootAssignmentId": "root",
+              "parentSessionId": "parent",
+              "bootstrapId": "boot",
+              "bootstrapConfigurationDigest": "79a5f3b35f9d60eb4929d56da6b450c0273ff91021a5c74e39c52bdb1f7194b1"
+            },
+            "resultRevision": 1,
+            "resultDigest": "c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b",
+            "reviewerIdentity": {
+              "kind": "user",
+              "userReviewId": "user-review"
+            },
+            "evaluationRevision": 1,
+            "evaluationDigest": "36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9"
+          }
+        ],
+        "fresh": true
+      },
+      "rendererRequest": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":1,\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"79a5f3b35f9d60eb4929d56da6b450c0273ff91021a5c74e39c52bdb1f7194b1\",\"bootstrapId\":\"boot\",\"kind\":\"root\",\"parentSessionId\":\"parent\",\"rootAssignmentId\":\"root\",\"runId\":\"run\",\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"79a5f3b35f9d60eb4929d56da6b450c0273ff91021a5c74e39c52bdb1f7194b1\",\"bootstrapId\":\"boot\",\"kind\":\"root\",\"parentSessionId\":\"parent\",\"rootAssignmentId\":\"root\",\"runId\":\"run\",\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"}}",
+        "utf8Bytes": 723,
+        "sha256": "476114e1a4cc048792cdf5f40ed8819cf17848f8bd802069254cea64a492df53"
+      },
+      "mainRequest": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":1,\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"79a5f3b35f9d60eb4929d56da6b450c0273ff91021a5c74e39c52bdb1f7194b1\",\"bootstrapId\":\"boot\",\"kind\":\"root\",\"parentSessionId\":\"parent\",\"rootAssignmentId\":\"root\",\"runId\":\"run\",\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"79a5f3b35f9d60eb4929d56da6b450c0273ff91021a5c74e39c52bdb1f7194b1\",\"bootstrapId\":\"boot\",\"kind\":\"root\",\"parentSessionId\":\"parent\",\"rootAssignmentId\":\"root\",\"runId\":\"run\",\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"},\"sidecarGeneration\":\"aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda\",\"workspaceId\":\"w\"}",
+        "utf8Bytes": 828,
+        "sha256": "2dfb44a02b1bedc10fcd9b2d92f463d3f696cbdfa471d95f8cb1d4607bc0ccc2"
+      },
+      "response": {
+        "canonicalUtf8": "{\"detail\":{\"completeness\":{\"percentage\":{\"denominator\":2,\"kind\":\"assessed\",\"numerator\":2},\"required\":2,\"satisfied\":2,\"unassessed\":0,\"unsatisfied\":0},\"criteria\":[{\"description\":\"First required outcome — æ.\",\"id\":\"c1\",\"requirement\":\"required\"},{\"description\":\"Second required outcome.\",\"id\":\"c2\",\"requirement\":\"required\"},{\"description\":\"Optional context only.\",\"id\":\"o\",\"requirement\":\"optional\"}],\"evaluations\":[{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"79a5f3b35f9d60eb4929d56da6b450c0273ff91021a5c74e39c52bdb1f7194b1\",\"bootstrapId\":\"boot\",\"kind\":\"root\",\"parentSessionId\":\"parent\",\"rootAssignmentId\":\"root\",\"runId\":\"run\",\"workspaceId\":\"w\"},\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"evaluationRevision\":1,\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1,\"reviewerIdentity\":{\"kind\":\"user\",\"userReviewId\":\"user-review\"}}],\"findingSources\":[],\"material\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"79a5f3b35f9d60eb4929d56da6b450c0273ff91021a5c74e39c52bdb1f7194b1\",\"bootstrapId\":\"boot\",\"kind\":\"root\",\"parentSessionId\":\"parent\",\"rootAssignmentId\":\"root\",\"runId\":\"run\",\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"79a5f3b35f9d60eb4929d56da6b450c0273ff91021a5c74e39c52bdb1f7194b1\",\"bootstrapId\":\"boot\",\"kind\":\"root\",\"parentSessionId\":\"parent\",\"rootAssignmentId\":\"root\",\"runId\":\"run\",\"workspaceId\":\"w\"},\"criteriaSnapshotDigest\":\"6033d369f110ff78aeba9c1d8c507e7df5aee7b9af53b7b2e0e315131047293c\",\"overall\":\"meets-requirements\",\"requiredFindings\":[],\"requiredOutcomes\":[{\"disposition\":\"meets\",\"target\":{\"id\":\"c1\",\"kind\":\"criterion\"}},{\"disposition\":\"meets\",\"target\":{\"id\":\"c2\",\"kind\":\"criterion\"}},{\"disposition\":\"meets\",\"target\":{\"id\":\"d\",\"kind\":\"quality-dimension\"}},{\"disposition\":\"meets\",\"target\":{\"kind\":\"rating\"}}],\"rubricSnapshotDigest\":\"55b65dbe70db707f71ff8d763f33c0229c1606694b83e68be0da4dcd02c0d4e6\",\"schemaVersion\":1},\"outcomes\":[{\"assessments\":[{\"claimed\":\"satisfied\",\"effective\":\"satisfied\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"c1\",\"kind\":\"criterion\"}},{\"assessments\":[{\"claimed\":\"satisfied\",\"effective\":\"satisfied\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"c2\",\"kind\":\"criterion\"}},{\"assessments\":[{\"claimed\":\"meets\",\"effective\":\"meets\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"d\",\"kind\":\"quality-dimension\"}},{\"assessments\":[{\"claimed\":3,\"effective\":3,\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"kind\":\"rating\"}}],\"quality\":{\"kind\":\"rating\",\"value\":3},\"rubric\":{\"dimensions\":[{\"description\":\"Correctness.\",\"id\":\"d\"}],\"evaluatorRole\":\"review\",\"id\":\"rubric\",\"version\":1}},\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"79a5f3b35f9d60eb4929d56da6b450c0273ff91021a5c74e39c52bdb1f7194b1\",\"bootstrapId\":\"boot\",\"kind\":\"root\",\"parentSessionId\":\"parent\",\"rootAssignmentId\":\"root\",\"runId\":\"run\",\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"79a5f3b35f9d60eb4929d56da6b450c0273ff91021a5c74e39c52bdb1f7194b1\",\"bootstrapId\":\"boot\",\"kind\":\"root\",\"parentSessionId\":\"parent\",\"rootAssignmentId\":\"root\",\"runId\":\"run\",\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"},\"sidecarGeneration\":\"aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda\",\"snapshotVersion\":1,\"workspaceId\":\"w\"}",
+        "utf8Bytes": 4149,
+        "sha256": "909395fda2fea37c9c945b481d306dcbc9bdcf47fbbcf3f7bcbeacf09369d8aa"
+      }
+    },
+    {
+      "id": "root-no-result",
+      "context": {
+        "workspaceId": "w",
+        "runId": "run",
+        "sidecarGeneration": "aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda",
+        "snapshotVersion": 1,
+        "selection": {
+          "assignmentIdentity": {
+            "kind": "root",
+            "workspaceId": "w",
+            "runId": "run",
+            "rootAssignmentId": "root",
+            "parentSessionId": "parent",
+            "bootstrapId": "boot",
+            "bootstrapConfigurationDigest": "79a5f3b35f9d60eb4929d56da6b450c0273ff91021a5c74e39c52bdb1f7194b1"
+          },
+          "accepted": {
+            "kind": "none"
+          },
+          "summaryRevision": "1"
+        },
+        "evaluations": [],
+        "fresh": true
+      },
+      "rendererRequest": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":1,\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"none\"},\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"79a5f3b35f9d60eb4929d56da6b450c0273ff91021a5c74e39c52bdb1f7194b1\",\"bootstrapId\":\"boot\",\"kind\":\"root\",\"parentSessionId\":\"parent\",\"rootAssignmentId\":\"root\",\"runId\":\"run\",\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"}}",
+        "utf8Bytes": 365,
+        "sha256": "a96ca2e4c115a070db57528e5f43ac36d2f70273a65a22e017b62b19a28d6771"
+      },
+      "mainRequest": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":1,\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"none\"},\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"79a5f3b35f9d60eb4929d56da6b450c0273ff91021a5c74e39c52bdb1f7194b1\",\"bootstrapId\":\"boot\",\"kind\":\"root\",\"parentSessionId\":\"parent\",\"rootAssignmentId\":\"root\",\"runId\":\"run\",\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"},\"sidecarGeneration\":\"aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda\",\"workspaceId\":\"w\"}",
+        "utf8Bytes": 470,
+        "sha256": "bd79148823562f92343384c18478362c63ef74ce777f4b1ecbc9ca4ea1176b81"
+      },
+      "response": {
+        "canonicalUtf8": "{\"detail\":{\"completeness\":{\"percentage\":{\"kind\":\"unassessed\"},\"required\":2,\"satisfied\":0,\"unassessed\":2,\"unsatisfied\":0},\"criteria\":[{\"description\":\"First required outcome — æ.\",\"id\":\"c1\",\"requirement\":\"required\"},{\"description\":\"Second required outcome.\",\"id\":\"c2\",\"requirement\":\"required\"},{\"description\":\"Optional context only.\",\"id\":\"o\",\"requirement\":\"optional\"}],\"evaluations\":[],\"findingSources\":[],\"material\":{\"accepted\":{\"kind\":\"none\"},\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"79a5f3b35f9d60eb4929d56da6b450c0273ff91021a5c74e39c52bdb1f7194b1\",\"bootstrapId\":\"boot\",\"kind\":\"root\",\"parentSessionId\":\"parent\",\"rootAssignmentId\":\"root\",\"runId\":\"run\",\"workspaceId\":\"w\"},\"criteriaSnapshotDigest\":\"6033d369f110ff78aeba9c1d8c507e7df5aee7b9af53b7b2e0e315131047293c\",\"overall\":\"unassessed\",\"requiredFindings\":[],\"requiredOutcomes\":[{\"disposition\":\"unassessed\",\"target\":{\"id\":\"c1\",\"kind\":\"criterion\"}},{\"disposition\":\"unassessed\",\"target\":{\"id\":\"c2\",\"kind\":\"criterion\"}},{\"disposition\":\"unassessed\",\"target\":{\"id\":\"d\",\"kind\":\"quality-dimension\"}},{\"disposition\":\"unassessed\",\"target\":{\"kind\":\"rating\"}}],\"rubricSnapshotDigest\":\"55b65dbe70db707f71ff8d763f33c0229c1606694b83e68be0da4dcd02c0d4e6\",\"schemaVersion\":1},\"outcomes\":[{\"assessments\":[],\"fullyAssessed\":false,\"target\":{\"id\":\"c1\",\"kind\":\"criterion\"}},{\"assessments\":[],\"fullyAssessed\":false,\"target\":{\"id\":\"c2\",\"kind\":\"criterion\"}},{\"assessments\":[],\"fullyAssessed\":false,\"target\":{\"id\":\"d\",\"kind\":\"quality-dimension\"}},{\"assessments\":[],\"fullyAssessed\":false,\"target\":{\"kind\":\"rating\"}}],\"quality\":{\"kind\":\"unassessed\"},\"rubric\":{\"dimensions\":[{\"description\":\"Correctness.\",\"id\":\"d\"}],\"evaluatorRole\":\"review\",\"id\":\"rubric\",\"version\":1}},\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"none\"},\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"79a5f3b35f9d60eb4929d56da6b450c0273ff91021a5c74e39c52bdb1f7194b1\",\"bootstrapId\":\"boot\",\"kind\":\"root\",\"parentSessionId\":\"parent\",\"rootAssignmentId\":\"root\",\"runId\":\"run\",\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"},\"sidecarGeneration\":\"aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda\",\"snapshotVersion\":1,\"workspaceId\":\"w\"}",
+        "utf8Bytes": 2167,
+        "sha256": "93c792783256c19591d2f20f8025235f8d7406933f18d65bbaf1b1b2e4569450"
+      }
+    },
+    {
+      "id": "legacy-zero-required",
+      "context": {
+        "workspaceId": "w",
+        "runId": "run",
+        "sidecarGeneration": "aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda",
+        "snapshotVersion": 1,
+        "selection": {
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "w",
+            "runId": "run",
+            "planId": "p",
+            "planRevision": 1,
+            "taskId": "t",
+            "taskVersion": 1,
+            "reservationId": "res",
+            "parentSessionId": "parent",
+            "childSessionId": "worker",
+            "configurationId": "cfg",
+            "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+          },
+          "accepted": {
+            "kind": "result",
+            "reference": {
+              "assignmentIdentity": {
+                "kind": "child",
+                "workspaceId": "w",
+                "runId": "run",
+                "planId": "p",
+                "planRevision": 1,
+                "taskId": "t",
+                "taskVersion": 1,
+                "reservationId": "res",
+                "parentSessionId": "parent",
+                "childSessionId": "worker",
+                "configurationId": "cfg",
+                "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+              },
+              "resultRevision": 1,
+              "resultDigest": "c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b"
+            }
+          },
+          "summaryRevision": "1"
+        },
+        "evaluations": [
+          {
+            "assignmentIdentity": {
+              "kind": "child",
+              "workspaceId": "w",
+              "runId": "run",
+              "planId": "p",
+              "planRevision": 1,
+              "taskId": "t",
+              "taskVersion": 1,
+              "reservationId": "res",
+              "parentSessionId": "parent",
+              "childSessionId": "worker",
+              "configurationId": "cfg",
+              "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+            },
+            "resultRevision": 1,
+            "resultDigest": "c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b",
+            "reviewerIdentity": {
+              "kind": "user",
+              "userReviewId": "user-review"
+            },
+            "evaluationRevision": 1,
+            "evaluationDigest": "36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9"
+          }
+        ],
+        "fresh": true
+      },
+      "rendererRequest": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":1,\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"}}",
+        "utf8Bytes": 875,
+        "sha256": "356bd22d20b1c11d627b31fa2723e3bef9beb4a3cf97ae126f7b8ff05b0d300c"
+      },
+      "mainRequest": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":1,\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"},\"sidecarGeneration\":\"aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda\",\"workspaceId\":\"w\"}",
+        "utf8Bytes": 980,
+        "sha256": "fadb719bfd05ac40beb0099481301ee8eef82c2d0c661f4f41e67cc747bc3627"
+      },
+      "response": {
+        "canonicalUtf8": "{\"detail\":{\"completeness\":{\"percentage\":{\"kind\":\"unassessed\"},\"required\":0,\"satisfied\":0,\"unassessed\":0,\"unsatisfied\":0},\"criteria\":[{\"description\":\"Optional context only.\",\"id\":\"o\",\"requirement\":\"optional\"}],\"evaluations\":[{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"evaluationRevision\":1,\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1,\"reviewerIdentity\":{\"kind\":\"user\",\"userReviewId\":\"user-review\"}}],\"findingSources\":[],\"material\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"criteriaSnapshotDigest\":\"314223c9f8ee3e0ac225e69af01c8998ecdc8401745a3c1d28da08f506226e2d\",\"overall\":\"unassessed\",\"requiredFindings\":[],\"requiredOutcomes\":[{\"disposition\":\"unassessed\",\"target\":{\"id\":\"d\",\"kind\":\"quality-dimension\"}},{\"disposition\":\"unassessed\",\"target\":{\"kind\":\"rating\"}}],\"rubricSnapshotDigest\":\"55b65dbe70db707f71ff8d763f33c0229c1606694b83e68be0da4dcd02c0d4e6\",\"schemaVersion\":1},\"outcomes\":[{\"assessments\":[{\"claimed\":\"unassessed\",\"effective\":\"unassessed\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[\"declared-unassessed\"],\"sourceState\":\"current\"}],\"fullyAssessed\":false,\"target\":{\"id\":\"d\",\"kind\":\"quality-dimension\"}},{\"assessments\":[{\"claimed\":\"unassessed\",\"effective\":\"unassessed\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[\"declared-unassessed\"],\"sourceState\":\"current\"}],\"fullyAssessed\":false,\"target\":{\"kind\":\"rating\"}}],\"quality\":{\"kind\":\"unassessed\"},\"rubric\":{\"dimensions\":[{\"description\":\"Correctness.\",\"id\":\"d\"}],\"evaluatorRole\":\"review\",\"id\":\"rubric\",\"version\":1}},\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"},\"sidecarGeneration\":\"aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda\",\"snapshotVersion\":1,\"workspaceId\":\"w\"}",
+        "utf8Bytes": 3743,
+        "sha256": "35c3015cdc2ee0305defd563a9a44c90080d1f8fb68cb5929f05922fd792650c"
+      }
+    },
+    {
+      "id": "current-finding",
+      "context": {
+        "workspaceId": "w",
+        "runId": "run",
+        "sidecarGeneration": "aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda",
+        "snapshotVersion": 1,
+        "selection": {
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "w",
+            "runId": "run",
+            "planId": "p",
+            "planRevision": 1,
+            "taskId": "t",
+            "taskVersion": 1,
+            "reservationId": "res",
+            "parentSessionId": "parent",
+            "childSessionId": "worker",
+            "configurationId": "cfg",
+            "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+          },
+          "accepted": {
+            "kind": "result",
+            "reference": {
+              "assignmentIdentity": {
+                "kind": "child",
+                "workspaceId": "w",
+                "runId": "run",
+                "planId": "p",
+                "planRevision": 1,
+                "taskId": "t",
+                "taskVersion": 1,
+                "reservationId": "res",
+                "parentSessionId": "parent",
+                "childSessionId": "worker",
+                "configurationId": "cfg",
+                "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+              },
+              "resultRevision": 1,
+              "resultDigest": "c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b"
+            }
+          },
+          "summaryRevision": "1"
+        },
+        "evaluations": [
+          {
+            "assignmentIdentity": {
+              "kind": "child",
+              "workspaceId": "w",
+              "runId": "run",
+              "planId": "p",
+              "planRevision": 1,
+              "taskId": "t",
+              "taskVersion": 1,
+              "reservationId": "res",
+              "parentSessionId": "parent",
+              "childSessionId": "worker",
+              "configurationId": "cfg",
+              "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+            },
+            "resultRevision": 1,
+            "resultDigest": "c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b",
+            "reviewerIdentity": {
+              "kind": "user",
+              "userReviewId": "user-review"
+            },
+            "evaluationRevision": 1,
+            "evaluationDigest": "36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9"
+          }
+        ],
+        "fresh": true
+      },
+      "rendererRequest": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":1,\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"}}",
+        "utf8Bytes": 875,
+        "sha256": "356bd22d20b1c11d627b31fa2723e3bef9beb4a3cf97ae126f7b8ff05b0d300c"
+      },
+      "mainRequest": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":1,\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"},\"sidecarGeneration\":\"aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda\",\"workspaceId\":\"w\"}",
+        "utf8Bytes": 980,
+        "sha256": "fadb719bfd05ac40beb0099481301ee8eef82c2d0c661f4f41e67cc747bc3627"
+      },
+      "response": {
+        "canonicalUtf8": "{\"detail\":{\"completeness\":{\"percentage\":{\"denominator\":2,\"kind\":\"assessed\",\"numerator\":0},\"required\":2,\"satisfied\":0,\"unassessed\":0,\"unsatisfied\":2},\"criteria\":[{\"description\":\"First required outcome — æ.\",\"id\":\"c1\",\"requirement\":\"required\"},{\"description\":\"Second required outcome.\",\"id\":\"c2\",\"requirement\":\"required\"},{\"description\":\"Optional context only.\",\"id\":\"o\",\"requirement\":\"optional\"}],\"evaluations\":[{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"evaluationRevision\":1,\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1,\"reviewerIdentity\":{\"kind\":\"user\",\"userReviewId\":\"user-review\"}}],\"findingSources\":[{\"disputeEvaluationDigests\":[],\"findingId\":\"f\",\"originEvaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"reviewerIdentity\":{\"kind\":\"user\",\"userReviewId\":\"user-review\"}}],\"material\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"criteriaSnapshotDigest\":\"6033d369f110ff78aeba9c1d8c507e7df5aee7b9af53b7b2e0e315131047293c\",\"overall\":\"needs-rework\",\"requiredFindings\":[{\"description\":\"Required fix <script> remains plain text.\",\"disposition\":\"current\",\"findingId\":\"f\",\"location\":\"file:1\",\"requiredImpactTargets\":[{\"id\":\"c1\",\"kind\":\"criterion\"}],\"reviewerIdentity\":{\"kind\":\"user\",\"userReviewId\":\"user-review\"},\"severity\":\"major\"}],\"requiredOutcomes\":[{\"disposition\":\"needs-rework\",\"target\":{\"id\":\"c1\",\"kind\":\"criterion\"}},{\"disposition\":\"needs-rework\",\"target\":{\"id\":\"c2\",\"kind\":\"criterion\"}},{\"disposition\":\"meets\",\"target\":{\"id\":\"d\",\"kind\":\"quality-dimension\"}},{\"disposition\":\"meets\",\"target\":{\"kind\":\"rating\"}}],\"rubricSnapshotDigest\":\"55b65dbe70db707f71ff8d763f33c0229c1606694b83e68be0da4dcd02c0d4e6\",\"schemaVersion\":1},\"outcomes\":[{\"assessments\":[{\"claimed\":\"unsatisfied\",\"effective\":\"unsatisfied\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"c1\",\"kind\":\"criterion\"}},{\"assessments\":[{\"claimed\":\"unsatisfied\",\"effective\":\"unsatisfied\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"c2\",\"kind\":\"criterion\"}},{\"assessments\":[{\"claimed\":\"meets\",\"effective\":\"meets\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"d\",\"kind\":\"quality-dimension\"}},{\"assessments\":[{\"claimed\":3,\"effective\":3,\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"kind\":\"rating\"}}],\"quality\":{\"kind\":\"rating\",\"value\":3},\"rubric\":{\"dimensions\":[{\"description\":\"Correctness.\",\"id\":\"d\"}],\"evaluatorRole\":\"review\",\"id\":\"rubric\",\"version\":1}},\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"},\"sidecarGeneration\":\"aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda\",\"snapshotVersion\":1,\"workspaceId\":\"w\"}",
+        "utf8Bytes": 5007,
+        "sha256": "ba435bd77332f34691c12c4169fa0a63100bebd1f3885e8a88bcadf88525ec1b"
+      }
+    },
+    {
+      "id": "disputed-finding",
+      "context": {
+        "workspaceId": "w",
+        "runId": "run",
+        "sidecarGeneration": "aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda",
+        "snapshotVersion": 1,
+        "selection": {
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "w",
+            "runId": "run",
+            "planId": "p",
+            "planRevision": 1,
+            "taskId": "t",
+            "taskVersion": 1,
+            "reservationId": "res",
+            "parentSessionId": "parent",
+            "childSessionId": "worker",
+            "configurationId": "cfg",
+            "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+          },
+          "accepted": {
+            "kind": "result",
+            "reference": {
+              "assignmentIdentity": {
+                "kind": "child",
+                "workspaceId": "w",
+                "runId": "run",
+                "planId": "p",
+                "planRevision": 1,
+                "taskId": "t",
+                "taskVersion": 1,
+                "reservationId": "res",
+                "parentSessionId": "parent",
+                "childSessionId": "worker",
+                "configurationId": "cfg",
+                "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+              },
+              "resultRevision": 1,
+              "resultDigest": "c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b"
+            }
+          },
+          "summaryRevision": "1"
+        },
+        "evaluations": [
+          {
+            "assignmentIdentity": {
+              "kind": "child",
+              "workspaceId": "w",
+              "runId": "run",
+              "planId": "p",
+              "planRevision": 1,
+              "taskId": "t",
+              "taskVersion": 1,
+              "reservationId": "res",
+              "parentSessionId": "parent",
+              "childSessionId": "worker",
+              "configurationId": "cfg",
+              "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+            },
+            "resultRevision": 1,
+            "resultDigest": "c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b",
+            "reviewerIdentity": {
+              "kind": "child",
+              "assignmentIdentity": {
+                "kind": "child",
+                "workspaceId": "w",
+                "runId": "run",
+                "planId": "p",
+                "planRevision": 1,
+                "taskId": "review",
+                "taskVersion": 1,
+                "reservationId": "review-res",
+                "parentSessionId": "parent",
+                "childSessionId": "reviewer",
+                "configurationId": "review-cfg",
+                "configurationDigest": "0a4a265652ad9bb7e331e98951cc298c2f460894ee23c83d467d9dad62c7fc6c"
+              }
+            },
+            "evaluationRevision": 1,
+            "evaluationDigest": "3258680fa24e03f645fce3c0bbc7f515b73c041045229e51337d90ea0e31a2b4"
+          },
+          {
+            "assignmentIdentity": {
+              "kind": "child",
+              "workspaceId": "w",
+              "runId": "run",
+              "planId": "p",
+              "planRevision": 1,
+              "taskId": "t",
+              "taskVersion": 1,
+              "reservationId": "res",
+              "parentSessionId": "parent",
+              "childSessionId": "worker",
+              "configurationId": "cfg",
+              "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+            },
+            "resultRevision": 1,
+            "resultDigest": "c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b",
+            "reviewerIdentity": {
+              "kind": "user",
+              "userReviewId": "user-review"
+            },
+            "evaluationRevision": 1,
+            "evaluationDigest": "36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9"
+          }
+        ],
+        "fresh": true
+      },
+      "rendererRequest": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":1,\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"}}",
+        "utf8Bytes": 875,
+        "sha256": "356bd22d20b1c11d627b31fa2723e3bef9beb4a3cf97ae126f7b8ff05b0d300c"
+      },
+      "mainRequest": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":1,\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"},\"sidecarGeneration\":\"aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda\",\"workspaceId\":\"w\"}",
+        "utf8Bytes": 980,
+        "sha256": "fadb719bfd05ac40beb0099481301ee8eef82c2d0c661f4f41e67cc747bc3627"
+      },
+      "response": {
+        "canonicalUtf8": "{\"detail\":{\"completeness\":{\"percentage\":{\"kind\":\"unassessed\"},\"required\":2,\"satisfied\":0,\"unassessed\":1,\"unsatisfied\":1},\"criteria\":[{\"description\":\"First required outcome — æ.\",\"id\":\"c1\",\"requirement\":\"required\"},{\"description\":\"Second required outcome.\",\"id\":\"c2\",\"requirement\":\"required\"},{\"description\":\"Optional context only.\",\"id\":\"o\",\"requirement\":\"optional\"}],\"evaluations\":[{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"evaluationDigest\":\"3258680fa24e03f645fce3c0bbc7f515b73c041045229e51337d90ea0e31a2b4\",\"evaluationRevision\":1,\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1,\"reviewerIdentity\":{\"assignmentIdentity\":{\"childSessionId\":\"reviewer\",\"configurationDigest\":\"0a4a265652ad9bb7e331e98951cc298c2f460894ee23c83d467d9dad62c7fc6c\",\"configurationId\":\"review-cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"review-res\",\"runId\":\"run\",\"taskId\":\"review\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"kind\":\"child\"}},{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"evaluationRevision\":1,\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1,\"reviewerIdentity\":{\"kind\":\"user\",\"userReviewId\":\"user-review\"}}],\"findingSources\":[{\"disputeEvaluationDigests\":[\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\"],\"findingId\":\"f\",\"originEvaluationDigest\":\"3258680fa24e03f645fce3c0bbc7f515b73c041045229e51337d90ea0e31a2b4\",\"reviewerIdentity\":{\"assignmentIdentity\":{\"childSessionId\":\"reviewer\",\"configurationDigest\":\"0a4a265652ad9bb7e331e98951cc298c2f460894ee23c83d467d9dad62c7fc6c\",\"configurationId\":\"review-cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"review-res\",\"runId\":\"run\",\"taskId\":\"review\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"kind\":\"child\"}}],\"material\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"criteriaSnapshotDigest\":\"6033d369f110ff78aeba9c1d8c507e7df5aee7b9af53b7b2e0e315131047293c\",\"overall\":\"needs-rework\",\"requiredFindings\":[{\"description\":\"Required fix <script> remains plain text.\",\"disposition\":\"disputed\",\"findingId\":\"f\",\"location\":\"file:1\",\"requiredImpactTargets\":[{\"id\":\"c1\",\"kind\":\"criterion\"}],\"reviewerIdentity\":{\"assignmentIdentity\":{\"childSessionId\":\"reviewer\",\"configurationDigest\":\"0a4a265652ad9bb7e331e98951cc298c2f460894ee23c83d467d9dad62c7fc6c\",\"configurationId\":\"review-cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"review-res\",\"runId\":\"run\",\"taskId\":\"review\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"kind\":\"child\"},\"severity\":\"major\"}],\"requiredOutcomes\":[{\"disposition\":\"conflicted\",\"target\":{\"id\":\"c1\",\"kind\":\"criterion\"}},{\"disposition\":\"needs-rework\",\"target\":{\"id\":\"c2\",\"kind\":\"criterion\"}},{\"disposition\":\"meets\",\"target\":{\"id\":\"d\",\"kind\":\"quality-dimension\"}},{\"disposition\":\"meets\",\"target\":{\"kind\":\"rating\"}}],\"rubricSnapshotDigest\":\"55b65dbe70db707f71ff8d763f33c0229c1606694b83e68be0da4dcd02c0d4e6\",\"schemaVersion\":1},\"outcomes\":[{\"assessments\":[{\"claimed\":\"unsatisfied\",\"effective\":\"unassessed\",\"evaluationDigest\":\"3258680fa24e03f645fce3c0bbc7f515b73c041045229e51337d90ea0e31a2b4\",\"participates\":true,\"reasons\":[\"declared-conflict\"],\"sourceState\":\"current\"},{\"claimed\":\"unsatisfied\",\"effective\":\"unassessed\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[\"declared-conflict\"],\"sourceState\":\"current\"}],\"fullyAssessed\":false,\"target\":{\"id\":\"c1\",\"kind\":\"criterion\"}},{\"assessments\":[{\"claimed\":\"unsatisfied\",\"effective\":\"unsatisfied\",\"evaluationDigest\":\"3258680fa24e03f645fce3c0bbc7f515b73c041045229e51337d90ea0e31a2b4\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"},{\"claimed\":\"unsatisfied\",\"effective\":\"unsatisfied\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"c2\",\"kind\":\"criterion\"}},{\"assessments\":[{\"claimed\":\"meets\",\"effective\":\"meets\",\"evaluationDigest\":\"3258680fa24e03f645fce3c0bbc7f515b73c041045229e51337d90ea0e31a2b4\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"},{\"claimed\":\"meets\",\"effective\":\"meets\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"d\",\"kind\":\"quality-dimension\"}},{\"assessments\":[{\"claimed\":3,\"effective\":3,\"evaluationDigest\":\"3258680fa24e03f645fce3c0bbc7f515b73c041045229e51337d90ea0e31a2b4\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"},{\"claimed\":3,\"effective\":3,\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"kind\":\"rating\"}}],\"quality\":{\"kind\":\"rating\",\"value\":3},\"rubric\":{\"dimensions\":[{\"description\":\"Correctness.\",\"id\":\"d\"}],\"evaluatorRole\":\"review\",\"id\":\"rubric\",\"version\":1}},\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"},\"sidecarGeneration\":\"aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda\",\"snapshotVersion\":1,\"workspaceId\":\"w\"}",
+        "utf8Bytes": 7348,
+        "sha256": "53341a79ef92e48f4bfe7ed2f0beeb6bfdf1cc49476e8b8d75aa7aa2b38adefe"
+      }
+    },
+    {
+      "id": "rating-change-0",
+      "context": {
+        "workspaceId": "w",
+        "runId": "run",
+        "sidecarGeneration": "aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda",
+        "snapshotVersion": 3,
+        "selection": {
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "w",
+            "runId": "run",
+            "planId": "p",
+            "planRevision": 1,
+            "taskId": "t",
+            "taskVersion": 1,
+            "reservationId": "res",
+            "parentSessionId": "parent",
+            "childSessionId": "worker",
+            "configurationId": "cfg",
+            "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+          },
+          "accepted": {
+            "kind": "result",
+            "reference": {
+              "assignmentIdentity": {
+                "kind": "child",
+                "workspaceId": "w",
+                "runId": "run",
+                "planId": "p",
+                "planRevision": 1,
+                "taskId": "t",
+                "taskVersion": 1,
+                "reservationId": "res",
+                "parentSessionId": "parent",
+                "childSessionId": "worker",
+                "configurationId": "cfg",
+                "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+              },
+              "resultRevision": 1,
+              "resultDigest": "c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b"
+            }
+          },
+          "summaryRevision": "1"
+        },
+        "evaluations": [
+          {
+            "assignmentIdentity": {
+              "kind": "child",
+              "workspaceId": "w",
+              "runId": "run",
+              "planId": "p",
+              "planRevision": 1,
+              "taskId": "t",
+              "taskVersion": 1,
+              "reservationId": "res",
+              "parentSessionId": "parent",
+              "childSessionId": "worker",
+              "configurationId": "cfg",
+              "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+            },
+            "resultRevision": 1,
+            "resultDigest": "c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b",
+            "reviewerIdentity": {
+              "kind": "user",
+              "userReviewId": "user-review"
+            },
+            "evaluationRevision": 1,
+            "evaluationDigest": "36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9"
+          }
+        ],
+        "fresh": true
+      },
+      "rendererRequest": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":3,\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"}}",
+        "utf8Bytes": 875,
+        "sha256": "cc39511d58ba6879128b201e2172926bf1eff42c39d8b3705d0e2edfb3ed214b"
+      },
+      "mainRequest": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":3,\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"},\"sidecarGeneration\":\"aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda\",\"workspaceId\":\"w\"}",
+        "utf8Bytes": 980,
+        "sha256": "0c35f93af49d1344165548a6737630b11a1b5a6a59f8b06d35e7760562a02f37"
+      },
+      "response": {
+        "canonicalUtf8": "{\"detail\":{\"completeness\":{\"percentage\":{\"denominator\":2,\"kind\":\"assessed\",\"numerator\":0},\"required\":2,\"satisfied\":0,\"unassessed\":0,\"unsatisfied\":2},\"criteria\":[{\"description\":\"First required outcome — æ.\",\"id\":\"c1\",\"requirement\":\"required\"},{\"description\":\"Second required outcome.\",\"id\":\"c2\",\"requirement\":\"required\"},{\"description\":\"Optional context only.\",\"id\":\"o\",\"requirement\":\"optional\"}],\"evaluations\":[{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"evaluationRevision\":1,\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1,\"reviewerIdentity\":{\"kind\":\"user\",\"userReviewId\":\"user-review\"}}],\"findingSources\":[],\"material\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"criteriaSnapshotDigest\":\"6033d369f110ff78aeba9c1d8c507e7df5aee7b9af53b7b2e0e315131047293c\",\"overall\":\"needs-rework\",\"requiredFindings\":[],\"requiredOutcomes\":[{\"disposition\":\"needs-rework\",\"target\":{\"id\":\"c1\",\"kind\":\"criterion\"}},{\"disposition\":\"needs-rework\",\"target\":{\"id\":\"c2\",\"kind\":\"criterion\"}},{\"disposition\":\"meets\",\"target\":{\"id\":\"d\",\"kind\":\"quality-dimension\"}},{\"disposition\":\"needs-rework\",\"target\":{\"kind\":\"rating\"}}],\"rubricSnapshotDigest\":\"55b65dbe70db707f71ff8d763f33c0229c1606694b83e68be0da4dcd02c0d4e6\",\"schemaVersion\":1},\"outcomes\":[{\"assessments\":[{\"claimed\":\"unsatisfied\",\"effective\":\"unsatisfied\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"c1\",\"kind\":\"criterion\"}},{\"assessments\":[{\"claimed\":\"unsatisfied\",\"effective\":\"unsatisfied\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"c2\",\"kind\":\"criterion\"}},{\"assessments\":[{\"claimed\":\"meets\",\"effective\":\"meets\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"d\",\"kind\":\"quality-dimension\"}},{\"assessments\":[{\"claimed\":0,\"effective\":0,\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"kind\":\"rating\"}}],\"quality\":{\"kind\":\"rating\",\"value\":0},\"rubric\":{\"dimensions\":[{\"description\":\"Correctness.\",\"id\":\"d\"}],\"evaluatorRole\":\"review\",\"id\":\"rubric\",\"version\":1}},\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"},\"sidecarGeneration\":\"aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda\",\"snapshotVersion\":3,\"workspaceId\":\"w\"}",
+        "utf8Bytes": 4552,
+        "sha256": "f8cb2dd05ba68593e0d543ee6ac1abbd95e8db82eb4db1f2493bbd6bf3907125"
+      }
+    },
+    {
+      "id": "rating-change-2",
+      "context": {
+        "workspaceId": "w",
+        "runId": "run",
+        "sidecarGeneration": "aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda",
+        "snapshotVersion": 4,
+        "selection": {
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "w",
+            "runId": "run",
+            "planId": "p",
+            "planRevision": 1,
+            "taskId": "t",
+            "taskVersion": 1,
+            "reservationId": "res",
+            "parentSessionId": "parent",
+            "childSessionId": "worker",
+            "configurationId": "cfg",
+            "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+          },
+          "accepted": {
+            "kind": "result",
+            "reference": {
+              "assignmentIdentity": {
+                "kind": "child",
+                "workspaceId": "w",
+                "runId": "run",
+                "planId": "p",
+                "planRevision": 1,
+                "taskId": "t",
+                "taskVersion": 1,
+                "reservationId": "res",
+                "parentSessionId": "parent",
+                "childSessionId": "worker",
+                "configurationId": "cfg",
+                "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+              },
+              "resultRevision": 1,
+              "resultDigest": "c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b"
+            }
+          },
+          "summaryRevision": "1"
+        },
+        "evaluations": [
+          {
+            "assignmentIdentity": {
+              "kind": "child",
+              "workspaceId": "w",
+              "runId": "run",
+              "planId": "p",
+              "planRevision": 1,
+              "taskId": "t",
+              "taskVersion": 1,
+              "reservationId": "res",
+              "parentSessionId": "parent",
+              "childSessionId": "worker",
+              "configurationId": "cfg",
+              "configurationDigest": "396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb"
+            },
+            "resultRevision": 1,
+            "resultDigest": "c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b",
+            "reviewerIdentity": {
+              "kind": "user",
+              "userReviewId": "user-review"
+            },
+            "evaluationRevision": 1,
+            "evaluationDigest": "36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9"
+          }
+        ],
+        "fresh": true
+      },
+      "rendererRequest": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":4,\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"}}",
+        "utf8Bytes": 875,
+        "sha256": "b35e50dbc8fa707efaf0c2dc2b80648e694860c3ea200f44c767405e0b3d173e"
+      },
+      "mainRequest": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":4,\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"},\"sidecarGeneration\":\"aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda\",\"workspaceId\":\"w\"}",
+        "utf8Bytes": 980,
+        "sha256": "535e296ad3532bbcbd6aea87871bbde09882c67ee09c65feda7d27024acf3daa"
+      },
+      "response": {
+        "canonicalUtf8": "{\"detail\":{\"completeness\":{\"percentage\":{\"denominator\":2,\"kind\":\"assessed\",\"numerator\":0},\"required\":2,\"satisfied\":0,\"unassessed\":0,\"unsatisfied\":2},\"criteria\":[{\"description\":\"First required outcome — æ.\",\"id\":\"c1\",\"requirement\":\"required\"},{\"description\":\"Second required outcome.\",\"id\":\"c2\",\"requirement\":\"required\"},{\"description\":\"Optional context only.\",\"id\":\"o\",\"requirement\":\"optional\"}],\"evaluations\":[{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"evaluationRevision\":1,\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1,\"reviewerIdentity\":{\"kind\":\"user\",\"userReviewId\":\"user-review\"}}],\"findingSources\":[],\"material\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"criteriaSnapshotDigest\":\"6033d369f110ff78aeba9c1d8c507e7df5aee7b9af53b7b2e0e315131047293c\",\"overall\":\"needs-rework\",\"requiredFindings\":[],\"requiredOutcomes\":[{\"disposition\":\"needs-rework\",\"target\":{\"id\":\"c1\",\"kind\":\"criterion\"}},{\"disposition\":\"needs-rework\",\"target\":{\"id\":\"c2\",\"kind\":\"criterion\"}},{\"disposition\":\"meets\",\"target\":{\"id\":\"d\",\"kind\":\"quality-dimension\"}},{\"disposition\":\"needs-rework\",\"target\":{\"kind\":\"rating\"}}],\"rubricSnapshotDigest\":\"55b65dbe70db707f71ff8d763f33c0229c1606694b83e68be0da4dcd02c0d4e6\",\"schemaVersion\":1},\"outcomes\":[{\"assessments\":[{\"claimed\":\"unsatisfied\",\"effective\":\"unsatisfied\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"c1\",\"kind\":\"criterion\"}},{\"assessments\":[{\"claimed\":\"unsatisfied\",\"effective\":\"unsatisfied\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"c2\",\"kind\":\"criterion\"}},{\"assessments\":[{\"claimed\":\"meets\",\"effective\":\"meets\",\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"id\":\"d\",\"kind\":\"quality-dimension\"}},{\"assessments\":[{\"claimed\":2,\"effective\":2,\"evaluationDigest\":\"36e609b934901f140f5f02fb5ef17d1f0c0334d7a8bd661c06df441293ce80f9\",\"participates\":true,\"reasons\":[],\"sourceState\":\"current\"}],\"fullyAssessed\":true,\"target\":{\"kind\":\"rating\"}}],\"quality\":{\"kind\":\"rating\",\"value\":2},\"rubric\":{\"dimensions\":[{\"description\":\"Correctness.\",\"id\":\"d\"}],\"evaluatorRole\":\"review\",\"id\":\"rubric\",\"version\":1}},\"runId\":\"run\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"resultDigest\":\"c0981fe1048833cf3b57f15caa2e489aa75d0ac3675d4f0709e0fe0cf9100e1b\",\"resultRevision\":1}},\"assignmentIdentity\":{\"childSessionId\":\"worker\",\"configurationDigest\":\"396a4e42c7d2cfd0082d59e01044d73b62a2450f1ac7c8e1d730903c7caee1eb\",\"configurationId\":\"cfg\",\"kind\":\"child\",\"parentSessionId\":\"parent\",\"planId\":\"p\",\"planRevision\":1,\"reservationId\":\"res\",\"runId\":\"run\",\"taskId\":\"t\",\"taskVersion\":1,\"workspaceId\":\"w\"},\"summaryRevision\":\"1\"},\"sidecarGeneration\":\"aa347954204846158b21523e39af0127ded3040c429f473999be6d70b1e66cda\",\"snapshotVersion\":4,\"workspaceId\":\"w\"}",
+        "utf8Bytes": 4552,
+        "sha256": "b5eeaceb41a4eb57a80ef0ec430cd0a603d167140c0649895e5fc4ac4656e918"
+      }
+    }
+  ]
+}

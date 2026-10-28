@@ -393,3 +393,14 @@ acceptance does not claim those proofs or a production-supported slice. Keep
 storage/native and #740 capability gates and separately approved executable
 runtime plans remain independent. No runtime, database, migration, native/model
 probe or launch eligibility is authorized.
+
+## Documentation component fixture handoff — 2026-10-28
+
+The [summary-detail component packet](../../validation/hierarchy-summary-components.md)
+adds independent synthetic renderer/main request and response bytes, a bounded
+closed-shape checker, display-metric consistency and local viewed-identity tests.
+This executes part of the accepted fixture handoff without changing technical
+schemas, material bytes, limits or authority. It is not source-valid producer,
+writer/currentness, packing, native/storage or browser-presentation qualification.
+The packet names tested obligations and remaining gaps; keep #1089/#744/#746 open.
+No runtime plan or #740 eligibility is approved by component validity.

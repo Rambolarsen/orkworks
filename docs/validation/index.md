@@ -33,3 +33,4 @@ Capability research, validation results, and evidence fixtures.
 - [Root preparation source-codec component evidence](root-preparation-source-components.md) — Accepted component-only source schemas, independently generated golden bytes and structural rejection tests; complete source/runtime qualification remains open.
 
 - [Skill management qualification](skills-management.md) — Known-root discovery evidence and the initial local APM installation profile.
+- [Hierarchy summary-detail component fixtures](hierarchy-summary-components.md) — Independent display request/response bytes and rejection, metric and viewed-identity cases; source and runtime qualification remain separate.
