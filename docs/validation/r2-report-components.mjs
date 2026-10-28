@@ -34,6 +34,7 @@ function uri(value){
   let host,port;
   if(authority.startsWith('[')){
     const end=authority.indexOf(']');assert(end>1);host=authority.slice(1,end);
+    assert(!host.includes('%'),'IP-literal excludes zone identifiers');
     assert(isIP(host)===6 || /^[vV][0-9a-fA-F]+\.[A-Za-z0-9._~!$&'()*+,;=:]+$/.test(host),'IP-literal');
     const rest=authority.slice(end+1);assert(rest===''||rest.startsWith(':'));if(rest)port=rest.slice(1);
   }else{

@@ -68,7 +68,7 @@ for(const url of ['https://example.test','http://example.test:0/a?x=y#part','HTT
   const [r,p]=urlCase(url);assert.equal(validateReport(r,p),r.contentDigest);assert.equal(r.evidenceReferences[0].url,url);
 });
 for(const url of ['file:///tmp/a','https:example.test','https://','https://user@example.test/a','https://example.test:','https://example.test:65536/a',
-  'https://example.test/%Q0','https://example.test/a b','https://example.test/æ','https://example.test\\a','https://[bad]/'])test(`URI profile rejects ${url}`,()=>{
+  'https://example.test/%Q0','https://example.test/a b','https://example.test/æ','https://example.test\\a','https://[bad]/','https://[fe80::1%eth0]/','https://[fe80::1%25eth0]/'])test(`URI profile rejects ${url}`,()=>{
     const [r,p]=urlCase(url);assert.throws(()=>validateReport(r,p));
 });
 for(const time of ['2026-02-30T12:00:00Z','2026-10-28T12:00:00+01:00','2026-10-28T25:00:00Z','2026-10-28T12:00:00.1234567890Z'])test(`retrieval timestamp rejects ${time}`,()=>{
