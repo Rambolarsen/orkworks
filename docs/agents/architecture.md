@@ -113,7 +113,11 @@ A new stream snapshot invalidates pending REST publication even when the stream
 was already healthy. Those identities remain independent. App's polling gate additionally covers the
 renderer switch attempt before a backend lifecycle event reaches the controller,
 and requires a connected backend and restored workspace. Controller admission
-checks therefore do not replace that gate. Review-document, model-refresh and
+checks therefore do not replace that gate. Creation rechecks its foreground and
+admission identities after backend discovery and before sending the request, so
+a pending lookup cannot dispatch into a replacement workspace or disposed
+controller. The same identities still guard response publication; requests
+already sent are not treated as canceled. Review-document, model-refresh and
 Settings-save guards retain their own selection/request/lifecycle semantics.
 
 React render exceptions are handled in the renderer by `ErrorBoundary`.
