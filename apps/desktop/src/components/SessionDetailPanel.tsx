@@ -22,7 +22,6 @@ import {
   situationHeadline,
   situationTail,
   sourceWithConfidence,
-  VOCAB,
   workPhaseLabel,
 } from "../labels";
 import { pushToast } from "../feedback";
@@ -236,18 +235,6 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSes
             <div className="detail-cue" data-attention={tone}>
               <span className="detail-cue-arrow">&rarr;</span>
               {actionZone.text}
-            </div>
-          )}
-
-          {actionZone.kind === "buttons" && (
-            <div className="detail-button-row">
-              <button
-                className="detail-button detail-button--ghost"
-                type="button"
-                onClick={() => pushToast("info", VOCAB.markHandledComingSoon)}
-              >
-                {VOCAB.markHandledAction}
-              </button>
             </div>
           )}
 

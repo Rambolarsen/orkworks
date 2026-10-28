@@ -1945,11 +1945,6 @@ html, body, #root {
 .detail-cue[data-attention="failed"]    .detail-cue-arrow { color: var(--attention-failed); }
 .detail-cue[data-attention="idle"]      .detail-cue-arrow { color: var(--attention-idle); }
 
-.detail-button-row {
-  display: flex;
-  gap: var(--space-3);
-}
-
 .detail-button {
   flex: 1;
   border-radius: var(--radius-md);
@@ -1968,14 +1963,6 @@ html, body, #root {
 }
 
 .detail-button--primary:hover { background: var(--accent-bg-hover); }
-
-.detail-button--ghost {
-  border: 1px solid var(--border-default);
-  background: transparent;
-  color: var(--text-secondary);
-}
-
-.detail-button--ghost:hover { background: var(--surface-3); }
 
 .detail-resume-note {
   font-size: var(--text-xs);
