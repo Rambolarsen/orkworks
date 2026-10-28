@@ -6498,18 +6498,15 @@ async fn create_session_workflow(
                 harness_session_id_captured_at: None,
                 resumed_from: info.resumed_from.clone(),
             };
-            if image_bundle.is_some() {
-                if ws.metadata.try_write_session(&record).is_err() {
-                    state.sessions.lock().unwrap().remove(&id);
-                    return Err(SessionError::Internal(
-                        "Cannot persist the session owning image context.",
-                    ));
-                }
-                if let Some(bundle) = image_bundle.as_mut() {
-                    bundle.accept();
-                }
-            } else {
-                ws.metadata.write_session(&record);
+            if let Err(error) = ws.metadata.try_write_session(&record) {
+                tracing::error!(session_id = %id, %error, "new session persistence failed");
+                state.sessions.lock().unwrap().remove(&id);
+                return Err(SessionError::Internal(
+                    "Cannot save the new session. Check storage access and retry.",
+                ));
+            }
+            if let Some(bundle) = image_bundle.as_mut() {
+                bundle.accept();
             }
         }
     }
@@ -6677,6 +6674,41 @@ mod tests {
             model: None,
             initial_prompt: Some("Investigate Git scan responsiveness".into()),
         }
+    }
+
+    #[tokio::test]
+    async fn creation_storage_failure_rejects_before_startup_or_label_work() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let request = git_creation_request(&state);
+        let sessions_dir = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .sessions_dir();
+        // A file in place of the directory deterministically rejects writes,
+        // including when tests run with privileges that bypass chmod failures.
+        std::fs::create_dir_all(sessions_dir.parent().unwrap()).unwrap();
+        std::fs::write(&sessions_dir, "blocked storage").unwrap();
+
+        let result = SessionApplication::new(state.clone())
+            .create_session(request)
+            .await;
+
+        assert_eq!(
+            result.unwrap_err(),
+            SessionError::Internal("Cannot save the new session. Check storage access and retry.")
+        );
+        assert!(state.sessions.lock().unwrap().is_empty());
+        assert!(state.peon.label_hint.read().unwrap().is_empty());
+        assert!(state.peon.label_pending.read().unwrap().is_empty());
+        assert_eq!(
+            std::fs::read_to_string(&sessions_dir).unwrap(),
+            "blocked storage"
+        );
     }
 
     #[tokio::test(flavor = "current_thread")]
