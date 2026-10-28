@@ -1,0 +1,208 @@
+{
+  "schemaVersion": 1,
+  "evidenceKind": "synthetic-source-bridge-and-compact-packing-not-producer-qualification",
+  "inputs": {
+    "displayCatalogSha256": "00a49af4db1d6faa2bbf2ccee3e2bcf521d3bea57af1581a75deda47c1ab3304",
+    "logicalStoreSha256": "ca116e92b85cc1eda7bb8a7c75a2dbfab358cf26e762955f27c755db874debee"
+  },
+  "sourceBridge": {
+    "context": {
+      "workspaceId": "workspace",
+      "runId": "4444444444444444444444444444444444444444444444444444444444444444-1",
+      "sidecarGeneration": "1111111111111111111111111111111111111111111111111111111111111111",
+      "snapshotVersion": 1,
+      "selection": {
+        "assignmentIdentity": {
+          "bootstrapConfigurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "bootstrapId": "target-bootstrap",
+          "kind": "root",
+          "parentSessionId": "target-parent",
+          "rootAssignmentId": "target-root",
+          "runId": "4444444444444444444444444444444444444444444444444444444444444444-1",
+          "workspaceId": "workspace"
+        },
+        "accepted": {
+          "kind": "result",
+          "reference": {
+            "assignmentIdentity": {
+              "bootstrapConfigurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "bootstrapId": "target-bootstrap",
+              "kind": "root",
+              "parentSessionId": "target-parent",
+              "rootAssignmentId": "target-root",
+              "runId": "4444444444444444444444444444444444444444444444444444444444444444-1",
+              "workspaceId": "workspace"
+            },
+            "resultDigest": "32c35e611c61f6b32054cfd7ca31e3bc461a5b1e6ff1cda2df68130d3966c74c",
+            "resultRevision": 1
+          }
+        },
+        "summaryRevision": "2"
+      },
+      "evaluations": [],
+      "fresh": true
+    },
+    "rendererRequest": {
+      "canonicalUtf8": "{\"expectedSnapshotVersion\":1,\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"resultDigest\":\"32c35e611c61f6b32054cfd7ca31e3bc461a5b1e6ff1cda2df68130d3966c74c\",\"resultRevision\":1}},\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"summaryRevision\":\"2\"}}",
+      "utf8Bytes": 980,
+      "sha256": "d81725e7ebb0bc949d61421a06ccf09e82e1e5177b3a31af52f4a0a6506be9e8"
+    },
+    "response": {
+      "canonicalUtf8": "{\"detail\":{\"completeness\":{\"percentage\":{\"kind\":\"unassessed\"},\"required\":1,\"satisfied\":0,\"unassessed\":1,\"unsatisfied\":0},\"criteria\":[{\"description\":\"The assignment outcome is supported by evidence.\",\"id\":\"c\",\"requirement\":\"required\"}],\"evaluations\":[],\"findingSources\":[],\"material\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"resultDigest\":\"32c35e611c61f6b32054cfd7ca31e3bc461a5b1e6ff1cda2df68130d3966c74c\",\"resultRevision\":1}},\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"criteriaSnapshotDigest\":\"20e0879ab3a6784887ef8f5e178056a2bb30039f917fbdf23c68db1fe4027937\",\"overall\":\"unassessed\",\"requiredFindings\":[],\"requiredOutcomes\":[{\"disposition\":\"unassessed\",\"target\":{\"id\":\"c\",\"kind\":\"criterion\"}},{\"disposition\":\"unassessed\",\"target\":{\"id\":\"d\",\"kind\":\"quality-dimension\"}},{\"disposition\":\"unassessed\",\"target\":{\"kind\":\"rating\"}}],\"rubricSnapshotDigest\":\"7dced16d6ac9898ad8b6de75f9876dc17524a2ec530a24d8e47cb5acc90107e5\",\"schemaVersion\":1},\"outcomes\":[{\"assessments\":[],\"fullyAssessed\":false,\"target\":{\"id\":\"c\",\"kind\":\"criterion\"}},{\"assessments\":[],\"fullyAssessed\":false,\"target\":{\"id\":\"d\",\"kind\":\"quality-dimension\"}},{\"assessments\":[],\"fullyAssessed\":false,\"target\":{\"kind\":\"rating\"}}],\"quality\":{\"kind\":\"unassessed\"},\"rubric\":{\"dimensions\":[{\"description\":\"The outcome is correct.\",\"id\":\"d\"}],\"evaluatorRole\":\"review\",\"id\":\"r\",\"version\":1}},\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"resultDigest\":\"32c35e611c61f6b32054cfd7ca31e3bc461a5b1e6ff1cda2df68130d3966c74c\",\"resultRevision\":1}},\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"summaryRevision\":\"2\"},\"sidecarGeneration\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"snapshotVersion\":1,\"workspaceId\":\"workspace\"}",
+      "utf8Bytes": 3060,
+      "sha256": "91bae92ba862537dbfaa0856a8fd6671a02f7221578fc9dea330d79cff685ef6"
+    }
+  },
+  "maximumRequests": {
+    "root": {
+      "renderer": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":2147483647,\"runId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"bootstrapId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"kind\":\"root\",\"parentSessionId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"rootAssignmentId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"runId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"workspaceId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"},\"resultDigest\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"resultRevision\":32}},\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"bootstrapId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"kind\":\"root\",\"parentSessionId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"rootAssignmentId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"runId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"workspaceId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"},\"summaryRevision\":\"2147483647\"}}",
+        "utf8Bytes": 2111,
+        "sha256": "4c9da215e797950c7ee213fefdcf972e5fb1d3c238ea1fdaa43f5b7750f54cc5"
+      },
+      "main": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":2147483647,\"runId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"bootstrapId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"kind\":\"root\",\"parentSessionId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"rootAssignmentId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"runId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"workspaceId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"},\"resultDigest\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"resultRevision\":32}},\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"bootstrapId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"kind\":\"root\",\"parentSessionId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"rootAssignmentId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"runId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"workspaceId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"},\"summaryRevision\":\"2147483647\"},\"sidecarGeneration\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"workspaceId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+        "utf8Bytes": 2343,
+        "sha256": "3d9d23983274873d9b5b1657b6bc7acaede8e25cf8cbf3d623c8cce18a87140e"
+      }
+    },
+    "child": {
+      "renderer": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":2147483647,\"runId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"configurationDigest\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"configurationId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"kind\":\"child\",\"parentSessionId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"planId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"planRevision\":64,\"reservationId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"runId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"taskId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"taskVersion\":2147483647,\"workspaceId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"},\"resultDigest\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"resultRevision\":32}},\"assignmentIdentity\":{\"childSessionId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"configurationDigest\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"configurationId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"kind\":\"child\",\"parentSessionId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"planId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"planRevision\":64,\"reservationId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"runId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"taskId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"taskVersion\":2147483647,\"workspaceId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"},\"summaryRevision\":\"2147483647\"}}",
+        "utf8Bytes": 3039,
+        "sha256": "d928bf105472edc2ec89807e2a1c354f564a81b9640fd3085021565cbd2363b6"
+      },
+      "main": {
+        "canonicalUtf8": "{\"expectedSnapshotVersion\":2147483647,\"runId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"schemaVersion\":1,\"selection\":{\"accepted\":{\"kind\":\"result\",\"reference\":{\"assignmentIdentity\":{\"childSessionId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"configurationDigest\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"configurationId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"kind\":\"child\",\"parentSessionId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"planId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"planRevision\":64,\"reservationId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"runId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"taskId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"taskVersion\":2147483647,\"workspaceId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"},\"resultDigest\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"resultRevision\":32}},\"assignmentIdentity\":{\"childSessionId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"configurationDigest\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"configurationId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"kind\":\"child\",\"parentSessionId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"planId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"planRevision\":64,\"reservationId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"runId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"taskId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"taskVersion\":2147483647,\"workspaceId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"},\"summaryRevision\":\"2147483647\"},\"sidecarGeneration\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"workspaceId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+        "utf8Bytes": 3271,
+        "sha256": "e9d54401cf0e430a416a6fcea8a8977f71b05fc5ae3afca5bbf47b845b7ba346"
+      }
+    }
+  },
+  "displayMeasurements": [
+    {
+      "id": "r2-required-stale",
+      "rendererRequestBytes": 875,
+      "mainRequestBytes": 980,
+      "responseBytes": 4529,
+      "materialBytes": 1309
+    },
+    {
+      "id": "r2-optional-stale",
+      "rendererRequestBytes": 875,
+      "mainRequestBytes": 980,
+      "responseBytes": 4545,
+      "materialBytes": 1311
+    },
+    {
+      "id": "failure-plus-unassessed",
+      "rendererRequestBytes": 875,
+      "mainRequestBytes": 980,
+      "responseBytes": 6169,
+      "materialBytes": 1304
+    },
+    {
+      "id": "ratings-0-2",
+      "rendererRequestBytes": 875,
+      "mainRequestBytes": 980,
+      "responseBytes": 6177,
+      "materialBytes": 1304
+    },
+    {
+      "id": "ratings-2-3",
+      "rendererRequestBytes": 875,
+      "mainRequestBytes": 980,
+      "responseBytes": 6160,
+      "materialBytes": 1300
+    },
+    {
+      "id": "missing-dimension-rating-1",
+      "rendererRequestBytes": 875,
+      "mainRequestBytes": 980,
+      "responseBytes": 4561,
+      "materialBytes": 1309
+    },
+    {
+      "id": "rating-3-below-standard",
+      "rendererRequestBytes": 875,
+      "mainRequestBytes": 980,
+      "responseBytes": 4542,
+      "materialBytes": 1304
+    },
+    {
+      "id": "meets",
+      "rendererRequestBytes": 875,
+      "mainRequestBytes": 980,
+      "responseBytes": 4529,
+      "materialBytes": 1303
+    },
+    {
+      "id": "root-meets",
+      "rendererRequestBytes": 723,
+      "mainRequestBytes": 828,
+      "responseBytes": 4149,
+      "materialBytes": 1151
+    },
+    {
+      "id": "root-no-result",
+      "rendererRequestBytes": 365,
+      "mainRequestBytes": 470,
+      "responseBytes": 2167,
+      "materialBytes": 805
+    },
+    {
+      "id": "legacy-zero-required",
+      "rendererRequestBytes": 875,
+      "mainRequestBytes": 980,
+      "responseBytes": 3743,
+      "materialBytes": 1177
+    },
+    {
+      "id": "current-finding",
+      "rendererRequestBytes": 875,
+      "mainRequestBytes": 980,
+      "responseBytes": 5007,
+      "materialBytes": 1570
+    },
+    {
+      "id": "disputed-finding",
+      "rendererRequestBytes": 875,
+      "mainRequestBytes": 980,
+      "responseBytes": 7348,
+      "materialBytes": 1879
+    },
+    {
+      "id": "rating-change-0",
+      "rendererRequestBytes": 875,
+      "mainRequestBytes": 980,
+      "responseBytes": 4552,
+      "materialBytes": 1318
+    },
+    {
+      "id": "rating-change-2",
+      "rendererRequestBytes": 875,
+      "mainRequestBytes": 980,
+      "responseBytes": 4552,
+      "materialBytes": 1318
+    }
+  ],
+  "compactResponseBound": {
+    "materialBytes": 2097152,
+    "componentBytes": {
+      "criteria": 398977,
+      "rubric": 199294,
+      "evaluations": 46465,
+      "outcomes": 288807,
+      "findingSources": 834561,
+      "completeness": 128,
+      "quality": 37
+    },
+    "envelopeBytes": 3380,
+    "baseWithoutMaterialBytes": 1771649,
+    "maxEffectiveDisputeReferences": 512,
+    "disputeExtraBytes": 34304,
+    "upperBytes": 3903105,
+    "limitBytes": 4194304,
+    "headroomBytes": 291199
+  }
+}

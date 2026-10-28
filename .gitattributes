@@ -14,3 +14,6 @@ docs/validation/root-preparation-source-vectors.json text eol=lf
 
 # Retain exact independent summary-detail fixture bytes on Windows.
 docs/validation/hierarchy-summary-vectors.json text eol=lf
+
+# Preserve source-bridge and compact-packing evidence bytes.
+docs/validation/summary-source-packing.json text eol=lf

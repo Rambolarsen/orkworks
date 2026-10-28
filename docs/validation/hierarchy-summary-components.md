@@ -107,3 +107,10 @@ real writer invalidation and presentation-race coverage in the later approved
 runtime plan. Keep #1089/#744/#746 open. #740 remains deferred/no-go until November;
 no profile, model/native probe, database/migration, runtime route or launch
 eligibility follows from this component evidence.
+
+## Source and packing audit follow-up — 2026-10-28
+
+The [source/packing audit](summary-source-packing.md) adds a narrow canonical
+empty-output result/head/material join, complete maximum-width requests and a
+conditional compact response bound. It preserves this catalog and checker; it
+does not qualify assessed/stale/disputed source currentness or runtime behavior.

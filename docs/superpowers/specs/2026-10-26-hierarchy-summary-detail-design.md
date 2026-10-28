@@ -404,3 +404,13 @@ schemas, material bytes, limits or authority. It is not source-valid producer,
 writer/currentness, packing, native/storage or browser-presentation qualification.
 The packet names tested obligations and remaining gaps; keep #1089/#744/#746 open.
 No runtime plan or #740 eligibility is approved by component validity.
+
+## Source/packing audit handoff — 2026-10-28
+
+The [source/packing audit](../../validation/summary-source-packing.md) records a
+narrow logical result-to-Unassessed-summary join and conditional compact wire
+bounds under existing source/cardinality/material limits. These are documentation
+assays, not complete producer/source-health or runtime qualification. The R2
+canonical evaluation and exact evidence/correction-state packet remains the next
+source-closure obligation. Existing technical schemas/limits are unchanged; keep
+#1089/#744/#746 and separate capability/native/runtime-plan gates open.
