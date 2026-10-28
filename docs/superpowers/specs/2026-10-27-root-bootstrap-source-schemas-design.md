@@ -417,3 +417,30 @@ is authorized. Broader #741/#742 component acceptance, #740 evidence, #745/#746
 custody/consumer qualification and separately reviewed executable plans remain
 required. Keep #741/#742/#744/#746 open. Dependent fixtures wait for this proposal's
 owner acceptance; storing or merging the proposal is not that acceptance.
+
+
+## Owner acceptance and fixture handoff — 2026-10-28
+
+The owner explicitly said “go ahead” after the scoped schema review and request
+for acceptance for documentation fixtures only. This accepts the root-only empty
+access lists; six exact own-run action identities and tool pairing;
+requirement-source projections; PlatformV1; retained settings/model/configuration
+records, delivery order and raw hash payloads; capability leaf constraints; and
+exact rendering/default boundary text above. This acceptance supersedes the
+pending-owner-review statements for this named source slice only.
+
+The [root-bootstrap byte packet](../../validation/root-bootstrap-components.md)
+provides independent canonical component bytes/hashes, exact rendering and a
+complete explicitly unverified root source example. The first root uses no
+reference inputs and no materialized output declarations; its coordination
+outputs remain run state. It does not qualify a server-artifact producer wrapper,
+reference custody or adapter semantics. Existing source/component catalogs and
+inherited technical contract bodies remain unchanged.
+
+This accepts no runtime/database/migration work, adapter profile, capability
+probe, native identity, source-custody mechanism, atomic storage effects or
+executable plan. All six profiles remain UNVERIFIED/no-go and #740 remains
+deferred until November. Broader #741/#742/#744/#746 and storage/native approvals
+remain separate. Keep those issues open; future complete source/draft/receipt and
+transition qualification must use this exact accepted slice without treating
+hash-valid synthetic bytes as launch eligibility.
