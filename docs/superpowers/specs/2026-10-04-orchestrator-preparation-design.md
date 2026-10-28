@@ -1422,3 +1422,13 @@ complete explicitly unverified source to its run and retained artifact bytes.
 This is no adapter eligibility, runtime approval, native/custody qualification or
 complete draft/receipt/storage transition proof. Broader component gates and
 #740's deferred/no-go status remain unchanged.
+
+## Proposed ResearchReport source-codec closure — 2026-10-28
+
+The [report source-codec proposal](2026-10-28-research-report-source-codecs-design.md)
+closes the nested descriptor leaves required by #1131/#1089 R2 evidence fixtures.
+Its new finding/reference shapes, ordering/count interpretations and descriptor-size
+join remain proposed for scoped owner acceptance before component goldens/checkers.
+Existing stream/head/CAS, author/generation, request fingerprints, limits and
+authority are preserved. No report source validity, #740 eligibility or runtime
+implementation follows from drafting/merging this proposal. Keep #742 open.

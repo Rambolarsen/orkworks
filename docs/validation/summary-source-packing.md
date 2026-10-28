@@ -167,3 +167,12 @@ those tests are included. An author checkpoint-link regression failed before
 its narrow finalization-state check was added. Neither reviewer ran the suite or
 qualified runtime/currentness enforcement, and no post-addition independent
 rereview is claimed.
+
+## R2 source-codec prerequisite — 2026-10-28
+
+The R2 task found that #742 ResearchReport findings/evidence leaves remain prose
+rather than closed record shapes. [#1131's proposed source codec](../superpowers/specs/2026-10-28-research-report-source-codecs-design.md)
+records the missing prerequisite and concrete review choices. Its new leaf/default
+choices need scoped owner acceptance before report-vector/checker work. This
+preserves the existing narrow join/packing evidence and introduces no source-valid
+R2 packet, authority or runtime qualification.
