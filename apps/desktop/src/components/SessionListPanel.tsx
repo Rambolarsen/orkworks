@@ -37,6 +37,7 @@ interface SessionListPanelProps {
   onSelectSession: (id: string) => void;
   actionsEnabled?: boolean;
   onSessionAction?: (id: string, action: SessionAction, token: string) => Promise<void>;
+  resumingSessionIds?: ReadonlySet<string>;
   onResumeSession?: (id: string) => void;
   onFocusTerminal: () => void;
   onOpenWorkspace: () => void;
@@ -54,6 +55,7 @@ function SessionListPanel({
   actionsEnabled = true,
   onSessionAction,
   onResumeSession,
+  resumingSessionIds,
   onFocusTerminal,
   onOpenWorkspace,
 }: SessionListPanelProps) {
@@ -112,7 +114,7 @@ function SessionListPanel({
   };
   const runAction = async (action: SessionAction | "resume") => {
     const target = menu?.session;
-    if (!target || !target.sessionActionToken || pending.has(target.id)) return;
+    if (!target || !target.sessionActionToken || pending.has(target.id) || resumingSessionIds?.has(target.id)) return;
     actionInvoker.current = menu?.invoker ?? null;
     dismissMenu();
     if (action === "resume") { onResumeSession?.(target.id); return; }
@@ -258,10 +260,10 @@ function SessionListPanel({
                       </span>
                     </span>
                     <span className="session-row-secondary">
-                      {pending.has(s.id) ? (
+                      {pending.has(s.id) || resumingSessionIds?.has(s.id) ? (
                         <span role="status" className="session-row-progress">
                           <LoaderCircle size={12} className="status-indicator-spin" aria-hidden="true" />
-                          {actionProgress[pending.get(s.id)!]}
+                          {resumingSessionIds?.has(s.id) ? "Resuming…" : actionProgress[pending.get(s.id)!]}
                         </span>
                       ) : <>
                         {attention && (
@@ -294,7 +296,7 @@ function SessionListPanel({
           ))}
         </ul>
       )}
-      {menu && <SessionContextMenu anchor={menu} disabled={!actionsEnabled || !onSessionAction || pending.has(menu.session.id) || sessions.find(s => s.id === menu.session.id)?.sessionActionToken !== menu.session.sessionActionToken}
+      {menu && <SessionContextMenu anchor={menu} disabled={!actionsEnabled || !onSessionAction || pending.has(menu.session.id) || resumingSessionIds?.has(menu.session.id) || sessions.find(s => s.id === menu.session.id)?.sessionActionToken !== menu.session.sessionActionToken}
         onDismiss={dismissMenu} onAction={action => { void runAction(action); }} />}
     </div>
   );

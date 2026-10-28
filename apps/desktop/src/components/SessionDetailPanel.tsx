@@ -39,6 +39,7 @@ interface SessionDetailPanelProps {
   sessions: SessionInfo[];
   visibleSessionId: string | null;
   harnesses: HarnessConfig[];
+  resumingSessionIds?: ReadonlySet<string>;
   onResumeSession: (id: string) => void;
   onApplyDebugAttention: (id: string, attention: SessionAttention, message?: string) => void;
   onOpenSettings: () => void;
@@ -49,7 +50,7 @@ interface SessionDetailPanelProps {
   showDebugMetadata: boolean;
 }
 
-function SessionDetailPanel({ sessions, visibleSessionId, harnesses, onResumeSession, onApplyDebugAttention, onOpenSettings, showDebugMetadata, onReviewChanges, onReviewPlan, onRequestPlanReview, onOpenRecommendation }: SessionDetailPanelProps) {
+function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSessionIds, onResumeSession, onApplyDebugAttention, onOpenSettings, showDebugMetadata, onReviewChanges, onReviewPlan, onRequestPlanReview, onOpenRecommendation }: SessionDetailPanelProps) {
   const [debugAttention, setDebugAttention] = useState<SessionAttention>("working");
   const [debugMessage, setDebugMessage] = useState("");
   const pendingReviews = useRef(new Set<string>());
@@ -264,7 +265,7 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, onResumeSes
             <>
               {/* Every option resumes via the same call for now — the backend doesn't accept a
                   strategy yet, so the choice is cosmetic until #97 lands. */}
-              <ResumeChooser options={actionZone.options} onSelect={() => onResumeSession(active.id)} />
+              <ResumeChooser pending={resumingSessionIds?.has(active.id)} options={actionZone.options} onSelect={() => onResumeSession(active.id)} />
               {actionZone.note && <div className="detail-resume-note">{actionZone.note}</div>}
             </>
           )}

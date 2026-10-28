@@ -1041,6 +1041,18 @@ if (process.versions.electron) {
           assert.match(await evaluate('document.querySelector("[data-shell-resume]").textContent'),/Resume session/);
           await evaluate('document.querySelector("[data-shell-resume]").click()');
           assert.deepEqual(await evaluate('fixture.resumed'),['coding']);
+          await evaluate('fixture.setResuming(["coding"])');
+          await waitFor('document.querySelector("[data-shell-resume]").disabled');
+          assert.match(await evaluate('document.querySelector("[data-shell-resume]").textContent'), /Resuming/);
+          assert.match(await evaluate('document.querySelector("[data-session-id=coding]").textContent'), /Resuming/);
+          await evaluate('document.querySelector("[data-shell-resume]").click()');
+          assert.deepEqual(await evaluate('fixture.resumed'), ['coding'], 'pending resume cannot be submitted again');
+          await evaluate('fixture.command("details",true)');
+          await waitFor('document.querySelector(".resume-chooser [role=status]")');
+          assert.equal(await evaluate('document.querySelector(".resume-option").disabled'), true);
+          await evaluate('fixture.setResuming([])');
+          await waitFor('!document.querySelector("[data-shell-resume]").disabled');
+
           await win.setContentSize(360,700);
           await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
           assert.ok(await evaluate('(()=>{const b=document.querySelector("[data-shell-resume]");const r=b.getBoundingClientRect();return r.width>0&&r.x>=0&&r.right<=innerWidth&&r.bottom<=innerHeight})()'),'resume remains visible at compact widths');
@@ -1639,7 +1651,7 @@ if (process.versions.electron) {
           function Preferences() {const prefs=useShellPreferences();return <ShellPreferencesNotice {...prefs} onCommand={command=>{fixture.noticeCommands.push(command);void prefs.reset()}}/>;}
           function PreferencesHarness() {const [generation,setGeneration]=useState(0);fixture.remountPreferences=()=>setGeneration(n=>n+1);return <Preferences key={generation}/>;}
           function Harness() {
-            const [sessionState,setSessionState]=useState({});fixture.setSessionState=next=>{fixture.nativeHarness=next.harnessId;setSessionState(next)};fixture.resumed??=[];
+            const [sessionState,setSessionState]=useState({});fixture.setSessionState=next=>{fixture.nativeHarness=next.harnessId;setSessionState(next)};fixture.resumed??=[];const [resumingSessionIds,setResumingSessionIds]=useState(new Set());fixture.setResuming=ids=>setResumingSessionIds(new Set(ids));
             const [sessionsSourceStatus,setSessionSourceStatus]=useState('ready');fixture.setSessionSourceStatus=setSessionSourceStatus;
             const [inspector,setInspector]=useState(null);
             const [reviewing,setReviewing]=useState(false);fixture.openReview=()=>setReviewing(true);
@@ -1660,7 +1672,7 @@ if (process.versions.electron) {
               onCancelNewSession={()=>setCreating(false)} backendStatus={backendStatus} sessionsSourceStatus={sessionsSourceStatus} taskmasterReady={['actions-sources','recommendation-status-error'].includes(${JSON.stringify(scenario)})} onOpenRecommendation={id=>fixture.openedRecommendations.push(id)} onFixWithAi={()=>fixture.prompts++} onRunCleanup={()=>fixture.prompts++} harnesses={[]} debugSettings={{showSessionIds:false}}
               commandRequest={commandRequest} preferences={preferences} onPreferencesChange={setPreferences} onResetPreferences={()=>new Promise(resolve=>{fixture.finishReset=resolve})}
               inspector={inspector} onInspect={setInspector} unreadIds={new Set(${JSON.stringify(scenario)}==='actions'?['other']:[])} acknowledgedIds={new Set()}
-              onResumeSession={id=>fixture.resumed.push(id)} onSelectSession={id=>{fixture.selections++;if(${JSON.stringify(scenario)}==='recommendations-main')setInspector(null);setActiveSessionId(id)}} onFocusTerminal={()=>fixture.runtime()?.terminal.focus()} onBackendUnavailable={()=>{}} />;
+              visibleSubjectId={'resume-session'===${JSON.stringify(scenario)}?activeSessionId:undefined} resumingSessionIds={resumingSessionIds} onResumeSession={id=>fixture.resumed.push(id)} onSelectSession={id=>{fixture.selections++;if(${JSON.stringify(scenario)}==='recommendations-main')setInspector(null);setActiveSessionId(id)}} onFocusTerminal={()=>fixture.runtime()?.terminal.focus()} onBackendUnavailable={()=>{}} />;
           }
           createRoot(document.getElementById('root')).render(${JSON.stringify(scenario)}.startsWith('preferences-')?<PreferencesHarness/>:${JSON.stringify(scenario)}.startsWith('app-')?<App/>:<Harness/>);
         `, resolveDir: root, loader: 'tsx' },
@@ -1673,7 +1685,7 @@ if (process.versions.electron) {
           builder.onLoad({filter:/.*/,namespace:'no-gpu'},()=>({contents:'export class WebglAddon { constructor(){throw new Error("GPU unavailable in headless fixture")} }',loader:'js'}));
           // Panel bodies connect to the backend/PTY; retain real React shell and terminal ownership.
           builder.onResolve({ filter: /^\.\/(SessionDetailPanel|RecommendationsPanel)$/ },
-            args => (scenario.startsWith('app-review') && args.path === './SessionDetailPanel') || (['inspector-overlay','recommendation-status-error'].includes(scenario) && args.path === './RecommendationsPanel') ? undefined : ({ path: args.path, namespace: 'empty-panel' }));
+            args => ((scenario.startsWith('app-review') || scenario === 'resume-session') && args.path === './SessionDetailPanel') || (['inspector-overlay','recommendation-status-error'].includes(scenario) && args.path === './RecommendationsPanel') ? undefined : ({ path: args.path, namespace: 'empty-panel' }));
           builder.onLoad({ filter: /.*/, namespace: 'empty-panel' },
             () => ({ contents: 'export default function Panel(){return null}', loader: 'tsx', resolveDir: root }));
 

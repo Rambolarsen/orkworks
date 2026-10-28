@@ -945,3 +945,54 @@ test("a new stream snapshot fences an explicit REST refresh started while the st
   assert.deepEqual(snapshots.at(-1), ["stream-newer"]);
   controller.dispose();
 });
+
+for (const outcome of ["success", "failure"] as const) {
+  test(`resume publishes immediate progress, suppresses duplicates and clears after ${outcome}`, async () => {
+    const response = deferred<SessionInfo>();
+    const progress: string[][] = [];
+    const errors: string[] = [];
+    let requests = 0;
+    const controller = createWorkspaceSessionController({
+      deps: deps({ resumeSession: async () => { requests++; return response.promise; } }),
+      onResumingSessions: ids => progress.push([...ids]),
+      onError: error => errors.push(error.message),
+    });
+    const operation = controller.resumeSession("one");
+    assert.deepEqual(progress, [["one"]], "progress precedes backend readiness");
+    const duplicate = controller.resumeSession("one");
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(requests, 1);
+    if (outcome === "success") response.resolve(session("one"));
+    else response.reject(new Error("startup failed"));
+    await Promise.all([operation, duplicate]);
+    assert.deepEqual(progress, [["one"], []]);
+    assert.equal(errors.length, outcome === "failure" ? 1 : 0);
+    controller.dispose();
+  });
+}
+
+test("workspace replacement clears resume progress and an old response cannot clear a new resume", async () => {
+  const oldResponse = deferred<SessionInfo>();
+  const newResponse = deferred<SessionInfo>();
+  const progress: string[][] = [];
+  let requests = 0;
+  const controller = createWorkspaceSessionController({
+    deps: deps({ resumeSession: async () => ++requests === 1 ? oldResponse.promise : newResponse.promise }),
+    onResumingSessions: ids => progress.push([...ids]),
+  });
+  const oldOperation = controller.resumeSession("one");
+  await new Promise(resolve => setImmediate(resolve));
+  controller.setAdmissionEnabled(false);
+  assert.deepEqual(progress.at(-1), []);
+  controller.setAdmissionEnabled(true);
+  await controller.openWorkspace("/replacement");
+  const newOperation = controller.resumeSession("one");
+  await new Promise(resolve => setImmediate(resolve));
+  oldResponse.resolve(session("one"));
+  await oldOperation;
+  assert.deepEqual(progress.at(-1), ["one"]);
+  newResponse.resolve(session("one"));
+  await newOperation;
+  assert.deepEqual(progress.at(-1), []);
+  controller.dispose();
+});
