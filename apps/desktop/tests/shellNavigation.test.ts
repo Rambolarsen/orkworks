@@ -297,7 +297,7 @@ test("App sends controller-confirmed active-session loss through visible navigat
   assert.ok(/pushToast\("info", shellNavigation\.visibleFallbackReason\)/.test(appSource));
 });
 
-for (const destination of ["capacity", "recommendations", "actions"] as const) {
+for (const destination of ["recommendations", "actions"] as const) {
   test(`${destination} remains workspace-scoped when the active session disappears`, () => {
     const subject = resolveInspectorSubject(destination, "session-a", "workspace-a");
     assert.deepEqual(subject, { kind: "workspace", workspaceKey: "workspace-a" });

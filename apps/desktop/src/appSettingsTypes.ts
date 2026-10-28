@@ -15,7 +15,6 @@ export interface HotkeySettings {
   toggleSessionsPanel: string;
   toggleDetailPanel: string;
   toggleTerminalPanel: string;
-  toggleCapacityPanel: string;
   toggleRecommendationsPanel: string;
   resetLayout: string | null;
 }

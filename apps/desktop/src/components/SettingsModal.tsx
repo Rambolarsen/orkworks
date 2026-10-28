@@ -70,7 +70,6 @@ const hotkeyRows: Array<{ action: HotkeyAction; label: string; optional?: boolea
   { action: "toggleSessionsPanel", label: "Sessions Panel" },
   { action: "toggleDetailPanel", label: "Detail Panel" },
   { action: "toggleTerminalPanel", label: "Terminal Panel" },
-  { action: "toggleCapacityPanel", label: "Capacity Panel" },
   { action: "toggleRecommendationsPanel", label: "Recommendations Panel" },
   { action: "resetLayout", label: "Reset Layout", optional: true },
 ];

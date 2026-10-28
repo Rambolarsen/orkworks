@@ -27,7 +27,6 @@ export interface HotkeySettings {
   toggleSessionsPanel: string;
   toggleDetailPanel: string;
   toggleTerminalPanel: string;
-  toggleCapacityPanel: string;
   toggleRecommendationsPanel: string;
   resetLayout: string | null;
 }
@@ -72,13 +71,6 @@ export const HOTKEY_DEFINITIONS: HotkeyDefinition[] = [
     panelId: "terminal",
   },
   {
-    action: "toggleCapacityPanel",
-    label: "Capacity Panel",
-    required: true,
-    menuAction: "focus",
-    panelId: "capacity",
-  },
-  {
     action: "toggleRecommendationsPanel",
     label: "Recommendations Panel",
     required: true,
@@ -93,7 +85,6 @@ export const DEFAULT_HOTKEYS: HotkeySettings = {
   toggleSessionsPanel: "CmdOrCtrl+Shift+S",
   toggleDetailPanel: "CmdOrCtrl+Shift+D",
   toggleTerminalPanel: "CmdOrCtrl+Shift+T",
-  toggleCapacityPanel: "CmdOrCtrl+Shift+C",
   toggleRecommendationsPanel: "CmdOrCtrl+Shift+R",
   resetLayout: null,
 };
@@ -481,7 +472,6 @@ export function normalizeHotkeys(value: unknown): HotkeySettings {
     toggleSessionsPanel: hotkeyOrDefault(source.toggleSessionsPanel, DEFAULT_HOTKEYS.toggleSessionsPanel),
     toggleDetailPanel: hotkeyOrDefault(source.toggleDetailPanel, DEFAULT_HOTKEYS.toggleDetailPanel),
     toggleTerminalPanel: hotkeyOrDefault(source.toggleTerminalPanel, DEFAULT_HOTKEYS.toggleTerminalPanel),
-    toggleCapacityPanel: hotkeyOrDefault(source.toggleCapacityPanel, DEFAULT_HOTKEYS.toggleCapacityPanel),
     toggleRecommendationsPanel: hotkeyOrDefault(
       source.toggleRecommendationsPanel,
       DEFAULT_HOTKEYS.toggleRecommendationsPanel,
@@ -741,7 +731,6 @@ function hotkeysForSave(value: unknown): HotkeySettings {
     toggleSessionsPanel: requiredHotkeyForSave(source.toggleSessionsPanel),
     toggleDetailPanel: requiredHotkeyForSave(source.toggleDetailPanel),
     toggleTerminalPanel: requiredHotkeyForSave(source.toggleTerminalPanel),
-    toggleCapacityPanel: requiredHotkeyForSave(source.toggleCapacityPanel),
     toggleRecommendationsPanel: requiredHotkeyForSave(source.toggleRecommendationsPanel),
     resetLayout: optionalHotkeyForSave(source.resetLayout),
   };
@@ -791,9 +780,6 @@ function resetHotkeyToDefault(hotkeys: HotkeySettings, action: HotkeyAction): vo
       return;
     case "toggleTerminalPanel":
       hotkeys.toggleTerminalPanel = DEFAULT_HOTKEYS.toggleTerminalPanel;
-      return;
-    case "toggleCapacityPanel":
-      hotkeys.toggleCapacityPanel = DEFAULT_HOTKEYS.toggleCapacityPanel;
       return;
     case "toggleRecommendationsPanel":
       hotkeys.toggleRecommendationsPanel = DEFAULT_HOTKEYS.toggleRecommendationsPanel;

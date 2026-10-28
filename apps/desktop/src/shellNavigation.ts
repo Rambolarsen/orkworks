@@ -7,8 +7,7 @@ export type TemporaryUtilityDestination =
   | "changes"
   | "details"
   | "actions"
-  | "recommendations"
-  | "capacity";
+  | "recommendations";
 
 export type InspectorDestination = Exclude<TemporaryUtilityDestination, "sessions">;
 

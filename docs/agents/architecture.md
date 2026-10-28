@@ -1034,7 +1034,9 @@ Actions (#805) uses the same inspector or temporary page. It groups canonical
 live session attention before the existing ordered workspace recommendations,
 with source labels and separate required-session-attention and recommendation
 counts in the central toolbar even when Sessions and the inspector are hidden.
-Remembered attention stays historical; capped sessions remain in Capacity.
+Remembered attention stays historical; usage-limit status remains on session
+list and detail surfaces. The unfinished Capacity destination is removed; the
+standalone dashboard is deferred in the MVP specification.
 The current API has no live Done/Stale values, so Actions does not infer them
 from ended history or inactivity. Session polling reports availability, and a
 workspace/generation-fenced recommendation poll labels partial, loading and
@@ -1056,15 +1058,15 @@ debounces resize saves, and serializes reset before subsequent saves. Legacy
 `layout.json` remains untouched and is not restored by the new shell. The native
 View menu, sidebar navigation and context header route through the same shell commands.
 
-The fixed sidebar places workspace switch, New session, Recommendations and
-Capacity above independently scrolling session history, with Settings and
+The fixed sidebar places workspace switch, New session and Recommendations
+above independently scrolling session history, with Settings and
 connection status anchored below. A compact header above the central content
 shows the selected session, Details, and a prominent Resume session action for
 an ended session with an available resume option while connected. The action uses
 the existing selected-session resume callback for the exact strategy; other
 strategies reveal Details so the chooser discloses fallback semantics. When the
 sidebar is collapsed at medium and wide widths, an icon-only navigation rail
-retains New session, Recommendations, Capacity and Settings, and an expand
+retains New session, Recommendations and Settings, and an expand
 button restores its saved width using the existing visibility preference.
 Compact widths omit the rail and retain the temporary Sessions page. The
 central Workspace menu keeps workspace switching and the full sidebar controls

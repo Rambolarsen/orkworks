@@ -77,7 +77,7 @@ async function fixture(t, { active = ["copilot"], detection, save, groupedStatus
       return { ok: false, provider, capabilities: { connectivity: false, modelDiscovery: false, providerDefault: false, testInference: false }, models: [], ollamaBaseUrl: null, generation: 0 };
     },
   } };
-  const hotkeys = { newSession: "Ctrl+N", toggleSessionsPanel: "Ctrl+1", toggleDetailPanel: "Ctrl+2", toggleTerminalPanel: "Ctrl+3", toggleCapacityPanel: "Ctrl+4", toggleRecommendationsPanel: "Ctrl+5", resetLayout: null };
+  const hotkeys = { newSession: "Ctrl+N", toggleSessionsPanel: "Ctrl+1", toggleDetailPanel: "Ctrl+2", toggleTerminalPanel: "Ctrl+3", toggleRecommendationsPanel: "Ctrl+5", resetLayout: null };
   const props = {
     initialSection: section,
     initialSettings: { version: 1, hotkeys, defaultHotkeys: hotkeys, retention: { maxSessions: 50, maxAgeDays: 30 }, debug: { showSessionIds: false, rendererHealthLogMs: 0 }, providers: { version: 2, revision: 0, peonModel: null, ollamaBaseUrl: "http://localhost:11434", providers: [] }, ...settings },
@@ -283,7 +283,7 @@ test("persisted selections retain integration failures and refresh detection; a 
 });
 
 test("restoring equivalent hotkey defaults ignores property insertion order", async (t) => {
-  const defaults = { resetLayout: null, toggleRecommendationsPanel: "Ctrl+5", toggleCapacityPanel: "Ctrl+4", toggleTerminalPanel: "Ctrl+3", toggleDetailPanel: "Ctrl+2", toggleSessionsPanel: "Ctrl+1", newSession: "Ctrl+N" };
+  const defaults = { resetLayout: null, toggleRecommendationsPanel: "Ctrl+5", toggleTerminalPanel: "Ctrl+3", toggleDetailPanel: "Ctrl+2", toggleSessionsPanel: "Ctrl+1", newSession: "Ctrl+N" };
   const view = await fixture(t, { section: "hotkeys", settings: { defaultHotkeys: defaults } });
   const button = (label) => nodes(view.render()).find((node) => node.type?.name === "Button" && text(node) === label);
   button("Restore defaults").props.onClick();
@@ -292,9 +292,9 @@ test("restoring equivalent hotkey defaults ignores property insertion order", as
   assert.deepEqual(view.calls, []);
 });
 
-for (const action of ["newSession", "toggleSessionsPanel", "toggleDetailPanel", "toggleTerminalPanel", "toggleCapacityPanel", "toggleRecommendationsPanel", "resetLayout"]) {
+for (const action of ["newSession", "toggleSessionsPanel", "toggleDetailPanel", "toggleTerminalPanel", "toggleRecommendationsPanel", "resetLayout"]) {
   test(`hotkey ${action} changes can be discarded and saved`, async (t) => {
-    const defaults = { newSession: "Ctrl+N", toggleSessionsPanel: "Ctrl+1", toggleDetailPanel: "Ctrl+2", toggleTerminalPanel: "Ctrl+3", toggleCapacityPanel: "Ctrl+4", toggleRecommendationsPanel: "Ctrl+5", resetLayout: null };
+    const defaults = { newSession: "Ctrl+N", toggleSessionsPanel: "Ctrl+1", toggleDetailPanel: "Ctrl+2", toggleTerminalPanel: "Ctrl+3", toggleRecommendationsPanel: "Ctrl+5", resetLayout: null };
     const saved = { ...defaults, [action]: "Ctrl+Shift+9" };
     const view = await fixture(t, { section: "hotkeys", settings: { hotkeys: saved, defaultHotkeys: defaults } });
     const button = (label) => nodes(view.render()).find((node) => node.type?.name === "Button" && text(node) === label);
@@ -362,7 +362,7 @@ for (const [name, saveRetention, status, committed] of [
 }
 
 test("closing discards unsaved hotkeys and clears their saved status", async (t) => {
-  const defaults = { newSession: "Ctrl+Shift+N", toggleSessionsPanel: "Ctrl+1", toggleDetailPanel: "Ctrl+2", toggleTerminalPanel: "Ctrl+3", toggleCapacityPanel: "Ctrl+4", toggleRecommendationsPanel: "Ctrl+5", resetLayout: null };
+  const defaults = { newSession: "Ctrl+Shift+N", toggleSessionsPanel: "Ctrl+1", toggleDetailPanel: "Ctrl+2", toggleTerminalPanel: "Ctrl+3", toggleRecommendationsPanel: "Ctrl+5", resetLayout: null };
   const view = await fixture(t, { section: "hotkeys", settings: { defaultHotkeys: defaults } });
   const button = (label) => nodes(view.render()).find((node) => node.type?.name === "Button" && text(node) === label);
   button("Restore defaults").props.onClick();
@@ -483,7 +483,7 @@ for (const outcome of ["success", "rejection"]) {
 
 test("a Hotkey save commits without replacing edits made while it was pending", async (t) => {
   const saving = deferred();
-  const hotkeys = { newSession: "Ctrl+Shift+N", toggleSessionsPanel: "Ctrl+Shift+1", toggleDetailPanel: "Ctrl+2", toggleTerminalPanel: "Ctrl+3", toggleCapacityPanel: "Ctrl+4", toggleRecommendationsPanel: "Ctrl+5", resetLayout: null };
+  const hotkeys = { newSession: "Ctrl+Shift+N", toggleSessionsPanel: "Ctrl+Shift+1", toggleDetailPanel: "Ctrl+2", toggleTerminalPanel: "Ctrl+3", toggleRecommendationsPanel: "Ctrl+5", resetLayout: null };
   const view = await fixture(t, { section: "hotkeys", settings: { hotkeys } });
   window.orkworks.saveHotkeys = () => saving.promise;
   const button = (label) => nodes(view.render()).find((node) => node.type?.name === "Button" && text(node) === label);

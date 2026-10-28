@@ -33,7 +33,8 @@ test("shell menu entries keep their existing identities and act as destinations 
     sendCommand: () => {},
   });
 
-  for (const id of ["sessions", "detail", "terminal", "capacity", "recommendations"]) {
+  assert.equal(findMenuItem(template, "capacity"), undefined);
+  for (const id of ["sessions", "detail", "terminal", "recommendations"]) {
     const item = findMenuItem(template, id);
     assert.ok(item, `${id} remains available`);
     assert.notEqual(item.type, "checkbox");
