@@ -1,6 +1,6 @@
 import { isSessionAlive } from "../sessionRuntimeState";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { PanelLeft, PanelRight, Plus, ChevronDown, LoaderCircle, Play, Lightbulb, Settings, Pin, PinOff, X } from "lucide-react";
+import { PanelLeft, PanelRight, Plus, ChevronDown, Lightbulb, Settings, Pin, PinOff, X } from "lucide-react";
 import type { CentralSurface } from "../shellNavigation";
 import type { SessionAction, SessionAttention, SessionInfo, WorkflowRecommendation, WorkspaceInfo } from "../api";
 import type { HarnessConfig } from "../harnessTypes";
@@ -10,6 +10,7 @@ import { resumeChoices } from "../labels";
 import { computeShellLayout } from "../fixedShellLayout";
 import SessionListPanel from "./SessionListPanel";
 import SessionAppMenu from "./SessionAppMenu";
+import ResumeChooser from "./ResumeChooser";
 import GitChangesPanel from "./GitChangesPanel";
 import SessionDetailPanel from "./SessionDetailPanel";
 import TerminalPanel from "./TerminalPanel";
@@ -73,7 +74,7 @@ interface Props {
   onSessionAction?: (id: string, action: SessionAction, token: string) => Promise<void>;
   onKillSession: (id: string) => void;
   onForgetSession: (id: string) => void;
-  onResumeSession: (id: string) => void;
+  onResumeSession: (id: string, strategy?: import("../api").ResumeStrategy) => void;
   onRowResumeSession?: (id: string) => void;
   onApplyDebugAttention: (id: string, attention: SessionAttention, message?: string) => void;
   onFocusTerminal: () => void;
@@ -320,7 +321,7 @@ export default function ApplicationShell(props: Props) {
     if (props.inspector === "changes") return <GitChangesPanel key={`${props.workspaceGeneration}:${props.activeSessionId}:${session?.repoRoot ?? ""}:${session?.worktreeBinding?.root ?? ""}:${session?.worktreeBinding?.commonDir ?? ""}`}
       session={props.sessions.find(s => s.id === props.activeSessionId) ?? null}
       onBack={() => { props.onInspect("details"); requestFocus("changes-return"); }} />;
-    if (props.inspector === "details") return <SessionDetailPanel sessions={props.sessions}
+    if (props.inspector === "details") return <SessionDetailPanel key={props.workspaceGeneration} sessions={props.sessions}
       visibleSessionId={props.visibleSubjectId} harnesses={props.harnesses}
       onReviewChanges={() => runCommand("changes", true)}
       onReviewPlan={() => runCommand("review")} onRequestPlanReview={props.onRequestPlanReview}
@@ -451,9 +452,8 @@ export default function ApplicationShell(props: Props) {
           <div className="shell-context"><h1 data-shell-terminal-focus tabIndex={-1}>{showComposer ? "New agent session" : recommendationsPage ? "Recommendations" : session?.label || "Terminal"}</h1><span className="shell-context-scope">{showComposer ? "Start a session in this workspace" : recommendationsPage ? "Workspace recommendations" : session?.harness || "No session selected"}</span></div>
           {!showComposer && session && props.workspace && <SessionAppMenu key={`${props.workspaceGeneration}:${session.id}:${sourcesReady}`}
             workspacePath={props.workspace.workspaceIdentity || props.workspace.path} session={session} disabled={!sourcesReady} />}
-          {!showComposer && canResume && <button type="button" className="shell-resume-button" data-shell-resume
-            disabled={isResuming} aria-busy={isResuming}
-            onClick={() => session?.resumeStrategy === "exact" ? props.onResumeSession(session.id) : runCommand("details", true)}>{isResuming ? <><LoaderCircle size={15} className="status-indicator-spin" aria-hidden="true" /><span role="status">Resuming…</span></> : <><Play size={15} aria-hidden="true" />Resume session</>}</button>}
+          {!showComposer && canResume && session && <ResumeChooser key={`${props.workspaceGeneration}:${session.id}`} header
+            pending={isResuming} options={resumeChoices(session)} onSelect={option => props.onResumeSession(session.id, option.strategy)} />}
           {session?.hasOpenablePlan && props.onOpenReview && !showComposer && <button type="button" data-shell-command="review"
             aria-pressed={reviewing} disabled={props.reviewLoading || props.backendStatus !== "connected" || props.isSwitchingWorkspace}
             onClick={() => runCommand("review")}>{props.reviewLoading ? "Opening Review…" : "Review"}</button>}

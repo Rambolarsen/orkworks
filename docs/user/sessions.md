@@ -69,12 +69,15 @@ cleanup protection, so keep a compatible build when relying on that protection.
 
 ## Resume an ended session
 
-In current source builds, select an ended session and use **Resume session**
-beside its title above the terminal. The button appears while connected when
-the coding tool has an available resume option. Exact resumes start directly;
-folder or repository fallbacks open Details so you can read which conversation
-will resume before choosing. Resume support varies by coding tool. Published
-installers may still place resume actions inside Details.
+In current source builds, select an ended session and use the Resume split
+button beside its title or in Details. The main button resumes the preferred
+available option; the arrow opens other choices and explains unavailable ones.
+Exact resume starts directly. A folder or repository fallback may open a
+different conversation, so it first shows a warning with **Cancel** and a
+confirmation naming the chosen scope. Cancel leaves the session unchanged.
+Resume support varies by coding tool. An option that becomes unavailable fails
+with an explanation rather than switching to another scope. Published installers
+may still use the earlier resume controls.
 
 ## Open a session in its desktop app
 

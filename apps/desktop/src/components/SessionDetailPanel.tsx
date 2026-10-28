@@ -40,7 +40,7 @@ interface SessionDetailPanelProps {
   visibleSessionId: string | null;
   harnesses: HarnessConfig[];
   resumingSessionIds?: ReadonlySet<string>;
-  onResumeSession: (id: string) => void;
+  onResumeSession: (id: string, strategy?: import("../api").ResumeStrategy) => void;
   onApplyDebugAttention: (id: string, attention: SessionAttention, message?: string) => void;
   onOpenSettings: () => void;
   onReviewPlan?: () => void;
@@ -263,9 +263,7 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSes
 
           {actionZone.kind === "resume" && (
             <>
-              {/* Every option resumes via the same call for now — the backend doesn't accept a
-                  strategy yet, so the choice is cosmetic until #97 lands. */}
-              <ResumeChooser pending={resumingSessionIds?.has(active.id)} options={actionZone.options} onSelect={() => onResumeSession(active.id)} />
+              <ResumeChooser key={active.id} pending={resumingSessionIds?.has(active.id)} options={actionZone.options} onSelect={option => onResumeSession(active.id, option.strategy)} />
               {actionZone.note && <div className="detail-resume-note">{actionZone.note}</div>}
             </>
           )}

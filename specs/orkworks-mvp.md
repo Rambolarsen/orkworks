@@ -744,6 +744,19 @@ The first useful MVP should include:
   Back, its toggle, or Escape within the page returns to the previous view and
   restores its invoker; selecting a session opens its Terminal. Recommendations
   is transient and is not restored after restart; see ADR 0084.
+- An ended session with an available resume option exposes a split Resume
+  button in the selected-session header and Details. The main action resumes
+  the preferred available strategy; its arrow exposes all existing options and
+  unavailable reasons. Exact resume starts directly. Folder/repository fallback
+  actions first show a modal warning that another conversation may open, with
+  Cancel focused by default and explicit confirmation naming the chosen scope.
+  Selecting a session or switching workspaces discards an open menu/warning.
+  Carry the selected strategy to the sidecar, revalidate it against current
+  harness/session availability, and reject unavailable choices without falling
+  back to another strategy. Existing bodyless resume requests keep the backend
+  default for compatibility; current desktop controls send an explicit strategy.
+- **Help → Learn More** opens the public OrkWorks homepage
+  (`https://rambolarsen.github.io/orkworks/`) in the default browser.
 - The selected-session top bar offers an **Open in…** dropdown for the
   corresponding native application, initially Codex → ChatGPT and Claude Code
   → Claude Desktop. Open only the captured exact native session; never choose

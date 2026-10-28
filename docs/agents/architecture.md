@@ -1074,9 +1074,13 @@ The fixed sidebar places workspace switch, New session and Recommendations
 above independently scrolling session history, with Settings and
 connection status anchored below. A compact header above the central content
 shows the selected session, Details, and a prominent Resume session action for
-an ended session with an available resume option while connected. The action uses
-the existing selected-session resume callback for the exact strategy; other
-strategies reveal Details so the chooser discloses fallback semantics. When the
+an ended session with an available resume option while connected. Resume is a
+split button: the main action selects the preferred available strategy and the
+arrow opens explicit choices. The shared header/Details chooser confirms every
+non-exact choice in a modal warning before dispatch. Cancel is initially focused.
+The selected strategy travels through the controller to `POST /sessions/:id/resume`
+as an optional `{ strategy }` body. Bodyless legacy callers retain default
+selection; supplied choices are revalidated and never silently substituted. When the
 sidebar is collapsed at medium and wide widths, an icon-only navigation rail
 retains New session, Recommendations and Settings, and an expand
 button restores its saved width using the existing visibility preference.

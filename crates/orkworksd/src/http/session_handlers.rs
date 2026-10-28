@@ -413,13 +413,38 @@ pub(crate) async fn create_session(
         .unwrap_or_else(application_error_response)
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ResumeRequest {
+    strategy: harness::ResumeStrategy,
+}
+
 pub(crate) async fn resume_session(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
+    body: axum::body::Bytes,
 ) -> axum::response::Response {
+    let requested_strategy = if body.is_empty() {
+        None
+    } else {
+        if body.len() > 1024 {
+            return application_error_response(SessionError::BadRequest(
+                "Resume request is too large",
+            ));
+        }
+        let request = match serde_json::from_slice::<ResumeRequest>(&body) {
+            Ok(request) if request.strategy != harness::ResumeStrategy::None => request,
+            _ => {
+                return application_error_response(SessionError::BadRequest(
+                    "Choose exact, latest_cwd or latest_repo resume",
+                ))
+            }
+        };
+        Some(request.strategy)
+    };
     let projection_state = state.clone();
     SessionApplication::new(state)
-        .resume_session(&id)
+        .resume_session(&id, requested_strategy)
         .await
         .map(|mut info| {
             project_live_peon_diagnostics(&projection_state, &mut info);
@@ -3276,14 +3301,25 @@ mod tests {
             },
         );
 
-        let response = resume_session(State(state.clone()), Path(session_id.clone()))
-            .await
-            .into_response();
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        let router = axum::Router::new()
+            .route("/sessions/:id/resume", axum::routing::post(resume_session))
+            .with_state(state.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        let response = reqwest::Client::new()
+            .post(format!("http://{address}/sessions/{session_id}/resume"))
+            .json(&serde_json::json!({"strategy":"latest_repo"}))
+            .send()
             .await
             .unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let bytes = response.bytes().await.unwrap();
+        server.abort();
         let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["resumeStrategy"], "latest_repo");
         assert_eq!(body["peonDiagnostics"]["schedulerState"], "completed");
         assert_eq!(body["peonDiagnostics"]["observationCount"], 0);
         assert!(state.sessions.lock().unwrap()[&session_id].resume_in_progress);
@@ -3373,6 +3409,7 @@ mod tests {
         let task = tokio::spawn(resume_session(
             State(state.clone()),
             Path(session_id.clone()),
+            axum::body::Bytes::new(),
         ));
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
             loop {
@@ -3519,6 +3556,7 @@ mod tests {
         let resume_task = tokio::spawn(resume_session(
             State(state.clone()),
             Path(session_id.clone()),
+            axum::body::Bytes::new(),
         ));
         tokio::time::timeout(std::time::Duration::from_secs(5), checked_rx)
             .await
@@ -3631,9 +3669,13 @@ mod tests {
             .metadata
             .write_session(&metadata);
 
-        let response = resume_session(State(state.clone()), Path(session_id.clone()))
-            .await
-            .into_response();
+        let response = resume_session(
+            State(state.clone()),
+            Path(session_id.clone()),
+            axum::body::Bytes::new(),
+        )
+        .await
+        .into_response();
 
         assert_eq!(
             response.status(),
@@ -4371,7 +4413,7 @@ mod tests {
                 });
         }
 
-        let response = resume_session(State(state), Path(session_id))
+        let response = resume_session(State(state), Path(session_id), axum::body::Bytes::new())
             .await
             .into_response();
 
@@ -4486,7 +4528,7 @@ mod tests {
                 });
         }
 
-        let response = resume_session(State(state), Path(session_id))
+        let response = resume_session(State(state), Path(session_id), axum::body::Bytes::new())
             .await
             .into_response();
 
@@ -9280,7 +9322,8 @@ mod tests {
                 "before",
             ));
 
-        let response = resume_session(State(state), Path(id.into())).await;
+        let response =
+            resume_session(State(state), Path(id.into()), axum::body::Bytes::new()).await;
         assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
@@ -9769,5 +9812,41 @@ mod tests {
             "active_harness_revision_changed"
         );
         assert_eq!(body["activeHarnessRevision"], 1);
+    }
+    #[tokio::test]
+    async fn resume_request_rejects_invalid_explicit_choices_before_lookup() {
+        let oversized = format!("{}{}", " ".repeat(1024), r#"{"strategy":"exact"}"#);
+        for body in [
+            r#"{"strategy":"unknown"}"#,
+            r#"{"strategy":"none"}"#,
+            r#"{}"#,
+            r#"{"strategy":"exact","command":"arbitrary"}"#,
+            "invalid",
+            oversized.as_str(),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let state = test_app_state_with_workspace(dir.path());
+            let router = axum::Router::new()
+                .route("/sessions/:id/resume", axum::routing::post(resume_session))
+                .with_state(state);
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                axum::serve(listener, router).await.unwrap();
+            });
+            let response = reqwest::Client::new()
+                .post(format!("http://{address}/sessions/missing/resume"))
+                .header("content-type", "application/json")
+                .body(body.to_owned())
+                .send()
+                .await
+                .unwrap();
+            server.abort();
+            assert_eq!(
+                response.status(),
+                axum::http::StatusCode::BAD_REQUEST,
+                "{body}"
+            );
+        }
     }
 }

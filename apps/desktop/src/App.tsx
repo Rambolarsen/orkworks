@@ -23,6 +23,7 @@ import { pushToast } from "./feedback";
 import { activeNewSessionHarnesses } from "./newSessionDialogState";
 import {
   type SessionAction,
+  type ResumeStrategy,
   type SessionInfo,
   type SessionAttention,
   type WorkspaceInfo,
@@ -720,9 +721,9 @@ function App() {
     else closeInspector();
   }, [inspectSubject, closeInspector]);
 
-  const handleResumeSession = useCallback(async (id: string) => {
+  const handleResumeSession = useCallback(async (id: string, strategy?: ResumeStrategy) => {
     try {
-      await workspaceSessionController.resumeSession(id);
+      await workspaceSessionController.resumeSession(id, strategy);
       setResumeTick(t => t + 1);
     } catch {
       pushToast("error", "Couldn't resume session.");
@@ -732,7 +733,7 @@ function App() {
   const handleRowResumeSession = useCallback((id: string) => {
     const target = sessions.find(session => session.id === id);
     if (!target || target.sessionState === "archived") return;
-    if (target.resumeStrategy === "exact") void handleResumeSession(id);
+    if (target.resumeStrategy === "exact") void handleResumeSession(id, "exact");
     else {
       handleSelectSession(id);
       requestShellCommand("details", true);

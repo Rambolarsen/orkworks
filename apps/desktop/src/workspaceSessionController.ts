@@ -12,6 +12,7 @@ import {
   setActiveWorkspaceSession as apiSetActiveWorkspaceSession,
   setWorkspace as apiSetWorkspace,
   type SessionInfo,
+  type ResumeStrategy,
   type WorkspaceInfo,
 } from "./api.ts";
 import type { CreateSessionOptions } from "./harnessTypes.ts";
@@ -62,7 +63,7 @@ export interface WorkspaceSessionController {
   adoptRestoredWorkspace(workspace: WorkspaceInfo | null): Promise<void>;
   refreshSessions(): Promise<readonly SessionInfo[] | null>;
   createSession(options: CreateSessionOptions, shouldSelect?: () => boolean): Promise<boolean>;
-  resumeSession(id: string): Promise<void>;
+  resumeSession(id: string, strategy?: ResumeStrategy): Promise<void>;
   submitActiveSession(id: string, admissionToken?: number | null): Promise<boolean>;
   selectSession(id: string): boolean;
   deleteSession(id: string, forget: boolean): Promise<void>;
@@ -326,7 +327,7 @@ export function createWorkspaceSessionController(
     }
   }
 
-  async function resumeSession(id: string): Promise<void> {
+  async function resumeSession(id: string, strategy?: ResumeStrategy): Promise<void> {
     const admissionToken = requireAdmission();
     if (pendingResumes.has(id)) return;
     const operation = Symbol();
@@ -337,14 +338,14 @@ export function createWorkspaceSessionController(
     try {
       deps.disposeTerminal(id);
       const baseUrl = await deps.getBackendUrl();
-      const resumed = await deps.resumeSession(baseUrl, id);
+      const resumed = await deps.resumeSession(baseUrl, id, strategy);
       if (!isCurrent(token) || !isCurrentAdmission(admissionToken)) return;
       stream?.resync();
       publishSessions(sessions.map((session) => session.id === id ? resumed : session));
       activeSessionId = resumed.id;
       options.onActiveSession?.(resumed.id);
-    } catch {
-      if (isCurrent(token)) publishError("resume", "Couldn't resume session.");
+    } catch (error) {
+      if (isCurrent(token)) publishError("resume", error instanceof Error ? error.message : "Couldn't resume session.");
     } finally {
       if (pendingResumes.get(id) === operation) {
         pendingResumes.delete(id);

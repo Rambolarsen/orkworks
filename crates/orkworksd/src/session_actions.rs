@@ -372,7 +372,7 @@ mod tests {
             info.organization.session_state,
             Some(SessionState::Archived)
         );
-        assert!(app.resume_session("one").await.is_err());
+        assert!(app.resume_session("one", None).await.is_err());
         app.session_action("one", request(&state, SessionAction::Restore))
             .await
             .unwrap();

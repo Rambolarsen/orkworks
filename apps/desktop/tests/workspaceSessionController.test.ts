@@ -996,3 +996,13 @@ test("workspace replacement clears resume progress and an old response cannot cl
   assert.deepEqual(progress.at(-1), []);
   controller.dispose();
 });
+
+test("resume forwards the user's chosen strategy", async () => {
+  const calls: unknown[] = [];
+  const controller = createWorkspaceSessionController({deps: deps({
+    resumeSession: async (...args) => { calls.push(args); return session("one", "alive", "running"); },
+  })});
+  await controller.resumeSession("one", "latest_cwd");
+  assert.deepEqual(calls, [["http://backend", "one", "latest_cwd"]]);
+  controller.dispose();
+});

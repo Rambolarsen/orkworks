@@ -11,6 +11,7 @@ test("Help menu exposes the shared update check command", () => {
   const commands: Array<{ action: string; panelId?: string }> = [];
   const template = buildMenuTemplate({
     appName: "OrkWorks",
+    openExternal: () => {},
     platform: "linux",
     settings: DEFAULT_SETTINGS,
     sendCommand: (command) => commands.push(command),
@@ -27,6 +28,7 @@ test("update checks are suppressed during hotkey capture", () => {
   const commands: Array<{ action: string; panelId?: string }> = [];
   const template = buildMenuTemplate({
     appName: "OrkWorks",
+    openExternal: () => {},
     platform: "linux",
     settings: DEFAULT_SETTINGS,
     isHotkeyCaptureActive: () => true,

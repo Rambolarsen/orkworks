@@ -11,6 +11,7 @@ export interface BuildMenuTemplateOptions {
   platform: NodeJS.Platform;
   settings: AppSettings;
   sendCommand: (command: MenuCommand) => void;
+  openExternal: (url: string) => void;
   isHotkeyCaptureActive?: () => boolean;
 }
 
@@ -145,8 +146,12 @@ export function buildMenuTemplate(options: BuildMenuTemplateOptions): MenuItemCo
         },
         { type: "separator" },
         {
+          id: "learn-more",
           label: "Learn More",
-          click: () => {},
+          enabled: !isCapturing,
+          click: () => {
+            if (!isCapturing) options.openExternal("https://rambolarsen.github.io/orkworks/");
+          },
         },
       ],
     },

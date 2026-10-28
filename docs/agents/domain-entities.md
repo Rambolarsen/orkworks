@@ -53,7 +53,11 @@ File: `crates/orkworksd/src/metadata.rs`
   2. **Pid-probed live cwd** (ADR 0031) — the PTY child process's actual OS-level cwd, resolved via a cross-platform batched probe (`procfs::live_cwds`, backed by the `sysinfo` crate — Linux/macOS/Windows alike). Correctly tracks bare shell sessions (where the PTY child *is* the shell a `cd` mutates) but not harness sessions without hook support.
   3. **Frozen launch-time `cwd`** — the fallback when neither of the above is available.
   Aider, Codex, and OpenCode sessions currently only get tiers 2–3 — Codex's generated/local hooks capture `harness_session_id` and deterministic turn attention but do not report `cwd`; Aider's notifications-command integration reports attention but not `cwd`, and OpenCode's plugin reports session ID plus attention events (idle/permission/busy, issue #104) but not `cwd` (remaining gaps tracked as issues #103/#104).
-- `resume`, `resume_options`, `resumed_from`, `harness_session_id_source/confidence/captured_at`
+- `resume`, `resume_options`, `resumed_from`, `harness_session_id_source/confidence/captured_at`.
+  Desktop resume choices retain each option's `strategy` through the controller
+  and optional `{ strategy }` request body. The sidecar revalidates that choice;
+  no selected-strategy field is added to persisted session metadata. Bodyless
+  legacy requests retain backend default selection.
 - `lineChanges` is an optional **API-only** Git-context projection containing
   `additions` and `deletions` for live uncommitted text changes against `HEAD`,
   including staged/unstaged changes and non-ignored new files (empty-tree
