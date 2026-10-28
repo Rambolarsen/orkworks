@@ -17,3 +17,8 @@ docs/validation/hierarchy-summary-vectors.json text eol=lf
 
 # Preserve source-bridge and compact-packing evidence bytes.
 docs/validation/summary-source-packing.json text eol=lf
+
+# Preserve independently generated preparation-join catalog bytes on Windows.
+docs/validation/root-preparation-join-vectors.json text eol=lf
+# The join catalog fingerprints these preserved input bytes as well.
+docs/validation/root-bootstrap-vectors.json text eol=lf
