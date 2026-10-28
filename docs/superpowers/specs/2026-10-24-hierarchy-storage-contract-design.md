@@ -589,3 +589,19 @@ codecs, aggregate/custody and native authority/resource qualification, #740 and
 executable-plan approvals remain gates; no runtime work or eligibility is approved.
 The earlier synthetic bootstrap binding stays UNVERIFIED. Keep component issues
 open; next is the bounded root-flow source-valid byte/transition fixture task.
+
+
+## Initial preparation effects proposal — 2026-10-28
+
+The [initial membership/effects proposal](2026-10-28-root-preparation-effects-design.md)
+selects proposed typed run/parent rows, run-owned retained capability-artifact
+occurrences, explicit workspace resource initialization and exact draft/cancel/
+admission effects for both existing summary-capacity branches. New row/resource/
+bound/profile choices remain proposed for scoped owner/producer review before
+dependent fixtures. Existing accepted source/receipt/identity/digest contracts and
+all prior fixture/checker bytes remain unchanged.
+
+This closes no production aggregate/history/custody cap, native excluded-action
+ordering, session startup/later lifecycle, #740 profile evidence or executable
+plan gate. No migration, DDL, model/native probe, runtime work or admitted source
+is delivered. Keep the broader component issues open.
