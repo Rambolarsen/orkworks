@@ -27,6 +27,12 @@ The committed `scripts/doc-check.sh` is the harness-neutral doc-diff detector. T
 
 The APM lifecycle in `apm.yml` removes the incompatible Superpowers `SessionStart` registration from generated Codex hooks after installs and updates. Lifecycle commands are trust-gated; on a new checkout, run `apm lifecycle trust` once before `apm install` or `apm update` if you want that repair to run automatically. The repair is also available directly as `bash scripts/repair-codex-session-start-hooks.sh`.
 
+## Proposed product skill management
+
+The [workspace and personal skills proposal](../../specs/workspace-skills.md)
+covers user-facing inventories and qualified APM additions. It is proposed, not
+current product behavior; this guide describes this repository's development setup.
+
 ## Superpowers
 
 [obra/superpowers](https://github.com/obra/superpowers) — agentic skills framework & software development methodology. Installed per-harness. OpenCode loads its skills through the repo-root `opencode.json` `skills.paths` entry `.agents/skills` — the plugin file itself is **not wired into OpenCode 2**:
