@@ -145,7 +145,10 @@ Fresh namespace/reservation proof, absence of prior source/state/subject and exa
 parent non-adoption are checked before preparing the initial effect. Missing
 historical ownership, header/proof or required shared ledger fences the operation;
 absence is not an empty store. Current source/UI/fence/eligibility checks remain
-mandatory at their original boundary, including authenticated retry lookup.
+mandatory at their operation-specific original boundary, including authenticated
+approval retry lookup. Explicit discard of a stale draft uses its separately
+authorized workspace UI path; it does not require reviving old eligibility or
+the invalidated approval context.
 
 ## Resource keys and zero initialization
 
@@ -246,9 +249,12 @@ under the existing separate fence protocol; a later store denial cannot unburn
 it. Store initialization and draft preparation are separate commands. An orphaned
 artifact prefix or partial old draft cannot be treated as a clean new reservation.
 
-Cancel requires the exact current draft ID/digest and valid UI scope/context under
-the existing ordering. Revocation makes the context unusable independently of
-whether a corrupt/over-budget store can finish deletion; no denied cancel can
+Cancel requires the exact pending draft ID/digest and current Electron-authorized
+workspace UI scope under the existing ordering. It may explicitly discard a stale
+historical draft; that draft's old reviewContextId need not and must not become
+current again. Approval and mutation retry still require their original review context to
+remain current. Revocation makes that context unusable independently
+of whether a corrupt/over-budget store can finish deletion; no denied cancel can
 resurrect authority. A cancel racing admitted source publication has one serialized
 winner. An old cancel cannot delete a replacement or admitted run.
 
@@ -363,7 +369,7 @@ cross-owner dependency merely to fill an accounting placeholder.
 | Existing run/assignment reporting keys conflict with allegedly fresh reservation | Reject initialization; never reset them |
 | Draft transfers to source | Keep artifact rows/proofs, replace owner atomically, count one retained run |
 | Exact authorized receipt retry | Return original bytes; no new commit, slot or charge |
-| Matching stored bytes after context revocation | Deny mutation/retry under existing authority cutoff |
+| Matching stored bytes after context revocation | Deny approval/mutation retry; permit only separately authorized UI inspection/discard of the exact pending draft |
 | Summary count, bytes or lineage cannot fit | Commit never-initialized marker only if the whole remaining command fits |
 | Never-initialized subject later has free row capacity | Stay unavailable; no lazy initialization |
 | Marker/proof/shared accounting cannot fit | Deny complete admission; preserve draft and burned reservation |
@@ -414,5 +420,8 @@ mapping explicit for every row family: both scopes come from that exact reserved
 run even before admission; transfer preserves scopes and changes occurrence sums.
 That clarification follows the existing frozen draft/run identities, without a
 new assignment or selectable owner. Fixture-only cap comparisons are also
-explicitly separated from production-cap approval. No post-edit independent
+explicitly separated from production-cap approval. Final author comparison also
+clarifies that current UI-authorized discard of a stale draft does not revive
+its approval context or require restored eligibility, preserving the accepted
+producer's historical inspection/discard path. No post-edit independent
 rereview, source/native qualification or owner acceptance is claimed.
