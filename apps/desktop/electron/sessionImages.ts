@@ -1,6 +1,6 @@
 import { sidecarSend, errorFromBody, type SidecarFetchImpl } from "./sidecarClient.ts";
 export interface ImageCreation {
-  harnessId: string; model?: string; initialPrompt?: string; expectedWorkspacePath: string;
+  harnessId: string; model?: string; reasoningEffort?: string; initialPrompt?: string; expectedWorkspacePath: string;
   initialImages: Array<{name: string; mimeType: string; dataBase64: string}>;
 }
 export function normalizeImageCreation(value: unknown): ImageCreation {
@@ -8,6 +8,7 @@ export function normalizeImageCreation(value: unknown): ImageCreation {
   const input = value as Record<string,unknown>;
   if (typeof input.harnessId !== "string" || !input.harnessId || input.harnessId.length > 256 || typeof input.imageWorkspacePath !== "string" || !input.imageWorkspacePath || Buffer.byteLength(input.imageWorkspacePath) > 32768) throw new Error("Open a workspace and select a coding tool before attaching images.");
   if (input.model !== undefined && (typeof input.model !== "string" || input.model.length > 1024)) throw new Error("Invalid model.");
+  if (input.reasoningEffort !== undefined && (typeof input.reasoningEffort !== "string" || input.reasoningEffort.length > 64)) throw new Error("Invalid reasoning effort.");
   if (input.initialPrompt !== undefined && (typeof input.initialPrompt !== "string" || Buffer.byteLength(input.initialPrompt) > 65536)) throw new Error("Image session prompts allow at most 64 KiB.");
   if (!Array.isArray(input.initialImages) || input.initialImages.length < 1 || input.initialImages.length > 8) throw new Error("Attach between one and eight images.");
   let total = 0;
@@ -22,7 +23,7 @@ export function normalizeImageCreation(value: unknown): ImageCreation {
     if (!matches) throw new Error("Image type does not match its contents.");
     return {name,mimeType,dataBase64};
   });
-  return {harnessId:input.harnessId, model:input.model as string | undefined, initialPrompt:input.initialPrompt as string | undefined, expectedWorkspacePath:input.imageWorkspacePath, initialImages};
+  return {harnessId:input.harnessId, reasoningEffort:input.reasoningEffort as string | undefined, model:input.model as string | undefined, initialPrompt:input.initialPrompt as string | undefined, expectedWorkspacePath:input.imageWorkspacePath, initialImages};
 }
 export async function submitImageSession(port: number, token: string, request: ImageCreation, signal?: AbortSignal, fetchImpl?: SidecarFetchImpl): Promise<unknown> {
   const response = await sidecarSend(port,"session-image-context",{signal,timeoutMs:10000,fetchImpl});

@@ -35,6 +35,14 @@ Unsupported coding tools retain the draft and explain why Start is disabled.
 Published installers may not include image attachments yet.
 
 
+With an explicit Codex model selected, **Reasoning effort** offers the values
+reported by that installed coding tool. **Tool default effort** keeps Codex's
+configured default. Changing the tool or model clears the effort selection.
+This applies to the new interactive session, including image attachments, and
+is separate from background analysis settings. Other coding tools keep their
+own effort defaults. This describes current source builds; an older published
+installer may not include the control.
+
 ## Switch without stopping the work
 
 Select a session to return to its terminal. Switching away does not stop its

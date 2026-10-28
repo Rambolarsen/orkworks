@@ -260,6 +260,7 @@ pub(crate) struct CreateSessionCommand {
     pub(crate) expected_workspace_path: Option<String>,
     pub(crate) harness_id: Option<String>,
     pub(crate) model: Option<String>,
+    pub(crate) reasoning_effort: Option<String>,
     pub(crate) initial_prompt: Option<String>,
 }
 
@@ -6119,6 +6120,37 @@ pub(crate) fn resolve_session_launch(
     }
 }
 
+fn apply_session_effort(
+    launch: &mut ResolvedSessionLaunch,
+    effort: Option<&str>,
+    options: &[crate::providers::ProviderModelOption],
+) -> Result<(), SessionError> {
+    let Some(effort) = effort else {
+        return Ok(());
+    };
+    if launch.session_harness_id.as_deref() != Some("codex")
+        || !options.iter().any(|option| {
+            Some(option.id.as_str()) == launch.model.as_deref()
+                && option
+                    .reasoning_efforts
+                    .iter()
+                    .any(|supported| supported.id == effort)
+        })
+    {
+        return Err(SessionError::BadRequest(
+            "Reasoning effort is not supported for the selected coding tool/model.",
+        ));
+    }
+    launch.command.args.extend([
+        "--config".into(),
+        format!(
+            "model_reasoning_effort={}",
+            serde_json::to_string(effort).expect("string serialization")
+        ),
+    ]);
+    Ok(())
+}
+
 async fn create_session_workflow(
     state: Arc<AppState>,
     req: CreateSessionCommand,
@@ -6159,6 +6191,31 @@ async fn create_session_workflow(
         ));
     }
     let mut resolved_launch = resolve_session_launch(&registry, &req, cwd.clone());
+    if req.reasoning_effort.is_some() {
+        if req.harness_id.as_deref() != Some("codex") || req.model.is_none() {
+            return Err(SessionError::BadRequest(
+                "Choose a supported coding tool and an explicit model for reasoning effort.",
+            ));
+        }
+        let providers = state.providers.clone();
+        let executable = resolved_launch.command.program.clone();
+        let options = tokio::task::spawn_blocking(move || {
+            providers.discover_codex_session_models(&executable)
+        })
+        .await
+        .map_err(|_| SessionError::Internal("Reasoning effort discovery failed"))?
+        .map_err(|_| {
+            SessionError::BadRequest(
+                "Cannot verify reasoning effort. Retry discovery or select tool default.",
+            )
+        })?;
+        apply_session_effort(
+            &mut resolved_launch,
+            req.reasoning_effort.as_deref(),
+            &options,
+        )?;
+    }
+
     if !req.initial_images.is_empty()
         && req.expected_workspace_path.as_deref() != Some(cwd.as_str())
     {
@@ -6651,6 +6708,51 @@ fn clear_claude_capacity_after_working(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn interactive_effort_validates_catalog_and_builds_native_override() {
+        let registry = crate::harness::registry::resolve_document(
+            &crate::harness::definition::BuiltinDocument::parse(
+                crate::harness::definition::EMBEDDED_BUILTINS,
+            )
+            .unwrap(),
+            &crate::harness::definition::HarnessUserDocument::default(),
+        )
+        .unwrap();
+        let request = CreateSessionCommand {
+            reasoning_effort: None,
+            initial_images: vec![],
+            expected_workspace_path: None,
+            harness_id: Some("codex".into()),
+            model: Some("gpt-test".into()),
+            initial_prompt: None,
+        };
+        let mut launch = resolve_session_launch(&registry, &request, "/tmp".into());
+        let options = vec![crate::providers::ProviderModelOption {
+            id: "gpt-test".into(),
+            display_name: "Test".into(),
+            reasoning_efforts: vec![crate::providers::ProviderReasoningEffort {
+                id: "high".into(),
+                description: String::new(),
+            }],
+            default_reasoning_effort: None,
+        }];
+        let original = launch.command.args.clone();
+        assert!(apply_session_effort(&mut launch, None, &[]).is_ok());
+        assert_eq!(launch.command.args, original);
+        assert!(apply_session_effort(&mut launch, Some("invalid"), &options).is_err());
+        assert_eq!(launch.command.args, original);
+        assert!(apply_session_effort(&mut launch, Some("high"), &options).is_ok());
+        assert!(launch
+            .command
+            .args
+            .ends_with(&["--config".into(), "model_reasoning_effort=\"high\"".into()]));
+        let mut default_model = resolve_session_launch(&registry, &request, "/tmp".into());
+        default_model.model = None;
+        assert!(apply_session_effort(&mut default_model, Some("high"), &options).is_err());
+        launch.session_harness_id = Some("generic-shell".into());
+        assert!(apply_session_effort(&mut launch, Some("high"), &options).is_err());
+    }
     fn git_creation_request(state: &Arc<AppState>) -> CreateSessionCommand {
         // Exercise admission and persistence without starting a coding tool.
         state
@@ -6668,6 +6770,7 @@ mod tests {
             })
             .unwrap();
         CreateSessionCommand {
+            reasoning_effort: None,
             initial_images: Vec::new(),
             expected_workspace_path: None,
             harness_id: Some("opencode".into()),
@@ -10446,6 +10549,7 @@ mod tests {
 
         let info = application
             .create_session(CreateSessionCommand {
+                reasoning_effort: None,
                 initial_images: Vec::new(),
                 expected_workspace_path: None,
                 harness_id: Some("generic-shell".into()),

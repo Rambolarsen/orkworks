@@ -583,6 +583,7 @@ function findDuplicateJsonKey(text: string): { key: string; offset: number } | n
 }
 
 export interface CreateSessionOptions {
+  reasoningEffort?: string;
   initialImages?: Array<{name: string; mimeType: string; dataBase64: string}>;
   imageWorkspacePath?: string;
   harnessId?: string;

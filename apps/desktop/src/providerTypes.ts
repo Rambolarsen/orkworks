@@ -133,6 +133,7 @@ export type RetentionApplyStatus = ProviderApplyStatus;
 
 export interface ProviderModelsResponse {
   models: string[];
+  modelOptions?: ProviderModelOption[];
 }
 
 export interface OllamaVerificationResponse {
