@@ -64,8 +64,16 @@ if (process.env.ORKWORKS_SKILLS_FIXTURE) {
       await wait(
         'document.querySelector("[role=status]").innerText.includes("Skill installed")',
       );
+      await click("[data-review-skill]");
+      await wait('document.querySelector("[data-install-skill]")');
+      await click("[data-install-skill]");
+      await wait('typeof window.finishSkillInstall === "function"');
       await click("[data-switch]");
       await wait('document.body.innerText.includes("Open a workspace")');
+      await evaluate('window.finishSkillInstall();new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
+      await wait('document.querySelector("[role=status]").innerText !== "Working…"');
+      assert.equal(await evaluate('document.querySelector("[role=status]").innerText.includes("Old workspace")'), false, 'old completion cannot label the new workspace');
+      assert.equal(await evaluate('document.querySelectorAll("[data-skill-row]").length'), 1);
       for (const width of [1000, 700, 360]) {
         win.setContentSize(width, 850);
         await evaluate(

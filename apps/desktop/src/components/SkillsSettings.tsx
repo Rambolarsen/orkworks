@@ -50,6 +50,7 @@ export default function SkillsSettings({
   };
   useEffect(() => {
     if (!currentWorkspacePath) setScope("personal");
+    setStatus("");
     setInventory(null);
     setDetail(null);
     setPreview((value) => (value?.scope === "workspace" ? null : value));
@@ -84,9 +85,12 @@ export default function SkillsSettings({
   const install = () =>
     perform(async () => {
       if (!preview?.id) return;
+      const request = generation.current;
       const result = await window.orkworks.installSkillAdd(preview.id);
-      setStatus(result.message);
-      setPreview(null);
+      if (request === generation.current) {
+        setStatus(result.message);
+        setPreview(null);
+      }
       // Even a failed APM operation may have written files.
       await load();
     });

@@ -26,9 +26,11 @@ const inventory = {
   diagnostics: ["Coverage is limited; native loading is unknown."],
   apm: { available: true, message: "APM found" },
 };
+let workspaceOpen = true;
+let installs = 0;
 Object.assign(window, {
   orkworks: {
-    getSkillInventory: async () => inventory,
+    getSkillInventory: async () => ({...inventory, workspace: workspaceOpen ? "/repo" : null, skills: inventory.skills.filter(skill => workspaceOpen || skill.scope === "personal")}),
     readSkillDetail: async () =>
       "---\nname: review\n---\nRead-only instructions.",
     pickSkillSource: async () => "/source/review",
@@ -43,17 +45,17 @@ Object.assign(window, {
       paths: ["/repo/apm.yml"],
       command: "apm install /source/review",
     }),
-    installSkillAdd: async () => ({
-      ok: true,
-      message: "Skill installed. Reload your coding tool if needed.",
-    }),
+    installSkillAdd: async () => {
+      if (++installs === 1) return {ok:true, message:"Skill installed. Reload your coding tool if needed."};
+      return new Promise(resolve => Object.assign(window, {finishSkillInstall: () => resolve({ok:true,message:"Old workspace install complete."})}));
+    },
   },
 });
 function Fixture() {
   const [path, setPath] = useState<string | null>("/repo");
   return (
     <>
-      <button data-switch onClick={() => setPath(null)}>
+      <button data-switch onClick={() => {workspaceOpen=false;setPath(null);}}>
         Close workspace
       </button>
       <div className="settings-content" style={{height:"calc(100vh - 36px)",overflow:"auto",padding:20}}><SkillsSettings currentWorkspacePath={path} /></div>
