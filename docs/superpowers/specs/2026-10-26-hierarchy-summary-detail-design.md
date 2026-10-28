@@ -414,3 +414,13 @@ assays, not complete producer/source-health or runtime qualification. The R2
 canonical evaluation and exact evidence/correction-state packet remains the next
 source-closure obligation. Existing technical schemas/limits are unchanged; keep
 #1089/#744/#746 and separate capability/native/runtime-plan gates open.
+
+## R2 canonical component handoff — 2026-10-28
+
+The [accepted-codec R2 packet](../../validation/r2-report-components.md) retains one
+canonical user evaluation, complete report EvidenceSource/sourceKey joins and
+independent required-C1 versus optional-O correction histories. Its current/stale
+labels are derived from captured logical heads, not qualified production writers.
+Material revision, provenance and immutable-record differences are checked; full
+admission/custody, publication/fence and native/runtime gates remain separate.
+No summary DTO, source schema or numerical limit changes.

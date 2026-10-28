@@ -22,3 +22,6 @@ docs/validation/summary-source-packing.json text eol=lf
 docs/validation/root-preparation-join-vectors.json text eol=lf
 # The join catalog fingerprints these preserved input bytes as well.
 docs/validation/root-bootstrap-vectors.json text eol=lf
+
+# Preserve independently generated report/evaluation and R2 source bytes.
+docs/validation/r2-report-vectors.json text eol=lf

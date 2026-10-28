@@ -1432,3 +1432,12 @@ join remain proposed for scoped owner acceptance before component goldens/checke
 Existing stream/head/CAS, author/generation, request fingerprints, limits and
 authority are preserved. No report source validity, #740 eligibility or runtime
 implementation follows from drafting/merging this proposal. Keep #742 open.
+
+## ResearchReport codec accepted for documentation fixtures — 2026-10-28
+
+The owner [accepted #1131's report source-codec choices](2026-10-28-research-report-source-codecs-design.md#scoped-owner-acceptance--2026-10-28)
+for component fixtures: closed descriptor/leaves, ordering/count and URI rules,
+2 KiB excerpt profile and exact #744 size/hash joins. This is scoped acceptance
+of source definitions, not broad lifecycle/report-publication, custody, #740 or
+runtime approval. The R2 byte/identity/correction assay must preserve existing
+authority and head/CAS semantics and identify its synthetic context.
