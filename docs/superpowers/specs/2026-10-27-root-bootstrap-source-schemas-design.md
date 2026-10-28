@@ -444,3 +444,20 @@ deferred until November. Broader #741/#742/#744/#746 and storage/native approval
 remain separate. Keep those issues open; future complete source/draft/receipt and
 transition qualification must use this exact accepted slice without treating
 hash-valid synthetic bytes as launch eligibility.
+
+
+## Synthetic preparation source joins — 2026-10-28
+
+The [preparation-join byte packet](../../validation/root-preparation-joins.md)
+continues the accepted fixture handoff with complete draft/approval/receipt and
+retained-source values, exact original-byte reconstruction, root identity joins
+and root_drafts/root_preparations row-domain commitments. It reuses the preserved
+explicitly unverified bootstrap without reference inputs or materialized outputs;
+no schema/default or authority choice changes.
+
+This is synthetic component consistency only. Commit links are not backed by
+manifest/native proof, and no admitted state or complete changed-row set is
+claimed. Initial run/parent/summary membership and both summary-capacity branches,
+shared accounting/custody/history limits, native excluded-action ordering and
+separately approved runtime plans remain gates. #740 remains deferred/no-go until
+November; keep #741/#742/#744/#746 open. No historical store seed is promoted.

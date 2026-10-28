@@ -462,3 +462,20 @@ The owner's “yes, go ahead” accepts the
 for documentation-only component fixtures. The earlier proposed follow-up is
 superseded only within that scope. No full bootstrap/source/transition validity,
 storage/native qualification, #740 eligibility or executable plan is accepted.
+
+
+## Synthetic preparation source joins — 2026-10-28
+
+The [preparation-join byte packet](../../validation/root-preparation-joins.md)
+continues the accepted fixture handoff with complete draft/approval/receipt and
+retained-source values, exact original-byte reconstruction, root identity joins
+and root_drafts/root_preparations row-domain commitments. It reuses the preserved
+explicitly unverified bootstrap without reference inputs or materialized outputs;
+no schema/default or authority choice changes.
+
+This is synthetic component consistency only. Commit links are not backed by
+manifest/native proof, and no admitted state or complete changed-row set is
+claimed. Initial run/parent/summary membership and both summary-capacity branches,
+shared accounting/custody/history limits, native excluded-action ordering and
+separately approved runtime plans remain gates. #740 remains deferred/no-go until
+November; keep #741/#742/#744/#746 open. No historical store seed is promoted.

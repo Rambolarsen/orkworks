@@ -37,3 +37,5 @@ Capability research, validation results, and evidence fixtures.
 
 - [Root bootstrap source-byte evidence](root-bootstrap-components.md) — Independent root-only source bytes, exact rendering and adversarial checks with explicit unverified gates.
 - [Summary-detail source joins and compact packing audit](summary-source-packing.md) — Exact narrow logical source joins, maximum request widths and conditional complete response bounds; full producer currentness remains unqualified.
+
+- [Root preparation source joins](root-preparation-joins.md) — Exact synthetic draft/approval/receipt reconstruction and retained-source row commitments; admission and complete effects remain unqualified.
