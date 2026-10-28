@@ -327,3 +327,19 @@ retains independent Python-derived bytes and structural rejection tests. These
 are synthetic components only; the source-valid bootstrap, retained source rows,
 atomic effects and capability/native gates named above remain open. Preserve the
 original 2026-10-26 run/approval catalog and the older unverified bootstrap seed.
+
+
+## Initial preparation effects proposal — 2026-10-28
+
+The [initial membership/effects proposal](2026-10-28-root-preparation-effects-design.md)
+selects proposed typed run/parent rows, run-owned retained capability-artifact
+occurrences, explicit workspace resource initialization and exact draft/cancel/
+admission effects for both existing summary-capacity branches. New row/resource/
+bound/profile choices remain proposed for scoped owner/producer review before
+dependent fixtures. Existing accepted source/receipt/identity/digest contracts and
+all prior fixture/checker bytes remain unchanged.
+
+This closes no production aggregate/history/custody cap, native excluded-action
+ordering, session startup/later lifecycle, #740 profile evidence or executable
+plan gate. No migration, DDL, model/native probe, runtime work or admitted source
+is delivered. Keep the broader component issues open.
