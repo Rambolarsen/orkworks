@@ -100,12 +100,12 @@ function App() {
   const [harnessDocumentRevision, setHarnessDocumentRevision] = useState<string | null>(null);
   const [activeHarnessIds, setActiveHarnessIds] = useState<string[]>([]);
   const [newSessionOpen, setNewSessionOpen] = useState(false);
-  const [emptyComposerDismissed, setEmptyComposerDismissed] = useState(false);
+  const [automaticComposerDismissed, setAutomaticComposerDismissed] = useState(false);
   const composerIntent = useRef(0);
   const cancelNewSession = useCallback(() => {
     composerIntent.current += 1;
     setNewSessionOpen(false);
-    setEmptyComposerDismissed(true);
+    setAutomaticComposerDismissed(true);
   }, []);
   const backendRetryGuardRef = useRef(createBackendRetryGuard());
   const workspaceLifecycleRef = useRef({ generation: 0, readyGeneration: null as number | null });
@@ -166,7 +166,7 @@ function App() {
     cancelNewSession();
     setNavigationDiagnostic(null);
     setNavigationRebuilding(false);
-    setEmptyComposerDismissed(false);
+    setAutomaticComposerDismissed(false);
     setProviderRuntime(null);
     dispatchShellNavigation({ type: "workspace-generation-changed", generation });
     if (event.state === "ready") {
@@ -536,7 +536,7 @@ function App() {
   }, [workspaceSessionController, requestShellCommand]);
 
   const showNewSession = sessionAdmissionEnabled && !isSwitchingWorkspace && !!workspace &&
-    (newSessionOpen || (sessions.length === 0 && !emptyComposerDismissed));
+    (newSessionOpen || (sessionsSourceStatus !== "loading" && activeSessionId === null && !automaticComposerDismissed));
 
   useEffect(() => {
     if (!showNewSession) return;
