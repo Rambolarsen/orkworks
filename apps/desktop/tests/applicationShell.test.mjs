@@ -60,6 +60,7 @@ if (process.versions.electron) {
         await evaluate('fixture.output("specs/clicked.md\\r\\n")');
         await waitFor('fixture.runtime().terminal.buffer.active.getLine(0)?.translateToString(true)==="specs/clicked.md"');
         await activatePath();
+        await waitFor('fixture.planSelections.length===1');
         assert.deepEqual(await evaluate('fixture.planSelections'), [['created','specs/clicked.md']]);
         await waitFor('fixture.reads.length===1');
         await waitFor('document.querySelector("[data-shell-region=review]")?.textContent.includes("Clicked document")');
