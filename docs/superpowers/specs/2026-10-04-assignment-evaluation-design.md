@@ -2173,3 +2173,14 @@ budget changes. The new read's exact bindings and detail-only snapshot invalidat
 need executable documentation cases and producer/writer qualification. This is
 scoped design acceptance, not independent producer evidence or broad component,
 storage/native, #740 or runtime-plan approval. Keep #744 and #1089 open.
+
+## Report-codec and R2 component handoff — 2026-10-28
+
+The owner [accepted #1131's report source-codec choices](2026-10-28-research-report-source-codecs-design.md#scoped-owner-acceptance--2026-10-28)
+for documentation fixtures. The [R2 component packet](../../validation/r2-report-components.md)
+checks exact stored report size/content digest, ReportIdentity/sourceKey and one
+immutable user-evaluation join under supplied synthetic context. Report corrections
+stale only cited outcomes/findings; independent C2 failure remains. This does not
+accept broad report-publication behavior or establish a current admitted runtime
+producer. Source/admission/custody, dependency/publication, #740 and separately
+approved runtime/native/storage qualification gates remain independent.

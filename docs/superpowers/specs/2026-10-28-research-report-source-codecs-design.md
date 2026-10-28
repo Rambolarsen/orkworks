@@ -236,3 +236,28 @@ limit and suggested precise URL acceptance rules. The author added the proposed
 remain proposals; no post-edit independent rereview, component test or source
 qualification is claimed. No old technical definition or validation artifact was
 changed to establish this codec by implication.
+
+## Scoped owner acceptance — 2026-10-28
+
+The owner answered “yes, go ahead” after the concrete PR #1133 proposal and
+these choices were presented: closed report/finding/file/URL records and
+ordering/count rules; the 2 KiB raw-excerpt component profile and explicit URI
+rules; and the exact stored-size/hash join into #744. These choices are accepted
+for documentation component fixtures and further source qualification. This
+supersedes pending-owner wording above for those named choices only.
+
+The accepted technical definitions are unchanged by this record. Approval does
+not establish captured source truth/custody, actual UI approval or runtime/role
+authority, complete admission, report-head publication or native/storage
+qualification. #740 and separately approved executable runtime plans remain
+gates. Build the bounded canonical R2 evaluation/evidence/correction-state packet;
+label synthetic context and unverified obligations explicitly.
+
+## Accepted-codec component packet — 2026-10-28
+
+The [report/R2 component packet](../../validation/r2-report-components.md) pins
+canonical report and #744 source/evaluation bytes, normalized correction requests
+and two logical head/material histories under synthetic captured context. It
+implements the accepted documentation-fixture handoff without qualifying actual
+approval/admission, source custody, report publication, #740 or runtime behavior.
+Existing technical definitions and prior fixture artifacts are preserved.
