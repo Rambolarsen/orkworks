@@ -84,7 +84,7 @@ let workspaceDisplayPath: string | null = null;
 let pendingWorkspaceDisplayPath: string | null = null;
 let menuPanelItems: Record<string, Electron.MenuItem> = {};
 let currentSettings: AppSettings | null = null;
-let providerModels: Map<string, string[]> = new Map();
+let providerModels = new Map<string, { models: string[]; modelOptions?: import("./providerTypes").ProviderModelOption[] }>();
 const peonModelCatalogCache = new Map<string, { models: ProviderModelOption[]; observedAt: string }>();
 let hotkeyCaptureActive = false;
 let openPlanToken = "";
@@ -96,13 +96,13 @@ type ElectronUpdateInfo = UpdateInfo & {
   downloadedFile?: string;
 };
 
-async function discoverProviderModels(port: number, providerId: string, ollamaBaseUrl?: string): Promise<string[]> {
+async function discoverProviderModels(port: number, providerId: string, ollamaBaseUrl?: string): Promise<{ models: string[]; modelOptions?: import("./providerTypes").ProviderModelOption[] }> {
   const response = await sidecarSend(port, `settings/providers/${encodeURIComponent(providerId)}/models`, {
     method: "POST",
     jsonBody: ollamaBaseUrl ? { baseUrl: ollamaBaseUrl } : {},
   });
   if (!response.ok) throw new Error("model discovery failed");
-  return (await response.json() as { models: string[] }).models;
+  return await response.json() as { models: string[]; modelOptions?: import("./providerTypes").ProviderModelOption[] };
 }
 
 async function listSessions(port: number): Promise<Array<{ lifecycle?: string }>> {
@@ -1106,7 +1106,7 @@ app.whenReady().then(async () => {
   const peonTransaction: PeonSelectionTransaction = createPeonSelectionTransaction({
     discover: async (provider, ollamaBaseUrl) => {
       const port = await restoration.getReadiness();
-      return discoverProviderModels(port, provider, ollamaBaseUrl);
+      return (await discoverProviderModels(port, provider, ollamaBaseUrl)).models;
     },
     verify: async ({ provider, ollamaBaseUrl, generation, readyPort, signal }) => {
       const port = readyPort ?? await restoration.getReadiness();
@@ -1677,13 +1677,13 @@ app.whenReady().then(async () => {
     const ollamaBaseUrl = providerId === "ollama" ? persistedOllamaBaseUrl() : undefined;
     const cacheKey = providerModelCacheKey(providerId, ollamaBaseUrl);
     if (providerModels.has(cacheKey)) {
-      return { models: providerModels.get(cacheKey)! };
+      return providerModels.get(cacheKey)!;
     }
     try {
       const port = await restoration.getReadiness();
-      const models = await discoverProviderModels(port, providerId, ollamaBaseUrl);
-      providerModels.set(cacheKey, models);
-      return { models };
+      const catalog = await discoverProviderModels(port, providerId, ollamaBaseUrl);
+      providerModels.set(cacheKey, catalog);
+      return catalog;
     } catch {
       // Fall through to empty
     }

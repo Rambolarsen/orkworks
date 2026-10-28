@@ -454,6 +454,7 @@ mod tests {
                 ]
             };
             let info = crate::session_application::SessionApplication::new(state.clone()).create_session(crate::session_application::CreateSessionCommand {
+            reasoning_effort: None,
                 harness_id:Some(harness.clone()),model:None,
                 initial_prompt: if image_only {None} else {Some("For each image in order, give the circle color then rectangle color. Reply with only those four color names.".into())},
                 initial_images:inputs,expected_workspace_path:Some(root.path().display().to_string()),

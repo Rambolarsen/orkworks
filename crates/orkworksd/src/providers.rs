@@ -2396,11 +2396,32 @@ impl ProviderManager {
         })
     }
 
+    /// Interactive Codex effort discovery uses the actual launch executable,
+    /// independently of mutable background-inference model commands.
+    pub(crate) fn discover_codex_session_models(
+        &self,
+        executable: &str,
+    ) -> Result<Vec<ProviderModelOption>, String> {
+        let mut definition = native_inference::NativeProfile::Codex.definition();
+        definition.list_models_command = Some(executable.to_owned());
+        definition.list_models_args = vec!["app-server".into(), "--stdio".into()];
+        self.discover_codex_models(&definition)
+    }
+
     pub fn discover_provider_models(
         &self,
         provider_id: &str,
         ollama_base_url: Option<&str>,
     ) -> Result<Vec<String>, ProviderOperationError> {
+        self.discover_provider_model_options(provider_id, ollama_base_url)
+            .map(|options| options.into_iter().map(|option| option.id).collect())
+    }
+
+    pub fn discover_provider_model_options(
+        &self,
+        provider_id: &str,
+        ollama_base_url: Option<&str>,
+    ) -> Result<Vec<ProviderModelOption>, ProviderOperationError> {
         let definition = self.definition(provider_id)?;
         if definition.id == "ollama" {
             let base_url = ollama_base_url
@@ -2410,13 +2431,18 @@ impl ProviderManager {
             if !response.ok {
                 return Err(ollama_operation_error(&response));
             }
-            return Ok(response.models);
+            return Ok(simple_model_options(response.models));
         }
-        self.discover_models(&definition.id)
-            .map_err(|message| ProviderOperationError {
-                code: classify_invocation_error(&message),
-                message,
-            })
+        let discovered = if is_codex_app_server(&definition) {
+            self.discover_codex_models(&definition)
+        } else {
+            self.discover_models(&definition.id)
+                .map(simple_model_options)
+        };
+        discovered.map_err(|message| ProviderOperationError {
+            code: classify_invocation_error(&message),
+            message,
+        })
     }
 
     /// Discover models through Taskmaster's code-owned provider contract. This
@@ -5574,7 +5600,7 @@ for line in sys.stdin:
         );
 
         let options = manager
-            .discover_codex_models(&manager.definitions()[0])
+            .discover_codex_session_models(command.to_str().unwrap())
             .unwrap();
         assert_eq!(options[0].display_name, "GPT Live");
         assert_eq!(options[0].reasoning_efforts[0].id, "high");

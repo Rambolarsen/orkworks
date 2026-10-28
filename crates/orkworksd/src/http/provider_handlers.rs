@@ -54,13 +54,35 @@ pub(crate) async fn discover_provider_models(
         Ok(axum::Json(payload)) => Some(payload.base_url),
         Err(_) => None,
     };
+    let codex_executable = if provider_id == "codex" {
+        state
+            .harness_catalog
+            .read()
+            .expect("harness catalog lock poisoned")
+            .get("codex")
+            .map(|harness| harness.build_launch("/", None).program)
+    } else {
+        None
+    };
     let provider_manager = state.providers.clone();
     match tokio::task::spawn_blocking(move || {
-        provider_manager.discover_provider_models(&provider_id, base_url.as_deref())
+        if let Some(executable) = codex_executable {
+            return provider_manager
+                .discover_codex_session_models(&executable)
+                .map_err(|message| providers::ProviderOperationError {
+                    code: providers::ProviderOperationErrorCode::ProviderFailure,
+                    message,
+                });
+        }
+        provider_manager.discover_provider_model_options(&provider_id, base_url.as_deref())
     })
     .await
     {
-        Ok(Ok(models)) => axum::Json(serde_json::json!({ "models": models })).into_response(),
+        Ok(Ok(options)) => axum::Json(serde_json::json!({
+            "models": options.iter().map(|option| &option.id).collect::<Vec<_>>(),
+            "modelOptions": options,
+        }))
+        .into_response(),
         Ok(Err(error)) => provider_error_response(error),
         Err(_) => provider_error_response(providers::ProviderOperationError {
             code: providers::ProviderOperationErrorCode::ProviderFailure,

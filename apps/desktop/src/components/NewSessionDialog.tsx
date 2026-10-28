@@ -72,9 +72,13 @@ export default function NewSessionDialog({ workspacePath = "", harnesses, provid
   const [imageError, setImageError] = useState("");
   const [imageTools, setImageTools] = useState<string[]>([]);
   const fileInput = useRef<HTMLInputElement>(null);
-  const [modelCatalog, setModelCatalog] = useState<{ harnessId: string; models: string[] } | null>(null);
+  const [modelCatalog, setModelCatalog] = useState<(ProviderModelsResponse & { harnessId: string }) | null>(null);
   const models = modelCatalog?.harnessId === draft.harnessId ? modelCatalog.models : [];
   const selectedModel = models.includes(draft.model) ? draft.model : "";
+  const [reasoningEffort, setReasoningEffort] = useState("");
+  const efforts = draft.harnessId === "codex" && modelCatalog?.harnessId === draft.harnessId
+    ? modelCatalog.modelOptions?.find((option) => option.id === selectedModel)?.reasoningEfforts ?? [] : [];
+  const selectedEffort = efforts.some((effort) => effort.id === reasoningEffort) ? reasoningEffort : "";
   const [confirmBusy, setConfirmBusy] = useState(false);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const confirmationGeneration = useRef(0);
@@ -157,7 +161,7 @@ export default function NewSessionDialog({ workspacePath = "", harnesses, provid
     async function load() {
       try {
         const resp: ProviderModelsResponse = await window.orkworks.getProviderModels(draft.harnessId);
-        if (!cancelled) setModelCatalog({ harnessId: draft.harnessId, models: resp.models });
+        if (!cancelled) setModelCatalog({ harnessId: draft.harnessId, models: resp.models, modelOptions: resp.modelOptions });
       } catch {
         if (!cancelled) setModelCatalog({ harnessId: draft.harnessId, models: [] });
       }
@@ -168,6 +172,7 @@ export default function NewSessionDialog({ workspacePath = "", harnesses, provid
   }, [draft.harnessId]);
 
   function handleHarnessChange(id: string) {
+    setReasoningEffort("");
     const h = selectable.find((h) => h.id === id);
     setDraft({
       harnessId: id,
@@ -209,7 +214,7 @@ export default function NewSessionDialog({ workspacePath = "", harnesses, provid
       if (model) localStorage.setItem(LS_MODEL_KEY, model);
       else localStorage.removeItem(LS_MODEL_KEY);
       setImageError("");
-      await onConfirm({ harnessId, model, initialPrompt: initialPrompt.trim() || undefined,
+      await onConfirm({ harnessId, model, ...(selectedEffort ? { reasoningEffort: selectedEffort } : {}), initialPrompt: initialPrompt.trim() || undefined,
         ...(imagesRef.current.length ? {imageWorkspacePath: workspacePath, initialImages: imagesRef.current.map(({name,mimeType,dataBase64}) => ({name,mimeType,dataBase64}))} : {}),
       });
     } catch (error) {
@@ -217,7 +222,7 @@ export default function NewSessionDialog({ workspacePath = "", harnesses, provid
     } finally {
       if (generation === confirmationGeneration.current) setConfirmBusy(false);
     }
-  }, [confirmBusy, detectedHarnessIds, draft.harnessId, selectedModel, imageTools, initialPrompt, onConfirm, selectable, workspacePath]);
+  }, [selectedEffort, confirmBusy, detectedHarnessIds, draft.harnessId, selectedModel, imageTools, initialPrompt, onConfirm, selectable, workspacePath]);
 
   function handleKeyDown(e: React.KeyboardEvent) {
     // Buttons own Enter so keyboard attachment/removal/cancellation cannot submit.
@@ -290,7 +295,7 @@ export default function NewSessionDialog({ workspacePath = "", harnesses, provid
                 aria-label="Model"
                 disabled={confirmBusy || models.length === 0}
                 value={selectedModel}
-                onChange={(e) => setDraft((current) => ({ ...current, model: e.target.value }))}
+                onChange={(e) => { setReasoningEffort(""); setDraft((current) => ({ ...current, model: e.target.value })); }}
               >
                 <option value="">{!draft.harnessId || draft.harnessId === "generic-shell" ? "default settings" : "my default model"}</option>
                 {models.map((model) => (
@@ -298,7 +303,16 @@ export default function NewSessionDialog({ workspacePath = "", harnesses, provid
                 ))}
               </select>
               <ChevronDown size={16} aria-hidden="true" />
-            </span>.</span>
+            </span></span>
+            {efforts.length > 0 && <span className="new-session-phrase"> with <span className="new-session-choice">
+              <select id="nsd-effort" className="new-session-select" aria-label="Reasoning effort"
+                disabled={confirmBusy} value={selectedEffort} onChange={(event) => setReasoningEffort(event.target.value)}>
+                <option value="">tool default effort</option>
+                {efforts.map((effort) => <option key={effort.id} value={effort.id}>{effort.id} effort</option>)}
+              </select>
+              <ChevronDown size={16} aria-hidden="true" />
+            </span></span>}.
+
           </p>
           <h2 id="new-session-title"><label htmlFor="nsd-prompt">What can I do for you today?</label></h2>
         </header>

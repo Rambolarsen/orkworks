@@ -399,6 +399,7 @@ pub(crate) async fn create_session(
     let projection_state = state.clone();
     SessionApplication::new(state)
         .create_session(crate::session_application::CreateSessionCommand {
+            reasoning_effort: req.reasoning_effort,
             initial_images: req.initial_images,
             expected_workspace_path: req.expected_workspace_path,
             harness_id: req.harness_id,
@@ -1055,6 +1056,8 @@ pub(crate) struct CreateSessionRequest {
     pub(crate) harness_id: Option<String>,
     #[serde(default)]
     pub(crate) model: Option<String>,
+    #[serde(rename = "reasoningEffort", default)]
+    pub(crate) reasoning_effort: Option<String>,
     #[serde(rename = "initialPrompt", default)]
     pub(crate) initial_prompt: Option<String>,
 }
@@ -6689,6 +6692,7 @@ mod tests {
             State(state.clone()),
             HeaderMap::new(),
             Json(CreateSessionRequest {
+                reasoning_effort: None,
                 initial_images: Vec::new(),
                 expected_workspace_path: None,
                 harness_id: Some("generic-shell".into()),
@@ -6832,6 +6836,7 @@ mod tests {
             State(state.clone()),
             HeaderMap::new(),
             Json(CreateSessionRequest {
+                reasoning_effort: None,
                 initial_images: Vec::new(),
                 expected_workspace_path: None,
                 harness_id: Some("generic-shell".into()),
@@ -6900,6 +6905,7 @@ mod tests {
             State(state.clone()),
             HeaderMap::new(),
             Json(CreateSessionRequest {
+                reasoning_effort: None,
                 initial_images: Vec::new(),
                 expected_workspace_path: None,
                 harness_id: Some("generic-shell".into()),
@@ -6988,6 +6994,7 @@ mod tests {
             State(state.clone()),
             HeaderMap::new(),
             Json(CreateSessionRequest {
+                reasoning_effort: None,
                 initial_images: Vec::new(),
                 expected_workspace_path: None,
                 harness_id: Some("generic-shell".into()),
@@ -7054,6 +7061,7 @@ mod tests {
             State(state.clone()),
             HeaderMap::new(),
             Json(CreateSessionRequest {
+                reasoning_effort: None,
                 initial_images: Vec::new(),
                 expected_workspace_path: None,
                 harness_id: Some("generic-shell".into()),
@@ -7115,6 +7123,7 @@ mod tests {
             State(state.clone()),
             HeaderMap::new(),
             Json(CreateSessionRequest {
+                reasoning_effort: None,
                 initial_images: Vec::new(),
                 expected_workspace_path: None,
                 harness_id: Some("generic-shell".into()),
@@ -7168,6 +7177,7 @@ mod tests {
             State(state.clone()),
             HeaderMap::new(),
             Json(CreateSessionRequest {
+                reasoning_effort: None,
                 initial_images: Vec::new(),
                 expected_workspace_path: None,
                 harness_id: Some("generic-shell".into()),
@@ -7234,6 +7244,7 @@ mod tests {
             State(state.clone()),
             HeaderMap::new(),
             Json(CreateSessionRequest {
+                reasoning_effort: None,
                 initial_images: Vec::new(),
                 expected_workspace_path: None,
                 harness_id: Some("generic-shell".into()),
@@ -7271,6 +7282,7 @@ mod tests {
             State(state.clone()),
             HeaderMap::new(),
             Json(CreateSessionRequest {
+                reasoning_effort: None,
                 initial_images: Vec::new(),
                 expected_workspace_path: None,
                 harness_id: Some("generic-shell".into()),
@@ -9325,6 +9337,7 @@ mod tests {
         let launch = resolve_session_launch(
             &registry,
             &CreateSessionCommand {
+                reasoning_effort: None,
                 initial_images: Vec::new(),
                 expected_workspace_path: None,
                 harness_id: Some("codex".into()),
@@ -9346,6 +9359,7 @@ mod tests {
             State(state),
             HeaderMap::new(),
             Json(CreateSessionRequest {
+                reasoning_effort: None,
                 initial_images: Vec::new(),
                 expected_workspace_path: None,
                 harness_id: Some("gemini".into()),
@@ -9404,6 +9418,7 @@ mod tests {
             State(state.clone()),
             HeaderMap::new(),
             Json(CreateSessionRequest {
+                reasoning_effort: None,
                 initial_images: Vec::new(),
                 expected_workspace_path: None,
                 harness_id: Some("generic-shell".into()),
@@ -9457,6 +9472,7 @@ mod tests {
             State(state.clone()),
             HeaderMap::new(),
             Json(CreateSessionRequest {
+                reasoning_effort: None,
                 initial_images: Vec::new(),
                 expected_workspace_path: None,
                 harness_id: Some("opencode".into()),
@@ -9487,6 +9503,7 @@ mod tests {
         let launch = resolve_session_launch(
             &registry,
             &CreateSessionCommand {
+                reasoning_effort: None,
                 initial_images: Vec::new(),
                 expected_workspace_path: None,
                 harness_id: Some("opencode".into()),
@@ -9511,6 +9528,7 @@ mod tests {
         let launch = resolve_session_launch(
             &registry,
             &CreateSessionCommand {
+                reasoning_effort: None,
                 initial_images: Vec::new(),
                 expected_workspace_path: None,
                 harness_id: Some("opencode".into()),
@@ -9531,6 +9549,7 @@ mod tests {
         let launch = resolve_session_launch(
             &registry,
             &CreateSessionCommand {
+                reasoning_effort: None,
                 initial_images: Vec::new(),
                 expected_workspace_path: None,
                 harness_id: Some("codex".into()),

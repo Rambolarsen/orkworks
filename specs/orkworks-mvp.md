@@ -719,6 +719,13 @@ The first useful MVP should include:
   and an optional contextual inspector
 - New session uses a transient composer in the main content pane with a large
   prompt and inline coding tool/model choices in a friendly introduction above it.
+  Ordinary user-started sessions also offer optional Reasoning effort for verified
+  coding tool/model combinations. Initially this is Codex, using supported values
+  from its live model catalog and its native `model_reasoning_effort` CLI override.
+  Tool default omits the override. Explicit effort requires a selected catalog
+  model; the backend rejects unsupported tools/models/values before launch.
+  Changing coding tool or model clears effort. This choice affects only the new
+  interactive session, independently of background analysis and resume settings.
   Image attachments share the prompt surface. Empty workspaces show this
   composer. Cancel returns to previous content; Start opens the created terminal
   only after successful creation. Existing sessions continue running. Creation

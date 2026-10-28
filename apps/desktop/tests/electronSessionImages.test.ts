@@ -25,10 +25,11 @@ test("main negotiates support then sends only bounded creation data with authent
     calls.push({url,init});
     return new Response(JSON.stringify(init?.method === "POST" ? {id:"created"} : {version:1,supportedHarnesses:["codex"]}), {status:200});
   };
-  assert.deepEqual(await submitImageSession(1234,"secret",normalizeImageCreation(request()),undefined,fetchImpl), {id:"created"});
+  assert.deepEqual(await submitImageSession(1234,"secret",normalizeImageCreation({...request(),model:"gpt-test",reasoningEffort:"high"}),undefined,fetchImpl), {id:"created"});
   assert.equal(calls[1].url,"http://127.0.0.1:1234/sessions");
   assert.equal((calls[1].init?.headers as Record<string,string>)["x-orkworks-open-plan-token"],"secret");
   assert.equal(JSON.parse(calls[1].init?.body as string).expectedWorkspacePath,"/tmp/work");
+  assert.equal(JSON.parse(calls[1].init?.body as string).reasoningEffort,"high");
 });
 
 test("image submission has no acceptance-ambiguous timeout", async () => {

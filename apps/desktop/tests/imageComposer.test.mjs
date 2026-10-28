@@ -20,9 +20,18 @@ if (process.versions.electron) {
       await wait('document.querySelector("#nsd-model").options.length===3');
       assert.equal(await evaluate('document.querySelector("#nsd-model").value'),'','Unknown saved models must fall back to tool default');
       await evaluate('fixture.choose("#nsd-model","codex-fast")');
+      await wait('!!document.querySelector("#nsd-effort")');
+      assert.equal(await evaluate('document.querySelector("#nsd-effort").value'),'');
+      await evaluate('fixture.choose("#nsd-effort","high")');
       await evaluate('document.querySelector(".new-session-confirm").click()');
       await wait('fixture.submitted.length===1');
+      assert.equal(await evaluate('fixture.submitted[0].reasoningEffort'),'high');
       assert.equal(await evaluate('fixture.submitted.pop().model'),'codex-fast');
+      await evaluate('fixture.choose("#nsd-model","codex-review")');
+      assert.equal(await evaluate('!!document.querySelector("#nsd-effort")'),false);
+      await evaluate('fixture.choose("#nsd-model","codex-fast")');
+      await wait('!!document.querySelector("#nsd-effort")');
+      assert.equal(await evaluate('document.querySelector("#nsd-effort").value'),'');
       await evaluate('fixture.choose("#nsd-harness","other")');
       await wait('document.querySelector("#nsd-model").options.length===1');
       await evaluate('document.querySelector(".new-session-confirm").click()');
@@ -136,7 +145,7 @@ if (process.versions.electron) {
         fixture.choose=(selector,value)=>{const select=document.querySelector(selector);select.value=value;select.dispatchEvent(new Event('change',{bubbles:true}))};
         window.addEventListener('error',event=>fixture.errors.push(event.message));
         const originalRevoke=URL.revokeObjectURL.bind(URL);URL.revokeObjectURL=url=>{fixture.revoked++;originalRevoke(url)};
-        window.orkworks={getBackendUrl:async()=>'http://fixture',getProviderModels:async id=>{if(id==='codex')return {models:['codex-fast','codex-review']};if(id==='other'){if(fixture.failModels)throw new Error('offline');return new Promise(resolve=>fixture.finishOther=resolve)}return {models:[]}},getHarnessIntegrationStatus:async()=>{if(fixture.detectionFailure==='throw')throw new Error('detection transport failed');if(fixture.detectionFailure==='error')return {ok:false,error:'detection unavailable'};return {ok:true,status:{toolDetected:fixture.detectionFailure!=='missing'}}}};
+        window.orkworks={getBackendUrl:async()=>'http://fixture',getProviderModels:async id=>{if(id==='codex')return {models:['codex-fast','codex-review'],modelOptions:[{id:'codex-fast',reasoningEfforts:[{id:'low',description:'Fast'},{id:'high',description:'Deep'}]}]};if(id==='other'){if(fixture.failModels)throw new Error('offline');return new Promise(resolve=>fixture.finishOther=resolve)}return {models:[]}},getHarnessIntegrationStatus:async()=>{if(fixture.detectionFailure==='throw')throw new Error('detection transport failed');if(fixture.detectionFailure==='error')return {ok:false,error:'detection unavailable'};return {ok:true,status:{toolDetected:fixture.detectionFailure!=='missing'}}}};
         window.fetch=async()=>new Response(JSON.stringify({version:1,supportedHarnesses:['codex']}));
         fixture.file=name=>new File([Uint8Array.from(atob(fixture.png),char=>char.charCodeAt(0))],name,{type:'image/png'});
         fixture.drop=files=>{const data=new DataTransfer();files.forEach(file=>data.items.add(file));document.querySelector('.new-session-composer').dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:data}))};
