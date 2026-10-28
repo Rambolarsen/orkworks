@@ -405,6 +405,46 @@ test("workspace transitions reject session admissions and foreground submission"
   controller.dispose();
 });
 
+for (const invalidation of ["admission", "workspace", "dispose"] as const) {
+  test(`creation does not dispatch after ${invalidation} changes during backend lookup`, async () => {
+    const backend = deferred<string>();
+    const requests: CreateSessionOptions[] = [];
+    const snapshots: string[][] = [];
+    const errors: string[] = [];
+    let delayBackend = true;
+    const controller = createWorkspaceSessionController({
+      deps: deps({
+        getBackendUrl: () => delayBackend ? backend.promise : Promise.resolve("http://replacement"),
+        createSession: async (_url, options) => {
+          requests.push(options ?? {});
+          return session("unexpected", "creating", "creating");
+        },
+      }),
+      onSessions: rows => snapshots.push(rows.map(row => row.id)),
+      onError: error => errors.push(error.key),
+      scheduler: scheduler().scheduler,
+    });
+    const pending = controller.createSession({ harnessId: "codex", initialPrompt: "original task" });
+    delayBackend = false;
+    if (invalidation === "admission") {
+      controller.setAdmissionEnabled(false);
+      controller.setAdmissionEnabled(true);
+    } else if (invalidation === "workspace") {
+      await controller.adoptRestoredWorkspace(workspace("/replacement"));
+    } else {
+      controller.dispose();
+    }
+    const published = snapshots.length;
+    backend.resolve("http://replacement");
+
+    assert.equal(await pending, false);
+    assert.deepEqual(requests, [], "an invalidated creation must not reach either backend");
+    assert.equal(snapshots.length, published, "stale creation must not publish a session");
+    assert.deepEqual(errors, [], "a stale operation must not report an error in the new context");
+    controller.dispose();
+  });
+}
+
 test("disabling admission invalidates an in-flight create", async () => {
   const create = deferred<SessionInfo>();
   const active: Array<string | null> = [];

@@ -305,6 +305,7 @@ export function createWorkspaceSessionController(
     const token = ++foregroundGeneration;
     try {
       const baseUrl = await deps.getBackendUrl();
+      if (!isCurrent(token) || !isCurrentAdmission(admissionToken)) return false;
       const created = await deps.createSession(baseUrl, optionsForCreate);
       if (!isCurrent(token) || !isCurrentAdmission(admissionToken)) return false;
       // A list started while creation was pending may not include this record.
