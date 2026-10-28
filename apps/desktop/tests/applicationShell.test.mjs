@@ -1191,7 +1191,6 @@ if (process.versions.electron) {
           }
           await win.setContentSize(640,700);
           await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
-          await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
           await click('sessions');
           await waitFor('document.getElementById("sessions-list")===document.activeElement');
           assert.ok(await evaluate('document.querySelector("[data-shell-region=sessions] [data-shell-settings]").getBoundingClientRect().bottom<=innerHeight'),'compact footer remains reachable');
