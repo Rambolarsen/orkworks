@@ -44,6 +44,31 @@ create one before implementation.
 If the issue board is inaccessible, do not guess at priorities. Stop and tell
 the user that board access is required before picking or closing work.
 
+## Session availability checks
+
+At session startup, reuse the supplied tool inventory and successful checks
+from the same agent execution environment. Check any additional required tool
+once, when first needed; do not run a blanket inventory of unused tools.
+A successful useful invocation establishes availability without a separate
+`command -v`, version, authentication, or connectivity probe.
+
+For GitHub, let the first useful read of the exact target (for example, the
+requested issue or repository issue list) also establish target access. Reuse
+that success for the same host, identity, target, and access path in this
+session. Run connectivity/authentication diagnostics only after a relevant
+failure, following the GitHub connectivity skill.
+
+Recheck the affected capability after a failure or a change to the execution
+environment, sandbox/network policy, tool configuration, credentials/identity,
+or target. An OrkWorks app-startup check or another session's result does not
+establish access inside this agent's execution environment. Keep only
+non-secret results in session context; no persistent availability cache or
+startup hook is required by this policy.
+
+Availability does not establish action authorization or write permission.
+Task-specific ownership checks, product capability gates, and required fresh
+verification remain in force.
+
 ## Branch and PR workflow
 
 `main` is the trunk, not the workspace. All changes — code and docs alike — land through branches and PRs.

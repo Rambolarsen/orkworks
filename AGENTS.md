@@ -88,6 +88,8 @@ If the board is inaccessible, stop rather than guess priorities or close work.
 For work outside spec coverage, comment on the issue and request a spec update;
 create an issue before implementing specified work that has none.
 
+Reuse successful availability checks within the same agent execution environment;
+follow [session availability checks](docs/agents/development-workflow.md#session-availability-checks).
 Before GitHub work, use
 [troubleshooting-github-connectivity](skills/troubleshooting-github-connectivity/SKILL.md)
 to confirm an authorized path to the exact target. A sandbox block is not an
