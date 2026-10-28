@@ -815,3 +815,17 @@ the existing detail budgets. Source/material codecs, summary revision semantics
 and the narrow immutable-record read are unchanged. The new response/display/
 viewing choices await scoped owner/producer review; no runtime handoff or broader
 projection acceptance follows from merging the proposal.
+
+## Scoped current-summary viewing acceptance — 2026-10-28
+
+The owner [accepted #1089's current-summary read/display/viewing choices](2026-10-26-hierarchy-summary-detail-design.md#scoped-owner-acceptance-and-review-handoff--2026-10-28)
+for documentation fixtures and further qualification. This supersedes pending
+owner review in the preceding proposal handoff for those choices only. Explicit
+opening plus complete material presentation in the active visible summary surface
+can mark the exact local viewed identity; hidden fetches, raw-record inspection
+and stale responses cannot. No full-scroll/read claim or extra confirmation click
+is introduced. Unchanged material keeps its durable viewed identity even when
+detail-only changes invalidate the snapshot. Existing codecs, limits and the
+fixture-only preview boundary are unchanged. Producer/writer/source/packing and
+storage/native qualification, #740 and separately approved executable runtime
+plans remain gates; keep #746 and #1089 open.

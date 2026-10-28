@@ -355,3 +355,41 @@ After the builder check, an author clarification explicitly lists detail-only
 source/metric changes in snapshot invalidation coverage. It implements the
 draft's intended exact-snapshot coherence without adding a counter or material
 field. No second independent review of that clarification is claimed.
+
+## Scoped owner acceptance and review handoff — 2026-10-28
+
+After a read-only comparison against #744 aggregation and reviewer/currentness
+rules, the accepted read/recovery material and record-read boundaries, and #746
+result-detail/viewed semantics, the author reported no blocking contract mismatch.
+This was an authored contract review, not independent producer implementation
+evidence, executed codecs or native qualification.
+
+The owner answered “yes, go ahead” after being presented with these three
+concrete choices and the documentation-fixture/qualification boundary:
+
+- A separate current-summary read bound to the exact result and snapshot.
+- Completeness and quality displays that preserve uncertainty and known failures.
+- Local viewed marking after explicit opening and complete material presentation,
+  without another confirmation click.
+
+These reviewed choices are accepted for documentation fixtures and further
+qualification. This supersedes the pending owner-review wording above only for
+this operation/selector, response/display and viewed-summary contract, including
+the specified detail-only snapshot invalidation and unchanged read budgets.
+It does not replace #744's aggregate authority or amend accepted source/material
+bytes, immutable-record reads, durable revision rules or storage limits. Technical
+sections and existing fixture artifacts are unchanged by this decision record.
+
+The reviewed counterexamples distinguish stale required C1 from stale optional O,
+retain an independent C2 failure, preserve Unassessed contributors and individual
+conflicting ratings, and fence changed snapshot/selection data before viewed
+marking. These remain logical review cases, not executed source-valid fixtures.
+
+Next is a bounded documentation fixture/checker task for exact requests/responses,
+strict rejection, stale-selection and metric/viewing cases. Complete source/packing
+and producer/writer invalidation coverage must be qualified separately; this
+acceptance does not claim those proofs or a production-supported slice. Keep
+#1089 open for that producer/qualification handoff. #744/#746's broader component,
+storage/native and #740 capability gates and separately approved executable
+runtime plans remain independent. No runtime, database, migration, native/model
+probe or launch eligibility is authorized.
