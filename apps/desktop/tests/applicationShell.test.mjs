@@ -1071,6 +1071,12 @@ if (process.versions.electron) {
           await evaluate('document.querySelector(".session-detail [data-resume-toggle]").click()');
           await waitFor('document.querySelector(".session-detail [data-resume-options]")');
           assert.ok(await evaluate('(()=>{const panel=document.querySelector(".session-detail").getBoundingClientRect();const menu=document.querySelector(".session-detail [data-resume-options]").getBoundingClientRect();return menu.left>=panel.left&&menu.right<=panel.right})()'),'Details choices stay inside the narrow inspector scrollport');
+          await evaluate('document.querySelector(".session-detail [data-resume-strategy=latest_cwd]").click()');
+          await waitFor('document.querySelector("[data-resume-warning]")?.open');
+          await evaluate('const cancel=document.querySelector("[data-resume-warning] button");cancel.dispatchEvent(new PointerEvent("pointerdown",{bubbles:true}));cancel.click()');
+          await waitFor('!document.querySelector("[data-resume-warning]")');
+          assert.equal(await evaluate('!!document.querySelector(".session-detail")'),true,'warning interaction preserves its Details inspector');
+          assert.equal(await evaluate('fixture.resumed.length'),1,'cancelling the Details warning does not resume');
           await click('details');
           await evaluate('fixture.resumed=[];document.querySelector("[data-resume-toggle]").click()');
           await waitFor('document.querySelector("[data-resume-options]")');

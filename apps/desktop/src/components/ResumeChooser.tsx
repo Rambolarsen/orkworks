@@ -83,7 +83,7 @@ export default function ResumeChooser({ options, onSelect, header = false, pendi
           <span className="resume-option-sub">{option.sub}</span></span>
       </button>)}
     </div>}
-    {pending && createPortal(<dialog ref={warning} className="resume-warning" data-resume-warning aria-labelledby={`${id}-warning-title`}
+    {pending && createPortal(<dialog ref={warning} role="dialog" className="resume-warning" data-resume-warning aria-labelledby={`${id}-warning-title`}
       onCancel={event => { event.preventDefault(); cancel(); }} onKeyDown={event => event.stopPropagation()}>
       <h2 id={`${id}-warning-title`}><AlertTriangle size={20} aria-hidden="true" />This may open a different session</h2>
       <p><strong>{pending.label}</strong> resumes the newest conversation {pending.strategy === "latest_cwd" ? "in this folder" : "in this repository"}. It may not be the conversation selected in OrkWorks.</p>
