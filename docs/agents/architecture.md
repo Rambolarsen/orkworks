@@ -501,6 +501,18 @@ or UUID-validated handoff command, with AutoRun/delayed expansion disabled, to
 support npm command shims. General links remain HTTP(S)-only. See the
 [native application contract](harness-integration-contracts.md#native-application-opening).
 
+### Desktop skill management
+
+[ADR 0097](../adr/0097-desktop-skill-management.md) places skill discovery and
+qualified APM execution in Electron main. `skillInventory.ts` inventories known
+Workspace/Personal roots; `skillInstall.ts` owns private previews, input
+fingerprints, single-use review IDs and per-destination install exclusion. Narrow
+preload operations expose inventory/detail, native local-source selection,
+preview and confirmed install. The renderer never receives a general filesystem
+or command-execution API. Source and installed-profile coverage is recorded in
+[skill management qualification](../validation/skills-management.md). Installed
+skills do not establish native loading/use or change session lifecycle authority.
+
 ## Frontend → backend API
 
 [ADR 0092](../adr/0092-workspace-update-stream.md) adds one workspace-scoped

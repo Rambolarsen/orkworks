@@ -3087,3 +3087,26 @@ html, body, #root {
 .readiness-panel button:disabled { opacity: .5; }
 .readiness-panel button:focus-visible, .readiness-panel select:focus-visible, .readiness-panel summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .readiness-summary p { margin: 6px 0; }
+
+/* Workspace and personal skill inventory inside Settings. */
+.skills-settings { display: grid; gap: 16px; min-width: 0; color: var(--text-primary); }
+.skills-settings h2, .skills-settings h3, .skills-settings h4, .skills-settings p { margin: 0; }
+.skills-settings p { line-height: 1.5; overflow-wrap: anywhere; }
+.skills-heading, .skills-row-heading, .skills-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.skills-heading { justify-content: space-between; align-items: flex-start; }
+.skills-heading > div:first-child { flex: 1 1 220px; }
+.skills-heading h2 { margin-bottom: 8px; }
+.skills-filters { display: flex; flex-wrap: wrap; gap: 12px; }
+.skills-settings label { display: grid; gap: 6px; min-width: 0; flex: 1 1 180px; }
+.skills-settings input, .skills-settings select { box-sizing: border-box; width: 100%; max-width: 100%; }
+.skills-group, .skills-add, .skills-preview, .skills-detail { display: grid; gap: 12px; min-width: 0; }
+.skills-add, .skills-preview, .skills-row, .skills-detail { border: 1px solid var(--border-default); border-radius: 8px; padding: 14px; }
+.skills-row { display: grid; gap: 8px; min-width: 0; }
+.skills-row button { justify-self: start; }
+.skills-badge { font-size: 11px; border: 1px solid currentColor; padding: 2px 7px; border-radius: 12px; }
+.skills-tool-coverage, .skills-path, .skills-coverage { font-size: 12px; opacity: .8; }
+.skills-settings pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 360px; overflow: auto; font-size: 12px; padding: 12px; background: rgba(0,0,0,.12); }
+.skills-settings code, .skills-settings li { overflow-wrap: anywhere; }
+.skills-settings ul { padding-left: 20px; }
+.skills-coverage summary { cursor: pointer; }
+.skills-settings [role=alert] { color: var(--state-error); }

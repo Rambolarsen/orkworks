@@ -124,3 +124,5 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 - [Repository agent-readiness scores and local history](0095-repository-agent-readiness-history.md) — Superseded in part by [ADR 0096](0096-readiness-workflow-suggestions.md); standalone score/history boundaries remain accepted.
 
 - [Readiness workflow suggestions](0096-readiness-workflow-suggestions.md) — Accepted (#1091); owner approved design and implementation on 2026-10-27.
+
+- [0097: Desktop-owned skill management](0097-desktop-skill-management.md) — Accepted Electron-main inventory and qualified APM install boundary.

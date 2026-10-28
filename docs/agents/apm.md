@@ -27,11 +27,13 @@ The committed `scripts/doc-check.sh` is the harness-neutral doc-diff detector. T
 
 The APM lifecycle in `apm.yml` removes the incompatible Superpowers `SessionStart` registration from generated Codex hooks after installs and updates. Lifecycle commands are trust-gated; on a new checkout, run `apm lifecycle trust` once before `apm install` or `apm update` if you want that repair to run automatically. The repair is also available directly as `bash scripts/repair-codex-session-start-hooks.sh`.
 
-## Proposed product skill management
+## Product skill management
 
 The [workspace and personal skills proposal](../../specs/workspace-skills.md)
-covers user-facing inventories and qualified APM additions. It is proposed, not
-current product behavior; this guide describes this repository's development setup.
+defines the approved user-facing inventory and qualified APM additions.
+See [qualification evidence](../validation/skills-management.md) for the initial
+local-only profile and discovery gaps. The rest of this guide describes this
+repository's development setup, not a universal installer configuration.
 
 ## Superpowers
 

@@ -1,6 +1,6 @@
 # Workspace and personal skills
 
-- Status: proposed; owner review required before runtime implementation.
+- Status: owner-approved design, 2026-10-28; runtime implementation in progress.
 - Date: 2026-10-28
 - Tracking: [#1118](https://github.com/Rambolarsen/orkworks/issues/1118)
 
@@ -192,8 +192,10 @@ version during implementation):
 - [APM package installation](https://microsoft.github.io/apm/consumer/install-packages/)
   documents source forms and separate instruction compilation.
 
-Owner decision requested: approve this two-scope inventory and qualified APM-add
-design, including explicit fallback when a package cannot be reviewed safely.
+Owner approved this two-scope inventory and qualified APM-add design with “go
+ahead” on 2026-10-28, including explicit fallback when a package cannot be
+reviewed safely. This approves the architecture and dependent implementation,
+not a claim that any installation profile is already qualified.
 
 ## Design review
 

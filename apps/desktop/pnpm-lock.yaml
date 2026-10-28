@@ -39,6 +39,9 @@ importers:
       fs-ext:
         specifier: ^2.1.1
         version: 2.1.1
+      js-yaml:
+        specifier: ^5.4.3
+        version: 5.4.3
       lucide-react:
         specifier: ^1.56.0
         version: 1.59.0(@types/react@19.3.0)(react@19.3.0)
@@ -76,9 +79,6 @@ importers:
       esbuild:
         specifier: ^0.28.1
         version: 0.28.2
-      js-yaml:
-        specifier: ^5.4.3
-        version: 5.4.3
       typescript:
         specifier: ^5.9.0
         version: 5.9.3

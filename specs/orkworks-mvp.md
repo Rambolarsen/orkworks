@@ -193,11 +193,11 @@ Repo skills should not redefine the OrkWorks protocol.
 
 OrkWorks should treat repo skills as instructions for agents, not as the source of application lifecycle logic.
 
-### Proposed skill inventory and installation
+### Skill inventory and installation
 
-The [workspace and personal skills proposal](workspace-skills.md) defines a
-review-pending extension for displaying both scopes and explicit APM additions.
-It grants no implementation or agent lifecycle authority until owner approval.
+The owner-approved [workspace and personal skills design](workspace-skills.md)
+extends the desktop with separate scope inventories and explicitly reviewed APM
+additions. It grants no agent lifecycle or orchestration authority.
 
 ## Metadata and Attention Source Priority
 

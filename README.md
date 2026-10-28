@@ -325,6 +325,16 @@ opencode /Users/froomiebot/workspace/orkworks
 
 This repo manages project-scoped MCP server configuration through `apm.yml`, not by hand-editing per-client config files. None are currently declared; add entries under `apm.yml`'s `dependencies.mcp` and run `apm install` from the repo root to materialize client-specific config.
 
+## Workspace and personal skill management
+
+Current source builds include **Settings → Skills**, with separate Workspace and
+Personal inventories, source paths, search and coding-tool filtering. The initial
+APM add profile supports local standalone skills for Codex in either scope;
+remote or broader packages show an explained terminal fallback. See the
+[skill management contract](specs/workspace-skills.md) and
+[qualification limits](docs/validation/skills-management.md). This does not claim
+that published installers already include the feature.
+
 ## Repo skills
 
 The `skills/` directory contains repo-level agent skills that are committed with the project. These follow the [Agent Skills standard](https://agentskills.io/specification) — each skill is a directory with a `SKILL.md` file (YAML frontmatter + markdown body).

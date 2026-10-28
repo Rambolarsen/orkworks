@@ -230,3 +230,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Hierarchy UI preview](2026-10-26-hierarchy-ui-preview.md) — Fixture-backed interaction preview and bounded implementation handoff.
 
 - [Readiness assessment and grounded suggestions](2026-10-26-readiness-suggestions.md) — Approved combined action, evidence, qualification and recovery for #1091.
+
+- [Workspace and personal skills](2026-10-28-workspace-personal-skills.md) — Approved two-scope inventory and qualified APM add implementation.
