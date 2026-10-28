@@ -40,6 +40,27 @@ if (process.versions.electron) {
       await wait('document.querySelector("#nsd-model").options.length===1');
       await evaluate('fixture.choose("#nsd-harness","codex")');
       await wait('document.querySelector("#nsd-model").options.length===3');
+      // A failed fresh preflight must explain the rejection without replacing
+      // the selected coding tool or losing the editable launch draft.
+      await evaluate('fixture.choose("#nsd-model","codex-fast");fixture.paste(fixture.file("preflight.png"),"keep this launch draft")');
+      await wait('document.querySelectorAll(".new-session-image-list li").length===1');
+      for (const failure of ['missing','error','throw']) {
+        await evaluate(`fixture.detectionFailure=${JSON.stringify(failure)};document.querySelector(".new-session-confirm").click()`);
+        await wait('document.querySelector("[role=alert]")?.textContent.includes("try again") && !document.querySelector(".new-session-confirm").disabled');
+        assert.equal(await evaluate('fixture.submitted.length'),0,'failed preflight never submits a creation request');
+        assert.equal(await evaluate('document.querySelector("#nsd-harness").value'),'codex','failed preflight never substitutes another tool');
+        assert.equal(await evaluate('document.querySelector("#nsd-model").value'),'codex-fast');
+        assert.equal(await evaluate('document.querySelector("#nsd-prompt").value'),'keep this launch draft');
+        assert.equal(await evaluate('document.querySelectorAll(".new-session-image-list li").length'),1);
+      }
+      await evaluate('fixture.detectionFailure=null;document.querySelector(".new-session-confirm").click()');
+      await wait('fixture.submitted.length===1');
+      assert.equal(await evaluate('fixture.submitted[0].harnessId'),'codex');
+      assert.equal(await evaluate('fixture.submitted[0].model'),'codex-fast');
+      assert.equal(await evaluate('fixture.submitted[0].initialPrompt'),'keep this launch draft');
+      assert.deepEqual(await evaluate('fixture.submitted.pop().initialImages.map(image=>image.name)'),['preflight.png']);
+      assert.equal(await evaluate('!!document.querySelector("[role=alert]")'),false,'successful retry clears the preflight error');
+      await evaluate('Array.from(document.querySelectorAll("button[aria-label]")).find(button=>button.getAttribute("aria-label")==="Remove preflight.png").click();fixture.clearPrompt()');
       // Drop, paste (including mixed text), and picker all use real browser File/Blob decoding.
       await evaluate('fixture.drop([fixture.file("drop.png")])');
       await wait('document.querySelectorAll(".new-session-image-list li").length===1');
@@ -111,10 +132,11 @@ if (process.versions.electron) {
         window.fixture={png:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',submitted:[],revoked:0,pickerClicks:0,errors:[]};
         const fixture=window.fixture;
         localStorage.setItem('orkworks-new-session-harnessId','codex');localStorage.setItem('orkworks-new-session-model','removed-model');
+        fixture.clearPrompt=()=>{const prompt=document.querySelector('#nsd-prompt');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(prompt,'');prompt.dispatchEvent(new Event('input',{bubbles:true}))};
         fixture.choose=(selector,value)=>{const select=document.querySelector(selector);select.value=value;select.dispatchEvent(new Event('change',{bubbles:true}))};
         window.addEventListener('error',event=>fixture.errors.push(event.message));
         const originalRevoke=URL.revokeObjectURL.bind(URL);URL.revokeObjectURL=url=>{fixture.revoked++;originalRevoke(url)};
-        window.orkworks={getBackendUrl:async()=>'http://fixture',getProviderModels:async id=>{if(id==='codex')return {models:['codex-fast','codex-review']};if(id==='other'){if(fixture.failModels)throw new Error('offline');return new Promise(resolve=>fixture.finishOther=resolve)}return {models:[]}},getHarnessIntegrationStatus:async()=>({ok:true,status:{toolDetected:true}})};
+        window.orkworks={getBackendUrl:async()=>'http://fixture',getProviderModels:async id=>{if(id==='codex')return {models:['codex-fast','codex-review']};if(id==='other'){if(fixture.failModels)throw new Error('offline');return new Promise(resolve=>fixture.finishOther=resolve)}return {models:[]}},getHarnessIntegrationStatus:async()=>{if(fixture.detectionFailure==='throw')throw new Error('detection transport failed');if(fixture.detectionFailure==='error')return {ok:false,error:'detection unavailable'};return {ok:true,status:{toolDetected:fixture.detectionFailure!=='missing'}}}};
         window.fetch=async()=>new Response(JSON.stringify({version:1,supportedHarnesses:['codex']}));
         fixture.file=name=>new File([Uint8Array.from(atob(fixture.png),char=>char.charCodeAt(0))],name,{type:'image/png'});
         fixture.drop=files=>{const data=new DataTransfer();files.forEach(file=>data.items.add(file));document.querySelector('.new-session-composer').dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:data}))};

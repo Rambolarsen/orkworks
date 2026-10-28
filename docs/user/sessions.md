@@ -21,6 +21,11 @@ automatically; no session starts until you choose **Start session**. **Cancel** 
 to the previous view. Existing sessions keep running while you compose.
 Published installers may still show the earlier creation popup.
 
+Current source builds recheck the chosen coding tool when you press **Start
+session**. If the check fails or the tool cannot be found, the composer explains
+the problem and keeps your tool, model, prompt and attachments. Check the tool
+settings or installation, then press **Start session** to retry.
+
 Current source builds can include images when starting a verified Codex version
 (currently Codex 0.163.0 on macOS arm64). Paste a screenshot, drop image files
 into the composer, or choose **Attach images**. Review the thumbnails and use

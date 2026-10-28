@@ -81,7 +81,6 @@ test("NewSessionDialog only offers detected coding tools and rechecks before sta
   assert.match(source, /getHarnessDetectionStatus/);
   assert.match(source, /detectedSelectableHarnesses/);
   assert.match(source, /const freshStatus = await getHarnessDetectionStatus\(selectedHarness\);/);
-  assert.match(source, /if \(freshStatus\.ok !== true \|\| !freshStatus\.status\.toolDetected\) return;/);
   assert.match(source, /const harnessesKey = useMemo/);
   assert.match(source, /\}, \[harnessesKey\]\);/);
   assert.match(source, /savedDraft && harnesses\.some\(\(harness\) => harness\.id === savedDraft\.harnessId/);
