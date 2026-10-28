@@ -11,3 +11,6 @@ apps/desktop/patches/*.patch whitespace=-blank-at-eol
 
 # Preserve the independently generated source-component catalog on Windows.
 docs/validation/root-preparation-source-vectors.json text eol=lf
+
+# Retain exact independent summary-detail fixture bytes on Windows.
+docs/validation/hierarchy-summary-vectors.json text eol=lf
