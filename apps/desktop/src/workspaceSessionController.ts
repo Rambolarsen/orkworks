@@ -46,6 +46,7 @@ export interface WorkspaceSessionControllerOptions {
   initialAdmissionEnabled?: boolean;
   onWorkspace?: (workspace: WorkspaceInfo | null) => void;
   onSessionSourceStatus?: (status: "loading" | "ready" | "unavailable") => void;
+  onResumingSessions?: (ids: ReadonlySet<string>) => void;
   onSessions?: (sessions: readonly SessionInfo[]) => void;
   onActiveSession?: (id: string | null, cause?: { deliberate?: boolean }) => void;
   onError?: (error: ControllerError) => void;
@@ -100,6 +101,13 @@ export function createWorkspaceSessionController(
   let stream: ReturnType<typeof startWorkspaceUpdates> | null = null;
   let streamHealthy = false;
   let workspaceGeneration = 0;
+  const pendingResumes = new Map<string, symbol>();
+  function publishResumes(): void { options.onResumingSessions?.(new Set(pendingResumes.keys())); }
+  function clearResumes(): void {
+    if (!pendingResumes.size) return;
+    pendingResumes.clear();
+    publishResumes();
+  }
   const pendingActions = new Set<string>();
   const pendingSnapshotActions = new Map<string, (list: readonly SessionInfo[]) => void>();
   let sessions: SessionInfo[] = [];
@@ -240,6 +248,7 @@ export function createWorkspaceSessionController(
     admissionGeneration += 1;
     foregroundGeneration += 1;
     if (!enabled) {
+      clearResumes();
       pendingSnapshotActions.clear();
       options.onSessionSourceStatus?.("unavailable");
       setPollingEnabled(false);
@@ -251,6 +260,7 @@ export function createWorkspaceSessionController(
     pendingSnapshotActions.clear();
     setPollingEnabled(false);
     workspacePath = path;
+    clearResumes();
     workspaceGeneration += 1;
     const token = ++foregroundGeneration;
     try {
@@ -273,6 +283,7 @@ export function createWorkspaceSessionController(
     pendingSnapshotActions.clear();
     setPollingEnabled(false);
     workspacePath = workspace?.path ?? null;
+    clearResumes();
     workspaceGeneration += 1;
     const token = ++foregroundGeneration;
     pendingCreateIds = new Set();
@@ -317,10 +328,14 @@ export function createWorkspaceSessionController(
 
   async function resumeSession(id: string): Promise<void> {
     const admissionToken = requireAdmission();
+    if (pendingResumes.has(id)) return;
+    const operation = Symbol();
+    pendingResumes.set(id, operation);
+    publishResumes();
     pendingSnapshotActions.delete(`${workspaceGeneration}:${id}`);
     const token = ++foregroundGeneration;
-    deps.disposeTerminal(id);
     try {
+      deps.disposeTerminal(id);
       const baseUrl = await deps.getBackendUrl();
       const resumed = await deps.resumeSession(baseUrl, id);
       if (!isCurrent(token) || !isCurrentAdmission(admissionToken)) return;
@@ -330,6 +345,11 @@ export function createWorkspaceSessionController(
       options.onActiveSession?.(resumed.id);
     } catch {
       if (isCurrent(token)) publishError("resume", "Couldn't resume session.");
+    } finally {
+      if (pendingResumes.get(id) === operation) {
+        pendingResumes.delete(id);
+        publishResumes();
+      }
     }
   }
 
@@ -426,6 +446,7 @@ export function createWorkspaceSessionController(
     if (disposed) return;
     setPollingEnabled(false);
     pendingSnapshotActions.clear();
+    clearResumes();
     disposed = true;
     foregroundGeneration += 1;
     pollingEpoch += 1;

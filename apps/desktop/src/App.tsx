@@ -95,6 +95,7 @@ function App() {
   }>({ status: null, currentVersion: null, channel: null });
   const [providerRuntime, setProviderRuntime] = useState<ProviderRuntimeResponse | null>(null);
   const [noProvidersPrompt, setNoProvidersPrompt] = useState(false);
+  const [resumingSessionIds, setResumingSessionIds] = useState<ReadonlySet<string>>(new Set());
   const [resumeTick, setResumeTick] = useState(0);
   const [harnesses, setHarnesses] = useState<HarnessConfigEntry[]>([]);
   const [harnessDocumentRevision, setHarnessDocumentRevision] = useState<string | null>(null);
@@ -122,6 +123,7 @@ function App() {
         setActiveHarnessIds(info?.activeHarnessIds ?? []);
       },
       onSessionSourceStatus: setSessionsSourceStatus,
+      onResumingSessions: setResumingSessionIds,
       onSessions: (next) => setSessions([...next]),
       onActiveSession: (sessionId, { deliberate } = {}) => {
         const generation = workspaceLifecycleRef.current.generation;
@@ -939,6 +941,7 @@ function App() {
         unreadIds={unreadState.unreadIds}
         acknowledgedIds={unreadState.acknowledgedIds}
         harnesses={harnesses}
+        resumingSessionIds={resumingSessionIds}
         resumeTick={resumeTick}
         onSelectSession={handleSelectSession}
         focusedRecommendationId={focusedRecommendationId}

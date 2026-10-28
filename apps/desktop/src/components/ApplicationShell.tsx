@@ -1,6 +1,6 @@
 import { isSessionAlive } from "../sessionRuntimeState";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { PanelLeft, PanelRight, Plus, ChevronDown, Play, Lightbulb, Settings, Pin, PinOff, X } from "lucide-react";
+import { PanelLeft, PanelRight, Plus, ChevronDown, LoaderCircle, Play, Lightbulb, Settings, Pin, PinOff, X } from "lucide-react";
 import type { CentralSurface } from "../shellNavigation";
 import type { SessionAction, SessionAttention, SessionInfo, WorkflowRecommendation, WorkspaceInfo } from "../api";
 import type { HarnessConfig } from "../harnessTypes";
@@ -56,6 +56,7 @@ interface Props {
   acknowledgedIds: ReadonlySet<string>;
   harnesses: HarnessConfig[];
   resumeTick: number;
+  resumingSessionIds?: ReadonlySet<string>;
   preferences: ShellPreferences;
   onPreferencesChange: (preferences: ShellPreferences) => void;
   onResetPreferences: () => Promise<boolean>;
@@ -117,6 +118,7 @@ export default function ApplicationShell(props: Props) {
   const showSessions = showSessionsPage || layout.sessionsVisible;
   const showInspector = !showSessionsPage && !recommendationsPage && layout.inspectorWidth > 0 && props.inspector !== null;
   const session = props.sessions.find(s => s.id === props.activeSessionId) ?? null;
+  const isResuming = !!session && !!props.resumingSessionIds?.has(session.id);
   const canResume = session?.lifecycle === "dead" && session.sessionState !== "archived"
     && props.backendStatus === "connected" && !props.isSwitchingWorkspace
     && resumeChoices(session).some(option => !option.unavailable);
@@ -322,7 +324,7 @@ export default function ApplicationShell(props: Props) {
       visibleSessionId={props.visibleSubjectId} harnesses={props.harnesses}
       onReviewChanges={() => runCommand("changes", true)}
       onReviewPlan={() => runCommand("review")} onRequestPlanReview={props.onRequestPlanReview}
-      onResumeSession={props.onResumeSession} onApplyDebugAttention={props.onApplyDebugAttention}
+      resumingSessionIds={props.resumingSessionIds} onResumeSession={props.onResumeSession} onApplyDebugAttention={props.onApplyDebugAttention}
       onOpenSettings={() => props.onOpenSettings("providers")} onOpenRecommendation={props.onOpenRecommendation}
       showDebugMetadata={props.debugSettings.showSessionIds} />;
     if (props.inspector === "actions") return <ActionsOverview key={actionsScope} model={actionsModel} focusRequest={actionFocusRequest.scope === actionsScope ? actionFocusRequest.sequence : 0}
@@ -421,6 +423,7 @@ export default function ApplicationShell(props: Props) {
             creationReturn.current = null;
             props.onSelectSession(id);
           }}
+          resumingSessionIds={props.resumingSessionIds}
           actionsEnabled={props.backendStatus === "connected" && !props.isSwitchingWorkspace}
           onSessionAction={props.onSessionAction} onResumeSession={props.onRowResumeSession ?? props.onResumeSession}
           onFocusTerminal={() => runCommand("terminal")} onOpenWorkspace={props.onOpenWorkspace} />
@@ -449,7 +452,8 @@ export default function ApplicationShell(props: Props) {
           {!showComposer && session && props.workspace && <SessionAppMenu key={`${props.workspaceGeneration}:${session.id}:${sourcesReady}`}
             workspacePath={props.workspace.workspaceIdentity || props.workspace.path} session={session} disabled={!sourcesReady} />}
           {!showComposer && canResume && <button type="button" className="shell-resume-button" data-shell-resume
-            onClick={() => session?.resumeStrategy === "exact" ? props.onResumeSession(session.id) : runCommand("details", true)}><Play size={15} aria-hidden="true" />Resume session</button>}
+            disabled={isResuming} aria-busy={isResuming}
+            onClick={() => session?.resumeStrategy === "exact" ? props.onResumeSession(session.id) : runCommand("details", true)}>{isResuming ? <><LoaderCircle size={15} className="status-indicator-spin" aria-hidden="true" /><span role="status">Resuming…</span></> : <><Play size={15} aria-hidden="true" />Resume session</>}</button>}
           {session?.hasOpenablePlan && props.onOpenReview && !showComposer && <button type="button" data-shell-command="review"
             aria-pressed={reviewing} disabled={props.reviewLoading || props.backendStatus !== "connected" || props.isSwitchingWorkspace}
             onClick={() => runCommand("review")}>{props.reviewLoading ? "Opening Review…" : "Review"}</button>}

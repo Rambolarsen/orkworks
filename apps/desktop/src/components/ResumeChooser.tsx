@@ -4,6 +4,7 @@ import { VOCAB } from "../labels";
 
 interface ResumeChooserProps {
   options: ResumeChoice[];
+  pending?: boolean;
   onSelect: (option: ResumeChoice) => void;
 }
 
@@ -27,9 +28,10 @@ function ResumeOptionGlyph({ recommended, unavailable }: { recommended?: boolean
  * reopen a process that isn't running. Unavailable options stay visible
  * (dimmed, with a reason) rather than being hidden.
  */
-function ResumeChooser({ options, onSelect }: ResumeChooserProps) {
+function ResumeChooser({ options, onSelect, pending = false }: ResumeChooserProps) {
   return (
     <div className="resume-chooser">
+      {pending && <div role="status">Resuming…</div>}
       <div className="resume-chooser-title">{VOCAB.resumeChooserTitle}</div>
       {options.map((option, i) => {
         const className = [
@@ -59,7 +61,7 @@ function ResumeChooser({ options, onSelect }: ResumeChooserProps) {
           );
         }
         return (
-          <button key={i} type="button" className={className} onClick={() => onSelect(option)}>
+          <button key={i} type="button" disabled={pending} className={className} onClick={() => onSelect(option)}>
             {content}
           </button>
         );
