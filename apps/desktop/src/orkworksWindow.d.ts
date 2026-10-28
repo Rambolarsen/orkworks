@@ -172,7 +172,12 @@ declare global {
       completeWorkspaceNavigation: (surface: LastCentralSurface) => Promise<ShellMemoryResult>;
       deleteWorkspaceNavigation: () => Promise<ShellMemoryResult>;
       rebuildWorkspaceNavigation: () => Promise<ShellMemoryRebuildResult>;
-      getSettings: () => Promise<AppSettings>;
+      getSkillInventory: () => Promise<import("./skillTypes").SkillInventory>;
+    readSkillDetail: (id: string) => Promise<string>;
+    pickSkillSource: () => Promise<string | null>;
+    previewSkillAdd: (request: import("./skillTypes").SkillAddRequest & { expectedWorkspace: string | null }) => Promise<import("./skillTypes").SkillPreview>;
+    installSkillAdd: (id: string) => Promise<import("./skillTypes").SkillInstallResult>;
+    getSettings: () => Promise<AppSettings>;
       getTaskmasterSettings: () => Promise<import("./taskmasterSettings").TaskmasterSettingsStatus>;
       getTaskmasterRunStatus: () => Promise<import("./taskmasterSettings").TaskmasterRunStatus>;
       refreshTaskmasterModels: (provider: "codex" | "ollama", ollamaBaseUrl?: string) => Promise<string[]>;

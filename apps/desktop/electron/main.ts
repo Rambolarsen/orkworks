@@ -1,3 +1,8 @@
+import { homedir } from "node:os";
+import { discoverSkills, readSkillDetail } from "./skillInventory";
+import type { SkillInventory } from "./skillTypes";
+import { SkillInstaller, findApm } from "./skillInstall";
+import { realpath } from "node:fs/promises";
 import { readGitChanges, validateGitChangesRequest } from "./gitChanges";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from "electron";
 import { spawn, execFile } from "child_process";
@@ -1420,6 +1425,52 @@ app.whenReady().then(async () => {
   }
   ipcMain.handle("inspect-session-app", (_event, expectedWorkspace: unknown, id: unknown) => sessionAppRequest(expectedWorkspace, id, false));
   ipcMain.handle("open-session-app", (_event, expectedWorkspace: unknown, id: unknown) => sessionAppRequest(expectedWorkspace, id, true));
+
+  let skillInventory: SkillInventory | null = null;
+  let inventoryGeneration = "";
+  const selectedSkillSources = new Set<string>();
+  const skillInstaller = new SkillInstaller({
+    home: homedir(), env: process.env, workspace: () => workspacePath,
+    workspaceRevision: () => `${workspacePath}/${backendGeneration}`,
+    confirm: async preview => {
+      const response = await dialog.showMessageBox(mainWindow!, {
+        type: "question", title: "Install skill", buttons: ["Cancel", "Install skill"], defaultId: 0, cancelId: 0,
+        message: `Install this ${preview.scope} skill?`,
+        detail: `${preview.scope === "personal" ? "Personal skills may be available across projects." : "Only the selected workspace/worktree is targeted."}\n\nSource: ${preview.source}\nDestination: ${preview.destination}\nCoding tool target: Codex\n\n${preview.summary}\n\nAffected paths/categories:\n${preview.paths.join("\n")}\n\nAPM runs as your user and is not sandboxed by OrkWorks.`,
+      });
+      return response.response === 1;
+    },
+  });
+  ipcMain.handle("get-skill-inventory", async () => {
+    const generation = `${workspacePath}/${backendGeneration}`;
+    const inventory = await discoverSkills({ workspace: workspacePath, home: homedir(), env: process.env });
+    if (generation !== `${workspacePath}/${backendGeneration}`) throw new Error("Workspace changed. Refresh skills.");
+    try { await findApm(process.env); inventory.apm = { available: true, message: "APM found. Installation profiles are checked during preview." }; }
+    catch { inventory.apm = { available: false, message: "APM was not found on the desktop PATH. Install it separately to add skills." }; }
+    skillInventory = inventory; inventoryGeneration = generation;
+    return inventory;
+  });
+  ipcMain.handle("read-skill-detail", async (_event, id: unknown) => {
+    if (!skillInventory || inventoryGeneration !== `${workspacePath}/${backendGeneration}`) throw new Error("Refresh skills before opening details.");
+    return readSkillDetail(skillInventory, id);
+  });
+  ipcMain.handle("pick-skill-source", async () => {
+    const selection = await dialog.showOpenDialog(mainWindow!, { title: "Choose a skill directory containing SKILL.md", properties: ["openDirectory"] });
+    if (selection.canceled || !selection.filePaths[0]) return null;
+    const source = await realpath(selection.filePaths[0]);
+    if (selectedSkillSources.size >= 32) selectedSkillSources.clear();
+    selectedSkillSources.add(source);
+    return source;
+  });
+  ipcMain.handle("preview-skill-add", (_event, input: unknown) => {
+    if (!input || typeof input !== "object") throw new Error("Invalid skill request.");
+    const request = input as { source?: unknown; scope?: unknown; expectedWorkspace?: unknown };
+    if (typeof request.source !== "string") throw new Error("Choose a source.");
+    if (path.isAbsolute(request.source) && !selectedSkillSources.has(request.source)) throw new Error("Select the local skill through Choose folder first.");
+    if (request.scope === "workspace" && request.expectedWorkspace !== workspacePath) throw new Error("Workspace changed. Preview again.");
+    return skillInstaller.preview(input);
+  });
+  ipcMain.handle("install-skill-add", (_event, id: unknown) => skillInstaller.install(id));
 
   ipcMain.handle("open-external-link", (_event, url: unknown) => {
     openExternalLink(url, shell.openExternal);

@@ -117,6 +117,30 @@ unsaved custom-path edits. If an enabled tool needs installation or repair,
 toggle it off and on, then confirm the integration update. Installation
 failures appear in that tool's status, so check the message before retrying.
 
+## Workspace and personal skills
+
+In current source builds, open **Settings → Skills** to browse separate
+**Workspace** and **Personal** groups. Workspace names the exact open directory
+or worktree. Personal shows skills found in your user configuration, which may
+be available across projects. Source paths and coding-tool filters help you
+identify each copy; duplicate names remain visible in both scopes.
+
+Use **Read skill** to inspect instructions as text. **Discovery coverage and
+source roots** lists inspected locations and gaps. Found on disk does not prove
+that a coding tool loaded or used the skill, and native precedence remains
+unknown. Skills installed outside APM are visible without being modified.
+
+To add a skill, install APM separately, choose **Add skill**, select Workspace or
+Personal, choose a local standalone skill folder, and review the addition. The
+initial supported install profile is APM 0.33.0 targeting Codex; the native
+confirmation names the destination and affected paths. Existing broader package
+configuration, remote sources and unqualified APM versions show an explanation
+and a terminal command instead. A failed installation can leave partial changes;
+inspect the destination before retrying. Refresh or start a new coding-tool
+session if needed. OrkWorks never restarts a running session for a skill install.
+
+This describes current source, not availability in every published installer.
+
 ## Coding tools and model providers
 
 A **coding tool** runs your interactive coding session. A **model provider**

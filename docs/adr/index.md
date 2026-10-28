@@ -117,3 +117,5 @@ Decision records and their original rationale and consequences.
 - [Repository agent-readiness scores and local history](0095-repository-agent-readiness-history.md) — Manual scoring and historical access boundaries retained; combined action supersedes their separation under ADR 0096.
 
 - [Readiness workflow suggestions](0096-readiness-workflow-suggestions.md) — Accepted combined action retaining independent score and recommendation owners.
+
+- [0097: Desktop-owned skill management](0097-desktop-skill-management.md) — Accepted Electron-main inventory and qualified APM install boundary.
