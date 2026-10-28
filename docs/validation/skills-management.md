@@ -3,7 +3,7 @@ type: Validation Evidence
 title: Skill inventory and APM installation qualification
 description: Source and fixture evidence for scoped skill discovery and the initial local APM install profile.
 tags: [orkworks, skills, apm, desktop, validation]
-status: draft
+status: stable
 ---
 
 # Skill inventory and APM installation qualification
@@ -49,7 +49,9 @@ not executable authenticity or a sandbox guarantee.
 Workspace fixture: installed binary, absolute local directory containing only
 SKILL.md, `--target codex --only apm --no-trust-bin`. Exit 0; actual skill bytes
 appeared in `.agents/skills/skill/SKILL.md`. APM created/updated `apm.yml`,
-`apm.lock.yaml`, `apm_modules/_local/skill` and `.gitignore`.
+`apm.lock.yaml`, `apm_modules/_local/skill` and `.gitignore`. The actual Electron-side installer
+service also completed preview/confirmation/install against that existing
+manifest with the installed binary (available preview and successful result).
 
 Personal fixture: the same upstream version's real source CLI invoked through
 Click, with `Path.home()` redirected only inside that test process to a temporary
