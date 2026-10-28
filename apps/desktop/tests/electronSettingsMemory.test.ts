@@ -982,3 +982,15 @@ test("settings memory preserves projected custom providers across write and read
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("obsolete capacity shortcut does not conflict with a retained shortcut", () => {
+  const dir = mkdtempSync(join(tmpdir(), "orkworks-retired-capacity-"));
+  try {
+    writeFileSync(join(dir, "settings.json"), JSON.stringify({ version: 1, hotkeys: {
+      newSession: "CmdOrCtrl+Shift+C", toggleCapacityPanel: "CmdOrCtrl+Shift+C",
+    } }));
+    const settings = readSettings(dir);
+    assert.equal(settings.hotkeys.newSession, "CmdOrCtrl+Shift+C");
+    assert.equal("toggleCapacityPanel" in settings.hotkeys, false);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

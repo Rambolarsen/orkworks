@@ -84,7 +84,7 @@ const peonModelCatalogCache = new Map<string, { models: ProviderModelOption[]; o
 let hotkeyCaptureActive = false;
 let openPlanToken = "";
 let settingsWriteQueue: Promise<void> = Promise.resolve();
-const menuPanelIds = ["sessions", "detail", "terminal", "capacity", "recommendations"];
+const menuPanelIds = ["sessions", "detail", "terminal", "recommendations"];
 
 type ElectronUpdateInfo = UpdateInfo & {
   tag?: string;

@@ -811,7 +811,7 @@ function App() {
     else if (action === "reset-layout") requestShellCommand("reset-layout");
     else if (action === "focus" && panelId) {
       const destination = panelId === "detail" ? "details" : panelId;
-      if (["sessions", "terminal", "review", "details", "capacity", "recommendations", "actions", "next-action"].includes(destination)) {
+      if (["sessions", "terminal", "review", "details", "recommendations", "actions", "next-action"].includes(destination)) {
         requestShellCommand(destination as ShellCommand);
       }
     }

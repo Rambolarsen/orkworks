@@ -728,11 +728,11 @@ The first useful MVP should include:
   layout records. Retain the temporary inspector page below 1180 CSS px. Escape
   within the inspector/page closes it and restores its invoker in either mode;
   Escape outside it does not dismiss it, and nested dialogs own their Escape.
-  Clicking outside an unpinned Details, Capacity, or Actions overlay hides it and
+  Clicking outside an unpinned Details or Actions overlay hides it and
   preserves the clicked surface's action and focus. Pinned inspectors and responsive
   temporary pages remain open; each content toggle and the resize handle retain
   their existing behavior.
-- details follow the visible subject; Actions and Capacity are available through
+- details follow the visible subject; Actions is available through
   the optional inspector or a labeled compact page. Recommendations replaces
   central content at every width, preserving the responsive Sessions sidebar.
   Back, its toggle, or Escape within the page returns to the previous view and
@@ -767,7 +767,6 @@ The first useful MVP should include:
   - Sessions switcher shortcut
   - current-subject Details shortcut
   - selected Terminal/history shortcut
-  - Capacity inspector/page shortcut
   - Recommendations main-view shortcut
   - reset layout shortcut
 - default hotkeys must match the shipped accelerators
@@ -907,7 +906,6 @@ Groups:
 - Stale
 - Working
 - Idle
-- Capacity
 - Start Next Task
 
 Sessions should be prioritized:
@@ -934,28 +932,22 @@ Sessions should be prioritized:
 - initial prompt/instruction injection or display
 - small compiled bindings only for verified tool-specific protocols
 
-#### Capacity Tracking
+#### Usage-limit awareness
 
-- manual capacity state
-- capacity JSON files
-- status values:
-  - `healthy`
-  - `degraded`
-  - `capped`
-  - `unknown`
-  - `disabled`
-- cost tiers:
-  - `local`
-  - `low`
-  - `medium`
-  - `high`
-  - `premium`
-- output pattern detection for:
-  - usage limit reached
-  - rate limit
-  - quota exceeded
-- Peon-assisted capacity classification
-- confidence/source fields for capacity status
+Retain existing session usage-limit detection, reset hints, and provider
+availability behavior used by session observation and Peons. Existing capacity
+states (`healthy`, `degraded`, `capped`, `unknown`, `disabled`), cost tiers
+(`local`, `low`, `medium`, `high`, `premium`), and source/confidence contracts
+remain unchanged. Correctness and provenance fixes belong on those existing
+surfaces.
+
+The standalone Capacity dashboard, manual dashboard controls, dedicated
+navigation and shortcut, capacity-file expansion and broader classification
+work are deferred. They are not active MVP deliverables. Revisit only for a
+concrete user need after stabilizing existing functionality (owner decision,
+2026-10-28; [#1111](https://github.com/Rambolarsen/orkworks/issues/1111)).
+This removes unfinished UI; it does not change existing runtime state or
+persisted provider contracts.
 
 #### Recommendation Engine
 
@@ -1124,18 +1116,13 @@ Deliverables:
 - generic terminal adapter
 - initial prompt/instruction support
 
-### Milestone 8 — Capacity Panel
+### Milestone 8 — Capacity Panel (deferred)
 
-Goal: Track basic harness/model availability.
-
-Deliverables:
-
-- capacity files
-- manual capacity override
-- capped/healthy/unknown badges
-- output pattern detection for caps
-- Peon-assisted capacity classification
-- confidence/source display
+The standalone dashboard is deferred by the 2026-10-28 owner scope decision
+([#1111](https://github.com/Rambolarsen/orkworks/issues/1111)). There is no
+placeholder panel, navigation entry or dedicated shortcut. Preserve working
+session usage-limit awareness and provider availability behavior; improve
+existing functionality before reconsidering a capacity dashboard.
 
 ### Milestone 9 — Recommendation Engine
 

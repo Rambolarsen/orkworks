@@ -33,7 +33,7 @@ export function buildActionsOverview(
   const seen = new Set<string>();
   const sessionRows: ActionRow[] = [];
   for (const session of sessions) {
-    // Remembered attention is historical, and capacity has its own destination.
+    // Remembered attention is historical; usage limits remain on session surfaces.
     if (isHistoricalSession(session) || seen.has(session.id)) continue;
     seen.add(session.id);
     const group = GROUPS[sessionAttentionStatus(session)];

@@ -1,6 +1,6 @@
 import { isSessionAlive } from "../sessionRuntimeState";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { PanelLeft, PanelRight, Plus, ChevronDown, Play, Gauge, Lightbulb, Settings, Pin, PinOff, X } from "lucide-react";
+import { PanelLeft, PanelRight, Plus, ChevronDown, Play, Lightbulb, Settings, Pin, PinOff, X } from "lucide-react";
 import type { CentralSurface } from "../shellNavigation";
 import type { SessionAction, SessionAttention, SessionInfo, WorkflowRecommendation, WorkspaceInfo } from "../api";
 import type { HarnessConfig } from "../harnessTypes";
@@ -13,7 +13,6 @@ import SessionAppMenu from "./SessionAppMenu";
 import GitChangesPanel from "./GitChangesPanel";
 import SessionDetailPanel from "./SessionDetailPanel";
 import TerminalPanel from "./TerminalPanel";
-import CapacityPanel from "./CapacityPanel";
 import RecommendationsPanel from "./RecommendationsPanel";
 import ActionsOverview from "./ActionsOverview";
 import { buildActionsOverview, type ActionRow, type ActionsSourceStatus } from "../actionsOverview";
@@ -21,7 +20,7 @@ import { useActionsRecommendations } from "../useActionsRecommendations";
 import RegionSeparator from "./RegionSeparator";
 import { disposeAllTerminals } from "../terminalStore";
 
-export type ShellDestination = "changes" | "details" | "capacity" | "recommendations" | "actions";
+export type ShellDestination = "changes" | "details" | "recommendations" | "actions";
 export type ShellCommand = "sessions" | "terminal" | "new-session" | "cancel-new-session" | "reset-layout" | "review" | "next-action" | ShellDestination;
 export interface ShellCommandRequest { command: ShellCommand; sequence: number; reveal?: boolean }
 
@@ -83,7 +82,7 @@ interface Props {
   onRetryBackend: () => void;
 }
 
-const TITLES = { changes: "Changes", actions: "Actions", details: "Details", capacity: "Capacity", recommendations: "Recommendations" };
+const TITLES = { changes: "Changes", actions: "Actions", details: "Details", recommendations: "Recommendations" };
 
 export default function ApplicationShell(props: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -310,7 +309,6 @@ export default function ApplicationShell(props: Props) {
   useEffect(() => {
     for (const [id, visible] of Object.entries({ sessions: showSessions, terminal: showTerminal,
       detail: props.inspector === "details" && (showInspector || temporaryUtility),
-      capacity: props.inspector === "capacity" && (showInspector || temporaryUtility),
       recommendations: props.inspector === "recommendations" && (showInspector || temporaryUtility), review: showReview })) {
       window.orkworks.notifyPanelVisibility(id, visible);
     }
@@ -327,7 +325,6 @@ export default function ApplicationShell(props: Props) {
       onResumeSession={props.onResumeSession} onApplyDebugAttention={props.onApplyDebugAttention}
       onOpenSettings={() => props.onOpenSettings("providers")} onOpenRecommendation={props.onOpenRecommendation}
       showDebugMetadata={props.debugSettings.showSessionIds} />;
-    if (props.inspector === "capacity") return <CapacityPanel />;
     if (props.inspector === "actions") return <ActionsOverview key={actionsScope} model={actionsModel} focusRequest={actionFocusRequest.scope === actionsScope ? actionFocusRequest.sequence : 0}
       inspected={actionInspection.scope === actionsScope ? actionInspection.row : null}
       onInspectAction={row => setActionInspection({ scope: actionsScope, row })}
@@ -348,9 +345,8 @@ export default function ApplicationShell(props: Props) {
   };
   const utilityHeader = (temporary: boolean) => <header className="shell-region-header">
     <h2 data-shell-page-heading tabIndex={-1}>{props.inspector ? TITLES[props.inspector] : "Details"}</h2>
-    {(props.inspector === "capacity" || props.inspector === "recommendations" || props.inspector === "actions") &&
-      <span className="shell-utility-scope">Workspace: {props.workspace?.path ?? "No workspace"}
-        {props.inspector === "capacity" ? " · All coding tools" : ""}</span>}
+    {(props.inspector === "recommendations" || props.inspector === "actions") &&
+      <span className="shell-utility-scope">Workspace: {props.workspace?.path ?? "No workspace"}</span>}
     {!temporary && <button type="button" data-shell-pin aria-pressed={!!props.preferences.inspectorPinned}
       aria-label={props.preferences.inspectorPinned ? "Unpin inspector" : "Pin inspector"}
       title={props.preferences.inspectorPinned ? "Unpin inspector" : "Pin inspector"}
@@ -371,7 +367,6 @@ export default function ApplicationShell(props: Props) {
   const navigationButtons = (iconOnly = false) => <>
     {props.workspace && <button type="button" data-shell-create aria-label="New session" title={iconOnly ? "New session" : undefined} onClick={props.onCreateSession}><Plus size={16} aria-hidden="true" />{!iconOnly && "New session"}</button>}
     {shouldShowRecommendationsPanel(session) && <button type="button" data-shell-command="recommendations" aria-label="Recommendations" title={iconOnly ? "Recommendations" : undefined} aria-expanded={props.inspector === "recommendations"} onClick={() => runCommand("recommendations")}><Lightbulb size={16} aria-hidden="true" />{!iconOnly && "Recommendations"}</button>}
-    <button type="button" data-shell-command="capacity" aria-label="Capacity" title={iconOnly ? "Capacity" : undefined} aria-expanded={props.inspector === "capacity"} onClick={() => runCommand("capacity")}><Gauge size={16} aria-hidden="true" />{!iconOnly && "Capacity"}</button>
   </>;
   const workspaceNavigation = <>
     <div className="shell-sidebar-heading">

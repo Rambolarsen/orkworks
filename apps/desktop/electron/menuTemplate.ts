@@ -16,19 +16,17 @@ export interface BuildMenuTemplateOptions {
 
 export function buildMenuTemplate(options: BuildMenuTemplateOptions): MenuItemConstructorOptions[] {
   const isCapturing = options.isHotkeyCaptureActive?.() ?? false;
-  const panelIds = ["sessions", "detail", "terminal", "capacity", "recommendations"] as const;
+  const panelIds = ["sessions", "detail", "terminal", "recommendations"] as const;
   const panelTitles: Record<(typeof panelIds)[number], string> = {
     sessions: "Sessions",
     detail: "Detail",
     terminal: "Terminal",
-    capacity: "Capacity",
     recommendations: "Recommendations",
   };
   const panelAccelerators: Record<(typeof panelIds)[number], string> = {
     sessions: options.settings.hotkeys.toggleSessionsPanel,
     detail: options.settings.hotkeys.toggleDetailPanel,
     terminal: options.settings.hotkeys.toggleTerminalPanel,
-    capacity: options.settings.hotkeys.toggleCapacityPanel,
     recommendations: options.settings.hotkeys.toggleRecommendationsPanel,
   };
 

@@ -98,7 +98,9 @@ In current source builds, **Actions** shows session attention followed by
 workspace recommendations. It opens in the right inspector in a wide window and
 as a temporary page in a narrower window. Session attention and recommendation
 counts stay separate; loading, partial and unavailable information is labeled.
-Capacity remains its own destination.
+Session usage-limit status remains in the session list and Details. The
+unfinished standalone Capacity destination has been removed from current source
+builds; its dashboard is deferred.
 
 **Show next action** reveals and focuses the first current item. Inspecting it
 keeps your selected session and unread attention unchanged. Choose **Open
@@ -116,7 +118,7 @@ arrangement is not deleted.
 
 In current source builds, choose **Collapse sidebar** at the top of the
 sidebar, beside the workspace controls, to leave a narrow icon rail. Hover an icon
-for its label; New session, Recommendations, Capacity and Settings remain
+for its label; New session, Recommendations and Settings remain
 available. **Expand sidebar** restores the session list at its saved width.
 The header's **Workspace** menu keeps workspace switching available. Narrow
 windows use the temporary Sessions page instead of the rail.
@@ -126,8 +128,8 @@ by default. Choose **Pin inspector** to make it opaque and reserve space beside
 the main view; **Unpin inspector** restores the overlay. The pin preference is
 saved across restarts, and Reset Layout returns it to unpinned. With keyboard
 focus inside the inspector, **Escape** closes it and restores focus to the
-control that opened it. Clicking outside an unpinned Details,
-Capacity, or Actions overlay hides it without interrupting the clicked control.
+control that opened it. Clicking outside an unpinned Details
+or Actions overlay hides it without interrupting the clicked control.
 Pinned inspectors stay open. Narrow windows keep the temporary inspector page.
 This describes current source builds; published installers may differ.
 

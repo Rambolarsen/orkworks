@@ -139,8 +139,8 @@ if (process.versions.electron) {
         assert.ok(rail.width < expandedWidth && rail.width >= 44, 'collapse frees space and retains usable icon targets');
         assert.ok(rail.buttons.length >= 4);
         assert.ok(rail.buttons.every(b=>b.name && b.title && !b.text.trim() && b.icon), 'rail buttons are named, discoverable icons');
-        await evaluate('document.querySelector("[data-shell-region=rail] [data-shell-command=capacity]").click()');
-        await waitFor('document.querySelector("[data-shell-region=inspector]")');
+        await evaluate('document.querySelector("[data-shell-region=rail] [data-shell-command=recommendations]").click()');
+        await waitFor('document.querySelector("[data-shell-region=utility]")');
         await evaluate('document.querySelector("[data-shell-return]").click()');
         await evaluate('document.querySelector("[data-shell-region=rail] [data-shell-settings]").click()');
         assert.equal(await evaluate('fixture.settingsOpened'),1);
@@ -794,7 +794,7 @@ if (process.versions.electron) {
             win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,...point});
             await evaluate('new Promise(resolve=>requestAnimationFrame(resolve))');
           };
-          for (const command of ['capacity','actions']) {
+          for (const command of ['actions']) {
             await click(command);
             await waitFor('document.querySelector("[data-shell-region=inspector]")');
             await nativeClick('[data-shell-region=inspector] h2');
@@ -1121,19 +1121,19 @@ if (process.versions.electron) {
           await waitFor('document.querySelector("#nsd-prompt").value===""');
           assert.deepEqual(await evaluate('fixture.errors'),[]);
         } else if (scenario === 'sidebar-controls') {
-          assert.equal(await evaluate('!!document.querySelector("[data-shell-region=sessions] [data-shell-command=capacity]")'),true,'workspace navigation belongs to the sidebar');
+          assert.equal(await evaluate('!!document.querySelector("[data-shell-region=sessions] [data-shell-command=recommendations]")'),true,'workspace navigation belongs to the sidebar');
           const anchors = await evaluate(`(()=>{
             const sidebar=document.querySelector('[data-shell-region=sessions]');
             const list=document.getElementById('sessions-list').parentElement;
             const footer=sidebar.querySelector('footer');
-            const capacity=sidebar.querySelector('[data-shell-command=capacity]');
+            const recommendations=sidebar.querySelector('[data-shell-command=recommendations]');
             list.scrollTop=list.scrollHeight;
-            return {capacity:capacity.getBoundingClientRect().bottom,list:list.getBoundingClientRect().top,
+            return {recommendations:recommendations.getBoundingClientRect().bottom,list:list.getBoundingClientRect().top,
               listBottom:list.getBoundingClientRect().bottom,footer:footer.getBoundingClientRect().top,
               footerBottom:footer.getBoundingClientRect().bottom,sidebarBottom:sidebar.getBoundingClientRect().bottom,
               scrolled:list.scrollTop>0};
           })()`);
-          assert.ok(anchors.capacity<=anchors.list,'navigation stays above history');
+          assert.ok(anchors.recommendations<=anchors.list,'navigation stays above history');
           assert.ok(anchors.listBottom<=anchors.footer,'history cannot cover Settings');
           assert.ok(anchors.footerBottom<=anchors.sidebarBottom,'footer stays in the viewport');
           assert.ok(anchors.scrolled,'long history actually scrolls');
@@ -1146,22 +1146,23 @@ if (process.versions.electron) {
           const picker = await evaluate(`(()=>{const r=document.querySelector('.workspace-history-panel').getBoundingClientRect();const sidebar=document.querySelector('[data-shell-region=sessions]').getBoundingClientRect();return {x:r.x,right:r.right,y:r.y,bottom:r.bottom,sidebarRight:sidebar.right};})()`);
           assert.ok(picker.y>=0&&picker.bottom<=700&&picker.x>=0&&picker.right<=picker.sidebarRight,'workspace switcher stays inside the sidebar viewport');
           await evaluate('document.querySelector(".titlebar-switch-button").click()');
-          await click('capacity');
-          await waitFor('document.querySelector("[data-shell-region=inspector]")');
+          await click('recommendations');
+          await waitFor('document.querySelector("[data-shell-region=utility]")');
           assert.equal(await evaluate('fixture.selections'),0,'sidebar utility navigation preserves selected session');
-          await click('capacity');
-          await click('capacity');
-          await waitFor('document.querySelector("[data-shell-region=inspector]")');
+          await click('recommendations');
+          await click('recommendations');
+          await waitFor('document.querySelector("[data-shell-region=utility]")');
           await click('sessions');
           await waitFor('!document.querySelector("[data-shell-region=sessions]")');
-          await evaluate('fixture.command("capacity")');
-          await waitFor('!document.querySelector("[data-shell-region=inspector]")');
-          assert.ok(await evaluate('document.activeElement===document.querySelector("[data-shell-region=rail] [data-shell-command=capacity]")'),'collapsed sidebar returns focus to its visible rail control');
+          await evaluate('fixture.command("recommendations")');
+          await waitFor('!document.querySelector("[data-shell-region=utility]")');
+          assert.ok(await evaluate('document.activeElement===document.querySelector("[data-shell-region=rail] [data-shell-command=recommendations]")'),'collapsed sidebar returns focus to its visible rail control');
           await click('sessions');
           await waitFor('document.querySelector("[data-shell-region=sessions]")');
-          await click('capacity');
-          await waitFor('document.querySelector("[data-shell-region=inspector]")');
+          await click('recommendations');
+          await waitFor('document.querySelector("[data-shell-region=utility]")');
           await win.setContentSize(640,700);
+          await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
           await waitFor('document.querySelector("[data-shell-region=utility]")');
           await evaluate('document.querySelector("[data-shell-return]").click()');
           await waitFor('document.querySelector("[data-shell-region=terminal]")');
@@ -1172,16 +1173,16 @@ if (process.versions.electron) {
           await waitFor('!document.querySelector("[data-shell-region=sessions]")');
           await evaluate('document.querySelector(".shell-navigation-menu summary").click()');
           assert.equal(await evaluate(`(()=>{const picker=document.createElement('div');picker.className='workspace-picker-screen';document.body.append(picker);const r=document.querySelector('.shell-navigation-popover').getBoundingClientRect();const covered=document.elementFromPoint(r.x+10,r.y+10)?.closest('.workspace-picker-screen')===picker;picker.remove();return covered;})()`),true,'full-screen picker covers an open shell menu');
-          assert.ok(await evaluate('document.querySelector(".shell-navigation-menu [data-shell-command=capacity]").getClientRects().length>0'),'hidden sidebar retains reachable navigation');
+          assert.ok(await evaluate('document.querySelector(".shell-navigation-menu [data-shell-command=recommendations]").getClientRects().length>0'),'hidden sidebar retains reachable navigation');
           await evaluate('const summary=document.querySelector(".shell-navigation-menu summary");summary.focus();summary.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
           assert.equal(await evaluate('document.querySelector(".shell-navigation-menu").open'),false,'Escape dismisses the fallback menu');
           assert.equal(await evaluate('document.activeElement.tagName'),'SUMMARY','menu dismissal restores trigger focus');
           await evaluate('document.querySelector(".shell-navigation-menu summary").click()');
-          await evaluate('const button=document.querySelector(".shell-navigation-menu [data-shell-command=capacity]");button.focus();button.click()');
-          await waitFor('document.querySelector("[data-shell-region=inspector]")');
+          await evaluate('const button=document.querySelector(".shell-navigation-menu [data-shell-command=recommendations]");button.focus();button.click()');
+          await waitFor('document.querySelector("[data-shell-region=utility]")');
           assert.equal(await evaluate('document.querySelector(".shell-navigation-menu").open'),false,'choosing a utility dismisses the menu');
-          await evaluate('fixture.command("capacity")');
-          await waitFor('!document.querySelector("[data-shell-region=inspector]")');
+          await evaluate('fixture.command("recommendations")');
+          await waitFor('!document.querySelector("[data-shell-region=utility]")');
           assert.equal(await evaluate('document.activeElement.tagName'),'SUMMARY','utility return focuses the dismissed menu trigger');
           for (const action of ['[data-shell-settings]', '[data-shell-create]']) {
             await evaluate('document.querySelector(".shell-navigation-menu summary").click()');
@@ -1368,7 +1369,7 @@ if (process.versions.electron) {
         } else if (scenario === 'reset-confirmation') {
           await win.setContentSize(1000,700);
           await waitFor('document.querySelector(".shell-layout").dataset.mode==="medium"');
-          await evaluate('fixture.command("capacity")');
+          await evaluate('fixture.command("recommendations")');
           await waitFor('document.querySelector("[data-shell-region=utility]")');
           await evaluate('fixture.command("reset-layout")');
           await waitFor('typeof fixture.finishReset==="function"');
@@ -1385,11 +1386,10 @@ if (process.versions.electron) {
           for (const width of [1280,1000,640]) {
             await win.setContentSize(width,700);
             await waitFor(`document.querySelector(".shell-layout").dataset.mode==="${width>=1180?'wide':width>=860?'medium':'compact'}"`);
-            for (const destination of ['capacity','recommendations']) {
+            for (const destination of ['recommendations','actions']) {
               await evaluate('fixture.command('+JSON.stringify(destination)+')');
               await waitFor('document.querySelector("[data-shell-page-heading]")');
               assert.match(await evaluate('document.querySelector("[data-shell-page-heading]").parentElement.textContent'),/Workspace: \/tmp\/test/);
-              if(destination==='capacity')assert.match(await evaluate('document.querySelector("[data-shell-page-heading]").parentElement.textContent'),/All coding tools/);
               await evaluate('fixture.command('+JSON.stringify(destination)+')');
               await waitFor('!document.querySelector("[data-shell-page-heading]")');
             }
@@ -1399,9 +1399,9 @@ if (process.versions.electron) {
           await waitFor('document.querySelector(".shell-layout").dataset.mode==="medium"');
           await evaluate('fixture.select(null)');
           await waitFor('fixture.activeSessionId===null');
-          await evaluate('const heading=document.querySelector("[data-shell-terminal-focus]");heading.focus();fixture.command("capacity");void 0');
+          await evaluate('const heading=document.querySelector("[data-shell-terminal-focus]");heading.focus();fixture.command("actions");void 0');
           await waitFor('document.querySelector("[data-shell-region=utility]")');
-          await evaluate('fixture.command("capacity")');
+          await evaluate('fixture.command("actions")');
           await waitFor('!document.querySelector("[data-shell-region=utility]")');
           assert.equal(await evaluate('document.activeElement===document.querySelector("[data-shell-terminal-focus]")'),true);
         } else if (scenario === 'hidden-resize') {
@@ -1454,12 +1454,12 @@ if (process.versions.electron) {
       win.webContents.sendInputEvent({type:'mouseUp',x:separator.x+32,y:separator.y,button:'left',clickCount:1});
       await waitFor('document.querySelector("[role=separator]").getAttribute("aria-valuenow") === "232"');
       assert.equal(await evaluate('!!document.querySelector("[data-shell-region=inspector]")'), false, 'resizing Sessions dismisses unpinned Details while the resize completes');
-      await evaluate('(()=>{const button=document.querySelector("[data-shell-command=capacity]");button.focus();button.click()})()');
-      await waitFor('document.querySelector("[data-shell-region=inspector] h2").textContent === "Capacity"');
+      await evaluate('(()=>{const button=document.querySelector("[data-shell-command=details]");button.focus();button.click()})()');
+      await waitFor('document.querySelector("[data-shell-region=inspector] h2").textContent === "Details"');
       assert.equal(await evaluate('document.querySelectorAll("[data-shell-region=inspector]").length'), 1);
-      await evaluate('(()=>{const button=document.querySelector("[data-shell-command=capacity]");button.focus();button.click()})()');
+      await evaluate('(()=>{const button=document.querySelector("[data-shell-command=details]");button.focus();button.click()})()');
       await waitFor('!document.querySelector("[data-shell-region=inspector]")');
-      assert.equal(await evaluate('document.activeElement.dataset.shellCommand'), 'capacity');
+      assert.equal(await evaluate('document.activeElement.dataset.shellCommand'), 'details');
 
       await evaluate('fixture.originalRuntime=fixture.runtime(); fixture.output("before hiding\\r\\n")');
       await win.setContentSize(1000, 700);
@@ -1672,7 +1672,7 @@ if (process.versions.electron) {
           builder.onResolve({filter:/^@xterm\/addon-webgl$/},()=>({path:'webgl',namespace:'no-gpu'}));
           builder.onLoad({filter:/.*/,namespace:'no-gpu'},()=>({contents:'export class WebglAddon { constructor(){throw new Error("GPU unavailable in headless fixture")} }',loader:'js'}));
           // Panel bodies connect to the backend/PTY; retain real React shell and terminal ownership.
-          builder.onResolve({ filter: /^\.\/(SessionDetailPanel|CapacityPanel|RecommendationsPanel)$/ },
+          builder.onResolve({ filter: /^\.\/(SessionDetailPanel|RecommendationsPanel)$/ },
             args => (scenario.startsWith('app-review') && args.path === './SessionDetailPanel') || (['inspector-overlay','recommendation-status-error'].includes(scenario) && args.path === './RecommendationsPanel') ? undefined : ({ path: args.path, namespace: 'empty-panel' }));
           builder.onLoad({ filter: /.*/, namespace: 'empty-panel' },
             () => ({ contents: 'export default function Panel(){return null}', loader: 'tsx', resolveDir: root }));
