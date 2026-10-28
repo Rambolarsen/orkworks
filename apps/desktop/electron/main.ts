@@ -417,6 +417,7 @@ function providerModelCacheKey(providerId: string, ollamaBaseUrl?: string): stri
 function createMenu(settings: AppSettings): Electron.Menu {
   const template = buildMenuTemplate({
     appName: app.name,
+    openExternal: url => openExternalLink(url, shell.openExternal),
     platform: process.platform,
     settings,
     isHotkeyCaptureActive: () => hotkeyCaptureActive,

@@ -3110,3 +3110,23 @@ html, body, #root {
 .skills-settings ul { padding-left: 20px; }
 .skills-coverage summary { cursor: pointer; }
 .skills-settings [role=alert] { color: var(--state-error); }
+
+.resume-menu { position: relative; flex-shrink: 0; }
+.resume-split-button { display: flex; align-items: stretch; }
+.resume-split-button > button:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.resume-split-button > .resume-menu-arrow { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 0; padding-inline: 7px; }
+.resume-menu-popover { position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; width: min(320px, calc(100vw - 24px)); padding: 6px; border: 1px solid var(--border-default); border-radius: 8px; background: var(--surface-2); box-shadow: 0 6px 24px #0005; }
+.resume-menu-popover .resume-option { width: 100%; text-align: left; white-space: normal; padding: 10px; height: auto; }
+.resume-menu-popover .resume-option:disabled { opacity: .55; cursor: default; }
+.resume-option-label > svg { margin-left: 6px; vertical-align: middle; }
+.resume-warning { margin: auto; max-height: calc(100vh - 32px); overflow: auto; width: min(440px, calc(100vw - 32px)); box-sizing: border-box; padding: 22px; color: var(--text-primary); background: var(--surface-1); border: 1px solid var(--border-default); border-radius: 10px; box-shadow: var(--shadow-modal); }
+.resume-warning::backdrop { background: #0008; }
+.resume-warning h2 { display: flex; align-items: center; gap: 10px; margin: 0 0 16px; font-size: 18px; }
+.resume-warning h2 svg { flex-shrink: 0; color: var(--attention-blocked); }
+.resume-warning p { line-height: 1.5; font-size: 14px; }
+.resume-warning footer { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+.resume-warning button { padding: 8px 12px; border: 1px solid var(--border-default); border-radius: 5px; color: var(--text-primary); background: var(--surface-2); cursor: pointer; }
+.resume-warning [data-resume-confirm] { border-color: var(--attention-blocked); }
+
+.resume-menu--details { min-width: 0; }
+.resume-menu--details .resume-menu-popover { position: static; width: 100%; box-sizing: border-box; margin-top: 6px; }

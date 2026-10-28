@@ -1052,40 +1052,89 @@ if (process.versions.electron) {
           assert.deepEqual(await evaluate('fixture.errors'),[]);
         } else if (scenario === 'resume-session') {
           assert.equal(await evaluate('!!document.querySelector("[data-shell-resume]")'),false,'live sessions have no resume action');
-          await evaluate('fixture.setSessionState({lifecycle:"dead",status:"ended",memoryState:"resumable",resumeStrategy:"exact"})');
+          await evaluate('fixture.setSessionState({lifecycle:"dead",status:"ended",memoryState:"resumable",resumeStrategy:"exact",resumeOptions:[{strategy:"exact",available:true,label:"Exact",preferred:true},{strategy:"latest_cwd",available:true,label:"Latest in folder"},{strategy:"latest_repo",available:false,label:"Latest in repo",reason:"Not supported"}]})');
           await waitFor('document.querySelector("[data-shell-resume]")');
-          assert.equal(await evaluate('!!document.querySelector("[data-shell-region=inspector]")'),false,'resume is exposed without Details');
-          assert.match(await evaluate('document.querySelector("[data-shell-resume]").textContent'),/Resume session/);
           await evaluate('document.querySelector("[data-shell-resume]").click()');
-          assert.deepEqual(await evaluate('fixture.resumed'),['coding']);
+          assert.deepEqual(await evaluate('fixture.resumed'),[{id:'coding',strategy:'exact'}],'main button resumes the preferred exact session');
           await evaluate('fixture.setResuming(["coding"])');
           await waitFor('document.querySelector("[data-shell-resume]").disabled');
-          assert.match(await evaluate('document.querySelector("[data-shell-resume]").textContent'), /Resuming/);
-          assert.match(await evaluate('document.querySelector("[data-session-id=coding]").textContent'), /Resuming/);
+          assert.match(await evaluate('document.querySelector("[data-shell-resume]").textContent'),/Resuming/);
+          assert.match(await evaluate('document.querySelector("[data-session-id=coding]").textContent'),/Resuming/);
+          assert.equal(await evaluate('document.querySelector("[data-resume-toggle]").disabled'),true);
           await evaluate('document.querySelector("[data-shell-resume]").click()');
-          assert.deepEqual(await evaluate('fixture.resumed'), ['coding'], 'pending resume cannot be submitted again');
-          await evaluate('fixture.command("details",true)');
-          await waitFor('document.querySelector(".resume-chooser [role=status]")');
-          assert.equal(await evaluate('document.querySelector(".resume-option").disabled'), true);
-          await evaluate('fixture.setResuming([])');
+          assert.equal(await evaluate('fixture.resumed.length'),1,'pending resume suppresses duplicate clicks');
+          await click('details');
+          await waitFor('document.querySelector(".session-detail .resume-split-button")');
+          assert.equal(await evaluate('[...document.querySelectorAll(".session-detail .resume-split-button button")].every(button=>button.disabled)'),true,'Details uses the same pending state');
+          await evaluate('fixture.setResuming([]);fixture.setPreferences(old=>({...old,inspectorWidth:280}))');
           await waitFor('!document.querySelector("[data-shell-resume]").disabled');
-
+          await evaluate('document.querySelector(".session-detail [data-resume-toggle]").click()');
+          await waitFor('document.querySelector(".session-detail [data-resume-options]")');
+          assert.ok(await evaluate('(()=>{const panel=document.querySelector(".session-detail").getBoundingClientRect();const menu=document.querySelector(".session-detail [data-resume-options]").getBoundingClientRect();return menu.left>=panel.left&&menu.right<=panel.right})()'),'Details choices stay inside the narrow inspector scrollport');
+          await evaluate('document.querySelector(".session-detail [data-resume-strategy=latest_cwd]").click()');
+          await waitFor('document.querySelector("[data-resume-warning]")?.open');
+          await evaluate('const cancel=document.querySelector("[data-resume-warning] button");cancel.dispatchEvent(new PointerEvent("pointerdown",{bubbles:true}));cancel.click()');
+          await waitFor('!document.querySelector("[data-resume-warning]")');
+          assert.equal(await evaluate('!!document.querySelector(".session-detail")'),true,'warning interaction preserves its Details inspector');
+          assert.equal(await evaluate('fixture.resumed.length'),1,'cancelling the Details warning does not resume');
+          await click('details');
+          await evaluate('fixture.resumed=[];document.querySelector("[data-resume-toggle]").click()');
+          await waitFor('document.querySelector("[data-resume-options]")');
+          assert.deepEqual(await evaluate('fixture.resumed'),[],'opening choices does not resume');
+          if (process.env.ORKWORKS_CAPTURE_RESUME) {
+            await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+            const {writeFileSync}=await import('node:fs');
+            writeFileSync(process.env.ORKWORKS_CAPTURE_RESUME+'-menu.png',(await win.webContents.capturePage()).toPNG());
+          }
+          assert.equal(await evaluate('document.querySelector("[data-resume-strategy=latest_repo]").disabled'),true);
+          assert.match(await evaluate('document.querySelector("[data-resume-options]").textContent'),/Not supported/);
+          await evaluate('document.querySelector("[data-resume-strategy=exact]").click()');
+          assert.deepEqual(await evaluate('fixture.resumed'),[{id:'coding',strategy:'exact'}]);
+          await waitFor('!document.querySelector("[data-resume-options]")');
+          await evaluate('document.querySelector("[data-resume-toggle]").click()');
+          await waitFor('document.querySelector("[data-resume-options]")');
+          await evaluate('document.querySelector("[data-resume-options]").dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true,cancelable:true}))');
+          await waitFor('!document.querySelector("[data-resume-options]")');
+          assert.equal(await evaluate('document.activeElement.hasAttribute("data-resume-toggle")'),true);
           await win.setContentSize(360,700);
           await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
-          assert.ok(await evaluate('(()=>{const b=document.querySelector("[data-shell-resume]");const r=b.getBoundingClientRect();return r.width>0&&r.x>=0&&r.right<=innerWidth&&r.bottom<=innerHeight})()'),'resume remains visible at compact widths');
+          await evaluate('document.querySelector("[data-resume-toggle]").click()');
+          await waitFor('document.querySelector("[data-resume-options]")');
+          assert.ok(await evaluate('(()=>{const r=document.querySelector("[data-resume-options]").getBoundingClientRect();return r.x>=0&&r.right<=innerWidth})()'),'choices stay inside compact viewport');
           await evaluate('fixture.select("other")');
           await waitFor('document.querySelector(".shell-context h1").textContent==="other"');
+          assert.equal(await evaluate('!!document.querySelector("[data-resume-options]")'),false,'changing session closes stale choices');
+          await evaluate('document.querySelector("[data-resume-toggle]").click()');
+          await waitFor('document.querySelector("[data-resume-options]")');
+          await evaluate('document.querySelector("[data-resume-strategy=latest_cwd]").click()');
+          await waitFor('document.querySelector("[data-resume-warning]")?.open');
+          assert.deepEqual(await evaluate('fixture.resumed'),[{id:'coding',strategy:'exact'}],'fallback requires confirmation');
+          assert.match(await evaluate('document.querySelector("[data-resume-warning]").textContent'),/different session/);
+          assert.equal(await evaluate('document.activeElement.textContent'),'Cancel');
+          if (process.env.ORKWORKS_CAPTURE_RESUME) {
+            await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+            const {writeFileSync}=await import('node:fs');
+            writeFileSync(process.env.ORKWORKS_CAPTURE_RESUME+'-warning.png',(await win.webContents.capturePage()).toPNG());
+          }
+          await evaluate('document.activeElement.click()');
+          await waitFor('!document.querySelector("[data-resume-warning]")');
+          assert.equal(await evaluate('fixture.resumed.length'),1,'Cancel does not resume');
+          await evaluate('document.querySelector("[data-resume-toggle]").click()');
+          await waitFor('document.querySelector("[data-resume-options]")');
+          await evaluate('document.querySelector("[data-resume-strategy=latest_cwd]").click()');
+          await waitFor('document.querySelector("[data-resume-warning]")?.open');
+          await evaluate('document.querySelector("[data-resume-confirm]").click()');
+          assert.deepEqual(await evaluate('fixture.resumed'),[{id:'coding',strategy:'exact'},{id:'other',strategy:'latest_cwd'}]);
+          assert.equal(await evaluate('!!document.querySelector("[data-shell-region=utility]")'),false,'choices do not navigate to Details');
+          await evaluate('fixture.setSessionState({lifecycle:"dead",memoryState:"resumable",resumeStrategy:"latest_cwd",resumeOptions:[{strategy:"latest_cwd",available:true,label:"Latest in folder",preferred:true}]})');
+          await waitFor('document.querySelector("[data-shell-resume]").textContent.includes("Latest in folder")');
           await evaluate('document.querySelector("[data-shell-resume]").click()');
-          assert.deepEqual(await evaluate('fixture.resumed'),['coding','other'],'resume follows selected identity');
-          await evaluate('fixture.setSessionState({lifecycle:"dead",memoryState:"resumable",resumeStrategy:"latest_cwd",resumeOptions:[{strategy:"exact",available:false,label:"Exact",reason:"Missing ID"},{strategy:"latest_cwd",available:true,label:"Latest in folder",preferred:true}]})');
-          await evaluate('document.querySelector("[data-shell-resume]").click()');
-          await waitFor('document.querySelector("[data-shell-region=utility]")');
-          assert.deepEqual(await evaluate('fixture.resumed'),['coding','other'],'fallback opens its chooser instead of silently resuming another conversation');
+          await waitFor('document.querySelector("[data-resume-warning]")?.open');
+          assert.equal(await evaluate('fixture.resumed.length'),2,'main-button fallback also requires confirmation');
+          await evaluate('fixture.select("coding")');
+          await waitFor('!document.querySelector("[data-resume-warning]")');
           await evaluate('fixture.setSessionState({lifecycle:"dead",memoryState:"unsupported",resumeStrategy:"none",resumeOptions:[{strategy:"exact",available:false,label:"Exact",reason:"Missing ID"}]})');
           await waitFor('!document.querySelector("[data-shell-resume]")');
-          await evaluate('fixture.setEmpty(true)');
-          await waitFor('document.querySelector(".shell-context h1").textContent==="Terminal"');
-          assert.equal(await evaluate('!!document.querySelector("[data-shell-resume]")'),false);
           assert.deepEqual(await evaluate('fixture.errors'),[]);
         } else if (scenario === 'new-session') {
           await evaluate('fixture.originalRuntime=fixture.runtime();document.querySelector("[data-shell-create]").click()');
@@ -1682,14 +1731,14 @@ if (process.versions.electron) {
             const [activeSessionId,setActiveSessionId]=useState('coding');
             fixture.activeSessionId=activeSessionId;
             fixture.select=setActiveSessionId;
-            const [preferences,setPreferences]=useState({sessionsWidth:240,inspectorWidth:320,sessionsVisible:true,density:'low'});
+            const [preferences,setPreferences]=useState({sessionsWidth:240,inspectorWidth:320,sessionsVisible:true,density:'low'});fixture.setPreferences=setPreferences;
             return <ApplicationShell centralSurface={reviewing ? {kind:"review",sessionId:activeSessionId,artifactId:"plan"} : {kind:"terminal",sessionId:activeSessionId}} onCloseReview={()=>setReviewing(false)} reviewContent={<p>Current plan</p>} sessions={empty ? [] : ((${JSON.stringify(scenario)}==='sidebar-controls'?['coding','other',...Array.from({length:80},(_,i)=>'history-'+i)]:['coding','other']).map((id,i)=>({id,name:id,cwd:'/tmp/test',harnessId:'codex',harness:'codex',lifecycle:'alive',status:'running',attention:(${JSON.stringify(scenario)}==='actions' && id==='other'?'needs_you':'idle'),...sessionState,label:id,createdAt:'2026-10-10T10:00:00Z',lastActivityAt:i?'2026-10-10T09:00:00Z':'2026-10-10T10:00:00Z'})))}
               workspace={{path:'/tmp/test',workspaceIdentity:${JSON.stringify(scenario)}==='open-session-app'?'/real/test':'/tmp/test'}} workspaceControl={<div className="shell-workspace-control"><span className="titlebar-text">test</span><WorkspaceHistoryDropdown triggerLabel="⇄" triggerClassName="titlebar-switch-button" triggerAriaLabel="Switch workspace" currentWorkspacePath="/tmp/test" isSwitching={false} onOpenPath={()=>{fixture.workspaceOpens++;setGeneration(n=>n+1)}} onOpenOtherFolder={()=>{}} onError={()=>{}}/></div>} onOpenSettings={()=>fixture.settingsOpened++} onCreateSession={()=>{fixture.sessionsCreated++;if(${JSON.stringify(scenario)}==='new-session'){setCreating(true);fixture.command('new-session')}}} activeSessionId={activeSessionId} workspaceGeneration={generation}
               newSessionContent={creating ? <NewSessionDialog key={generation} harnesses={[]} providerRuntime={null} onConfirm={async opts=>{fixture.submitted=opts;fixture.finishCreate=new Promise(resolve=>fixture.resolveCreate=resolve);await fixture.finishCreate;setCreating(false);fixture.command("terminal")}} onCancel={()=>fixture.command("cancel-new-session")}/> : null}
               onCancelNewSession={()=>setCreating(false)} backendStatus={backendStatus} sessionsSourceStatus={sessionsSourceStatus} taskmasterReady={['actions-sources','recommendation-status-error'].includes(${JSON.stringify(scenario)})} onOpenRecommendation={id=>fixture.openedRecommendations.push(id)} onFixWithAi={()=>fixture.prompts++} onRunCleanup={()=>fixture.prompts++} harnesses={[]} debugSettings={{showSessionIds:false}}
               commandRequest={commandRequest} preferences={preferences} onPreferencesChange={setPreferences} onResetPreferences={()=>new Promise(resolve=>{fixture.finishReset=resolve})}
               inspector={inspector} onInspect={setInspector} unreadIds={new Set(${JSON.stringify(scenario)}==='actions'?['other']:[])} acknowledgedIds={new Set()}
-              visibleSubjectId={'resume-session'===${JSON.stringify(scenario)}?activeSessionId:undefined} resumingSessionIds={resumingSessionIds} onResumeSession={id=>fixture.resumed.push(id)} onSelectSession={id=>{fixture.selections++;if(${JSON.stringify(scenario)}==='recommendations-main')setInspector(null);setActiveSessionId(id)}} onFocusTerminal={()=>fixture.runtime()?.terminal.focus()} onBackendUnavailable={()=>{}} />;
+              visibleSubjectId={'resume-session'===${JSON.stringify(scenario)}?activeSessionId:undefined} resumingSessionIds={resumingSessionIds} onResumeSession={(id,strategy)=>fixture.resumed.push({id,strategy})} onSelectSession={id=>{fixture.selections++;if(${JSON.stringify(scenario)}==='recommendations-main')setInspector(null);setActiveSessionId(id)}} onFocusTerminal={()=>fixture.runtime()?.terminal.focus()} onBackendUnavailable={()=>{}} />;
           }
           createRoot(document.getElementById('root')).render(${JSON.stringify(scenario)}.startsWith('preferences-')?<PreferencesHarness/>:${JSON.stringify(scenario)}.startsWith('app-')?<App/>:<Harness/>);
         `, resolveDir: root, loader: 'tsx' },

@@ -307,12 +307,8 @@ export function peonTimeoutNotice(session: SessionInfo): PeonTimeoutNotice | nul
   };
 }
 
-/**
- * One row in the Detail panel's resume chooser. Deliberately has no `strategy`
- * field yet — the resume API only takes a session id, not a strategy, so every
- * clickable row resumes the same way regardless of which one is picked. See #97.
- */
 export interface ResumeChoice {
+  strategy: ResumeStrategy;
   label: string;
   sub: string;
   recommended?: boolean;
@@ -340,6 +336,7 @@ export function resumeChoices(session: SessionInfo): ResumeChoice[] {
       : [];
 
   return options.map((o) => ({
+    strategy: o.strategy,
     label: o.label,
     sub: o.available ? resumeStrategySub(o.strategy, session) : (o.reason ?? "Not available"),
     recommended: o.available && o.preferred,

@@ -6,6 +6,7 @@ import { buildMenuTemplate, findMenuItem } from "../electron/menuTemplate.ts";
 
 test("menu template uses accelerators from settings", () => {
   const template = buildMenuTemplate({
+    openExternal: () => {},
     appName: "OrkWorks",
     platform: "darwin",
     settings: {
@@ -27,6 +28,7 @@ test("menu template uses accelerators from settings", () => {
 
 test("shell menu entries keep their existing identities and act as destinations instead of panel checkboxes", () => {
   const template = buildMenuTemplate({
+    openExternal: () => {},
     appName: "OrkWorks",
     platform: "darwin",
     settings: DEFAULT_SETTINGS,
@@ -44,6 +46,7 @@ test("shell menu entries keep their existing identities and act as destinations 
 
 test("menu template omits optional reset layout accelerator when unset", () => {
   const template = buildMenuTemplate({
+    openExternal: () => {},
     appName: "OrkWorks",
     platform: "darwin",
     settings: DEFAULT_SETTINGS,
@@ -56,6 +59,7 @@ test("menu template omits optional reset layout accelerator when unset", () => {
 test("menu command handlers are suppressible during hotkey capture", () => {
   const commands: Array<{ action: string; panelId?: string }> = [];
   const template = buildMenuTemplate({
+    openExternal: () => {},
     appName: "OrkWorks",
     platform: "linux",
     settings: DEFAULT_SETTINGS,
@@ -71,6 +75,7 @@ test("menu command handlers are suppressible during hotkey capture", () => {
 
 test("menu template removes accelerators and native roles during hotkey capture", () => {
   const template = buildMenuTemplate({
+    openExternal: () => {},
     appName: "OrkWorks",
     platform: "darwin",
     settings: {
@@ -97,7 +102,7 @@ test("menu template removes accelerators and native roles during hotkey capture"
 
 test("Review menu routes to the validated shell destination without adding an accelerator", () => {
   const commands: Array<{ action: string; panelId?: string }> = [];
-  const template = buildMenuTemplate({ appName: "OrkWorks", platform: "darwin", settings: DEFAULT_SETTINGS,
+  const template = buildMenuTemplate({ appName: "OrkWorks", platform: "darwin", settings: DEFAULT_SETTINGS, openExternal: () => {},
     sendCommand: command => commands.push(command) });
   const review = findMenuItem(template, "review");
   assert.ok(review);
@@ -105,3 +110,19 @@ test("Review menu routes to the validated shell destination without adding an ac
   review.click?.({} as never, {} as never, {} as never);
   assert.deepEqual(commands, [{ action: "focus", panelId: "review" }]);
 });
+
+for (const capturing of [false, true]) {
+  test(`Learn More opens the public site only outside hotkey capture (${capturing})`, () => {
+    const opened: string[] = [];
+    const commands: unknown[] = [];
+    const template = buildMenuTemplate({ appName: "OrkWorks", platform: "darwin", settings: DEFAULT_SETTINGS,
+      isHotkeyCaptureActive: () => capturing, openExternal: url => opened.push(url),
+      sendCommand: command => commands.push(command) });
+    const help = template.find(item => item.role === "help" || item.label === "Help");
+    const learnMore = (help?.submenu as Array<{ label?: string; click?: (...args: unknown[]) => void }>).find(item => item.label === "Learn More");
+    assert.ok(learnMore);
+    learnMore.click?.();
+    assert.deepEqual(opened, capturing ? [] : ["https://rambolarsen.github.io/orkworks/"]);
+    assert.deepEqual(commands, []);
+  });
+}

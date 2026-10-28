@@ -3956,8 +3956,12 @@ impl SessionApplication {
         create_session_workflow(self.state.clone(), request, git::detect).await
     }
 
-    pub(crate) async fn resume_session(&self, id: &str) -> Result<SessionInfo, SessionError> {
-        resume_session_workflow(self.state.clone(), id).await
+    pub(crate) async fn resume_session(
+        &self,
+        id: &str,
+        requested_strategy: Option<harness::ResumeStrategy>,
+    ) -> Result<SessionInfo, SessionError> {
+        resume_session_workflow(self.state.clone(), id, requested_strategy).await
     }
 
     pub(crate) fn report_harness_session(
@@ -5580,6 +5584,10 @@ impl Drop for ResumeAdmission {
                     saved.final_observed_status_snapshot.clone();
                 current.resume = saved.resume.clone();
                 current.resume_options = saved.resume_options.clone();
+                current.harness_session_id_source = saved.harness_session_id_source.clone();
+                current.harness_session_id_confidence = saved.harness_session_id_confidence;
+                current.harness_session_id_captured_at =
+                    saved.harness_session_id_captured_at.clone();
                 current.resumed_from = saved.resumed_from.clone();
                 if current.attention_source() != "user" {
                     current.attention = saved.attention.clone();
@@ -5661,6 +5669,7 @@ pub(crate) fn try_install_claimed_resume_handle(
 async fn resume_session_workflow(
     state: Arc<AppState>,
     id: &str,
+    requested_strategy: Option<harness::ResumeStrategy>,
 ) -> Result<SessionInfo, crate::session_application::SessionError> {
     let id = id.to_string();
     let now = iso_now();
@@ -5743,9 +5752,20 @@ async fn resume_session_workflow(
             ));
         }
         let active_work_hook = harness.initial_work_hook_active();
-        let strategy = harness.select_resume_strategy(resume);
+        let strategy = requested_strategy
+            .clone()
+            .unwrap_or_else(|| harness.select_resume_strategy(resume));
         if strategy == harness::ResumeStrategy::None {
             return Err(crate::session_application::SessionError::EmptyBadRequest);
+        }
+        let flags = harness.resume_flags();
+        if !metadata::derive_resume_options(&strategy, Some(resume), flags.0, flags.1, flags.2)
+            .iter()
+            .any(|option| option.strategy == strategy && option.available)
+        {
+            return Err(SessionError::ConflictWithMessage(
+                "Selected resume option is no longer available. Refresh and choose again.",
+            ));
         }
         let Some(command) = harness.build_resume(
             strategy.clone(),
@@ -5765,6 +5785,23 @@ async fn resume_session_workflow(
             active_work_hook,
         )
     };
+
+    // A non-exact resume starts a fresh native conversation binding, just as a
+    // new launch does. Retain the previous metadata only for admission rollback.
+    let resume_native_session_id = if strategy == harness::ResumeStrategy::Exact {
+        meta.resume
+            .as_ref()
+            .and_then(|resume| resume.harness_session_id.clone())
+    } else {
+        None
+    };
+    let mut resumed_memory = meta.resume.clone();
+    if let Some(memory) = resumed_memory.as_mut() {
+        memory.harness_session_id = resume_native_session_id.clone();
+        if strategy != harness::ResumeStrategy::Exact {
+            memory.last_seen_at = None;
+        }
+    }
 
     let (kill_tx, _kill_rx) = tokio::sync::watch::channel(false);
     let info = SessionInfo {
@@ -5820,10 +5857,10 @@ async fn resume_session_workflow(
         peon_diagnostics: None,
         memory_state: MemoryState::Live,
         resume_strategy: strategy.clone(),
-        resume: meta.resume.clone(),
+        resume: resumed_memory.clone(),
         resume_options: metadata::derive_resume_options(
             &strategy,
-            meta.resume.as_ref(),
+            resumed_memory.as_ref(),
             resume_flags.0,
             resume_flags.1,
             resume_flags.2,
@@ -5894,8 +5931,13 @@ async fn resume_session_workflow(
                     stored_meta.connectivity = connectivity_for_status("creating").to_string();
                     stored_meta.terminal_outcome = None;
                     stored_meta.last_activity = now.clone();
-                    stored_meta.resume = meta.resume.clone();
-                    stored_meta.resume_options = meta.resume_options.clone();
+                    stored_meta.resume = resumed_memory.clone();
+                    stored_meta.resume_options = info.resume_options.clone();
+                    if strategy != harness::ResumeStrategy::Exact {
+                        stored_meta.harness_session_id_source = None;
+                        stored_meta.harness_session_id_confidence = None;
+                        stored_meta.harness_session_id_captured_at = None;
+                    }
                     stored_meta.resumed_from = meta.resumed_from.clone();
                     Ok(())
                 });
@@ -5915,13 +5957,7 @@ async fn resume_session_workflow(
             &startup_id,
             Some(&startup_harness_id),
             &startup_executable,
-            (meta.harness == startup_harness_id)
-                .then(|| {
-                    meta.resume
-                        .as_ref()
-                        .and_then(|resume| resume.harness_session_id.as_deref())
-                })
-                .flatten(),
+            resume_native_session_id.as_deref(),
         ) {
             Ok(()) => {
                 crate::runtime::session_runtime::start_session_runtime(
@@ -10425,7 +10461,7 @@ mod tests {
         let application = SessionApplication::new(state);
 
         assert!(matches!(
-            application.resume_session("missing").await,
+            application.resume_session("missing", None).await,
             Err(SessionError::Conflict)
         ));
     }
@@ -10462,7 +10498,9 @@ mod tests {
             .write_session(&metadata);
 
         assert!(matches!(
-            SessionApplication::new(state).resume_session(id).await,
+            SessionApplication::new(state)
+                .resume_session(id, None)
+                .await,
             Err(SessionError::BadRequest(
                 "Codex has no saved local session for this ID"
             ))
@@ -10516,7 +10554,9 @@ mod tests {
             .write_session(&metadata);
 
         assert!(matches!(
-            SessionApplication::new(state).resume_session(id).await,
+            SessionApplication::new(state)
+                .resume_session(id, None)
+                .await,
             Err(SessionError::BadRequest(
                 "Codex session has no captured native ID"
             ))
@@ -10580,7 +10620,9 @@ mod tests {
         };
         state.sessions.lock().unwrap().insert(id.into(), handle);
 
-        let result = SessionApplication::new(state).resume_session(id).await;
+        let result = SessionApplication::new(state)
+            .resume_session(id, None)
+            .await;
 
         assert!(matches!(result, Err(SessionError::Conflict)));
     }
@@ -10630,7 +10672,7 @@ mod tests {
         drop(ws);
 
         let result = SessionApplication::new(state.clone())
-            .resume_session(id)
+            .resume_session(id, None)
             .await;
 
         assert!(matches!(
@@ -18684,5 +18726,59 @@ mod tests {
             .read_events(session_id)
             .iter()
             .all(|event| event.event_type != "taskmaster_fix_requested"));
+    }
+    #[tokio::test]
+    async fn requested_exact_resume_never_falls_back_to_an_available_folder() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "explicit-exact-without-id";
+        let mut meta = crate::test_support::test_session_metadata(
+            id,
+            "Resume",
+            root.path().display().to_string(),
+            "ended",
+            "before",
+            "before",
+        );
+        meta.harness = "opencode".into();
+        meta.lifecycle_phase = "ended".into();
+        meta.resume = Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::LatestCwd,
+            harness_session_id: None,
+            latest_fallback: true,
+            last_seen_at: None,
+        });
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
+        let result = SessionApplication::new(state.clone())
+            .resume_session(id, Some(harness::ResumeStrategy::Exact))
+            .await;
+        assert!(matches!(
+            result,
+            Err(SessionError::ConflictWithMessage(
+                "Selected resume option is no longer available. Refresh and choose again."
+            ))
+        ));
+        assert!(!state.sessions.lock().unwrap().contains_key(id));
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap()
+                .lifecycle_phase,
+            "ended"
+        );
     }
 }

@@ -461,11 +461,13 @@ export async function setActiveWorkspaceSession(
 export async function resumeSession(
   baseUrl: string,
   id: string,
+  strategy?: ResumeStrategy,
 ): Promise<SessionInfo> {
   const resp = await fetch(`${baseUrl}/sessions/${id}/resume`, {
     method: "POST",
+    ...(strategy ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ strategy }) } : {}),
   });
-  if (!resp.ok) throw new Error(`resume session failed: ${resp.status}`);
+  if (!resp.ok) throw new Error((await resp.text()).trim().slice(0, 512) || `Couldn't resume session (${resp.status}).`);
   return resp.json();
 }
 

@@ -11,6 +11,7 @@ import {
   duplicateHarness,
   forgetSession,
   sessionAction,
+  resumeSession,
   getSessionWorkflowObservations,
   getTaskmasterRecommendations,
   getTaskmasterRecommendation,
@@ -650,4 +651,14 @@ test("session actions preserve the sidecar's plain-text close and stale-token er
       await assert.rejects(sessionAction("http://backend", "one", "archive", "old-token"), error => error instanceof Error && error.message === message);
     }
   } finally { globalThis.fetch = original; }
+});
+
+test("resume sends the selected strategy and surfaces an unavailable-option reason", async () => {
+  const previous = globalThis.fetch;
+  const requests: unknown[] = [];
+  globalThis.fetch = async (_url, init) => { requests.push(init?.body ? JSON.parse(String(init.body)) : null); return new Response("Selected resume option is no longer available. Refresh and choose again.", {status: 409}); };
+  try {
+    await assert.rejects(resumeSession("http://backend", "one", "latest_cwd"), /Selected resume option is no longer available/);
+    assert.deepEqual(requests, [{strategy: "latest_cwd"}]);
+  } finally { globalThis.fetch = previous; }
 });

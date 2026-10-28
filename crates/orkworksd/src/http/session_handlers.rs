@@ -413,13 +413,38 @@ pub(crate) async fn create_session(
         .unwrap_or_else(application_error_response)
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ResumeRequest {
+    strategy: harness::ResumeStrategy,
+}
+
 pub(crate) async fn resume_session(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
+    body: axum::body::Bytes,
 ) -> axum::response::Response {
+    let requested_strategy = if body.is_empty() {
+        None
+    } else {
+        if body.len() > 1024 {
+            return application_error_response(SessionError::BadRequest(
+                "Resume request is too large",
+            ));
+        }
+        let request = match serde_json::from_slice::<ResumeRequest>(&body) {
+            Ok(request) if request.strategy != harness::ResumeStrategy::None => request,
+            _ => {
+                return application_error_response(SessionError::BadRequest(
+                    "Choose exact, latest_cwd or latest_repo resume",
+                ))
+            }
+        };
+        Some(request.strategy)
+    };
     let projection_state = state.clone();
     SessionApplication::new(state)
-        .resume_session(&id)
+        .resume_session(&id, requested_strategy)
         .await
         .map(|mut info| {
             project_live_peon_diagnostics(&projection_state, &mut info);
@@ -3215,7 +3240,7 @@ mod tests {
         let resume = harness::ResumeMemory {
             state: harness::ResumeState::Available,
             preferred_strategy: harness::ResumeStrategy::LatestCwd,
-            harness_session_id: None,
+            harness_session_id: Some("previous-native-id".into()),
             latest_fallback: true,
             last_seen_at: Some("before".into()),
         };
@@ -3263,6 +3288,9 @@ mod tests {
         metadata.lifecycle_phase = "ended".into();
         metadata.lifecycle = "ended".into();
         metadata.resume = Some(resume);
+        metadata.harness_session_id_source = Some("opencode_env".into());
+        metadata.harness_session_id_confidence = Some(1.0);
+        metadata.harness_session_id_captured_at = Some("before".into());
         {
             let ws = state.workspace.lock().unwrap();
             ws.as_ref().unwrap().metadata.write_session(&metadata);
@@ -3276,14 +3304,62 @@ mod tests {
             },
         );
 
-        let response = resume_session(State(state.clone()), Path(session_id.clone()))
-            .await
-            .into_response();
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        let router = axum::Router::new()
+            .route("/sessions/:id/resume", axum::routing::post(resume_session))
+            .with_state(state.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        let response = reqwest::Client::new()
+            .post(format!("http://{address}/sessions/{session_id}/resume"))
+            .json(&serde_json::json!({"strategy":"latest_repo"}))
+            .send()
             .await
             .unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let bytes = response.bytes().await.unwrap();
+        server.abort();
         let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["resumeStrategy"], "latest_repo");
+        assert!(
+            body["resume"].get("harnessSessionId").is_none(),
+            "fallback must not retain the previous conversation ID"
+        );
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(&session_id)
+            .unwrap();
+        assert!(stored.resume.unwrap().harness_session_id.is_none());
+        assert!(stored.harness_session_id_source.is_none());
+        assert!(stored.harness_session_id_confidence.is_none());
+        assert!(stored.harness_session_id_captured_at.is_none());
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .merge_harness_session_report(
+                    &session_id,
+                    &metadata::HarnessSessionReport {
+                        harness_session_id: "actual-fallback-id".into(),
+                        source: "opencode_env".into(),
+                        confidence: 0.98,
+                    },
+                    "later"
+                ),
+            metadata::HarnessSessionMergeResult::Accepted
+        );
+
         assert_eq!(body["peonDiagnostics"]["schedulerState"], "completed");
         assert_eq!(body["peonDiagnostics"]["observationCount"], 0);
         assert!(state.sessions.lock().unwrap()[&session_id].resume_in_progress);
@@ -3373,6 +3449,7 @@ mod tests {
         let task = tokio::spawn(resume_session(
             State(state.clone()),
             Path(session_id.clone()),
+            axum::body::Bytes::new(),
         ));
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
             loop {
@@ -3519,6 +3596,7 @@ mod tests {
         let resume_task = tokio::spawn(resume_session(
             State(state.clone()),
             Path(session_id.clone()),
+            axum::body::Bytes::new(),
         ));
         tokio::time::timeout(std::time::Duration::from_secs(5), checked_rx)
             .await
@@ -3631,9 +3709,13 @@ mod tests {
             .metadata
             .write_session(&metadata);
 
-        let response = resume_session(State(state.clone()), Path(session_id.clone()))
-            .await
-            .into_response();
+        let response = resume_session(
+            State(state.clone()),
+            Path(session_id.clone()),
+            axum::body::Bytes::new(),
+        )
+        .await
+        .into_response();
 
         assert_eq!(
             response.status(),
@@ -3987,6 +4069,9 @@ mod tests {
         );
         metadata.lifecycle_phase = "ended".into();
         metadata.lifecycle = "dead".into();
+        metadata.harness_session_id_source = Some("claude_hook".into());
+        metadata.harness_session_id_confidence = Some(1.0);
+        metadata.harness_session_id_captured_at = Some("before".into());
         let ws_guard = state.workspace.lock().unwrap();
         let ws = ws_guard.as_ref().unwrap();
         ws.metadata.write_session(&metadata);
@@ -4009,6 +4094,9 @@ mod tests {
             let mut creating = metadata.clone();
             creating.status = "creating".into();
             creating.lifecycle_phase = "creating".into();
+            creating.harness_session_id_source = None;
+            creating.harness_session_id_confidence = None;
+            creating.harness_session_id_captured_at = None;
             ws.metadata.write_session(&creating);
             ws.metadata.clear_terminal_size(session_id);
         }
@@ -4025,6 +4113,18 @@ mod tests {
         let ws_guard = state.workspace.lock().unwrap();
         let ws = ws_guard.as_ref().unwrap();
         let restored_metadata = ws.metadata.read_session(session_id).unwrap();
+        assert_eq!(
+            restored_metadata.harness_session_id_source,
+            metadata.harness_session_id_source
+        );
+        assert_eq!(
+            restored_metadata.harness_session_id_confidence,
+            metadata.harness_session_id_confidence
+        );
+        assert_eq!(
+            restored_metadata.harness_session_id_captured_at,
+            metadata.harness_session_id_captured_at
+        );
         assert_eq!(restored_metadata.status, "ended");
         assert_eq!(restored_metadata.lifecycle_phase, "ended");
         assert_eq!(ws.metadata.read_terminal_size(session_id), Some((120, 40)));
@@ -4371,7 +4471,7 @@ mod tests {
                 });
         }
 
-        let response = resume_session(State(state), Path(session_id))
+        let response = resume_session(State(state), Path(session_id), axum::body::Bytes::new())
             .await
             .into_response();
 
@@ -4486,7 +4586,7 @@ mod tests {
                 });
         }
 
-        let response = resume_session(State(state), Path(session_id))
+        let response = resume_session(State(state), Path(session_id), axum::body::Bytes::new())
             .await
             .into_response();
 
@@ -9280,7 +9380,8 @@ mod tests {
                 "before",
             ));
 
-        let response = resume_session(State(state), Path(id.into())).await;
+        let response =
+            resume_session(State(state), Path(id.into()), axum::body::Bytes::new()).await;
         assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
@@ -9769,5 +9870,41 @@ mod tests {
             "active_harness_revision_changed"
         );
         assert_eq!(body["activeHarnessRevision"], 1);
+    }
+    #[tokio::test]
+    async fn resume_request_rejects_invalid_explicit_choices_before_lookup() {
+        let oversized = format!("{}{}", " ".repeat(1024), r#"{"strategy":"exact"}"#);
+        for body in [
+            r#"{"strategy":"unknown"}"#,
+            r#"{"strategy":"none"}"#,
+            r#"{}"#,
+            r#"{"strategy":"exact","command":"arbitrary"}"#,
+            "invalid",
+            oversized.as_str(),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let state = test_app_state_with_workspace(dir.path());
+            let router = axum::Router::new()
+                .route("/sessions/:id/resume", axum::routing::post(resume_session))
+                .with_state(state);
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                axum::serve(listener, router).await.unwrap();
+            });
+            let response = reqwest::Client::new()
+                .post(format!("http://{address}/sessions/missing/resume"))
+                .header("content-type", "application/json")
+                .body(body.to_owned())
+                .send()
+                .await
+                .unwrap();
+            server.abort();
+            assert_eq!(
+                response.status(),
+                axum::http::StatusCode::BAD_REQUEST,
+                "{body}"
+            );
+        }
     }
 }

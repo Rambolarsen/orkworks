@@ -200,6 +200,11 @@ impl ResolvedHarness {
             return None;
         }
         let resume = self.definition.resume.as_ref()?;
+        let harness_session_id = if strategy == crate::harness::ResumeStrategy::Exact {
+            harness_session_id
+        } else {
+            None
+        };
         let template = match strategy {
             crate::harness::ResumeStrategy::Exact => resume.exact.as_ref()?,
             crate::harness::ResumeStrategy::LatestCwd => resume.latest_cwd.as_ref()?,
@@ -1470,5 +1475,41 @@ mod tests {
             harness.build_launch("/repo", Some("gpt-5")).args,
             ["--keep", "--model=gpt-5"]
         );
+    }
+    #[test]
+    fn fallback_command_templates_cannot_receive_the_previous_native_id() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let registry = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
+        let mut harness = registry.get("claude-code").unwrap().clone();
+        harness
+            .definition
+            .resume
+            .as_mut()
+            .unwrap()
+            .latest_cwd
+            .as_mut()
+            .unwrap()
+            .args
+            .push("{harnessSessionId}".into());
+        let fallback = harness
+            .build_resume(
+                crate::harness::ResumeStrategy::LatestCwd,
+                "/repo",
+                Some("previous-native-id"),
+                None,
+                None,
+            )
+            .unwrap();
+        assert_eq!(fallback.args, ["--continue", ""]);
+        let exact = harness
+            .build_resume(
+                crate::harness::ResumeStrategy::Exact,
+                "/repo",
+                Some("previous-native-id"),
+                None,
+                None,
+            )
+            .unwrap();
+        assert_eq!(exact.args, ["--resume", "previous-native-id"]);
     }
 }

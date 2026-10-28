@@ -12,6 +12,10 @@ Stable builds use stable releases. Nightly builds use only exact `nightly`
 prereleases and do not fall back to the stable channel. Development builds do
 not install updates and show updates as unavailable.
 
+In current source builds, **Help → Learn More** opens the
+[public OrkWorks site](https://rambolarsen.github.io/orkworks/) in your default
+browser. Published installers may not yet include this menu behavior.
+
 ## Check, download, and install manually
 
 Open **Settings** and select **Updates**, or choose **Check for updates** from
