@@ -443,7 +443,8 @@ uses session-scoped authenticated `git-change-bases`, `git-changes` and opaque
 snapshot/file routes in `http/git_changes_handlers.rs`. `git_changes.rs` owns
 bounded comparison captures in private temporary Git storage; original
 repositories are never written. Type conversions retain one file entry while
-rendering deletion/addition patches from those same captured trees; their text
+rendering deletion/addition patches from those same captured trees and computing
+net line totals from the captured blobs; their text
 shares the existing per-file and aggregate display budgets. `git_changes_fs.rs` anchors worktree traversal
 without following symlinks. Built-in EOL policy in `git_changes_eol.rs` resolves
 only bounded control copies in the private repository, preserving index fallback;

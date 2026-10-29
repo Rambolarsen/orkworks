@@ -741,6 +741,26 @@ pub fn capture(
                 }
             }
             if notice.is_none() {
+                if delta.status() == git2::Delta::Typechange {
+                    // Git displays replacement hunks for a type conversion, but
+                    // its line totals describe the net blob-content change.
+                    let old_blob = scratch.find_blob(delta.old_file().id()).map_err(err)?;
+                    let new_blob = scratch.find_blob(delta.new_file().id()).map_err(err)?;
+                    let mut opts = git2::DiffOptions::new();
+                    // Classification already used the captured attributes above.
+                    opts.force_text(true);
+                    let net = git2::Patch::from_blobs(
+                        &old_blob,
+                        Some(Path::new(&path)),
+                        &new_blob,
+                        Some(Path::new(&path)),
+                        Some(&mut opts),
+                    )
+                    .map_err(err)?;
+                    let (_, a, d) = net.line_stats().map_err(err)?;
+                    added = a;
+                    deleted = d;
+                }
                 additions = Some(added);
                 deletions = Some(deleted);
                 output += text.len();
@@ -1163,7 +1183,7 @@ mod tests {
     }
 
     #[test]
-    fn type_conversion_with_identical_bytes_still_deletes_and_adds_content() {
+    fn type_conversion_with_identical_bytes_keeps_zero_net_totals_and_full_patch() {
         let d = init();
         git(d.path(), &["config", "core.symlinks", "false"]);
         stage_file_mode(d.path(), "100644", b"somewhere");
@@ -1173,10 +1193,26 @@ mod tests {
         assert!(!c.partial);
         assert_eq!(c.files.len(), 1);
         let file = &c.files[0];
-        assert_eq!((file.additions, file.deletions), (Some(1), Some(1)));
+        assert_eq!((file.additions, file.deletions), (Some(0), Some(0)));
         let patch = &c.patches[&file.id];
         assert!(patch.lines().any(|line| line == "-somewhere"));
         assert!(patch.lines().any(|line| line == "+somewhere"));
+    }
+
+    #[test]
+    fn type_conversion_counts_only_net_changed_lines() {
+        let d = init();
+        git(d.path(), &["config", "core.symlinks", "false"]);
+        stage_file_mode(d.path(), "120000", b"one\n");
+        let c = capture(d.path(), Comparison::Uncommitted, None).unwrap();
+        assert!(!c.partial);
+        assert_eq!(c.files.len(), 1);
+        let file = &c.files[0];
+        assert_eq!((file.additions, file.deletions), (Some(0), Some(1)));
+        let patch = &c.patches[&file.id];
+        for line in ["-one", "-two", "+one"] {
+            assert!(patch.lines().any(|l| l == line));
+        }
     }
 
     #[test]
