@@ -452,3 +452,14 @@ SQL/native/query/resource mechanism, trusted UI/fence history, source/custody or
 parent startup proof, eligible profile or executable runtime plan. All six role
 profiles remain UNVERIFIED/no-go; #740 stays deferred until November. Keep
 #741/#742/#744/#746 and the separate production/storage/native gates open.
+
+
+## Proposed finite initial preparation budgets — 2026-10-29
+
+The [initial preparation budget proposal](2026-10-29-root-preparation-budgets-design.md)
+selects proposed finite run/workspace preparation, retained-run, proof-history
+and whole logical inventory limits for scoped owner review. It preserves the
+accepted row/resource meanings and existing fixture catalogs. Its numerical
+choices, derived whole-store accounting and explicit no-pruning exhaustion
+policy remain proposed; no production capacity, shared-custody qualification,
+native mechanism or runtime plan is approved by this routing note.

@@ -212,3 +212,5 @@ Dated design records; these do not establish current product behavior.
 - [Initial root preparation membership and transaction effects](2026-10-28-root-preparation-effects-design.md) — Proposed typed initial membership, protected capability artifacts and exact two-branch preparation effects; new choices await owner review.
 
 - [Terminal-run report correction publication profile](2026-10-29-report-publication-profile-design.md) — Proposed closed receipt/run rows, retained evaluation dependencies and bounded terminal user-correction effects.
+
+- [Initial root preparation budgets and bounded retained custody](2026-10-29-root-preparation-budgets-design.md) — Proposed finite preparation/run, retained-proof and whole logical inventory limits with explicit no-pruning exhaustion and unchanged native/runtime gates.
