@@ -1,0 +1,131 @@
+diff --git a/crates/orkworksd/src/runtime/terminal_runtime.rs b/crates/orkworksd/src/runtime/terminal_runtime.rs
+index 9ae4deea..9662d827 100644
+--- a/crates/orkworksd/src/runtime/terminal_runtime.rs
++++ b/crates/orkworksd/src/runtime/terminal_runtime.rs
+@@ -2000,0 +2001,126 @@ mod tests {
++    /// Manual two-session probe: real AppState, MetadataStore and input owners.
++    /// The FIFO delays one actual attention-transaction read while it owns the
++    /// shared locks. Calling B from the pool is a diagnostic control, not a fix.
++    #[cfg(unix)]
++    #[tokio::test(flavor = "current_thread")]
++    #[ignore = "manual cross-session metadata lock contention probe"]
++    async fn cross_session_metadata_lock_contention_probe() {
++        use crate::runtime::session_runtime::{RuntimeCommand, SessionRuntime};
++        use std::{io::Write, os::unix::ffi::OsStrExt};
++        for offload_b_caller in [false, true] {
++            let a = "lock-probe-session-a";
++            let b = "lock-probe-session-b";
++            let (state, _a_dir) = prompted_session_state(a);
++            let (b_source, _b_dir) = prompted_session_state(b);
++            let mut b_metadata = b_source
++                .workspace
++                .lock()
++                .unwrap()
++                .as_ref()
++                .unwrap()
++                .metadata
++                .read_session(b)
++                .unwrap();
++            b_metadata.cwd = _a_dir.path().display().to_string();
++            let mut b_handle = b_source.sessions.lock().unwrap().remove(b).unwrap();
++            b_handle.info.cwd = b_metadata.cwd.clone();
++            let (a_runtime, mut a_commands) = SessionRuntime::live(24, 80);
++            let (b_runtime, mut b_commands) = SessionRuntime::live(24, 80);
++            b_handle.runtime = b_runtime;
++            {
++                let mut sessions = state.sessions.lock().unwrap();
++                sessions.get_mut(a).unwrap().runtime = a_runtime;
++                sessions.insert(b.into(), b_handle);
++            }
++            let path = {
++                let workspace = state.workspace.lock().unwrap();
++                let store = &workspace.as_ref().unwrap().metadata;
++                store.try_write_session(&b_metadata).unwrap();
++                store.sessions_dir().join(format!("{a}.json"))
++            };
++            let bytes = std::fs::read(&path).unwrap();
++            let saved = path.with_extension("saved");
++            std::fs::rename(&path, &saved).unwrap();
++            let c_path = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
++            // SAFETY: live NUL-terminated path under the test's owned tempdir.
++            assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) }, 0);
++            let (reading_tx, reading_rx) = tokio::sync::oneshot::channel();
++            let io = std::thread::spawn(move || {
++                let mut fifo = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
++                reading_tx.send(()).unwrap();
++                let held = std::time::Instant::now();
++                std::thread::sleep(Duration::from_millis(250));
++                std::fs::rename(saved, path).unwrap();
++                fifo.write_all(&bytes).unwrap();
++                held.elapsed()
++            });
++            let a_ack = tokio::spawn(async move {
++                let RuntimeCommand::Input {
++                    accepted: Some(accepted),
++                    ..
++                } = a_commands.recv().await.unwrap()
++                else {
++                    panic!("expected A input");
++                };
++                accepted.send(Ok(())).unwrap();
++            });
++            let b_ack = tokio::spawn(async move {
++                let RuntimeCommand::Input {
++                    accepted: Some(accepted),
++                    ..
++                } = b_commands.recv().await.unwrap()
++                else {
++                    panic!("expected B input");
++                };
++                accepted.send(Ok(())).unwrap();
++            });
++            let worker = state.clone();
++            let a_input =
++                tokio::spawn(async move { submit_approved_input(&worker, a, "y".into()).await });
++            // A's ordinary key bypasses metadata preflight. Its accepted-input
++            // attention commit is now blocked inside the actual store read.
++            reading_rx.await.unwrap();
++            let started = std::time::Instant::now();
++            let heartbeat = tokio::spawn(async move {
++                tokio::time::sleep(Duration::from_millis(10)).await;
++                started.elapsed()
++            });
++            tokio::task::yield_now().await;
++            let b_result = if offload_b_caller {
++                let worker = state.clone();
++                let runtime = tokio::runtime::Handle::current();
++                tokio::task::spawn_blocking(move || {
++                    runtime.block_on(submit_approved_input(&worker, b, "b".into()))
++                })
++                .await
++                .unwrap()
++            } else {
++                submit_approved_input(&state, b, "b".into()).await
++            };
++            let b_elapsed = started.elapsed();
++            let heartbeat_elapsed = heartbeat.await.unwrap();
++            assert_eq!(a_input.await.unwrap(), Ok(()));
++            assert_eq!(b_result, Ok(()));
++            a_ack.await.unwrap();
++            b_ack.await.unwrap();
++            let held = io.join().unwrap();
++            for id in [a, b] {
++                assert_eq!(
++                    state.sessions.lock().unwrap()[id].runtime.input_generation,
++                    1
++                );
++                let saved = state
++                    .workspace
++                    .lock()
++                    .unwrap()
++                    .as_ref()
++                    .unwrap()
++                    .metadata
++                    .read_session(id)
++                    .unwrap();
++                assert_eq!(saved.attention.as_deref(), Some("working"));
++            }
++            eprintln!("offload_b_caller={offload_b_caller}: metadata_read={held:?}, B_input={b_elapsed:?}, heartbeat={heartbeat_elapsed:?}");
++        }
++    }
++

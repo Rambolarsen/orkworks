@@ -49,3 +49,4 @@ Capability research, validation results, and evidence fixtures.
 - [Root preparation logical effect witnesses](root-preparation-effects.md) — Independent complete initial state/manifests and shared accounting for cancel and both summary-capacity branches; native/runtime admission remains unverified.
 
 - [Root preparation budget boundary components](root-preparation-budgets.md) — Independent full-state totals, isolated inclusive cap cases and conservative envelope bounds under the scoped accepted budget policy.
+- [Cross-session metadata lock contention](session-lock-contention.md) — Real two-session input contention evidence and the remaining isolation boundary.
