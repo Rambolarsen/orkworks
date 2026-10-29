@@ -200,6 +200,11 @@ counts. Session refreshes can recover after the filesystem problem is fixed.
 Git status errors also leave these facts unavailable. When only line totals
 cannot be read, the dirty state and file count remain visible.
 
+Shared dirty-worktree warnings count active sessions across subdirectories of
+the same checkout. Separate worktrees, clones, nested repositories and submodules
+remain distinct. Archived, inactive and unavailable sessions do not increase the
+count. Sharing a dirty linked worktree receives the shared-worktree advice too.
+
 ## Inspect Git changes
 
 In current source builds, select a session, open **Details**, and choose
