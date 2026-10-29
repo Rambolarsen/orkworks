@@ -80,7 +80,22 @@ def envelopes():
                     parentSessionId="p" * 128, bootstrapId="b" * 128, bootstrapConfigurationDigest="d" * 64)
     # Repeated maximal entries bound bytes; duplicate keys make this an envelope
     # calculation only, never a valid manifest or a reachable initial command.
-    change = dict(table="summary_state", key=identity, beforeDigest="a" * 64, afterDigest="b" * 64)
+    keys = [("root_drafts", workspace), ("root_preparations", source_key),
+            ("run_states", source_key), ("parent_attachments", "p" * 128),
+            ("preparation_artifacts", artifact_key), ("summary_state", identity)]
+    workspace_owner = dict(kind="workspace", workspaceId=workspace)
+    run_owner = dict(kind="run", **source_key)
+    assignment_owner = dict(kind="assignment", assignmentIdentity=identity)
+    for resource in ["reporting-receipt-bytes", "assignment-record-bytes", "result-payload-bytes"]:
+        keys.extend(("quota_usage", dict(owner=owner, resource=resource))
+                    for owner in [workspace_owner, run_owner, assignment_owner])
+    for resource in ["summary-row-bytes", "summary-row-count", "summary-lineage-bytes", "summary-pending-count", "preparation-run-count"]:
+        keys.append(("quota_usage", dict(owner=workspace_owner, resource=resource)))
+    keys.extend(("quota_usage", dict(owner=owner, resource="preparation-retained-bytes"))
+                for owner in [workspace_owner, run_owner])
+    candidates = [dict(table=table, key=key, beforeDigest="a" * 64, afterDigest="b" * 64)
+                  for table, key in keys]
+    change = max(candidates, key=size)
     manifest = dict(schemaVersion=3, workspaceId=workspace, storageEpoch="e" * 64,
                     commitSequence="9" * 19, predecessor=link, commandKind="subject-preparation", changes=[change] * 4096)
     value = dict(body=manifest, changeDigest="d" * 64)
@@ -89,6 +104,8 @@ def envelopes():
                 artifactFullOverheadBytes=full_overhead, artifactProjectedOverheadBytes=projected_overhead,
                 sourceKeyBytes=size(source_key), parentKeyBytes=size("p" * 128), workspaceKeyBytes=size(workspace),
                 draftWrapperBytes=draft_wrapper, admittedPreparationUpperBytes=admitted, pendingPreparationUpperBytes=pending,
+                largestChangeTable=change["table"], largestChangeKeyCanonical=canonical(change["key"]),
+                largestChangeBytes=size(change),
                 proofValueBytes=size(value), proofValueSha256=sha(canonical(value).encode()),
                 proofKeyBytes=size("9" * 19), maximumManifestEntries=4096,
                 minimumChangedRowsWithControls=4098)

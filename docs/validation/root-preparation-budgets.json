@@ -508,8 +508,11 @@
     "draftWrapperBytes": 28,
     "admittedPreparationUpperBytes": 2496756,
     "pendingPreparationUpperBytes": 2488110,
-    "proofValueBytes": 4067971,
-    "proofValueSha256": "27d41e7fe0a2884caa4bcfb9973eefb6cacb93277858ad404432eaec46ef55b2",
+    "largestChangeTable": "quota_usage",
+    "largestChangeKeyCanonical": "{\"owner\":{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"bootstrapId\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"kind\":\"root\",\"parentSessionId\":\"pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp\",\"rootAssignmentId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"runId\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-9999999999999999999\",\"workspaceId\":\"wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\"},\"kind\":\"assignment\"},\"resource\":\"reporting-receipt-bytes\"}",
+    "largestChangeBytes": 1080,
+    "proofValueBytes": 4428419,
+    "proofValueSha256": "36a681662049de98ace05e93c841091ad013b2dce0d7b0cb9347001b8c638704",
     "proofKeyBytes": 21,
     "maximumManifestEntries": 4096,
     "minimumChangedRowsWithControls": 4098

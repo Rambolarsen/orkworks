@@ -111,11 +111,38 @@ test('conservative preparation envelope bounds fit the per-run cap without claim
 test('maximum structural manifest bytes do not override the complete changed-row limit',()=>{
   const identity={kind:'root',workspaceId:'w'.repeat(128),runId:'e'.repeat(64)+'-'+'9'.repeat(19),rootAssignmentId:'a'.repeat(128),parentSessionId:'p'.repeat(128),bootstrapId:'b'.repeat(128),bootstrapConfigurationDigest:'d'.repeat(64)};
   const link={storageEpoch:'e'.repeat(64),commitSequence:'9'.repeat(19),changeDigest:'d'.repeat(64)};
-  const change={table:'summary_state',key:identity,beforeDigest:'a'.repeat(64),afterDigest:'b'.repeat(64)};
+  const change={table:'quota_usage',key:{owner:{kind:'assignment',assignmentIdentity:identity},resource:'reporting-receipt-bytes'},beforeDigest:'a'.repeat(64),afterDigest:'b'.repeat(64)};
   const value={body:{schemaVersion:3,workspaceId:identity.workspaceId,storageEpoch:'e'.repeat(64),commitSequence:'9'.repeat(19),predecessor:link,commandKind:'subject-preparation',changes:Array(4096).fill(change)},changeDigest:'d'.repeat(64)};
   assert.equal(size(value),catalog.envelopes.proofValueBytes);assert.equal(sha(canonical(value)),catalog.envelopes.proofValueSha256);
   assert(size(value)+catalog.envelopes.proofKeyBytes<=67108864);
   assert.equal(catalog.envelopes.minimumChangedRowsWithControls,4098);
   assert(catalog.envelopes.minimumChangedRowsWithControls>4096);
   // Duplicate maximal entries are a byte upper bound, never a valid manifest.
+});
+
+test('conservative proof bound covers every registered initial-profile key family',()=>{
+  const identity={kind:'root',workspaceId:'w'.repeat(128),runId:'e'.repeat(64)+'-'+'9'.repeat(19),rootAssignmentId:'a'.repeat(128),parentSessionId:'p'.repeat(128),bootstrapId:'b'.repeat(128),bootstrapConfigurationDigest:'d'.repeat(64)};
+  const sourceKey={workspaceId:identity.workspaceId,runId:identity.runId};
+  const rows=select('target-admitted').rows.filter(r=>!['commit_proof','store_header'].includes(r.table));
+  const candidates=rows.map(r=>{
+    let key;
+    if(r.table==='quota_usage'){
+      const original=JSON.parse(r.keyCanonical),kind=original.owner.kind;
+      const owner=kind==='assignment'?{kind,assignmentIdentity:identity}:kind==='run'?{kind,...sourceKey}:{kind,workspaceId:identity.workspaceId};
+      key={owner,resource:original.resource};
+    }else if(r.table==='summary_state')key=identity;
+    else if(r.table==='root_drafts')key=identity.workspaceId;
+    else if(r.table==='parent_attachments')key=identity.parentSessionId;
+    else if(r.table==='preparation_artifacts')key={...sourceKey,referenceId:'r'.repeat(128)};
+    else key=sourceKey;
+    return {table:r.table,key,beforeDigest:'a'.repeat(64),afterDigest:'b'.repeat(64)};
+  });
+  // Include the pending-only draft key as well as admitted-state keys.
+  candidates.push({table:'root_drafts',key:identity.workspaceId,beforeDigest:'a'.repeat(64),afterDigest:'b'.repeat(64)});
+  const maximum=Math.max(...candidates.map(size));
+  assert.equal(catalog.envelopes.largestChangeBytes,maximum);
+  assert(candidates.some(c=>c.table===catalog.envelopes.largestChangeTable&&canonical(c.key)===catalog.envelopes.largestChangeKeyCanonical&&size(c)===maximum));
+  const link={storageEpoch:'e'.repeat(64),commitSequence:'9'.repeat(19),changeDigest:'d'.repeat(64)};
+  const fixed={body:{schemaVersion:3,workspaceId:identity.workspaceId,storageEpoch:'e'.repeat(64),commitSequence:'9'.repeat(19),predecessor:link,commandKind:'subject-preparation',changes:[]},changeDigest:'d'.repeat(64)};
+  assert.equal(catalog.envelopes.proofValueBytes,size(fixed)+4096*maximum+4095);
 });

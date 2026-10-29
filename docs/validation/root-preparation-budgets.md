@@ -67,8 +67,13 @@ Equal small contents under distinct reference IDs remain separate occurrences.
 | Pending run preparation projection | At most 2,488,110 bytes, below 8 MiB |
 | Admitted run preparation projection | At most 2,496,756 bytes, below 8 MiB |
 | One full artifact wrapper excluding Base64 characters | 361 bytes; even one maximum raw occurrence fits the 2 MiB value ceiling |
-| Proof value with 4,096 maximal root-summary change envelopes | 4,067,971 bytes, plus 21-byte sequence key |
+| Proof value with 4,096 maximal assignment-quota change envelopes | 4,428,419 bytes, plus 21-byte sequence key |
 | Same manifest plus mandatory new proof/header effects | At least 4,098 changed rows; fails the independent 4,096 complete changed-row cap |
+
+The generator compares all registered initial-profile change-key families, including
+assignment/run/workspace quota owners; the largest is an assignment reporting
+receipt quota key. A regression independently derives candidates from the earlier
+full state inventory so a larger registered key cannot be missed.
 
 The proof envelope repeats maximal keys and uses maximum-width placeholder
 counter tokens. It is deliberately not a valid unique-key manifest, legal
