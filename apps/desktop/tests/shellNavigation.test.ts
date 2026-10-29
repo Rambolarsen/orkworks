@@ -323,3 +323,9 @@ test("Changes follows explicit session selection without retaining the old subje
   assert.deepEqual(next.centralSurface,{kind:"terminal",sessionId:"b"});
   assert.equal(reduceShellNavigation(next,{type:"workspace-generation-changed",generation:5}).inspector,null);
 });
+
+
+test("Skills remains available for personal discovery without a workspace", () => {
+  assert.deepEqual(resolveInspectorSubject("skills", null, null), { kind: "personal" });
+  assert.deepEqual(resolveInspectorSubject("skills", null, "/repo"), { kind: "workspace", workspaceKey: "/repo" });
+});

@@ -7,14 +7,16 @@ export type TemporaryUtilityDestination =
   | "changes"
   | "details"
   | "actions"
-  | "recommendations";
+  | "recommendations"
+  | "skills";
 
 export type InspectorDestination = Exclude<TemporaryUtilityDestination, "sessions">;
 
 export type InspectedSubject =
   | { kind: "session"; sessionId: string }
   | { kind: "artifact"; sessionId: string; artifactId: string }
-  | { kind: "workspace"; workspaceKey: string };
+  | { kind: "workspace"; workspaceKey: string }
+  | { kind: "personal" };
 
 export function resolveInspectorSubject(
   destination: InspectorDestination,
@@ -24,6 +26,7 @@ export function resolveInspectorSubject(
   if ((destination === "details" || destination === "changes") && activeSessionId) {
     return { kind: "session", sessionId: activeSessionId };
   }
+  if (destination === "skills" && !workspaceKey) return { kind: "personal" };
   return workspaceKey ? { kind: "workspace", workspaceKey } : null;
 }
 

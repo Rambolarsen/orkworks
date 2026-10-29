@@ -23,7 +23,6 @@ import HarnessIcon from "./HarnessIcon";
 import Toggle, { ToggleStatusText } from "./Toggle";
 import Button from "./Button";
 import Input from "./Input";
-import SkillsSettings from "./SkillsSettings";
 import TaskmasterSettings from "./TaskmasterSettings";
 import type { UpdateStatus } from "../orkworksWindow";
 
@@ -33,12 +32,11 @@ type ToolSaveRequest =
   | { kind: "modal"; ids: string[]; key?: undefined }
   | { kind: "tool"; ids: string[]; harnessId: string; key: IntegrationKey };
 
-export type SettingsSection = "skills" | "tools" | "providers" | "recommendations" | "hotkeys" | "retention" | "updates" | "debug";
+export type SettingsSection = "tools" | "providers" | "recommendations" | "hotkeys" | "retention" | "updates" | "debug";
 
 const NAV_ITEMS: Array<{ key: SettingsSection; label: string }> = [
   { key: "tools", label: "Coding tools" },
   { key: "providers", label: "Model providers" },
-  { key: "skills", label: "Skills" },
   { key: "recommendations", label: "Recommendations" },
   { key: "hotkeys", label: "Hotkeys" },
   { key: "retention", label: "Session retention" },
@@ -1011,7 +1009,6 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
               </div>
             )}
 
-            {activeSection === "skills" && <SkillsSettings currentWorkspacePath={currentWorkspacePath} />}
 
             {activeSection === "recommendations" && <TaskmasterSettings currentWorkspacePath={currentWorkspacePath} />}
 

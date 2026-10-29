@@ -526,6 +526,6 @@ test("App wires the titlebar workspace-history dropdown to the remembered-open h
 
 test("App renders the workspace-history list directly in the no-workspace picker screen", () => {
   assert.match(appSource, /import \{ WorkspaceHistoryList \} from "\.\/components\/WorkspaceHistoryList";/);
-  assert.match(appSource, /!workspace && \(\s*<div className="workspace-picker-screen">/);
+  assert.match(appSource, /!workspace && shellNavigation\.inspector !== "skills" && \(\s*<div className="workspace-picker-screen">/);
   assert.match(appSource, /<WorkspaceHistoryList\s+currentWorkspacePath=\{null\}/);
 });

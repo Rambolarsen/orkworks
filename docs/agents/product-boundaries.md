@@ -65,7 +65,7 @@ expand the fantasy naming without an explicit spec update.
 ## Single-central-context UX invariant
 
 The desktop shell shows one central context at a time: Terminal, Review, or an
-eligible Workflow overview, with transient Recommendations and a New session composer for ordinary
+eligible Workflow overview, with transient Recommendations, Skills and a New session composer for ordinary
 creation and empty workspaces. There remains one selected terminal, and selecting
 an actual session explicitly switches to that session's Terminal. The compact
 Sessions list carries cross-session awareness; inspecting a workflow node,

@@ -859,9 +859,10 @@ function App() {
           </span>
         )}
       </div>
-      {!workspace && (
+      {!workspace && shellNavigation.inspector !== "skills" && (
         <div className="workspace-picker-screen">
           <section className="workspace-picker-card" aria-label="Workspace picker">
+            <button type="button" className="titlebar-open-button" data-open-skills data-shell-command="skills" onClick={() => requestShellCommand("skills")}>Skills</button>
             {backendStatus !== "picker" && <p role="status">{backendStatus}</p>}
             {workspaceHistoryDiagnostic && (
               <span role="alert" title={workspaceHistoryDiagnostic.message}>
@@ -932,7 +933,7 @@ function App() {
           error={review.error} changed={review.changed} canRequest={sessionAdmissionEnabled && isSessionAlive(activeSession)}
           onRefresh={refreshReview} onRequest={requestIndependentReview} /> : null}
         workspaceGeneration={shellNavigation.workspaceGeneration}
-        visibleSubjectId={shellNavigation.inspectedSubject && shellNavigation.inspectedSubject.kind !== "workspace"
+        visibleSubjectId={shellNavigation.inspectedSubject && "sessionId" in shellNavigation.inspectedSubject
           ? shellNavigation.inspectedSubject.sessionId
           : shellNavigation.centralSurface.kind === "terminal"
             ? shellNavigation.centralSurface.sessionId
