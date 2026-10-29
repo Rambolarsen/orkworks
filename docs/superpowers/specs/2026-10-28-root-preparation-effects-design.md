@@ -425,3 +425,30 @@ clarifies that current UI-authorized discard of a stale draft does not revive
 its approval context or require restored eligibility, preserving the accepted
 producer's historical inspection/discard path. No post-edit independent
 rereview, source/native qualification or owner acceptance is claimed.
+
+
+## Owner acceptance for documentation fixtures — 2026-10-29
+
+After PR #1134 merged and the concrete design's scoped acceptance question was
+presented, the owner answered “yes, lets keep going”. This accepts the named
+initial run/parent keys and wrappers with 4 KiB bounds; per-reference run-owned
+capability-artifact retention with Base64 commitments and 2 MiB encoded-row bound
+while preserving the inherited raw aggregate; the two preparation resource
+meanings, owner mapping and nine-zero-workspace-resource new-store baseline;
+and the narrow effect/profile choices for independent documentation witnesses.
+This supersedes pending owner review for those choices only.
+
+The [logical effects packet](../../validation/root-preparation-effects.md)
+adds independent before/after maps, manifests, proofs, source/membership joins and
+ledger/command accounting for draft preparation, cancellation and both inherited
+summary branches. An earlier unrelated retained run contributes real nonzero
+logical usage within the synthetic witness; shared ledgers are not reset.
+Prior catalogs and source bodies remain unchanged. The two root cases use fresh
+synthetic identities and remain explicitly unverified source examples.
+
+Acceptance is for documentation fixture/checker qualification only. It supplies
+no production numerical preparation/history/run-count cap, adoption/migration,
+SQL/native/query/resource mechanism, trusted UI/fence history, source/custody or
+parent startup proof, eligible profile or executable runtime plan. All six role
+profiles remain UNVERIFIED/no-go; #740 stays deferred until November. Keep
+#741/#742/#744/#746 and the separate production/storage/native gates open.

@@ -28,3 +28,6 @@ docs/validation/r2-report-vectors.json text eol=lf
 
 # Conditional report-publication golden bytes must survive checkout unchanged.
 docs/validation/report-publication-vectors.json text eol=lf
+
+# Preserve complete independent logical preparation effect bytes.
+docs/validation/root-preparation-effects.json text eol=lf

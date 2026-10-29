@@ -626,3 +626,17 @@ summary/ledger branches and logical read/invalidation oracles. It supplies no
 admission/termination producer, live authority, native durability, index completeness
 or runtime eligibility. Existing source definitions and earlier fixture bytes are
 unchanged; broader lifecycle and executable-plan gates remain open.
+
+
+## Initial effects accepted for documentation witnesses — 2026-10-29
+
+The owner [accepted the named initial-effects choices](2026-10-28-root-preparation-effects-design.md#owner-acceptance-for-documentation-fixtures--2026-10-29)
+for independent documentation fixtures/checkers. The
+[logical packet](../../validation/root-preparation-effects.md) pins full initial
+maps, manifests, protected source/artifact membership and shared-ledger/command
+charges, including cancellation and both summary-capacity branches. It preserves
+all previous catalogs and unverified evidence status.
+
+No operational admission, production cap, migration, native/SQL/source-custody or
+session startup qualification is inferred. #740 remains deferred/no-go until
+November; broader component and executable-plan gates remain separate.

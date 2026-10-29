@@ -45,3 +45,5 @@ Capability research, validation results, and evidence fixtures.
 - [R2 report publication boundary audit](r2-publication-boundary.md) — Required correction effects, dependency/read race oracles and explicit missing receipt/consumer codecs blocking complete transaction qualification.
 
 - [Conditional terminal report publication fixtures](report-publication-components.md) — Exact captured row/commit corrections and rejection oracles under explicitly unqualified admission, authority and native context.
+
+- [Root preparation logical effect witnesses](root-preparation-effects.md) — Independent complete initial state/manifests and shared accounting for cancel and both summary-capacity branches; native/runtime admission remains unverified.
