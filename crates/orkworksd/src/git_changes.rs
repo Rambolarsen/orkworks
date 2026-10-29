@@ -634,6 +634,24 @@ pub fn capture(
     let mut find = git2::DiffFindOptions::new();
     find.renames(true).rename_limit(500);
     diff.find_similar(Some(&mut find)).map_err(err)?;
+    // libgit2 omits content from combined Typechange deltas. Keep those deltas
+    // for file identity/rename detection, but render their deletion and addition
+    // from the same captured trees, without another source-file read.
+    let typechange_diff = if diff.deltas().any(|d| d.status() == git2::Delta::Typechange) {
+        let mut opts = git2::DiffOptions::new();
+        opts.context_lines(3).include_typechange(false);
+        Some(
+            scratch
+                .diff_tree_to_tree(
+                    Some(&scratch.find_tree(before).map_err(err)?),
+                    Some(&scratch.find_tree(after).map_err(err)?),
+                    Some(&mut opts),
+                )
+                .map_err(err)?,
+        )
+    } else {
+        None
+    };
     let mut files = Vec::new();
     let mut patches = HashMap::new();
     let mut output = 0;
@@ -659,38 +677,97 @@ pub fn capture(
         let mut additions = None;
         let mut deletions = None;
         let mut text = String::new();
-        if let Some(mut patch) = git2::Patch::from_diff(&diff, i).map_err(err)? {
-            if patch.delta().old_file().is_binary() || patch.delta().new_file().is_binary() {
-                let id = uuid::Uuid::new_v4().to_string();
-                files.push(ChangedFile {
-                    id,
-                    path,
-                    old_path,
-                    status: "Binary".into(),
-                    additions: None,
-                    deletions: None,
-                    notice: Some("Binary file; no text patch.".into()),
-                });
-                continue;
+        let (patch_diff, indices) = if delta.status() == git2::Delta::Typechange {
+            let split = typechange_diff
+                .as_ref()
+                .ok_or("Type change patch unavailable.")?;
+            let indices: Vec<_> = split
+                .deltas()
+                .enumerate()
+                .filter(|(_, d)| {
+                    d.new_file().path().or(d.old_file().path()) == Some(Path::new(&path))
+                })
+                .map(|(index, _)| index)
+                .collect();
+            if indices.len() != 2 {
+                return Err("Type change patch unavailable.".into());
             }
-            let bytes = patch.to_buf().map_err(err)?;
-            if bytes.len() > PATCH_LIMIT || output + bytes.len() > TOTAL_LIMIT {
-                notice = Some("Patch exceeds display budget.".into());
-                partial = true
-            } else if std::str::from_utf8(&bytes).is_err()
-                || bytes.split(|b| *b == b'\n').any(|l| l.len() > 65536)
-            {
-                notice = Some("Unsupported text encoding or line too long.".into());
-                partial = true
-            } else {
-                let (_, a, d) = patch.line_stats().map_err(err)?;
-                additions = Some(a);
-                deletions = Some(d);
-                text = String::from_utf8(bytes.to_vec()).map_err(err)?;
-                output += text.len();
-            }
+            (split, indices)
         } else {
+            (&diff, vec![i])
+        };
+        let file_patches = indices
+            .into_iter()
+            .map(|index| git2::Patch::from_diff(patch_diff, index).map_err(err))
+            .collect::<Result<Vec<_>, _>>()?;
+        if file_patches.iter().flatten().any(|patch| {
+            patch.delta().old_file().is_binary() || patch.delta().new_file().is_binary()
+        }) {
+            let id = uuid::Uuid::new_v4().to_string();
+            files.push(ChangedFile {
+                id,
+                path,
+                old_path,
+                status: "Binary".into(),
+                additions: None,
+                deletions: None,
+                notice: Some("Binary file; no text patch.".into()),
+            });
+            continue;
+        }
+        if file_patches.iter().any(Option::is_none) {
             notice = Some("Binary file; no text patch.".into());
+        } else {
+            let (mut added, mut deleted) = (0, 0);
+            for mut patch in file_patches.into_iter().flatten() {
+                let bytes = patch.to_buf().map_err(err)?;
+                if text.len() + bytes.len() > PATCH_LIMIT
+                    || output + text.len() + bytes.len() > TOTAL_LIMIT
+                {
+                    notice = Some("Patch exceeds display budget.".into());
+                    partial = true;
+                    break;
+                } else if std::str::from_utf8(&bytes).is_err()
+                    || bytes.split(|b| *b == b'\n').any(|l| l.len() > 65536)
+                {
+                    notice = Some("Unsupported text encoding or line too long.".into());
+                    partial = true;
+                    break;
+                } else {
+                    let (_, a, d) = patch.line_stats().map_err(err)?;
+                    added += a;
+                    deleted += d;
+                    text.push_str(std::str::from_utf8(&bytes).map_err(err)?);
+                }
+            }
+            if notice.is_none() {
+                if delta.status() == git2::Delta::Typechange {
+                    // Git displays replacement hunks for a type conversion, but
+                    // its line totals describe the net blob-content change.
+                    let old_blob = scratch.find_blob(delta.old_file().id()).map_err(err)?;
+                    let new_blob = scratch.find_blob(delta.new_file().id()).map_err(err)?;
+                    let mut opts = git2::DiffOptions::new();
+                    // Classification already used the captured attributes above.
+                    opts.force_text(true);
+                    let net = git2::Patch::from_blobs(
+                        &old_blob,
+                        Some(Path::new(&path)),
+                        &new_blob,
+                        Some(Path::new(&path)),
+                        Some(&mut opts),
+                    )
+                    .map_err(err)?;
+                    let (_, a, d) = net.line_stats().map_err(err)?;
+                    added = a;
+                    deleted = d;
+                }
+                additions = Some(added);
+                deletions = Some(deleted);
+                output += text.len();
+            } else {
+                // Never retain or expose one half of a conversion as a complete patch.
+                text = String::new();
+            }
         }
         let id = uuid::Uuid::new_v4().to_string();
         patches.insert(id.clone(), text);
@@ -1036,6 +1113,143 @@ mod tests {
             assert!(capture(d.path(), Comparison::Uncommitted, None).is_err());
         }
     }
+    fn stage_file_mode(dir: &Path, mode: &str, content: &[u8]) {
+        let repo = Repository::open(dir).unwrap();
+        let id = repo.blob(content).unwrap();
+        git(
+            dir,
+            &["update-index", "--cacheinfo", &format!("{mode},{id},a.txt")],
+        );
+        std::fs::write(dir.join("a.txt"), content).unwrap();
+    }
+
+    #[test]
+    fn file_symlink_conversions_include_content_in_both_comparisons() {
+        for reverse in [false, true] {
+            for comparison in [Comparison::Uncommitted, Comparison::Branch] {
+                let d = init();
+                git(d.path(), &["config", "core.symlinks", "false"]);
+                if reverse {
+                    stage_file_mode(d.path(), "120000", b"somewhere");
+                    git(d.path(), &["commit", "-qm", "link baseline"]);
+                }
+                git(d.path(), &["checkout", "-qb", "feature"]);
+                let (mode, content): (&str, &[u8]) = if reverse {
+                    ("100644", b"one\ntwo\n")
+                } else {
+                    ("120000", b"somewhere")
+                };
+                stage_file_mode(d.path(), mode, content);
+                let base = if comparison == Comparison::Branch {
+                    git(d.path(), &["commit", "-qm", "convert type"]);
+                    Some("refs/heads/main")
+                } else {
+                    None
+                };
+                let c = capture(d.path(), comparison, base).unwrap();
+                assert!(!c.partial);
+                assert_eq!(c.files.len(), 1);
+                let file = &c.files[0];
+                assert_eq!(file.status, "Type changed");
+                assert_eq!(
+                    (file.additions, file.deletions),
+                    if reverse {
+                        (Some(2), Some(1))
+                    } else {
+                        (Some(1), Some(2))
+                    }
+                );
+                assert!(file.notice.is_none());
+                let patch = &c.patches[&file.id];
+                for line in if reverse {
+                    ["-somewhere", "+one", "+two"]
+                } else {
+                    ["+somewhere", "-one", "-two"]
+                } {
+                    assert!(patch.lines().any(|l| l == line), "missing {line}: {patch}");
+                }
+                assert!(patch.contains(if reverse {
+                    "deleted file mode 120000"
+                } else {
+                    "deleted file mode 100644"
+                }));
+                assert!(patch.contains(if reverse {
+                    "new file mode 100644"
+                } else {
+                    "new file mode 120000"
+                }));
+            }
+        }
+    }
+
+    #[test]
+    fn type_conversion_with_identical_bytes_keeps_zero_net_totals_and_full_patch() {
+        let d = init();
+        git(d.path(), &["config", "core.symlinks", "false"]);
+        stage_file_mode(d.path(), "100644", b"somewhere");
+        git(d.path(), &["commit", "-qm", "same content baseline"]);
+        stage_file_mode(d.path(), "120000", b"somewhere");
+        let c = capture(d.path(), Comparison::Uncommitted, None).unwrap();
+        assert!(!c.partial);
+        assert_eq!(c.files.len(), 1);
+        let file = &c.files[0];
+        assert_eq!((file.additions, file.deletions), (Some(0), Some(0)));
+        let patch = &c.patches[&file.id];
+        assert!(patch.lines().any(|line| line == "-somewhere"));
+        assert!(patch.lines().any(|line| line == "+somewhere"));
+    }
+
+    #[test]
+    fn type_conversion_counts_only_net_changed_lines() {
+        let d = init();
+        git(d.path(), &["config", "core.symlinks", "false"]);
+        stage_file_mode(d.path(), "120000", b"one\n");
+        let c = capture(d.path(), Comparison::Uncommitted, None).unwrap();
+        assert!(!c.partial);
+        assert_eq!(c.files.len(), 1);
+        let file = &c.files[0];
+        assert_eq!((file.additions, file.deletions), (Some(0), Some(1)));
+        let patch = &c.patches[&file.id];
+        for line in ["-one", "-two", "+one"] {
+            assert!(patch.lines().any(|l| l == line));
+        }
+    }
+
+    #[test]
+    fn binary_type_conversion_keeps_content_and_totals_unavailable() {
+        let d = init();
+        git(d.path(), &["config", "core.symlinks", "false"]);
+        stage_file_mode(d.path(), "100644", b"binary\0content");
+        git(d.path(), &["commit", "-qm", "binary baseline"]);
+        stage_file_mode(d.path(), "120000", b"somewhere");
+        let c = capture(d.path(), Comparison::Uncommitted, None).unwrap();
+        assert_eq!(c.files.len(), 1);
+        let file = &c.files[0];
+        assert_eq!((file.additions, file.deletions), (None, None));
+        assert_eq!(file.notice.as_deref(), Some("Binary file; no text patch."));
+        assert!(c.patches.get(&file.id).is_none_or(String::is_empty));
+    }
+
+    #[test]
+    fn type_conversion_applies_patch_budget_to_both_sides_together() {
+        let d = init();
+        git(d.path(), &["config", "core.symlinks", "false"]);
+        // Each rendered side is below 256 KiB; their combined patch is above it.
+        stage_file_mode(d.path(), "100644", "old\n".repeat(28_000).as_bytes());
+        git(d.path(), &["commit", "-qm", "large text baseline"]);
+        stage_file_mode(d.path(), "120000", "new\n".repeat(28_000).as_bytes());
+        let c = capture(d.path(), Comparison::Uncommitted, None).unwrap();
+        assert!(c.partial);
+        assert_eq!(c.files.len(), 1);
+        let file = &c.files[0];
+        assert_eq!((file.additions, file.deletions), (None, None));
+        assert_eq!(
+            file.notice.as_deref(),
+            Some("Patch exceeds display budget.")
+        );
+        assert!(c.patches[&file.id].is_empty());
+    }
+
     #[test]
     fn branch_mode_changes_ignore_worktree_filemode_configuration() {
         let d = init();
@@ -1046,6 +1260,13 @@ mod tests {
         let c = capture(d.path(), Comparison::Branch, Some("refs/heads/main")).unwrap();
         assert_eq!(c.files.len(), 1);
         assert_eq!(c.files[0].path, "a.txt");
+        assert_eq!(
+            (c.files[0].additions, c.files[0].deletions),
+            (Some(0), Some(0))
+        );
+        let patch = &c.patches[&c.files[0].id];
+        assert!(patch.contains("old mode 100644"));
+        assert!(patch.contains("new mode 100755"));
     }
     #[test]
     fn non_symlink_checkouts_preserve_git_link_semantics() {
