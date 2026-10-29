@@ -443,7 +443,13 @@ Codex SessionStart supplies scoped task-worktree reporting instructions when the
 existing session capability is available. `session-metadata.py worktree PATH`
 (or `worktree --clear`) runs from the actual agent context and sends only a
 revisioned worktree patch. Its optional explicit HTTP proxy has the same transport
-restrictions as the general helper. General bootstrap/get/patch/instructions
+restrictions as the general helper. The generated context includes the explicit
+proxy invocation for an already owner-authorized sandbox-managed relay. Select
+that verified relay in the actual tool context; a direct socket can return EPERM
+in a proxy-enforced sandbox even when networking is enabled. Ambient proxy
+variables or a loopback address alone do not establish relay trust. If no
+authorized route is available, report the missing binding; do not change sandbox
+policy or substitute metadata-file writes. General bootstrap/get/patch/instructions
 retain the API-only marker gate; a marked SessionStart combines both contexts
 in one response. Stable helper reconciliation still owns installed bytes.
 This is cooperative reporting, not automatic worktree discovery, and does not

@@ -2,6 +2,8 @@ import contextlib
 import http.server
 import json
 import os
+import re
+import shlex
 from pathlib import Path
 import subprocess
 import sys
@@ -97,6 +99,31 @@ class ProducerTests(unittest.TestCase):
                 rejected = self.invoke(command, port, json.dumps(PATCH), marker=None)
             self.assertEqual(rejected.returncode, 2)
             self.assertEqual(requests, [])
+
+    def test_delivered_worktree_proxy_example_reports_to_the_pinned_session(self):
+        # An agent must be able to use the delivered example in a sandbox
+        # that requires the already-authorized explicit proxy transport.
+        for mode, marker in (("worktree-instructions", None), ("instructions", "1")):
+            with self.subTest(mode=mode):
+                result = self.invoke(mode, marker=marker)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+                examples = [shlex.split(command) for command in re.findall(r"`([^`]+)`", context)
+                    if "worktree ABSOLUTE_PATH --http-proxy TRUSTED_PROXY_URL" in command]
+                self.assertEqual(len(examples), 1, "Agent context must deliver an explicit worktree proxy example")
+                with endpoint([ok(RECORD), ok({**RECORD, "metadataRevision": "8"})]) as (port, requests):
+                    replacements = {"python3": sys.executable, "ABSOLUTE_PATH": "/task/feature",
+                        "TRUSTED_PROXY_URL": f"http://127.0.0.1:{port}"}
+                    command = [replacements.get(part, part) for part in examples[0]]
+                    env = {key: value for key, value in os.environ.items() if not key.startswith("ORKWORKS_")}
+                    env.update(ORKWORKS_SESSION_ID="session-1", ORKWORKS_PORT="41117", ORKWORKS_REPORT_TOKEN=TOKEN)
+                    reported = subprocess.run(command, env=env, text=True, capture_output=True, timeout=15)
+                self.assertEqual(reported.returncode, 0, reported.stderr)
+                self.assertEqual([(r[0], r[1]) for r in requests], [
+                    ("GET", "http://127.0.0.1:41117/sessions/session-1/metadata"),
+                    ("PATCH", "http://127.0.0.1:41117/sessions/session-1/metadata")])
+                self.assertEqual(requests[-1][3], {"metadataRevision": "7", "patch": {"agentMetadata": {"worktreePath": "/task/feature"}}})
+                self.assertNotIn(TOKEN, result.stdout + result.stderr + reported.stdout + reported.stderr)
 
     def test_worktree_rejects_wrong_session_patch_response(self):
         with endpoint([ok(RECORD), ok({**RECORD, "id": "other", "metadataRevision": "8"})]) as (port, requests):
