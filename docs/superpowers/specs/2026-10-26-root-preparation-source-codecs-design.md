@@ -343,3 +343,17 @@ This closes no production aggregate/history/custody cap, native excluded-action
 ordering, session startup/later lifecycle, #740 profile evidence or executable
 plan gate. No migration, DDL, model/native probe, runtime work or admitted source
 is delivered. Keep the broader component issues open.
+
+
+## Initial effects accepted for documentation witnesses — 2026-10-29
+
+The owner [accepted the named initial-effects choices](2026-10-28-root-preparation-effects-design.md#owner-acceptance-for-documentation-fixtures--2026-10-29)
+for independent documentation fixtures/checkers. The
+[logical packet](../../validation/root-preparation-effects.md) pins full initial
+maps, manifests, protected source/artifact membership and shared-ledger/command
+charges, including cancellation and both summary-capacity branches. It preserves
+all previous catalogs and unverified evidence status.
+
+No operational admission, production cap, migration, native/SQL/source-custody or
+session startup qualification is inferred. #740 remains deferred/no-go until
+November; broader component and executable-plan gates remain separate.
