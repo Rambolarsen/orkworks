@@ -1223,6 +1223,7 @@ mod tests {
             changed_files: 3,
             line_changes: None,
             is_worktree,
+            unavailable_reason: None,
         }
     }
 

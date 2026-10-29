@@ -1221,6 +1221,7 @@ mod tests {
                 changed_files: 2,
                 line_changes: None,
                 is_worktree: cwd == std::path::Path::new(separate),
+                unavailable_reason: None,
             }
         });
 
@@ -1261,6 +1262,7 @@ mod tests {
                 changed_files: 0,
                 line_changes: None,
                 is_worktree: false,
+                unavailable_reason: None,
             }
         });
 
@@ -1294,6 +1296,7 @@ mod tests {
             changed_files: 0,
             line_changes: None,
             is_worktree: false,
+            unavailable_reason: None,
         });
 
         assert_eq!(infos[0].repo_root.as_deref(), Some(launch_cwd));

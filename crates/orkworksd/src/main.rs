@@ -211,8 +211,15 @@ impl AppState {
     }
 }
 
+fn main() {
+    if git::run_scan_worker() {
+        return;
+    }
+    run_sidecar();
+}
+
 #[tokio::main]
-async fn main() {
+async fn run_sidecar() {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
