@@ -1452,3 +1452,13 @@ plan/proposal/launch/learning consumers make this first profile ineligible. New
 scope, codecs, CAS mapping and quota choices require scoped owner/producer review
 before dependent transaction fixtures; this is not acceptance or runtime eligibility.
 Existing source/wire definitions, fixture bytes and authority gates are unchanged.
+
+## Terminal report profile accepted for conditional fixtures — 2026-10-29
+
+The owner accepted [the four terminal-report profile choices](2026-10-29-report-publication-profile-design.md#scoped-owner-acceptance--2026-10-29)
+for conditional documentation fixtures. The [evidence packet](../../validation/report-publication-components.md)
+checks exact report-publication row/manifest/receipt effects, retained dependencies,
+summary/ledger branches and logical read/invalidation oracles. It supplies no
+admission/termination producer, live authority, native durability, index completeness
+or runtime eligibility. Existing source definitions and earlier fixture bytes are
+unchanged; broader lifecycle and executable-plan gates remain open.

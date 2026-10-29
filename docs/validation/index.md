@@ -43,3 +43,5 @@ Capability research, validation results, and evidence fixtures.
 - [ResearchReport components and R2 correction histories](r2-report-components.md) — Accepted report codecs, exact evidence/evaluation joins and two logical correction branches with explicit unqualified authority/publication context.
 
 - [R2 report publication boundary audit](r2-publication-boundary.md) — Required correction effects, dependency/read race oracles and explicit missing receipt/consumer codecs blocking complete transaction qualification.
+
+- [Conditional terminal report publication fixtures](report-publication-components.md) — Exact captured row/commit corrections and rejection oracles under explicitly unqualified admission, authority and native context.
