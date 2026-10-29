@@ -405,3 +405,21 @@ existing-row delta plus the harness-only no-commit/state-equality oracle above.
 These author clarifications are proposed decisions, not owner acceptance or a
 claim of post-edit independent rereview. Review covered specification planning;
 no runtime tests, storage writes or native qualification were performed.
+
+## Scoped owner acceptance — 2026-10-29
+
+The owner explicitly answered “go ahead” after review of merged PR #1138 and
+its four concrete choices: terminal-run user corrections with retained evaluation
+consumers only; exact terminal/head/receipt storage and response mappings; retained
+dependency and selected-evidence source-health CAS rules including detail-only
+snapshot invalidation; and the 256 MiB workspace report quota within the existing
+32 MiB per-run preparation/report aggregate. This accepts that profile for
+conditional documentation fixtures, including its fail-closed exclusions.
+
+It does not qualify admission or terminal transitions, completeness/authority/
+custody/index/native proofs or an executable runtime plan. The earlier proposed
+wording above is retained as design history. The
+[conditional transaction evidence](../../validation/report-publication-components.md)
+records exact component/row/commit witnesses under a separate synthetic terminal
+context; original R2 source artifacts remain unchanged. Broader #742/#744/#746/
+#1089, #740 and separately approved executable-plan gates remain independent.

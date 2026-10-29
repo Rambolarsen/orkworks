@@ -153,3 +153,12 @@ terminal runs with retained evaluation consumers only. It supplies proposed clos
 receipt/head/terminal rows, edges, effects and quotas while failing closed on
 unsupported consumers. New choices await scoped owner/producer acceptance; no
 dependent transaction fixtures or native/runtime qualification are claimed.
+
+## Accepted conditional profile evidence — 2026-10-29
+
+The owner accepted [the terminal-only profile choices](../superpowers/specs/2026-10-29-report-publication-profile-design.md#scoped-owner-acceptance--2026-10-29).
+The [conditional transaction packet](report-publication-components.md) now derives
+exact source/head/receipt, summary/ledger and snapshot-oracle effects for the R2
+histories under a separate synthetic terminal prestate. Seed producer-command
+validity, complete inventory/authority/index/native proofs and active consumers
+remain unqualified; the earlier audit and source catalogs are unchanged.
