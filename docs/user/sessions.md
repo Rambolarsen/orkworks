@@ -194,7 +194,9 @@ contribute no lines. Sessions sharing a
 worktree show the same totals; the counter does not identify which agent made
 each edit. Git results are reused for five seconds; committing or undoing
 changes updates the counter on the first session refresh after that window.
-Line totals are omitted when they cannot be read.
+Line totals are omitted when they cannot be read. A stalled Git scan is stopped after
+five seconds, leaving Git facts unavailable instead of displaying clean or zero
+counts. Session refreshes can recover after the filesystem problem is fixed.
 
 ## Inspect Git changes
 

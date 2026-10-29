@@ -689,6 +689,16 @@ pub(crate) fn enrich_sessions_with_git_context<F>(
         let ctx = contexts
             .entry(git_cwd.clone())
             .or_insert_with(|| detect_git(std::path::Path::new(&git_cwd)));
+        if let Some(reason) = &ctx.unavailable_reason {
+            info.repo_root = None;
+            info.branch = None;
+            info.dirty = None;
+            info.changed_files = None;
+            info.line_changes = None;
+            info.is_worktree = None;
+            info.recommendation = Some(reason.clone());
+            continue;
+        }
         let count = cwd_counts.get(&cwd).copied().unwrap_or(1);
         info.recommendation = if info.organization.session_state
             == Some(crate::session_archive::SessionState::Archived)
@@ -955,6 +965,7 @@ mod tests {
             changed_files: 0,
             line_changes: None,
             is_worktree: false,
+            unavailable_reason: None,
         };
         for i in 0..513 {
             let path = std::path::PathBuf::from(format!("repo-{i}"));

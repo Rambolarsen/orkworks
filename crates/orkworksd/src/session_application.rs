@@ -6348,8 +6348,14 @@ async fn create_session_workflow(
         metadata_confidence: None,
         repo_root: git_ctx.repo_root.clone(),
         branch: git_ctx.branch.clone(),
-        dirty: Some(git_ctx.dirty),
-        changed_files: Some(git_ctx.changed_files),
+        dirty: git_ctx
+            .unavailable_reason
+            .is_none()
+            .then_some(git_ctx.dirty),
+        changed_files: git_ctx
+            .unavailable_reason
+            .is_none()
+            .then_some(git_ctx.changed_files),
         line_changes: git_ctx.line_changes,
         is_worktree: Some(git_ctx.is_worktree),
         conflict_warning: None,
@@ -6544,8 +6550,14 @@ async fn create_session_workflow(
                 metadata_confidence: 1.0,
                 repo_root: meta_git_ctx.repo_root.clone(),
                 branch: meta_git_ctx.branch.clone(),
-                dirty: Some(meta_git_ctx.dirty),
-                changed_files: Some(meta_git_ctx.changed_files),
+                dirty: meta_git_ctx
+                    .unavailable_reason
+                    .is_none()
+                    .then_some(meta_git_ctx.dirty),
+                changed_files: meta_git_ctx
+                    .unavailable_reason
+                    .is_none()
+                    .then_some(meta_git_ctx.changed_files),
                 is_worktree: Some(meta_git_ctx.is_worktree),
                 last_user_input: None,
                 resume: info.resume.clone(),

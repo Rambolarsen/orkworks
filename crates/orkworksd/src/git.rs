@@ -7,7 +7,7 @@ pub struct LineChanges {
     pub deletions: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct GitContext {
     pub repo_root: Option<String>,
     pub branch: Option<String>,
@@ -15,9 +15,104 @@ pub struct GitContext {
     pub changed_files: usize,
     pub line_changes: Option<LineChanges>,
     pub is_worktree: bool,
+    pub unavailable_reason: Option<String>,
 }
 
+const SCAN_ARGUMENT: &str = "--git-context-scan";
+const SCAN_PREFIX: &str = "ORKWORKS_GIT_CONTEXT ";
+const SCAN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Dispatch before starting Tokio, logging, workspace discovery or HTTP listeners.
+pub fn run_scan_worker() -> bool {
+    let mut args = std::env::args_os().skip(1);
+    if args.next().as_deref() != Some(std::ffi::OsStr::new(SCAN_ARGUMENT)) {
+        return false;
+    }
+    if let Some(cwd) = args.next().filter(|_| args.next().is_none()) {
+        emit_scan(Path::new(&cwd));
+    }
+    true
+}
+
+fn emit_scan(cwd: &Path) {
+    // The prefix also separates the result from the Rust test harness's output.
+    println!(
+        "\n{SCAN_PREFIX}{}",
+        serde_json::to_string(&detect_in_process(cwd)).unwrap()
+    );
+}
+
+/// A process deadline can terminate a blocked libgit2 read; a thread timeout cannot.
 pub fn detect(cwd: &Path) -> GitContext {
+    scan(cwd).unwrap_or_else(|reason| GitContext {
+        unavailable_reason: Some(format!("Git inspection unavailable; {reason}")),
+        ..GitContext::default()
+    })
+}
+
+fn scan(cwd: &Path) -> Result<GitContext, &'static str> {
+    use std::{
+        io::Read,
+        process::{Command, Stdio},
+        time::Instant,
+    };
+    let mut command = Command::new(std::env::current_exe().map_err(|_| "scanner unavailable.")?);
+    #[cfg(not(test))]
+    command.arg(SCAN_ARGUMENT).arg(cwd);
+    #[cfg(test)]
+    command
+        .args(["--exact", "git::tests::context_scan_worker", "--nocapture"])
+        .env("ORKWORKS_GIT_SCAN_TEST_CWD", cwd);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|_| "could not start scanner.")?;
+    // Always terminate and reap our own worker on timeout, I/O failure or unwinding.
+    struct Worker(std::process::Child);
+    impl Drop for Worker {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let output = child.stdout.take().ok_or("scanner output unavailable.")?;
+    let mut worker = Worker(child);
+    let start = Instant::now();
+    loop {
+        if let Some(status) = worker.0.try_wait().map_err(|_| "scanner failed.")? {
+            if !status.success() {
+                return Err("scanner failed.");
+            }
+            break;
+        }
+        if start.elapsed() >= SCAN_TIMEOUT {
+            return Err("scan timed out; retry later.");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let mut bytes = Vec::new();
+    output
+        .take(65537)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "scanner output unavailable.")?;
+    if bytes.len() > 65536 {
+        return Err("scanner output exceeded its budget.");
+    }
+    std::str::from_utf8(&bytes)
+        .ok()
+        .and_then(|text| text.lines().find_map(|line| line.strip_prefix(SCAN_PREFIX)))
+        .and_then(|json| serde_json::from_str(json).ok())
+        .ok_or("invalid scanner output.")
+}
+
+fn detect_in_process(cwd: &Path) -> GitContext {
     let repo = match git2::Repository::discover(cwd) {
         Ok(r) => r,
         Err(_) => {
@@ -28,6 +123,7 @@ pub fn detect(cwd: &Path) -> GitContext {
                 changed_files: 0,
                 line_changes: None,
                 is_worktree: false,
+                unavailable_reason: None,
             };
         }
     };
@@ -62,6 +158,7 @@ pub fn detect(cwd: &Path) -> GitContext {
         changed_files,
         line_changes: uncommitted_line_changes(&repo).ok(),
         is_worktree,
+        unavailable_reason: None,
     }
 }
 
@@ -95,6 +192,75 @@ fn uncommitted_line_changes(repo: &git2::Repository) -> Result<LineChanges, git2
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn context_scan_worker() {
+        if let Some(cwd) = std::env::var_os("ORKWORKS_GIT_SCAN_TEST_CWD") {
+            emit_scan(Path::new(&cwd));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fifo_controls_do_not_block_live_git_context() {
+        const CHILD: &str = "ORKWORKS_GIT_CONTEXT_FIFO_TEST";
+        if let Some(control) = std::env::var_os(CHILD) {
+            use std::os::unix::ffi::OsStrExt;
+            let dir = tempfile::tempdir().unwrap();
+            init_repo(dir.path());
+            std::fs::create_dir(dir.path().join("nested")).unwrap();
+            std::fs::write(dir.path().join("nested/new.txt"), "new\n").unwrap();
+            let path = dir.path().join(control);
+            let name = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+            assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+            let info = projected_git(dir.path());
+            assert!(info["dirty"].is_null(), "failed scan must not imply clean");
+            assert!(info.get("lineChanges").is_none());
+            assert!(info["recommendation"]
+                .as_str()
+                .unwrap()
+                .contains("unavailable"));
+            std::fs::remove_file(path).unwrap();
+            let recovered = projected_git(dir.path());
+            assert_eq!(recovered["dirty"], true);
+            assert_eq!(
+                recovered["lineChanges"],
+                serde_json::json!({"additions": 1, "deletions": 0})
+            );
+            return;
+        }
+        for control in [
+            ".gitignore",
+            ".gitattributes",
+            "nested/.gitignore",
+            "nested/.gitattributes",
+        ] {
+            let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "git::tests::fifo_controls_do_not_block_live_git_context",
+                    "--nocapture",
+                ])
+                .env(CHILD, control)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::inherit())
+                .spawn()
+                .unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(7);
+            loop {
+                if let Some(status) = child.try_wait().unwrap() {
+                    assert!(status.success(), "control: {control}");
+                    break;
+                }
+                if std::time::Instant::now() > deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    panic!("{control} blocked live Git context");
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        }
+    }
 
     #[test]
     fn detect_no_repo_returns_empty_context() {
