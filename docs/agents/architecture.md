@@ -1015,9 +1015,17 @@ abort a blocking OS write. Taskmaster delivery finalization retains its
 reservation even if the HTTP request is canceled and checks the original
 workspace path and advisory lease before updating its store. Same-workspace
 reopens retain that lease; a genuinely replaced lease rejects late finalization.
-Approval captures the target runtime sender and generation, and synchronous
-input bookkeeping shares the projection gate with resume admission, so an old
-approval cannot send input or apply live effects to a replacement runtime. See [ADR 0075](../adr/0075-responsive-pty-input-delivery.md).
+Approval captures the target runtime sender and generation. A bounded per-runtime
+input owner serializes preparation, delivery and bookkeeping across terminal
+attachments and approved requests. It reserves channel capacity before running
+preparation and enqueue in one fenced blocking-pool job, then records the
+writer's result in a second job. Caller cancellation detaches the waiter;
+completion and reset cleanup retain ownership. Two owner slots bound active
+and waiting requests; excess terminal input uses the existing dropped-input
+notice. Both jobs share the projection gate with resume admission, so an old
+approval or terminal attachment cannot apply input effects to a replacement
+runtime. Existing delayed reset retries likewise offload and revalidate the
+captured runtime before metadata effects. See [ADR 0075](../adr/0075-responsive-pty-input-delivery.md).
 
 The shared provider process runner owns a Windows Job object per invocation
 (`providers/windows_process.rs`). It assigns the suspended child before resuming

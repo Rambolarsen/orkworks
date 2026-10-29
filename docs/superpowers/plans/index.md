@@ -232,3 +232,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Readiness assessment and grounded suggestions](2026-10-26-readiness-suggestions.md) — Approved combined action, evidence, qualification and recovery for #1091.
 
 - [Workspace and personal skills](2026-10-28-workspace-personal-skills.md) — Approved two-scope inventory and qualified APM add implementation.
+
+- [Terminal input metadata I/O](2026-10-29-terminal-input-io.md) — Measured blocking boundaries and a proposed command owner awaiting design review.
