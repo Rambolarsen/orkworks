@@ -859,9 +859,10 @@ function App() {
           </span>
         )}
       </div>
-      {!workspace && (
+      {!workspace && shellNavigation.inspector !== "skills" && (
         <div className="workspace-picker-screen">
           <section className="workspace-picker-card" aria-label="Workspace picker">
+            <button type="button" className="titlebar-open-button" data-open-skills data-shell-command="skills" onClick={() => requestShellCommand("skills")}>Skills</button>
             {backendStatus !== "picker" && <p role="status">{backendStatus}</p>}
             {workspaceHistoryDiagnostic && (
               <span role="alert" title={workspaceHistoryDiagnostic.message}>

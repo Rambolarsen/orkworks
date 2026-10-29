@@ -321,7 +321,7 @@ export default function ApplicationShell(props: Props) {
   }, [showSessions, showTerminal, showInspector, temporaryUtility, props.inspector, showReview]);
 
   const renderUtility = () => {
-    if (skillsPage) return <SkillsSettings currentWorkspacePath={props.isSwitchingWorkspace ? null : props.workspace?.path ?? null} />;
+    if (skillsPage) return <SkillsSettings currentWorkspacePath={props.isSwitchingWorkspace ? null : props.workspace?.workspaceIdentity ?? props.workspace?.path ?? null} />;
     if (props.inspector === "changes") return <GitChangesPanel key={`${props.workspaceGeneration}:${props.activeSessionId}:${session?.repoRoot ?? ""}:${session?.worktreeBinding?.root ?? ""}:${session?.worktreeBinding?.commonDir ?? ""}`}
       session={props.sessions.find(s => s.id === props.activeSessionId) ?? null}
       onBack={() => { props.onInspect("details"); requestFocus("changes-return"); }} />;
@@ -362,7 +362,7 @@ export default function ApplicationShell(props: Props) {
     </button>}
     <button type="button" data-shell-return onClick={closePage}
       aria-label={temporary ? undefined : "Close inspector"} title={temporary ? undefined : "Close inspector"}>
-      {temporary ? (props.newSessionContent ? "Back to New session" : (reviewing ? "Back to Review" : "Back to Terminal")) : <X size={16} aria-hidden="true" />}
+      {temporary ? (!props.workspace ? "Back to workspaces" : props.newSessionContent ? "Back to New session" : (reviewing ? "Back to Review" : "Back to Terminal")) : <X size={16} aria-hidden="true" />}
     </button>
   </header>;
   const showRail = !compact && !layout.sessionsVisible;
