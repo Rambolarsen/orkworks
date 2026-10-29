@@ -346,22 +346,43 @@ pub(crate) fn dispatch_terminal_message(msg: &serde_json::Value) -> TerminalActi
     }
 }
 
-type PendingCommandFuture = Pin<Box<dyn Future<Output = Result<(), ()>> + Send>>;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TerminalCommandFailure {
+    Busy,
+    Rejected,
+}
+
+type PendingCommandFuture =
+    Pin<Box<dyn Future<Output = Result<(), TerminalCommandFailure>> + Send>>;
 
 fn spawn_command_future(
     state: Arc<AppState>,
     id: String,
     action: TerminalAction,
+    identity: &crate::runtime::session_runtime::RuntimeIdentity,
 ) -> Option<PendingCommandFuture> {
     match action {
-        TerminalAction::Input(data) => Some(Box::pin(async move {
-            crate::runtime::session_runtime::send_runtime_input(&state, &id, data).await
-        })),
+        TerminalAction::Input(data) => {
+            let identity = identity.clone();
+            let sender = state
+                .sessions
+                .lock()
+                .unwrap()
+                .get(&id)
+                .filter(|handle| handle.runtime.matches_identity(&identity))
+                .map(|handle| handle.runtime.control_tx.clone());
+            Some(Box::pin(async move {
+                let sender = sender.ok_or(TerminalCommandFailure::Rejected)?;
+                submit_input_with_admission(&state, &id, &identity, &sender, data, |send| send())
+                    .await
+            }))
+        }
         TerminalAction::Resize { rows, cols } => Some(Box::pin(async move {
             crate::runtime::session_runtime::apply_runtime_size_without_waiting_for_persistence(
                 &state, &id, rows, cols,
             )
             .await
+            .map_err(|_| TerminalCommandFailure::Rejected)
         })),
         TerminalAction::Kill => Some(Box::pin(async move {
             crate::runtime::session_runtime::send_runtime_command(
@@ -370,15 +391,9 @@ fn spawn_command_future(
                 crate::runtime::session_runtime::RuntimeCommand::Kill,
             )
             .await
+            .map_err(|_| TerminalCommandFailure::Rejected)
         })),
         TerminalAction::Noop => None,
-    }
-}
-
-fn terminal_input_data(action: &TerminalAction) -> Option<String> {
-    match action {
-        TerminalAction::Input(data) if !data.is_empty() => Some(data.clone()),
-        _ => None,
     }
 }
 
@@ -606,10 +621,12 @@ pub(crate) async fn submit_approved_input(
     id: &str,
     data: String,
 ) -> Result<(), ()> {
-    let pending = capture_pending_terminal_input(state, id, data.clone());
-    let result = crate::runtime::session_runtime::send_runtime_input(state, id, data.clone()).await;
-    record_input_after_delivery(state, id, Some(&pending), &result);
-    result
+    let (identity, control_tx) = {
+        let sessions = state.sessions.lock().unwrap();
+        let handle = sessions.get(id).ok_or(())?;
+        (handle.runtime.identity(), handle.runtime.control_tx.clone())
+    };
+    submit_approved_input_to_runtime(state, id, &identity, &control_tx, data).await
 }
 
 /// Uses the runtime selected at approval, never a sender resolved after resume.
@@ -620,67 +637,125 @@ pub(crate) async fn submit_approved_input_to_runtime(
     control_tx: &tokio::sync::mpsc::Sender<crate::runtime::session_runtime::RuntimeCommand>,
     data: String,
 ) -> Result<(), ()> {
-    let pending = with_current_runtime_input(state, id, identity, || {
-        capture_pending_terminal_input(state, id, data.clone())
+    submit_approved_input_to_runtime_with_admission(state, id, identity, control_tx, data, |send| {
+        send()
     })
-    .ok_or(())?;
-    let result =
-        crate::runtime::session_runtime::send_runtime_input_to_sender(control_tx, data).await;
-    with_current_runtime_input(state, id, identity, || {
-        record_input_after_delivery(state, id, Some(&pending), &result);
-    });
-    result
+    .await
 }
 
-/// Revalidates caller authority after capacity is available, through the exact
-/// synchronous enqueue. No workspace/configuration guard crosses an await.
+/// Owns prepare/enqueue, delivery and bookkeeping independently of its caller.
+/// The two runtime slots bound detached owners before spawning; the async gate
+/// keeps shared input parsing and reset reservations in delivery order.
 pub(crate) async fn submit_approved_input_to_runtime_with_admission(
     state: &Arc<AppState>,
     id: &str,
     identity: &crate::runtime::session_runtime::RuntimeIdentity,
     control_tx: &tokio::sync::mpsc::Sender<crate::runtime::session_runtime::RuntimeCommand>,
     data: String,
-    admit: impl FnOnce(&mut dyn FnMut() -> Result<(), ()>) -> Result<(), ()> + Send,
+    admit: impl FnOnce(&mut dyn FnMut() -> Result<(), ()>) -> Result<(), ()> + Send + 'static,
 ) -> Result<(), ()> {
-    let pending = with_current_runtime_input(state, id, identity, || {
-        capture_pending_terminal_input(state, id, data.clone())
-    })
-    .ok_or(())?;
-    let permit = control_tx.reserve().await.map_err(|_| ())?;
-    let (accepted_tx, accepted_rx) = tokio::sync::oneshot::channel();
-    let mut effect = Some((
-        permit,
-        crate::runtime::session_runtime::RuntimeCommand::Input {
-            data,
-            accepted: Some(accepted_tx),
-        },
-    ));
-    with_current_runtime_input(state, id, identity, || {
-        admit(&mut || {
-            let (permit, command) = effect.take().ok_or(())?;
-            permit.send(command);
-            Ok(())
-        })
-    })
-    .ok_or(())??;
-    if effect.is_some() {
-        return Err(());
-    }
-    let result = accepted_rx.await.map_err(|_| ())?;
-    with_current_runtime_input(state, id, identity, || {
-        record_input_after_delivery(state, id, Some(&pending), &result);
-    });
-    result
+    submit_input_with_admission(state, id, identity, control_tx, data, admit)
+        .await
+        .map_err(|_| ())
 }
 
-fn with_current_runtime_input<T>(
+async fn submit_input_with_admission(
+    state: &Arc<AppState>,
+    id: &str,
+    identity: &crate::runtime::session_runtime::RuntimeIdentity,
+    control_tx: &tokio::sync::mpsc::Sender<crate::runtime::session_runtime::RuntimeCommand>,
+    data: String,
+    admit: impl FnOnce(&mut dyn FnMut() -> Result<(), ()>) -> Result<(), ()> + Send + 'static,
+) -> Result<(), TerminalCommandFailure> {
+    let (gate, slots) = {
+        let sessions = state.sessions.lock().unwrap();
+        let runtime = &sessions
+            .get(id)
+            .ok_or(TerminalCommandFailure::Rejected)?
+            .runtime;
+        if !runtime.matches_identity(identity) || !runtime.control_tx.same_channel(control_tx) {
+            return Err(TerminalCommandFailure::Rejected);
+        }
+        (runtime.input_gate.clone(), runtime.input_slots.clone())
+    };
+    let slot = slots
+        .try_acquire_owned()
+        .map_err(|_| TerminalCommandFailure::Busy)?;
+    let state = state.clone();
+    let id = id.to_string();
+    let identity = identity.clone();
+    let control_tx = control_tx.clone();
+    // Dropping this JoinHandle only detaches the waiter. Once admitted, the
+    // owner must finish/reset cleanup even if HTTP or the renderer goes away.
+    tokio::spawn(async move {
+        let _slot = slot;
+        let _input = gate.lock_owned().await;
+        // No reset is reserved while waiting for channel capacity. Preparation,
+        // final authority validation and enqueue share one fenced blocking job.
+        let permit = control_tx.reserve_owned().await.map_err(|_| ())?;
+        let (accepted_tx, accepted_rx) = tokio::sync::oneshot::channel();
+        let worker_state = state.clone();
+        let worker_id = id.clone();
+        let worker_identity = identity.clone();
+        let preparation = tokio::task::spawn_blocking(move || {
+            with_current_runtime_input(&worker_state, &worker_id, &worker_identity, || {
+                let pending = capture_pending_terminal_input(&worker_state, &worker_id, data.clone());
+                let mut effect = Some((permit, crate::runtime::session_runtime::RuntimeCommand::Input {
+                    data, accepted: Some(accepted_tx),
+                }));
+                let admitted = admit(&mut || {
+                    let (permit, command) = effect.take().ok_or(())?;
+                    permit.send(command);
+                    Ok(())
+                });
+                // Once sent, even an erroneous callback result cannot prove
+                // rejection. The writer remains the delivery authority.
+                if effect.is_some() {
+                    record_input_after_delivery(&worker_state, &worker_id, Some(&pending), &Err(()));
+                    return Err(());
+                }
+                if admitted.is_err() {
+                    tracing::warn!(session_id = %worker_id, "input admission returned failure after enqueue");
+                }
+                Ok(pending)
+            }).ok_or(())?
+        }).await;
+        let pending = match preparation {
+            Ok(pending) => pending?,
+            Err(error) => {
+                tracing::warn!(session_id = %id, %error, "input preparation task failed");
+                // A callback could have panicked after enqueue. Its unwind is
+                // not delivery rejection; retain the writer's acknowledgement.
+                return accepted_rx.await.unwrap_or(Err(()));
+            }
+        };
+        let result = accepted_rx.await.unwrap_or(Err(()));
+        let worker_state = state.clone();
+        let worker_id = id.clone();
+        if let Err(error) = tokio::task::spawn_blocking(move || {
+            with_current_runtime_input(&worker_state, &worker_id, &identity, || {
+                record_input_after_delivery(&worker_state, &worker_id, Some(&pending), &result);
+            });
+        }).await {
+            // A bookkeeping failure must not turn a confirmed delivery into a
+            // rejected prompt that callers might submit a second time.
+            tracing::warn!(session_id = %id, %error, "input bookkeeping task failed");
+        }
+        result
+    }).await.map_err(|error| {
+        tracing::warn!(%error, "input owner task failed");
+        TerminalCommandFailure::Rejected
+    })?.map_err(|_| TerminalCommandFailure::Rejected)
+}
+
+pub(crate) fn with_current_runtime_input<T>(
     state: &Arc<AppState>,
     id: &str,
     identity: &crate::runtime::session_runtime::RuntimeIdentity,
     apply: impl FnOnce() -> T,
 ) -> Option<T> {
     // Resume admission and workspace replacement share this projection gate.
-    // Keep it across validation and all synchronous effect sinks, never I/O.
+    // Keep it across validation and all synchronous effect sinks, never await.
     let _projection = state.projection_lock.lock().unwrap();
     let owns_runtime = state
         .sessions
@@ -1404,9 +1479,10 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
         .await;
 
     let generation = attachment.generation;
+    let runtime_identity = attachment.runtime_identity;
     let mut events = attachment.events;
     let mut pending_command: Option<PendingCommandFuture> = None;
-    let mut pending_input: Option<(String, bool, u64, bool)> = None;
+    let mut pending_is_input = false;
     let mut queue = PendingActionQueue::default();
     let mut draining = false;
 
@@ -1418,15 +1494,26 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                     .expect("pending command branch requires a command")
                     .await
             }, if pending_command.is_some() => {
-                if result.is_err() {
+                if result == Err(TerminalCommandFailure::Busy) {
+                    // Admission overload rejects only this input. Keep the
+                    // healthy attachment draining output and future commands.
+                    let _ = ws.send(Message::Text(
+                        serde_json::json!({ "type": "input-dropped" }).to_string()
+                    )).await;
+                }
+                if result == Err(TerminalCommandFailure::Rejected) {
                     // This future has already been polled to completion —
                     // clear it before switching to output-only draining.
                     // Rejected commands can precede trailing output and the
                     // final runtime event. Discard queued actions and reject
                     // new ones without closing this attachment prematurely.
-                    record_input_after_delivery(&state, &id, pending_input.as_ref(), &result);
+                    if pending_is_input {
+                        let _ = ws.send(Message::Text(
+                            serde_json::json!({ "type": "input-dropped" }).to_string()
+                        )).await;
+                    }
                     pending_command = None;
-                    pending_input = None;
+                    pending_is_input = false;
                     let runtime_exiting = state.sessions.lock().unwrap().get(&id).is_some_and(|handle| {
                         handle.runtime.commands_closed()
                             || matches!(handle.info.lifecycle_phase.as_str(), "ending" | "ended")
@@ -1438,18 +1525,14 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                     draining = true;
                     continue;
                 }
-                record_input_after_delivery(&state, &id, pending_input.as_ref(), &result);
-                pending_input = None;
+                pending_is_input = false;
                 pending_command = None;
                 let next_action = queue.take_next();
                 if let Some(action) = next_action {
-                    // Sensitivity is captured here, right before dispatch —
-                    // not later when the delivery result comes back — so a
-                    // password prompt scrolling out of view during the PTY
-                    // round-trip can't misclassify a submitted secret.
-                    pending_input = terminal_input_data(&action)
-                        .map(|data| capture_pending_terminal_input(&state, &id, data));
-                    pending_command = spawn_command_future(state.clone(), id.clone(), action);
+                    // The command owner captures sensitivity/output revision
+                    // inside preflight immediately before the fenced enqueue.
+                    pending_is_input = matches!(&action, TerminalAction::Input(_));
+                    pending_command = spawn_command_future(state.clone(), id.clone(), action, &runtime_identity);
                 }
             }
             event = events.recv() => {
@@ -1508,11 +1591,10 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                                 )).await;
                             }
                         } else {
-                            // Sensitivity captured before dispatch — see the
-                            // comment at the queued-dispatch site above.
-                            pending_input = terminal_input_data(&action)
-                                .map(|data| capture_pending_terminal_input(&state, &id, data));
-                            pending_command = spawn_command_future(state.clone(), id.clone(), action);
+                            // The owner snapshots context before enqueue, not
+                            // after the asynchronous delivery acknowledgement.
+                            pending_is_input = matches!(&action, TerminalAction::Input(_));
+                            pending_command = spawn_command_future(state.clone(), id.clone(), action, &runtime_identity);
                         }
                     }
                     Some(Ok(Message::Text(_))) => {}
@@ -1527,11 +1609,8 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
     // stdin. Keep observing its accepted-input side effects detached, but do
     // not let it retain this renderer attachment after the socket is gone.
     if let Some(cmd) = pending_command.take() {
-        let state = state.clone();
-        let id = id.clone();
         tokio::spawn(async move {
-            let result = cmd.await;
-            record_input_after_delivery(&state, &id, pending_input.as_ref(), &result);
+            let _ = cmd.await;
         });
     }
 
@@ -1547,6 +1626,377 @@ mod tests {
     use std::collections::{HashMap, HashSet};
     use std::sync::atomic::AtomicU16;
     use std::sync::{Arc, Mutex, RwLock};
+
+    // Use a real blocked metadata read, rather than a sleep inside the input
+    // implementation. The independent OS thread provides a bounded escape if
+    // input bookkeeping parks the only async worker before it can release I/O.
+    #[cfg(unix)]
+    async fn assert_input_metadata_read_keeps_executor_responsive(data: &str) {
+        use crate::runtime::session_runtime::{RuntimeCommand, SessionRuntime};
+        use std::io::Write;
+        use std::os::unix::ffi::OsStrExt;
+
+        let id = "input-metadata-responsiveness";
+        let (state, dir) = prompted_session_state(id);
+        let (runtime, mut commands) = SessionRuntime::live(24, 80);
+        state.sessions.lock().unwrap().get_mut(id).unwrap().runtime = runtime;
+        let path = dir
+            .path()
+            .join(".orkworks/sessions")
+            .join(format!("{id}.json"));
+        let saved = path.with_extension("saved");
+        let bytes = std::fs::read(&path).unwrap();
+        std::fs::rename(&path, &saved).unwrap();
+        let c_path = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+        // SAFETY: c_path is a live, NUL-terminated path inside the test tempdir.
+        assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) }, 0);
+        let (reading_tx, reading_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let writer = std::thread::spawn(move || {
+            let mut fifo = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+            reading_tx.send(()).unwrap();
+            let released_by_executor = release_rx.recv_timeout(Duration::from_secs(2)).is_ok();
+            // Restore the ordinary file before unblocking its first reader so
+            // later reads and transactional writes can proceed normally.
+            std::fs::rename(saved, path).unwrap();
+            fifo.write_all(&bytes).unwrap();
+            released_by_executor
+        });
+        let started = std::time::Instant::now();
+        let ((), (), delivery) = tokio::join!(
+            async {
+                reading_rx.await.unwrap();
+                let _ = release_tx.send(());
+            },
+            async {
+                match commands.recv().await.unwrap() {
+                    RuntimeCommand::Input {
+                        accepted: Some(accepted),
+                        ..
+                    } => {
+                        accepted.send(Ok(())).unwrap();
+                    }
+                    other => panic!("unexpected command: {other:?}"),
+                }
+            },
+            submit_approved_input(&state, id, data.to_string()),
+        );
+        assert_eq!(delivery, Ok(()));
+        let released_by_executor = writer.join().unwrap();
+        eprintln!("input metadata probe {data:?}: {:?}", started.elapsed());
+        assert!(
+            released_by_executor,
+            "metadata I/O blocked the async executor until the OS watchdog released it"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn input_metadata_preflight_keeps_executor_responsive() {
+        assert_input_metadata_read_keeps_executor_responsive("a submitted request\r").await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn accepted_input_metadata_keeps_executor_responsive() {
+        assert_input_metadata_read_keeps_executor_responsive("y").await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    #[ignore = "manual scheduling-cost probe for issue #334"]
+    async fn input_metadata_handoff_cost_probe() {
+        for offloaded in [false, true] {
+            let id = "input-handoff-cost";
+            let (state, _dir) = prompted_session_state(id);
+            let (runtime, mut commands) =
+                crate::runtime::session_runtime::SessionRuntime::live(24, 80);
+            state.sessions.lock().unwrap().get_mut(id).unwrap().runtime = runtime;
+            let acknowledgements = tokio::spawn(async move {
+                while let Some(crate::runtime::session_runtime::RuntimeCommand::Input {
+                    accepted: Some(accepted),
+                    ..
+                }) = commands.recv().await
+                {
+                    let _ = accepted.send(Ok(()));
+                }
+            });
+            record_peon_input_side_effects(&state, id, "y", false, 0);
+            let started = std::time::Instant::now();
+            for _ in 0..2000 {
+                if offloaded {
+                    submit_approved_input(&state, id, "a".into()).await.unwrap();
+                } else {
+                    capture_pending_terminal_input(&state, id, "a".into());
+                    record_peon_input_side_effects(&state, id, "a", false, 0);
+                }
+            }
+            eprintln!(
+                "2000 ordinary input frames, actual_owner={offloaded}: {:?}",
+                started.elapsed()
+            );
+            acknowledgements.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn accepted_input_finishes_after_caller_cancellation() {
+        use crate::runtime::session_runtime::{RuntimeCommand, SessionRuntime};
+        let id = "canceled-input-owner";
+        let (state, _dir) = prompted_session_state(id);
+        let (runtime, mut commands) = SessionRuntime::live(24, 80);
+        state.sessions.lock().unwrap().get_mut(id).unwrap().runtime = runtime;
+        let worker = state.clone();
+        let caller = tokio::spawn(async move {
+            submit_approved_input(&worker, id, "finish this request\r".into()).await
+        });
+        let RuntimeCommand::Input {
+            accepted: Some(accepted),
+            ..
+        } = commands.recv().await.unwrap()
+        else {
+            panic!("expected input");
+        };
+        caller.abort();
+        let _ = caller.await;
+        accepted.send(Ok(())).unwrap();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if state
+                    .workspace
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .metadata
+                    .read_session(id)
+                    .unwrap()
+                    .last_user_input
+                    .as_deref()
+                    == Some("finish this request")
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("accepted input must finish after caller cancellation");
+    }
+
+    #[tokio::test]
+    async fn input_owners_are_bounded_and_serialize_bookkeeping() {
+        use crate::runtime::session_runtime::{RuntimeCommand, SessionRuntime};
+        let id = "bounded-input-owner";
+        let (state, _dir) = prompted_session_state(id);
+        let (runtime, mut commands) = SessionRuntime::live(24, 80);
+        state.sessions.lock().unwrap().get_mut(id).unwrap().runtime = runtime;
+        let worker = state.clone();
+        let first =
+            tokio::spawn(async move { submit_approved_input(&worker, id, "first\r".into()).await });
+        let RuntimeCommand::Input {
+            accepted: Some(accepted),
+            ..
+        } = commands.recv().await.unwrap()
+        else {
+            panic!("expected first input");
+        };
+        let second = submit_approved_input(&state, id, "second\r".into());
+        tokio::pin!(second);
+        assert!(
+            std::future::poll_fn(|cx| std::task::Poll::Ready(second.as_mut().poll(cx)))
+                .await
+                .is_pending()
+        );
+        let excess = submit_approved_input(&state, id, "excess\r".into());
+        tokio::pin!(excess);
+        assert_eq!(
+            std::future::poll_fn(|cx| std::task::Poll::Ready(excess.as_mut().poll(cx))).await,
+            std::task::Poll::Ready(Err(()))
+        );
+        assert!(
+            commands.try_recv().is_err(),
+            "second input cannot overtake first bookkeeping"
+        );
+        accepted.send(Ok(())).unwrap();
+        assert_eq!(first.await.unwrap(), Ok(()));
+        let RuntimeCommand::Input {
+            data,
+            accepted: Some(accepted),
+        } = commands.recv().await.unwrap()
+        else {
+            panic!("expected second input");
+        };
+        assert_eq!(data, "second\r");
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap()
+                .last_user_input
+                .as_deref(),
+            Some("first")
+        );
+        accepted.send(Ok(())).unwrap();
+        assert_eq!(second.await, Ok(()));
+    }
+
+    #[test]
+    fn input_queued_on_blocking_pool_rechecks_runtime() {
+        use crate::runtime::session_runtime::SessionRuntime;
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .max_blocking_threads(1)
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let id = "queued-input-stale-runtime";
+            let (state, _dir) = prompted_session_state(id);
+            let (session_runtime, mut commands) = SessionRuntime::live(24, 80);
+            let sender = session_runtime.control_tx.clone();
+            let capacity = sender.capacity();
+            state.sessions.lock().unwrap().get_mut(id).unwrap().runtime = session_runtime;
+            let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+            let (release_tx, release_rx) = std::sync::mpsc::channel();
+            let blocker = tokio::task::spawn_blocking(move || {
+                let _ = started_tx.send(());
+                release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            });
+            started_rx.await.unwrap();
+            let worker = state.clone();
+            let input = tokio::spawn(async move {
+                submit_approved_input(&worker, id, "stale request\r".into()).await
+            });
+            tokio::time::timeout(Duration::from_secs(2), async {
+                while sender.capacity() == capacity {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            {
+                let _projection = state.projection_lock.lock().unwrap();
+                state.sessions.lock().unwrap().get_mut(id).unwrap().runtime =
+                    SessionRuntime::detached_test();
+            }
+            release_tx.send(()).unwrap();
+            blocker.await.unwrap();
+            assert_eq!(input.await.unwrap(), Err(()));
+            assert!(commands.try_recv().is_err());
+            assert!(state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap()
+                .last_user_input
+                .is_none());
+        });
+    }
+
+    #[tokio::test]
+    async fn old_attachment_input_never_targets_a_replacement_runtime() {
+        use crate::runtime::session_runtime::SessionRuntime;
+        let id = "stale-attachment-input";
+        let (state, _dir) = prompted_session_state(id);
+        let identity = state.sessions.lock().unwrap()[id].runtime.identity();
+        let (replacement, mut commands) = SessionRuntime::live(24, 80);
+        state.sessions.lock().unwrap().get_mut(id).unwrap().runtime = replacement;
+        let command = spawn_command_future(
+            state,
+            id.into(),
+            TerminalAction::Input("old input".into()),
+            &identity,
+        )
+        .unwrap();
+        assert_eq!(command.await, Err(TerminalCommandFailure::Rejected));
+        assert!(commands.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn saturated_input_owners_do_not_close_the_terminal_attachment() {
+        use crate::runtime::session_runtime::{RuntimeCommand, RuntimeEvent, SessionRuntime};
+        use futures_util::{SinkExt, StreamExt};
+        use tokio_tungstenite::tungstenite::Message as ClientMessage;
+        let id = "saturated-input-attachment";
+        let (state, _dir) = prompted_session_state(id);
+        let (runtime, mut commands) = SessionRuntime::live(24, 80);
+        let output = runtime.output_tx.clone();
+        state.sessions.lock().unwrap().get_mut(id).unwrap().runtime = runtime;
+        let worker = state.clone();
+        let first =
+            tokio::spawn(async move { submit_approved_input(&worker, id, "first\r".into()).await });
+        let RuntimeCommand::Input {
+            accepted: Some(first_ack),
+            ..
+        } = commands.recv().await.unwrap()
+        else {
+            panic!("expected first input");
+        };
+        let second = submit_approved_input(&state, id, "second\r".into());
+        tokio::pin!(second);
+        assert!(
+            std::future::poll_fn(|cx| std::task::Poll::Ready(second.as_mut().poll(cx)))
+                .await
+                .is_pending()
+        );
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let address = listener.local_addr().unwrap();
+        let router = crate::build_router(state.clone());
+        let server = tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        let (mut socket, _) =
+            tokio_tungstenite::connect_async(format!("ws://{address}/sessions/{id}/terminal"))
+                .await
+                .unwrap();
+        for _ in 0..2 {
+            socket.next().await.unwrap().unwrap();
+        }
+        socket
+            .send(ClientMessage::Text(
+                serde_json::json!({"type":"input", "data":"third"}).to_string(),
+            ))
+            .await
+            .unwrap();
+        let notice = socket.next().await.unwrap().unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(notice.to_text().unwrap()).unwrap()["type"],
+            "input-dropped"
+        );
+        output
+            .send(RuntimeEvent::Output {
+                cursor: 0,
+                chunk: b"still attached".to_vec(),
+            })
+            .unwrap();
+        let message = tokio::time::timeout(Duration::from_secs(2), socket.next())
+            .await
+            .unwrap();
+        assert_eq!(message.unwrap().unwrap().into_data(), b"still attached");
+        first_ack.send(Ok(())).unwrap();
+        assert_eq!(first.await.unwrap(), Ok(()));
+        let RuntimeCommand::Input {
+            accepted: Some(second_ack),
+            ..
+        } = commands.recv().await.unwrap()
+        else {
+            panic!("expected second input");
+        };
+        second_ack.send(Ok(())).unwrap();
+        assert_eq!(second.await, Ok(()));
+        socket.close(None).await.unwrap();
+        server.abort();
+    }
 
     #[test]
     fn mouse_button_scan_preserves_sgr_and_x10_classification() {
@@ -5270,8 +5720,18 @@ mod tests {
             generation,
             Some("before-reset"),
         );
-        let pending = capture_pending_terminal_input(&state, id, "/new\r".into());
-        assert!(pending.3);
+        let (runtime, mut commands) = crate::runtime::session_runtime::SessionRuntime::live(24, 80);
+        state.sessions.lock().unwrap().get_mut(id).unwrap().runtime = runtime;
+        let worker = state.clone();
+        let delivery =
+            tokio::spawn(async move { submit_approved_input(&worker, id, "/new\r".into()).await });
+        let crate::runtime::session_runtime::RuntimeCommand::Input {
+            accepted: Some(accepted),
+            ..
+        } = commands.recv().await.unwrap()
+        else {
+            panic!("expected reset input");
+        };
         let event_at = chrono::Utc::now() + chrono::Duration::seconds(2);
         assert_eq!(
             crate::runtime::prompt_authority::registry().register_native_id(
@@ -5298,7 +5758,8 @@ mod tests {
             )
         );
 
-        record_input_after_delivery(&state, id, Some(&pending), &Ok(()));
+        accepted.send(Ok(())).unwrap();
+        assert_eq!(delivery.await.unwrap(), Ok(()));
 
         let saved = state
             .workspace

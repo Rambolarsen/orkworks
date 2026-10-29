@@ -1,0 +1,98 @@
+diff --git a/crates/orkworksd/src/runtime/terminal_runtime.rs b/crates/orkworksd/src/runtime/terminal_runtime.rs
+index e132d386..30677f1e 100644
+--- a/crates/orkworksd/src/runtime/terminal_runtime.rs
++++ b/crates/orkworksd/src/runtime/terminal_runtime.rs
+@@ -1550,0 +1551,93 @@ mod tests {
++    // Use a real blocked metadata read, rather than a sleep inside the input
++    // implementation. The independent OS thread provides a bounded escape if
++    // input bookkeeping parks the only async worker before it can release I/O.
++    #[cfg(unix)]
++    async fn assert_input_metadata_read_keeps_executor_responsive(data: &str) {
++        use std::io::Write;
++        use std::os::unix::ffi::OsStrExt;
++        use crate::runtime::session_runtime::{RuntimeCommand, SessionRuntime};
++
++        let id = "input-metadata-responsiveness";
++        let (state, dir) = prompted_session_state(id);
++        let (runtime, mut commands) = SessionRuntime::live(24, 80);
++        state.sessions.lock().unwrap().get_mut(id).unwrap().runtime = runtime;
++        let path = dir.path().join(".orkworks/sessions").join(format!("{id}.json"));
++        let saved = path.with_extension("saved");
++        let bytes = std::fs::read(&path).unwrap();
++        std::fs::rename(&path, &saved).unwrap();
++        let c_path = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
++        // SAFETY: c_path is a live, NUL-terminated path inside the test tempdir.
++        assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) }, 0);
++        let (reading_tx, reading_rx) = tokio::sync::oneshot::channel();
++        let (release_tx, release_rx) = std::sync::mpsc::channel();
++        let writer = std::thread::spawn(move || {
++            let mut fifo = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
++            reading_tx.send(()).unwrap();
++            let released_by_executor = release_rx.recv_timeout(Duration::from_millis(250)).is_ok();
++            // Restore the ordinary file before unblocking its first reader so
++            // later reads and transactional writes can proceed normally.
++            std::fs::rename(saved, path).unwrap();
++            fifo.write_all(&bytes).unwrap();
++            released_by_executor
++        });
++        let started = std::time::Instant::now();
++        let ((), (), delivery) = tokio::join!(
++            async {
++                reading_rx.await.unwrap();
++                let _ = release_tx.send(());
++            },
++            async {
++                match commands.recv().await.unwrap() {
++                    RuntimeCommand::Input { accepted: Some(accepted), .. } => {
++                        accepted.send(Ok(())).unwrap();
++                    }
++                    other => panic!("unexpected command: {other:?}"),
++                }
++            },
++            submit_approved_input(&state, id, data.to_string()),
++        );
++        assert_eq!(delivery, Ok(()));
++        let released_by_executor = writer.join().unwrap();
++        eprintln!("input metadata probe {data:?}: {:?}", started.elapsed());
++        assert!(released_by_executor, "metadata I/O blocked the async executor until the OS watchdog released it");
++    }
++
++    #[cfg(unix)]
++    #[tokio::test(flavor = "current_thread")]
++    async fn input_metadata_preflight_keeps_executor_responsive() {
++        assert_input_metadata_read_keeps_executor_responsive("a submitted request\r").await;
++    }
++
++    #[cfg(unix)]
++    #[tokio::test(flavor = "current_thread")]
++    async fn accepted_input_metadata_keeps_executor_responsive() {
++        assert_input_metadata_read_keeps_executor_responsive("y").await;
++    }
++
++    #[tokio::test(flavor = "current_thread")]
++    #[ignore = "manual scheduling-cost probe for issue #334"]
++    async fn input_metadata_handoff_cost_probe() {
++        for offloaded in [false, true] {
++            let id = "input-handoff-cost";
++            let (state, _dir) = prompted_session_state(id);
++            record_peon_input_side_effects(&state, id, "y", false, 0);
++            let started = std::time::Instant::now();
++            for _ in 0..2000 {
++                if offloaded {
++                    let worker = state.clone();
++                    tokio::task::spawn_blocking(move || {
++                        capture_pending_terminal_input(&worker, id, "a".into());
++                    }).await.unwrap();
++                    let worker = state.clone();
++                    tokio::task::spawn_blocking(move || {
++                        record_peon_input_side_effects(&worker, id, "a", false, 0);
++                    }).await.unwrap();
++                } else {
++                    capture_pending_terminal_input(&state, id, "a".into());
++                    record_peon_input_side_effects(&state, id, "a", false, 0);
++                }
++            }
++            eprintln!("2000 ordinary input frames, offloaded={offloaded}: {:?}", started.elapsed());
++        }
++    }
++

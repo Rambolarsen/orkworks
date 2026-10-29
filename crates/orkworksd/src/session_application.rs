@@ -57,6 +57,7 @@ fn pending_recommendation_deliveries() -> &'static Mutex<HashSet<(PathBuf, Strin
     PENDING_RECOMMENDATION_DELIVERIES.get_or_init(|| Mutex::new(HashSet::new()))
 }
 
+#[derive(Clone)]
 struct RecommendationDeliveryWorkspace {
     path: PathBuf,
     lease: Option<Weak<WorkspaceLease>>,
@@ -1331,6 +1332,9 @@ impl SessionApplication {
         target: RecommendationDeliveryTarget,
     ) -> Result<Option<crate::taskmaster::Recommendation>, RecommendationAcceptError> {
         let _delivery_guard = delivery_guard;
+        let admission_state = self.state.clone();
+        let admission_workspace = target.workspace.clone();
+        let admission_id = id.clone();
         let delivery =
             crate::runtime::terminal_runtime::submit_approved_input_to_runtime_with_admission(
                 &self.state,
@@ -1338,15 +1342,15 @@ impl SessionApplication {
                 &target.runtime_identity,
                 &target.control_tx,
                 prompt,
-                |send| {
+                move |send| {
                     crate::taskmaster::assessment_access::with_recommendations(
-                        &self.state,
+                        &admission_state,
                         false,
                         |_| (),
                         |workspace, recommendations| {
-                            if !target.workspace.matches(workspace)
+                            if !admission_workspace.matches(workspace)
                                 || !recommendations.iter().any(|recommendation| {
-                                    recommendation.id == id
+                                    recommendation.id == admission_id
                                         && recommendation.status == RecommendationStatus::Executing
                                 })
                             {
@@ -2993,6 +2997,13 @@ impl SessionApplication {
     }
 
     fn schedule_prompt_identity_reset_retry(&self, id: &str) {
+        let identity = {
+            let sessions = self.state.sessions.lock().unwrap();
+            let Some(handle) = sessions.get(id) else {
+                return;
+            };
+            handle.runtime.identity()
+        };
         let authority = crate::runtime::prompt_authority::registry();
         if !authority.schedule_reset_retry(id) {
             return;
@@ -3004,23 +3015,34 @@ impl SessionApplication {
         let state = self.state.clone();
         let session_id = id.to_string();
         runtime.spawn(async move {
+            let mut delay = std::time::Duration::from_millis(100);
             loop {
-                let mut delay = std::time::Duration::from_millis(100);
-                loop {
-                    tokio::time::sleep(delay).await;
-                    let authority = crate::runtime::prompt_authority::registry();
-                    if !authority.reset_commit_pending(&session_id) {
+                tokio::time::sleep(delay).await;
+                let worker_state = state.clone();
+                let worker_id = session_id.clone();
+                let worker_identity = identity.clone();
+                let attempt = tokio::task::spawn_blocking(move || {
+                    crate::runtime::terminal_runtime::with_current_runtime_input(
+                        &worker_state, &worker_id, &worker_identity, || {
+                            let authority = crate::runtime::prompt_authority::registry();
+                            if authority.reset_commit_pending(&worker_id) {
+                                SessionApplication::new(worker_state.clone())
+                                    .commit_prompt_identity_reset_with_retry(&worker_id, false);
+                            }
+                            let pending = authority.reset_commit_pending(&worker_id);
+                            let restart = !pending && authority.finish_reset_retry(&worker_id);
+                            (pending, restart)
+                        },
+                    )
+                }).await;
+                match attempt {
+                    Ok(Some((true, _))) => delay = (delay * 2).min(std::time::Duration::from_secs(5)),
+                    Ok(Some((false, true))) => delay = std::time::Duration::from_millis(100),
+                    Ok(_) => break,
+                    Err(error) => {
+                        tracing::warn!(session_id = %session_id, %error, "prompt reset retry task failed");
                         break;
                     }
-                    SessionApplication::new(state.clone())
-                        .commit_prompt_identity_reset_with_retry(&session_id, false);
-                    if !authority.reset_commit_pending(&session_id) {
-                        break;
-                    }
-                    delay = (delay * 2).min(std::time::Duration::from_secs(5));
-                }
-                if !crate::runtime::prompt_authority::registry().finish_reset_retry(&session_id) {
-                    break;
                 }
             }
         });
@@ -18462,6 +18484,55 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reset_retry_does_not_retire_a_replacement_runtime_identity() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "reset-retry-replaced-runtime";
+        write_alive_session(&state, root.path(), id);
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let store = &workspace.as_ref().unwrap().metadata;
+            let mut metadata = store.read_session(id).unwrap();
+            metadata.harness = "claude-code".into();
+            metadata.resume = Some(harness::ResumeMemory {
+                state: harness::ResumeState::Available,
+                preferred_strategy: harness::ResumeStrategy::Exact,
+                harness_session_id: Some("current-native".into()),
+                latest_fallback: false,
+                last_seen_at: None,
+            });
+            store.write_session(&metadata);
+        }
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(id.into(), attention_test_handle(id, root.path()));
+        let authority = crate::runtime::prompt_authority::registry();
+        authority.issue_with_native_id(id, "claude-code", "old-generation", Some("current-native"));
+        assert!(authority.reserve_reset(id, "claude-code", "/clear"));
+        assert!(authority.acknowledge_reset(id).is_some());
+        SessionApplication::new(state.clone()).schedule_prompt_identity_reset_retry(id);
+        state.sessions.lock().unwrap().get_mut(id).unwrap().runtime =
+            crate::runtime::session_runtime::SessionRuntime::detached_test();
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        let native_id = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap()
+            .resume
+            .unwrap()
+            .harness_session_id;
+        authority.remove(id);
+        assert_eq!(native_id.as_deref(), Some("current-native"));
+    }
+
+    #[tokio::test]
     async fn reset_retry_clears_stale_tuple_pending_before_replaying_queued_prompt() {
         let root = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(root.path());
@@ -18655,7 +18726,7 @@ mod tests {
                 &identity,
                 &tx,
                 "assessment prompt".into(),
-                |send| {
+                move |send| {
                     if approved.load(Ordering::SeqCst) {
                         send()
                     } else {

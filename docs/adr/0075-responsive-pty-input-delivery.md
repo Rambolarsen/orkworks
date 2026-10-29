@@ -71,3 +71,24 @@ slave closed. Its unresolved delivery must retain the reservation; stop does
 not promise immediate retry on Linux. Deterministic writer tests cover partial
 cancellation and full-write acknowledgement on every platform. Windows uses the
 same driver logic; native ConPTY stall verification remains a platform limit.
+
+## Amendment — input metadata ownership (2026-10-29)
+
+The owner approved the [input metadata execution design](../superpowers/plans/2026-10-29-terminal-input-io.md)
+after controlled reads reproduced async-worker blocking before dispatch and
+after delivery. The same command owner now spans input preparation, PTY
+acknowledgement and synchronous metadata bookkeeping. Run preparation and
+enqueue together in one blocking-pool job after reserving channel capacity;
+run accepted/rejected bookkeeping in a second job. Each job validates the
+captured runtime and applies its effects under the existing projection fence.
+
+A per-runtime async gate serializes this sequence. Two fail-fast owner slots
+bound active and waiting owners before task creation; excess input is rejected
+without preparing a reset. The existing terminal queue remains bounded and
+continues polling output and Close. A caller losing interest detaches the
+completion waiter, preserving reset cleanup, accepted-input effects and the
+writer's delivery result. Stop remains independent of the input gate. No
+blocking-pool job waits for PTY delivery, no automatic retry is introduced, and
+a bookkeeping failure after confirmed delivery must not authorize duplicate
+input. Metadata transactions, source priority and native capability gates
+retain their existing semantics.

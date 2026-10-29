@@ -424,6 +424,7 @@ impl Drop for PendingPtyWrite {
 
 #[derive(Debug)]
 pub(crate) struct AttachmentClaim {
+    pub(crate) runtime_identity: RuntimeIdentity,
     pub(crate) generation: u64,
     pub(crate) replay_from: u64,
     pub(crate) replay_to: u64,
@@ -516,6 +517,10 @@ pub(crate) struct SessionRuntime {
     pub(crate) codex_terminal_status_active: bool,
     pub(crate) attention_owner: super::observed_status::AttentionOwner,
     pub(crate) control_tx: mpsc::Sender<RuntimeCommand>,
+    // One active input owner and one bounded waiter across attachments and
+    // approved requests. The owner retains both through accepted bookkeeping.
+    pub(crate) input_gate: Arc<tokio::sync::Mutex<()>>,
+    pub(crate) input_slots: Arc<tokio::sync::Semaphore>,
     pub(crate) output_tx: broadcast::Sender<RuntimeEvent>,
     pub(crate) replay: ReplayBuffer,
     pub(crate) attachment_generation: u64,
@@ -566,6 +571,8 @@ impl SessionRuntime {
                 #[cfg(test)]
                 diagnostic_cleanup: None,
                 control_tx,
+                input_gate: Arc::new(tokio::sync::Mutex::new(())),
+                input_slots: Arc::new(tokio::sync::Semaphore::new(2)),
                 output_tx,
                 replay: ReplayBuffer::new(DEFAULT_REPLAY_CAPACITY),
                 attachment_generation: 0,
@@ -615,6 +622,8 @@ impl SessionRuntime {
             #[cfg(test)]
             diagnostic_cleanup: None,
             control_tx,
+            input_gate: Arc::new(tokio::sync::Mutex::new(())),
+            input_slots: Arc::new(tokio::sync::Semaphore::new(2)),
             output_tx,
             replay: ReplayBuffer::new(DEFAULT_REPLAY_CAPACITY),
             attachment_generation: 0,
@@ -858,6 +867,7 @@ pub(crate) fn claim_attachment(state: &Arc<AppState>, id: &str) -> Option<Attach
     let replay_to = handle.runtime.replay.next_cursor();
     let replay_chunks = handle.runtime.replay.snapshot();
     Some(AttachmentClaim {
+        runtime_identity: handle.runtime.identity(),
         generation,
         replay_from,
         replay_to,
@@ -894,6 +904,7 @@ pub(crate) async fn send_runtime_command(
     tx.send(command).await.map_err(|_| ())
 }
 
+#[cfg(test)]
 pub(crate) async fn send_runtime_input(
     state: &Arc<AppState>,
     id: &str,
@@ -909,6 +920,7 @@ pub(crate) async fn send_runtime_input(
     send_runtime_input_to_sender(&tx, data).await
 }
 
+#[cfg(test)]
 pub(crate) async fn send_runtime_input_to_sender(
     tx: &mpsc::Sender<RuntimeCommand>,
     data: String,
