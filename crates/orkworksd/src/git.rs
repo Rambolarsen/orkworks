@@ -139,17 +139,22 @@ fn detect_in_process(cwd: &Path) -> GitContext {
     // alone is not proof, since submodule checkouts have one too.
     let is_worktree = repo.is_worktree();
 
-    let mut changed_files = 0;
-    let mut dirty = false;
-
     let mut opts = git2::StatusOptions::new();
     opts.include_untracked(true)
         .recurse_untracked_dirs(true)
         .include_ignored(false);
-    if let Ok(statuses) = repo.statuses(Some(&mut opts)) {
-        changed_files = statuses.len();
-        dirty = changed_files > 0;
-    }
+    let changed_files = match repo.statuses(Some(&mut opts)) {
+        Ok(statuses) => statuses.len(),
+        Err(_) => {
+            return GitContext {
+                unavailable_reason: Some(
+                    "Git inspection unavailable; repository status could not be read.".into(),
+                ),
+                ..GitContext::default()
+            };
+        }
+    };
+    let dirty = changed_files > 0;
 
     GitContext {
         repo_root,
@@ -323,6 +328,75 @@ mod tests {
             detect,
         );
         serde_json::to_value(&infos[0]).unwrap()
+    }
+
+    #[test]
+    fn corrupt_index_projects_unavailable_status_and_recovers_after_repair() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        init_repo(dir);
+        let clean = projected_git(dir);
+        assert_eq!(clean["dirty"], false);
+        assert_eq!(clean["changedFiles"], 0);
+        std::fs::write(dir.join("new.txt"), "uncommitted\n").unwrap();
+        let repo = git2::Repository::open(dir).unwrap();
+        let index_path = repo.path().join("index");
+        std::fs::write(&index_path, b"invalid index").unwrap();
+
+        let info = projected_git(dir);
+        assert!(
+            info["dirty"].is_null(),
+            "failed status must not imply clean"
+        );
+        assert!(
+            info["changedFiles"].is_null(),
+            "failed status must not imply zero files"
+        );
+        assert!(info.get("lineChanges").is_none());
+        assert!(info["recommendation"]
+            .as_str()
+            .unwrap()
+            .contains("unavailable"));
+
+        std::fs::remove_file(index_path).unwrap();
+        git(dir, &["reset", "--mixed", "HEAD"]);
+        let recovered = projected_git(dir);
+        assert_eq!(recovered["dirty"], true);
+        assert_eq!(recovered["changedFiles"], 1);
+        assert_eq!(
+            recovered["lineChanges"],
+            serde_json::json!({"additions": 1, "deletions": 0})
+        );
+    }
+
+    #[test]
+    fn unavailable_line_statistics_preserve_successful_dirty_status() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        init_repo(dir);
+        std::fs::write(dir.join("tracked.txt"), "old\n").unwrap();
+        git(dir, &["add", "."]);
+        git(dir, &["commit", "-qm", "baseline"]);
+        std::fs::write(dir.join("tracked.txt"), "new\nmore\n").unwrap();
+        let repo = git2::Repository::open(dir).unwrap();
+        let tree = repo.head().unwrap().peel_to_tree().unwrap();
+        let blob = tree
+            .get_path(Path::new("tracked.txt"))
+            .unwrap()
+            .id()
+            .to_string();
+        std::fs::remove_file(
+            repo.path()
+                .join("objects")
+                .join(&blob[..2])
+                .join(&blob[2..]),
+        )
+        .unwrap();
+
+        let info = projected_git(dir);
+        assert_eq!(info["dirty"], true);
+        assert_eq!(info["changedFiles"], 1);
+        assert!(info.get("lineChanges").is_none());
     }
 
     #[test]

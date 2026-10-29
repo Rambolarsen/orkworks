@@ -197,6 +197,8 @@ changes updates the counter on the first session refresh after that window.
 Line totals are omitted when they cannot be read. A stalled Git scan is stopped after
 five seconds, leaving Git facts unavailable instead of displaying clean or zero
 counts. Session refreshes can recover after the filesystem problem is fixed.
+Git status errors also leave these facts unavailable. When only line totals
+cannot be read, the dirty state and file count remain visible.
 
 ## Inspect Git changes
 
