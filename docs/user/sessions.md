@@ -223,6 +223,9 @@ switching back to the launch checkout. Temporary commands elsewhere do not
 change the binding. This requires the matching source build and updated Codex
 integration; it does not establish availability in older installers.
 
+File/symlink conversions appear as one changed file with removed and replacement
+content and line totals. Symlinks display their target text.
+
 The panel identifies the worktree, baseline and capture time. Base choices use
 local refs; the viewer never fetches. Choose **Refresh** to capture newer changes.
 Sessions sharing a worktree show the same changes; this does not identify which

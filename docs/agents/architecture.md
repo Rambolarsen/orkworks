@@ -442,7 +442,9 @@ The [selected-session Git changes viewer](../../specs/session-git-changes.md)
 uses session-scoped authenticated `git-change-bases`, `git-changes` and opaque
 snapshot/file routes in `http/git_changes_handlers.rs`. `git_changes.rs` owns
 bounded comparison captures in private temporary Git storage; original
-repositories are never written. `git_changes_fs.rs` anchors worktree traversal
+repositories are never written. Type conversions retain one file entry while
+rendering deletion/addition patches from those same captured trees; their text
+shares the existing per-file and aggregate display budgets. `git_changes_fs.rs` anchors worktree traversal
 without following symlinks. Built-in EOL policy in `git_changes_eol.rs` resolves
 only bounded control copies in the private repository, preserving index fallback;
 source attribute/ignore files never enter libgit2 filesystem readers. The Git-context cache owns ephemeral snapshot and
