@@ -22,9 +22,13 @@ and #740 capability gates remain unchanged.
 
 ## User experience
 
-Add a Skills section to the existing Settings dialog. It contains clearly
-labeled Workspace and Personal groups, a search field, a coding-tool filter,
-Refresh, and Add skill. Keep the existing central terminal/review navigation.
+Skills appears directly below Recommendations in the left sidebar and opens in
+the main view at every width, including through the collapsed rail and compact
+Workspace menu. It replaces the former Skills section in Settings and contains
+clearly labeled Workspace and Personal groups, a search field, a coding-tool
+filter, Refresh, and Add skill. Back, its toggle, or Escape within the page
+returns to the previous central content; selecting a session opens its Terminal.
+Skills is transient and is not restored after restart.
 Personal discovery works without an open workspace; Workspace then explains
 that opening a workspace is required.
 

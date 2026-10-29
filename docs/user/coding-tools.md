@@ -119,7 +119,7 @@ failures appear in that tool's status, so check the message before retrying.
 
 ## Workspace and personal skills
 
-In current source builds, open **Settings → Skills** to browse separate
+In current source builds, open **Skills** in the left sidebar, below Recommendations to browse separate
 **Workspace** and **Personal** groups. Workspace names the exact open directory
 or worktree. Personal shows skills found in your user configuration, which may
 be available across projects. Source paths and coding-tool filters help you

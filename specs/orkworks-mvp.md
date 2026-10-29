@@ -730,7 +730,7 @@ The first useful MVP should include:
   composer. Cancel returns to previous content; Start opens the created terminal
   only after successful creation. Existing sessions continue running. Creation
   drafts are workspace-scoped presentation state and never restored as actions.
-- central context shows Terminal, the reusable Review surface, transient Recommendations, or Workflow when
+- central context shows Terminal, the reusable Review surface, transient Recommendations or Skills, or Workflow when
   a validated and separately gated orchestration projection is available
 - no user-arranged panels, drag-and-drop docking, movable floating panels, or
   tab-based navigation; users resize fixed regions and navigate through explicit

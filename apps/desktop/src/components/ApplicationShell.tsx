@@ -1,6 +1,6 @@
 import { isSessionAlive } from "../sessionRuntimeState";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { PanelLeft, PanelRight, Plus, ChevronDown, Lightbulb, Settings, Pin, PinOff, X } from "lucide-react";
+import { PanelLeft, PanelRight, Plus, ChevronDown, Lightbulb, BookOpen, Settings, Pin, PinOff, X } from "lucide-react";
 import type { CentralSurface } from "../shellNavigation";
 import type { SessionAction, SessionAttention, SessionInfo, WorkflowRecommendation, WorkspaceInfo } from "../api";
 import type { HarnessConfig } from "../harnessTypes";
@@ -15,13 +15,14 @@ import GitChangesPanel from "./GitChangesPanel";
 import SessionDetailPanel from "./SessionDetailPanel";
 import TerminalPanel from "./TerminalPanel";
 import RecommendationsPanel from "./RecommendationsPanel";
+import SkillsSettings from "./SkillsSettings";
 import ActionsOverview from "./ActionsOverview";
 import { buildActionsOverview, type ActionRow, type ActionsSourceStatus } from "../actionsOverview";
 import { useActionsRecommendations } from "../useActionsRecommendations";
 import RegionSeparator from "./RegionSeparator";
 import { disposeAllTerminals } from "../terminalStore";
 
-export type ShellDestination = "changes" | "details" | "recommendations" | "actions";
+export type ShellDestination = "changes" | "details" | "recommendations" | "skills" | "actions";
 export type ShellCommand = "sessions" | "terminal" | "new-session" | "cancel-new-session" | "reset-layout" | "review" | "next-action" | ShellDestination;
 export interface ShellCommandRequest { command: ShellCommand; sequence: number; reveal?: boolean }
 
@@ -84,7 +85,7 @@ interface Props {
   onRetryBackend: () => void;
 }
 
-const TITLES = { changes: "Changes", actions: "Actions", details: "Details", recommendations: "Recommendations" };
+const TITLES = { changes: "Changes", actions: "Actions", details: "Details", recommendations: "Recommendations", skills: "Skills" };
 
 export default function ApplicationShell(props: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -107,17 +108,19 @@ export default function ApplicationShell(props: Props) {
   const actionsModel = buildActionsOverview(sourcesReady ? props.sessions : [], sourcesReady ? props.sessionsSourceStatus ?? "loading" : "unavailable",
     recommendations.items, recommendations.status);
   const recommendationsPage = props.inspector === "recommendations";
-  const layout = computeShellLayout(width, props.preferences, props.inspector !== null && !recommendationsPage);
+  const skillsPage = props.inspector === "skills";
+  const centralUtility = recommendationsPage || skillsPage;
+  const layout = computeShellLayout(width, props.preferences, props.inspector !== null && !centralUtility);
   const compact = layout.mode === "compact";
   const showSessionsPage = compact && sessionsPage;
-  const temporaryUtility = !showSessionsPage && props.inspector !== null && (layout.inspectorPage || recommendationsPage);
+  const temporaryUtility = !showSessionsPage && props.inspector !== null && (layout.inspectorPage || centralUtility);
   const showComposer = !!props.newSessionContent && !showSessionsPage && !temporaryUtility;
   const reviewing = (props.centralSurface?.kind === "review" && props.centralSurface.sessionId === props.activeSessionId)
     || (!!props.reviewError && !!props.activeSessionId);
   const showReview = reviewing && !showSessionsPage && !temporaryUtility && !showComposer;
   const showTerminal = !showSessionsPage && !temporaryUtility && !showComposer && !reviewing;
   const showSessions = showSessionsPage || layout.sessionsVisible;
-  const showInspector = !showSessionsPage && !recommendationsPage && layout.inspectorWidth > 0 && props.inspector !== null;
+  const showInspector = !showSessionsPage && !centralUtility && layout.inspectorWidth > 0 && props.inspector !== null;
   const session = props.sessions.find(s => s.id === props.activeSessionId) ?? null;
   const isResuming = !!session && !!props.resumingSessionIds?.has(session.id);
   const canResume = session?.lifecycle === "dead" && session.sessionState !== "archived"
@@ -318,6 +321,7 @@ export default function ApplicationShell(props: Props) {
   }, [showSessions, showTerminal, showInspector, temporaryUtility, props.inspector, showReview]);
 
   const renderUtility = () => {
+    if (skillsPage) return <SkillsSettings currentWorkspacePath={props.isSwitchingWorkspace ? null : props.workspace?.path ?? null} />;
     if (props.inspector === "changes") return <GitChangesPanel key={`${props.workspaceGeneration}:${props.activeSessionId}:${session?.repoRoot ?? ""}:${session?.worktreeBinding?.root ?? ""}:${session?.worktreeBinding?.commonDir ?? ""}`}
       session={props.sessions.find(s => s.id === props.activeSessionId) ?? null}
       onBack={() => { props.onInspect("details"); requestFocus("changes-return"); }} />;
@@ -370,6 +374,7 @@ export default function ApplicationShell(props: Props) {
   const navigationButtons = (iconOnly = false) => <>
     {props.workspace && <button type="button" data-shell-create aria-label="New session" title={iconOnly ? "New session" : undefined} onClick={props.onCreateSession}><Plus size={16} aria-hidden="true" />{!iconOnly && "New session"}</button>}
     {shouldShowRecommendationsPanel(session) && <button type="button" data-shell-command="recommendations" aria-label="Recommendations" title={iconOnly ? "Recommendations" : undefined} aria-expanded={props.inspector === "recommendations"} onClick={() => runCommand("recommendations")}><Lightbulb size={16} aria-hidden="true" />{!iconOnly && "Recommendations"}</button>}
+    <button type="button" data-shell-command="skills" aria-label="Skills" title={iconOnly ? "Skills" : undefined} aria-expanded={skillsPage} onClick={() => runCommand("skills")}><BookOpen size={16} aria-hidden="true" />{!iconOnly && "Skills"}</button>
   </>;
   const workspaceNavigation = <>
     <div className="shell-sidebar-heading">
@@ -449,7 +454,7 @@ export default function ApplicationShell(props: Props) {
             <summary>Workspace<ChevronDown size={14} aria-hidden="true" /></summary>
             <div className="shell-navigation-popover">{workspaceNavigation}<footer className="shell-sidebar-footer">{settingsAndStatus}</footer></div>
           </details>}
-          <div className="shell-context"><h1 data-shell-terminal-focus tabIndex={-1}>{showComposer ? "New agent session" : recommendationsPage ? "Recommendations" : session?.label || "Terminal"}</h1><span className="shell-context-scope">{showComposer ? "Start a session in this workspace" : recommendationsPage ? "Workspace recommendations" : session?.harness || "No session selected"}</span></div>
+          <div className="shell-context"><h1 data-shell-terminal-focus tabIndex={-1}>{showComposer ? "New agent session" : skillsPage ? "Skills" : recommendationsPage ? "Recommendations" : session?.label || "Terminal"}</h1><span className="shell-context-scope">{showComposer ? "Start a session in this workspace" : skillsPage ? "Workspace and personal skills" : recommendationsPage ? "Workspace recommendations" : session?.harness || "No session selected"}</span></div>
           {!showComposer && session && props.workspace && <SessionAppMenu key={`${props.workspaceGeneration}:${session.id}:${sourcesReady}`}
             workspacePath={props.workspace.workspaceIdentity || props.workspace.path} session={session} disabled={!sourcesReady} />}
           {!showComposer && canResume && session && <ResumeChooser key={`${props.workspaceGeneration}:${session.id}`} header
@@ -477,7 +482,7 @@ export default function ApplicationShell(props: Props) {
           </header>
           {props.reviewContent}
         </section>}
-        {temporaryUtility && <section className="shell-region shell-region--central" aria-label={recommendationsPage ? "Recommendations" : "Temporary content page"} data-shell-region="utility">
+        {temporaryUtility && <section className="shell-region shell-region--central" aria-label={centralUtility && props.inspector ? TITLES[props.inspector] : "Temporary content page"} data-shell-region="utility">
           {utilityHeader(true)}{renderUtility()}
         </section>}
       </main>}

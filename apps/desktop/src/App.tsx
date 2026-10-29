@@ -932,7 +932,7 @@ function App() {
           error={review.error} changed={review.changed} canRequest={sessionAdmissionEnabled && isSessionAlive(activeSession)}
           onRefresh={refreshReview} onRequest={requestIndependentReview} /> : null}
         workspaceGeneration={shellNavigation.workspaceGeneration}
-        visibleSubjectId={shellNavigation.inspectedSubject && shellNavigation.inspectedSubject.kind !== "workspace"
+        visibleSubjectId={shellNavigation.inspectedSubject && "sessionId" in shellNavigation.inspectedSubject
           ? shellNavigation.inspectedSubject.sessionId
           : shellNavigation.centralSurface.kind === "terminal"
             ? shellNavigation.centralSurface.sessionId

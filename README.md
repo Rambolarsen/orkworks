@@ -327,7 +327,7 @@ This repo manages project-scoped MCP server configuration through `apm.yml`, not
 
 ## Workspace and personal skill management
 
-Current source builds include **Settings → Skills**, with separate Workspace and
+Current source builds include **Skills** in the left sidebar, below Recommendations, with separate Workspace and
 Personal inventories, source paths, search and coding-tool filtering. The initial
 APM add profile supports local standalone skills for Codex in either scope;
 remote or broader packages show an explained terminal fallback. See the

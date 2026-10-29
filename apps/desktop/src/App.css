@@ -3117,3 +3117,5 @@ html, body, #root {
 
 .resume-menu--details { min-width: 0; }
 .resume-menu--details .resume-menu-popover { position: static; width: 100%; box-sizing: border-box; margin-top: 6px; }
+
+.shell-region--central > .skills-settings { flex: 1; min-height: 0; overflow: auto; padding: 20px; align-content: start; }

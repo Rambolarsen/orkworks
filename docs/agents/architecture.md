@@ -1031,9 +1031,9 @@ desktop verification remains tracked by #525.
 
 `ApplicationShell` owns fixed React/CSS Grid regions: Sessions, one central
 Terminal, Review or temporary utility page, and at most one inspector.
-Recommendations uses the central utility page at every width, without an
+Recommendations and Skills use the central utility page at every width, without an
 inspector or pin control; Back restores the underlying view and its invoker.
-It remains transient presentation state under [ADR 0084](../adr/0084-recommendations-main-view.md). Dockview is
+Both remain transient presentation state; Recommendations follows [ADR 0084](../adr/0084-recommendations-main-view.md). Dockview is
 removed under [ADR 0082](../adr/0082-react-grid-desktop-shell.md), which supersedes
 the library choice in [ADR 0078](../adr/0078-fixed-desktop-shell-and-central-navigation.md).
 Pointer and keyboard separators resize bounded regions. At medium widths a
@@ -1080,7 +1080,7 @@ debounces resize saves, and serializes reset before subsequent saves. Legacy
 `layout.json` remains untouched and is not restored by the new shell. The native
 View menu, sidebar navigation and context header route through the same shell commands.
 
-The fixed sidebar places workspace switch, New session and Recommendations
+The fixed sidebar places workspace switch, New session, Recommendations and Skills
 above independently scrolling session history, with Settings and
 connection status anchored below. A compact header above the central content
 shows the selected session, Details, and a prominent Resume session action for
@@ -1097,7 +1097,7 @@ fresh-launch first-binding behavior and clears stale native-ID provenance;
 pre-spawn cancellation restores the original metadata snapshot, including
 native-ID provenance. Codex remains exact-only. When the
 sidebar is collapsed at medium and wide widths, an icon-only navigation rail
-retains New session, Recommendations and Settings, and an expand
+retains New session, Recommendations, Skills and Settings, and an expand
 button restores its saved width using the existing visibility preference.
 Compact widths omit the rail and retain the temporary Sessions page. The
 central Workspace menu keeps workspace switching and the full sidebar controls
