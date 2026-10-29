@@ -159,3 +159,14 @@ unlisted `:60` values. No post-fix independent rereview or runtime/time-source
 qualification is claimed. Historical failing-first runs and manual regeneration/
 checkout checks are execution evidence reported here, not cryptographic claims
 embedded in the source packet.
+
+## Report-publication prerequisite audit — 2026-10-29
+
+The [R2 publication boundary audit](r2-publication-boundary.md) maps the required
+and optional correction histories to atomic dependency/material/fence effects
+and detail snapshot invalidation, preserving the old evaluation and retained
+source edges. It identifies the explicitly missing research-report receipt/ledger
+and mutable preparation/plan consumer codecs tracked by
+[#1136](https://github.com/Rambolarsen/orkworks/issues/1136). This is a contract
+inspection and qualification handoff, not complete changed-row fixtures, executed
+race/crash tests or runtime eligibility. Existing component evidence is unchanged.

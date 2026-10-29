@@ -41,3 +41,5 @@ Capability research, validation results, and evidence fixtures.
 - [Root preparation source joins](root-preparation-joins.md) — Exact synthetic draft/approval/receipt reconstruction and retained-source row commitments; admission and complete effects remain unqualified.
 
 - [ResearchReport components and R2 correction histories](r2-report-components.md) — Accepted report codecs, exact evidence/evaluation joins and two logical correction branches with explicit unqualified authority/publication context.
+
+- [R2 report publication boundary audit](r2-publication-boundary.md) — Required correction effects, dependency/read race oracles and explicit missing receipt/consumer codecs blocking complete transaction qualification.
