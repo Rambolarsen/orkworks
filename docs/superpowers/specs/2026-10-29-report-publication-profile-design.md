@@ -423,3 +423,13 @@ wording above is retained as design history. The
 records exact component/row/commit witnesses under a separate synthetic terminal
 context; original R2 source artifacts remain unchanged. Broader #742/#744/#746/
 #1089, #740 and separately approved executable-plan gates remain independent.
+
+## Focused producer and ordering handoff — 2026-10-29
+
+The [qualification preparation plan](../plans/2026-10-29-terminal-report-publication-qualification.md)
+separates the #742 user-authority/commit decision, real terminal producer/consumer
+proof and a later bounded executable qualification plan. Terminal run completion/
+cancellation does not itself revoke an explicit current-epoch UI correction.
+Ordinary ended-session metadata is not orchestration settlement. The plan selects
+no new cutoff and authorizes no adapter, native probe, migration or runtime work;
+conditional evidence and existing approval gates remain unchanged.

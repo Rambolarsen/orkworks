@@ -158,3 +158,13 @@ ran all 79 tests successfully; the coverage reviewer did not run tests. Both kep
 the fixed-R2/single-captured-run limitation explicit. No general eligible-evaluation
 producer discovery, authoritative inventory/index completeness or native atomicity
 is established by their review or the passing suite.
+
+## Focused producer and ordering handoff — 2026-10-29
+
+The [qualification preparation plan](../superpowers/plans/2026-10-29-terminal-report-publication-qualification.md)
+separates the #742 user-authority/commit decision, real terminal producer/consumer
+proof and a later bounded executable qualification plan. Terminal run completion/
+cancellation does not itself revoke an explicit current-epoch UI correction.
+Ordinary ended-session metadata is not orchestration settlement. The plan selects
+no new cutoff and authorizes no adapter, native probe, migration or runtime work;
+conditional evidence and existing approval gates remain unchanged.
