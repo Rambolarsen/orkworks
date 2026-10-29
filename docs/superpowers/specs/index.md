@@ -210,3 +210,5 @@ Dated design records; these do not establish current product behavior.
 - [Research report source codecs for evidence fixtures](2026-10-28-research-report-source-codecs-design.md) — Proposed closed report/finding/reference leaves and exact descriptor joins before R2 source fixtures.
 
 - [Initial root preparation membership and transaction effects](2026-10-28-root-preparation-effects-design.md) — Proposed typed initial membership, protected capability artifacts and exact two-branch preparation effects; new choices await owner review.
+
+- [Terminal-run report correction publication profile](2026-10-29-report-publication-profile-design.md) — Proposed closed receipt/run rows, retained evaluation dependencies and bounded terminal user-correction effects.

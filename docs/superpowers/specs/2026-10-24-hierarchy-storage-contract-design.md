@@ -605,3 +605,14 @@ This closes no production aggregate/history/custody cap, native excluded-action
 ordering, session startup/later lifecycle, #740 profile evidence or executable
 plan gate. No migration, DDL, model/native probe, runtime work or admitted source
 is delivered. Keep the broader component issues open.
+
+## Terminal report publication profile proposed — 2026-10-29
+
+The [terminal-run correction profile](2026-10-29-report-publication-profile-design.md)
+responds to [#1136](https://github.com/Rambolarsen/orkworks/issues/1136) with proposed
+terminal-only run/head/receipt rows, exact retained evaluation dependency mapping,
+summary/ledger effects and detail snapshot invalidation. Active preparation,
+plan/proposal/launch/learning consumers make this first profile ineligible. New
+scope, codecs, CAS mapping and quota choices require scoped owner/producer review
+before dependent transaction fixtures; this is not acceptance or runtime eligibility.
+Existing source/wire definitions, fixture bytes and authority gates are unchanged.
