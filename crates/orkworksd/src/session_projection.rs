@@ -648,10 +648,19 @@ fn read_remembered_sessions(
 pub(crate) fn enrich_sessions_with_git_context<F>(
     infos: &mut [SessionInfo],
     effective_cwds: &HashMap<String, String>,
-    mut detect_git: F,
+    detect_git: F,
 ) where
     F: FnMut(&std::path::Path) -> git::GitContext,
 {
+    enrich_sessions_with_git_context_using(infos, effective_cwds, git::worktree_root, detect_git);
+}
+
+fn enrich_sessions_with_git_context_using(
+    infos: &mut [SessionInfo],
+    effective_cwds: &HashMap<String, String>,
+    mut worktree_root: impl FnMut(&Path) -> Option<PathBuf>,
+    mut detect_git: impl FnMut(&Path) -> git::GitContext,
+) {
     let cwd_for = |info: &SessionInfo| {
         effective_cwds
             .get(&info.id)
@@ -666,6 +675,11 @@ pub(crate) fn enrich_sessions_with_git_context<F>(
             *cwd_counts.entry(cwd_for(info)).or_default() += 1;
         }
     }
+    // A workspace can retain hundreds of sessions in the same directory.
+    // Root discovery opens/parses Git configuration too, so deduplicate it
+    // before consulting the root-keyed status cache. Keep this request-local
+    // so repository creation/removal is observed on the next projection.
+    let mut roots: HashMap<String, String> = HashMap::new();
     let mut contexts: HashMap<String, git::GitContext> = HashMap::new();
     for info in infos.iter_mut() {
         if info
@@ -683,9 +697,11 @@ pub(crate) fn enrich_sessions_with_git_context<F>(
             continue;
         }
         let cwd = cwd_for(info);
-        let git_cwd = git::worktree_root(std::path::Path::new(&cwd))
-            .map(|root| root.display().to_string())
-            .unwrap_or_else(|| cwd.clone());
+        let git_cwd = roots.entry(cwd.clone()).or_insert_with(|| {
+            worktree_root(Path::new(&cwd))
+                .map(|root| root.display().to_string())
+                .unwrap_or_else(|| cwd.clone())
+        });
         let ctx = contexts
             .entry(git_cwd.clone())
             .or_insert_with(|| detect_git(std::path::Path::new(&git_cwd)));
@@ -892,6 +908,99 @@ mod tests {
     #[test]
     fn exposes_a_constructor_for_shared_app_state() {
         let _constructor: fn(Arc<AppState>) -> SessionProjection = SessionProjection::new;
+    }
+
+    #[test]
+    fn git_root_discovery_scales_with_distinct_effective_directories() {
+        let repo = tempfile::tempdir().unwrap();
+        git2::Repository::init(repo.path()).unwrap();
+        let child = repo.path().join("child");
+        std::fs::create_dir(&child).unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let other = tempfile::tempdir().unwrap();
+        git2::Repository::init(other.path()).unwrap();
+        let paths = [repo.path(), child.as_path(), outside.path(), other.path()];
+        let mut infos = (0..700)
+            .map(|i| {
+                crate::test_support::test_session_info(
+                    &format!("session-{i}"),
+                    "Session",
+                    "/stale-launch-directory",
+                    "running",
+                    "now",
+                )
+            })
+            .collect::<Vec<_>>();
+        let effective_cwds = infos
+            .iter()
+            .enumerate()
+            .map(|(i, info)| (info.id.clone(), paths[i % 4].display().to_string()))
+            .collect();
+        let mut root_reads = 0;
+        let mut scans = 0;
+        super::enrich_sessions_with_git_context_using(
+            &mut infos,
+            &effective_cwds,
+            |cwd| {
+                root_reads += 1;
+                crate::git::worktree_root(cwd)
+            },
+            |cwd| {
+                scans += 1;
+                crate::git::GitContext {
+                    repo_root: Some(cwd.display().to_string()),
+                    ..Default::default()
+                }
+            },
+        );
+        assert_eq!(
+            root_reads, 4,
+            "history size must not multiply repository opens, including non-repositories"
+        );
+        assert_eq!(scans, 3, "subdirectories must still share their root scan");
+        let repo_root = repo.path().canonicalize().unwrap();
+        let other_root = other.path().canonicalize().unwrap();
+        assert_eq!(
+            infos[0].repo_root.as_deref().map(std::path::Path::new),
+            Some(repo_root.as_path())
+        );
+        assert_eq!(infos[1].repo_root, infos[0].repo_root);
+        assert_eq!(
+            infos[3].repo_root.as_deref().map(std::path::Path::new),
+            Some(other_root.as_path())
+        );
+    }
+
+    #[test]
+    fn git_root_discovery_refreshes_between_projections() {
+        let parent = tempfile::tempdir().unwrap();
+        let child = parent.path().join("child");
+        std::fs::create_dir(&child).unwrap();
+        let mut infos = vec![crate::test_support::test_session_info(
+            "one",
+            "One",
+            child.display().to_string(),
+            "running",
+            "now",
+        )];
+        let mut detected_paths = Vec::new();
+        for initialize in [false, true] {
+            if initialize {
+                git2::Repository::init(parent.path()).unwrap();
+            }
+            super::enrich_sessions_with_git_context(
+                &mut infos,
+                &std::collections::HashMap::new(),
+                |cwd| {
+                    detected_paths.push(cwd.to_path_buf());
+                    crate::git::GitContext::default()
+                },
+            );
+        }
+        assert_eq!(
+            detected_paths,
+            vec![child, parent.path().canonicalize().unwrap()]
+        );
     }
 
     #[test]
