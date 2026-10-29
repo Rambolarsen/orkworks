@@ -214,3 +214,5 @@ Dated design records; these do not establish current product behavior.
 - [Terminal-run report correction publication profile](2026-10-29-report-publication-profile-design.md) — Proposed closed receipt/run rows, retained evaluation dependencies and bounded terminal user-correction effects.
 
 - [Initial root preparation budgets and bounded retained custody](2026-10-29-root-preparation-budgets-design.md) — Proposed finite preparation/run, retained-proof and whole logical inventory limits with explicit no-pruning exhaustion and unchanged native/runtime gates.
+
+- [Assignment record and result payload aggregate budgets](2026-10-29-assignment-aggregate-budgets-design.md) — Proposed shared 64/128/256 MiB record and payload pools with exact retained ownership, byte-cap denial and unchanged custody/runtime gates.

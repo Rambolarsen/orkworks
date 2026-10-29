@@ -2205,3 +2205,16 @@ summary/ledger branches and logical read/invalidation oracles. It supplies no
 admission/termination producer, live authority, native durability, index completeness
 or runtime eligibility. Existing source definitions and earlier fixture bytes are
 unchanged; broader lifecycle and executable-plan gates remain open.
+
+
+## Proposed retained record and payload aggregate defaults — 2026-10-29
+
+The [aggregate budget proposal](2026-10-29-assignment-aggregate-budgets-design.md)
+proposes finite assignment/run/workspace ceilings for the existing
+assignment-record-bytes and result-payload-bytes resources. It preserves their
+owner mapping, full-history/occurrence charging and zero-reserved meanings, and
+makes candidate/user-credit capacity-denial costs explicit for owner review.
+Numerical defaults, proposed reason codes and that admission policy remain
+proposed; no dependent fixture, producer/custody qualification, native mechanism
+or executable plan is accepted by this routing note. Earlier definitions and
+all existing catalogs/checkers remain unchanged.
