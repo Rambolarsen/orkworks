@@ -255,3 +255,28 @@ run/parent lifecycle remain separate no-go gates. #740 stays deferred/no-go unti
 November. Native excluded-action ordering, physical/query/resource/durability
 qualification, broader component review and separately approved executable plans
 remain prerequisites. Keep the component issues open.
+
+
+## Owner acceptance and boundary-fixture handoff — 2026-10-29
+
+The owner answered “go ahead” after PR #1151's concrete numerical/accounting and
+no-pruning exhaustion choices were presented for acceptance. Accept those named
+choices at reviewed proposal `3f7a32756f1ed14be05fc50b034e867ebd088a91` for further
+logical qualification: 8 MiB/run and 128 MiB/workspace preparation, 32 retained
+runs, 64 MiB/4,096 proofs, 512 MiB/8,192 complete logical inventory, derived
+proof/whole-store totals without new quota rows, and no automatic pruning/purge
+or recovery rollover. Repeated cancellation can exhaust history and deny another
+discard; revocation remains independent. Closed retained runs remain charged.
+
+This accepts numerical policy and authorizes documentation boundary fixtures,
+not native enforcement, physical production eligibility or an executable plan.
+The original proposal body above is preserved. Broader source/payload defaults,
+other producer and external reservation/shared custody, later lifecycle,
+purge/pruning/recovery, excluded-action authority and #740 gates remain open.
+
+The [budget component evidence](../../validation/root-preparation-budgets.md)
+independently measures all eight earlier complete logical states, pins isolated
+exact-fit/overflow comparisons and conservative maximum-envelope calculations.
+Arithmetic vectors and envelope upper bounds are not source-valid admitted
+stores; earlier synthetic bootstraps remain unverified. No earlier catalog,
+fixture cap or runtime file is changed.
