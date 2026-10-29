@@ -144,3 +144,12 @@ native durability or complete admitted-run evidence. Native storage, custody,
 authority/lifecycle, #740 capability and separately approved executable runtime
 plans remain independent. No live route, database/migration, model/native probe
 or runtime implementation is delivered by this audit. Keep #742/#744/#746/#1089 open.
+
+## Concrete profile proposal — 2026-10-29
+
+The [terminal-run correction proposal](../superpowers/specs/2026-10-29-report-publication-profile-design.md)
+selects a bounded first storage/effects profile for #1136: user corrections in
+terminal runs with retained evaluation consumers only. It supplies proposed closed
+receipt/head/terminal rows, edges, effects and quotas while failing closed on
+unsupported consumers. New choices await scoped owner/producer acceptance; no
+dependent transaction fixtures or native/runtime qualification are claimed.

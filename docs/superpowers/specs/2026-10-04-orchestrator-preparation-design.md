@@ -1441,3 +1441,14 @@ for component fixtures: closed descriptor/leaves, ordering/count and URI rules,
 of source definitions, not broad lifecycle/report-publication, custody, #740 or
 runtime approval. The R2 byte/identity/correction assay must preserve existing
 authority and head/CAS semantics and identify its synthetic context.
+
+## Terminal report publication profile proposed — 2026-10-29
+
+The [terminal-run correction profile](2026-10-29-report-publication-profile-design.md)
+responds to [#1136](https://github.com/Rambolarsen/orkworks/issues/1136) with proposed
+terminal-only run/head/receipt rows, exact retained evaluation dependency mapping,
+summary/ledger effects and detail snapshot invalidation. Active preparation,
+plan/proposal/launch/learning consumers make this first profile ineligible. New
+scope, codecs, CAS mapping and quota choices require scoped owner/producer review
+before dependent transaction fixtures; this is not acceptance or runtime eligibility.
+Existing source/wire definitions, fixture bytes and authority gates are unchanged.
