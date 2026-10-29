@@ -224,3 +224,13 @@ test('self-consistent latest proof cannot name a fabricated retained predecessor
   repairLatest(s);
   assert.throws(()=>validateEffectsState(s,contexts(),caps()),/retained predecessor proof/);
 });
+
+
+for(const entryPoint of ['state','receipt'])test(`rehashed extra header is rejected by standalone ${entryPoint} validation`,()=>{
+  const s=state('target-admitted');
+  s.rows.push({table:'store_header',keyCanonical:'2',valueCanonical:'{}',
+    rowDigest:sha('orkworks.hierarchy-storage-row.v3\n'+canonical({table:'store_header',key:2,body:{}}))});
+  s.rows.sort((a,b)=>Buffer.compare(Buffer.from(a.table+'\n'+a.keyCanonical),Buffer.from(b.table+'\n'+b.keyCanonical)));
+  s.stateSha256=sha(canonical(s.rows));
+  assert.throws(()=>entryPoint==='state'?validateEffectsState(s,contexts(),caps()):inspectLogicalPreparationReceipt(s,'target',contexts(),caps()),/singleton store header/);
+});

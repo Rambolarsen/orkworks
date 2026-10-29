@@ -165,6 +165,8 @@ export function validateArtifactOccurrences(rows,references,owner){
 function validateRows(map,cases,caps){
   if(map.size===0)return;
   const first=cases.values().next().value,workspace=first.b.workspaceId;
+  const headers=[...map.values()].filter(r=>r.table==='store_header');
+  assert.equal(headers.length,1,'singleton store header');assert.equal(headers[0].key,1,'singleton store header key');
   const header=map.get(rid('store_header',1));assert(header,'store header required');
   exact(header.value,'schemaVersion workspaceId storageEpoch latest');assert.equal(header.value.schemaVersion,3);assert.equal(header.value.workspaceId,workspace);digest(header.value.storageEpoch);link(header.value.latest);
   assert.equal(header.value.storageEpoch,header.value.latest.storageEpoch,'header epoch');

@@ -155,3 +155,11 @@ predecessor resolution for this finite no-pruning packet. Its independent golden
 states, command measurements and prior artifacts stay unchanged. This does not
 change production proof pruning or claim native history authenticity. No post-fix
 independent rereview or native qualification is claimed.
+
+
+A later automatic Codex pass found that standalone state validation skipped extra
+store_header rows after validating key 1. The author reproduced acceptance of a
+fully rehashed extra header, required exactly one header at key 1 and added both
+state and receipt-inspection rejection regressions. Transition prediction already
+rejected the extra row. This correction changes no golden state, measurement or
+accepted representation; a fresh review is requested for the corrected head.
