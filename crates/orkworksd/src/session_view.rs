@@ -87,24 +87,35 @@ fn strip_windows_verbatim_prefix(path: String) -> String {
     crate::session_location::normalize_windows_path(&path)
 }
 
+/// Use the freshly projected checkout root; sharing a Git common directory
+/// does not imply that sessions share a worktree. Non-Git paths keep CWD grouping.
+pub(crate) fn git_context_group_key<'a>(
+    session: &'a SessionInfo,
+    effective_cwds: &'a HashMap<String, String>,
+) -> &'a str {
+    session
+        .repo_root
+        .as_deref()
+        .or_else(|| effective_cwds.get(&session.id).map(String::as_str))
+        .unwrap_or(&session.cwd)
+}
+
 pub(crate) fn detect_conflicts(
     sessions: &[SessionInfo],
     effective_cwds: &HashMap<String, String>,
 ) -> Vec<(String, String)> {
-    let mut cwd_groups: HashMap<&str, Vec<&SessionInfo>> = HashMap::new();
+    let mut worktree_groups: HashMap<&str, Vec<&SessionInfo>> = HashMap::new();
     for s in sessions {
         if s.organization.session_state != Some(crate::session_archive::SessionState::Archived)
             && (s.status == "running" || s.status == "creating")
+            && s.dirty.is_some()
         {
-            let cwd = effective_cwds
-                .get(&s.id)
-                .map(|c| c.as_str())
-                .unwrap_or(&s.cwd);
-            cwd_groups.entry(cwd).or_default().push(s);
+            let key = git_context_group_key(s, effective_cwds);
+            worktree_groups.entry(key).or_default().push(s);
         }
     }
     let mut warnings = Vec::new();
-    for group in cwd_groups.values() {
+    for group in worktree_groups.values() {
         if group.len() >= 2 {
             if let Some(s) = group.first() {
                 if s.dirty.unwrap_or(false) {
@@ -121,15 +132,15 @@ pub(crate) fn detect_conflicts(
 
 pub(crate) fn session_recommendation(
     ctx: &git::GitContext,
-    session_count_in_cwd: usize,
+    session_count_in_worktree: usize,
 ) -> Option<String> {
-    if ctx.is_worktree {
-        return Some("Running in a separate worktree. Good isolation.".into());
-    }
-    if session_count_in_cwd >= 2 && ctx.dirty {
+    if session_count_in_worktree >= 2 && ctx.dirty {
         return Some(
             "Multiple sessions in the same dirty workspace. Consider separate worktrees.".into(),
         );
+    }
+    if ctx.is_worktree {
+        return Some("Running in a separate worktree. Good isolation.".into());
     }
     if !ctx.is_worktree && ctx.dirty && ctx.branch.as_deref() != Some("main") {
         return Some("Working outside main in a dirty workspace. A worktree may be safer.".into());
@@ -1252,13 +1263,11 @@ mod tests {
     }
 
     #[test]
-    fn session_recommendation_prefers_worktree_over_dirty_workspace_branches() {
-        // Worktree + dirty + 2 sessions sharing the cwd would match the
-        // multi-session-dirty branch if the is_worktree short-circuit were
-        // demoted below it.
+    fn shared_worktree_dirty_recommendation_precedes_isolation() {
+        // A linked checkout is not isolated when active sessions share its dirty worktree.
         assert_eq!(
             session_recommendation(&recommendation_ctx(true, Some("feature"), true), 2).as_deref(),
-            Some("Running in a separate worktree. Good isolation."),
+            Some("Multiple sessions in the same dirty workspace. Consider separate worktrees."),
         );
     }
 

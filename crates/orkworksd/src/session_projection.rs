@@ -667,14 +667,6 @@ fn enrich_sessions_with_git_context_using(
             .cloned()
             .unwrap_or_else(|| info.cwd.clone())
     };
-    let mut cwd_counts: HashMap<String, usize> = HashMap::new();
-    for info in infos.iter() {
-        if info.organization.session_state != Some(crate::session_archive::SessionState::Archived)
-            && (info.status == "running" || info.status == "creating")
-        {
-            *cwd_counts.entry(cwd_for(info)).or_default() += 1;
-        }
-    }
     // A workspace can retain hundreds of sessions in the same directory.
     // Root discovery opens/parses Git configuration too, so deduplicate it
     // before consulting the root-keyed status cache. Keep this request-local
@@ -715,20 +707,42 @@ fn enrich_sessions_with_git_context_using(
             info.recommendation = Some(reason.clone());
             continue;
         }
-        let count = cwd_counts.get(&cwd).copied().unwrap_or(1);
-        info.recommendation = if info.organization.session_state
-            == Some(crate::session_archive::SessionState::Archived)
-        {
-            None
-        } else {
-            session_recommendation(ctx, count)
-        };
         info.repo_root = ctx.repo_root.clone();
         info.branch = ctx.branch.clone();
         info.dirty = Some(ctx.dirty);
         info.changed_files = Some(ctx.changed_files);
         info.line_changes = ctx.line_changes;
         info.is_worktree = Some(ctx.is_worktree);
+    }
+
+    // Count only after enrichment: persisted repoRoot values can be stale, and
+    // unavailable bindings/status scans must not count as known participants.
+    let mut worktree_counts: HashMap<String, usize> = HashMap::new();
+    for info in infos.iter() {
+        if info.organization.session_state != Some(crate::session_archive::SessionState::Archived)
+            && (info.status == "running" || info.status == "creating")
+            && info.dirty.is_some()
+        {
+            let key = crate::session_view::git_context_group_key(info, effective_cwds);
+            *worktree_counts.entry(key.to_owned()).or_default() += 1;
+        }
+    }
+    for info in infos.iter_mut() {
+        if info.dirty.is_none() {
+            continue;
+        }
+        let cwd = cwd_for(info);
+        if let Some(ctx) = roots.get(&cwd).and_then(|root| contexts.get(root)) {
+            let key = crate::session_view::git_context_group_key(info, effective_cwds);
+            let count = worktree_counts.get(key).copied().unwrap_or(1);
+            info.recommendation = if info.organization.session_state
+                == Some(crate::session_archive::SessionState::Archived)
+            {
+                None
+            } else {
+                session_recommendation(ctx, count)
+            };
+        }
     }
 }
 
@@ -908,6 +922,224 @@ mod tests {
     #[test]
     fn exposes_a_constructor_for_shared_app_state() {
         let _constructor: fn(Arc<AppState>) -> SessionProjection = SessionProjection::new;
+    }
+
+    fn warning_repo(path: &std::path::Path) -> git2::Repository {
+        std::fs::create_dir_all(path).unwrap();
+        let mut options = git2::RepositoryInitOptions::new();
+        options.initial_head("main");
+        let repo = git2::Repository::init_opts(path, &options).unwrap();
+        let id = repo.index().unwrap().write_tree().unwrap();
+        {
+            let tree = repo.find_tree(id).unwrap();
+            let sig = git2::Signature::now("test", "test@example.com").unwrap();
+            repo.commit(Some("HEAD"), &sig, &sig, "base", &tree, &[])
+                .unwrap();
+        }
+        repo
+    }
+
+    fn warning_session(
+        id: &str,
+        cwd: &std::path::Path,
+        status: &str,
+    ) -> crate::session_types::SessionInfo {
+        std::fs::create_dir_all(cwd).unwrap();
+        crate::test_support::test_session_info(id, id, cwd.display().to_string(), status, "now")
+    }
+
+    #[test]
+    fn shared_worktree_subdirectories_warn_for_primary_and_linked_checkouts() {
+        for linked in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let primary = temp.path().join("primary");
+            let repo = warning_repo(&primary);
+            let root = if linked {
+                let path = temp.path().join("linked");
+                repo.worktree("feature", &path, None).unwrap();
+                path
+            } else {
+                primary
+            };
+            std::fs::write(root.join("dirty.txt"), "dirty\n").unwrap();
+            let mut archived = warning_session("archived", &root, "running");
+            archived.organization.session_state =
+                Some(crate::session_archive::SessionState::Archived);
+            let infos = vec![
+                warning_session("one", &root.join("src"), "running"),
+                warning_session("two", &root.join("tests"), "creating"),
+                warning_session("ended", &root, "ended"),
+                archived,
+            ];
+            let state = crate::test_support::test_app_state_with_workspace(temp.path());
+            let projected = SessionProjection::new(state).enrich_workspace(infos);
+            for info in &projected[..2] {
+                assert!(
+                    info.conflict_warning
+                        .as_deref()
+                        .is_some_and(|s| s.contains("2 sessions")),
+                    "linked={linked}: {}",
+                    info.id
+                );
+                assert!(
+                    info.recommendation
+                        .as_deref()
+                        .is_some_and(|s| s.starts_with("Multiple sessions")),
+                    "linked={linked}: {}",
+                    info.id
+                );
+            }
+            assert!(projected[2].conflict_warning.is_none());
+            assert!(projected[3].conflict_warning.is_none());
+            assert!(projected[3].recommendation.is_none());
+        }
+    }
+
+    #[test]
+    fn shared_worktree_domains_separate_worktrees_clones_nested_repos_and_submodules() {
+        let temp = tempfile::tempdir().unwrap();
+        let primary = temp.path().join("primary");
+        let repo = warning_repo(&primary);
+        let linked = temp.path().join("linked");
+        repo.worktree("feature", &linked, None).unwrap();
+        let cloned = temp.path().join("clone");
+        git2::Repository::clone(primary.to_str().unwrap(), &cloned).unwrap();
+        let nested = primary.join("nested");
+        warning_repo(&nested);
+        let upstream = temp.path().join("upstream");
+        warning_repo(&upstream);
+        let output = std::process::Command::new("git")
+            .args([
+                "-c",
+                "protocol.file.allow=always",
+                "submodule",
+                "add",
+                "--quiet",
+            ])
+            .arg(&upstream)
+            .arg("submodule")
+            .current_dir(&primary)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let roots = [
+            primary.clone(),
+            linked,
+            cloned,
+            nested,
+            primary.join("submodule"),
+        ];
+        let infos = roots
+            .iter()
+            .enumerate()
+            .map(|(i, root)| {
+                std::fs::write(root.join("dirty.txt"), "dirty\n").unwrap();
+                warning_session(&format!("session-{i}"), &root.join("child"), "running")
+            })
+            .collect();
+        let state = crate::test_support::test_app_state_with_workspace(temp.path());
+        let projected = SessionProjection::new(state).enrich_workspace(infos);
+        assert!(projected.iter().all(|info| info.dirty == Some(true)));
+        assert!(projected.iter().all(|info| info.conflict_warning.is_none()));
+        assert!(projected.iter().all(|info| !info
+            .recommendation
+            .as_deref()
+            .is_some_and(|s| s.starts_with("Multiple sessions"))));
+        let roots = projected
+            .iter()
+            .map(|info| info.repo_root.as_ref().unwrap())
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(roots.len(), 5);
+    }
+
+    #[test]
+    fn shared_worktree_grouping_uses_reported_and_bound_locations() {
+        let temp = tempfile::tempdir().unwrap();
+        let primary = temp.path().join("primary");
+        let repo = warning_repo(&primary);
+        let linked = temp.path().join("linked");
+        repo.worktree("feature", &linked, None).unwrap();
+        for root in [&primary, &linked] {
+            std::fs::write(root.join("dirty.txt"), "dirty\n").unwrap();
+        }
+        let mut bound = warning_session("bound", &linked, "running");
+        bound.worktree_binding = Some(
+            crate::session_location::WorktreeBinding::resolve(
+                linked.to_str().unwrap(),
+                primary.to_str().unwrap(),
+            )
+            .unwrap(),
+        );
+        let infos = vec![
+            warning_session("primary", &primary, "running"),
+            warning_session("linked", &linked, "running"),
+            warning_session("reported", &primary, "running"),
+            bound,
+        ];
+        let state = crate::test_support::test_app_state_with_workspace(temp.path());
+        state.peon.reported_cwd.write().unwrap().extend([
+            (
+                "reported".into(),
+                linked.join("child").display().to_string(),
+            ),
+            ("bound".into(), linked.display().to_string()),
+        ]);
+        std::fs::create_dir(linked.join("child")).unwrap();
+        let projected = SessionProjection::new(state).enrich_workspace(infos);
+        for info in &projected {
+            assert!(
+                info.conflict_warning
+                    .as_deref()
+                    .is_some_and(|s| s.contains("2 sessions")),
+                "{}",
+                info.id
+            );
+            assert!(info
+                .recommendation
+                .as_deref()
+                .is_some_and(|s| s.starts_with("Multiple sessions")));
+        }
+        assert_eq!(projected[0].repo_root, projected[3].repo_root);
+        assert_eq!(projected[1].repo_root, projected[2].repo_root);
+        assert_ne!(projected[0].repo_root, projected[1].repo_root);
+        assert_eq!(
+            projected[3].git_context_source,
+            Some(crate::session_location::GitLocationSource::Agent)
+        );
+    }
+
+    #[test]
+    fn shared_worktree_counts_exclude_unavailable_bindings() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("repo");
+        warning_repo(&root);
+        let foreign = warning_repo(&temp.path().join("foreign"));
+        std::fs::write(root.join("dirty.txt"), "dirty\n").unwrap();
+        let mut invalid = warning_session("unavailable", &root, "running");
+        invalid.worktree_binding = Some(crate::session_location::WorktreeBinding {
+            root: root.canonicalize().unwrap().display().to_string(),
+            common_dir: foreign
+                .commondir()
+                .canonicalize()
+                .unwrap()
+                .display()
+                .to_string(),
+        });
+        let infos = vec![warning_session("healthy", &root, "running"), invalid];
+        let state = crate::test_support::test_app_state_with_workspace(temp.path());
+        let projected = SessionProjection::new(state).enrich_workspace(infos);
+        assert!(projected.iter().all(|info| info.conflict_warning.is_none()));
+        assert!(projected[0].recommendation.is_none());
+        assert_eq!(projected[1].dirty, None);
+        assert!(projected[1]
+            .recommendation
+            .as_deref()
+            .unwrap()
+            .contains("unavailable"));
     }
 
     #[test]
@@ -1135,8 +1367,14 @@ mod tests {
         assert_eq!(projected[0].line_changes.unwrap().additions, 1);
         assert_eq!(projected[2].line_changes.unwrap().additions, 1);
         assert_ne!(projected[0].recommendation, first[0].recommendation);
-        assert!(projected[0].conflict_warning.is_some());
-        assert!(projected[2].conflict_warning.is_none());
+        // The root session shares the same checkout as both child-directory sessions.
+        for info in &projected {
+            assert!(info
+                .conflict_warning
+                .as_deref()
+                .is_some_and(|s| s.contains("3 sessions")));
+            assert_eq!(info.recommendation, projected[0].recommendation);
+        }
     }
 
     #[test]
