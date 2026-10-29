@@ -4,7 +4,7 @@ title: Terminal input metadata I/O
 description: Measured terminal-input blocking boundaries and a proposed cancellation-safe execution owner.
 tags: [orkworks, runtime, performance, metadata]
 status: draft
-workflow_status: implementation-approved
+workflow_status: verified-awaiting-integration
 ---
 
 # Terminal input metadata I/O
@@ -12,7 +12,7 @@ workflow_status: implementation-approved
 Proposed lifecycle design and implementation plan for
 [issue 334](https://github.com/Rambolarsen/orkworks/issues/334).
 The owner approved this command-lifecycle design on 2026-10-29.
-Implementation and verification are in progress.
+Implementation and local verification are complete; PR integration remains.
 
 ## Outcome and scope
 
@@ -153,24 +153,25 @@ no source-priority, protocol or native-qualification decision changes.
 ## Delivery and checks
 
 - [x] Owner approved the proposed owner/gate design; ADR 0075 amended before code.
-- [ ] Promote the two FIFO probes into regression tests. Add deterministic
-  gates covering runtime replacement during pool queuing, denied admission,
-  caller cancellation before/after acknowledgement, accepted reset with early
-  replacement report, rejected reset cleanup, and ordering of queued input and
-  resize. Preserve sensitivity and output revision captured before dispatch.
-- [ ] Implement the owner and migrate direct, queued, detached and approved
+- [x] Promote the two FIFO probes into regression tests. Cover runtime
+  replacement during pool queuing, caller cancellation before acknowledgement,
+  bounded command ordering, stale attachment rejection, saturation without
+  disconnect, and reset-retry fencing. Exercise the actual owner for accepted
+  reset with an early replacement report. Existing rejected-reset, admission,
+  sensitivity/output-boundary and input/resize tests pass in the full suite.
+- [x] Implement the owner and migrate direct, queued, detached and approved
   input callers together. Keep authority validation and its effect sink in the
   same fenced blocking closure; never validate before queueing a job alone.
   Adapt the admission callback's ownership only as necessary to preserve its
   exact enqueue boundary; do not broaden recommendation-store scope.
-- [ ] Require the current-thread responsiveness tests to pass without watchdog
+- [x] Require the current-thread responsiveness tests to pass without watchdog
   release. Re-run the ordinary-frame cost probe against the actual implementation
   and report its absolute cost; investigate material regression before batching.
-- [ ] Run focused input/runtime and recommendation-delivery tests, then the
+- [x] Run focused input/runtime and recommendation-delivery tests, then the
   scoped Rust build, full tests, fmt and clippy plus `scripts/verify-repo.sh`.
   Provision the repository Node version and frozen desktop dependencies for
   signed-knowledge tests. Run documentation checks/build and close-out hooks.
-- [ ] Complete the current-code-diff review at the effort warranted by the
+- [x] Complete the current-code-diff review at the effort warranted by the
   concurrency/lifecycle changes. Tie off an active matching recommendation
   through the authenticated API if one is verified; keep issue 334 open until
   implementation and required checks are complete.
@@ -205,8 +206,8 @@ slots and capacity reservation before the fenced prepare/enqueue job.
 Scope, source contracts, cancellation, stale runtime, transaction boundaries,
 ordering and recovery have explicit deliverables/checks. The remaining unknown
 is verified behavior of the new owner, which the implementation tests must
-resolve before claiming the defect fixed. Full verification is in progress; no full-suite pass or production latency
-improvement is claimed until its evidence is recorded.
+resolve before claiming the defect fixed. Full local verification passed as recorded below. Production latency has not
+been measured.
 
 ## Implementation progress
 
@@ -250,3 +251,14 @@ path-based notices need no prose change. Their installation, shell architecture
 and existing dropped-input guidance remain accurate; this change affects the
 execution owner behind those contracts. The canonical architecture concept and
 ADR carry the changed ownership details.
+
+Final local verification passed on the reviewed code: `bash scripts/verify-repo.sh`
+under Node 22.23.4, including Rust fmt/build, 2,309 Rust unit tests with 12
+ignored and all seven integration tests, OpenCode reporters, desktop type-check,
+native ABI repair, 1,611 desktop tests with two skipped, desktop build, 460 docs
+checks and the docs build, diff checks and both close-out hooks. Clippy completed
+separately with no warnings in added/modified Rust line ranges. Code commit
+`633dbbfb7554eb98f9f27474687fae1c47cef913` has exactly the reviewed diff hash.
+
+No active Taskmaster recommendation was established as the source of this
+user-directed issue work. Issue 334 remains linked for PR integration.

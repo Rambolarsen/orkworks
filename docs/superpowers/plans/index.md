@@ -233,4 +233,4 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 - [Workspace and personal skills](2026-10-28-workspace-personal-skills.md) — Approved two-scope inventory and qualified APM add implementation.
 
-- [Terminal input metadata I/O](2026-10-29-terminal-input-io.md) — Measured blocking boundaries and a proposed command owner awaiting design review.
+- [Terminal input metadata I/O](2026-10-29-terminal-input-io.md) — Approved command owner and verified metadata-blocking regressions.
