@@ -640,3 +640,14 @@ all previous catalogs and unverified evidence status.
 No operational admission, production cap, migration, native/SQL/source-custody or
 session startup qualification is inferred. #740 remains deferred/no-go until
 November; broader component and executable-plan gates remain separate.
+
+
+## Proposed finite initial preparation budgets — 2026-10-29
+
+The [initial preparation budget proposal](2026-10-29-root-preparation-budgets-design.md)
+selects proposed finite run/workspace preparation, retained-run, proof-history
+and whole logical inventory limits for scoped owner review. It preserves the
+accepted row/resource meanings and existing fixture catalogs. Its numerical
+choices, derived whole-store accounting and explicit no-pruning exhaustion
+policy remain proposed; no production capacity, shared-custody qualification,
+native mechanism or runtime plan is approved by this routing note.
