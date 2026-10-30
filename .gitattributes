@@ -33,3 +33,6 @@ docs/validation/report-publication-vectors.json text eol=lf
 docs/validation/root-preparation-effects.json text eol=lf
 
 /docs/validation/root-preparation-budgets.json text eol=lf
+
+# Preserve independent assignment budget boundary catalog bytes.
+/docs/validation/assignment-aggregate-budgets.json text eol=lf

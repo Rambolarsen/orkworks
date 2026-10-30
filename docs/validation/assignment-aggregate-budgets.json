@@ -1,0 +1,864 @@
+{
+  "evidenceKind": "isolated-arithmetic-not-source-valid-publication",
+  "vectors": [
+    {
+      "name": "records.assignment: cap-1",
+      "usage": {
+        "records": {
+          "assignment": "67108863",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "delta": {
+        "records": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "expected": {
+        "fits": true,
+        "exceeded": [],
+        "reason": null
+      }
+    },
+    {
+      "name": "records.assignment: cap+0",
+      "usage": {
+        "records": {
+          "assignment": "67108863",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "delta": {
+        "records": {
+          "assignment": "1",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "expected": {
+        "fits": true,
+        "exceeded": [],
+        "reason": null
+      }
+    },
+    {
+      "name": "records.assignment: cap+1",
+      "usage": {
+        "records": {
+          "assignment": "67108863",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "delta": {
+        "records": {
+          "assignment": "2",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "expected": {
+        "fits": false,
+        "exceeded": [
+          "records.assignment"
+        ],
+        "reason": "assignment-record-capacity-exhausted"
+      }
+    },
+    {
+      "name": "records.run: cap-1",
+      "usage": {
+        "records": {
+          "assignment": "0",
+          "run": "134217727",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "delta": {
+        "records": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "expected": {
+        "fits": true,
+        "exceeded": [],
+        "reason": null
+      }
+    },
+    {
+      "name": "records.run: cap+0",
+      "usage": {
+        "records": {
+          "assignment": "0",
+          "run": "134217727",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "delta": {
+        "records": {
+          "assignment": "0",
+          "run": "1",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "expected": {
+        "fits": true,
+        "exceeded": [],
+        "reason": null
+      }
+    },
+    {
+      "name": "records.run: cap+1",
+      "usage": {
+        "records": {
+          "assignment": "0",
+          "run": "134217727",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "delta": {
+        "records": {
+          "assignment": "0",
+          "run": "2",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "expected": {
+        "fits": false,
+        "exceeded": [
+          "records.run"
+        ],
+        "reason": "assignment-record-capacity-exhausted"
+      }
+    },
+    {
+      "name": "records.workspace: cap-1",
+      "usage": {
+        "records": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "268435455"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "delta": {
+        "records": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "expected": {
+        "fits": true,
+        "exceeded": [],
+        "reason": null
+      }
+    },
+    {
+      "name": "records.workspace: cap+0",
+      "usage": {
+        "records": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "268435455"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "delta": {
+        "records": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "1"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "expected": {
+        "fits": true,
+        "exceeded": [],
+        "reason": null
+      }
+    },
+    {
+      "name": "records.workspace: cap+1",
+      "usage": {
+        "records": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "268435455"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "delta": {
+        "records": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "2"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "expected": {
+        "fits": false,
+        "exceeded": [
+          "records.workspace"
+        ],
+        "reason": "assignment-record-capacity-exhausted"
+      }
+    },
+    {
+      "name": "payloads.assignment: cap-1",
+      "usage": {
+        "records": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "67108863",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "delta": {
+        "records": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "expected": {
+        "fits": true,
+        "exceeded": [],
+        "reason": null
+      }
+    },
+    {
+      "name": "payloads.assignment: cap+0",
+      "usage": {
+        "records": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "67108863",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "delta": {
+        "records": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "1",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "expected": {
+        "fits": true,
+        "exceeded": [],
+        "reason": null
+      }
+    },
+    {
+      "name": "payloads.assignment: cap+1",
+      "usage": {
+        "records": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "67108863",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "delta": {
+        "records": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "2",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "expected": {
+        "fits": false,
+        "exceeded": [
+          "payloads.assignment"
+        ],
+        "reason": "result-payload-capacity-exhausted"
+      }
+    },
+    {
+      "name": "payloads.run: cap-1",
+      "usage": {
+        "records": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "134217727",
+          "workspace": "0"
+        }
+      },
+      "delta": {
+        "records": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "expected": {
+        "fits": true,
+        "exceeded": [],
+        "reason": null
+      }
+    },
+    {
+      "name": "payloads.run: cap+0",
+      "usage": {
+        "records": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "134217727",
+          "workspace": "0"
+        }
+      },
+      "delta": {
+        "records": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "1",
+          "workspace": "0"
+        }
+      },
+      "expected": {
+        "fits": true,
+        "exceeded": [],
+        "reason": null
+      }
+    },
+    {
+      "name": "payloads.run: cap+1",
+      "usage": {
+        "records": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "134217727",
+          "workspace": "0"
+        }
+      },
+      "delta": {
+        "records": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "2",
+          "workspace": "0"
+        }
+      },
+      "expected": {
+        "fits": false,
+        "exceeded": [
+          "payloads.run"
+        ],
+        "reason": "result-payload-capacity-exhausted"
+      }
+    },
+    {
+      "name": "payloads.workspace: cap-1",
+      "usage": {
+        "records": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "268435455"
+        }
+      },
+      "delta": {
+        "records": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "expected": {
+        "fits": true,
+        "exceeded": [],
+        "reason": null
+      }
+    },
+    {
+      "name": "payloads.workspace: cap+0",
+      "usage": {
+        "records": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "268435455"
+        }
+      },
+      "delta": {
+        "records": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "1"
+        }
+      },
+      "expected": {
+        "fits": true,
+        "exceeded": [],
+        "reason": null
+      }
+    },
+    {
+      "name": "payloads.workspace: cap+1",
+      "usage": {
+        "records": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "268435455"
+        }
+      },
+      "delta": {
+        "records": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "2"
+        }
+      },
+      "expected": {
+        "fits": false,
+        "exceeded": [
+          "payloads.workspace"
+        ],
+        "reason": "result-payload-capacity-exhausted"
+      }
+    },
+    {
+      "name": "records: peer filled run",
+      "usage": {
+        "records": {
+          "assignment": "1",
+          "run": "134217728",
+          "workspace": "134217728"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "delta": {
+        "records": {
+          "assignment": "1",
+          "run": "1",
+          "workspace": "1"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "expected": {
+        "fits": false,
+        "exceeded": [
+          "records.run"
+        ],
+        "reason": "assignment-record-capacity-exhausted"
+      }
+    },
+    {
+      "name": "records: peer filled workspace",
+      "usage": {
+        "records": {
+          "assignment": "1",
+          "run": "2",
+          "workspace": "268435456"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "delta": {
+        "records": {
+          "assignment": "1",
+          "run": "1",
+          "workspace": "1"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "expected": {
+        "fits": false,
+        "exceeded": [
+          "records.workspace"
+        ],
+        "reason": "assignment-record-capacity-exhausted"
+      }
+    },
+    {
+      "name": "payloads: peer filled run",
+      "usage": {
+        "records": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "1",
+          "run": "134217728",
+          "workspace": "134217728"
+        }
+      },
+      "delta": {
+        "records": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "1",
+          "run": "1",
+          "workspace": "1"
+        }
+      },
+      "expected": {
+        "fits": false,
+        "exceeded": [
+          "payloads.run"
+        ],
+        "reason": "result-payload-capacity-exhausted"
+      }
+    },
+    {
+      "name": "payloads: peer filled workspace",
+      "usage": {
+        "records": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "1",
+          "run": "2",
+          "workspace": "268435456"
+        }
+      },
+      "delta": {
+        "records": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "1",
+          "run": "1",
+          "workspace": "1"
+        }
+      },
+      "expected": {
+        "fits": false,
+        "exceeded": [
+          "payloads.workspace"
+        ],
+        "reason": "result-payload-capacity-exhausted"
+      }
+    },
+    {
+      "name": "zero delta at all six ceilings (arithmetic only)",
+      "usage": {
+        "records": {
+          "assignment": "67108864",
+          "run": "134217728",
+          "workspace": "268435456"
+        },
+        "payloads": {
+          "assignment": "67108864",
+          "run": "134217728",
+          "workspace": "268435456"
+        }
+      },
+      "delta": {
+        "records": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "expected": {
+        "fits": true,
+        "exceeded": [],
+        "reason": null
+      }
+    },
+    {
+      "name": "both independent resources fail: record reason wins",
+      "usage": {
+        "records": {
+          "assignment": "67108864",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "67108864",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "delta": {
+        "records": {
+          "assignment": "1",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "1",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "expected": {
+        "fits": false,
+        "exceeded": [
+          "records.assignment",
+          "payloads.assignment"
+        ],
+        "reason": "assignment-record-capacity-exhausted"
+      }
+    },
+    {
+      "name": "no borrowing from empty other pool: records",
+      "usage": {
+        "records": {
+          "assignment": "67108864",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "delta": {
+        "records": {
+          "assignment": "1",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "expected": {
+        "fits": false,
+        "exceeded": [
+          "records.assignment"
+        ],
+        "reason": "assignment-record-capacity-exhausted"
+      }
+    },
+    {
+      "name": "no borrowing from empty other pool: payloads",
+      "usage": {
+        "records": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "67108864",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "delta": {
+        "records": {
+          "assignment": "0",
+          "run": "0",
+          "workspace": "0"
+        },
+        "payloads": {
+          "assignment": "1",
+          "run": "0",
+          "workspace": "0"
+        }
+      },
+      "expected": {
+        "fits": false,
+        "exceeded": [
+          "payloads.assignment"
+        ],
+        "reason": "result-payload-capacity-exhausted"
+      }
+    }
+  ]
+}

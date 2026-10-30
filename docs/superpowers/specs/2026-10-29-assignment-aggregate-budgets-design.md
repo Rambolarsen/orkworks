@@ -268,3 +268,34 @@ physical/durability/finalization authority remain separate gates. Existing no-pr
 preparation exhaustion is unchanged. #740 stays deferred/no-go until November;
 broader component review and separately approved executable plans remain required.
 Keep #744/#746 and the initiative open.
+
+
+## Owner acceptance and component handoff — 2026-10-30
+
+The owner said “go ahead” after the two separate 64/128/256 MiB pools,
+no future-capacity reservation, retained history and explicit capacity-error
+behavior were presented as the next review decision. This accepts the complete
+named policy in this proposal for documentation fixtures and further logical
+qualification: inclusive independent ceilings at assignment/owner-run/workspace;
+unchanged zero-reserved and full-history/per-payload-occurrence accounting;
+record-before-payload deterministic bounded 409 reasons; no automatic eviction;
+and no guarantee that candidate admission or protected receipt credits reserve
+future record/payload capacity. A denied publication preserves existing evidence,
+credits and prior candidate/work state without a fabricated quality outcome.
+No numerical value, owner mapping, schema, authority or codec is changed.
+
+The [boundary component packet](../../validation/assignment-aggregate-budgets.md)
+pins isolated inclusive totals, shared-scope saturation, independent pools and
+counter/error precedence. It supplies arithmetic evidence only. Existing contract
+bodies and earlier fixture/checker catalogs remain unchanged. In particular,
+zero-delta arithmetic at full pools is not authenticated retry or publication
+proof; fixtures do not establish actual inventory ownership, source validity,
+receipt preservation or native atomicity.
+
+Next: source-traced retained-history/occurrence and complete delta witnesses for
+root/child targets, cross-run reviewers, old epochs, corrections, invalidations,
+finalization denial and exact retries, under the owning source/authority/custody
+contracts. Reconcile complete manifests and independent logical/physical limits
+before a separately approved executable plan. Staging/artifact/report/plan/evidence/
+read/worker/scratch quotas, custody, purge/recovery, native qualification, #740
+and broader component/runtime gates remain independent. Keep #744/#746 open.
