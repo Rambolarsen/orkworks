@@ -690,7 +690,9 @@ operations are relative to retained directory handles. Native Codex image starts
 pass both image paths and the text in argv, and skip PTY prompt submission because
 Codex automatically submits startup images. Other qualified image readers receive
 explicit file references through the existing readiness-gated prompt owner.
-Unqualified tool/version/platform routes remain disabled. See
+The qualified macOS arm64 Codex route accepts stable versions 0.163.0 and newer
+when the installed CLI advertises native `--image` support; other unqualified
+tool/platform routes remain disabled. See
 [image context](../../specs/session-image-context.md) and
 [ADR 0089](../adr/0089-new-session-image-context.md).
 

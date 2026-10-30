@@ -120,6 +120,17 @@ that the model can distinguish the image content:
 | OpenCode 2 | Explicit local image references and image-capable `read` in the initial prompt | [Official attachments documentation](https://dev.opencode.ai/v2/docs/attachments/) documents image processing by `read`. Verify the installed V2 runtime reads private files and passes their images to the model. |
 | Copilot | Interactive image file references using documented `@` syntax | [Official CLI workflow](https://docs.github.com/en/copilot/how-tos/copilot-cli/use-copilot-cli/overview) documents image references. Verify bracketed-paste interpretation and filenames with spaces before enabling. Do not use its noninteractive-only attachment flag for an interactive session. |
 
+Codex compatibility policy (owner approved 2026-10-30, [#1168](https://github.com/Rambolarsen/orkworks/issues/1168)):
+the native route qualified on macOS arm64 accepts stable Codex 0.163.0 and newer
+when the installed executable's successful `--help` output advertises the
+`--image <FILE>...` option. Use bounded, timed version/help probes; missing,
+unparseable, prerelease, too-old, or unsuccessful capability evidence disables
+the route. New stable releases do not require individual allowlist entries or
+model fixtures. This is compatibility with a qualified delivery interface, not
+a claim that every release/model has been visually qualified. Other tools and
+platforms still require their own real launch qualification. Preserve visible
+provider/runtime errors and never silently omit images.
+
 Any unverified route remains disabled with an honest reason. Record exact tool
 version, platform, fixture outcome, and provider/model with delivery evidence.
 A provider rejection becomes an actionable startup/runtime error; never silently
@@ -153,6 +164,16 @@ checks and the worktree hook. Runtime code needs the repository's `/code-review
 low` gate before merge. Documentation alone does not establish a shipped feature.
 
 ## Compatibility, recovery, and review
+
+Implementation plan for #1168: replace exact Codex versions with the minimum
+version and installed image-option probe; reuse the existing bounded subprocess
+reader; add delivery regressions for upgrades and rejected evidence; synchronize
+the ADR and harness contract; run Rust/repository checks and diff-scoped review.
+Review: the change preserves argv delivery, prompt ownership, platform scope,
+authentication and storage. A CLI advertising the interface could still regress
+at runtime; startup errors remain visible and the feature can be disabled again
+without deleting retained image context. This reviewed plan implements the
+owner-approved policy above without introducing another delivery route.
 
 Omitting initialImages preserves the existing API and initial-prompt flow. No
 image bytes are added to native session identity or attention metadata. A revert

@@ -116,11 +116,26 @@ pub(crate) async fn probe_tool_version(executable: &Path) -> Option<String> {
 }
 
 async fn probe_tool_version_with_timeout(executable: &Path, timeout: Duration) -> Option<String> {
+    probe_tool_output(executable, "--version", timeout, false).await
+}
+
+/// Help is capability evidence only when the executable exits successfully.
+/// Share the version probe's time/output bounds and cancellation cleanup.
+pub(crate) async fn probe_tool_help(executable: &Path) -> Option<String> {
+    probe_tool_output(executable, "--help", Duration::from_secs(3), true).await
+}
+
+async fn probe_tool_output(
+    executable: &Path,
+    argument: &str,
+    timeout: Duration,
+    require_success: bool,
+) -> Option<String> {
     use tokio::io::AsyncReadExt;
 
     let mut command = tokio::process::Command::new(executable);
     command
-        .arg("--version")
+        .arg(argument)
         .kill_on_drop(true)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
@@ -139,7 +154,10 @@ async fn probe_tool_version_with_timeout(executable: &Path, timeout: Duration) -
         );
         stdout_result.ok()?;
         stderr_result.ok()?;
-        // Deliberately not awaiting child.wait() here: once each stream's
+        if require_success && !child.wait().await.ok()?.success() {
+            return None;
+        }
+        // Version probes deliberately do not await child.wait(): once each stream's
         // cap is hit (or the child exits first, whichever comes first), the
         // probe already has everything it needs. A gluttonous writer that
         // keeps producing past the cap may never exit on its own once we
