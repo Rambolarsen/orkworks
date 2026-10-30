@@ -483,7 +483,7 @@ export default function ApplicationShell(props: Props) {
           {props.reviewContent}
         </section>}
         {temporaryUtility && <section className="shell-region shell-region--central" aria-label={centralUtility && props.inspector ? TITLES[props.inspector] : "Temporary content page"} data-shell-region="utility">
-          {utilityHeader(true)}{renderUtility()}
+          {!skillsPage && utilityHeader(true)}{renderUtility()}
         </section>}
       </main>}
       {showInspector && <div className={layout.inspectorOverlay ? "shell-inspector-host shell-inspector-host--overlay" : "shell-inspector-host"}

@@ -106,7 +106,7 @@ export default function SkillsSettings({
     <section className="skills-settings" aria-label="Skills">
       <div className="skills-heading">
         <div>
-          <h2>Skills</h2>
+          <h2 data-shell-page-heading tabIndex={-1}>Skills</h2>
           <p>
             See where your skills come from and add them to a workspace or your
             personal setup.
