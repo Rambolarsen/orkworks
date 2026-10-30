@@ -237,3 +237,4 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Terminal report producer and authority qualification](2026-10-29-terminal-report-publication-qualification.md) — Gated source/ordering investigation and acceptance matrix before executable terminal correction qualification.
 
 - [Score-directed readiness suggestions](2026-10-30-score-directed-readiness.md) — Approved #1175 implementation and bounded qualification; in progress.
+- [Evaluation-artifact qualification handoff](2026-10-30-evaluation-artifact-qualification.md) — Gated owner, source/authority, conditional-state and native qualification handoff for the proposed evaluation-artifact producer.

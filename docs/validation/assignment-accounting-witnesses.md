@@ -112,3 +112,15 @@ new protocol or authority choice for owner review before dependent fixtures.
 The accounting above does not qualify maximum production profiles, physical
 storage, native enumeration, #740 capabilities or an executable runtime plan.
 Keep #744/#746 and the separate gates open.
+
+
+## Coherent conditional review-source follow-up — 2026-10-30
+
+The [new coherent history](coherent-review-history.md) preserves this archive
+and its placeholder-predecessor counterexample unchanged. It independently binds
+a new child target/result and frozen criteria/rubric/evidence to an initial review,
+exact same-stream correction and user invalidation. Existing receipt/artifact-read
+schemas and paired receipt contributions are checked; no persistent artifact or
+publication codec is invented. Producer custody/content/index and finite aggregate
+budget choices are tracked in [#1176](https://github.com/Rambolarsen/orkworks/issues/1176)
+as the next written-design prerequisite before full transaction witnesses. No admission, approved profile, native or runtime eligibility follows.

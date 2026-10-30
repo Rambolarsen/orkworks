@@ -1344,3 +1344,16 @@ complete explicitly unverified source to its run and retained artifact bytes.
 This is no adapter eligibility, runtime approval, native/custody qualification or
 complete draft/receipt/storage transition proof. Broader component gates and
 #740's deferred/no-go status remain unchanged.
+
+
+## Proposed evaluation-artifact producer follow-up — 2026-10-30
+
+The [producer proposal](2026-10-30-evaluation-artifact-producer-design.md) and
+[gated handoff](../plans/2026-10-30-evaluation-artifact-qualification.md) address
+[#1176](https://github.com/Rambolarsen/orkworks/issues/1176): immutable artifact
+metadata/stream mapping, shared canonical evaluation content with reciprocal
+custody, finite separate producer/read work and exact publication effect
+boundaries. These are new proposals for owner review, not acceptance of codecs,
+numerical defaults, read-work authority or purge policy. Existing definitions and
+fixture/checker bytes remain unchanged; dependent full transactions, upstream
+source/consumer, native/#740 and runtime-plan gates remain open.

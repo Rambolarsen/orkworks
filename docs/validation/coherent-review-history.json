@@ -1,0 +1,331 @@
+{
+  "schemaVersion": 1,
+  "evidenceKind": "conditional-coherent-child-review-source-history-not-publication",
+  "inputs": {
+    "hierarchy-claim-proof-vectors.json": "b078842638d904e3944c5d4b9192ba98b365963f0be982e936de1d947ccd15a6",
+    "r2-report-vectors.json": "6a8dff458950faee467a73a4cf76bf9f5d9f62d144a11bb450491ec5cfb12a92"
+  },
+  "bindings": {
+    "targetAssignment": {
+      "kind": "child",
+      "workspaceId": "r2-workspace",
+      "runId": "a616f395a541efe0a1d39c755eb7b161e208d21b70a76e780596dd13781f7acc-1",
+      "planId": "target-plan",
+      "planRevision": 1,
+      "taskId": "target-task",
+      "taskVersion": 1,
+      "reservationId": "target-reservation",
+      "parentSessionId": "target-parent",
+      "childSessionId": "target-child",
+      "configurationId": "target-config",
+      "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "reviewerAssignment": {
+      "kind": "child",
+      "workspaceId": "r2-workspace",
+      "runId": "4444444444444444444444444444444444444444444444444444444444444444-2",
+      "planId": "reviewer-plan",
+      "planRevision": 1,
+      "taskId": "reviewer-task",
+      "taskVersion": 1,
+      "reservationId": "reviewer-reservation",
+      "parentSessionId": "reviewer-parent",
+      "childSessionId": "reviewer-child",
+      "configurationId": "reviewer-config",
+      "configurationDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "authorityGeneration": {
+      "kind": "child-launch",
+      "sidecarGeneration": "1111111111111111111111111111111111111111111111111111111111111111",
+      "generation": "91d6385f4a32e3f315419f0933dfb1b07f059d594021e4731bbceb191611aebc"
+    },
+    "role": "review",
+    "reviewInput": {
+      "schemaVersion": 1,
+      "kind": "accepted-child-result",
+      "target": {
+        "assignmentIdentity": {
+          "kind": "child",
+          "workspaceId": "r2-workspace",
+          "runId": "a616f395a541efe0a1d39c755eb7b161e208d21b70a76e780596dd13781f7acc-1",
+          "planId": "target-plan",
+          "planRevision": 1,
+          "taskId": "target-task",
+          "taskVersion": 1,
+          "reservationId": "target-reservation",
+          "parentSessionId": "target-parent",
+          "childSessionId": "target-child",
+          "configurationId": "target-config",
+          "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "resultRevision": 1,
+        "resultDigest": "60cda6f52554a3df9bcbb510865b687f383428bcf67118163ce88d56b3aeaeb5"
+      },
+      "outputDeclarationIds": [],
+      "evidenceSources": [
+        {
+          "contentDigest": "44e011f776ba5cb213ab2b3fda5f6aa46f2fb7e3310a8ef27168761c2403de16",
+          "reportIdentity": {
+            "childSessionId": "researcher-c1",
+            "configurationDigest": "104f11984e3e956d0a56f5c862bc7d55add3c248962af6697e3a6b30a7270b1d",
+            "launchGeneration": "6676cfa3a4cd00e015ecee6c2775e84b0cdf8892d6ec80dc2eca24b8aeb15c1e",
+            "planId": "r2-research-plan",
+            "planRevision": 1,
+            "reportId": "report-c1",
+            "reportVersion": 1,
+            "reservationId": "res-c1",
+            "runId": "a616f395a541efe0a1d39c755eb7b161e208d21b70a76e780596dd13781f7acc-1",
+            "sidecarGeneration": "79b8442cf6dc0504e7cf6896613b4a0df850702188af37af404fab6f7e2bfc25",
+            "taskId": "research-c1",
+            "workspaceId": "r2-workspace"
+          },
+          "schemaVersion": 1,
+          "sizeBytes": 1064,
+          "sourceKind": "research-report"
+        },
+        {
+          "contentDigest": "d5cca5de263d86c024955ca223837077fe50be0a6472af2d646f6926085a55e7",
+          "reportIdentity": {
+            "childSessionId": "researcher-c2",
+            "configurationDigest": "66b9925605be17a7ca45444c63182e3a1e909b5e797fd9684a5ca89077db8832",
+            "launchGeneration": "8e839731fcf5af14dbabdf402102f9f2386de52082f179ff3240cb9bc47e148c",
+            "planId": "r2-research-plan",
+            "planRevision": 1,
+            "reportId": "report-c2",
+            "reportVersion": 1,
+            "reservationId": "res-c2",
+            "runId": "a616f395a541efe0a1d39c755eb7b161e208d21b70a76e780596dd13781f7acc-1",
+            "sidecarGeneration": "79b8442cf6dc0504e7cf6896613b4a0df850702188af37af404fab6f7e2bfc25",
+            "taskId": "research-c2",
+            "workspaceId": "r2-workspace"
+          },
+          "schemaVersion": 1,
+          "sizeBytes": 1064,
+          "sourceKind": "research-report"
+        },
+        {
+          "contentDigest": "e1e6a44be3fc75cba6261a38739706c681c5e63e972100c9a3d12dc858708acb",
+          "reportIdentity": {
+            "childSessionId": "researcher-o",
+            "configurationDigest": "4d85f316f4f28b9d75ff0c95a86e8cefd69e2ce857d188f37f9de263407b8260",
+            "launchGeneration": "9ec3d23a2788658a2b09f9e1de8fd69391fd2002dfbbc6604cc99aeb6f06cf95",
+            "planId": "r2-research-plan",
+            "planRevision": 1,
+            "reportId": "report-o",
+            "reportVersion": 1,
+            "reservationId": "res-o",
+            "runId": "a616f395a541efe0a1d39c755eb7b161e208d21b70a76e780596dd13781f7acc-1",
+            "sidecarGeneration": "79b8442cf6dc0504e7cf6896613b4a0df850702188af37af404fab6f7e2bfc25",
+            "taskId": "research-o",
+            "workspaceId": "r2-workspace"
+          },
+          "schemaVersion": 1,
+          "sizeBytes": 1054,
+          "sourceKind": "research-report"
+        }
+      ],
+      "evaluationOutputDeclarationId": "evaluation",
+      "maxReadBytes": 4357
+    },
+    "outputContract": {
+      "schemaVersion": 1,
+      "declarations": [
+        {
+          "id": "evaluation",
+          "kind": "assignment_evaluation",
+          "maxBytes": 524288,
+          "source": {
+            "kind": "server-artifact"
+          }
+        }
+      ],
+      "maxSnapshotBytes": 524288,
+      "maxRehashBytes": 1048576
+    }
+  },
+  "candidate": {
+    "canonicalUtf8": "{\"assignmentIdentity\":{\"childSessionId\":\"target-child\",\"configurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"configurationId\":\"target-config\",\"kind\":\"child\",\"parentSessionId\":\"target-parent\",\"planId\":\"target-plan\",\"planRevision\":1,\"reservationId\":\"target-reservation\",\"runId\":\"a616f395a541efe0a1d39c755eb7b161e208d21b70a76e780596dd13781f7acc-1\",\"taskId\":\"target-task\",\"taskVersion\":1,\"workspaceId\":\"r2-workspace\"},\"authorityGeneration\":{\"generation\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"kind\":\"child-launch\",\"sidecarGeneration\":\"1111111111111111111111111111111111111111111111111111111111111111\"},\"outputs\":[],\"predecessor\":{\"kind\":\"no-head\"},\"schemaVersion\":1}",
+    "utf8Bytes": 727,
+    "sha256": "397ac6d2b22e912c1606f0ec73802c02c9bcdeed5cea51a32d869eac92a4fb5c",
+    "domainDigest": "ea064e7bba2ef0e283688bb92f6b55ee002c290b2882e562c1e6cb3b872c35c2"
+  },
+  "result": {
+    "canonicalUtf8": "{\"assignmentIdentity\":{\"childSessionId\":\"target-child\",\"configurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"configurationId\":\"target-config\",\"kind\":\"child\",\"parentSessionId\":\"target-parent\",\"planId\":\"target-plan\",\"planRevision\":1,\"reservationId\":\"target-reservation\",\"runId\":\"a616f395a541efe0a1d39c755eb7b161e208d21b70a76e780596dd13781f7acc-1\",\"taskId\":\"target-task\",\"taskVersion\":1,\"workspaceId\":\"r2-workspace\"},\"authorityGeneration\":{\"generation\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"kind\":\"child-launch\",\"sidecarGeneration\":\"1111111111111111111111111111111111111111111111111111111111111111\"},\"candidateDigest\":\"ea064e7bba2ef0e283688bb92f6b55ee002c290b2882e562c1e6cb3b872c35c2\",\"outputs\":[],\"predecessor\":{\"kind\":\"no-head\"},\"resultRevision\":1,\"schemaVersion\":1,\"timeCostEvidence\":[]}",
+    "utf8Bytes": 853,
+    "sha256": "38973a2d7f948c191030d056087df83987170852ff7b77d096da924c8f8bd4e0",
+    "domainDigest": "60cda6f52554a3df9bcbb510865b687f383428bcf67118163ce88d56b3aeaeb5"
+  },
+  "criteria": {
+    "canonicalUtf8": "[{\"description\":\"Required C1.\",\"id\":\"c1\",\"requirement\":\"required\"},{\"description\":\"Required C2.\",\"id\":\"c2\",\"requirement\":\"required\"},{\"description\":\"Optional O.\",\"id\":\"o\",\"requirement\":\"optional\"}]",
+    "utf8Bytes": 197,
+    "sha256": "56980a245718d9549dfd82fa84d760f9363b4f9a6ac485461a80bcb5e9b1ed8c",
+    "domainDigest": "622b18e9b10dad7ab82cf40dd7ce2a9ceac18ac7d4b890b1cf7ca8680d434877"
+  },
+  "rubric": {
+    "canonicalUtf8": "{\"dimensions\":[{\"description\":\"Declared quality dimension.\",\"id\":\"d\"}],\"evaluatorRole\":\"review\",\"id\":\"r2-rubric\",\"version\":1}",
+    "utf8Bytes": 125,
+    "sha256": "6ff9d34f7e8252ef2ffb6604faf5463aad937ffb3e0d9a9f0ea5fd3ff1baf03b",
+    "domainDigest": "38de045cf57c0e044b02770ce2d3a392c1eb7f669aee6a6a3585af7b72a86a71"
+  },
+  "history": [
+    {
+      "id": "initial",
+      "kind": "evaluation",
+      "record": {
+        "canonicalUtf8": "{\"assignmentIdentity\":{\"childSessionId\":\"target-child\",\"configurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"configurationId\":\"target-config\",\"kind\":\"child\",\"parentSessionId\":\"target-parent\",\"planId\":\"target-plan\",\"planRevision\":1,\"reservationId\":\"target-reservation\",\"runId\":\"a616f395a541efe0a1d39c755eb7b161e208d21b70a76e780596dd13781f7acc-1\",\"taskId\":\"target-task\",\"taskVersion\":1,\"workspaceId\":\"r2-workspace\"},\"correctionReason\":null,\"criteriaSnapshotDigest\":\"622b18e9b10dad7ab82cf40dd7ce2a9ceac18ac7d4b890b1cf7ca8680d434877\",\"criterionOutcomes\":[{\"criterionId\":\"c1\",\"evidenceReferences\":[\"0a63d7a7bc384de08e745a6195363351db05daf6d950e3339cf080042e0fb213\"],\"outcome\":\"unsatisfied\",\"rationale\":\"c1 cites its original report.\"},{\"criterionId\":\"c2\",\"evidenceReferences\":[\"16380b48b09406501a998c3e1ca719e66bd5d13de261765723a4ffbfc9440a82\"],\"outcome\":\"unsatisfied\",\"rationale\":\"c2 cites its original report.\"},{\"criterionId\":\"o\",\"evidenceReferences\":[\"fa3bd0dd7fbb88cee5f2bb1ec78dd309b502dd7b1dbb6bc1fc241ec1d124b37a\"],\"outcome\":\"satisfied\",\"rationale\":\"o cites its original report.\"}],\"evaluationRevision\":1,\"findingDisputes\":[],\"findings\":[{\"description\":\"c1 requires rework.\",\"evidenceReference\":\"0a63d7a7bc384de08e745a6195363351db05daf6d950e3339cf080042e0fb213\",\"id\":\"f-c1\",\"location\":\"criterion:c1\",\"requiredImpactTargets\":[{\"id\":\"c1\",\"kind\":\"criterion\"}],\"requiresRework\":true,\"severity\":\"major\"},{\"description\":\"c2 requires rework.\",\"evidenceReference\":\"16380b48b09406501a998c3e1ca719e66bd5d13de261765723a4ffbfc9440a82\",\"id\":\"f-c2\",\"location\":\"criterion:c2\",\"requiredImpactTargets\":[{\"id\":\"c2\",\"kind\":\"criterion\"}],\"requiresRework\":true,\"severity\":\"major\"}],\"predecessor\":{\"kind\":\"no-head\"},\"qualityDimensionOutcomes\":[{\"dimensionId\":\"d\",\"evidenceReferences\":[],\"outcome\":\"unassessed\",\"rationale\":\"Quality not assessed in this fixture.\"}],\"rating\":{\"evidenceReferences\":[],\"rating\":\"unassessed\",\"rationale\":\"Quality not assessed.\"},\"reporterSource\":{\"authorityGeneration\":{\"generation\":\"91d6385f4a32e3f315419f0933dfb1b07f059d594021e4731bbceb191611aebc\",\"kind\":\"child-launch\",\"sidecarGeneration\":\"1111111111111111111111111111111111111111111111111111111111111111\"},\"kind\":\"child\"},\"resultDigest\":\"60cda6f52554a3df9bcbb510865b687f383428bcf67118163ce88d56b3aeaeb5\",\"resultRevision\":1,\"reviewedEvaluationRef\":null,\"reviewerIdentity\":{\"assignmentIdentity\":{\"childSessionId\":\"reviewer-child\",\"configurationDigest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"configurationId\":\"reviewer-config\",\"kind\":\"child\",\"parentSessionId\":\"reviewer-parent\",\"planId\":\"reviewer-plan\",\"planRevision\":1,\"reservationId\":\"reviewer-reservation\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-2\",\"taskId\":\"reviewer-task\",\"taskVersion\":1,\"workspaceId\":\"r2-workspace\"},\"kind\":\"child\"},\"rubricSnapshotDigest\":\"38de045cf57c0e044b02770ce2d3a392c1eb7f669aee6a6a3585af7b72a86a71\",\"schemaVersion\":1}",
+        "utf8Bytes": 2956,
+        "sha256": "65c3bbacc6debb18033d43042b4dfb8ddf606d176ccea98a0f45acd822d28c03",
+        "domainDigest": "ebad055b651c87863f06f23a354654fecfbb5654e20025de036fb177bacf5504"
+      },
+      "request": {
+        "canonicalUtf8": "{\"action\":\"orkworks.evaluation.submit.v1\",\"evaluation\":{\"assignmentIdentity\":{\"childSessionId\":\"target-child\",\"configurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"configurationId\":\"target-config\",\"kind\":\"child\",\"parentSessionId\":\"target-parent\",\"planId\":\"target-plan\",\"planRevision\":1,\"reservationId\":\"target-reservation\",\"runId\":\"a616f395a541efe0a1d39c755eb7b161e208d21b70a76e780596dd13781f7acc-1\",\"taskId\":\"target-task\",\"taskVersion\":1,\"workspaceId\":\"r2-workspace\"},\"correctionReason\":null,\"criteriaSnapshotDigest\":\"622b18e9b10dad7ab82cf40dd7ce2a9ceac18ac7d4b890b1cf7ca8680d434877\",\"criterionOutcomes\":[{\"criterionId\":\"c1\",\"evidenceReferences\":[\"0a63d7a7bc384de08e745a6195363351db05daf6d950e3339cf080042e0fb213\"],\"outcome\":\"unsatisfied\",\"rationale\":\"c1 cites its original report.\"},{\"criterionId\":\"c2\",\"evidenceReferences\":[\"16380b48b09406501a998c3e1ca719e66bd5d13de261765723a4ffbfc9440a82\"],\"outcome\":\"unsatisfied\",\"rationale\":\"c2 cites its original report.\"},{\"criterionId\":\"o\",\"evidenceReferences\":[\"fa3bd0dd7fbb88cee5f2bb1ec78dd309b502dd7b1dbb6bc1fc241ec1d124b37a\"],\"outcome\":\"satisfied\",\"rationale\":\"o cites its original report.\"}],\"evaluationRevision\":1,\"findingDisputes\":[],\"findings\":[{\"description\":\"c1 requires rework.\",\"evidenceReference\":\"0a63d7a7bc384de08e745a6195363351db05daf6d950e3339cf080042e0fb213\",\"id\":\"f-c1\",\"location\":\"criterion:c1\",\"requiredImpactTargets\":[{\"id\":\"c1\",\"kind\":\"criterion\"}],\"requiresRework\":true,\"severity\":\"major\"},{\"description\":\"c2 requires rework.\",\"evidenceReference\":\"16380b48b09406501a998c3e1ca719e66bd5d13de261765723a4ffbfc9440a82\",\"id\":\"f-c2\",\"location\":\"criterion:c2\",\"requiredImpactTargets\":[{\"id\":\"c2\",\"kind\":\"criterion\"}],\"requiresRework\":true,\"severity\":\"major\"}],\"predecessor\":{\"kind\":\"no-head\"},\"qualityDimensionOutcomes\":[{\"dimensionId\":\"d\",\"evidenceReferences\":[],\"outcome\":\"unassessed\",\"rationale\":\"Quality not assessed in this fixture.\"}],\"rating\":{\"evidenceReferences\":[],\"rating\":\"unassessed\",\"rationale\":\"Quality not assessed.\"},\"reporterSource\":{\"authorityGeneration\":{\"generation\":\"91d6385f4a32e3f315419f0933dfb1b07f059d594021e4731bbceb191611aebc\",\"kind\":\"child-launch\",\"sidecarGeneration\":\"1111111111111111111111111111111111111111111111111111111111111111\"},\"kind\":\"child\"},\"resultDigest\":\"60cda6f52554a3df9bcbb510865b687f383428bcf67118163ce88d56b3aeaeb5\",\"resultRevision\":1,\"reviewedEvaluationRef\":null,\"reviewerIdentity\":{\"assignmentIdentity\":{\"childSessionId\":\"reviewer-child\",\"configurationDigest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"configurationId\":\"reviewer-config\",\"kind\":\"child\",\"parentSessionId\":\"reviewer-parent\",\"planId\":\"reviewer-plan\",\"planRevision\":1,\"reservationId\":\"reviewer-reservation\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-2\",\"taskId\":\"reviewer-task\",\"taskVersion\":1,\"workspaceId\":\"r2-workspace\"},\"kind\":\"child\"},\"rubricSnapshotDigest\":\"38de045cf57c0e044b02770ce2d3a392c1eb7f669aee6a6a3585af7b72a86a71\",\"schemaVersion\":1},\"idempotencyKey\":\"coherent-initial\",\"schemaVersion\":1}",
+        "utf8Bytes": 3066,
+        "sha256": "0318278f9c3032846eb7f37026190122db070613e40830a63ca41aafc39b9a37",
+        "domainDigest": "f36dfb309061c163dd8781aea2556aaf14187c3e4d9267f04b6b32306d0d6630"
+      },
+      "receipt": {
+        "canonicalUtf8": "{\"action\":\"orkworks.evaluation.submit.v1\",\"artifact\":{\"artifactId\":\"coherent-evaluation-artifact\",\"contentDigest\":\"65c3bbacc6debb18033d43042b4dfb8ddf606d176ccea98a0f45acd822d28c03\",\"sizeBytes\":2956,\"version\":1},\"idempotencyKey\":\"coherent-initial\",\"recordDigest\":\"ebad055b651c87863f06f23a354654fecfbb5654e20025de036fb177bacf5504\",\"recordKind\":\"evaluation\",\"recordRevision\":1,\"requestDigest\":\"f36dfb309061c163dd8781aea2556aaf14187c3e4d9267f04b6b32306d0d6630\",\"reviewerIdentity\":{\"assignmentIdentity\":{\"childSessionId\":\"reviewer-child\",\"configurationDigest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"configurationId\":\"reviewer-config\",\"kind\":\"child\",\"parentSessionId\":\"reviewer-parent\",\"planId\":\"reviewer-plan\",\"planRevision\":1,\"reservationId\":\"reviewer-reservation\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-2\",\"taskId\":\"reviewer-task\",\"taskVersion\":1,\"workspaceId\":\"r2-workspace\"},\"kind\":\"child\"},\"schemaVersion\":1}",
+        "utf8Bytes": 972,
+        "sha256": "e74e004945c063a905e92d789bf060528772050b90481a84447a37f3d1862cba"
+      },
+      "artifactRead": {
+        "canonicalUtf8": "{\"artifact\":{\"artifactId\":\"coherent-evaluation-artifact\",\"contentDigest\":\"65c3bbacc6debb18033d43042b4dfb8ddf606d176ccea98a0f45acd822d28c03\",\"sizeBytes\":2956,\"version\":1},\"evaluation\":{\"assignmentIdentity\":{\"childSessionId\":\"target-child\",\"configurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"configurationId\":\"target-config\",\"kind\":\"child\",\"parentSessionId\":\"target-parent\",\"planId\":\"target-plan\",\"planRevision\":1,\"reservationId\":\"target-reservation\",\"runId\":\"a616f395a541efe0a1d39c755eb7b161e208d21b70a76e780596dd13781f7acc-1\",\"taskId\":\"target-task\",\"taskVersion\":1,\"workspaceId\":\"r2-workspace\"},\"correctionReason\":null,\"criteriaSnapshotDigest\":\"622b18e9b10dad7ab82cf40dd7ce2a9ceac18ac7d4b890b1cf7ca8680d434877\",\"criterionOutcomes\":[{\"criterionId\":\"c1\",\"evidenceReferences\":[\"0a63d7a7bc384de08e745a6195363351db05daf6d950e3339cf080042e0fb213\"],\"outcome\":\"unsatisfied\",\"rationale\":\"c1 cites its original report.\"},{\"criterionId\":\"c2\",\"evidenceReferences\":[\"16380b48b09406501a998c3e1ca719e66bd5d13de261765723a4ffbfc9440a82\"],\"outcome\":\"unsatisfied\",\"rationale\":\"c2 cites its original report.\"},{\"criterionId\":\"o\",\"evidenceReferences\":[\"fa3bd0dd7fbb88cee5f2bb1ec78dd309b502dd7b1dbb6bc1fc241ec1d124b37a\"],\"outcome\":\"satisfied\",\"rationale\":\"o cites its original report.\"}],\"evaluationRevision\":1,\"findingDisputes\":[],\"findings\":[{\"description\":\"c1 requires rework.\",\"evidenceReference\":\"0a63d7a7bc384de08e745a6195363351db05daf6d950e3339cf080042e0fb213\",\"id\":\"f-c1\",\"location\":\"criterion:c1\",\"requiredImpactTargets\":[{\"id\":\"c1\",\"kind\":\"criterion\"}],\"requiresRework\":true,\"severity\":\"major\"},{\"description\":\"c2 requires rework.\",\"evidenceReference\":\"16380b48b09406501a998c3e1ca719e66bd5d13de261765723a4ffbfc9440a82\",\"id\":\"f-c2\",\"location\":\"criterion:c2\",\"requiredImpactTargets\":[{\"id\":\"c2\",\"kind\":\"criterion\"}],\"requiresRework\":true,\"severity\":\"major\"}],\"predecessor\":{\"kind\":\"no-head\"},\"qualityDimensionOutcomes\":[{\"dimensionId\":\"d\",\"evidenceReferences\":[],\"outcome\":\"unassessed\",\"rationale\":\"Quality not assessed in this fixture.\"}],\"rating\":{\"evidenceReferences\":[],\"rating\":\"unassessed\",\"rationale\":\"Quality not assessed.\"},\"reporterSource\":{\"authorityGeneration\":{\"generation\":\"91d6385f4a32e3f315419f0933dfb1b07f059d594021e4731bbceb191611aebc\",\"kind\":\"child-launch\",\"sidecarGeneration\":\"1111111111111111111111111111111111111111111111111111111111111111\"},\"kind\":\"child\"},\"resultDigest\":\"60cda6f52554a3df9bcbb510865b687f383428bcf67118163ce88d56b3aeaeb5\",\"resultRevision\":1,\"reviewedEvaluationRef\":null,\"reviewerIdentity\":{\"assignmentIdentity\":{\"childSessionId\":\"reviewer-child\",\"configurationDigest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"configurationId\":\"reviewer-config\",\"kind\":\"child\",\"parentSessionId\":\"reviewer-parent\",\"planId\":\"reviewer-plan\",\"planRevision\":1,\"reservationId\":\"reviewer-reservation\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-2\",\"taskId\":\"reviewer-task\",\"taskVersion\":1,\"workspaceId\":\"r2-workspace\"},\"kind\":\"child\"},\"rubricSnapshotDigest\":\"38de045cf57c0e044b02770ce2d3a392c1eb7f669aee6a6a3585af7b72a86a71\",\"schemaVersion\":1},\"schemaVersion\":1}",
+        "utf8Bytes": 3158,
+        "sha256": "2ff65471fce6871c90e8b25818f3c42d1cd48475452d6da6513dd9bbb747ccc7"
+      }
+    },
+    {
+      "id": "correction",
+      "kind": "evaluation",
+      "record": {
+        "canonicalUtf8": "{\"assignmentIdentity\":{\"childSessionId\":\"target-child\",\"configurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"configurationId\":\"target-config\",\"kind\":\"child\",\"parentSessionId\":\"target-parent\",\"planId\":\"target-plan\",\"planRevision\":1,\"reservationId\":\"target-reservation\",\"runId\":\"a616f395a541efe0a1d39c755eb7b161e208d21b70a76e780596dd13781f7acc-1\",\"taskId\":\"target-task\",\"taskVersion\":1,\"workspaceId\":\"r2-workspace\"},\"correctionReason\":\"Clarify the existing C1 finding using the same captured evidence.\",\"criteriaSnapshotDigest\":\"622b18e9b10dad7ab82cf40dd7ce2a9ceac18ac7d4b890b1cf7ca8680d434877\",\"criterionOutcomes\":[{\"criterionId\":\"c1\",\"evidenceReferences\":[\"0a63d7a7bc384de08e745a6195363351db05daf6d950e3339cf080042e0fb213\"],\"outcome\":\"unsatisfied\",\"rationale\":\"C1 still cites its exact original immutable report; this revision clarifies the rationale.\"},{\"criterionId\":\"c2\",\"evidenceReferences\":[\"16380b48b09406501a998c3e1ca719e66bd5d13de261765723a4ffbfc9440a82\"],\"outcome\":\"unsatisfied\",\"rationale\":\"c2 cites its original report.\"},{\"criterionId\":\"o\",\"evidenceReferences\":[\"fa3bd0dd7fbb88cee5f2bb1ec78dd309b502dd7b1dbb6bc1fc241ec1d124b37a\"],\"outcome\":\"satisfied\",\"rationale\":\"o cites its original report.\"}],\"evaluationRevision\":2,\"findingDisputes\":[],\"findings\":[{\"description\":\"c1 requires rework.\",\"evidenceReference\":\"0a63d7a7bc384de08e745a6195363351db05daf6d950e3339cf080042e0fb213\",\"id\":\"f-c1\",\"location\":\"criterion:c1\",\"requiredImpactTargets\":[{\"id\":\"c1\",\"kind\":\"criterion\"}],\"requiresRework\":true,\"severity\":\"major\"},{\"description\":\"c2 requires rework.\",\"evidenceReference\":\"16380b48b09406501a998c3e1ca719e66bd5d13de261765723a4ffbfc9440a82\",\"id\":\"f-c2\",\"location\":\"criterion:c2\",\"requiredImpactTargets\":[{\"id\":\"c2\",\"kind\":\"criterion\"}],\"requiresRework\":true,\"severity\":\"major\"}],\"predecessor\":{\"evaluationDigest\":\"ebad055b651c87863f06f23a354654fecfbb5654e20025de036fb177bacf5504\",\"evaluationRevision\":1,\"kind\":\"revision\"},\"qualityDimensionOutcomes\":[{\"dimensionId\":\"d\",\"evidenceReferences\":[],\"outcome\":\"unassessed\",\"rationale\":\"Quality not assessed in this fixture.\"}],\"rating\":{\"evidenceReferences\":[],\"rating\":\"unassessed\",\"rationale\":\"Quality not assessed.\"},\"reporterSource\":{\"authorityGeneration\":{\"generation\":\"91d6385f4a32e3f315419f0933dfb1b07f059d594021e4731bbceb191611aebc\",\"kind\":\"child-launch\",\"sidecarGeneration\":\"1111111111111111111111111111111111111111111111111111111111111111\"},\"kind\":\"child\"},\"resultDigest\":\"60cda6f52554a3df9bcbb510865b687f383428bcf67118163ce88d56b3aeaeb5\",\"resultRevision\":1,\"reviewedEvaluationRef\":null,\"reviewerIdentity\":{\"assignmentIdentity\":{\"childSessionId\":\"reviewer-child\",\"configurationDigest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"configurationId\":\"reviewer-config\",\"kind\":\"child\",\"parentSessionId\":\"reviewer-parent\",\"planId\":\"reviewer-plan\",\"planRevision\":1,\"reservationId\":\"reviewer-reservation\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-2\",\"taskId\":\"reviewer-task\",\"taskVersion\":1,\"workspaceId\":\"r2-workspace\"},\"kind\":\"child\"},\"rubricSnapshotDigest\":\"38de045cf57c0e044b02770ce2d3a392c1eb7f669aee6a6a3585af7b72a86a71\",\"schemaVersion\":1}",
+        "utf8Bytes": 3190,
+        "sha256": "d1c65f0565f9fc779e05453f501669f656daeeecbb3f0f8d54dc96efd0882d66",
+        "domainDigest": "1734ecc3054fd55f059fcde1d9c49242b1efb50e85fcb3ac6f97a9ed13c15e9f"
+      },
+      "request": {
+        "canonicalUtf8": "{\"action\":\"orkworks.evaluation.submit.v1\",\"evaluation\":{\"assignmentIdentity\":{\"childSessionId\":\"target-child\",\"configurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"configurationId\":\"target-config\",\"kind\":\"child\",\"parentSessionId\":\"target-parent\",\"planId\":\"target-plan\",\"planRevision\":1,\"reservationId\":\"target-reservation\",\"runId\":\"a616f395a541efe0a1d39c755eb7b161e208d21b70a76e780596dd13781f7acc-1\",\"taskId\":\"target-task\",\"taskVersion\":1,\"workspaceId\":\"r2-workspace\"},\"correctionReason\":\"Clarify the existing C1 finding using the same captured evidence.\",\"criteriaSnapshotDigest\":\"622b18e9b10dad7ab82cf40dd7ce2a9ceac18ac7d4b890b1cf7ca8680d434877\",\"criterionOutcomes\":[{\"criterionId\":\"c1\",\"evidenceReferences\":[\"0a63d7a7bc384de08e745a6195363351db05daf6d950e3339cf080042e0fb213\"],\"outcome\":\"unsatisfied\",\"rationale\":\"C1 still cites its exact original immutable report; this revision clarifies the rationale.\"},{\"criterionId\":\"c2\",\"evidenceReferences\":[\"16380b48b09406501a998c3e1ca719e66bd5d13de261765723a4ffbfc9440a82\"],\"outcome\":\"unsatisfied\",\"rationale\":\"c2 cites its original report.\"},{\"criterionId\":\"o\",\"evidenceReferences\":[\"fa3bd0dd7fbb88cee5f2bb1ec78dd309b502dd7b1dbb6bc1fc241ec1d124b37a\"],\"outcome\":\"satisfied\",\"rationale\":\"o cites its original report.\"}],\"evaluationRevision\":2,\"findingDisputes\":[],\"findings\":[{\"description\":\"c1 requires rework.\",\"evidenceReference\":\"0a63d7a7bc384de08e745a6195363351db05daf6d950e3339cf080042e0fb213\",\"id\":\"f-c1\",\"location\":\"criterion:c1\",\"requiredImpactTargets\":[{\"id\":\"c1\",\"kind\":\"criterion\"}],\"requiresRework\":true,\"severity\":\"major\"},{\"description\":\"c2 requires rework.\",\"evidenceReference\":\"16380b48b09406501a998c3e1ca719e66bd5d13de261765723a4ffbfc9440a82\",\"id\":\"f-c2\",\"location\":\"criterion:c2\",\"requiredImpactTargets\":[{\"id\":\"c2\",\"kind\":\"criterion\"}],\"requiresRework\":true,\"severity\":\"major\"}],\"predecessor\":{\"evaluationDigest\":\"ebad055b651c87863f06f23a354654fecfbb5654e20025de036fb177bacf5504\",\"evaluationRevision\":1,\"kind\":\"revision\"},\"qualityDimensionOutcomes\":[{\"dimensionId\":\"d\",\"evidenceReferences\":[],\"outcome\":\"unassessed\",\"rationale\":\"Quality not assessed in this fixture.\"}],\"rating\":{\"evidenceReferences\":[],\"rating\":\"unassessed\",\"rationale\":\"Quality not assessed.\"},\"reporterSource\":{\"authorityGeneration\":{\"generation\":\"91d6385f4a32e3f315419f0933dfb1b07f059d594021e4731bbceb191611aebc\",\"kind\":\"child-launch\",\"sidecarGeneration\":\"1111111111111111111111111111111111111111111111111111111111111111\"},\"kind\":\"child\"},\"resultDigest\":\"60cda6f52554a3df9bcbb510865b687f383428bcf67118163ce88d56b3aeaeb5\",\"resultRevision\":1,\"reviewedEvaluationRef\":null,\"reviewerIdentity\":{\"assignmentIdentity\":{\"childSessionId\":\"reviewer-child\",\"configurationDigest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"configurationId\":\"reviewer-config\",\"kind\":\"child\",\"parentSessionId\":\"reviewer-parent\",\"planId\":\"reviewer-plan\",\"planRevision\":1,\"reservationId\":\"reviewer-reservation\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-2\",\"taskId\":\"reviewer-task\",\"taskVersion\":1,\"workspaceId\":\"r2-workspace\"},\"kind\":\"child\"},\"rubricSnapshotDigest\":\"38de045cf57c0e044b02770ce2d3a392c1eb7f669aee6a6a3585af7b72a86a71\",\"schemaVersion\":1},\"idempotencyKey\":\"coherent-correction\",\"schemaVersion\":1}",
+        "utf8Bytes": 3303,
+        "sha256": "6acf72e5c2b5e040723dbd513d4b4477fc0fc21703ebdc09272ed922d1fe4eeb",
+        "domainDigest": "19ad410ca37483e1b55cedf62c7bc03a28b45d45d43f6b60e0236b5fe10751d2"
+      },
+      "receipt": {
+        "canonicalUtf8": "{\"action\":\"orkworks.evaluation.submit.v1\",\"artifact\":{\"artifactId\":\"coherent-evaluation-artifact\",\"contentDigest\":\"d1c65f0565f9fc779e05453f501669f656daeeecbb3f0f8d54dc96efd0882d66\",\"sizeBytes\":3190,\"version\":2},\"idempotencyKey\":\"coherent-correction\",\"recordDigest\":\"1734ecc3054fd55f059fcde1d9c49242b1efb50e85fcb3ac6f97a9ed13c15e9f\",\"recordKind\":\"evaluation\",\"recordRevision\":2,\"requestDigest\":\"19ad410ca37483e1b55cedf62c7bc03a28b45d45d43f6b60e0236b5fe10751d2\",\"reviewerIdentity\":{\"assignmentIdentity\":{\"childSessionId\":\"reviewer-child\",\"configurationDigest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"configurationId\":\"reviewer-config\",\"kind\":\"child\",\"parentSessionId\":\"reviewer-parent\",\"planId\":\"reviewer-plan\",\"planRevision\":1,\"reservationId\":\"reviewer-reservation\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-2\",\"taskId\":\"reviewer-task\",\"taskVersion\":1,\"workspaceId\":\"r2-workspace\"},\"kind\":\"child\"},\"schemaVersion\":1}",
+        "utf8Bytes": 975,
+        "sha256": "d645db9c8618dc2077850c6f84b711423f1e33366bae44641309612965e5a875"
+      },
+      "artifactRead": {
+        "canonicalUtf8": "{\"artifact\":{\"artifactId\":\"coherent-evaluation-artifact\",\"contentDigest\":\"d1c65f0565f9fc779e05453f501669f656daeeecbb3f0f8d54dc96efd0882d66\",\"sizeBytes\":3190,\"version\":2},\"evaluation\":{\"assignmentIdentity\":{\"childSessionId\":\"target-child\",\"configurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"configurationId\":\"target-config\",\"kind\":\"child\",\"parentSessionId\":\"target-parent\",\"planId\":\"target-plan\",\"planRevision\":1,\"reservationId\":\"target-reservation\",\"runId\":\"a616f395a541efe0a1d39c755eb7b161e208d21b70a76e780596dd13781f7acc-1\",\"taskId\":\"target-task\",\"taskVersion\":1,\"workspaceId\":\"r2-workspace\"},\"correctionReason\":\"Clarify the existing C1 finding using the same captured evidence.\",\"criteriaSnapshotDigest\":\"622b18e9b10dad7ab82cf40dd7ce2a9ceac18ac7d4b890b1cf7ca8680d434877\",\"criterionOutcomes\":[{\"criterionId\":\"c1\",\"evidenceReferences\":[\"0a63d7a7bc384de08e745a6195363351db05daf6d950e3339cf080042e0fb213\"],\"outcome\":\"unsatisfied\",\"rationale\":\"C1 still cites its exact original immutable report; this revision clarifies the rationale.\"},{\"criterionId\":\"c2\",\"evidenceReferences\":[\"16380b48b09406501a998c3e1ca719e66bd5d13de261765723a4ffbfc9440a82\"],\"outcome\":\"unsatisfied\",\"rationale\":\"c2 cites its original report.\"},{\"criterionId\":\"o\",\"evidenceReferences\":[\"fa3bd0dd7fbb88cee5f2bb1ec78dd309b502dd7b1dbb6bc1fc241ec1d124b37a\"],\"outcome\":\"satisfied\",\"rationale\":\"o cites its original report.\"}],\"evaluationRevision\":2,\"findingDisputes\":[],\"findings\":[{\"description\":\"c1 requires rework.\",\"evidenceReference\":\"0a63d7a7bc384de08e745a6195363351db05daf6d950e3339cf080042e0fb213\",\"id\":\"f-c1\",\"location\":\"criterion:c1\",\"requiredImpactTargets\":[{\"id\":\"c1\",\"kind\":\"criterion\"}],\"requiresRework\":true,\"severity\":\"major\"},{\"description\":\"c2 requires rework.\",\"evidenceReference\":\"16380b48b09406501a998c3e1ca719e66bd5d13de261765723a4ffbfc9440a82\",\"id\":\"f-c2\",\"location\":\"criterion:c2\",\"requiredImpactTargets\":[{\"id\":\"c2\",\"kind\":\"criterion\"}],\"requiresRework\":true,\"severity\":\"major\"}],\"predecessor\":{\"evaluationDigest\":\"ebad055b651c87863f06f23a354654fecfbb5654e20025de036fb177bacf5504\",\"evaluationRevision\":1,\"kind\":\"revision\"},\"qualityDimensionOutcomes\":[{\"dimensionId\":\"d\",\"evidenceReferences\":[],\"outcome\":\"unassessed\",\"rationale\":\"Quality not assessed in this fixture.\"}],\"rating\":{\"evidenceReferences\":[],\"rating\":\"unassessed\",\"rationale\":\"Quality not assessed.\"},\"reporterSource\":{\"authorityGeneration\":{\"generation\":\"91d6385f4a32e3f315419f0933dfb1b07f059d594021e4731bbceb191611aebc\",\"kind\":\"child-launch\",\"sidecarGeneration\":\"1111111111111111111111111111111111111111111111111111111111111111\"},\"kind\":\"child\"},\"resultDigest\":\"60cda6f52554a3df9bcbb510865b687f383428bcf67118163ce88d56b3aeaeb5\",\"resultRevision\":1,\"reviewedEvaluationRef\":null,\"reviewerIdentity\":{\"assignmentIdentity\":{\"childSessionId\":\"reviewer-child\",\"configurationDigest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"configurationId\":\"reviewer-config\",\"kind\":\"child\",\"parentSessionId\":\"reviewer-parent\",\"planId\":\"reviewer-plan\",\"planRevision\":1,\"reservationId\":\"reviewer-reservation\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-2\",\"taskId\":\"reviewer-task\",\"taskVersion\":1,\"workspaceId\":\"r2-workspace\"},\"kind\":\"child\"},\"rubricSnapshotDigest\":\"38de045cf57c0e044b02770ce2d3a392c1eb7f669aee6a6a3585af7b72a86a71\",\"schemaVersion\":1},\"schemaVersion\":1}",
+        "utf8Bytes": 3392,
+        "sha256": "bf54cd34ac94da49d094900c4920adef5364c85597390edbe25cd4980a8cf823"
+      }
+    },
+    {
+      "id": "invalidation",
+      "kind": "disposition",
+      "record": {
+        "canonicalUtf8": "{\"action\":\"invalidated\",\"actor\":\"user\",\"assignmentIdentity\":{\"childSessionId\":\"target-child\",\"configurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"configurationId\":\"target-config\",\"kind\":\"child\",\"parentSessionId\":\"target-parent\",\"planId\":\"target-plan\",\"planRevision\":1,\"reservationId\":\"target-reservation\",\"runId\":\"a616f395a541efe0a1d39c755eb7b161e208d21b70a76e780596dd13781f7acc-1\",\"taskId\":\"target-task\",\"taskVersion\":1,\"workspaceId\":\"r2-workspace\"},\"dispositionRevision\":1,\"evaluationDigest\":\"1734ecc3054fd55f059fcde1d9c49242b1efb50e85fcb3ac6f97a9ed13c15e9f\",\"evaluationRevision\":2,\"resultRevision\":1,\"reviewerIdentity\":{\"assignmentIdentity\":{\"childSessionId\":\"reviewer-child\",\"configurationDigest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"configurationId\":\"reviewer-config\",\"kind\":\"child\",\"parentSessionId\":\"reviewer-parent\",\"planId\":\"reviewer-plan\",\"planRevision\":1,\"reservationId\":\"reviewer-reservation\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-2\",\"taskId\":\"reviewer-task\",\"taskVersion\":1,\"workspaceId\":\"r2-workspace\"},\"kind\":\"child\"},\"schemaVersion\":1}",
+        "utf8Bytes": 1155,
+        "sha256": "6eefb45301a94f086f3140fedb15d80d5a9776968ad12f54d2a35f841420da10",
+        "domainDigest": "0581218637a98ac25bd533f5c50d79d66ca917c9895f85a76b6d81eeaec32b1c"
+      },
+      "request": {
+        "canonicalUtf8": "{\"action\":\"orkworks.user-evaluation.invalidate.v1\",\"disposition\":{\"action\":\"invalidated\",\"actor\":\"user\",\"assignmentIdentity\":{\"childSessionId\":\"target-child\",\"configurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"configurationId\":\"target-config\",\"kind\":\"child\",\"parentSessionId\":\"target-parent\",\"planId\":\"target-plan\",\"planRevision\":1,\"reservationId\":\"target-reservation\",\"runId\":\"a616f395a541efe0a1d39c755eb7b161e208d21b70a76e780596dd13781f7acc-1\",\"taskId\":\"target-task\",\"taskVersion\":1,\"workspaceId\":\"r2-workspace\"},\"dispositionRevision\":1,\"evaluationDigest\":\"1734ecc3054fd55f059fcde1d9c49242b1efb50e85fcb3ac6f97a9ed13c15e9f\",\"evaluationRevision\":2,\"resultRevision\":1,\"reviewerIdentity\":{\"assignmentIdentity\":{\"childSessionId\":\"reviewer-child\",\"configurationDigest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"configurationId\":\"reviewer-config\",\"kind\":\"child\",\"parentSessionId\":\"reviewer-parent\",\"planId\":\"reviewer-plan\",\"planRevision\":1,\"reservationId\":\"reviewer-reservation\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-2\",\"taskId\":\"reviewer-task\",\"taskVersion\":1,\"workspaceId\":\"r2-workspace\"},\"kind\":\"child\"},\"schemaVersion\":1},\"idempotencyKey\":\"coherent-invalidation\",\"resultDigest\":\"60cda6f52554a3df9bcbb510865b687f383428bcf67118163ce88d56b3aeaeb5\",\"schemaVersion\":1}",
+        "utf8Bytes": 1362,
+        "sha256": "97de82542c6a92dbaa0e25aea8b96eb22909348a5d9bc870a9835fe3c076966d",
+        "domainDigest": "30b9821d7fec7027011bd6990947a07c04ed5ad854b9bd47fb889a8cc5f7d463"
+      },
+      "receipt": {
+        "canonicalUtf8": "{\"action\":\"orkworks.user-evaluation.invalidate.v1\",\"artifact\":null,\"idempotencyKey\":\"coherent-invalidation\",\"recordDigest\":\"0581218637a98ac25bd533f5c50d79d66ca917c9895f85a76b6d81eeaec32b1c\",\"recordKind\":\"disposition\",\"recordRevision\":1,\"requestDigest\":\"30b9821d7fec7027011bd6990947a07c04ed5ad854b9bd47fb889a8cc5f7d463\",\"reviewerIdentity\":{\"assignmentIdentity\":{\"childSessionId\":\"reviewer-child\",\"configurationDigest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"configurationId\":\"reviewer-config\",\"kind\":\"child\",\"parentSessionId\":\"reviewer-parent\",\"planId\":\"reviewer-plan\",\"planRevision\":1,\"reservationId\":\"reviewer-reservation\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-2\",\"taskId\":\"reviewer-task\",\"taskVersion\":1,\"workspaceId\":\"r2-workspace\"},\"kind\":\"child\"},\"schemaVersion\":1}",
+        "utf8Bytes": 834,
+        "sha256": "3c01cb900bbe8988ba4902f743a1ce1ed7404df1bb5c17ff40e74b29a84ce6fa"
+      }
+    }
+  ],
+  "measurements": {
+    "readBytes": 4357,
+    "baseTargetRecordBytes": "1580",
+    "phases": [
+      {
+        "stage": "initial",
+        "targetRecordBytes": "4536",
+        "reviewerArtifactBytes": "2956",
+        "resultPayloadBytes": "0",
+        "childReceiptUsedBytes": "16384",
+        "childReceiptReservedBytes": "16384",
+        "childSlots": [
+          {
+            "slotId": 320,
+            "purpose": "child-evaluation",
+            "state": "consumed"
+          },
+          {
+            "slotId": 321,
+            "purpose": "child-invalidation",
+            "state": "reserved"
+          }
+        ]
+      },
+      {
+        "stage": "correction",
+        "targetRecordBytes": "7726",
+        "reviewerArtifactBytes": "6146",
+        "resultPayloadBytes": "0",
+        "childReceiptUsedBytes": "32768",
+        "childReceiptReservedBytes": "32768",
+        "childSlots": [
+          {
+            "slotId": 320,
+            "purpose": "child-evaluation",
+            "state": "consumed"
+          },
+          {
+            "slotId": 321,
+            "purpose": "child-invalidation",
+            "state": "reserved"
+          },
+          {
+            "slotId": 322,
+            "purpose": "child-evaluation",
+            "state": "consumed"
+          },
+          {
+            "slotId": 323,
+            "purpose": "child-invalidation",
+            "state": "reserved"
+          }
+        ]
+      },
+      {
+        "stage": "invalidation",
+        "targetRecordBytes": "8881",
+        "reviewerArtifactBytes": "6146",
+        "resultPayloadBytes": "0",
+        "childReceiptUsedBytes": "49152",
+        "childReceiptReservedBytes": "16384",
+        "childSlots": [
+          {
+            "slotId": 320,
+            "purpose": "child-evaluation",
+            "state": "consumed"
+          },
+          {
+            "slotId": 321,
+            "purpose": "child-invalidation",
+            "state": "consumed"
+          },
+          {
+            "slotId": 322,
+            "purpose": "child-evaluation",
+            "state": "consumed"
+          },
+          {
+            "slotId": 323,
+            "purpose": "child-invalidation",
+            "state": "reserved"
+          }
+        ]
+      }
+    ]
+  }
+}
