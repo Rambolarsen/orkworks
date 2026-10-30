@@ -27,12 +27,9 @@ if (process.versions.electron) {
       const scenario = process.env.ORKWORKS_SHELL_SCENARIO;
       const click = async command => evaluate('(()=>{const b=document.querySelector("[data-shell-command=' + command + ']");b.focus();b.click()})()');
       if (scenario === 'app-skills-picker') {
-        await waitFor('document.querySelector(".workspace-picker-screen [data-open-skills]")');
-        await evaluate('document.querySelector("[data-open-skills]").click()');
-        await waitFor('document.querySelector("main .skills-settings")');
-        assert.equal(await evaluate('!!document.querySelector(".workspace-picker-screen")'), false);
-        await evaluate('document.querySelector("[data-shell-page-heading]").dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
         await waitFor('document.querySelector(".workspace-picker-screen")');
+        assert.equal(await evaluate('Array.from(document.querySelectorAll(".workspace-picker-screen button")).some(button => button.textContent.trim() === "Skills")'), false);
+        assert.equal(await evaluate('!!document.querySelector(".workspace-picker-screen .workspace-history-other-folder")'), true);
         assert.deepEqual(await evaluate('fixture.errors'), []);
         return;
       } else if (scenario === 'app-startup-composer') {
