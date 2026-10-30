@@ -52,3 +52,5 @@ Capability research, validation results, and evidence fixtures.
 - [Cross-session metadata lock contention](session-lock-contention.md) — Real two-session input contention evidence and the remaining isolation boundary.
 
 - [Assignment aggregate budget boundary components](assignment-aggregate-budgets.md) — Independent isolated retained record/payload limit comparisons; source-owned accounting and complete transaction qualification remain open.
+
+- [Retained assignment source accounting witnesses](assignment-accounting-witnesses.md) — Complete existing root ledger/command recounts and archived cross-run review charge components, with an explicit retained-history gap.

@@ -299,3 +299,18 @@ contracts. Reconcile complete manifests and independent logical/physical limits
 before a separately approved executable plan. Staging/artifact/report/plan/evidence/
 read/worker/scratch quotas, custody, purge/recovery, native qualification, #740
 and broader component/runtime gates remain independent. Keep #744/#746 open.
+
+
+## Source-accounting component evidence — 2026-10-30
+
+The [source-accounting packet](../../validation/assignment-accounting-witnesses.md)
+recounts the existing complete root empty-output witness under its original
+fixture caps and binds sixteen archived root/child source charge components.
+The retained candidate plus accepted result charge is 1,362 bytes at each owner;
+complete admission/acceptance commands remain 23 rows / 28,371 and 30,151 bytes.
+No earlier catalog or checker bytes change. Cross-run evaluation source charges
+belong to the target owner, with reviewer artifact custody still separate.
+The archived correction's placeholder predecessor explicitly prevents a claim
+of source-valid retained evaluation history. Payloads, coherent reviewer/source
+histories, denial/retry/old-epoch complete effects, custody, production maxima,
+native and executable-plan gates remain open; this is accounting evidence only.
