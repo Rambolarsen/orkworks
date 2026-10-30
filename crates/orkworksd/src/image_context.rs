@@ -85,19 +85,25 @@ pub(crate) enum ImageDelivery {
     NativeCodex,
 }
 pub(crate) async fn delivery(harness: &str, command: &str) -> Option<ImageDelivery> {
-    // Exact installed qualification rows. Future versions/platforms need a fresh fixture.
-    if !cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+    // The native route is qualified on macOS arm64. Compatible CLI upgrades
+    // inherit that route when the installed image interface remains available.
+    if harness != "codex" || !cfg!(all(target_os = "macos", target_arch = "aarch64")) {
         return None;
     }
-    let (qualified_versions, route) = match harness {
-        "codex" => ([(0, 163, 0), (0, 164, 0)], ImageDelivery::NativeCodex),
-        _ => return None,
-    };
     let tool = crate::harness::detect::probe_installed_tool(command)?;
     let version = crate::harness::detect::probe_tool_version(&tool.executable).await?;
-    qualified_versions
-        .contains(&crate::harness::detect::parse_version_token(&version)?)
-        .then_some(route)
+    if crate::harness::detect::parse_version_token(&version)? < (0, 163, 0) {
+        return None;
+    }
+    let help = crate::harness::detect::probe_tool_help(&tool.executable).await?;
+    help.lines()
+        .any(|line| {
+            let mut words = line.split_whitespace();
+            matches!(words.next(), Some("-i," | "--image"))
+                && line.split_whitespace().any(|word| word == "--image")
+                && line.split_whitespace().any(|word| word == "<FILE>...")
+        })
+        .then_some(ImageDelivery::NativeCodex)
 }
 pub(crate) async fn capabilities(
     axum::extract::State(state): axum::extract::State<std::sync::Arc<crate::AppState>>,
@@ -145,6 +151,39 @@ pub(crate) fn apply_delivery(
 mod tests {
     use super::*;
     use base64::Engine;
+    #[tokio::test]
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    async fn codex_image_delivery_checks_minimum_version_and_installed_image_option() {
+        // Catch upgrade lockouts, and accepting an installed tool without the image interface.
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("codex");
+        for (version, help, exit, supported) in [
+            ("0.163.0", "  -i, --image <FILE>...", 0, true),
+            ("0.164.0", "  -i, --image <FILE>...", 0, true),
+            ("0.166.0", "  -i, --image <FILE>...", 0, true),
+            ("1.0.0", "  -i, --image <FILE>...", 0, true),
+            ("0.162.0", "  -i, --image <FILE>...", 0, false),
+            ("0.166.0-alpha", "  -i, --image <FILE>...", 0, false),
+            ("unknown", "  -i, --image <FILE>...", 0, false),
+            ("0.163.0", "Usage: codex [PROMPT]", 0, false),
+            ("0.166.0", "  --image-cache <FILE>", 0, false),
+            ("0.166.0", "  -i, --image <FILE>...", 1, false),
+        ] {
+            std::fs::write(&bin, format!(
+                "#!/bin/sh\ncase \"$1\" in\n--version) echo 'codex-cli {version}';;\n--help) echo '{help}'; exit {exit};;\n*) exit 2;;\nesac\n"
+            )).unwrap();
+            crate::test_support::make_test_executable(&bin);
+            assert_eq!(
+                delivery("codex", bin.to_str().unwrap()).await.is_some(),
+                supported,
+                "version={version}, help={help}, exit={exit}"
+            );
+        }
+        assert!(delivery("generic-shell", bin.to_str().unwrap())
+            .await
+            .is_none());
+        assert!(delivery("codex", "/nonexistent/codex").await.is_none());
+    }
     fn remove_bundle(root: &std::path::Path, id: &str) -> std::io::Result<()> {
         if let Some(cleanup) = prepare_cleanup(root, id)? {
             cleanup.remove()?;

@@ -38,3 +38,14 @@ Creation gains bounded binary data handling, main-only authorization for images,
 and an explicit sidecar capability handshake. Tool/provider support requires
 real launch evidence; documentation and synthetic fixtures alone cannot enable
 an adapter. The owner approved dependent implementation on 2026-10-23.
+
+## Amendment — 2026-10-30
+
+The owner approved [#1168](https://github.com/Rambolarsen/orkworks/issues/1168):
+the qualified native Codex route uses a stable minimum version (0.163.0) and a
+successful installed `--help` probe advertising `--image <FILE>...`, rather than
+an exact release allowlist. The existing macOS arm64 scope remains. Qualification
+establishes the delivery interface; subsequent compatible releases do not each
+need a new visual fixture. Other adapters/platforms still require real launch
+evidence. Bounded probes reject missing or unsuccessful evidence, and runtime
+errors remain observable. Storage, authentication and prompt ownership are unchanged.

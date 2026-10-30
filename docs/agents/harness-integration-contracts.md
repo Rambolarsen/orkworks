@@ -346,10 +346,19 @@ arm64 with configured GPT-6.1-Sol. The two-image response identified red, green,
 blue, orange in order; the image-only response described the red circle and
 green square. Both used the ordinary OrkWorks PTY launch with spaces and `é`
 in the storage path. The unmodified gate first rejected 0.164.0; after adding
-that exact version, both fixture cases passed. Codex 0.163.0 remains qualified;
-other versions still require their own fixture evidence. See
+that exact version, both fixture cases passed. Codex 0.163.0 remains qualified. See
 [#1057](https://github.com/Rambolarsen/orkworks/issues/1057). This is source
 qualification evidence, not a claim about published installers.
+
+On 2026-10-30, the owner approved [#1168](https://github.com/Rambolarsen/orkworks/issues/1168)
+to replace exact-version admission with compatibility evidence: on macOS arm64,
+stable Codex 0.163.0 and newer are admitted when the installed executable's
+successful `--help` output advertises `--image <FILE>...`. Version/help probes
+are bounded to three seconds and 64 KiB per stream. The fixture evidence above
+qualifies the native delivery route; it does not claim visual qualification of
+each newer CLI or provider/model. Missing image support, failed help probes and
+unparseable/prerelease/old versions remain disabled. CLI upgrades with the same
+interface no longer need a source allowlist update.
 
 Native Codex `--image` auto-submits startup content. Supplying only image argv and
 then using the queued PTY text creates two turns. The qualified route passes image
@@ -358,9 +367,9 @@ start. No shell interpolation or permission changes are used.
 
 Claude Code 2.1.292 reached its external CLAUDE.md-import approval chooser and did
 not qualify; the fixture did not automate that approval. Claude, OpenCode, Copilot,
-custom tools, other platforms, and unqualified versions remain unsupported for
+custom tools and other platforms remain unsupported for
 new-session image context. Existing text-only startup is unchanged. A capability
-response or synthetic argv test alone cannot qualify another row.
+response or synthetic argv test alone cannot qualify another delivery route.
 
 ## Explicit metadata helper proxy
 
