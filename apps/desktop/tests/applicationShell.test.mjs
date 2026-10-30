@@ -269,7 +269,13 @@ if (process.versions.electron) {
           assert.equal(await evaluate('document.querySelector("[data-shell-terminal-focus]").textContent'),title);
           assert.equal(await evaluate('fixture.selections'),0,'opening a utility does not select a session');
           if(width>=860)assert.equal(await evaluate('!!document.querySelector("[data-shell-region=sessions]")'),true);
-          await evaluate('document.querySelector("[data-shell-return]").click()');
+          if (destination === 'skills') {
+            assert.equal(await evaluate('!!document.querySelector("main [data-shell-region=utility] > .shell-region-header")'),false,'Skills omits the duplicate title/return row');
+            assert.equal(await evaluate('document.activeElement === document.querySelector(".skills-settings h2")'),true);
+            await click('terminal');
+          } else {
+            await evaluate('document.querySelector("[data-shell-return]").click()');
+          }
           await waitFor('document.querySelector("[data-shell-region=terminal]")');
           await evaluate('fixture.command('+JSON.stringify(destination)+',true)');
           await waitFor('document.querySelector("[data-shell-page-heading]")');
@@ -282,8 +288,12 @@ if (process.versions.electron) {
         await waitFor('document.querySelector("[data-shell-region=review]")');
         await evaluate('fixture.command('+JSON.stringify(destination)+',true)');
         await waitFor('document.querySelector("main [data-shell-region=utility]")');
-        assert.equal(await evaluate('document.querySelector("[data-shell-return]").textContent'),'Back to Review');
-        await evaluate('document.querySelector("[data-shell-return]").click()');
+        if (destination === 'skills') {
+          await evaluate('fixture.command("skills")');
+        } else {
+          assert.equal(await evaluate('document.querySelector("[data-shell-return]").textContent'),'Back to Review');
+          await evaluate('document.querySelector("[data-shell-return]").click()');
+        }
         await waitFor('document.querySelector("[data-shell-region=review]")');
         await evaluate('fixture.command("terminal")');
         await waitFor('document.querySelector("[data-shell-region=terminal]")');
