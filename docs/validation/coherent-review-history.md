@@ -129,3 +129,13 @@ quota or authority choice with the owner before dependent transaction fixtures.
 Full target/reviewer configurations and source producer/admission, complete
 manifests/denial/retry/race/native/physical qualification, #740 evidence and
 separately approved executable plans remain open. Keep component issues open.
+
+
+## Artifact producer proposal handoff — 2026-10-30
+
+The [new producer design](../superpowers/specs/2026-10-30-evaluation-artifact-producer-design.md)
+proposes exact metadata/stream mapping, shared content custody and finite
+producer/read budgets for #1176. Its [qualification handoff](../superpowers/plans/2026-10-30-evaluation-artifact-qualification.md)
+stops at owner decision and source/authority closure before dependent transaction
+fixtures. This coherent source packet, all input/output catalogs and checkers are
+unchanged; no complete publication or codec/default acceptance is inferred.
