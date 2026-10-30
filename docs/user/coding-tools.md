@@ -125,8 +125,10 @@ or worktree. Personal shows skills found in your user configuration, which may
 be available across projects. Source paths and coding-tool filters help you
 identify each copy; duplicate names remain visible in both scopes.
 
-Use **Read skill** to inspect instructions as text. **Discovery coverage and
-source roots** lists inspected locations and gaps. Found on disk does not prove
+Rows start collapsed to keep the inventory compact. Expand a row to see its
+description, source paths and coding-tool coverage, then use **Read skill** to
+inspect instructions as text inside that row. **Discovery coverage and source
+roots** lists inspected locations and gaps. Found on disk does not prove
 that a coding tool loaded or used the skill, and native precedence remains
 unknown. Skills installed outside APM are visible without being modified.
 

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { ChevronRight, Plus, RefreshCw } from "lucide-react";
 import type {
   SkillInventory,
   SkillPreview,
@@ -31,7 +32,7 @@ export default function SkillsSettings({
   );
   const [source, setSource] = useState("");
   const [preview, setPreview] = useState<SkillPreview | null>(null);
-  const [detail, setDetail] = useState<{ name: string; text: string } | null>(
+  const [detail, setDetail] = useState<{ id: string; text: string } | null>(
     null,
   );
   const generation = useRef(0);
@@ -118,15 +119,16 @@ export default function SkillsSettings({
             disabled={busy}
             onClick={() => void load()}
           >
-            Refresh
+            <RefreshCw size={14} aria-hidden="true" /> Refresh
           </button>
           <button
             data-add-skill
             className="ui-button ui-button--md ui-button--primary"
             disabled={busy || !inventory?.apm?.available}
+            aria-expanded={adding}
             onClick={() => setAdding(!adding)}
           >
-            Add skill
+            <Plus size={14} aria-hidden="true" /> {adding ? "Cancel addition" : "Add skill"}
           </button>
         </div>
       </div>
@@ -143,6 +145,8 @@ export default function SkillsSettings({
           <input
             className="ui-input"
             aria-label="Search skills"
+            placeholder="Find a skill by name, description, or path…"
+            type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
@@ -294,7 +298,7 @@ export default function SkillsSettings({
               {filtered.filter((skill) => skill.scope === group).length}
             </span>
           </h3>
-          <p>
+          <p className="skills-group-caption">
             {group === "workspace"
               ? currentWorkspacePath || "Open a workspace to see its skills."
               : "Skills found in your user configuration and registered plugin locations."}
@@ -310,72 +314,72 @@ export default function SkillsSettings({
             .filter((skill) => skill.scope === group)
             .map((skill) => (
               <article key={skill.id} data-skill-row className="skills-row">
-                <div className="skills-row-heading">
-                  <strong>{skill.name}</strong>
-                  <span className="skills-badge">
-                    {group === "workspace" ? "Workspace" : "Personal"}
-                  </span>
-                  <span>
-                    {skill.management === "apm"
-                      ? "APM record"
-                      : skill.management === "plugin"
-                        ? "Plugin"
-                        : "Local file"}
-                  </span>
-                </div>
-                <p>{skill.description}</p>
-                <p className="skills-tool-coverage">
-                  Found ·{" "}
-                  {skill.tools.length
-                    ? skill.tools.map((tool) => toolNames[tool]).join(", ")
-                    : "Coding-tool discovery unknown"}
-                  {skill.version ? ` · ${skill.version}` : ""}
-                </p>
-                {skill.paths.map((path) => (
-                  <p className="skills-path" key={path}>
-                    {path}
-                  </p>
-                ))}
-                {!skill.paths.includes(skill.resolvedPath) && (
-                  <p className="skills-path">
-                    Resolves to {skill.resolvedPath}
-                  </p>
-                )}
-                {skill.packageSource && (
-                  <p className="skills-path">Package: {skill.packageSource}</p>
-                )}
-                <button
-                  data-skill-detail
-                  className="ui-button ui-button--sm ui-button--secondary"
-                  disabled={busy}
-                  onClick={() =>
-                    void perform(async () => {
-                      const request = generation.current;
-                      const text = await window.orkworks.readSkillDetail(
-                        skill.id,
-                      );
-                      if (request === generation.current)
-                        setDetail({ name: skill.name, text });
-                    })
-                  }
-                >
-                  Read skill
-                </button>
+                <details>
+                  <summary className="skills-row-heading">
+                    <ChevronRight className="skills-chevron" size={15} aria-hidden="true" />
+                    <strong>{skill.name}</strong>
+                    <span className="skills-badge">
+                      {skill.management === "apm"
+                        ? "APM record"
+                        : skill.management === "plugin"
+                          ? "Plugin"
+                          : "Local file"}
+                    </span>
+                  </summary>
+                  <div className="skills-row-body">
+                    <p>{skill.description}</p>
+                    <p className="skills-tool-coverage">
+                      Found ·{" "}
+                      {skill.tools.length
+                        ? skill.tools.map((tool) => toolNames[tool]).join(", ")
+                        : "Coding-tool discovery unknown"}
+                      {skill.version ? ` · ${skill.version}` : ""}
+                    </p>
+                    {skill.paths.map((path) => (
+                      <p className="skills-path" key={path}>
+                        {path}
+                      </p>
+                    ))}
+                    {!skill.paths.includes(skill.resolvedPath) && (
+                      <p className="skills-path">
+                        Resolves to {skill.resolvedPath}
+                      </p>
+                    )}
+                    {skill.packageSource && (
+                      <p className="skills-path">Package: {skill.packageSource}</p>
+                    )}
+                    <button
+                      data-skill-detail
+                      className="ui-button ui-button--sm ui-button--secondary"
+                      disabled={busy}
+                      onClick={() =>
+                        void perform(async () => {
+                          const request = generation.current;
+                          const text = await window.orkworks.readSkillDetail(
+                            skill.id,
+                          );
+                          if (request === generation.current)
+                            setDetail({ id: skill.id, text });
+                        })
+                      }
+                    >
+                      Read skill
+                    </button>
+                    {detail?.id === skill.id && (
+                      <section className="skills-detail" aria-label={`${skill.name} instructions`}>
+                        <div className="skills-heading">
+                          <h4>SKILL.md</h4>
+                          <button className="ui-button ui-button--sm ui-button--secondary" onClick={() => setDetail(null)}>Close text</button>
+                        </div>
+                        <pre data-skill-content>{detail.text}</pre>
+                      </section>
+                    )}
+                  </div>
+                </details>
               </article>
             ))}
         </section>
       ))}
-      {detail && (
-        <section className="skills-detail">
-          <div className="skills-heading">
-            <h3>{detail.name}</h3>
-            <button className="ui-button ui-button--md ui-button--secondary" onClick={() => setDetail(null)}>
-              Close details
-            </button>
-          </div>
-          <pre data-skill-content>{detail.text}</pre>
-        </section>
-      )}
       {inventory && (
         <details className="skills-coverage">
           <summary>Discovery coverage and source roots</summary>
