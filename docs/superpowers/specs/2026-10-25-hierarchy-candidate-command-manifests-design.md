@@ -473,3 +473,17 @@ Numerical defaults, proposed reason codes and that admission policy remain
 proposed; no dependent fixture, producer/custody qualification, native mechanism
 or executable plan is accepted by this routing note. Earlier definitions and
 all existing catalogs/checkers remain unchanged.
+
+
+## Scoped aggregate budget acceptance — 2026-10-30
+
+The [owner acceptance](2026-10-29-assignment-aggregate-budgets-design.md#owner-acceptance-and-component-handoff--2026-10-30)
+selects the two independent 64/128/256 MiB retained record/payload pools,
+zero future-source reservation, full-history/occurrence charging, deterministic
+bounded capacity reasons and preservation on denial for further logical
+qualification. It supersedes earlier unresolved/proposed numerical-policy status
+for these two resources only. Existing owner/ledger/codec meanings are unchanged.
+The [component packet](../../validation/assignment-aggregate-budgets.md) tests
+isolated arithmetic, not source-derived accounting or complete transactions.
+Producer/custody/native and separately approved executable-plan gates remain open;
+no runtime or launch eligibility follows. Keep #744/#746 open.

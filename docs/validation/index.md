@@ -50,3 +50,5 @@ Capability research, validation results, and evidence fixtures.
 
 - [Root preparation budget boundary components](root-preparation-budgets.md) — Independent full-state totals, isolated inclusive cap cases and conservative envelope bounds under the scoped accepted budget policy.
 - [Cross-session metadata lock contention](session-lock-contention.md) — Real two-session input contention evidence and the remaining isolation boundary.
+
+- [Assignment aggregate budget boundary components](assignment-aggregate-budgets.md) — Independent isolated retained record/payload limit comparisons; source-owned accounting and complete transaction qualification remain open.
