@@ -1,0 +1,1025 @@
+{
+  "evidenceKind": "archived-source-accounting-and-existing-root-command-recount",
+  "inputs": {
+    "hierarchy-empty-output-profile.json": "ca116e92b85cc1eda7bb8a7c75a2dbfab358cf26e762955f27c755db874debee",
+    "hierarchy-claim-proof-vectors.json": "b078842638d904e3944c5d4b9192ba98b365963f0be982e936de1d947ccd15a6"
+  },
+  "owners": [
+    {
+      "kind": "assignment",
+      "assignmentIdentity": {
+        "kind": "root",
+        "workspaceId": "workspace",
+        "runId": "4444444444444444444444444444444444444444444444444444444444444444-1",
+        "rootAssignmentId": "target-root",
+        "parentSessionId": "target-parent",
+        "bootstrapId": "target-bootstrap",
+        "bootstrapConfigurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "kind": "run",
+      "workspaceId": "workspace",
+      "runId": "4444444444444444444444444444444444444444444444444444444444444444-1"
+    },
+    {
+      "kind": "workspace",
+      "workspaceId": "workspace"
+    }
+  ],
+  "states": [
+    {
+      "name": "absent",
+      "recordBytes": "0",
+      "payloadBytes": "0",
+      "objectCount": 0,
+      "ledgerCount": 0
+    },
+    {
+      "name": "initialized",
+      "recordBytes": "0",
+      "payloadBytes": "0",
+      "objectCount": 0,
+      "ledgerCount": 0
+    },
+    {
+      "name": "prepared",
+      "recordBytes": "0",
+      "payloadBytes": "0",
+      "objectCount": 0,
+      "ledgerCount": 6
+    },
+    {
+      "name": "admitted",
+      "recordBytes": "618",
+      "payloadBytes": "0",
+      "objectCount": 1,
+      "ledgerCount": 6
+    },
+    {
+      "name": "accepted",
+      "recordBytes": "1362",
+      "payloadBytes": "0",
+      "objectCount": 2,
+      "ledgerCount": 6
+    }
+  ],
+  "commands": [
+    {
+      "name": "initialized",
+      "changedRows": 2,
+      "commandBytes": 631,
+      "recordDelta": "0",
+      "payloadDelta": "0",
+      "charges": [
+        {
+          "table": "commit_proof",
+          "keyCanonical": "\"1\"",
+          "keyBytes": 3,
+          "valueBytes": 304
+        },
+        {
+          "table": "store_header",
+          "keyCanonical": "1",
+          "keyBytes": 1,
+          "valueBytes": 323
+        }
+      ]
+    },
+    {
+      "name": "prepared",
+      "changedRows": 16,
+      "commandBytes": 13509,
+      "recordDelta": "0",
+      "payloadDelta": "0",
+      "charges": [
+        {
+          "table": "commit_proof",
+          "keyCanonical": "\"2\"",
+          "keyBytes": 3,
+          "valueBytes": 4990
+        },
+        {
+          "table": "quota_usage",
+          "keyCanonical": "{\"owner\":{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"kind\":\"assignment\"},\"resource\":\"assignment-record-bytes\"}",
+          "keyBytes": 406,
+          "valueBytes": 227
+        },
+        {
+          "table": "quota_usage",
+          "keyCanonical": "{\"owner\":{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"kind\":\"assignment\"},\"resource\":\"reporting-receipt-bytes\"}",
+          "keyBytes": 406,
+          "valueBytes": 227
+        },
+        {
+          "table": "quota_usage",
+          "keyCanonical": "{\"owner\":{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"kind\":\"assignment\"},\"resource\":\"result-payload-bytes\"}",
+          "keyBytes": 403,
+          "valueBytes": 227
+        },
+        {
+          "table": "quota_usage",
+          "keyCanonical": "{\"owner\":{\"kind\":\"run\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"resource\":\"assignment-record-bytes\"}",
+          "keyBytes": 164,
+          "valueBytes": 227
+        },
+        {
+          "table": "quota_usage",
+          "keyCanonical": "{\"owner\":{\"kind\":\"run\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"resource\":\"reporting-receipt-bytes\"}",
+          "keyBytes": 164,
+          "valueBytes": 227
+        },
+        {
+          "table": "quota_usage",
+          "keyCanonical": "{\"owner\":{\"kind\":\"run\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"resource\":\"result-payload-bytes\"}",
+          "keyBytes": 161,
+          "valueBytes": 227
+        },
+        {
+          "table": "quota_usage",
+          "keyCanonical": "{\"owner\":{\"kind\":\"workspace\",\"workspaceId\":\"workspace\"},\"resource\":\"assignment-record-bytes\"}",
+          "keyBytes": 93,
+          "valueBytes": 227
+        },
+        {
+          "table": "quota_usage",
+          "keyCanonical": "{\"owner\":{\"kind\":\"workspace\",\"workspaceId\":\"workspace\"},\"resource\":\"reporting-receipt-bytes\"}",
+          "keyBytes": 93,
+          "valueBytes": 227
+        },
+        {
+          "table": "quota_usage",
+          "keyCanonical": "{\"owner\":{\"kind\":\"workspace\",\"workspaceId\":\"workspace\"},\"resource\":\"result-payload-bytes\"}",
+          "keyBytes": 90,
+          "valueBytes": 227
+        },
+        {
+          "table": "quota_usage",
+          "keyCanonical": "{\"owner\":{\"kind\":\"workspace\",\"workspaceId\":\"workspace\"},\"resource\":\"summary-lineage-bytes\"}",
+          "keyBytes": 91,
+          "valueBytes": 229
+        },
+        {
+          "table": "quota_usage",
+          "keyCanonical": "{\"owner\":{\"kind\":\"workspace\",\"workspaceId\":\"workspace\"},\"resource\":\"summary-pending-count\"}",
+          "keyBytes": 91,
+          "valueBytes": 227
+        },
+        {
+          "table": "quota_usage",
+          "keyCanonical": "{\"owner\":{\"kind\":\"workspace\",\"workspaceId\":\"workspace\"},\"resource\":\"summary-row-bytes\"}",
+          "keyBytes": 87,
+          "valueBytes": 230
+        },
+        {
+          "table": "quota_usage",
+          "keyCanonical": "{\"owner\":{\"kind\":\"workspace\",\"workspaceId\":\"workspace\"},\"resource\":\"summary-row-count\"}",
+          "keyBytes": 87,
+          "valueBytes": 227
+        },
+        {
+          "table": "store_header",
+          "keyCanonical": "1",
+          "keyBytes": 1,
+          "valueBytes": 323
+        },
+        {
+          "table": "summary_state",
+          "keyCanonical": "{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"}",
+          "keyBytes": 316,
+          "valueBytes": 2584
+        }
+      ]
+    },
+    {
+      "name": "admitted",
+      "changedRows": 23,
+      "commandBytes": 28371,
+      "recordDelta": "618",
+      "payloadDelta": "0",
+      "charges": [
+        {
+          "table": "candidate_work",
+          "keyCanonical": "{\"digest\":\"a3024d40966dc214d7584c47819b6c84f9bb34533a444c9c1104e6af5ed10959\",\"key\":{\"identity\":{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"candidateDigest\":\"a3024d40966dc214d7584c47819b6c84f9bb34533a444c9c1104e6af5ed10959\"},\"kind\":\"assignment-result-candidate\"}}",
+          "keyBytes": 558,
+          "valueBytes": 285
+        },
+        {
+          "table": "claim_proofs",
+          "keyCanonical": "{\"sequence\":\"1\",\"sidecarGeneration\":\"1111111111111111111111111111111111111111111111111111111111111111\"}",
+          "keyBytes": 103,
+          "valueBytes": 1527
+        },
+        {
+          "table": "commit_proof",
+          "keyCanonical": "\"3\"",
+          "keyBytes": 3,
+          "valueBytes": 10063
+        },
+        {
+          "table": "mutation_lookup",
+          "keyCanonical": "\"9ea3795a1a9850ca257b89b867e40212468ff8e022c3f34e2da51da2b43b2c1e\"",
+          "keyBytes": 64,
+          "valueBytes": 241
+        },
+        {
+          "table": "objects",
+          "keyCanonical": "{\"identity\":{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"candidateDigest\":\"a3024d40966dc214d7584c47819b6c84f9bb34533a444c9c1104e6af5ed10959\"},\"kind\":\"assignment-result-candidate\"}",
+          "keyBytes": 474,
+          "valueBytes": 903
+        },
+        {
+          "table": "quota_usage",
+          "keyCanonical": "{\"owner\":{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"kind\":\"assignment\"},\"resource\":\"assignment-record-bytes\"}",
+          "keyBytes": 406,
+          "valueBytes": 229
+        },
+        {
+          "table": "quota_usage",
+          "keyCanonical": "{\"owner\":{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"kind\":\"assignment\"},\"resource\":\"reporting-receipt-bytes\"}",
+          "keyBytes": 406,
+          "valueBytes": 236
+        },
+        {
+          "table": "quota_usage",
+          "keyCanonical": "{\"owner\":{\"kind\":\"run\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"resource\":\"assignment-record-bytes\"}",
+          "keyBytes": 164,
+          "valueBytes": 229
+        },
+        {
+          "table": "quota_usage",
+          "keyCanonical": "{\"owner\":{\"kind\":\"run\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"resource\":\"reporting-receipt-bytes\"}",
+          "keyBytes": 164,
+          "valueBytes": 236
+        },
+        {
+          "table": "quota_usage",
+          "keyCanonical": "{\"owner\":{\"kind\":\"workspace\",\"workspaceId\":\"workspace\"},\"resource\":\"assignment-record-bytes\"}",
+          "keyBytes": 93,
+          "valueBytes": 229
+        },
+        {
+          "table": "quota_usage",
+          "keyCanonical": "{\"owner\":{\"kind\":\"workspace\",\"workspaceId\":\"workspace\"},\"resource\":\"reporting-receipt-bytes\"}",
+          "keyBytes": 93,
+          "valueBytes": 236
+        },
+        {
+          "table": "receipt_slots",
+          "keyCanonical": "{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"slotId\":0}",
+          "keyBytes": 350,
+          "valueBytes": 1221
+        },
+        {
+          "table": "receipt_slots",
+          "keyCanonical": "{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"slotId\":1}",
+          "keyBytes": 350,
+          "valueBytes": 388
+        },
+        {
+          "table": "receipt_slots",
+          "keyCanonical": "{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"slotId\":2}",
+          "keyBytes": 350,
+          "valueBytes": 386
+        },
+        {
+          "table": "receipt_slots",
+          "keyCanonical": "{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"slotId\":3}",
+          "keyBytes": 350,
+          "valueBytes": 388
+        },
+        {
+          "table": "receipt_slots",
+          "keyCanonical": "{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"slotId\":4}",
+          "keyBytes": 350,
+          "valueBytes": 386
+        },
+        {
+          "table": "receipt_slots",
+          "keyCanonical": "{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"slotId\":5}",
+          "keyBytes": 350,
+          "valueBytes": 388
+        },
+        {
+          "table": "receipt_slots",
+          "keyCanonical": "{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"slotId\":6}",
+          "keyBytes": 350,
+          "valueBytes": 386
+        },
+        {
+          "table": "receipt_slots",
+          "keyCanonical": "{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"slotId\":7}",
+          "keyBytes": 350,
+          "valueBytes": 388
+        },
+        {
+          "table": "receipt_slots",
+          "keyCanonical": "{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"slotId\":8}",
+          "keyBytes": 350,
+          "valueBytes": 386
+        },
+        {
+          "table": "receipt_slots",
+          "keyCanonical": "{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"slotId\":9}",
+          "keyBytes": 350,
+          "valueBytes": 388
+        },
+        {
+          "table": "store_header",
+          "keyCanonical": "1",
+          "keyBytes": 1,
+          "valueBytes": 323
+        },
+        {
+          "table": "summary_state",
+          "keyCanonical": "{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"}",
+          "keyBytes": 316,
+          "valueBytes": 2584
+        }
+      ]
+    },
+    {
+      "name": "accepted",
+      "changedRows": 23,
+      "commandBytes": 30151,
+      "recordDelta": "744",
+      "payloadDelta": "0",
+      "charges": [
+        {
+          "table": "candidate_work",
+          "keyCanonical": "{\"digest\":\"a3024d40966dc214d7584c47819b6c84f9bb34533a444c9c1104e6af5ed10959\",\"key\":{\"identity\":{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"candidateDigest\":\"a3024d40966dc214d7584c47819b6c84f9bb34533a444c9c1104e6af5ed10959\"},\"kind\":\"assignment-result-candidate\"}}",
+          "keyBytes": 558,
+          "valueBytes": 286
+        },
+        {
+          "table": "commit_proof",
+          "keyCanonical": "\"4\"",
+          "keyBytes": 3,
+          "valueBytes": 10815
+        },
+        {
+          "table": "heads",
+          "keyCanonical": "{\"identity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"kind\":\"assignment-result\"}",
+          "keyBytes": 356,
+          "valueBytes": 775
+        },
+        {
+          "table": "objects",
+          "keyCanonical": "{\"identity\":{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"resultDigest\":\"32c35e611c61f6b32054cfd7ca31e3bc461a5b1e6ff1cda2df68130d3966c74c\",\"resultRevision\":1},\"kind\":\"assignment-result\"}",
+          "keyBytes": 480,
+          "valueBytes": 1029
+        },
+        {
+          "table": "quota_usage",
+          "keyCanonical": "{\"owner\":{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"kind\":\"assignment\"},\"resource\":\"assignment-record-bytes\"}",
+          "keyBytes": 406,
+          "valueBytes": 230
+        },
+        {
+          "table": "quota_usage",
+          "keyCanonical": "{\"owner\":{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"kind\":\"assignment\"},\"resource\":\"reporting-receipt-bytes\"}",
+          "keyBytes": 406,
+          "valueBytes": 236
+        },
+        {
+          "table": "quota_usage",
+          "keyCanonical": "{\"owner\":{\"kind\":\"run\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"resource\":\"assignment-record-bytes\"}",
+          "keyBytes": 164,
+          "valueBytes": 230
+        },
+        {
+          "table": "quota_usage",
+          "keyCanonical": "{\"owner\":{\"kind\":\"run\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"resource\":\"reporting-receipt-bytes\"}",
+          "keyBytes": 164,
+          "valueBytes": 236
+        },
+        {
+          "table": "quota_usage",
+          "keyCanonical": "{\"owner\":{\"kind\":\"workspace\",\"workspaceId\":\"workspace\"},\"resource\":\"assignment-record-bytes\"}",
+          "keyBytes": 93,
+          "valueBytes": 230
+        },
+        {
+          "table": "quota_usage",
+          "keyCanonical": "{\"owner\":{\"kind\":\"workspace\",\"workspaceId\":\"workspace\"},\"resource\":\"reporting-receipt-bytes\"}",
+          "keyBytes": 93,
+          "valueBytes": 236
+        },
+        {
+          "table": "quota_usage",
+          "keyCanonical": "{\"owner\":{\"kind\":\"workspace\",\"workspaceId\":\"workspace\"},\"resource\":\"summary-lineage-bytes\"}",
+          "keyBytes": 91,
+          "valueBytes": 230
+        },
+        {
+          "table": "quota_usage",
+          "keyCanonical": "{\"owner\":{\"kind\":\"workspace\",\"workspaceId\":\"workspace\"},\"resource\":\"summary-row-bytes\"}",
+          "keyBytes": 87,
+          "valueBytes": 230
+        },
+        {
+          "table": "receipt_slots",
+          "keyCanonical": "{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"slotId\":1}",
+          "keyBytes": 350,
+          "valueBytes": 1891
+        },
+        {
+          "table": "receipt_slots",
+          "keyCanonical": "{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"slotId\":2}",
+          "keyBytes": 350,
+          "valueBytes": 413
+        },
+        {
+          "table": "receipt_slots",
+          "keyCanonical": "{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"slotId\":3}",
+          "keyBytes": 350,
+          "valueBytes": 415
+        },
+        {
+          "table": "receipt_slots",
+          "keyCanonical": "{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"slotId\":4}",
+          "keyBytes": 350,
+          "valueBytes": 413
+        },
+        {
+          "table": "receipt_slots",
+          "keyCanonical": "{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"slotId\":5}",
+          "keyBytes": 350,
+          "valueBytes": 415
+        },
+        {
+          "table": "receipt_slots",
+          "keyCanonical": "{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"slotId\":6}",
+          "keyBytes": 350,
+          "valueBytes": 413
+        },
+        {
+          "table": "receipt_slots",
+          "keyCanonical": "{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"slotId\":7}",
+          "keyBytes": 350,
+          "valueBytes": 415
+        },
+        {
+          "table": "receipt_slots",
+          "keyCanonical": "{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"slotId\":8}",
+          "keyBytes": 350,
+          "valueBytes": 413
+        },
+        {
+          "table": "receipt_slots",
+          "keyCanonical": "{\"assignmentIdentity\":{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"},\"slotId\":9}",
+          "keyBytes": 350,
+          "valueBytes": 415
+        },
+        {
+          "table": "store_header",
+          "keyCanonical": "1",
+          "keyBytes": 1,
+          "valueBytes": 323
+        },
+        {
+          "table": "summary_state",
+          "keyCanonical": "{\"bootstrapConfigurationDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"bootstrapId\":\"target-bootstrap\",\"kind\":\"root\",\"parentSessionId\":\"target-parent\",\"rootAssignmentId\":\"target-root\",\"runId\":\"4444444444444444444444444444444444444444444444444444444444444444-1\",\"workspaceId\":\"workspace\"}",
+          "keyBytes": 316,
+          "valueBytes": 3494
+        }
+      ]
+    }
+  ],
+  "records": [
+    {
+      "id": "root-candidate-initial",
+      "sourceKind": "candidate",
+      "bodyBytes": "618",
+      "sourceDigest": "a3024d40966dc214d7584c47819b6c84f9bb34533a444c9c1104e6af5ed10959",
+      "owners": [
+        {
+          "kind": "assignment",
+          "assignmentIdentity": {
+            "kind": "root",
+            "workspaceId": "workspace",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-1",
+            "rootAssignmentId": "target-root",
+            "parentSessionId": "target-parent",
+            "bootstrapId": "target-bootstrap",
+            "bootstrapConfigurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "kind": "run",
+          "workspaceId": "workspace",
+          "runId": "4444444444444444444444444444444444444444444444444444444444444444-1"
+        },
+        {
+          "kind": "workspace",
+          "workspaceId": "workspace"
+        }
+      ]
+    },
+    {
+      "id": "root-candidate-correction-max",
+      "sourceKind": "candidate",
+      "bodyBytes": "1202",
+      "sourceDigest": "c54fd8e25e95bbdf8bb8ee7e1786779cf7e71c3e9aee7ded4809a05a2cca4ba2",
+      "owners": [
+        {
+          "kind": "assignment",
+          "assignmentIdentity": {
+            "kind": "root",
+            "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807",
+            "rootAssignmentId": "target-root-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "parentSessionId": "target-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "bootstrapId": "target-bootstrap-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "bootstrapConfigurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "kind": "run",
+          "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807"
+        },
+        {
+          "kind": "workspace",
+          "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      ]
+    },
+    {
+      "id": "child-candidate-initial",
+      "sourceKind": "candidate",
+      "bodyBytes": "724",
+      "sourceDigest": "38a9de1845c89737733ecfaed34403f33a53be5d7ebe77b1ffed6104ae0b02ba",
+      "owners": [
+        {
+          "kind": "assignment",
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "workspace",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-1",
+            "planId": "target-plan",
+            "planRevision": 1,
+            "taskId": "target-task",
+            "taskVersion": 1,
+            "reservationId": "target-reservation",
+            "parentSessionId": "target-parent",
+            "childSessionId": "target-child",
+            "configurationId": "target-config",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "kind": "run",
+          "workspaceId": "workspace",
+          "runId": "4444444444444444444444444444444444444444444444444444444444444444-1"
+        },
+        {
+          "kind": "workspace",
+          "workspaceId": "workspace"
+        }
+      ]
+    },
+    {
+      "id": "child-candidate-correction-max",
+      "sourceKind": "candidate",
+      "bodyBytes": "1664",
+      "sourceDigest": "7441747700805da2eca67fb0107a2038645c18217c0e715f16b6122aa007e3dd",
+      "owners": [
+        {
+          "kind": "assignment",
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807",
+            "planId": "target-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "planRevision": 64,
+            "taskId": "target-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "taskVersion": 2147483647,
+            "reservationId": "target-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "parentSessionId": "target-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "childSessionId": "target-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationId": "target-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "kind": "run",
+          "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807"
+        },
+        {
+          "kind": "workspace",
+          "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      ]
+    },
+    {
+      "id": "child-evaluation-initial",
+      "sourceKind": "evaluation",
+      "bodyBytes": "2086",
+      "sourceDigest": "7785ade6b90dfd9792c9927707d2cec2cdb06504a2be0b660ede37f8b1f15905",
+      "owners": [
+        {
+          "kind": "assignment",
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "workspace",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-1",
+            "planId": "target-plan",
+            "planRevision": 1,
+            "taskId": "target-task",
+            "taskVersion": 1,
+            "reservationId": "target-reservation",
+            "parentSessionId": "target-parent",
+            "childSessionId": "target-child",
+            "configurationId": "target-config",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "kind": "run",
+          "workspaceId": "workspace",
+          "runId": "4444444444444444444444444444444444444444444444444444444444444444-1"
+        },
+        {
+          "kind": "workspace",
+          "workspaceId": "workspace"
+        }
+      ]
+    },
+    {
+      "id": "child-evaluation-correction",
+      "sourceKind": "evaluation",
+      "bodyBytes": "2244",
+      "sourceDigest": "f9d24d11a1169d0dfd62f9292e4cb530627f3823cec189c01d8ee35227bba4ba",
+      "owners": [
+        {
+          "kind": "assignment",
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "workspace",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-1",
+            "planId": "target-plan",
+            "planRevision": 1,
+            "taskId": "target-task",
+            "taskVersion": 1,
+            "reservationId": "target-reservation",
+            "parentSessionId": "target-parent",
+            "childSessionId": "target-child",
+            "configurationId": "target-config",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "kind": "run",
+          "workspaceId": "workspace",
+          "runId": "4444444444444444444444444444444444444444444444444444444444444444-1"
+        },
+        {
+          "kind": "workspace",
+          "workspaceId": "workspace"
+        }
+      ]
+    },
+    {
+      "id": "child-evaluation-correction-max",
+      "sourceKind": "evaluation",
+      "bodyBytes": "12147",
+      "sourceDigest": "54cdc01a6f51b3274a21c7fdbb8a72a399247072baa0492744ccdbd06d6ccdea",
+      "owners": [
+        {
+          "kind": "assignment",
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807",
+            "planId": "target-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "planRevision": 64,
+            "taskId": "target-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "taskVersion": 2147483647,
+            "reservationId": "target-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "parentSessionId": "target-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "childSessionId": "target-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationId": "target-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "kind": "run",
+          "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807"
+        },
+        {
+          "kind": "workspace",
+          "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      ]
+    },
+    {
+      "id": "user-create-empty-slot",
+      "sourceKind": "evaluation",
+      "bodyBytes": "1449",
+      "sourceDigest": "d7c6b6cdeb7f93fdfeb30d17889c03e5db8e6af363b77ffc9450536aea09aa61",
+      "owners": [
+        {
+          "kind": "assignment",
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "workspace",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-1",
+            "planId": "target-plan",
+            "planRevision": 1,
+            "taskId": "target-task",
+            "taskVersion": 1,
+            "reservationId": "target-reservation",
+            "parentSessionId": "target-parent",
+            "childSessionId": "target-child",
+            "configurationId": "target-config",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "kind": "run",
+          "workspaceId": "workspace",
+          "runId": "4444444444444444444444444444444444444444444444444444444444444444-1"
+        },
+        {
+          "kind": "workspace",
+          "workspaceId": "workspace"
+        }
+      ]
+    },
+    {
+      "id": "user-create-replacement",
+      "sourceKind": "evaluation",
+      "bodyBytes": "1449",
+      "sourceDigest": "d7c6b6cdeb7f93fdfeb30d17889c03e5db8e6af363b77ffc9450536aea09aa61",
+      "owners": [
+        {
+          "kind": "assignment",
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "workspace",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-1",
+            "planId": "target-plan",
+            "planRevision": 1,
+            "taskId": "target-task",
+            "taskVersion": 1,
+            "reservationId": "target-reservation",
+            "parentSessionId": "target-parent",
+            "childSessionId": "target-child",
+            "configurationId": "target-config",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "kind": "run",
+          "workspaceId": "workspace",
+          "runId": "4444444444444444444444444444444444444444444444444444444444444444-1"
+        },
+        {
+          "kind": "workspace",
+          "workspaceId": "workspace"
+        }
+      ]
+    },
+    {
+      "id": "user-create-replacement-max",
+      "sourceKind": "evaluation",
+      "bodyBytes": "8635",
+      "sourceDigest": "a8e8ef2841df48a14ff3343a4ee2e051782ea98bd39b4d94cfe701909fe02a29",
+      "owners": [
+        {
+          "kind": "assignment",
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807",
+            "planId": "target-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "planRevision": 64,
+            "taskId": "target-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "taskVersion": 2147483647,
+            "reservationId": "target-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "parentSessionId": "target-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "childSessionId": "target-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationId": "target-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "kind": "run",
+          "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807"
+        },
+        {
+          "kind": "workspace",
+          "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      ]
+    },
+    {
+      "id": "user-correction",
+      "sourceKind": "evaluation",
+      "bodyBytes": "1607",
+      "sourceDigest": "922c39c13ff12b7fefe831ed0bc5f7f354caf33358337e05e1a1926564922cab",
+      "owners": [
+        {
+          "kind": "assignment",
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "workspace",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-1",
+            "planId": "target-plan",
+            "planRevision": 1,
+            "taskId": "target-task",
+            "taskVersion": 1,
+            "reservationId": "target-reservation",
+            "parentSessionId": "target-parent",
+            "childSessionId": "target-child",
+            "configurationId": "target-config",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "kind": "run",
+          "workspaceId": "workspace",
+          "runId": "4444444444444444444444444444444444444444444444444444444444444444-1"
+        },
+        {
+          "kind": "workspace",
+          "workspaceId": "workspace"
+        }
+      ]
+    },
+    {
+      "id": "user-correction-max",
+      "sourceKind": "evaluation",
+      "bodyBytes": "10793",
+      "sourceDigest": "0368457b93370152b4dbcef8fb675af26ae3165de6da3417782695b9b43f72c7",
+      "owners": [
+        {
+          "kind": "assignment",
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807",
+            "planId": "target-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "planRevision": 64,
+            "taskId": "target-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "taskVersion": 2147483647,
+            "reservationId": "target-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "parentSessionId": "target-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "childSessionId": "target-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationId": "target-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "kind": "run",
+          "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807"
+        },
+        {
+          "kind": "workspace",
+          "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      ]
+    },
+    {
+      "id": "user-invalidation",
+      "sourceKind": "disposition",
+      "bodyBytes": "726",
+      "sourceDigest": "e69a09f77fffc1d10eea4e20edc09b78c294bcc5ff03e615dffba2e89f68b028",
+      "owners": [
+        {
+          "kind": "assignment",
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "workspace",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-1",
+            "planId": "target-plan",
+            "planRevision": 1,
+            "taskId": "target-task",
+            "taskVersion": 1,
+            "reservationId": "target-reservation",
+            "parentSessionId": "target-parent",
+            "childSessionId": "target-child",
+            "configurationId": "target-config",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "kind": "run",
+          "workspaceId": "workspace",
+          "runId": "4444444444444444444444444444444444444444444444444444444444444444-1"
+        },
+        {
+          "kind": "workspace",
+          "workspaceId": "workspace"
+        }
+      ]
+    },
+    {
+      "id": "user-invalidation-max",
+      "sourceKind": "disposition",
+      "bodyBytes": "1674",
+      "sourceDigest": "15916a6379909c1fc6cd61792ccbc784bd32e0a8a6d80c81150775d3fc31b5f7",
+      "owners": [
+        {
+          "kind": "assignment",
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807",
+            "planId": "target-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "planRevision": 64,
+            "taskId": "target-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "taskVersion": 2147483647,
+            "reservationId": "target-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "parentSessionId": "target-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "childSessionId": "target-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationId": "target-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "kind": "run",
+          "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807"
+        },
+        {
+          "kind": "workspace",
+          "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      ]
+    },
+    {
+      "id": "child-stream-invalidation",
+      "sourceKind": "disposition",
+      "bodyBytes": "1149",
+      "sourceDigest": "263a31d635b302f1330bb1d5bcf1499d8391e9d09900f7d25a541175ed0f92bc",
+      "owners": [
+        {
+          "kind": "assignment",
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "workspace",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-1",
+            "planId": "target-plan",
+            "planRevision": 1,
+            "taskId": "target-task",
+            "taskVersion": 1,
+            "reservationId": "target-reservation",
+            "parentSessionId": "target-parent",
+            "childSessionId": "target-child",
+            "configurationId": "target-config",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "kind": "run",
+          "workspaceId": "workspace",
+          "runId": "4444444444444444444444444444444444444444444444444444444444444444-1"
+        },
+        {
+          "kind": "workspace",
+          "workspaceId": "workspace"
+        }
+      ]
+    },
+    {
+      "id": "child-stream-invalidation-max",
+      "sourceKind": "disposition",
+      "bodyBytes": "2813",
+      "sourceDigest": "66ebb7caca4801e709b07d7783506d07027e626b8440676cb0624a1952e159db",
+      "owners": [
+        {
+          "kind": "assignment",
+          "assignmentIdentity": {
+            "kind": "child",
+            "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807",
+            "planId": "target-plan-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "planRevision": 64,
+            "taskId": "target-task-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "taskVersion": 2147483647,
+            "reservationId": "target-reservation-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "parentSessionId": "target-parent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "childSessionId": "target-child-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationId": "target-config-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "kind": "run",
+          "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "runId": "4444444444444444444444444444444444444444444444444444444444444444-9223372036854775807"
+        },
+        {
+          "kind": "workspace",
+          "workspaceId": "workspace-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      ]
+    }
+  ]
+}

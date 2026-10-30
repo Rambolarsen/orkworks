@@ -6,7 +6,7 @@
     "docs:dev": "pnpm docs:check && vitepress dev",
     "docs:build": "pnpm docs:check && vitepress build",
     "docs:preview": "vitepress preview",
-    "docs:check": "node .vitepress/okf.mjs && node --test validation/root-preparation-components.test.mjs validation/root-preparation-source-components.test.mjs validation/hierarchy-summary-components.test.mjs validation/root-bootstrap-components.test.mjs validation/summary-source-packing.test.mjs validation/root-preparation-joins.test.mjs validation/r2-report-components.test.mjs validation/report-publication-components.test.mjs validation/root-preparation-effects.test.mjs validation/root-preparation-budgets.test.mjs validation/assignment-aggregate-budgets.test.mjs"
+    "docs:check": "node .vitepress/okf.mjs && node --test validation/root-preparation-components.test.mjs validation/root-preparation-source-components.test.mjs validation/hierarchy-summary-components.test.mjs validation/root-bootstrap-components.test.mjs validation/summary-source-packing.test.mjs validation/root-preparation-joins.test.mjs validation/r2-report-components.test.mjs validation/report-publication-components.test.mjs validation/root-preparation-effects.test.mjs validation/root-preparation-budgets.test.mjs validation/assignment-aggregate-budgets.test.mjs validation/assignment-accounting-witnesses.test.mjs"
   },
   "devDependencies": {
     "vitepress": "^1.6.4",
