@@ -423,3 +423,16 @@ independent stage failure, no-replay recovery and model qualification.
 The standalone scoring contract above remains in force. The linked design is
 the authoritative combined-action contract; implementation and model qualification
 evidence do not establish availability in a published installer.
+
+
+## Proposed score-directed improvements (#1175)
+
+The owner clarified on 2026-10-30 that recommendations should identify concrete
+changes to improve assessed agent-readiness capabilities. [Proposed ADR 0098](../docs/adr/0098-score-directed-readiness-improvements.md)
+and its [implementation plan](../docs/superpowers/plans/2026-10-30-score-directed-readiness.md)
+define feasible readiness evidence preferences and score-directed investigation
+with independently grounded proposals. They require owner approval before
+runtime implementation. Until then the accepted #1091 contract, including its
+exclusion of score-derived suggestion inputs, remains authoritative. This
+proposal changes neither current score/history semantics nor #1077's separate
+observation-quality scope.

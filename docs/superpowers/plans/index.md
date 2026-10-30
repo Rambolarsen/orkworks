@@ -235,3 +235,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 - [Terminal input metadata I/O](2026-10-29-terminal-input-io.md) — Approved command owner and verified metadata-blocking regressions.
 - [Terminal report producer and authority qualification](2026-10-29-terminal-report-publication-qualification.md) — Gated source/ordering investigation and acceptance matrix before executable terminal correction qualification.
+
+- [Score-directed readiness suggestions](2026-10-30-score-directed-readiness.md) — Proposed #1175 implementation and bounded qualification; owner approval pending.
