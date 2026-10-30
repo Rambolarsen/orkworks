@@ -666,10 +666,16 @@ fn validated_reset_hint(suffix_plain: &str, suffix_lower: &str) -> Option<String
 /// (one display row or raw segment), returning its end and an optional
 /// validated reset hint.
 fn banner_match(plain: &str, pattern_lower: &str) -> Option<(usize, Option<String>)> {
-    if plain.contains(BANNER_QUOTE_CHARS) {
-        return None;
-    }
-    let lower = plain.to_ascii_lowercase();
+    // A valid match can start only within the bounded decoration prefix.
+    // Include the complete custom pattern, keeping UTF-8 boundaries intact.
+    // Ordinary output then avoids a full-row quote scan and lowercase copy
+    // for every configured pattern during session projection.
+    let candidate_end = plain
+        .char_indices()
+        .nth(LIMIT_PREFIX_MAX_CHARS.saturating_add(pattern_lower.chars().count()))
+        .map(|(offset, _)| offset)
+        .unwrap_or(plain.len());
+    let lower = plain[..candidate_end].to_ascii_lowercase();
     for (start, matched) in lower.match_indices(pattern_lower) {
         let prefix = &plain[..start];
         if prefix.chars().count() > LIMIT_PREFIX_MAX_CHARS
@@ -677,9 +683,13 @@ fn banner_match(plain: &str, pattern_lower: &str) -> Option<(usize, Option<Strin
         {
             continue;
         }
+        if plain.contains(BANNER_QUOTE_CHARS) {
+            return None;
+        }
         let end = start + matched.len();
         let suffix_plain = &plain[end..];
-        let suffix_lower = &lower[end..];
+        let suffix_lower = suffix_plain.to_ascii_lowercase();
+        let suffix_lower = suffix_lower.as_str();
         if suffix_lower.chars().all(is_banner_chrome_char) {
             return Some((end, None));
         }
@@ -1915,6 +1925,62 @@ mod tests {
         assert_eq!(
             detect_usage_limit_hint(&["usage limit reached"], &lines),
             None
+        );
+    }
+
+    #[test]
+    fn banner_search_preserves_prefix_bound_and_custom_patterns() {
+        for prefix in [" ".repeat(24), "─".repeat(24)] {
+            let row = format!("{prefix}QUOTA Ω REACHED, resets in 2h");
+            assert_eq!(
+                banner_match(&row, "quota Ω reached"),
+                Some((
+                    prefix.len() + "QUOTA Ω REACHED".len(),
+                    Some("resets in 2h".into())
+                ))
+            );
+            assert_eq!(banner_match(&format!(" {row}"), "quota Ω reached"), None);
+        }
+        // A custom pattern can itself begin with decoration or be longer
+        // than the candidate-prefix budget.
+        assert_eq!(
+            banner_match("── Quota reached", "─ quota reached"),
+            Some(("── Quota reached".len(), None))
+        );
+        let pattern = "custom quota exhausted ".repeat(4);
+        assert_eq!(
+            banner_match(&pattern, &pattern.to_ascii_lowercase()),
+            Some((pattern.len(), None))
+        );
+        assert_eq!(banner_match("", ""), Some((0, None)));
+        assert_eq!(
+            banner_match(
+                "quota exhausted, resets in 2h ── `quoted`",
+                "quota exhausted"
+            ),
+            None
+        );
+    }
+
+    #[test]
+    #[ignore = "manual scan-cost regression; run alone with --ignored --nocapture"]
+    fn banner_search_long_non_banner_cost() {
+        let row = format!(
+            "ordinary output {} quota exhausted",
+            "x".repeat(1024 * 1024)
+        );
+        let started = std::time::Instant::now();
+        for _ in 0..128 {
+            assert_eq!(
+                banner_match(std::hint::black_box(&row), "quota exhausted"),
+                None
+            );
+        }
+        let elapsed = started.elapsed();
+        eprintln!("128 one-MiB non-banner matches: {elapsed:?}");
+        assert!(
+            elapsed < std::time::Duration::from_secs(1),
+            "non-banner scan exceeded manual one-second budget: {elapsed:?}"
         );
     }
 
