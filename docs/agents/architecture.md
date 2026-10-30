@@ -839,6 +839,15 @@ workspace reconstruction reads the newest 10,000 records across segments.
 `DELETE /sessions/:id/forget` and retention delete a session's segment and
 every recommendation derived from it.
 
+Peon output observation in source normally waits for the configured quiet
+interval (five seconds by default). Pending logical output is also eligible
+after 30 seconds, or the configured interval when longer, even if redraws keep
+arriving. The maximum wait belongs to the current runtime, input generation,
+and unconsumed output boundary; resume, new input, or a consumed range cannot
+inherit an older deadline. In-flight inference remains exclusive per session.
+This scheduling bound changes neither evidence grounding nor recommendation
+eligibility, and does not guarantee that every pass produces an observation.
+
 The workflow-observation and Taskmaster routes this design introduces or repurposes:
 
 - `POST /taskmaster/assess-workflow` — implemented in source. Authenticated manual assessment returns one grounded report or an explicit no-proposal outcome, with stable identity-only admission responses.

@@ -5,6 +5,16 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
+// A busy terminal must not postpone observing pending evidence indefinitely.
+const MAX_OUTPUT_OBSERVATION_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+struct PendingOutputObservation {
+    runtime_identity: RuntimeIdentity,
+    input_generation: u64,
+    min_revision: u64,
+    since: tokio::time::Instant,
+}
+
 const MAX_DIAGNOSTIC_TEXT_CHARS: usize = 240;
 const PEON_SHUTDOWN_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
 
@@ -637,6 +647,7 @@ where
     tokio::pin!(shutdown);
     let mut inference_tasks = tokio::task::JoinSet::new();
     let cancellation = Arc::new(AtomicBool::new(false));
+    let mut pending_output: HashMap<String, PendingOutputObservation> = HashMap::new();
 
     loop {
         tokio::select! {
@@ -654,28 +665,50 @@ where
         // Sessions with a pending label inference (input-triggered, no debounce)
         let pending: Vec<String> = state.peon.label_pending.write().unwrap().drain().collect();
 
-        // Sessions with new output that has gone silent
+        // Prefer quiet output, but bound the wait when terminal redraws or
+        // continuous work keep resetting last_output. Track the evidence boundary,
+        // not the latest chunk, so new input/resume cannot inherit an old deadline.
         let mut candidates: Vec<(String, InferenceMode)> = {
             let last_output = state.peon.last_output.read().unwrap();
             let in_flight = state.peon.in_flight.read().unwrap();
             let sessions = state.sessions.lock().unwrap();
+            pending_output.retain(|id, pending| {
+                last_output.contains_key(id)
+                    && sessions.get(id).is_some_and(|handle| {
+                        handle.info.lifecycle_phase == "active"
+                            && handle.runtime.identity() == pending.runtime_identity
+                            && handle.runtime.input_generation == pending.input_generation
+                            && handle.runtime.min_peon_output_revision == pending.min_revision
+                            && handle.output_buffer.has_after(pending.min_revision)
+                    })
+            });
 
             last_output
                 .iter()
-                .filter(|(id, &t)| {
-                    t <= deadline
-                        && !in_flight.contains(*id)
-                        && sessions
-                            .get(*id)
-                            .map(|handle| {
-                                handle.info.lifecycle_phase == "active"
-                                    && handle
-                                        .output_buffer
-                                        .has_after(handle.runtime.min_peon_output_revision)
-                            })
-                            .unwrap_or(false)
+                .filter_map(|(id, &last_chunk)| {
+                    let handle = sessions.get(id)?;
+                    if handle.info.lifecycle_phase != "active"
+                        || in_flight.contains(id)
+                        || !handle
+                            .output_buffer
+                            .has_after(handle.runtime.min_peon_output_revision)
+                    {
+                        return None;
+                    }
+                    let pending = pending_output.entry(id.clone()).or_insert_with(|| {
+                        PendingOutputObservation {
+                            runtime_identity: handle.runtime.identity(),
+                            input_generation: handle.runtime.input_generation,
+                            min_revision: handle.runtime.min_peon_output_revision,
+                            since: now,
+                        }
+                    });
+                    (last_chunk <= deadline
+                        || now.duration_since(pending.since)
+                            >= MAX_OUTPUT_OBSERVATION_WAIT
+                                .max(std::time::Duration::from_secs(interval)))
+                    .then(|| (id.clone(), InferenceMode::Output))
                 })
-                .map(|(id, _)| (id.clone(), InferenceMode::Output))
                 .collect()
         };
 
@@ -700,6 +733,9 @@ where
         }
 
         for (session_id, mode) in candidates {
+            if matches!(mode, InferenceMode::Output) {
+                pending_output.remove(&session_id);
+            }
             {
                 let mut in_flight = state.peon.in_flight.write().unwrap();
                 if !in_flight.insert(session_id.clone()) {
@@ -5323,6 +5359,119 @@ mod tests {
             updated_at >= before_test,
             "last_output should be refreshed even when persist is skipped and inference was terminal; \
              session must remain eligible for retry, not silently exit the candidate pool"
+        );
+    }
+
+    #[tokio::test]
+    async fn continuous_output_does_not_starve_workflow_observation() {
+        let _lease_guard = diagnostic_test_guard();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path();
+        let id = "continuous-output";
+        let mut state = test_app_state_with_workspace(path);
+        let mutable = Arc::get_mut(&mut state).unwrap();
+        mutable.peon.config.interval_secs = 1;
+        mutable.providers = providers::ProviderManager::for_tests(
+            providers::ProviderSettingsPayload {
+                version: 1,
+                revision: 1,
+                peon_model: None,
+                peon_selection: Some(providers::PeonSelection {
+                    provider: "opencode".into(),
+                    model: "test-model".into(),
+                    reasoning_effort: None,
+                    ollama_base_url: None,
+                }),
+                ollama_base_url: providers::default_ollama_base_url(),
+                providers: vec![providers::ProviderSettingsEntry {
+                    id: "opencode".into(),
+                    enabled: true,
+                    fallback_order: 0,
+                    model: None,
+                    default_state: providers::ProviderCapacityState::Healthy,
+                    override_state: None,
+                }],
+            },
+            vec![providers::FakeProvider::new("opencode").stdout(
+                r#"{"observedStatus":"working","confidence":0.9,"workflowObservations":[{"kind":"obstacle","description":"Dependency download repeatedly fails","evidence":"dependency download failed","reportedImpact":"medium","confidence":0.9}]}"#,
+            )],
+        );
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        let mut buffer = peon::RingBuffer::new(200);
+        buffer.push("dependency download failed".into());
+        state.sessions.lock().unwrap().insert(
+            id.into(),
+            crate::SessionHandle {
+                info: test_session_info(id, "Test", path.display().to_string(), "running", "now"),
+                kill_tx,
+                output_buffer: buffer,
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(24, 80),
+                terminal_attached: false,
+                resume_in_progress: false,
+                capacity: crate::capacity_state::CapacityState::default(),
+                active_work_hook: false,
+            },
+        );
+        let mut meta = test_session_metadata(
+            id,
+            "Test",
+            path.display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        meta.lifecycle_phase = "active".into();
+        meta.lifecycle = "alive".into();
+        meta.connectivity = "online".into();
+        meta.terminal_outcome = None;
+        meta.final_observed_status_snapshot = None;
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
+        state
+            .peon
+            .last_output
+            .write()
+            .unwrap()
+            .insert(id.into(), tokio::time::Instant::now());
+        let (task, shutdown) = spawn_test_peon_loop(state.clone());
+        let observed = tokio::time::timeout(std::time::Duration::from_secs(35), async {
+            loop {
+                // Terminal redraws arrive more frequently than the quiet debounce.
+                state
+                    .peon
+                    .last_output
+                    .write()
+                    .unwrap()
+                    .insert(id.into(), tokio::time::Instant::now());
+                if state
+                    .workspace
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .workflow_observations
+                    .session_observation_count(id)
+                    .unwrap()
+                    > 0
+                {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        })
+        .await;
+        stop_test_peon_loop(task, shutdown).await;
+        assert!(
+            observed.is_ok(),
+            "continuous output prevented a grounded workflow observation"
         );
     }
 
