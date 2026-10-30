@@ -4,7 +4,7 @@ title: Evaluation-artifact producer qualification handoff
 description: Gated owner decision, source closure and conditional/native evidence sequence for immutable evaluation-artifact custody and publication.
 tags: [orkworks, evaluation, artifacts, qualification, custody]
 status: draft
-workflow_status: owner-review-required
+workflow_status: source-and-authority-closure-required
 ---
 
 # Evaluation-artifact producer qualification handoff
@@ -53,11 +53,11 @@ Record dispositions here; do not execute dependent work from a reviewer summary.
 
 ## Gate 1 — scoped owner decision
 
-- [ ] Review the five concrete choices in the proposal's final section. Reconcile
+- [x] Review the five concrete choices in the proposal's final section. Reconcile
   artifact content sharing/reciprocal custody and saturation cost, registry
   compatibility, new producer/read quotas, excluded read-work command and memory
   policy with #741/#744/#746; change owning contracts only for the accepted scope.
-- [ ] Record acceptance or revisions against exact reviewed bytes. Draft/merge
+- [x] Record acceptance or revisions against exact reviewed bytes. Draft/merge
   authorization does not accept new defaults or authorize fixture/adaptor work.
 
 Check: each new row/field/domain/purpose/resource/command/default has a named
@@ -136,3 +136,21 @@ technical content remains proposed; code/fixture execution is still gated.
 Disposition: **Ready for the next written owner-review gate; Investigate for
 executable qualification.** No runtime, schema/default acceptance or unqualified
 code plan follows.
+
+
+## Gate 1 accepted; Gate 2 investigated — 2026-10-30
+
+The [scoped acceptance](../specs/2026-10-30-evaluation-artifact-producer-design.md#owner-acceptance-and-gate-2-handoff--2026-10-30)
+completes Gate 1 without changing technical definitions or expanding authority.
+The [bounded source audit](../../validation/evaluation-artifact-source-closure.md)
+separates accepted logical contracts from retained producer/consumer evidence and
+physical reservation ordering. Its next deliverables are
+[#1183](https://github.com/Rambolarsen/orkworks/issues/1183) (closed child source and
+preparation records) and [#1184](https://github.com/Rambolarsen/orkworks/issues/1184)
+(read-work authority ordering). These specification investigations may proceed
+within their own scope; no new codec or cutoff is accepted by naming the issues.
+
+Current disposition: **Gate 1 complete; Gate 2 Investigate; Gates 3–4 gated.**
+The previous ready-for-owner-review disposition is historical. No component
+arithmetic/hash, synthetic child identity, final response check or advisory-lock
+existence passes Gate 2. No dependent fixture, code, migration or probe ran.

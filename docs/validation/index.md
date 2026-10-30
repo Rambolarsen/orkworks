@@ -56,3 +56,5 @@ Capability research, validation results, and evidence fixtures.
 - [Retained assignment source accounting witnesses](assignment-accounting-witnesses.md) — Complete existing root ledger/command recounts and archived cross-run review charge components, with an explicit retained-history gap.
 
 - [Coherent conditional child review history](coherent-review-history.md) — Exact review predecessor/result/snapshot, artifact reply and paired-credit components; producer custody/publication remain gated.
+
+- [Evaluation-artifact source and authority closure audit](evaluation-artifact-source-closure.md) — Scoped acceptance and bounded child-producer/read-work cutoff evidence, with concrete Gate 2 prerequisites.
