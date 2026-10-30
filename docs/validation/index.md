@@ -54,3 +54,5 @@ Capability research, validation results, and evidence fixtures.
 - [Assignment aggregate budget boundary components](assignment-aggregate-budgets.md) — Independent isolated retained record/payload limit comparisons; source-owned accounting and complete transaction qualification remain open.
 
 - [Retained assignment source accounting witnesses](assignment-accounting-witnesses.md) — Complete existing root ledger/command recounts and archived cross-run review charge components, with an explicit retained-history gap.
+
+- [Coherent conditional child review history](coherent-review-history.md) — Exact review predecessor/result/snapshot, artifact reply and paired-credit components; producer custody/publication remain gated.
