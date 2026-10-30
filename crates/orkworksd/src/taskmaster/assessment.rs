@@ -44,6 +44,7 @@ pub(crate) struct AssessmentRecommendationSummary {
 
 #[derive(Clone)]
 pub(crate) struct AssessmentSnapshot {
+    pub readiness_focus: Option<super::readiness_focus::ReadinessFocus>,
     pub repository: super::assessment_context::RepositoryContext,
     pub evaluation: super::runtime::EvaluationSnapshot,
     pub fingerprint: String,
@@ -59,6 +60,7 @@ pub(crate) struct AssessmentSnapshot {
 /// The complete model input and durable cache identity. The prompt itself is
 /// held only in memory and is never copied into the report store.
 pub(crate) struct WorkspaceInput {
+    pub readiness_focus: Option<super::readiness_focus::ReadinessFocus>,
     pub repository: super::assessment_context::RepositoryContext,
     pub fingerprint: String,
     pub observations: Vec<crate::workflow_observations::WorkflowObservation>,
@@ -105,6 +107,28 @@ pub(crate) fn capture_workspace_input(
         observations,
         recommendations,
         repository,
+        saved
+            .as_ref()
+            .and_then(|r| {
+                r.readiness_reference
+                    .as_ref()
+                    .map(|reference| (r, reference))
+            })
+            .map(|(record, reference)| {
+                if record.state == super::assessment_report::AssessmentState::Succeeded {
+                    // Completed actions retain their existing independent repository
+                    // fence even after the informational score leaves history.
+                    Ok(super::readiness_focus::ReadinessFocus {
+                        reference: reference.clone(),
+                        context: serde_json::Value::Null,
+                    })
+                } else {
+                    super::readiness_focus::ReadinessFocus::capture(
+                        workspace, evaluation, reference,
+                    )
+                }
+            })
+            .transpose()?,
     )
 }
 
@@ -114,6 +138,7 @@ fn build_workspace_input(
     observations: Vec<crate::workflow_observations::WorkflowObservation>,
     recommendations: Vec<super::Recommendation>,
     repository: super::assessment_context::RepositoryContext,
+    readiness_focus: Option<super::readiness_focus::ReadinessFocus>,
 ) -> Result<WorkspaceInput, String> {
     let facts = repository.facts.clone();
     let manifest = repository.manifest();
@@ -125,7 +150,13 @@ fn build_workspace_input(
         .collect::<Vec<_>>();
     let mut prompt_snapshot = evaluation.clone();
     select_assessment_pages(&mut prompt_snapshot, &observations, &seeds);
-    let prompt = build_assessment_prompt(&prompt_snapshot, &observations, &facts, &recommendations);
+    let mut prompt =
+        build_assessment_prompt(&prompt_snapshot, &observations, &facts, &recommendations);
+    if let Some(focus) = &readiness_focus {
+        let mut value = serde_json::from_str(&prompt).map_err(|_| "Invalid assessment prompt")?;
+        focus.add_to_prompt(&mut value);
+        prompt = serde_json::to_string(&value).map_err(|_| "Invalid assessment prompt")?;
+    }
     if prompt.len() > MAX_ASSESSMENT_PROMPT_BYTES {
         return Err("Assessment context exceeds its size limit".into());
     }
@@ -134,7 +165,29 @@ fn build_workspace_input(
         .selection
         .as_ref()
         .ok_or("Taskmaster provider selection is unavailable")?;
-    let evaluation_identity = evaluation.cache_key(&prompt)?;
+    // The immutable exact source reference is the durable score identity. Its
+    // transient display context is rebuilt and revalidated before every call;
+    // history eviction after publication must not remove repository authority.
+    let mut identity_prompt: serde_json::Value =
+        serde_json::from_str(&prompt).map_err(|_| "Invalid assessment prompt")?;
+    if let Some(focus) = &readiness_focus {
+        identity_prompt
+            .as_object_mut()
+            .expect("application prompt")
+            .remove("readinessContext");
+        identity_prompt
+            .as_object_mut()
+            .expect("application prompt")
+            .remove("readinessRules");
+        identity_prompt["readinessReference"] =
+            serde_json::to_value(&focus.reference).map_err(|_| "Invalid readiness reference")?;
+        identity_prompt["purpose"] = serde_json::json!("score_directed_readiness");
+    }
+    let evaluation_identity = evaluation.cache_key(&if readiness_focus.is_some() {
+        identity_prompt.to_string()
+    } else {
+        prompt.clone()
+    })?;
     let identity = serde_json::json!({
         "version": 2,
         "manifest": manifest,
@@ -153,6 +206,7 @@ fn build_workspace_input(
     });
     let fingerprint = input_fingerprint(&identity)?;
     Ok(WorkspaceInput {
+        readiness_focus,
         repository,
         fingerprint,
         observations,
@@ -230,6 +284,7 @@ pub(crate) fn capture_current_snapshot(
         )
     };
     Ok(AssessmentSnapshot {
+        readiness_focus: input.readiness_focus,
         repository: input.repository,
         evaluation,
         fingerprint: input.fingerprint,
@@ -505,7 +560,7 @@ pub(crate) fn schedule(
         capture_current_snapshot(&state, &runtime_root, previous_recommendation_id)
     {
         if previous.as_ref().is_some_and(|record| {
-            record.format_version == 2
+            matches!(record.format_version, 2 | 3)
                 && record.state == super::assessment_report::AssessmentState::Succeeded
                 && record
                     .report
@@ -608,6 +663,7 @@ pub(crate) fn schedule(
     let now = chrono::Utc::now().to_rfc3339();
     let id = format!("assessment-{}", uuid::Uuid::new_v4());
     let record = super::assessment_report::AssessmentRecord {
+        readiness_reference: None,
         format_version: 2,
         input_manifest: None,
         phase: None,
@@ -998,6 +1054,94 @@ fn invoke_assessment_stage(
     })
 }
 
+fn readiness_discovery_pages(snapshot: &AssessmentSnapshot) -> Vec<super::runtime::KnowledgePage> {
+    let mut pages = snapshot
+        .prompt_snapshot
+        .knowledge
+        .as_ref()
+        .map(|b| b.pages.clone())
+        .unwrap_or_default();
+    if snapshot.readiness_focus.is_some() {
+        if let Some(bundle) = &snapshot.evaluation.knowledge {
+            if let Some(rubric) = &snapshot.evaluation.readiness_rubric {
+                for page in &bundle.pages {
+                    if rubric.concepts.iter().any(|c| {
+                        page.page_type == "concept"
+                            && page.id == format!("concepts/{}.md", c.concept_id)
+                    }) && !pages.iter().any(|p| p.id == page.id)
+                    {
+                        pages.push(page.clone());
+                    }
+                }
+            }
+        }
+    }
+    pages
+}
+
+fn pin_readiness_pages(snapshot: &mut AssessmentSnapshot, ids: &[String]) -> Result<(), String> {
+    if snapshot.readiness_focus.is_none() {
+        return Ok(());
+    }
+    let source = snapshot
+        .evaluation
+        .knowledge
+        .as_ref()
+        .ok_or("Readiness guidance is unavailable")?;
+    let rubric = snapshot
+        .evaluation
+        .readiness_rubric
+        .as_ref()
+        .ok_or("Readiness rubric is unavailable")?;
+    let selected = source
+        .pages
+        .iter()
+        .filter(|p| {
+            ids.contains(&p.id)
+                && rubric.concepts.iter().any(|c| {
+                    p.page_type == "concept" && p.id == format!("concepts/{}.md", c.concept_id)
+                })
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if selected.len() > 3 {
+        return Err("Too many readiness concept pages".into());
+    }
+    let bundle = snapshot
+        .prompt_snapshot
+        .knowledge
+        .as_mut()
+        .ok_or("Readiness guidance is unavailable")?;
+    let mut pages = selected;
+    if let Some(playbook) = bundle.pages.iter().find(|p| p.page_type == "playbook") {
+        if !pages.iter().any(|p| p.id == playbook.id) {
+            pages.push(playbook.clone());
+        }
+    }
+    for page in &bundle.pages {
+        if pages.len() < 8 && !pages.iter().any(|p| p.id == page.id) {
+            pages.push(page.clone());
+        }
+    }
+    bundle.pages = pages;
+    // The original discovery digest in the manifest binds this exact selection.
+    let mut prompt: serde_json::Value =
+        serde_json::from_str(&snapshot.prompt).map_err(|_| "Invalid assessment context")?;
+    let rendered: serde_json::Value = serde_json::from_str(&build_assessment_prompt(
+        &snapshot.prompt_snapshot,
+        &snapshot.observations,
+        &snapshot.facts,
+        &snapshot.recommendations,
+    ))
+    .map_err(|_| "Invalid assessment context")?;
+    prompt["knowledgePages"] = rendered["knowledgePages"].clone();
+    snapshot.prompt = prompt.to_string();
+    if snapshot.prompt.len() > MAX_ASSESSMENT_PROMPT_BYTES {
+        return Err("Assessment context exceeds its size limit".into());
+    }
+    Ok(())
+}
+
 fn discovery_prompt(snapshot: &AssessmentSnapshot) -> Result<String, String> {
     let mut prompt: serde_json::Value =
         serde_json::from_str(&snapshot.prompt).map_err(|_| "Invalid assessment context")?;
@@ -1107,16 +1251,11 @@ fn run_captured_assessment(
             return;
         }
     };
-    let pages = snapshot
-        .prompt_snapshot
-        .knowledge
-        .as_ref()
-        .map(|b| b.pages.as_slice())
-        .unwrap_or_default();
+    let discovery_pages = readiness_discovery_pages(&snapshot);
     let discovery = match super::assessment_discovery::parse_discovery_response(
         &output,
         &snapshot.facts,
-        pages,
+        &discovery_pages,
         snapshot.repository.catalog.len(),
     ) {
         Ok(response) => response,
@@ -1195,6 +1334,7 @@ fn run_captured_assessment(
         snapshot.observations.clone(),
         snapshot.recommendations.clone(),
         repository,
+        snapshot.readiness_focus.clone(),
     ) {
         Ok(input) => input,
         Err(error) => {
@@ -1239,6 +1379,10 @@ fn run_captured_assessment(
             &mut record,
             "Assessment inputs changed before saving evidence identity",
         );
+        return;
+    }
+    if let Err(error) = pin_readiness_pages(&mut snapshot, &discovery.knowledge_page_ids) {
+        fail_assessment(&store, &mut record, &error);
         return;
     }
     let parsed = if discovery.outcome == super::assessment_discovery::DiscoveryOutcome::NoCandidate
@@ -1306,6 +1450,24 @@ fn run_captured_assessment(
             }
         }
     };
+    if parsed.proposal.is_some() {
+        if let Some(focus) = &snapshot.readiness_focus {
+            if focus
+                .cited_reference(&snapshot.evaluation, &parsed.knowledge_page_ids)
+                .is_err()
+                || parsed.knowledge_page_ids.iter().any(|id| {
+                    id.starts_with("concepts/") && !discovery.knowledge_page_ids.contains(id)
+                })
+            {
+                fail_assessment(
+                    &store,
+                    &mut record,
+                    "Assessment proposal lacks unambiguous readiness capability citations",
+                );
+                return;
+            }
+        }
+    }
     let bundle = snapshot.prompt_snapshot.knowledge.as_ref();
     let selection = snapshot.evaluation.settings.selection.as_ref().unwrap();
     let mut repository_evidence = parsed
@@ -1683,6 +1845,7 @@ fn build_assessment_recommendation(
         .expect("validated proposed assessment");
     Recommendation {
         assessment: Some(AssessmentProvenance {
+            readiness_reference: snapshot.readiness_focus.as_ref().map(|focus| focus.cited_reference(&snapshot.evaluation, &response.knowledge_page_ids).expect("validated readiness citations")),
             id: assessment_id.into(),
             input_fingerprint: snapshot.fingerprint.clone(),
             context_level: snapshot.evaluation.settings.context_level,
@@ -1849,6 +2012,7 @@ mod tests {
         noise.evidence = "▘▝".into();
         observations.push(noise);
         let mut snapshot = super::super::runtime::EvaluationSnapshot {
+            readiness_rubric: None,
             custom_inference: None,
             native_revision: None,
             settings: Default::default(),
@@ -2124,6 +2288,7 @@ mod tests {
 
         let lease = runtime.try_analysis_lease().unwrap().unwrap();
         let record = AssessmentRecord {
+            readiness_reference: None,
             format_version: 2,
             input_manifest: None,
             phase: None,
@@ -2200,7 +2365,7 @@ fn input_fingerprint_excluding(
 
 #[cfg(test)]
 #[path = "assessment_quality_tests.rs"]
-mod quality_tests;
+pub(crate) mod quality_tests;
 
 /// Fresh manual continuation. The caller retains the same analysis lease across
 /// scoring and suggestion; standalone admission and cache behavior are unchanged.
@@ -2212,6 +2377,7 @@ pub(crate) fn run_fresh_under_lease(
     workspace_instance: u64,
     expected_evaluation: &super::runtime::EvaluationSnapshot,
     id: &str,
+    readiness_reference: super::readiness_focus::ReadinessReference,
     lease: &std::fs::File,
     mut before_dispatch: impl FnMut() -> Result<(), String>,
 ) -> Result<AssessmentRequestResponse, String> {
@@ -2248,7 +2414,8 @@ pub(crate) fn run_fresh_under_lease(
     }
     let expected_key = expected_evaluation.cache_key("")?;
     let mut record = AssessmentRecord {
-        format_version: 2,
+        readiness_reference: Some(readiness_reference),
+        format_version: 3,
         input_manifest: None,
         phase: Some(super::assessment_report::AssessmentPhase::Discovering),
         id: id.into(),

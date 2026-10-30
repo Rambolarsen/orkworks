@@ -24,6 +24,7 @@ pub(crate) mod knowledge;
 pub(crate) mod proposed_change;
 pub(crate) mod provider_catalog;
 pub(crate) mod readiness;
+pub(crate) mod readiness_focus;
 pub(crate) mod readiness_model;
 pub(crate) mod readiness_rubric;
 pub(crate) mod readiness_store;
@@ -185,6 +186,8 @@ pub(crate) struct KnowledgeEvidence {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct AssessmentProvenance {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub readiness_reference: Option<readiness_focus::RecommendationReadinessReference>,
     #[serde(default)]
     pub access_redacted: bool,
     pub id: String,

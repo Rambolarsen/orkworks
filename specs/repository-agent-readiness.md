@@ -425,14 +425,13 @@ the authoritative combined-action contract; implementation and model qualificati
 evidence do not establish availability in a published installer.
 
 
-## Proposed score-directed improvements (#1175)
+## Accepted score-directed improvements (#1175)
 
 The owner clarified on 2026-10-30 that recommendations should identify concrete
-changes to improve assessed agent-readiness capabilities. [Proposed ADR 0098](../docs/adr/0098-score-directed-readiness-improvements.md)
+changes to improve assessed agent-readiness capabilities. [ADR 0098](../docs/adr/0098-score-directed-readiness-improvements.md)
 and its [implementation plan](../docs/superpowers/plans/2026-10-30-score-directed-readiness.md)
 define feasible readiness evidence preferences and score-directed investigation
-with independently grounded proposals. They require owner approval before
-runtime implementation. Until then the accepted #1091 contract, including its
-exclusion of score-derived suggestion inputs, remains authoritative. This
-proposal changes neither current score/history semantics nor #1077's separate
-observation-quality scope.
+with independently grounded proposals. The owner approved the concrete contract and implementation on 2026-10-30.
+It supersedes #1091's score-input exclusion and readiness's indivisible discovery
+request semantics only. Score/history semantics and #1077's separate observation
+quality scope remain unchanged.

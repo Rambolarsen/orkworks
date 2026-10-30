@@ -14,3 +14,5 @@ Captured fixture context for reproducible validation.
 - [Readiness collector-3 trials](readiness-suggestions-2026-10-27/index.md) — Exact inputs/outputs and ratings for the combined-flow follow-up qualification.
 
 - [Readiness calibration](readiness-calibration-2026-10-27/index.md) — Separate collector-3 prompt-v2 trials, hashes, source bytes and independent semantic review.
+
+- [Score-directed readiness qualification](score-directed-readiness-2026-10-30/index.md) — Five fixed Luna medium combined samples; usefulness gate failed.

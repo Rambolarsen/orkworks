@@ -108,26 +108,26 @@ pub(crate) fn decode(
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Discovery {
     version: u8,
-    requested_file_ids: Vec<usize>,
+    preferred_file_ids: Vec<usize>,
 }
 pub(crate) fn decode_discovery(output: &str, catalog_size: usize) -> Result<Vec<usize>, String> {
     let response: Discovery = parse(output)?;
-    if response.version != 1
-        || response.requested_file_ids.len() > 8
+    if response.version != 2
+        || response.preferred_file_ids.len() > 8
         || response
-            .requested_file_ids
+            .preferred_file_ids
             .iter()
             .any(|id| *id >= catalog_size)
         || response
-            .requested_file_ids
+            .preferred_file_ids
             .iter()
             .collect::<HashSet<_>>()
             .len()
-            != response.requested_file_ids.len()
+            != response.preferred_file_ids.len()
     {
         return Err("Invalid readiness evidence selection".into());
     }
-    Ok(response.requested_file_ids)
+    Ok(response.preferred_file_ids)
 }
 
 #[cfg(test)]
@@ -254,16 +254,33 @@ mod tests {
         }
     }
     #[test]
+    fn discovery_v2_preserves_preference_priority_and_rejects_legacy_or_duplicate_fields() {
+        assert_eq!(
+            decode_discovery(r#"{"version":2,"preferredFileIds":[2,0]}"#, 3).unwrap(),
+            vec![2, 0]
+        );
+        for output in [
+            r#"{"version":1,"requestedFileIds":[0]}"#,
+            r#"{"version":2,"preferredFileIds":[0,0]}"#,
+            r#"{"version":2,"preferredFileIds":[3]}"#,
+            r#"{"version":2,"preferredFileIds":[],"preferredFileIds":[]}"#,
+            r#"{"version":2,"preferredFileIds":[],"requestedFileIds":[]}"#,
+        ] {
+            assert!(decode_discovery(output, 3).is_err(), "{output}");
+        }
+    }
+
+    #[test]
     fn strict_discovery_limits_selection_and_has_no_candidate_shortcut() {
         assert_eq!(
-            decode_discovery(r#"{"version":1,"requestedFileIds":[0,2]}"#, 3).unwrap(),
+            decode_discovery(r#"{"version":2,"preferredFileIds":[0,2]}"#, 3).unwrap(),
             vec![0, 2]
         );
         for output in [
-            r#"{"version":1,"requestedFileIds":[0,0]}"#,
-            r#"{"version":1,"requestedFileIds":[3]}"#,
-            r#"{"version":1,"version":1,"requestedFileIds":[]}"#,
-            r#"{"version":1,"requestedFileIds":[],"outcome":"no_candidate"}"#,
+            r#"{"version":2,"preferredFileIds":[0,0]}"#,
+            r#"{"version":2,"preferredFileIds":[3]}"#,
+            r#"{"version":2,"version":2,"preferredFileIds":[]}"#,
+            r#"{"version":2,"preferredFileIds":[],"outcome":"no_candidate"}"#,
         ] {
             assert!(decode_discovery(output, 3).is_err());
         }

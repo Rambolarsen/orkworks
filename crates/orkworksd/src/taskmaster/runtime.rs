@@ -339,6 +339,7 @@ struct RuntimeData {
 
 #[derive(Clone)]
 pub(crate) struct EvaluationSnapshot {
+    pub readiness_rubric: Option<super::readiness_rubric::ReadinessRubric>,
     pub settings: TaskmasterSettings,
     pub knowledge: Option<KnowledgeBundle>,
     pub knowledge_identity: Option<KnowledgeIdentity>,
@@ -1006,6 +1007,7 @@ impl TaskmasterRuntime {
         let settings = effective_settings(&data.settings, &workspace);
         ((allow_disabled || settings.enabled) && settings.selection.is_some()).then(|| {
             EvaluationSnapshot {
+                readiness_rubric: None,
                 settings,
                 knowledge: data.knowledge.clone(),
                 knowledge_identity: data

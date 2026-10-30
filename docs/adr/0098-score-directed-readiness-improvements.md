@@ -3,13 +3,14 @@ type: Architecture Decision
 title: Score-directed readiness improvements with feasible evidence selection
 description: Proposed connection from assessed capability gaps to independently grounded next changes, with bounded evidence admission.
 tags: [orkworks, architecture, taskmaster, readiness]
-status: draft
-workflow_status: proposed
+status: stable
+workflow_status: approved
 ---
 
 # Score-directed readiness improvements
 
-- Status: proposed; owner approval required before runtime implementation
+- Status: accepted; owner approved this design, implementation and the maximum
+  twenty-call synthetic qualification budget on 2026-10-30 ("keep going").
 - Tracking: [#1175](https://github.com/Rambolarsen/orkworks/issues/1175)
 - Date: 2026-10-30
 - Implementation and checks: [score-directed readiness plan](../superpowers/plans/2026-10-30-score-directed-readiness.md)
@@ -37,7 +38,7 @@ The exact model-selected ID set was not retained, so this does not establish
 which individual files or instruction closure exhausted the allowance. No
 additional live run, repair, model change, or workspace file edit was performed.
 
-## Decision proposed for approval
+## Decision
 
 Keep **Assess and suggest** and its existing recommendation lifecycle. Connect
 its second stage to the exact readiness snapshot created by that operation.
@@ -110,7 +111,11 @@ then included in the final stage's existing eight-page guidance allowance,
 alongside the required assessment guidance. Existing source collection bounds
 and at most eight follow-up catalog IDs remain in force for workflow assessment.
 Combined discovery validates criterion-index references against the captured
-verified rubric; final citation validation uses the actual supplied concept pages.
+verified rubric; final citation validation uses the actual supplied concept pages. The shipped rubric maps multiple capabilities to one shared playbook,
+so that playbook alone cannot identify a capability. Concept-page references
+require an existing signed page of type `concept` at
+`concepts/{canonical-concept-id}.md`; missing concept pages remain unavailable,
+never synthesized or assigned arbitrary capability labels.
 Neither page identity nor a low score proves a repository gap.
 
 The final proposal must cite current repository facts and at least one selected
@@ -161,7 +166,7 @@ and authority gates and acquire no authority from a missing historical score.
 This supersedes only the exclusion of scored-area pointers in the accepted
 combined plan and readiness's indivisible discovery-request semantics. All other
 [ADR 0095](0095-repository-agent-readiness-history.md) and ADR 0096 boundaries
-remain. Until owner approval, both accepted contracts remain in force.
+remain. The owner approved this scoped supersession on 2026-10-30.
 
 Changed prompt/collector versions invalidate reuse and comparison compatibility
 under existing rules without rewriting old snapshots. Old score/assessment formats

@@ -4,17 +4,16 @@ title: Score-directed readiness suggestions
 description: Gated implementation plan for feasible scoring evidence and recommendations tied to readiness capabilities.
 tags: [orkworks, taskmaster, readiness, implementation]
 status: draft
-workflow_status: awaiting-owner-approval
+workflow_status: in-progress
 ---
 
 # Score-directed readiness suggestions
 
 Tracking: [#1175](https://github.com/Rambolarsen/orkworks/issues/1175).
-Design: [proposed ADR 0098](../../adr/0098-score-directed-readiness-improvements.md).
-Status: proposed; no runtime implementation is authorized by this document alone.
-The owner's October 30 approval covered one installed-app run, which finished
-with an evidence-limit failure. It did not approve the changed architecture or
-an additional live qualification matrix.
+Design: [accepted ADR 0098](../../adr/0098-score-directed-readiness-improvements.md).
+Status: owner approved the concrete design, implementation and maximum twenty-call
+synthetic qualification budget on 2026-10-30 ("keep going"). The earlier one-run
+approval was separate and is exhausted. Runtime execution now follows ADR 0098.
 
 ## Outcome and pass conditions
 
@@ -29,7 +28,7 @@ harness is launched. Runtime/code review follows the root review gate.
 
 ## Deliverables and checks
 
-- [ ] **Feasible readiness evidence.** In `assessment_context.rs`, readiness's
+- [x] **Feasible readiness evidence.** In `assessment_context.rs`, readiness's
   discovery schema/transport markers, `readiness.rs`, and the independent
   Electron/renderer readiness validators, implement collector 4 and discovery 2
   as specified. Test a full seed plus eight large preferences, shared ancestor
@@ -39,14 +38,14 @@ harness is launched. Runtime/code review follows the root review gate.
   existing limits. Changed/unreadable paths fail rather than being omitted.
   Replay currentness using the recorded admitted set. Existing workflow
   requested-set and collector behavior must remain unchanged.
-- [ ] **Score-directed assessment context.** In `readiness.rs`, `assessment.rs`,
+- [x] **Score-directed assessment context.** In `readiness.rs`, `assessment.rs`,
   and the existing context/guidance owners, bind the exact newly saved score,
   signed criterion index, bounded area pointers and purpose to both suggestion
   stages. Test partial/null ratings, maturity four, a positive confirmed gap,
   counterevidence, unsafe generated transition text, and unrelated suggestions.
   Assert at most four calls, fresh repository citations and mandatory concept
   citations; no proposal may cite a score as proof or claim a numeric gain.
-- [ ] **Durable link and presentation.** Extend `assessment_report.rs`, the
+- [x] **Durable link and presentation.** Extend `assessment_report.rs`, the
   existing recommendation assessment provenance, access/currentness handlers,
   and independent desktop contract types with the ADR's references. Preserve
   supported legacy formats and bounds. Test commit/restart/parent-child linkage,
@@ -80,5 +79,19 @@ independent builder review raised two outcome ambiguities. Both were resolved
 without changing scope: all-budget-omitted preferences still reach seed-only
 scoring, while any encountered path/access/I/O/currentness failure aborts the
 entire attempt even when other preferences fit. Add explicit mixed-failure and
-all-omitted coverage assertions to the first deliverable. Existing architecture
-approval remains the next gate; no runtime work or new provider trials were done.
+all-omitted coverage assertions to the first deliverable. Owner approval was subsequently received on 2026-10-30; implementation is in progress.
+
+## Execution evidence and bounded handoff
+
+The first three deliverables are implemented in draft PR #1178. Deterministic
+checks cover exact budget boundaries, unread omissions, exact source context,
+unknown/maximum levels, unrelated concept rejection, recovery and source eviction.
+The [five fixed synthetic samples](../../validation/fixtures/score-directed-readiness-2026-10-30/index.md)
+consumed seventeen provider calls and **failed usefulness qualification**: one of
+three positive samples earned credit, with two required. Both negative controls
+produced no recommendation. No failed sample was retried or replaced. The
+remaining three calls are not permission to replace samples or change models.
+Keep the PR draft and #1175 open; this branch is not a claim that usable analysis
+is solved. Full verification and independent current-code review are recorded in
+the PR before handoff. A changed inference approach and any additional live
+qualification require a concrete next scope and fresh authorization.

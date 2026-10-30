@@ -1395,6 +1395,13 @@ fn recommendation_filename(id: &str) -> String {
 }
 
 fn validate_recommendation(recommendation: &Recommendation) -> Result<(), StoreError> {
+    if let Some(reference) = recommendation
+        .assessment
+        .as_ref()
+        .and_then(|a| a.readiness_reference.as_ref())
+    {
+        reference.validate().map_err(StoreError::GraphInvariant)?;
+    }
     if let Some(packet) = &recommendation.completion_packet {
         if recommendation
             .assessment

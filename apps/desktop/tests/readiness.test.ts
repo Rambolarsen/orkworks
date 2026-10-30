@@ -96,3 +96,22 @@ test('combined assessment transport is an authorized empty-body POST',async()=>{
  assert.equal(calls[0].init?.method,'POST');
  await assert.rejects(taskmasterRequest(1234,'token','assess-and-suggest' as any,{},fetcher));
 });
+
+
+test('readiness admission metadata is validated independently at renderer and privileged transport', async () => {
+ const valid: any = validStatus();
+ valid.snapshots[0].data.versions = {collector:4,prompt:'taskmaster-readiness-v3',discoverySchema:2,finalSchema:1,scoring:1};
+ valid.snapshots[0].data.inputManifest = {collector:{collectorVersion:4,purpose:'readiness',preferredFileIds:[0,1],requestedFileIds:[1],selectionOmissions:[{id:0,reason:'evidence_limit'}]}};
+ assert.equal(parseReadinessStatus(valid).snapshots.length,1);
+ await taskmasterRequest(1234,'token','readiness',undefined,async()=>new Response(JSON.stringify(valid)));
+ for (const mutate of [
+  (c:any)=>c.selectionOmissions[0].reason='unknown',
+  (c:any)=>c.requestedFileIds=[0,1],
+  (c:any)=>c.preferredFileIds=[0,0],
+  (c:any)=>c.selectionOmissions[0].id=2,
+ ]) {
+  const malformed = structuredClone(valid); mutate(malformed.snapshots[0].data.inputManifest.collector);
+  assert.throws(()=>parseReadinessStatus(malformed), /readiness.*admission/i);
+  await assert.rejects(taskmasterRequest(1234,'token','readiness',undefined,async()=>new Response(JSON.stringify(malformed))), /readiness.*admission/i);
+ }
+});

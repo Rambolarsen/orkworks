@@ -394,3 +394,12 @@ model/effort configurations remain unqualified. No live model selection was
 changed. These synthetic trials do not establish general accuracy, real-world
 performance, full fourteen-area scoring, combined suggestion-stage inference,
 or availability in a published installer.
+
+## Score-directed suggestions (#1175)
+
+The [five fixed synthetic combined trials](fixtures/score-directed-readiness-2026-10-30/index.md)
+on 2026-10-30 consumed seventeen calls on configured Codex `gpt-6-luna`, medium.
+Only one of three positive samples produced a useful grounded change; the
+required minimum is two. Both negative controls produced no recommendation.
+The changed prompt/collector remains **unqualified for usefulness**. These results
+do not establish that the missing usable-analysis problem is resolved.

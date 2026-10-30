@@ -127,4 +127,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 
 - [0097: Desktop-owned skill management](0097-desktop-skill-management.md) — Accepted Electron-main inventory and qualified APM install boundary.
 
-- [0098: Score-directed readiness improvements](0098-score-directed-readiness-improvements.md) — Proposed; owner approval pending before runtime changes.
+- [0098: Score-directed readiness improvements](0098-score-directed-readiness-improvements.md) — Accepted on 2026-10-30; implementation in progress.

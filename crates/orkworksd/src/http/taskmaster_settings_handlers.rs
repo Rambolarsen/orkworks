@@ -351,6 +351,7 @@ mod tests {
             let workspace = workspace_guard.as_ref().unwrap();
             let metadata_root = workspace.metadata.root_path();
             let record = crate::taskmaster::assessment_report::AssessmentRecord {
+                readiness_reference: None,
                 format_version: 1,
                 input_manifest: None,
                 phase: None,
