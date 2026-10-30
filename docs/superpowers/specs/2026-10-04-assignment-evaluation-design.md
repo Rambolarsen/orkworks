@@ -2232,3 +2232,18 @@ The [component packet](../../validation/assignment-aggregate-budgets.md) tests
 isolated arithmetic, not source-derived accounting or complete transactions.
 Producer/custody/native and separately approved executable-plan gates remain open;
 no runtime or launch eligibility follows. Keep #744/#746 open.
+
+
+## Coherent conditional review-history evidence — 2026-10-30
+
+The [source-history packet](../../validation/coherent-review-history.md) supplies
+new component bytes with an actual initial-review → correction → user-invalidation
+chain for a synthetic child target and cross-run child reviewer. It preserves the
+old archive's placeholder-predecessor gap rather than rewriting earlier sources.
+Exact child-result/snapshot/evidence/request/receipt/raw-artifact joins and paired
+receipt contributions are checked under this contract; no new schema/default or
+authority rule is selected. Full configurations, contributor/source/read authority,
+producer custody/content/index/aggregate limits, complete manifests, native and
+runtime/executable-plan gates remain separate. The next written prerequisite is
+the minimal immutable evaluation-artifact producer contract; new choices need
+owner review before dependent full transaction fixtures. Keep #744/#746 open.
