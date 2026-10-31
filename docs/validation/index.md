@@ -58,3 +58,5 @@ Capability research, validation results, and evidence fixtures.
 - [Coherent conditional child review history](coherent-review-history.md) — Exact review predecessor/result/snapshot, artifact reply and paired-credit components; producer custody/publication remain gated.
 
 - [Evaluation-artifact source and authority closure audit](evaluation-artifact-source-closure.md) — Scoped acceptance and bounded child-producer/read-work cutoff evidence, with concrete Gate 2 prerequisites.
+
+- [Artifact read-work reservation authority](artifact-read-work-authority.md) — Pinned owner trace, physical-commit gap, proposed debit-only exception and conditional/native handoff oracles.
