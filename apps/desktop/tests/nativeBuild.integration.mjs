@@ -35,8 +35,8 @@ test("build:native repairs a host-Node addon with a stale Electron marker and pe
     assert.notEqual(abi, process.versions.modules, "this regression requires distinct host Node and Electron ABIs");
     pnpm("rebuild", "fs-ext");
     execFileSync(process.execPath, ["-e", 'require("fs-ext")'], { cwd: root });
-    // Recreate the misleading marker found in the frozen pnpm installation.
-    writeFileSync(join(addonRoot, "build/Release/.forge-meta"), `${process.arch}--${abi}`);
+    // Recreate a current-format Electron marker surviving a host-Node rebuild.
+    writeFileSync(join(addonRoot, "build/Release/.forge-meta"), `${process.platform}--${process.arch}--${abi}`);
     // Characterize the pinned installer's stale-marker skip before our verifier runs.
     pnpm("exec", "electron-builder", "install-app-deps");
     assert.throws(() => electronEval('require("fs-ext")'), /NODE_MODULE_VERSION/);

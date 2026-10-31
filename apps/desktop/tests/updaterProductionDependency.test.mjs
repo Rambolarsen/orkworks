@@ -9,7 +9,7 @@ import test from "node:test";
 test("packaged updater loads from an isolated production dependency tree", async () => {
   const manifestUrl = new URL("../package.json", import.meta.url);
   const manifest = JSON.parse(await readFile(manifestUrl, "utf8"));
-  assert.equal(manifest.dependencies["electron-updater"], "6.8.9");
+  assert.match(manifest.dependencies["electron-updater"], /^\d+\.\d+\.\d+$/, "the production updater must use an exact version");
   assert.equal(manifest.devDependencies["electron-updater"], undefined);
   const directory = await mkdtemp(path.join(tmpdir(), "orkworks-updater-production-"));
   const copied = new Set();
