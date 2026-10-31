@@ -1462,3 +1462,16 @@ summary/ledger branches and logical read/invalidation oracles. It supplies no
 admission/termination producer, live authority, native durability, index completeness
 or runtime eligibility. Existing source definitions and earlier fixture bytes are
 unchanged; broader lifecycle and executable-plan gates remain open.
+
+
+## Proposed retained child source follow-up — 2026-10-31
+
+The [child source/preparation proposal](2026-10-31-child-review-source-preparation-design.md)
+and [gated handoff](../plans/2026-10-31-child-review-source-qualification.md) address
+#1183 with a bounded single-task retained-data slice, exact source/configuration/
+input/approval/reservation/allocation/attachment joins, fresh preparation and source
+consumer retention. Its new child/plan/leaf/source codecs, resource and profile
+choices need scoped owner review before dependent fixtures. Existing technical
+contracts, artifact acceptance, identity/wire domains and all catalogs/checkers are
+unchanged. This does not pass artifact Gate 2, qualify underlying control/native
+sources or widen claim-first; #1184/#740 and executable plans remain separate.

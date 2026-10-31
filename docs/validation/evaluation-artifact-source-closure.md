@@ -110,3 +110,14 @@ live model/native probe or executable/runtime change was produced by this audit.
 Existing logical source/codec decisions stay accepted in their original scope;
 new source or authority decisions receive one concrete scoped owner review before
 new dependent fixtures. Keep #1176 and the owning component issues open.
+
+
+## Child source proposal handoff — 2026-10-31
+
+The [selected child source design](../superpowers/specs/2026-10-31-child-review-source-preparation-design.md)
+proposes exact retained record interfaces and consumer/preparation joins for #1183.
+Its [qualification handoff](../superpowers/plans/2026-10-31-child-review-source-qualification.md)
+keeps new codec/profile/budget choices pending owner review and actual underlying
+control/source/authority closure distinct from component bytes. This audit and
+older fixtures/checkers remain unchanged; Gate 2 and #1184 are not passed by the
+new proposal, and no runtime or dependent transaction is authorized.
