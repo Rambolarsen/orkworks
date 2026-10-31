@@ -306,3 +306,14 @@ closure, complete bounds and actual native transition/lease/retirement evidence.
 #740, maximal-profile qualification and separately approved bounded native/
 executable plans remain independent. No SQL/database/migration, live probe,
 transaction fixture, runtime route or implementation is authorized.
+
+
+## Proposed command and recovery representation — 2026-10-31
+
+The [#1210 exact representation proposal](../superpowers/specs/2026-10-31-artifact-read-debit-proof-design.md)
+and [qualification handoff](../superpowers/plans/2026-10-31-artifact-read-debit-qualification.md)
+supply the next concrete owner-review choices: independent debit identity/body,
+retained full-key recovery row and accounting consumer, exact six-row commit and
+closed format-4 catalog integration. The accepted #1184 policy is unchanged;
+these new representation/retention choices remain proposed. No dependent
+transaction fixture, native mechanism or runtime implementation is delivered.

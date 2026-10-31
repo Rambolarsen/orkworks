@@ -242,3 +242,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Retained child review source qualification handoff](2026-10-31-child-review-source-qualification.md) — Proposed one-task child source records, exact preparation/consumer joins and gated qualification; new choices require owner review.
 
 - [Contextual session titles](2026-10-31-session-titles.md) — Native refresh, contextual fallback and manual rename implementation.
+
+- [Artifact debit qualification handoff](2026-10-31-artifact-read-debit-qualification.md) — Scoped codec review, source/consumer closure and conditional recovery packet before separately approved native work.

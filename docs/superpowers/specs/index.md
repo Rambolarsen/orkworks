@@ -220,3 +220,5 @@ Dated design records; these do not establish current product behavior.
 - [Evaluation-artifact producer proposal](2026-10-30-evaluation-artifact-producer-design.md) — Proposed artifact metadata/stream mapping, shared content custody and finite producer/read budgets; owner acceptance and executable gates remain open.
 
 - [Retained child reviewer source/preparation proposal](2026-10-31-child-review-source-preparation-design.md) — Proposed one-task child source records, exact preparation/consumer joins and gated qualification; new choices require owner review.
+
+- [Artifact read-work debit representation](2026-10-31-artifact-read-debit-proof-design.md) — Proposed exact internal command/decision row, recovery accounting and closed format-4 integration under accepted #1184 policy.

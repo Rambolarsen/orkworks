@@ -501,3 +501,16 @@ those choices still need scoped review. #1183 source closure, custody, native
 authority/lease/retirement, #740 and separately approved executable plans remain
 gates. No codec, fixture, transaction, probe, migration or runtime implementation
 is supplied by this policy acceptance. Gate 2 remains Investigate.
+
+
+## Proposed exact debit representation — 2026-10-31
+
+The [#1210 command/proof proposal](2026-10-31-artifact-read-debit-proof-design.md)
+binds the accepted #1184 permit to one exact internal body and retained accounting
+row, three existing producing-owner ledgers and two existing header/proof controls.
+Its new identity/domain/table, 16 KiB wrapper bound, direct recovery lookup and
+historical consumer/proof retention are proposed for scoped review. It preserves
+ClaimProofV2, source/request/receipt domains, frame/quota limits and the single
+closed fresh format-4 profile. No new codec or catalog choice is accepted by
+this routing; source/custody/native/maximal-profile/#740 and separately approved
+executable-plan gates remain. No fixture, database, probe or runtime work follows.
