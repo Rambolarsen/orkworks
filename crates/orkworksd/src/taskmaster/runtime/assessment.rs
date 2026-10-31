@@ -63,6 +63,8 @@ impl TaskmasterRuntime {
             .readiness_rubric
             .clone()
             .ok_or("Readiness rubric is missing")?;
+        let mut snapshot = snapshot;
+        snapshot.readiness_rubric = Some(rubric.clone());
         Ok((snapshot, rubric))
     }
 
@@ -111,6 +113,11 @@ impl TaskmasterRuntime {
         {
             return Err("Taskmaster assessment configuration changed.");
         }
+        let mut snapshot = snapshot;
+        snapshot.readiness_rubric = data
+            .verified_knowledge
+            .as_ref()
+            .and_then(|p| p.bundle().readiness_rubric.clone());
         Ok(snapshot)
     }
 }

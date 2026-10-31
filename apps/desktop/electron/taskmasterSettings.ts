@@ -1,3 +1,26 @@
+function validateEvidenceAdmission(value: Record<string, unknown>): void {
+  const versions = value.versions as Record<string, unknown> | undefined;
+  if (versions?.collector !== 4) return;
+  const fail = (): never => { throw Error('Invalid readiness evidence admission'); };
+  const manifest = value.inputManifest as {collector?: Record<string, unknown>} | undefined;
+  const collector = manifest?.collector;
+  if (!collector || collector.collectorVersion !== 4 || collector.purpose !== 'readiness') fail();
+  const ids = (value: unknown): number[] => {
+    if (!Array.isArray(value) || value.length > 8 || value.some(id=>!Number.isInteger(id)||id<0||id>=512) || new Set(value).size!==value.length) fail();
+    return value as number[];
+  };
+  const preferred = ids(collector!.preferredFileIds ?? []);
+  const admitted = ids(collector!.requestedFileIds);
+  const omissions = collector!.selectionOmissions ?? [];
+  if (!Array.isArray(omissions) || omissions.length > 8) fail();
+  const omitted: number[] = [];
+  for (const item of omissions as Record<string, unknown>[]) {
+    if (!item || typeof item!=='object' || Object.keys(item).sort().join(',')!=='id,reason' || item.reason!=='evidence_limit' || !preferred.includes(item.id as number)) fail();
+    omitted.push(item.id as number);
+  }
+  if (new Set(omitted).size!==omitted.length || JSON.stringify(preferred.filter(id=>!omitted.includes(id)))!==JSON.stringify(admitted)) fail();
+}
+
 // Defined independently of renderer types to preserve the process boundary.
 export type TaskmasterAssessmentPhase = "discovering" | "reading_evidence" | "assessing";
 const assessmentPhases: readonly TaskmasterAssessmentPhase[] = ["discovering", "reading_evidence", "assessing"];
@@ -50,6 +73,11 @@ export async function taskmasterRequest(
     if (phase !== undefined && phase !== null
       && (typeof phase !== "string" || !assessmentPhases.includes(phase as TaskmasterAssessmentPhase))) {
       throw new Error("Invalid Taskmaster assessment phase");
+    }
+  }
+  if (resource === "readiness" && Array.isArray(value.snapshots)) {
+    for (const snapshot of value.snapshots) {
+      if (snapshot && typeof snapshot === "object" && snapshot.data && typeof snapshot.data === "object") validateEvidenceAdmission(snapshot.data);
     }
   }
   return value;

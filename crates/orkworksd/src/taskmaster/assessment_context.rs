@@ -9,6 +9,7 @@ use std::{
 };
 
 pub(super) const COLLECTOR_VERSION: u8 = 3;
+pub(super) const READINESS_COLLECTOR_VERSION: u8 = 4;
 const MAX_PREFIX: usize = 8192;
 const MAX_TOTAL: usize = 65536;
 
@@ -26,9 +27,25 @@ pub(crate) struct InputManifest {
     pub instruction_coverage_complete: bool,
     pub files: Vec<ManifestFile>,
     pub requested_file_ids: Vec<usize>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub preferred_file_ids: Vec<usize>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub selection_omissions: Vec<SelectionOmission>,
     pub discovery_digest: Option<String>,
     pub redacted: bool,
 }
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct SelectionOmission {
+    pub id: usize,
+    pub reason: SelectionOmissionReason,
+}
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum SelectionOmissionReason {
+    EvidenceLimit,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct ManifestFile {
@@ -48,16 +65,29 @@ fn valid_digest(text: &str) -> bool {
 }
 impl InputManifest {
     pub(crate) fn validate(&self) -> Result<(), String> {
-        if !matches!(self.collector_version, 2 | COLLECTOR_VERSION)
-            || match self.purpose.as_deref() {
-                None => self.prompt_version != super::assessment::ASSESSMENT_PROMPT_VERSION,
-                Some("readiness") => !matches!(
-                    self.prompt_version.as_str(),
-                    "taskmaster-readiness-v1" | super::readiness::PROMPT_VERSION
-                ),
-                _ => true,
+        if !matches!(
+            self.collector_version,
+            2 | COLLECTOR_VERSION | READINESS_COLLECTOR_VERSION
+        ) || match self.purpose.as_deref() {
+            None => {
+                self.collector_version == READINESS_COLLECTOR_VERSION
+                    || self.prompt_version != super::assessment::ASSESSMENT_PROMPT_VERSION
             }
-            || self.files.len() > 32
+            Some("readiness") => {
+                if self.collector_version == READINESS_COLLECTOR_VERSION {
+                    !matches!(
+                        self.prompt_version.as_str(),
+                        "taskmaster-readiness-v3" | super::readiness::PROMPT_VERSION
+                    )
+                } else {
+                    !matches!(
+                        self.prompt_version.as_str(),
+                        "taskmaster-readiness-v1" | "taskmaster-readiness-v2"
+                    )
+                }
+            }
+            _ => true,
+        } || self.files.len() > 32
             || self.requested_file_ids.len() > 8
             || self.requested_file_ids.iter().any(|id| *id >= 512)
             || self.requested_file_ids.iter().collect::<HashSet<_>>().len()
@@ -65,11 +95,39 @@ impl InputManifest {
         {
             return Err("Assessment input manifest is invalid".into());
         }
+        let preferred: HashSet<_> = self.preferred_file_ids.iter().copied().collect();
+        let omitted: HashSet<_> = self.selection_omissions.iter().map(|o| o.id).collect();
+        if self.collector_version == READINESS_COLLECTOR_VERSION {
+            if self.purpose.as_deref() != Some("readiness")
+                || !matches!(
+                    self.prompt_version.as_str(),
+                    "taskmaster-readiness-v3" | super::readiness::PROMPT_VERSION
+                )
+                || self.preferred_file_ids.len() > 8
+                || preferred.len() != self.preferred_file_ids.len()
+                || preferred.iter().any(|id| *id >= 512)
+                || omitted.len() != self.selection_omissions.len()
+                || !omitted.is_subset(&preferred)
+                || self
+                    .preferred_file_ids
+                    .iter()
+                    .filter(|id| !omitted.contains(id))
+                    .copied()
+                    .collect::<Vec<_>>()
+                    != self.requested_file_ids
+            {
+                return Err("Invalid readiness preference admission".into());
+            }
+        } else if !preferred.is_empty() || !self.selection_omissions.is_empty() {
+            return Err("Unexpected readiness preference metadata".into());
+        }
         if self.redacted {
             if !self.files.is_empty()
                 || !self.catalog_digest.is_empty()
                 || self.discovery_digest.is_some()
                 || !self.requested_file_ids.is_empty()
+                || !self.preferred_file_ids.is_empty()
+                || !self.selection_omissions.is_empty()
             {
                 return Err("Redacted assessment manifest retains evidence".into());
             }
@@ -122,6 +180,8 @@ impl InputManifest {
         self.files.clear();
         self.catalog_digest.clear();
         self.requested_file_ids.clear();
+        self.preferred_file_ids.clear();
+        self.selection_omissions.clear();
         self.discovery_digest = None;
     }
 }
@@ -139,6 +199,7 @@ pub(crate) struct RepositoryContext {
     coverage: context::TraversalCoverage,
     permitted: HashSet<String>,
     unavailable_inputs: bool,
+    preferences_applied: bool,
 }
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum FollowUp {
@@ -159,8 +220,9 @@ impl RepositoryContext {
         excluded: &[String],
         observed_at: &str,
     ) -> Result<Self, String> {
-        let mut context = Self::collect(workspace, level, excluded, observed_at)?;
+        let mut context = Self::collect_internal(workspace, level, excluded, observed_at, true)?;
         context.manifest.purpose = Some("readiness".into());
+        context.manifest.collector_version = READINESS_COLLECTOR_VERSION;
         context.manifest.prompt_version = super::readiness::PROMPT_VERSION.into();
         Ok(context)
     }
@@ -169,6 +231,15 @@ impl RepositoryContext {
         level: ContextLevel,
         excluded: &[String],
         observed_at: &str,
+    ) -> Result<Self, String> {
+        Self::collect_internal(workspace, level, excluded, observed_at, false)
+    }
+    fn collect_internal(
+        workspace: &Path,
+        level: ContextLevel,
+        excluded: &[String],
+        observed_at: &str,
+        readiness: bool,
     ) -> Result<Self, String> {
         if level == ContextLevel::SessionObservations {
             return Err("Repository assessment requires workflow context access".into());
@@ -233,7 +304,29 @@ impl RepositoryContext {
             }
             // A catalog entry is permission data, not proof of absence. Vet the
             // bounded prefix without retaining or supplying unselected contents.
-            if read_prefix(&root, &relative, level, excluded).is_err() {
+            let available = if readiness {
+                // Readiness catalog discovery exposes paths only. Inspect safe
+                // regular-file metadata here; omitted preferences must never
+                // cause unselected content to be read during catalog creation.
+                open_evidence_file(&root, &relative, level, excluded)
+                    .and_then(|file| {
+                        file.metadata()
+                            .map_err(|_| "Evidence metadata unavailable".into())
+                    })
+                    .and_then(|metadata| {
+                        if metadata.is_file() {
+                            Ok(())
+                        } else {
+                            Err("Evidence is not a regular file".into())
+                        }
+                    })
+            } else {
+                read_prefix(&root, &relative, level, excluded).map(|_| ())
+            };
+            if let Err(error) = available {
+                if readiness {
+                    return Err(error);
+                }
                 unavailable_inputs = true;
                 continue;
             }
@@ -252,6 +345,7 @@ impl RepositoryContext {
             coverage,
             permitted,
             unavailable_inputs,
+            preferences_applied: false,
             manifest: InputManifest {
                 purpose: None,
                 context_level: level,
@@ -263,6 +357,8 @@ impl RepositoryContext {
                 instruction_coverage_complete: true,
                 files: Vec::new(),
                 requested_file_ids: Vec::new(),
+                preferred_file_ids: Vec::new(),
+                selection_omissions: Vec::new(),
                 discovery_digest: None,
                 redacted: false,
             },
@@ -420,6 +516,92 @@ impl RepositoryContext {
         ids: &[usize],
         hypothesis: &str,
     ) -> Result<FollowUp, String> {
+        if self.manifest.collector_version == READINESS_COLLECTOR_VERSION {
+            self.follow_up_preferences(ids, hypothesis)
+        } else {
+            self.follow_up_strict(ids, hypothesis)
+        }
+    }
+
+    fn follow_up_preferences(
+        &mut self,
+        ids: &[usize],
+        hypothesis: &str,
+    ) -> Result<FollowUp, String> {
+        if self.preferences_applied
+            || ids.len() > 8
+            || ids.iter().collect::<HashSet<_>>().len() != ids.len()
+        {
+            return Err("Invalid readiness evidence preferences".into());
+        }
+        // Validate every preference and closure before admitting any. Estimation
+        // opens safe handles for metadata only; omitted contents stay unread.
+        let mut closures = Vec::new();
+        let mut sizes = BTreeMap::new();
+        for id in ids {
+            let target = self
+                .catalog
+                .get(*id)
+                .ok_or("Unknown readiness preference")?
+                .clone();
+            let closure = self.instruction_closure(&[target])?;
+            for path in &closure {
+                if !sizes.contains_key(path) {
+                    let file = open_evidence_file(&self.root, path, self.level, &self.excluded)?;
+                    let metadata = file
+                        .metadata()
+                        .map_err(|_| "Evidence metadata unavailable")?;
+                    if !metadata.is_file() {
+                        return Err("Evidence is not a regular file".into());
+                    }
+                    sizes.insert(path.clone(), metadata.len().min(MAX_PREFIX as u64) as usize);
+                }
+            }
+            closures.push((*id, closure));
+        }
+        // Stage in a clone so any later read/currentness error discards the
+        // complete attempted admission, including earlier affordable files.
+        let mut admitted = self.clone();
+        let terms = hypothesis
+            .split_whitespace()
+            .filter(|s| s.len() > 3)
+            .take(256)
+            .map(str::to_lowercase)
+            .collect::<Vec<_>>();
+        for (id, closure) in closures {
+            let paths = closure
+                .into_iter()
+                .filter(|path| !admitted.prefixes.contains_key(path))
+                .collect::<Vec<_>>();
+            let bytes: usize = paths.iter().map(|path| sizes[path]).sum();
+            let total: usize = admitted.prefixes.values().map(Vec::len).sum();
+            if total + bytes > MAX_TOTAL || admitted.facts.len() + paths.len() > 32 {
+                admitted
+                    .manifest
+                    .selection_omissions
+                    .push(SelectionOmission {
+                        id,
+                        reason: SelectionOmissionReason::EvidenceLimit,
+                    });
+                continue;
+            }
+            for path in paths {
+                let bytes = read_prefix(&admitted.root, &path, admitted.level, &admitted.excluded)?;
+                if bytes.len() != sizes[&path] {
+                    return Err("Evidence changed during preference admission".into());
+                }
+                admitted.add_file(path, bytes, false, &terms)?;
+            }
+            admitted.manifest.requested_file_ids.push(id);
+        }
+        admitted.manifest.preferred_file_ids = ids.to_vec();
+        admitted.preferences_applied = true;
+        admitted.manifest.validate()?;
+        *self = admitted;
+        Ok(FollowUp::Read)
+    }
+
+    fn follow_up_strict(&mut self, ids: &[usize], hypothesis: &str) -> Result<FollowUp, String> {
         if !self.manifest.requested_file_ids.is_empty()
             || ids.len() > 8
             || ids.iter().collect::<HashSet<_>>().len() != ids.len()
@@ -566,7 +748,7 @@ impl RepositoryContext {
         // Revalidate an all-or-nothing insufficient-evidence result without
         // reconstructing any hypothesis prose or supplying a partial read set.
         let mut limited = self.clone();
-        if limited.follow_up(&saved.requested_file_ids, "")? == FollowUp::EvidenceLimit {
+        if limited.follow_up_strict(&saved.requested_file_ids, "")? == FollowUp::EvidenceLimit {
             limited.manifest.discovery_digest = saved.discovery_digest.clone();
             if limited.manifest == *saved {
                 return Ok(limited);
@@ -617,6 +799,8 @@ impl RepositoryContext {
             }
         }
         self.manifest = saved.clone();
+        self.preferences_applied = saved.collector_version == READINESS_COLLECTOR_VERSION
+            && saved.discovery_digest.is_some();
         Ok(self)
     }
 }
@@ -654,12 +838,12 @@ thread_local! {
     static OBSERVED_PREFIX_READS: std::cell::RefCell<Option<Vec<String>>> = const { std::cell::RefCell::new(None) };
 }
 
-fn read_prefix(
+fn open_evidence_file(
     root: &Path,
     relative: &str,
     level: ContextLevel,
     excluded: &[String],
-) -> Result<Vec<u8>, String> {
+) -> Result<std::fs::File, String> {
     if !context::fact_is_permitted(relative, level, excluded) {
         return Err("Assessment evidence access denied".into());
     }
@@ -673,6 +857,16 @@ fn read_prefix(
     }) {
         return Err("Assessment evidence is ignored".into());
     }
+    context::open_context_file(&path)
+        .map_err(|_| "Assessment evidence cannot be safely opened".into())
+}
+
+fn read_prefix(
+    root: &Path,
+    relative: &str,
+    level: ContextLevel,
+    excluded: &[String],
+) -> Result<Vec<u8>, String> {
     #[cfg(test)]
     OBSERVED_PREFIX_READS.with(|reads| {
         if let Some(reads) = reads.borrow_mut().as_mut() {
@@ -680,8 +874,7 @@ fn read_prefix(
         }
     });
     let mut bytes = Vec::new();
-    context::open_context_file(&path)
-        .map_err(|_| "Assessment evidence cannot be safely opened")?
+    open_evidence_file(root, relative, level, excluded)?
         .take(MAX_PREFIX as u64)
         .read_to_end(&mut bytes)
         .map_err(|_| "Assessment evidence cannot be read")?;
@@ -708,6 +901,232 @@ mod tests {
     use super::*;
     use crate::taskmaster::runtime::ContextLevel;
     use std::fs;
+
+    #[test]
+    fn readiness_admission_respects_exact_byte_and_file_boundaries() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["AGENTS.md", "README.md", "package.json"] {
+            fs::write(dir.path().join(name), "s".repeat(8192)).unwrap();
+        }
+        fs::create_dir(dir.path().join("src")).unwrap();
+        for n in 0..5 {
+            fs::write(dir.path().join(format!("src/{n}.rs")), "x".repeat(8192)).unwrap();
+        }
+        fs::write(dir.path().join("src/extra.rs"), "x").unwrap();
+        let mut c = RepositoryContext::collect_for_readiness(
+            dir.path(),
+            ContextLevel::SourceCode,
+            &[],
+            "now",
+        )
+        .unwrap();
+        let ids = (0..5)
+            .map(|n| {
+                c.catalog
+                    .iter()
+                    .position(|p| p == &format!("src/{n}.rs"))
+                    .unwrap()
+            })
+            .chain([c.catalog.iter().position(|p| p == "src/extra.rs").unwrap()])
+            .collect::<Vec<_>>();
+        c.follow_up(&ids, "").unwrap();
+        assert_eq!(
+            c.manifest.files.iter().map(|f| f.bytes).sum::<usize>(),
+            65536
+        );
+        assert_eq!(c.manifest.requested_file_ids, ids[..5]);
+        assert_eq!(c.manifest.selection_omissions[0].id, ids[5]);
+
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("README.md"), "s").unwrap();
+        let mut targets = Vec::new();
+        for n in 0..7 {
+            let mut path = dir.path().join(format!("b{n}"));
+            for depth in 0..4 {
+                if depth > 0 {
+                    path.push("nested");
+                }
+                fs::create_dir_all(&path).unwrap();
+                fs::write(path.join("AGENTS.md"), "s").unwrap();
+            }
+            fs::write(path.join("main.rs"), "x").unwrap();
+            targets.push(
+                path.strip_prefix(dir.path())
+                    .unwrap()
+                    .join("main.rs")
+                    .to_string_lossy()
+                    .to_string(),
+            );
+        }
+        fs::write(dir.path().join("small.rs"), "x").unwrap();
+        targets.push("small.rs".into());
+        let mut c = RepositoryContext::collect_for_readiness(
+            dir.path(),
+            ContextLevel::SourceCode,
+            &[],
+            "now",
+        )
+        .unwrap();
+        let ids = targets
+            .iter()
+            .map(|target| c.catalog.iter().position(|p| p == target).unwrap())
+            .collect::<Vec<_>>();
+        c.follow_up(&ids, "").unwrap();
+        assert_eq!(c.manifest.files.len(), 32);
+        assert_eq!(c.manifest.selection_omissions.len(), 1);
+        assert_eq!(c.manifest.selection_omissions[0].id, ids[6]);
+        assert!(c.manifest.requested_file_ids.contains(&ids[7]));
+        assert!(c.manifest.instruction_coverage_complete);
+    }
+
+    #[test]
+    fn readiness_preferences_skip_unaffordable_items_and_keep_later_affordable_evidence() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("src")).unwrap();
+        fs::write(dir.path().join("AGENTS.md"), "a".repeat(8192)).unwrap();
+        fs::write(dir.path().join("README.md"), "b".repeat(8192)).unwrap();
+        fs::write(dir.path().join("package.json"), "c".repeat(8092)).unwrap();
+        for n in 0..7 {
+            fs::write(
+                dir.path().join(format!("src/large-{n}.rs")),
+                "x".repeat(8192),
+            )
+            .unwrap();
+        }
+        fs::write(dir.path().join("src/small.rs"), "fn small() {}\n").unwrap();
+        let mut context = RepositoryContext::collect_for_readiness(
+            dir.path(),
+            ContextLevel::SourceCode,
+            &[],
+            "now",
+        )
+        .unwrap();
+        assert_eq!(
+            context
+                .manifest
+                .files
+                .iter()
+                .map(|f| f.bytes)
+                .sum::<usize>(),
+            24476
+        );
+        let mut ids = (0..7)
+            .map(|n| {
+                context
+                    .catalog
+                    .iter()
+                    .position(|p| p == &format!("src/large-{n}.rs"))
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        ids.push(
+            context
+                .catalog
+                .iter()
+                .position(|p| p == "src/small.rs")
+                .unwrap(),
+        );
+        assert_eq!(
+            context.follow_up(&ids, "readiness").unwrap(),
+            FollowUp::Read
+        );
+        let manifest = context.manifest();
+        assert_eq!(
+            manifest.requested_file_ids,
+            ids[..5].iter().copied().chain([ids[7]]).collect::<Vec<_>>()
+        );
+        assert!(manifest.files.iter().map(|f| f.bytes).sum::<usize>() <= 65536);
+        let value = serde_json::to_value(&manifest).unwrap();
+        assert_eq!(value["preferredFileIds"], serde_json::json!(ids));
+        assert_eq!(
+            value["selectionOmissions"],
+            serde_json::json!([{"id":ids[5],"reason":"evidence_limit"},{"id":ids[6],"reason":"evidence_limit"}])
+        );
+        context.bind_discovery("preferences");
+        let saved = context.manifest();
+        let restored = RepositoryContext::collect_for_readiness(
+            dir.path(),
+            ContextLevel::SourceCode,
+            &[],
+            "now",
+        )
+        .unwrap()
+        .restore_for_readiness(&saved)
+        .unwrap();
+        assert_eq!(restored.manifest(), saved);
+    }
+
+    #[test]
+    fn readiness_preferences_can_omit_a_whole_expensive_instruction_closure() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("AGENTS.md"), "a".repeat(8192)).unwrap();
+        fs::write(dir.path().join("README.md"), "b".repeat(8192)).unwrap();
+        fs::write(dir.path().join("package.json"), "c".repeat(8192)).unwrap();
+        let mut nested = dir.path().to_path_buf();
+        for name in ["a", "b", "c", "d", "e"] {
+            nested.push(name);
+            fs::create_dir(&nested).unwrap();
+            fs::write(nested.join("AGENTS.md"), "i".repeat(8192)).unwrap();
+        }
+        fs::write(nested.join("main.rs"), "evidence").unwrap();
+        OBSERVED_PREFIX_READS.with(|reads| *reads.borrow_mut() = Some(Vec::new()));
+        let mut context = RepositoryContext::collect_for_readiness(
+            dir.path(),
+            ContextLevel::SourceCode,
+            &[],
+            "now",
+        )
+        .unwrap();
+        let catalog_reads = OBSERVED_PREFIX_READS.with(|reads| reads.borrow_mut().take().unwrap());
+        assert!(
+            !catalog_reads.iter().any(|path| path.ends_with("main.rs")),
+            "unselected content read during catalog: {catalog_reads:?}"
+        );
+        let id = context
+            .catalog
+            .iter()
+            .position(|p| p == "a/b/c/d/e/main.rs")
+            .unwrap();
+        let before = context.manifest.files.clone();
+        OBSERVED_PREFIX_READS.with(|reads| *reads.borrow_mut() = Some(Vec::new()));
+        let result = context.follow_up(&[id], "evidence");
+        let reads = OBSERVED_PREFIX_READS.with(|reads| reads.borrow_mut().take().unwrap());
+        assert_eq!(result.unwrap(), FollowUp::Read);
+        assert!(
+            reads.is_empty(),
+            "unaffordable contents were read: {reads:?}"
+        );
+        assert_eq!(context.manifest.files, before);
+        assert!(context.manifest.requested_file_ids.is_empty());
+        assert!(context.manifest.instruction_coverage_complete);
+        assert_eq!(context.manifest.selection_omissions.len(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn readiness_preference_access_failure_discards_all_admission() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("src")).unwrap();
+        fs::write(dir.path().join("README.md"), "Repository instructions").unwrap();
+        fs::write(dir.path().join("src/first.rs"), "first").unwrap();
+        let unsafe_path = dir.path().join("src/second.rs");
+        fs::write(&unsafe_path, "second").unwrap();
+        let mut context = RepositoryContext::collect_for_readiness(
+            dir.path(),
+            ContextLevel::SourceCode,
+            &[],
+            "now",
+        )
+        .unwrap();
+        let before = context.manifest();
+        let ids = ["src/first.rs", "src/second.rs"]
+            .map(|p| context.catalog.iter().position(|s| s == p).unwrap());
+        fs::remove_file(&unsafe_path).unwrap();
+        let outside = tempfile::NamedTempFile::new().unwrap();
+        std::os::unix::fs::symlink(outside.path(), &unsafe_path).unwrap();
+        assert!(context.follow_up(&ids, "evidence").is_err());
+        assert_eq!(context.manifest(), before);
+    }
 
     #[test]
     fn readiness_revalidation_distinguishes_changes_from_unavailable_follow_up() {

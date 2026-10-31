@@ -1,3 +1,5 @@
+import ReadinessRecommendation from "./ReadinessRecommendation";
+import type { ReadinessSnapshot } from "../readiness";
 import ReadinessPanel from "./ReadinessPanel";
 import { useActionsRecommendations, type ActionsRecommendationSnapshot } from "../useActionsRecommendations";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -97,6 +99,8 @@ function ProposedChangeBlock({ change }: { change: ProposedChange }) {
 
 function RecommendationCard({
   recommendation,
+  readinessSnapshots,
+  onOpenReadiness,
   onDismiss,
   onSelectSession,
   onFixWithAi,
@@ -108,6 +112,8 @@ function RecommendationCard({
   focused,
 }: {
   recommendation: WorkflowRecommendation;
+  readinessSnapshots: ReadinessSnapshot[];
+  onOpenReadiness: (id: string) => void;
   onDismiss: (id: string) => void;
   onSelectSession?: (id: string) => void;
   onFixWithAi?: (recommendation: WorkflowRecommendation) => void;
@@ -137,6 +143,7 @@ function RecommendationCard({
           {formatImpact(recommendation.priority)} impact
         </span>
       </header>
+      <ReadinessRecommendation recommendation={recommendation} snapshots={readinessSnapshots} onOpen={onOpenReadiness} />
       <div className="recommendation-status-row">
         <span className={`recommendation-status recommendation-status--${recommendation.status}`}>
           {recommendation.status}
@@ -255,6 +262,9 @@ function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePat
   const [analysisError, setAnalysisError] = useState<string>();
   const [assessmentBusy, setAssessmentBusy] = useState(false);
   const [readinessBusy, setReadinessBusy] = useState(false);
+  const [readinessSnapshots, setReadinessSnapshots] = useState<ReadinessSnapshot[]>([]);
+  const [readinessSourceId, setReadinessSourceId] = useState<string>();
+  useEffect(() => { setReadinessSnapshots([]); setReadinessSourceId(undefined); }, [workspacePath]);
   const [assessmentMessage, setAssessmentMessage] = useState<string>();
   const [assessmentError, setAssessmentError] = useState<string>();
   const [auditBusy, setAuditBusy] = useState(false);
@@ -654,7 +664,7 @@ function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePat
           <button type="button" disabled={!hasWorkspace || !taskmasterReady} onClick={() => void refresh()}>Reload</button>
         </div>
       </div>
-      {workspacePath && taskmasterReady && <ReadinessPanel key={workspacePath} workspacePath={workspacePath} disabled={analysisBusy || assessmentBusy || Boolean(currentRunStatus?.activeAttempt)} onBusyChange={setReadinessBusy} onSuggestion={(id) => { void refresh(); if (id) setOriginFilter("analysis"); }} />}
+      {workspacePath && taskmasterReady && <ReadinessPanel onHistory={setReadinessSnapshots} requestedSnapshotId={readinessSourceId} key={workspacePath} workspacePath={workspacePath} disabled={analysisBusy || assessmentBusy || Boolean(currentRunStatus?.activeAttempt)} onBusyChange={setReadinessBusy} onSuggestion={(id) => { void refresh(); if (id) setOriginFilter("analysis"); }} />}
       {hasWorkspace && taskmasterReady && <TaskmasterAnalysisStatus
         status={currentRunStatus}
         requesting={analysisBusy}
@@ -704,6 +714,8 @@ function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePat
         <RecommendationCard
           key={recommendation.id}
           recommendation={recommendation}
+          readinessSnapshots={readinessSnapshots}
+          onOpenReadiness={setReadinessSourceId}
           onDismiss={dismiss}
           onSelectSession={onSelectSession}
           onFixWithAi={onFixWithAi}

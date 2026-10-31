@@ -45,3 +45,10 @@ This supersedes ADR 0095 only for the absence of a combined action;
 retain its score storage, signed rubric, history and privacy decisions by
 reference. Approval establishes the implementation contract, not model quality
 or availability in a published installer.
+
+## Partial supersession on 2026-10-30
+
+Accepted [ADR 0098](0098-score-directed-readiness-improvements.md) supplies scored
+areas as investigation pointers and budget-feasible readiness preferences. It
+supersedes the concrete plan's score-input exclusion only; this ADR's independent
+evidence, score/history, authority, call ceiling and recovery decisions remain.

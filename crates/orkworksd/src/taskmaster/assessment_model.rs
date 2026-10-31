@@ -376,6 +376,20 @@ fn contains_imperative_command(text: &str) -> bool {
             if pair[0] == "run" && pair[1] == "through" {
                 return false;
             }
+            // Comma splitting turns the noun item in a negative inventory
+            // ("No task workflow, issue breakdown, or history is supplied")
+            // into a synthetic imperative clause. Preserve that narrow grammar;
+            // a standalone instruction or a literal invocation remains denied.
+            let inventory = text.trim().trim_end_matches('.');
+            if index == 0
+                && words.len() == 2
+                && pair == ["issue", "breakdown"]
+                && inventory.starts_with("no ")
+                && (inventory.ends_with(" is supplied") || inventory.ends_with(" are supplied"))
+                && !contains_embedded_literal_command(text)
+            {
+                return false;
+            }
             // "Use of ..." is a noun phrase. Prepositional usage with a
             // following predicate is a subject, not an instruction to invoke a tool.
             let nominal_use = pair[0] == "use"
@@ -829,6 +843,33 @@ mod tests {
 
     fn parse(value: &Value) -> Result<AssessmentResponse, String> {
         parse_assessment_response(&value.to_string(), &facts(), &pages())
+    }
+
+    #[test]
+    fn negated_issue_breakdown_inventory_is_prose_but_imperatives_stay_rejected() {
+        assert!(validate_prose(
+            "No task workflow, issue breakdown, or change history is supplied.",
+            500,
+            true
+        )
+        .is_ok());
+        assert!(validate_prose(
+            "No task workflows, issue breakdown, or change records are supplied.",
+            500,
+            true
+        )
+        .is_ok());
+        for text in [
+            "Issue breakdown.",
+            "No task workflow, issue breakdown now, or change history is supplied.",
+            "No task workflow, issue pnpm test, or change history is supplied.",
+            "No task workflow, issue breakdown, or change history is supplied; run pnpm test.",
+        ] {
+            assert!(
+                validate_prose(text, 500, true).is_err(),
+                "instruction accepted: {text}"
+            );
+        }
     }
 
     #[test]

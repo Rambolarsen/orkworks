@@ -9,6 +9,7 @@ pub(crate) enum NativeResponseShape {
     DiscoveryV1,
     AssessmentV1,
     ReadinessDiscoveryV1,
+    ReadinessDiscoveryV2,
     ReadinessV1,
 }
 

@@ -49,6 +49,9 @@ export default function ReadinessSummary({ snapshot, baseline, freshness }: Prop
     <p>Assessed at <time dateTime={snapshot.completedAt}>{new Date(snapshot.completedAt).toLocaleString()}</time> · {data.git.headOid ? `Commit ${data.git.headOid.slice(0, 10)}` : 'No commit available'} · {data.git.dirty === true ? 'uncommitted changes' : data.git.dirty === false ? 'clean worktree' : 'worktree state unknown'}</p>
     <p>{data.summary}</p>
     <p className="readiness-notice">{readinessQualification(data)}</p>
+    {!!data.inputManifest?.collector.selectionOmissions?.length && <p className="readiness-notice">
+      {data.inputManifest.collector.selectionOmissions.length} evidence selection{data.inputManifest.collector.selectionOmissions.length === 1 ? '' : 's'} did not fit this assessment. Unread evidence remains unknown.
+    </p>}
     <section aria-label="What to improve next">
       <h4>What to improve next</h4>
       <p>These are evidence and improvement needs from the saved assessment, not confirmed defects. Assess and suggest checks current evidence for one actionable fix.</p>

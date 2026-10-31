@@ -108,32 +108,63 @@ pub(crate) fn decode(
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Discovery {
     version: u8,
-    requested_file_ids: Vec<usize>,
+    preferred_file_ids: Vec<usize>,
 }
 pub(crate) fn decode_discovery(output: &str, catalog_size: usize) -> Result<Vec<usize>, String> {
     let response: Discovery = parse(output)?;
-    if response.version != 1
-        || response.requested_file_ids.len() > 8
+    if response.version != 2
+        || response.preferred_file_ids.len() > 8
         || response
-            .requested_file_ids
+            .preferred_file_ids
             .iter()
             .any(|id| *id >= catalog_size)
         || response
-            .requested_file_ids
+            .preferred_file_ids
             .iter()
             .collect::<HashSet<_>>()
             .len()
-            != response.requested_file_ids.len()
+            != response.preferred_file_ids.len()
     {
         return Err("Invalid readiness evidence selection".into());
     }
-    Ok(response.requested_file_ids)
+    Ok(response.preferred_file_ids)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::taskmaster::readiness_rubric::{ReadinessRubric, CONCEPT_IDS};
+    #[test]
+    fn retained_unknown_evidence_prose_is_accepted_without_inventing_a_score() {
+        let input: serde_json::Value = serde_json::from_str(include_str!("../../../../docs/validation/fixtures/score-directed-readiness-v4-2026-10-31/evidence-unknown-score-final-input.json")).unwrap();
+        let rubric: ReadinessRubric = serde_json::from_value(input["rubric"].clone()).unwrap();
+        let output=include_str!("../../../../docs/validation/fixtures/score-directed-readiness-v4-2026-10-31/evidence-unknown-score-final-output.json");
+        let response = decode(
+            output,
+            input["repositoryFacts"].as_array().unwrap().len(),
+            &rubric,
+        )
+        .expect("descriptive unknown-evidence prose must remain readable");
+        assert_eq!(response.totals(), (0, None, None));
+    }
+
+    #[test]
+    fn retained_command_literal_stays_rejected_but_role_description_is_decodable() {
+        let input: serde_json::Value = serde_json::from_str(include_str!("../../../../docs/validation/fixtures/score-directed-readiness-2026-10-30/skipped-tests-score-final-input.json")).unwrap();
+        let rubric: ReadinessRubric = serde_json::from_value(input["rubric"].clone()).unwrap();
+        let output = include_str!("../../../../docs/validation/fixtures/score-directed-readiness-2026-10-30/skipped-tests-score-final-output.json");
+        let fact_count = input["repositoryFacts"].as_array().unwrap().len();
+        assert!(decode(output, fact_count, &rubric).is_err());
+        let mut described: serde_json::Value = serde_json::from_str(output).unwrap();
+        let rationale = described["concepts"][8]["rationale"].as_str().unwrap();
+        described["concepts"][8]["rationale"] =
+            serde_json::json!(rationale.replace("pnpm test", "the package test script"));
+        assert!(
+            decode(&described.to_string(), fact_count, &rubric).is_ok(),
+            "a role description must not require relaxing command-text rejection"
+        );
+    }
+
     fn rubric() -> ReadinessRubric {
         serde_json::from_value(serde_json::json!({"id":"brain-agent-readiness","revision":1,"concepts":CONCEPT_IDS.iter().map(|id|serde_json::json!({"conceptId":id,"pageId":"playbooks/rubric.md","pageSha256":"a".repeat(64),"levels":["a","b","c","d","e"]})).collect::<Vec<_>>()})).unwrap()
     }
@@ -254,16 +285,33 @@ mod tests {
         }
     }
     #[test]
+    fn discovery_v2_preserves_preference_priority_and_rejects_legacy_or_duplicate_fields() {
+        assert_eq!(
+            decode_discovery(r#"{"version":2,"preferredFileIds":[2,0]}"#, 3).unwrap(),
+            vec![2, 0]
+        );
+        for output in [
+            r#"{"version":1,"requestedFileIds":[0]}"#,
+            r#"{"version":2,"preferredFileIds":[0,0]}"#,
+            r#"{"version":2,"preferredFileIds":[3]}"#,
+            r#"{"version":2,"preferredFileIds":[],"preferredFileIds":[]}"#,
+            r#"{"version":2,"preferredFileIds":[],"requestedFileIds":[]}"#,
+        ] {
+            assert!(decode_discovery(output, 3).is_err(), "{output}");
+        }
+    }
+
+    #[test]
     fn strict_discovery_limits_selection_and_has_no_candidate_shortcut() {
         assert_eq!(
-            decode_discovery(r#"{"version":1,"requestedFileIds":[0,2]}"#, 3).unwrap(),
+            decode_discovery(r#"{"version":2,"preferredFileIds":[0,2]}"#, 3).unwrap(),
             vec![0, 2]
         );
         for output in [
-            r#"{"version":1,"requestedFileIds":[0,0]}"#,
-            r#"{"version":1,"requestedFileIds":[3]}"#,
-            r#"{"version":1,"version":1,"requestedFileIds":[]}"#,
-            r#"{"version":1,"requestedFileIds":[],"outcome":"no_candidate"}"#,
+            r#"{"version":2,"preferredFileIds":[0,0]}"#,
+            r#"{"version":2,"preferredFileIds":[3]}"#,
+            r#"{"version":2,"version":2,"preferredFileIds":[]}"#,
+            r#"{"version":2,"preferredFileIds":[],"outcome":"no_candidate"}"#,
         ] {
             assert!(decode_discovery(output, 3).is_err());
         }

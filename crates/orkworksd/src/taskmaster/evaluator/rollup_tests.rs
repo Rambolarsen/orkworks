@@ -12,6 +12,7 @@ use crate::workflow_observations::{Impact, ObservationKind, ObservationSource};
 
 fn evaluation_snapshot() -> EvaluationSnapshot {
     EvaluationSnapshot {
+        readiness_rubric: None,
         settings: TaskmasterSettings {
             selection: Some(TaskmasterSelection {
                 provider: "codex".into(),

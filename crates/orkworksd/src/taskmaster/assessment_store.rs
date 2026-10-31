@@ -72,7 +72,7 @@ fn validate_bytes(bytes: &[u8]) -> Result<(), String> {
                 return Err("Legacy assessment contains unsupported fields".into());
             }
         }
-        Some(2) => {
+        Some(2 | 3) => {
             let record: super::assessment_report::AssessmentRecord = serde_json::from_slice(bytes)
                 .map_err(|_| "Assessment record has an invalid shape")?;
             record.validate_format()?;

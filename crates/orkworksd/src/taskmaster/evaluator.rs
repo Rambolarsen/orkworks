@@ -1990,6 +1990,7 @@ mod tests {
             related_ids: vec![],
         };
         let snapshot = EvaluationSnapshot {
+            readiness_rubric: None,
             custom_inference: None,
             native_revision: Some(super::super::provider_catalog::NativeRevision {
                 document_revision: state.harness_store.snapshot().unwrap().document_revision,
@@ -2067,6 +2068,7 @@ mod tests {
         let state = crate::test_support::test_app_state_with_workspace(directory.path());
         std::fs::write(directory.path().join("README.md"), "fact").unwrap();
         let snapshot = EvaluationSnapshot {
+            readiness_rubric: None,
             custom_inference: None,
             native_revision: Some(super::super::provider_catalog::NativeRevision {
                 document_revision: state.harness_store.snapshot().unwrap().document_revision,
@@ -2153,6 +2155,7 @@ mod tests {
         let state = crate::test_support::test_app_state_with_workspace(directory.path());
         std::fs::write(directory.path().join("README.md"), "original fact").unwrap();
         let snapshot = EvaluationSnapshot {
+            readiness_rubric: None,
             custom_inference: None,
             native_revision: Some(super::super::provider_catalog::NativeRevision {
                 document_revision: state.harness_store.snapshot().unwrap().document_revision,
@@ -2239,6 +2242,7 @@ mod tests {
     #[test]
     fn retrieval_ranks_relevant_pages_and_preserves_maturity_in_prompt() {
         let mut snapshot = EvaluationSnapshot {
+            readiness_rubric: None,
             custom_inference: None,
             native_revision: None,
             settings: TaskmasterSettings::default(),
@@ -2321,6 +2325,7 @@ mod tests {
 
     fn brain_observation_snapshot() -> EvaluationSnapshot {
         EvaluationSnapshot {
+            readiness_rubric: None,
             custom_inference: None,
             native_revision: None,
             settings: TaskmasterSettings::default(),

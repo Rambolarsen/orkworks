@@ -236,6 +236,7 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Terminal input metadata I/O](2026-10-29-terminal-input-io.md) — Approved command owner and verified metadata-blocking regressions.
 - [Terminal report producer and authority qualification](2026-10-29-terminal-report-publication-qualification.md) — Gated source/ordering investigation and acceptance matrix before executable terminal correction qualification.
 
+- [Score-directed readiness suggestions](2026-10-30-score-directed-readiness.md) — Approved #1175 implementation and bounded qualification; in progress.
 - [Evaluation-artifact qualification handoff](2026-10-30-evaluation-artifact-qualification.md) — Gated owner, source/authority, conditional-state and native qualification handoff for the proposed evaluation-artifact producer.
 
 - [Retained child review source qualification handoff](2026-10-31-child-review-source-qualification.md) — Proposed one-task child source records, exact preparation/consumer joins and gated qualification; new choices require owner review.

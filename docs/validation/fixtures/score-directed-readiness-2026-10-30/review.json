@@ -1,0 +1,20 @@
+{
+  "reviewer": "fresh-context code-reviewer subagent, gpt-6-luna medium",
+  "scope": "exact five synthetic sources and stage inputs/outputs; current implementation diff",
+  "codeFindings": [],
+  "usefulnessGate": "fail",
+  "positiveUseful": 1,
+  "positiveRequired": 2,
+  "negativeControls": "both correctly no recommendation",
+  "providerCalls": 17,
+  "retriesOrReplacements": 0,
+  "samples": {
+    "ci-omits-tests": "Useful bounded CI behavioral coverage improvement; fresh supplied facts and signed verification concept.",
+    "skipped-tests": "Scoring rejected prose; zero credit.",
+    "assertions-omitted": "Missed actual lack of assertions and diverted to unsupported test-selection concern; zero credit.",
+    "already-satisfied": "Existing test refutes candidate; correctly no proposal.",
+    "evidence-unknown": "No candidate; correctly no invented defect."
+  },
+  "reviewerPerformedProviderCalls": false,
+  "reviewerRanTests": false
+}

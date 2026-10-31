@@ -126,3 +126,7 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 - [Readiness workflow suggestions](0096-readiness-workflow-suggestions.md) — Accepted (#1091); owner approved design and implementation on 2026-10-27.
 
 - [0097: Desktop-owned skill management](0097-desktop-skill-management.md) — Accepted Electron-main inventory and qualified APM install boundary.
+
+- [0098: Score-directed readiness improvements](0098-score-directed-readiness-improvements.md) — Accepted on 2026-10-30; implementation in progress.
+
+- [Readiness evidence before candidates](0099-readiness-evidence-before-candidates.md) — Proposed #1175 investigation ordering after two independently failed fixed sets; not implementation approval.

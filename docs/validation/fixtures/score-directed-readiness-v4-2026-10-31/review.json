@@ -1,0 +1,32 @@
+{
+  "reviewer": "fresh-context independent subagent gpt-6-luna medium",
+  "head": "2dd887968669f56733473c289d725d75414a81c0",
+  "gate": "fail",
+  "positiveCredits": 1,
+  "minimumPositiveCredits": 2,
+  "logicalProviderCalls": 16,
+  "retries": 0,
+  "samples": {
+    "skipped-tests": {
+      "credit": 0,
+      "reason": "Real skipped-script gap, but proposal ambiguously adds assertions already present instead of explicitly connecting the existing suite. Cannot safely count as useful."
+    },
+    "ci-omits-tests": {
+      "credit": 1,
+      "reason": "Concrete CI syntax-only job versus existing runnable behavioral suite. Proposal links existing tests, signed verification concept, benefit, validation and rollback. Exact invocation still needs pnpm availability."
+    },
+    "assertions-omitted": {
+      "credit": 0,
+      "reason": "No proposal despite the source test body containing no assertions; model stops without inspecting it."
+    },
+    "already-satisfied": {
+      "control": "pass",
+      "reason": "No proposal for an already-supported check setup."
+    },
+    "evidence-unknown": {
+      "control": "invalid",
+      "reason": "scoring_invalid_prose; no valid score or suggestion. Not a valid no-proposal control."
+    }
+  },
+  "independentReviewerMadeProviderCalls": false
+}

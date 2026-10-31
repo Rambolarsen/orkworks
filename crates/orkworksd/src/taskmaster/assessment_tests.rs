@@ -36,6 +36,7 @@ response, prompt_path = map(pathlib.Path, sys.argv[1:])
 prompt = json.loads(prompt_path.read_text())
 args = prompt_path.with_name('provider-args').read_text().splitlines()
 stage = 'discovery' if prompt.get('protocol') == 'taskmaster-discovery-v1' else 'final'
+if prompt.get('readinessContext'): response.with_suffix('.' + stage + '-focus-prompt').write_text(json.dumps(prompt))
 schema_path = pathlib.Path(args[args.index('--output-schema') + 1]) if '--output-schema' in args else None
 response.with_suffix('.' + stage + '-schema').write_text(schema_path.read_text() if schema_path else 'null')
 response.with_suffix('.' + stage + '-schema-path').write_text(str(schema_path) if schema_path else '')
@@ -48,22 +49,30 @@ if prompt.get('protocol') != 'taskmaster-discovery-v1' and response.with_suffix(
     import time
     response.with_suffix('.final-started').write_text('started')
     while not response.with_suffix('.final-release').exists(): time.sleep(0.01)
-override = response.with_suffix('.readiness-discovery' if prompt.get('protocol') == 'taskmaster-readiness-discovery-v1' else '.readiness-final')
+override = response.with_suffix('.readiness-discovery' if prompt.get('protocol') in ['taskmaster-readiness-discovery-v1', 'taskmaster-readiness-discovery-v2'] else '.readiness-final')
 if prompt.get('protocol', '').startswith('taskmaster-readiness') and override.exists():
     output = override.read_text()
-elif prompt.get('protocol') == 'taskmaster-readiness-discovery-v1':
-    output = json.dumps({'version':1,'requestedFileIds':[]})
-elif prompt.get('protocol') == 'taskmaster-readiness-v2':
+elif prompt.get('protocol') in ['taskmaster-readiness-discovery-v1', 'taskmaster-readiness-discovery-v2']:
+    output = json.dumps({'version':2,'preferredFileIds':[]})
+elif prompt.get('protocol') in ['taskmaster-readiness-v2', 'taskmaster-readiness-v3', 'taskmaster-readiness-v4']:
     output = json.dumps({'version':1,'summary':'Observed repository guidance','concepts':[{'conceptId':c['conceptId'],'maturity':2,'confidence':'medium','repositoryFactIds':[0],'rubricPageId':c['pageId'],'rationale':'Documented repository guidance','limits':['Runtime behavior remains unverified'],'nextTransition':'Evidence of workflow integration','unassessedReason':None} for c in prompt['rubric']['concepts']]})
 elif prompt.get('protocol') == 'taskmaster-discovery-v1':
     override = response.with_suffix('.discovery')
     if override.exists():
         output = override.read_text()
     else:
-        page = next(p for p in prompt['knowledgePages'] if p['type'] == 'playbook')
+        page = {'id':prompt['readinessContext']['areas'][8]['conceptPageId']} if prompt.get('readinessContext') else next(p for p in prompt['knowledgePages'] if p['type'] == 'playbook')
         output = json.dumps({'version':1,'outcome':'inspect','candidate':{'targetSurface':'documentation','title':'Clarify workflow evidence','hypothesis':'The current workflow guide may need more specific validation guidance.'},'repositoryFactHashes':[prompt['repositoryFacts'][0]['sha256']],'knowledgePageIds':[page['id']],'requestedFileIds':[],'reason':None})
 else:
     output = response.read_text()
+    if prompt.get('readinessContext'):
+        try:
+            body = json.loads(output)
+            if body.get('proposal', {}).get('title') == 'Clarify the workflow guide':
+                body['knowledgePageIds'] = [prompt['readinessContext']['areas'][8]['conceptPageId']]
+                output = json.dumps(body)
+        except (ValueError, AttributeError):
+            pass
 print(json.dumps({'type':'thread.started'}))
 print(json.dumps({'type':'turn.started'}))
 print(json.dumps({'type':'item.completed','item':{'type':'agent_message','text':output}}))
@@ -184,6 +193,7 @@ print(json.dumps({'type':'turn.completed'}))
             snapshot.observations.clone(),
             snapshot.recommendations.clone(),
             repository,
+            None,
         )
         .unwrap();
         snapshot.repository = input.repository;
@@ -250,6 +260,7 @@ print(json.dumps({'type':'turn.completed'}))
             "2026-10-17T00:00:00Z",
         );
         AssessmentRecord {
+            readiness_reference: None,
             format_version: 2,
             input_manifest: Some(snapshot.repository.manifest()),
             phase: None,
@@ -846,6 +857,7 @@ fn recovery_under_another_instances_lease_preserves_queued_and_running_records()
             .root_path();
         let store = AssessmentStore::new(&root);
         let record = AssessmentRecord {
+            readiness_reference: None,
             format_version: 1,
             input_manifest: None,
             phase: None,
@@ -1553,6 +1565,7 @@ fn pending_recovery_after_narrowing_never_restores_source_manifest_paths_or_hash
         snapshot.observations,
         snapshot.recommendations,
         context,
+        None,
     )
     .unwrap();
     let source_hash = input

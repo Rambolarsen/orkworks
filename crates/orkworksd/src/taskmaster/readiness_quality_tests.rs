@@ -10,7 +10,7 @@ pub(super) fn capture_stage<T: std::fmt::Debug>(prompt: &str, result: &Result<St
     EVIDENCE.with(|directory| {
         if let Some(directory) = directory.borrow().as_ref() {
             let value: Value = serde_json::from_str(prompt).unwrap();
-            let stage = if value["protocol"] == "taskmaster-readiness-discovery-v1" {
+            let stage = if value["protocol"] == "taskmaster-readiness-discovery-v2" {
                 "discovery"
             } else {
                 "final"
@@ -122,4 +122,116 @@ fn selected_provider_readiness_quality_matrix() {
     }
     assert!(failures.is_empty(), "Provider trials failed: {failures:?}");
     eprintln!("Transport trials complete; independent semantic review remains required.");
+}
+
+/// Five fixed samples, no retries or replacements. At most four dispatches each.
+#[test]
+#[ignore = "Owner-authorized synthetic score-directed trials; maximum twenty calls"]
+fn selected_provider_score_directed_matrix() {
+    let settings: Value = serde_json::from_slice(
+        &fs::read(std::env::var("ORKWORKS_READINESS_SELECTION_FILE").expect("explicit selection"))
+            .unwrap(),
+    )
+    .unwrap();
+    let selection: super::super::runtime::TaskmasterSelection =
+        serde_json::from_value(settings["selection"].clone()).expect("configured selection");
+    assert_eq!(selection.provider, "codex");
+    assert_eq!(selection.model, "gpt-6-luna");
+    assert_eq!(selection.reasoning_effort.as_deref(), Some("medium"));
+    let output = PathBuf::from(
+        std::env::var("ORKWORKS_SCORE_DIRECTED_QUALITY_DIR").expect("fresh private output"),
+    );
+    assert!(!output.exists(), "No repeated or replacement trials");
+    fs::create_dir_all(&output).unwrap();
+    fs::write(
+        output.join("selection.json"),
+        serde_json::to_vec_pretty(&selection).unwrap(),
+    )
+    .unwrap();
+    for case in [
+        "skipped-tests",
+        "ci-omits-tests",
+        "assertions-omitted",
+        "already-satisfied",
+        "evidence-unknown",
+    ] {
+        let directory = output.join(case);
+        let workspace = directory.join("workspace");
+        fixture(&workspace, true);
+        fs::write(workspace.join("AGENTS.md"),"# Agent guide\nREADME.md describes setup and verification. docs/architecture.md describes module ownership and docs/domain.md describes product invariants. Changes require focused behavior checks for valid input, duplicates, negative stock and fractional stock, plus review before merge. Keep those docs consistent with changes. Maintainer approval is required for publishing, API changes or deletion. No autonomous deployment. No recorded execution results are supplied.\n").unwrap();
+        fs::write(workspace.join("docs/lessons.md"),"# Lessons\nNo task outcomes are supplied in this synthetic assessment. This absence does not establish whether a feedback process exists elsewhere.\n").unwrap();
+        match case {
+            "skipped-tests" => {
+                let mut package: Value =
+                    serde_json::from_slice(&fs::read(workspace.join("package.json")).unwrap())
+                        .unwrap();
+                package["scripts"]["test"] =
+                    json!("node -e \"console.log('Unit suite intentionally skipped')\"");
+                fs::write(workspace.join("package.json"), package.to_string()).unwrap();
+            }
+            "ci-omits-tests" => {
+                fs::write(workspace.join(".github/workflows/ci.yml"),"name: CI\non: [push, pull_request]\njobs:\n  unit:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 22\n      - run: node --check src/catalog.ts\n").unwrap();
+            }
+            "assertions-omitted" => {
+                fs::write(workspace.join("src/catalog.test.ts"),"import { test } from 'node:test';\nimport { createCatalog } from './catalog.ts';\ntest('catalog invariants', () => { const catalog=createCatalog(); catalog.add('A',2); catalog.stock('A'); });\n").unwrap();
+            }
+            "evidence-unknown" => {
+                fs::remove_dir_all(workspace.join("src")).unwrap();
+                fs::remove_dir_all(workspace.join("docs")).unwrap();
+                fs::remove_dir_all(workspace.join(".github")).unwrap();
+                for name in ["package.json", "pnpm-lock.yaml", ".node-version"] {
+                    fs::remove_file(workspace.join(name)).unwrap();
+                }
+                fs::write(workspace.join("AGENTS.md"),"# Agent guide\nThe supplied repository is an evidence placeholder. Application source, operational history and workflow configuration are outside this fixture. Missing context does not establish a defect.\n").unwrap();
+                fs::write(workspace.join("README.md"),"# Evidence placeholder\nNo application behavior or workflow implementation is supplied. No change request or defect is documented.\n").unwrap();
+            }
+            _ => {}
+        }
+        let state = crate::test_support::test_app_state_with_workspace(&workspace);
+        let runtime = TaskmasterRuntime::open(directory.join("runtime"));
+        runtime
+            .activate_knowledge(include_bytes!(
+                "../../../../apps/desktop/resources/knowledge/starter.json"
+            ))
+            .unwrap();
+        runtime
+            .replace_settings(TaskmasterSettings {
+                selection: Some(selection.clone()),
+                context_level: ContextLevel::SourceCode,
+                ..Default::default()
+            })
+            .unwrap();
+        let lease = runtime.try_analysis_lease().unwrap().unwrap();
+        let captured = capture(&state, &runtime).expect("configured provider available");
+        let store = ReadinessStore::new(&captured.root);
+        let mut run = Run::queued();
+        run.input_identity = Some(captured.identity.clone());
+        store.save_run(&run).unwrap();
+        let mut parent = super::super::readiness_suggestions::SuggestionRun::queued(&run.id);
+        super::super::readiness_suggestions::save(&captured.root, &parent).unwrap();
+        let root = captured.root.clone();
+        EVIDENCE.with(|target| *target.borrow_mut() = Some(directory.join("score")));
+        fs::create_dir_all(directory.join("score")).unwrap();
+        let result = execute(&state, &runtime, captured, &mut run);
+        EVIDENCE.with(|target| *target.borrow_mut() = None);
+        if let Ok(captured) = &result {
+            fs::create_dir_all(directory.join("suggestion")).unwrap();
+            super::super::assessment::quality_tests::evidence_directory(Some(
+                directory.join("suggestion"),
+            ));
+            run_suggestion(&state, &runtime, captured, &mut parent, &lease);
+            super::super::assessment::quality_tests::evidence_directory(None);
+        } else {
+            parent.finish(RunState::Failed, "scoring_failed");
+        }
+        let report = super::super::assessment_store::AssessmentStore::new(&root)
+            .load::<super::super::assessment_report::AssessmentRecord>()
+            .unwrap();
+        fs::write(directory.join("outcome.json"),serde_json::to_vec_pretty(&json!({"run":run,"parent":parent,"report":report,"history":store.history().unwrap(),"scoringError":result.err()})).unwrap()).unwrap();
+        eprintln!(
+            "score-directed sample {case}: {:?} {:?}",
+            parent.state, parent.reason_code
+        );
+    }
+    eprintln!("Five fixed samples complete; independent quality adjudication required.");
 }

@@ -50,6 +50,8 @@ pub(crate) struct AssessmentReport {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct AssessmentRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub readiness_reference: Option<super::readiness_focus::ReadinessReference>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_manifest: Option<super::assessment_context::InputManifest>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub phase: Option<AssessmentPhase>,
@@ -74,9 +76,14 @@ pub(crate) enum AssessmentPhase {
 
 impl AssessmentRecord {
     pub(crate) fn validate_format(&self) -> Result<(), String> {
+        match (&self.readiness_reference, self.format_version) {
+            (Some(reference), 3) => reference.validate()?,
+            (None, 1 | 2) => {}
+            _ => return Err("Assessment readiness reference is invalid".into()),
+        }
         match self.format_version {
             1 if self.input_manifest.is_none() && self.phase.is_none() => Ok(()),
-            2 => {
+            2 | 3 => {
                 match self.state {
                     AssessmentState::Succeeded
                         if self.report.is_none() || self.pending_recommendation.is_some() =>
@@ -184,7 +191,7 @@ fn validate_publication(record: &AssessmentRecord) -> Result<(), String> {
     if let Some(manifest) = &record.input_manifest {
         manifest.validate()?;
     }
-    if !matches!(record.format_version, 1 | 2)
+    if !matches!(record.format_version, 1 | 2 | 3)
         || record.id != report.id
         || record.input_manifest.as_ref().is_some_and(|m| m.redacted)
     {
@@ -198,6 +205,12 @@ fn validate_publication(record: &AssessmentRecord) -> Result<(), String> {
         if report.outcome != "proposed"
             || report.proposal.is_none()
             || report.recommendation_id.as_deref() != Some(recommendation.id.as_str())
+            || provenance.readiness_reference.as_ref().map(|r| &r.source)
+                != record.readiness_reference.as_ref()
+            || provenance
+                .readiness_reference
+                .as_ref()
+                .is_some_and(|r| r.validate().is_err())
             || provenance.id != record.id
             || provenance.input_fingerprint != report.input_fingerprint
             || provenance.context_level != report.context_level
@@ -227,6 +240,7 @@ pub(super) mod tests {
     pub(crate) fn proposal() -> (AssessmentRecord, Recommendation) {
         let mut recommendation = Recommendation {
             assessment: Some(AssessmentProvenance {
+                readiness_reference: None,
                 access_redacted: false,
                 id: "assessment-1".into(),
                 input_fingerprint: "fingerprint".into(),
@@ -284,6 +298,7 @@ pub(super) mod tests {
             observed_at: "now".into(),
         });
         let record = AssessmentRecord {
+            readiness_reference: None,
             format_version: 1,
             input_manifest: None,
             phase: None,
