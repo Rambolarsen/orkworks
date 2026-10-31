@@ -89,7 +89,12 @@ its existing bounded manifest. Its discovery digest covers the original version-
 response. Restoration reconstructs the recorded admitted set and verifies its
 recorded closure; it never silently reallocates a saved capture. Preserve readers
 for collectors 2 and 3. Workflow collector 3 remains unchanged. New readiness
-prompt identity is `taskmaster-readiness-v3`; final scoring response version and
+initial prompt identity is `taskmaster-readiness-v3`; the 2026-10-31 bounded
+correction uses `taskmaster-readiness-v4` and readiness-focus prompt v2, retaining
+collector-4 prompt-v3 reads. The correction adds role-description examples and
+implementation-evidence distinctions, without changing the accepted authority,
+collector/discovery schemas or call limits. The prior failed corpus does not
+qualify these corrected prompts. Final scoring response version and
 history envelope format remain unchanged. The UI identifies budget omissions as
 coverage limits in the saved result, including when an overall score is available.
 

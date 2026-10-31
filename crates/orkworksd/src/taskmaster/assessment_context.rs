@@ -75,7 +75,10 @@ impl InputManifest {
             }
             Some("readiness") => {
                 if self.collector_version == READINESS_COLLECTOR_VERSION {
-                    self.prompt_version != super::readiness::PROMPT_VERSION
+                    !matches!(
+                        self.prompt_version.as_str(),
+                        "taskmaster-readiness-v3" | super::readiness::PROMPT_VERSION
+                    )
                 } else {
                     !matches!(
                         self.prompt_version.as_str(),
@@ -96,7 +99,10 @@ impl InputManifest {
         let omitted: HashSet<_> = self.selection_omissions.iter().map(|o| o.id).collect();
         if self.collector_version == READINESS_COLLECTOR_VERSION {
             if self.purpose.as_deref() != Some("readiness")
-                || self.prompt_version != super::readiness::PROMPT_VERSION
+                || !matches!(
+                    self.prompt_version.as_str(),
+                    "taskmaster-readiness-v3" | super::readiness::PROMPT_VERSION
+                )
                 || self.preferred_file_ids.len() > 8
                 || preferred.len() != self.preferred_file_ids.len()
                 || preferred.iter().any(|id| *id >= 512)

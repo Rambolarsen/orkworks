@@ -95,3 +95,20 @@ Keep the PR draft and #1175 open; this branch is not a claim that usable analysi
 is solved. Full verification and independent current-code review are recorded in
 the PR before handoff. A changed inference approach and any additional live
 qualification require a concrete next scope and fresh authorization.
+
+## Offline prompt correction, 2026-10-31
+
+The owner requested continued work after the CI handoff. Retained failures isolate
+two model mistakes: literal command text in scoring rationale, and treating a
+documented coverage claim as proof despite a visible test body without assertions.
+Apply bounded prompt corrections within the accepted authority and call limits:
+scoring prompt v4 gives safe role-description examples and distinguishes visible
+assertions from documentation; focus prompt v2 checks capability prerequisites
+before next-level optimizations. Preserve the single-candidate refutation gate,
+strict prose validator, signed citations, unknown-evidence rules and four-call cap.
+Collector/discovery schemas remain 4/2. Collector-4 prompt-v3 history remains
+readable, while the changed prompt identity invalidates currentness and reuse.
+The failed corpus stays unchanged and receives no new credit from offline replay.
+No additional live calls are authorized or made by this correction pass. A new
+fixed qualification set requires a concrete budget decision after the corrected
+implementation is reviewable.

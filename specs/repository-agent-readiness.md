@@ -435,3 +435,14 @@ with independently grounded proposals. The owner approved the concrete contract 
 It supersedes #1091's score-input exclusion and readiness's indivisible discovery
 request semantics only. Score/history semantics and #1077's separate observation
 quality scope remain unchanged.
+
+### Prompt correction after the retained 2026-10-30 failure
+
+Scoring prompt v4 and readiness-focus prompt v2 clarify existing evidence rules:
+use role descriptions instead of literal invocations; distinguish assertions in a
+complete visible test body from documentation claims; verify capability prerequisites
+before optimizing the next maturity condition. They do not relax command-text
+validation, permit absence claims from omitted evidence, change schemas or increase
+the four-call ceiling. Collector-4 prompt-v3 history remains readable. Changed
+prompt identities invalidate reuse/currentness. The prior failed usefulness corpus
+is retained unchanged and does not qualify this correction without fresh trials.

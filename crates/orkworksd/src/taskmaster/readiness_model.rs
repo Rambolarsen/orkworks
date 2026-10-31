@@ -134,6 +134,23 @@ pub(crate) fn decode_discovery(output: &str, catalog_size: usize) -> Result<Vec<
 mod tests {
     use super::*;
     use crate::taskmaster::readiness_rubric::{ReadinessRubric, CONCEPT_IDS};
+    #[test]
+    fn retained_command_literal_stays_rejected_but_role_description_is_decodable() {
+        let input: serde_json::Value = serde_json::from_str(include_str!("../../../../docs/validation/fixtures/score-directed-readiness-2026-10-30/skipped-tests-score-final-input.json")).unwrap();
+        let rubric: ReadinessRubric = serde_json::from_value(input["rubric"].clone()).unwrap();
+        let output = include_str!("../../../../docs/validation/fixtures/score-directed-readiness-2026-10-30/skipped-tests-score-final-output.json");
+        let fact_count = input["repositoryFacts"].as_array().unwrap().len();
+        assert!(decode(output, fact_count, &rubric).is_err());
+        let mut described: serde_json::Value = serde_json::from_str(output).unwrap();
+        let rationale = described["concepts"][8]["rationale"].as_str().unwrap();
+        described["concepts"][8]["rationale"] =
+            serde_json::json!(rationale.replace("pnpm test", "the package test script"));
+        assert!(
+            decode(&described.to_string(), fact_count, &rubric).is_ok(),
+            "a role description must not require relaxing command-text rejection"
+        );
+    }
+
     fn rubric() -> ReadinessRubric {
         serde_json::from_value(serde_json::json!({"id":"brain-agent-readiness","revision":1,"concepts":CONCEPT_IDS.iter().map(|id|serde_json::json!({"conceptId":id,"pageId":"playbooks/rubric.md","pageSha256":"a".repeat(64),"levels":["a","b","c","d","e"]})).collect::<Vec<_>>()})).unwrap()
     }
