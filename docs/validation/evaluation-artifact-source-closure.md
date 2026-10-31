@@ -121,3 +121,16 @@ keeps new codec/profile/budget choices pending owner review and actual underlyin
 control/source/authority closure distinct from component bytes. This audit and
 older fixtures/checkers remain unchanged; Gate 2 and #1184 are not passed by the
 new proposal, and no runtime or dependent transaction is authorized.
+
+
+## Read-work authority investigation — 2026-10-31
+
+The [#1184 investigation](artifact-read-work-authority.md) traces the actual nearby owners, separates
+durable debit permission from content access and bounded response commitment, and
+records complete charge/denial/recovery oracles. It finds no qualified physical
+commit/revocation fence in the inspected integration. Its narrowly scoped internal
+debit-permit alternative is **proposed, not accepted**; the existing cutoff and
+no-go remain. Owner decision, exact proof/command codecs, #1183 source closure and
+a separately approved bounded native plan still precede dependent transactions.
+Gate 2 remains Investigate; no #744 claim reuse, fixture, native probe, database or
+runtime implementation follows.
