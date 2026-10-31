@@ -3112,8 +3112,30 @@ impl ProviderManager {
         timeout_secs_override: Option<u64>,
         applied: PeonAppliedState,
     ) -> ProviderRunResult {
-        let settings = self.settings.read().unwrap().clone();
         let prompt = peon::build_prompt(output);
+        self.run_prompt_with_applied_timeout(prompt, timeout_secs_override, applied)
+    }
+
+    pub(crate) fn run_title_inference_with_applied(
+        &self,
+        input: &str,
+        context: &[String],
+        applied: PeonAppliedState,
+    ) -> ProviderRunResult {
+        self.run_prompt_with_applied_timeout(
+            peon::build_title_prompt(input, context),
+            None,
+            applied,
+        )
+    }
+
+    fn run_prompt_with_applied_timeout(
+        &self,
+        prompt: String,
+        timeout_secs_override: Option<u64>,
+        applied: PeonAppliedState,
+    ) -> ProviderRunResult {
+        let settings = self.settings.read().unwrap().clone();
 
         let mut attempts = Vec::new();
         let mut runtime: HashMap<String, ProviderRuntimeEntry> = HashMap::new();

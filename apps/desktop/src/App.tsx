@@ -963,6 +963,7 @@ function App() {
         onResumeSession={handleResumeSession}
         onRowResumeSession={handleRowResumeSession}
         onApplyDebugAttention={handleApplyDebugAttention}
+        onTitleUpdated={() => { void refreshSessions(); }}
         onFocusTerminal={handleFocusTerminal}
         onOpenSettings={section => openSettings(section ?? "tools")}
         onOpenWorkspace={handleOpenWorkspace}

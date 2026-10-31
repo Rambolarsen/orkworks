@@ -1,4 +1,5 @@
 import type { GitChangesRequest, GitChangesResult } from "./gitChangesTypes";
+import type { SessionTitleRequest, SessionTitleResult } from "./sessionTitle";
 import { contextBridge, ipcRenderer } from "electron";
 import { subscribeBackendLifecycle, type BackendLifecycleEvent, type BackendRetryResult, type InitialWorkspaceSnapshot } from "./backendLifecycleEvent";
 import type { UpdateStatus } from "./updateService";
@@ -139,6 +140,7 @@ contextBridge.exposeInMainWorld("orkworks", {
   openSessionApp: (workspacePath: string, sessionId: string): Promise<void> => ipcRenderer.invoke("open-session-app", workspacePath, sessionId),
   openExternalLink: (url: string): Promise<void> => ipcRenderer.invoke("open-external-link", url),
   readGitChanges: (request: GitChangesRequest): Promise<GitChangesResult> => ipcRenderer.invoke("read-git-changes", request),
+  sessionTitle: (request: SessionTitleRequest): Promise<SessionTitleResult> => ipcRenderer.invoke("session-title", request),
   getPlanContent: (sessionId: string): Promise<string> => ipcRenderer.invoke("get-plan-content", sessionId),
   requestPlanReview: (sessionId: string): Promise<void> => ipcRenderer.invoke("request-plan-review", sessionId),
   selectTerminalPlan: (sessionId: string, printedPath: string): Promise<void> => ipcRenderer.invoke("select-terminal-plan", sessionId, printedPath),

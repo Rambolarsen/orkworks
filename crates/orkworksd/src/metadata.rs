@@ -386,6 +386,9 @@ pub struct SessionMetadata {
         skip_serializing_if = "is_false"
     )]
     pub label_from_initial_prompt: bool,
+    /// One contextual Peon refinement per conversation topic (ADR 0098).
+    #[serde(rename = "labelContextRefined", default)]
+    pub label_context_refined: bool,
     pub workspace: String,
     pub task: String,
     #[serde(rename = "harnessId", alias = "harness", default)]
@@ -886,6 +889,7 @@ pub(crate) fn assert_session_metadata_serializes_connectivity_terminal_outcome_a
         label: "Test".into(),
         label_source: LabelSource::Legacy,
         label_from_initial_prompt: false,
+        label_context_refined: false,
         workspace: "/tmp".into(),
         task: String::new(),
         harness: String::new(),
@@ -3165,6 +3169,7 @@ mod tests {
             label: "Test".into(),
             label_source: LabelSource::Legacy,
             label_from_initial_prompt: false,
+            label_context_refined: false,
             workspace: "/tmp".into(),
             task: "".into(),
             harness: "".into(),
@@ -3807,6 +3812,7 @@ mod tests {
             label: "Session abc12345".into(),
             label_source: LabelSource::Legacy,
             label_from_initial_prompt: false,
+            label_context_refined: false,
             workspace: "/tmp".into(),
             task: "".into(),
             harness: "".into(),
@@ -3963,6 +3969,7 @@ mod tests {
             label: "Test".into(),
             label_source: LabelSource::Legacy,
             label_from_initial_prompt: false,
+            label_context_refined: false,
             workspace: "/tmp".into(),
             task: "".into(),
             harness: "".into(),
@@ -4705,6 +4712,7 @@ mod tests {
             label: "Test".into(),
             label_source: LabelSource::Legacy,
             label_from_initial_prompt: false,
+            label_context_refined: false,
             workspace: "/tmp".into(),
             task: "".into(),
             harness: "".into(),

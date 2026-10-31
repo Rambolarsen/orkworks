@@ -126,3 +126,5 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 - [Readiness workflow suggestions](0096-readiness-workflow-suggestions.md) — Accepted (#1091); owner approved design and implementation on 2026-10-27.
 
 - [0097: Desktop-owned skill management](0097-desktop-skill-management.md) — Accepted Electron-main inventory and qualified APM install boundary.
+
+- [Contextual session titles](0098-contextual-session-titles.md) — Native updates, bounded fallback refinement and user naming.

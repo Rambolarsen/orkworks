@@ -31,6 +31,7 @@ import EmptyState from "./EmptyState";
 import SourceBadge from "./SourceBadge";
 import StatusIndicator from "./StatusIndicator";
 import ResumeChooser from "./ResumeChooser";
+import SessionTitleEditor from "./SessionTitleEditor";
 
 const DEBUG_ATTENTION_OPTIONS: SessionAttention[] = ["working", "idle", "needs_you", "blocked", "failed", "capped"];
 
@@ -47,9 +48,11 @@ interface SessionDetailPanelProps {
   onRequestPlanReview?: (sessionId: string) => Promise<void>;
   onOpenRecommendation?: (id: string) => void;
   showDebugMetadata: boolean;
+  workspaceIdentity?: string;
+  onTitleUpdated?: () => void;
 }
 
-function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSessionIds, onResumeSession, onApplyDebugAttention, onOpenSettings, showDebugMetadata, onReviewChanges, onReviewPlan, onRequestPlanReview, onOpenRecommendation }: SessionDetailPanelProps) {
+function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSessionIds, onResumeSession, onApplyDebugAttention, onOpenSettings, showDebugMetadata, onReviewChanges, onReviewPlan, onRequestPlanReview, onOpenRecommendation, workspaceIdentity, onTitleUpdated }: SessionDetailPanelProps) {
   const [debugAttention, setDebugAttention] = useState<SessionAttention>("working");
   const [debugMessage, setDebugMessage] = useState("");
   const pendingReviews = useRef(new Set<string>());
@@ -259,6 +262,7 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSes
 
       {/* Surface 3 — facts (demoted): everything the row and terminal don't say. */}
       <div className="detail-facts">
+        {workspaceIdentity && <SessionTitleEditor key={active.id} sessionId={active.id} title={active.label} workspaceIdentity={workspaceIdentity} onUpdated={onTitleUpdated} />}
         <div className="detail-facts-grid">
           <DetailField className="detail-fact" label="Directory" valueTitle={active.cwd}>
             {folder}

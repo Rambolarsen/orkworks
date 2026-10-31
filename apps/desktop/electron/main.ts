@@ -4,6 +4,7 @@ import type { SkillInventory } from "./skillTypes";
 import { SkillInstaller, findApm } from "./skillInstall";
 import { realpath } from "node:fs/promises";
 import { readGitChanges, validateGitChangesRequest } from "./gitChanges";
+import { requestSessionTitle, validateSessionTitleRequest } from "./sessionTitle";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from "electron";
 import { spawn, execFile } from "child_process";
 import { stat } from "node:fs/promises";
@@ -1694,6 +1695,11 @@ app.whenReady().then(async () => {
     validateGitChangesRequest(request);
     return withReadyBackendGeneration((port, token, signal) =>
       readGitChanges(sidecarUrl(port), request, token, fetch, signal));
+  });
+  ipcMain.handle("session-title", async (_event, request: unknown) => {
+    validateSessionTitleRequest(request);
+    return withReadyBackendGeneration((port, token, signal) =>
+      requestSessionTitle(sidecarUrl(port), request, token, fetch, signal));
   });
   ipcMain.handle("get-plan-content", async (_event, sessionId: unknown) => {
     if (typeof sessionId !== "string" || !sessionId) throw new Error("Invalid session ID.");

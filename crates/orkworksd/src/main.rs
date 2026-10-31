@@ -121,6 +121,7 @@ pub(crate) struct LabelHint {
     text: String,
     epoch: u64,
     from_initial_prompt: bool,
+    context: Vec<String>,
 }
 
 struct PeonState {
@@ -412,6 +413,10 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
         .route("/sessions", get(list_sessions))
         .route("/sessions/:id", delete(delete_session))
         .route("/sessions/:id/forget", delete(forget_session))
+        .route(
+            "/sessions/:id/title",
+            post(http::session_title_handlers::session_title),
+        )
         .route("/sessions/:id/state", post(session_action))
         .route("/sessions/:id/resume", post(resume_session))
         .route(
@@ -844,6 +849,7 @@ pub(crate) mod test_support {
             label: label.into(),
             label_source: metadata::LabelSource::Legacy,
             label_from_initial_prompt: false,
+            label_context_refined: false,
             workspace: workspace.into(),
             task: String::new(),
             harness: String::new(),
