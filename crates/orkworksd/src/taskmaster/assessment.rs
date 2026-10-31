@@ -6,14 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub(crate) const ASSESSMENT_PROMPT_VERSION: &str = "taskmaster-assessment-v2";
-const ASSESSMENT_CAPABILITY: &str = "taskmaster-assessment-v1";
 const MAX_ASSESSMENT_PROMPT_BYTES: usize = 128 * 1024;
-
-fn assessment_bundle_eligible(capabilities: &[String]) -> bool {
-    capabilities
-        .iter()
-        .any(|capability| capability == ASSESSMENT_CAPABILITY)
-}
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -2183,15 +2176,6 @@ mod tests {
         assert_eq!(selected[127]["id"], "o172");
         assert!(selected.iter().all(|item| item["id"] != "noise"));
         assert_eq!(prompt["knowledgePages"][0]["id"], "page8");
-    }
-
-    #[test]
-    fn assessment_requires_the_signed_bundle_capability_marker() {
-        assert!(!assessment_bundle_eligible(&[]));
-        assert!(!assessment_bundle_eligible(
-            &["taskmaster-rollup-v1".into()]
-        ));
-        assert!(assessment_bundle_eligible(&[ASSESSMENT_CAPABILITY.into()]));
     }
 
     #[test]

@@ -2408,15 +2408,6 @@ impl ProviderManager {
         self.discover_codex_models(&definition)
     }
 
-    pub fn discover_provider_models(
-        &self,
-        provider_id: &str,
-        ollama_base_url: Option<&str>,
-    ) -> Result<Vec<String>, ProviderOperationError> {
-        self.discover_provider_model_options(provider_id, ollama_base_url)
-            .map(|options| options.into_iter().map(|option| option.id).collect())
-    }
-
     pub fn discover_provider_model_options(
         &self,
         provider_id: &str,
