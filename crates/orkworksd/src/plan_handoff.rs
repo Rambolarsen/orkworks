@@ -1,9 +1,14 @@
+use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 
 use crate::metadata::PlanReference;
 
 fn git_common_dir(path: &Path) -> Result<PathBuf, String> {
     let repo = git2::Repository::discover(path).map_err(|error| error.to_string())?;
+    repository_common_dir(&repo)
+}
+
+fn repository_common_dir(repo: &git2::Repository) -> Result<PathBuf, String> {
     let git_dir = repo
         .path()
         .canonicalize()
@@ -350,6 +355,63 @@ pub(crate) fn resolve_openable_plan_reference(
     session_workspace_root: &Path,
     reference: &PlanReference,
 ) -> Result<PathBuf, String> {
+    resolve_openable_plan_reference_using(
+        session_workspace_root,
+        reference,
+        &mut discover_plan_repository,
+    )
+}
+
+#[derive(Clone)]
+struct PlanRepository {
+    worktree_root: Option<PathBuf>,
+    common_dir: PathBuf,
+}
+
+fn discover_plan_repository(path: &Path) -> Result<PlanRepository, String> {
+    let repo = git2::Repository::discover(path).map_err(|error| error.to_string())?;
+    Ok(PlanRepository {
+        worktree_root: repo.workdir().map(Path::to_path_buf),
+        common_dir: repository_common_dir(&repo)?,
+    })
+}
+
+/// Request-local repository identity for availability projections only.
+/// File candidates remain fresh, and actual opens use the uncached resolver.
+#[derive(Default)]
+pub(crate) struct PlanAvailabilityResolver {
+    repositories: HashMap<PathBuf, Result<PlanRepository, String>>,
+}
+
+impl PlanAvailabilityResolver {
+    pub(crate) fn resolve(
+        &mut self,
+        workspace: &Path,
+        reference: &PlanReference,
+    ) -> Result<PathBuf, String> {
+        self.resolve_with(workspace, reference, discover_plan_repository)
+    }
+
+    fn resolve_with(
+        &mut self,
+        workspace: &Path,
+        reference: &PlanReference,
+        mut discover: impl FnMut(&Path) -> Result<PlanRepository, String>,
+    ) -> Result<PathBuf, String> {
+        resolve_openable_plan_reference_using(workspace, reference, &mut |path| {
+            self.repositories
+                .entry(path.to_path_buf())
+                .or_insert_with(|| discover(path))
+                .clone()
+        })
+    }
+}
+
+fn resolve_openable_plan_reference_using(
+    session_workspace_root: &Path,
+    reference: &PlanReference,
+    repository: &mut impl FnMut(&Path) -> Result<PlanRepository, String>,
+) -> Result<PathBuf, String> {
     let anchor = match reference.worktree_root.as_deref() {
         Some(root) => Path::new(root),
         None => return resolve_openable_plan(session_workspace_root, &reference.relative_path),
@@ -370,16 +432,16 @@ pub(crate) fn resolve_openable_plan_reference(
     }
 
     let anchor = anchor.canonicalize().map_err(|error| error.to_string())?;
-    let anchor_repo = git2::Repository::discover(&anchor).map_err(|error| error.to_string())?;
+    let anchor_repo = repository(&anchor)?;
     let worktree_root = anchor_repo
-        .workdir()
+        .worktree_root
         .ok_or("plan repository is bare")?
         .canonicalize()
         .map_err(|error| error.to_string())?;
     if anchor != worktree_root {
         return Err("plan worktree anchor is not a repository root".into());
     }
-    if git_common_dir(&worktree_root)? != git_common_dir(session_workspace_root)? {
+    if anchor_repo.common_dir != repository(session_workspace_root)?.common_dir {
         return Err("plan worktree is outside the session repository family".into());
     }
 
@@ -481,6 +543,141 @@ mod tests {
     use crate::metadata::{PlanReference, PlanSource};
     use std::fs;
     use std::path::Path;
+
+    fn availability_worktrees() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
+        let base = tempfile::tempdir().unwrap();
+        let main = base.path().join("main");
+        let linked = base.path().join("linked");
+        fs::create_dir(&main).unwrap();
+        run_git(&main, &["init", "-q"]);
+        run_git(&main, &["commit", "-q", "--allow-empty", "-m", "init"]);
+        run_git(
+            &main,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "linked",
+                linked.to_str().unwrap(),
+            ],
+        );
+        (
+            base,
+            main.canonicalize().unwrap(),
+            linked.canonicalize().unwrap(),
+        )
+    }
+
+    fn availability_reference(root: &Path, relative: &str) -> PlanReference {
+        PlanReference {
+            worktree_root: Some(root.display().to_string()),
+            relative_path: relative.into(),
+            source: PlanSource::AgentReported,
+        }
+    }
+
+    #[test]
+    fn availability_reuses_repository_discovery_across_distinct_files() {
+        let (_base, main, linked) = availability_worktrees();
+        let mut resolver = super::PlanAvailabilityResolver::default();
+        let mut discoveries = 0;
+        for i in 0..20 {
+            let anchor = if i % 2 == 0 { &main } else { &linked };
+            let relative = format!("specs/plan-{i}.md");
+            let file = anchor.join(&relative);
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(&file, "# Plan").unwrap();
+            let reference = availability_reference(anchor, &relative);
+            let resolved = resolver
+                .resolve_with(&main, &reference, |path| {
+                    discoveries += 1;
+                    super::discover_plan_repository(path)
+                })
+                .unwrap();
+            assert_eq!(resolved, file.canonicalize().unwrap());
+        }
+        assert_eq!(
+            discoveries, 2,
+            "discovery must follow distinct repository paths, not plan count"
+        );
+    }
+
+    #[test]
+    fn availability_rechecks_files_and_next_request_repository_identity() {
+        let (_base, main, linked) = availability_worktrees();
+        fs::create_dir(linked.join("specs")).unwrap();
+        let file = linked.join("specs/plan.md");
+        fs::write(&file, "# Plan").unwrap();
+        let reference = availability_reference(&linked, "specs/plan.md");
+        let mut resolver = super::PlanAvailabilityResolver::default();
+        assert!(resolver.resolve(&main, &reference).is_ok());
+        fs::remove_file(&file).unwrap();
+        assert!(
+            resolver.resolve(&main, &reference).is_err(),
+            "cached Git identity must not preserve a deleted file"
+        );
+        fs::write(&file, "# Recreated").unwrap();
+        assert!(resolver.resolve(&main, &reference).is_ok());
+
+        // Replace only this fixture's linked-worktree association with an
+        // independent repository. Actual opens and the next request must reject it.
+        fs::rename(linked.join(".git"), linked.join(".git.saved")).unwrap();
+        git2::Repository::init(&linked).unwrap();
+        assert!(resolve_openable_plan_reference(&main, &reference).is_err());
+        assert!(super::PlanAvailabilityResolver::default()
+            .resolve(&main, &reference)
+            .is_err());
+    }
+
+    #[test]
+    fn availability_preserves_legacy_and_invalid_anchor_rules() {
+        let (_base, main, linked) = availability_worktrees();
+        fs::write(main.join("legacy.md"), "# Legacy").unwrap();
+        let legacy: PlanReference = serde_json::from_str("\"legacy.md\"").unwrap();
+        let mut resolver = super::PlanAvailabilityResolver::default();
+        let resolved = resolver
+            .resolve_with(&main, &legacy, |_| {
+                panic!("legacy references must not require a Git repository lookup")
+            })
+            .unwrap();
+        assert_eq!(resolved, main.join("legacy.md").canonicalize().unwrap());
+
+        fs::create_dir(linked.join("specs")).unwrap();
+        fs::write(linked.join("specs/plan.md"), "# Plan").unwrap();
+        let nested = availability_reference(&linked.join("specs"), "plan.md");
+        assert!(
+            resolver.resolve(&main, &nested).is_err(),
+            "an anchor must be the worktree root"
+        );
+        let foreign = tempfile::tempdir().unwrap();
+        git2::Repository::init(foreign.path()).unwrap();
+        fs::create_dir(foreign.path().join("specs")).unwrap();
+        fs::write(foreign.path().join("specs/plan.md"), "# Foreign").unwrap();
+        assert!(resolver
+            .resolve(
+                &main,
+                &availability_reference(foreign.path(), "specs/plan.md")
+            )
+            .is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn availability_rejects_a_file_replaced_by_an_escaping_symlink() {
+        let (base, main, _linked) = availability_worktrees();
+        fs::create_dir(main.join("specs")).unwrap();
+        let file = main.join("specs/plan.md");
+        fs::write(&file, "# Plan").unwrap();
+        let reference = availability_reference(&main, "specs/plan.md");
+        let mut resolver = super::PlanAvailabilityResolver::default();
+        assert!(resolver.resolve(&main, &reference).is_ok());
+        let outside = base.path().join("outside.md");
+        fs::write(&outside, "# Outside").unwrap();
+        fs::remove_file(&file).unwrap();
+        std::os::unix::fs::symlink(outside, file).unwrap();
+        assert!(resolver.resolve(&main, &reference).is_err());
+    }
 
     #[cfg(windows)]
     #[test]
