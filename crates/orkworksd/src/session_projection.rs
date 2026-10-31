@@ -1,6 +1,8 @@
 use crate::git;
 use crate::metadata;
+#[cfg(test)]
 use crate::plan_handoff::resolve_openable_plan_reference;
+use crate::plan_handoff::PlanAvailabilityResolver;
 use crate::session_types::SessionInfo;
 use crate::session_view::{
     detect_conflicts, merge_live_session_info, resolve_harness_or_generic_shell,
@@ -156,7 +158,10 @@ impl SessionProjection {
     }
 
     fn snapshot(&self) -> io::Result<ProjectionSnapshot> {
-        self.snapshot_with_plan_resolver(&mut resolve_openable_plan_reference)
+        let mut plans = PlanAvailabilityResolver::default();
+        self.snapshot_with_plan_resolver(&mut |workspace, reference| {
+            plans.resolve(workspace, reference)
+        })
     }
 
     fn snapshot_with_plan_resolver(
@@ -800,6 +805,79 @@ mod tests {
     use crate::test_support::test_session_metadata;
     use crate::AppState;
     use std::sync::Arc;
+
+    #[test]
+    #[ignore = "manual shared-state plan projection benchmark"]
+    fn benchmark_plan_projection_repository_reuse() {
+        let dir = tempfile::tempdir().unwrap();
+        git2::Repository::init(dir.path()).unwrap();
+        std::fs::create_dir(dir.path().join("specs")).unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let store = &workspace.as_ref().unwrap().metadata;
+            for i in 0..710 {
+                let mut meta = test_session_metadata(
+                    format!("history-{i}"),
+                    "History",
+                    dir.path().display().to_string(),
+                    "ended",
+                    "2026-01-01T00:00:00Z",
+                    "2026-01-01T00:00:00Z",
+                );
+                if i < 32 {
+                    let relative = format!("specs/plan-{i}.md");
+                    std::fs::write(dir.path().join(&relative), "# Plan").unwrap();
+                    meta.plan_path = Some(crate::metadata::PlanReference {
+                        worktree_root: Some(dir.path().display().to_string()),
+                        relative_path: relative,
+                        source: crate::metadata::PlanSource::AgentReported,
+                    });
+                }
+                store.write_session(&meta);
+            }
+        }
+        let projection = SessionProjection::new(state.clone());
+        let mut uncached = Vec::new();
+        let mut request_local = Vec::new();
+        for i in 0..7 {
+            // Alternate order to reduce a systematic warm-filesystem advantage.
+            for cached in if i % 2 == 0 {
+                [false, true]
+            } else {
+                [true, false]
+            } {
+                let _gate = state.projection_lock.lock().unwrap();
+                let start = std::time::Instant::now();
+                let snapshot = if cached {
+                    projection.snapshot().unwrap()
+                } else {
+                    projection
+                        .snapshot_with_plan_resolver(&mut super::resolve_openable_plan_reference)
+                        .unwrap()
+                };
+                let elapsed = start.elapsed().as_secs_f64() * 1000.0;
+                assert_eq!(snapshot.infos.len(), 710);
+                assert_eq!(
+                    snapshot
+                        .infos
+                        .iter()
+                        .filter(|row| row.has_openable_plan == Some(true))
+                        .count(),
+                    32
+                );
+                if cached {
+                    request_local.push(elapsed);
+                } else {
+                    uncached.push(elapsed);
+                }
+            }
+        }
+        uncached.sort_by(f64::total_cmp);
+        request_local.sort_by(f64::total_cmp);
+        eprintln!("710-record shared-state snapshot, 32 anchored plans: uncached median {:.3} ms; request-local median {:.3} ms",
+            uncached[3], request_local[3]);
+    }
 
     // A plan validator stalled on filesystem/Git work must not stall the
     // same inference-map writer used by the PTY output driver.
