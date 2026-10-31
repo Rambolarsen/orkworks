@@ -1,8 +1,8 @@
 import { gitLocationLabel } from "../gitLocationLabel";
 import { isSessionAlive } from "../sessionRuntimeState";
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { FileText, GitBranch, MessageCircle } from "lucide-react";
+import { ArrowLeft, ChevronRight, FileText, GitBranch, History, MessageCircle } from "lucide-react";
 import { getSessionWorkflowObservations, getSummaryLog } from "../api";
 import type { SessionAttention, SessionInfo, SummaryLogEntry, WorkflowObservationEntry } from "../api";
 import type { HarnessConfig } from "../harnessTypes";
@@ -19,8 +19,6 @@ import {
   nextRelativeTimeRefreshMs,
   peonTimeoutNotice,
   relativeTime,
-  situationHeadline,
-  situationTail,
   sourceWithConfidence,
   workPhaseLabel,
 } from "../labels";
@@ -61,7 +59,19 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSes
   const [summaryLogSessionId, setSummaryLogSessionId] = useState<string | null>(null);
   const [workflowObservations, setWorkflowObservations] = useState<WorkflowObservationEntry[]>([]);
   const [workflowObservationsSessionId, setWorkflowObservationsSessionId] = useState<string | null>(null);
+  const [activitySessionId, setActivitySessionId] = useState<string | null>(null);
+  const activityButton = useRef<HTMLButtonElement>(null);
+  const backButton = useRef<HTMLButtonElement>(null);
+  const menuFocus = useRef<"activity" | "back" | null>(null);
   const active = sessions.find((s) => s.id === visibleSessionId);
+  const showingActivity = !!active && activitySessionId === active.id;
+  // An inspected subject change must never restore the previous subject's subpage.
+  if (activitySessionId !== null && activitySessionId !== active?.id) setActivitySessionId(null);
+  useLayoutEffect(() => {
+    if (menuFocus.current === "back" && showingActivity) backButton.current?.focus();
+    else if (menuFocus.current === "activity") activityButton.current?.focus();
+    menuFocus.current = null;
+  }, [showingActivity]);
   const now = useStableRelativeTimeNow(useCallback((currentNow: Date) => {
     if (!active) return null;
     let nextRefresh = nextRelativeTimeRefreshMs(active.peonLastInference, currentNow);
@@ -130,8 +140,6 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSes
   const providerContext = sessionProviderContext(active);
   const voice = nativeVoicePresentation(sessionCodingTool(active), harnesses);
   const folder = active.cwd.split("/").pop() || active.cwd;
-  const headline = situationHeadline(active);
-  const tail = situationTail(active, tone);
   const timeoutNotice = peonTimeoutNotice(active);
   const actionZone = detailActionZone(active, tone);
   const badgeText =
@@ -165,19 +173,48 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSes
 
   return (
     <div className="session-detail" data-attention={tone}>
-      {/* Surface 1 — situation hero: distilled "what's going on", never restating the row. */}
-      <div className="detail-situation" data-attention={tone}>
-        <div className="detail-situation-top">
-          <span className="detail-badge" data-attention={tone}>
-            <StatusIndicator tone={tone} label={attentionLabel(attn)} />
-            {badgeText}
-          </span>
-          <span className="detail-situation-time">{relativeTime(active.lastActivityAt, now) || relativeTime(active.created_at, now)}</span>
+      {showingActivity ? (
+        <button type="button" className="session-menu-back" data-session-menu-back ref={backButton}
+          onClick={() => { menuFocus.current = "activity"; setActivitySessionId(null); }}>
+          <ArrowLeft size={14} aria-hidden="true" /> Session menu
+        </button>
+      ) : (
+        <nav className="session-menu" aria-label="Session navigation">
+          <button type="button" className="session-menu-item" data-session-plan
+            disabled={!active.hasOpenablePlan || !onReviewPlan}
+            title={active.hasOpenablePlan ? "Review this session's plan" : "No available plan for this session"}
+            onClick={onReviewPlan}>
+            <span className="session-menu-icon"><FileText size={16} aria-hidden="true" /></span>
+            <span className="session-menu-text"><span className="session-menu-label">Plan</span>
+              <span className="session-menu-description">{active.hasOpenablePlan ? "Available for review" : "No plan available"}</span></span>
+            <ChevronRight size={14} aria-hidden="true" />
+          </button>
+          <button type="button" className="session-menu-item" data-review-changes
+            disabled={!(active.repoRoot || active.branch) || !onReviewChanges}
+            title={active.repoRoot || active.branch ? "Inspect this worktree and committed branch changes" : "No available Git context for this session"}
+            onClick={onReviewChanges}>
+            <span className="session-menu-icon"><GitBranch size={16} aria-hidden="true" /></span>
+            <span className="session-menu-text"><span className="session-menu-label">Changes</span>
+              <span className="session-menu-description">{active.repoRoot || active.branch ? "Worktree and branch diff" : "Git context unavailable"}</span></span>
+            {active.changedFiles != null && <span className="session-menu-count">{active.changedFiles} {active.changedFiles === 1 ? "file" : "files"}</span>}
+            <ChevronRight size={14} aria-hidden="true" />
+          </button>
+          <button type="button" className="session-menu-item" data-session-activity ref={activityButton}
+            onClick={() => { menuFocus.current = "back"; setActivitySessionId(active.id); }}>
+            <span className="session-menu-icon"><History size={16} aria-hidden="true" /></span>
+            <span className="session-menu-text"><span className="session-menu-label">Activity</span>
+              <span className="session-menu-description">Recent session checkpoints</span></span>
+            <ChevronRight size={14} aria-hidden="true" />
+          </button>
+        </nav>
+      )}
+      {!showingActivity && actionZone.kind === "resume" && (
+        <div className="detail-actions">
+          <ResumeChooser key={active.id} pending={resumingSessionIds?.has(active.id)} options={actionZone.options} onSelect={option => onResumeSession(active.id, option.strategy)} />
+          {actionZone.note && <div className="detail-resume-note">{actionZone.note}</div>}
         </div>
-        <div className="detail-headline">{headline}</div>
-        {tail && (
-          <div className="detail-tail" data-attention={tone}>{tail}</div>
-        )}
+      )}
+      {!showingActivity && <>
         {active.conflictWarning && (
           <div className="conflict-warning">&#x26A0; {active.conflictWarning}</div>
         )}
@@ -187,24 +224,19 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSes
             <button type="button" onClick={onOpenSettings}>Open provider settings</button>
           </div>
         )}
-      </div>
-
-      {/* Surface 2 — action zone: the one app-only move, never a duplicate of the terminal. */}
-      {(active.recommendation || actionZone.kind !== "none" || (active.hasOpenablePlan && onReviewPlan)) && (
-        <div className="detail-actions">
-          {active.recommendation && <div className="recommendation-text">{active.recommendation}</div>}
-
-          {active.hasOpenablePlan && onReviewPlan && (
-            <div className="resume-chooser">
-              <div className="resume-chooser-title">
-                {tone === "needs-you" ? "Plan ready for review" : "Plan available"}
-              </div>
-              <button type="button" className="resume-option resume-option--recommended" onClick={onReviewPlan}>
-                <span className="resume-option-icon"><FileText size={14} aria-hidden="true" /></span>
-                <span className="resume-option-body">
-                  <span className="resume-option-label">Review plan</span>
-                </span>
-              </button>
+      <details className="session-info" key={active.id}>
+        <summary>Session info</summary>
+      <div className="detail-facts">
+        <div className="detail-situation-top">
+          <span className="detail-badge" data-attention={tone}>
+            <StatusIndicator tone={tone} label={attentionLabel(attn)} />{badgeText}
+          </span>
+          <span className="detail-situation-time">{relativeTime(active.lastActivityAt, now) || relativeTime(active.created_at, now)}</span>
+        </div>
+        {active.recommendation && <p className="detail-muted">{active.recommendation}</p>}
+        {actionZone.kind === "cue" && <p className="detail-muted">{actionZone.text}</p>}
+        {active.hasOpenablePlan && onReviewPlan && (
+          <div className="detail-actions">
               {isSessionAlive(active) && (
                 <button
                   type="button"
@@ -231,37 +263,8 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSes
                   </span>
                 </button>
               )}
-            </div>
-          )}
-
-          {actionZone.kind === "cue" && (
-            <div className="detail-cue" data-attention={tone}>
-              <span className="detail-cue-arrow">&rarr;</span>
-              {actionZone.text}
-            </div>
-          )}
-
-          {actionZone.kind === "plan" && !active.hasOpenablePlan && onReviewPlan && (
-            <button
-              className="detail-button detail-button--primary"
-              type="button"
-              onClick={onReviewPlan}
-            >
-              Open plan
-            </button>
-          )}
-
-          {actionZone.kind === "resume" && (
-            <>
-              <ResumeChooser key={active.id} pending={resumingSessionIds?.has(active.id)} options={actionZone.options} onSelect={option => onResumeSession(active.id, option.strategy)} />
-              {actionZone.note && <div className="detail-resume-note">{actionZone.note}</div>}
-            </>
-          )}
-        </div>
-      )}
-
-      {/* Surface 3 — facts (demoted): everything the row and terminal don't say. */}
-      <div className="detail-facts">
+          </div>
+        )}
         {workspaceIdentity && <SessionTitleEditor key={active.id} sessionId={active.id} title={active.label} workspaceIdentity={workspaceIdentity} onUpdated={onTitleUpdated} />}
         <div className="detail-facts-grid">
           <DetailField className="detail-fact" label="Directory" valueTitle={active.cwd}>
@@ -420,15 +423,22 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSes
       {(active.gitContextSource || active.worktreeBinding) && <p className="detail-muted">
         {gitLocationLabel(active.gitContextSource)}{active.worktreeBinding && !active.repoRoot && !active.branch ? " unavailable" : ""}
       </p>}
-      <button type="button" className="detail-button" data-review-changes
-        disabled={!(active.repoRoot || active.branch) || !onReviewChanges}
-        title={active.repoRoot || active.branch ? "Inspect this worktree and committed branch changes" : "No available Git context for this session"}
-        onClick={onReviewChanges}>Review changes</button>
-
-      {/* Surface 4 — task history: durable checkpoints of what the session has done, distinct from the live headline above. */}
-      {summaryLog.length > 0 && (
+      {/* Keep observation authority alongside the inspected session facts. */}
+      <div className="detail-provenance">
+        {provenanceItems.map((item, i) => (
+          <Fragment key={i}>
+            {i > 0 && <span className="detail-provenance-sep">·</span>}
+            {item}
+          </Fragment>
+        ))}
+      </div>
+      </details>
+      </>}
+      {/* Activity contains durable checkpoints for this subject only. */}
+      {showingActivity && (
         <div className="detail-task-history">
-          <div className="detail-task-history-title">Task history</div>
+          <h3 className="detail-task-history-title">Activity</h3>
+          {summaryLog.length === 0 && <p className="detail-muted">No activity checkpoints available.</p>}
           <ul className="detail-task-history-list">
             {summaryLog.map((entry, i) => (
               <li key={i} className="detail-task-history-item">
@@ -454,15 +464,7 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSes
         </div>
       )}
 
-      {/* Surface 5 — provenance footer. */}
-      <div className="detail-provenance">
-        {provenanceItems.map((item, i) => (
-          <Fragment key={i}>
-            {i > 0 && <span className="detail-provenance-sep">·</span>}
-            {item}
-          </Fragment>
-        ))}
-      </div>
+
     </div>
   );
 }

@@ -761,6 +761,13 @@ The first useful MVP should include:
   Back, its toggle, or Escape within the page returns to the previous view and
   restores its invoker; selecting a session opens its Terminal. Recommendations
   is transient and is not restored after restart; see ADR 0084.
+- Details starts with a compact Plan, Changes, and Activity menu, without a
+  repeated session title/status summary. Plan and Changes open their existing
+  central views; Activity opens checkpoint history inside the inspector with
+  a Back control. Session info starts collapsed and retains session metadata,
+  title editing, source/confidence, Git details and diagnostics. Resume and
+  actionable recovery warnings remain directly available. Changing the visible
+  subject resets the activity subpage and disclosure.
 - An ended session with an available resume option exposes a split Resume
   button in the selected-session header and Details. The main action resumes
   the preferred available strategy; its arrow exposes all existing options and
