@@ -497,3 +497,22 @@ revocation-between-precheck-and-SQL-commit race. These remain no-go conditions;
 the pass is neither an accepted detailed contract nor an executable handoff.
 The scoped direction acceptance and all numerical/default/native/runtime gates
 above remain unchanged.
+
+
+## Separate read-work debit policy — 2026-10-31
+
+The [accepted #1184 debit policy](../../validation/artifact-read-work-authority.md#owner-acceptance-and-command-proof-handoff--2026-10-31)
+adds a separate internal permit decision for `evaluation-artifact-read-work`
+within the same private worker/store architecture. Permit-first allows only the
+exact debit to settle after later capability revocation. Durable debit remains at
+commit; content fetch and response commitment still require current authority.
+Ordinary stop cannot wait for SQL/fsync. An unresolved debit retains the sole
+active-or-retiring worker and old lease, closes old workspace responses and blocks
+replacement-epoch activation. Actual lease loss remains unavailable; domain/health/
+lease/resource conditions are not frozen by the permit.
+
+[#1210](https://github.com/Rambolarsen/orkworks/issues/1210) owns the exact command/
+proof/recovery representation prerequisite. Native transition participation and
+durable disposition remain unproved, with #1183 source/consumer/custody and
+separate native/maximum-profile/#740/executable-plan gates intact. No runtime,
+database, migration, transaction fixture or probe follows from this annotation.

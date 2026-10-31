@@ -1,10 +1,10 @@
 ---
 type: Authority Investigation
 title: Artifact read-work reservation authority and revocation
-description: Source-backed authority trace, unresolved physical commit fence and narrowly scoped debit-permit proposal for owner review.
+description: Accepted scoped debit-permit tradeoff, source-backed authority trace and gated command-proof/native qualification handoff.
 tags: [orkworks, hierarchy, artifacts, authority, qualification]
 status: draft
-workflow_status: owner-decision-required
+workflow_status: scoped-policy-accepted-qualification-required
 ---
 
 # Artifact read-work reservation authority and revocation
@@ -13,9 +13,13 @@ Tracking: [#1184](https://github.com/Rambolarsen/orkworks/issues/1184),
 [#1176](https://github.com/Rambolarsen/orkworks/issues/1176), initiative
 [#738](https://github.com/Rambolarsen/orkworks/issues/738).
 Inspection base: `754fab618e1d7cf8565dbfacbe54134ba5f2c48c`.
-**Written investigation and proposed decision only. Artifact read-work transactions
-remain no-go. No authority amendment, codec, native plan or implementation is
-approved by this document or its merge.**
+**Scoped debit-permit policy accepted for further design and qualification;
+artifact read-work transactions remain no-go.** See the
+[acceptance record](#owner-acceptance-and-command-proof-handoff--2026-10-31).
+The investigation and proposed wording below record the pre-acceptance analysis
+from PR #1209. Acceptance supersedes only its owner-decision-pending and
+current-authority-at-commit status for this one debit. No command/proof codec,
+native plan or runtime implementation is approved.
 
 ## Accepted boundary and investigation outcome
 
@@ -250,3 +254,55 @@ physical commit/revocation qualification. The accepted cutoff and no-go persist
 until an explicit decision and dependent qualification, with #1183/#740 and
 source/custody/native gates separate. Keep #1184 open through that decision and
 its handoff; publishing this investigation alone does not close Gate 2.
+
+
+## Owner acceptance and command-proof handoff — 2026-10-31
+
+After the complete proposal in PR #1209, the owner was explicitly asked to approve
+or reject the following policy: one authorized debit may finish after revocation
+and remain charged without delivery; content access still requires current
+authority. The owner answered “keep going” to that explicit decision request.
+This records approval of the exact scoped tradeoff reviewed at
+`e8e55f3a4b773e973965442f68c79724fc7d1b41`, merged as
+`793cf3d2479384b4602d845f5415bf69df7027f7`, for further design and qualification.
+
+The accepted scope is the unchanged
+[one exact debit permit](#proposed-owner-decision-one-exact-debit-permit):
+
+- Revoke-first denies; permit-first allows only that bound internal
+  `evaluation-artifact-read-work` attempt to reach proven commit/rollback after
+  later capability revocation. Physical commit remains the durable debit point;
+  queue admission creates no permit.
+- Current authority is independently required before content fetch and response
+  handoff. A debit grants no content access or delivery right. Completed charges
+  remain consumed without refund after disconnect, failed fetch or denied delivery.
+- The permit freezes only persistence permission, not source eligibility, custody,
+  dependency/health, header/quota or lease conditions. Actual lease loss stays
+  fail-closed. No new bearer or reuse/extension of #744 ClaimProofV2 is accepted.
+- Ordinary stop waits for no SQL/fsync. One active-or-retiring worker retains its
+  captured store/lease and resource charges through disposition; a stuck worker
+  may keep hierarchy storage/old workspace ownership unavailable. There is no
+  replacement worker, queue, automatic replay or allowance reset.
+- Workspace detach immediately closes old admission/responses. Namespace
+  replacement cannot activate around an unresolved old debit. Recovery determines
+  complete old state or the complete original debit without recreating a permit,
+  fabricating a source/receipt, refunding usage or restoring content authority.
+
+This explicitly changes revoke-before-physical-commit denial only for this
+permit-first debit. The earlier current-cutoff branch in the oracle table is
+historical for this command; its permit-first branch is the accepted policy
+oracle. All numeric limits, source/request/wire domains, read scopes, other
+#744 action exclusions and content/handoff cutoffs are unchanged. The two prior
+written reviews cover these unchanged technical choices, not native enforcement.
+
+The #1184 written investigation, scoped decision and reviewed handoff are complete.
+[#1210](https://github.com/Rambolarsen/orkworks/issues/1210) tracks the next exact
+internal command, nonsecret permit/commit evidence, recovery lookup and closed
+format-4 commitment/accounting representation. Those new representation choices
+need scoped review before dependent transaction fixtures; none is selected here.
+
+Gate 2 remains Investigate for #1210, #1183 source/preparation/consumer/custody
+closure, complete bounds and actual native transition/lease/retirement evidence.
+#740, maximal-profile qualification and separately approved bounded native/
+executable plans remain independent. No SQL/database/migration, live probe,
+transaction fixture, runtime route or implementation is authorized.

@@ -474,3 +474,30 @@ choices need scoped owner review before dependent fixtures. Existing technical
 contracts, artifact acceptance, identity/wire domains and all catalogs/checkers are
 unchanged. This does not pass artifact Gate 2, qualify underlying control/native
 sources or widen claim-first; #1184/#740 and executable plans remain separate.
+
+
+## Read-work debit authority accepted — 2026-10-31
+
+The owner [accepted the exact #1184 debit-permit tradeoff](../../validation/artifact-read-work-authority.md#owner-acceptance-and-command-proof-handoff--2026-10-31)
+for further design and qualification. This supersedes only the earlier requirement
+that current read authority persist until the debit's physical commit: an exact
+internal permit that wins before revocation may let that one attempted debit
+reach proven disposition after later capability revocation. Revocation-first
+denies; queue admission is no permit. The #744 publication claim class and
+ClaimProofV2 remain unchanged and unavailable to this command.
+
+Current authority is still required before content fetch and bounded response
+handoff. Existing source/health/dependency/header/lease/quota validation, complete
+atomic three-ledger/header/proof effects, no refund/reset and all finite limits
+remain. A stuck sole active-or-retiring worker may retain its old store/lease and
+keep hierarchy storage unavailable; ordinary stop does not wait. Workspace detach
+closes old admission/responses and namespace replacement cannot bypass an
+unresolved old debit. Actual lease loss gains no exception.
+
+The #1184 written investigation/decision/handoff is complete.
+[#1210](https://github.com/Rambolarsen/orkworks/issues/1210) owns the exact new
+command/permit-proof/recovery representation and closed format-4 accounting;
+those choices still need scoped review. #1183 source closure, custody, native
+authority/lease/retirement, #740 and separately approved executable plans remain
+gates. No codec, fixture, transaction, probe, migration or runtime implementation
+is supplied by this policy acceptance. Gate 2 remains Investigate.
