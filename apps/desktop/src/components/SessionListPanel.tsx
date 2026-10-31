@@ -52,7 +52,7 @@ interface SessionListRowProps {
   resuming: boolean;
   menuOpen: boolean;
   harnesses: HarnessConfig[];
-  now: Date;
+  activityTime: string;
   itemRefs: Map<string, HTMLLIElement>;
   onSelect: (id: string) => void;
   onOpenMenu: (session: SessionInfo, x: number, y: number, invoker: HTMLElement | null) => void;
@@ -60,9 +60,10 @@ interface SessionListRowProps {
 
 // Pushed deltas retain unchanged session objects. Keep their row contents out
 // of background renders so large histories do not delay terminal interaction.
+// Pass the displayed age text so clock ticks only redraw labels that changed.
 const SessionListRow = memo(function SessionListRow({
   session: s, selected, isUnread, acknowledged, pendingAction, resuming,
-  menuOpen, harnesses, now, itemRefs, onSelect, onOpenMenu,
+  menuOpen, harnesses, activityTime, itemRefs, onSelect, onOpenMenu,
 }: SessionListRowProps) {
   const attn = sessionAttentionStatus(s);
   const tone = attentionTone(attn);
@@ -131,7 +132,7 @@ const SessionListRow = memo(function SessionListRow({
             <span className="session-row-tool" aria-hidden={!tool}>
               {tool && <HarnessIcon tool={tool} />}
             </span>
-            <span className="session-row-time">{lastActivity(s, now)}</span>
+            <span className="session-row-time">{activityTime}</span>
           </span>
         </>}
       </span>
@@ -318,7 +319,7 @@ function SessionListPanel({
                 return <SessionListRow key={s.id} session={s} selected={s.id === activeSessionId}
                   isUnread={unreadIds.has(s.id)} acknowledged={acknowledgedIds.has(s.id)}
                   pendingAction={pending.get(s.id)} resuming={!!resumingSessionIds?.has(s.id)}
-                  menuOpen={menu?.session.id === s.id} harnesses={harnesses} now={now}
+                  menuOpen={menu?.session.id === s.id} harnesses={harnesses} activityTime={lastActivity(s, now)}
                   itemRefs={itemRefs.current} onSelect={handleSelect} onOpenMenu={openMenu} />;
               })}
             </Fragment>
