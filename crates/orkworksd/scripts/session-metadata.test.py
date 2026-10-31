@@ -25,7 +25,7 @@ def endpoint(replies):
         def handle_request(self):
             body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
             requests.append((self.command, self.path, self.headers.get("Authorization"), json.loads(body) if body else None))
-            status, value, headers = replies.pop(0)
+            status, value, headers = replies.pop(0) if replies else (500, {}, {})
             self.send_response(status)
             for key, value_header in headers.items():
                 self.send_header(key, value_header)
@@ -58,15 +58,15 @@ def bootstrap_replies():
 
 
 class ProducerTests(unittest.TestCase):
-    def invoke(self, command, port=1, body="", marker="1", http_proxy=None, **environment):
-        env = {key: value for key, value in os.environ.items() if not key.startswith("ORKWORKS_")}
+    def invoke(self, command, port=1, body="", marker="1", proxy_url=None, **environment):
+        env = {key: value for key, value in os.environ.items() if not key.startswith("ORKWORKS_") and key != "CODEX_NETWORK_PROXY_ACTIVE"}
         env.update(ORKWORKS_SESSION_ID="session-1", ORKWORKS_PORT=str(port), ORKWORKS_REPORT_TOKEN=TOKEN)
         if marker is not None:
             env["ORKWORKS_SESSION_METADATA_API_VERSION"] = marker
         env.update(environment)
         arguments = [sys.executable, str(SCRIPT), *(command if isinstance(command, list) else [command])]
-        if http_proxy is not None:
-            arguments += ["--http-proxy", http_proxy]
+        if proxy_url is not None:
+            arguments += ["--http-proxy", proxy_url]
         return subprocess.run(arguments, input=body, text=True, capture_output=True, env=env, timeout=15)
 
     def test_worktree_command_without_general_marker_sends_only_narrow_patch(self):
@@ -74,11 +74,75 @@ class ProducerTests(unittest.TestCase):
             for path in ("/task/feature", "--clear"):
                 with self.subTest(proxy=proxy, path=path), endpoint([ok(RECORD), ok({**RECORD, "metadataRevision": "8"})]) as (port, requests):
                     result = self.invoke(["worktree", path], 41117 if proxy else port, marker=None,
-                        http_proxy=f"http://127.0.0.1:{port}" if proxy else None)
+                        proxy_url=f"http://127.0.0.1:{port}" if proxy else None)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual([r[0] for r in requests], ["GET", "PATCH"])
                 self.assertEqual(requests[-1][3], {"metadataRevision": "7", "patch": {"agentMetadata": {"worktreePath": None if path == "--clear" else path}}})
                 self.assertNotIn(TOKEN, result.stdout + result.stderr)
+
+    def test_worktree_automatically_uses_qualified_managed_proxy(self):
+        for path in ("/task/feature", "--clear"):
+            with self.subTest(path=path), endpoint([]) as (origin, direct), endpoint([
+                ok(RECORD), ok({**RECORD, "metadataRevision": "8"})
+            ]) as (relay, requests):
+                url = f"http://127.0.0.1:{relay}"
+                result = self.invoke(["worktree", path], origin, marker=None,
+                    CODEX_NETWORK_PROXY_ACTIVE="1", HTTP_PROXY=url, http_proxy=url)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(direct, [])
+            target = f"http://127.0.0.1:{origin}/sessions/session-1/metadata"
+            self.assertEqual([(r[0], r[1]) for r in requests], [("GET", target), ("PATCH", target)])
+            self.assertEqual(requests[-1][3], {"metadataRevision": "7", "patch": {
+                "agentMetadata": {"worktreePath": None if path == "--clear" else path}}})
+            self.assertNotIn(TOKEN, result.stdout + result.stderr)
+
+    def test_worktree_ignores_unqualified_ambient_proxy(self):
+        for active in ("", "0", "true"):
+            with self.subTest(active=active), endpoint([ok(RECORD), ok(RECORD)]) as (origin, direct), endpoint([]) as (relay, requests):
+                result = self.invoke(["worktree", "/task/feature"], origin,
+                    CODEX_NETWORK_PROXY_ACTIVE=active, HTTP_PROXY=f"http://127.0.0.1:{relay}")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(len(direct), 2)
+            self.assertEqual(requests, [])
+
+    def test_managed_worktree_proxy_rejects_missing_invalid_or_ambiguous_url(self):
+        for url, lower in (("", ""), ("http://localhost:80", "http://localhost:80"),
+                ("http://127.0.0.1:80", "http://127.0.0.1:81"),
+                (f"http://user:{TOKEN}@127.0.0.1:80", "")):
+            with self.subTest(url=url), endpoint([]) as (origin, direct):
+                result = self.invoke(["worktree", "/task/feature"], origin,
+                    CODEX_NETWORK_PROXY_ACTIVE="1", HTTP_PROXY=url, http_proxy=lower)
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(direct, [])
+            self.assertNotIn(TOKEN, result.stdout + result.stderr)
+
+    def test_explicit_worktree_proxy_overrides_managed_environment(self):
+        with endpoint([ok(RECORD), ok(RECORD)]) as (relay, requests):
+            result = self.invoke(["worktree", "/task/feature"], 41117,
+                proxy_url=f"http://127.0.0.1:{relay}",
+                CODEX_NETWORK_PROXY_ACTIVE="1", HTTP_PROXY="invalid", http_proxy="different")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(requests), 2)
+
+    def test_managed_worktree_proxy_failure_never_falls_back(self):
+        for reply, code in (((307, {}, {"Location": "http://127.0.0.1:1/steal"}), 2),
+                            ((409, {"secret": TOKEN}, {}), 3)):
+            with self.subTest(code=code), endpoint([]) as (origin, direct), endpoint([reply]) as (relay, requests):
+                url = f"http://127.0.0.1:{relay}"
+                result = self.invoke(["worktree", "/task/feature"], origin,
+                    CODEX_NETWORK_PROXY_ACTIVE="1", HTTP_PROXY=url, http_proxy=url)
+            self.assertEqual(result.returncode, code)
+            self.assertEqual(direct, [])
+            self.assertEqual(len(requests), 1)
+            self.assertNotIn(TOKEN, result.stdout + result.stderr)
+
+    def test_managed_proxy_does_not_activate_general_metadata_routing(self):
+        with endpoint([ok(RECORD)]) as (origin, direct), endpoint([]) as (relay, requests):
+            url = f"http://127.0.0.1:{relay}"
+            result = self.invoke("get", origin, CODEX_NETWORK_PROXY_ACTIVE="1", HTTP_PROXY=url, http_proxy=url)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(direct), 1)
+        self.assertEqual(requests, [])
 
     def test_worktree_conflict_never_retries_or_prints_capability(self):
         with endpoint([ok(RECORD), (409, {"secret": TOKEN}, {})]) as (port, requests):
@@ -115,7 +179,7 @@ class ProducerTests(unittest.TestCase):
                     replacements = {"python3": sys.executable, "ABSOLUTE_PATH": "/task/feature",
                         "TRUSTED_PROXY_URL": f"http://127.0.0.1:{port}"}
                     command = [replacements.get(part, part) for part in examples[0]]
-                    env = {key: value for key, value in os.environ.items() if not key.startswith("ORKWORKS_")}
+                    env = {key: value for key, value in os.environ.items() if not key.startswith("ORKWORKS_") and key != "CODEX_NETWORK_PROXY_ACTIVE"}
                     env.update(ORKWORKS_SESSION_ID="session-1", ORKWORKS_PORT="41117", ORKWORKS_REPORT_TOKEN=TOKEN)
                     reported = subprocess.run(command, env=env, text=True, capture_output=True, timeout=15)
                 self.assertEqual(reported.returncode, 0, reported.stderr)
@@ -132,7 +196,7 @@ class ProducerTests(unittest.TestCase):
         self.assertEqual(len(requests), 2)
 
     def test_marker_free_session_start_delivers_only_worktree_instructions(self):
-        env = {key: value for key, value in os.environ.items() if not key.startswith("ORKWORKS_")}
+        env = {key: value for key, value in os.environ.items() if not key.startswith("ORKWORKS_") and key != "CODEX_NETWORK_PROXY_ACTIVE"}
         env.update(ORKWORKS_SESSION_ID="session-1", ORKWORKS_PORT="1", ORKWORKS_REPORT_TOKEN=TOKEN)
         result = subprocess.run(["bash", str(SCRIPT.with_name("report-harness-event.sh")), "--marker", "orkworks:harness-integration:v2:codex", "--event", "SessionStart"], input="{}", text=True, capture_output=True, env=env, timeout=15)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -148,7 +212,7 @@ class ProducerTests(unittest.TestCase):
                 if command == "patch":
                     replies += [ok({**RECORD, "metadataRevision": "8"})]
                 with endpoint(replies) as (proxy_port, requests):
-                    result = self.invoke(command, 41117, json.dumps(PATCH), http_proxy=f"http://127.0.0.1:{proxy_port}/")
+                    result = self.invoke(command, 41117, json.dumps(PATCH), proxy_url=f"http://127.0.0.1:{proxy_port}/")
                 self.assertEqual(result.returncode, 0, result.stderr)
                 base = "http://127.0.0.1:41117/sessions/session-1/metadata"
                 want = [("GET", base)] if command == "get" else [("GET", base), ("PATCH", base + "?validateOnly=true"), ("GET", base)]
@@ -165,7 +229,7 @@ class ProducerTests(unittest.TestCase):
             invalid = ["", "http://localhost:80", "http://127.1:80", "http://[::1]:80", "https://127.0.0.1:80", "socks5://127.0.0.1:80", "http://127.0.0.1", "http://127.0.0.1:0", "http://127.0.0.1:65536", "http://127.0.0.1:+80", "http://127.0.0.1:８０", "http://example.com:80", base + "/metadata", base + "?query", base + "#fragment", base + "\n", base.replace("127.", "127.\t"), f"http://user:{TOKEN}@127.0.0.1:{proxy_port}"]
             for url in invalid:
                 with self.subTest(url=url):
-                    result = self.invoke("bootstrap", port, http_proxy=url)
+                    result = self.invoke("bootstrap", port, proxy_url=url)
                     self.assertEqual(result.returncode, 2)
                     self.assertIn("invalid HTTP proxy", result.stderr)
                     self.assertNotIn(TOKEN, result.stdout + result.stderr)
@@ -175,7 +239,7 @@ class ProducerTests(unittest.TestCase):
     def test_proxy_redirect_does_not_forward_capability_or_fall_back(self):
         with endpoint([]) as (port, direct_requests):
             with endpoint([(307, {}, {"Location": f"http://127.0.0.1:{port}/steal"})]) as (proxy_port, requests):
-                result = self.invoke("patch", port, json.dumps(PATCH), http_proxy=f"http://127.0.0.1:{proxy_port}")
+                result = self.invoke("patch", port, json.dumps(PATCH), proxy_url=f"http://127.0.0.1:{proxy_port}")
         self.assertEqual(result.returncode, 2)
         self.assertEqual(len(requests), 1)
         self.assertEqual(direct_requests, [])
@@ -187,7 +251,7 @@ class ProducerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder, endpoint([]) as (port, requests):
             path = Path(folder) / "session.json"
             path.write_text("unchanged")
-            result = self.invoke("patch", port, json.dumps(PATCH), http_proxy=f"http://127.0.0.1:{unavailable_port}", ORKWORKS_METADATA_PATH=str(path))
+            result = self.invoke("patch", port, json.dumps(PATCH), proxy_url=f"http://127.0.0.1:{unavailable_port}", ORKWORKS_METADATA_PATH=str(path))
             self.assertEqual(result.returncode, 2)
             self.assertIn("transport", result.stderr)
             self.assertEqual(path.read_text(), "unchanged")
@@ -196,7 +260,7 @@ class ProducerTests(unittest.TestCase):
 
     def test_proxy_conflict_keeps_caller_revision_and_does_not_retry(self):
         with endpoint(bootstrap_replies() + [(409, {"secret": TOKEN}, {})]) as (proxy_port, requests):
-            result = self.invoke("patch", 41117, json.dumps(PATCH), http_proxy=f"http://127.0.0.1:{proxy_port}")
+            result = self.invoke("patch", 41117, json.dumps(PATCH), proxy_url=f"http://127.0.0.1:{proxy_port}")
         self.assertEqual(result.returncode, 3)
         self.assertEqual(len(requests), 4)
         self.assertEqual(requests[-1][3], PATCH)
@@ -206,7 +270,7 @@ class ProducerTests(unittest.TestCase):
         cases = [[ok(b"not-json")], [ok({**RECORD, "id": "other"})], [ok({**RECORD, "metadataRevision": "07"})], [(502, {"secret": TOKEN}, {})], bootstrap_replies()[:2] + [ok({**RECORD, "metadataRevision": "8"})]]
         for replies in cases:
             with self.subTest(replies=replies), endpoint(replies.copy()) as (proxy_port, requests):
-                result = self.invoke("patch", 41117, json.dumps(PATCH), http_proxy=f"http://127.0.0.1:{proxy_port}")
+                result = self.invoke("patch", 41117, json.dumps(PATCH), proxy_url=f"http://127.0.0.1:{proxy_port}")
             self.assertEqual(result.returncode, 2)
             self.assertTrue(requests)
             self.assertTrue(all(r[0] == "GET" or r[1].endswith("?validateOnly=true") for r in requests))
@@ -319,7 +383,7 @@ class ProducerTests(unittest.TestCase):
             shutil.copyfile(SCRIPT, helper)
             shutil.copyfile(SCRIPT.with_name(reporter.name), reporter)
             for marker, event, harness in (("1", "SessionStart", "codex"), (None, "SessionStart", "codex"), ("1", "Stop", "codex"), ("1", "SessionStart", "claude-code")):
-                env = {key: value for key, value in os.environ.items() if not key.startswith("ORKWORKS_")}
+                env = {key: value for key, value in os.environ.items() if not key.startswith("ORKWORKS_") and key != "CODEX_NETWORK_PROXY_ACTIVE"}
                 env["HOME"] = folder
                 if marker:
                     env["ORKWORKS_SESSION_METADATA_API_VERSION"] = marker

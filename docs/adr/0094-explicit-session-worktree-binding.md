@@ -30,3 +30,12 @@ API-only launch marker, native observations or completion gates. Reporting is
 cooperative, not automatic directory discovery. Older records retain labeled
 fallback behavior; mixed-version writers are unsupported. See the linked design
 for lifecycle, recovery, validation and verification contracts.
+
+## Amendment — managed worktree reporting transport, 2026-10-31
+
+The owner approved automatic selection of the verified Codex-managed relay for
+worktree reporting in [#1193](https://github.com/Rambolarsen/orkworks/issues/1193).
+The [transport design amendment](../superpowers/specs/2026-10-24-sandbox-metadata-proxy-design.md#amendment--automatic-worktree-transport-2026-10-31)
+defines the trusted runtime marker/URL pair, strict validation and failure rules.
+This operationalizes cooperative reporting inside the managed sandbox; it does
+not discover directories, change CWD, or enable broader metadata commands.

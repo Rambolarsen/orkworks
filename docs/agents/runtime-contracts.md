@@ -103,8 +103,10 @@ full protocol detail.
 The owner-approved [explicit helper proxy transport](../superpowers/specs/2026-10-24-sandbox-metadata-proxy-design.md)
 permits a caller-selected trusted loopback HTTP relay for the metadata helper.
 The relay can observe its bearer token. Direct mode still ignores ambient proxy
-variables; automatic launch selection and all metadata/attention qualification
-gates remain unchanged. See the [helper proxy contract](harness-integration-contracts.md#explicit-metadata-helper-proxy).
+variables except the narrow owner-approved worktree command: the qualified
+Codex managed-runtime marker and strict loopback URL select its relay, with no
+failure fallback. General metadata commands and all metadata/attention
+qualification gates remain unchanged. See the [helper proxy contract](harness-integration-contracts.md#explicit-metadata-helper-proxy).
 
 ## Session organization
 
