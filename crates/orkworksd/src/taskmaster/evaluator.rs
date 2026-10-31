@@ -1139,6 +1139,7 @@ fn apply_model_output(
     )
 }
 
+#[cfg(test)]
 fn apply_provider_output(
     state: &Arc<AppState>,
     runtime: &TaskmasterRuntime,
@@ -1333,6 +1334,7 @@ struct ApplyDisposition {
     degraded: Option<&'static str>,
 }
 
+#[cfg(test)]
 #[allow(non_upper_case_globals)]
 impl ApplyDisposition {
     const Applied: Self = Self {
