@@ -1097,6 +1097,15 @@ and no-op Terminal commands leave navigation recency unchanged. Unreadable
 navigation memory surfaces a diagnostic and the existing Electron-confirmed rebuild path; cancelled recovery
 preserves the record. Gated Workflow navigation remains a separate delivery slice.
 
+Details presents a compact session menu for Plan, Changes, and Activity without
+repeating the selected-session summary. Plan and Changes use their existing
+central views. Activity opens a checkpoint subpage inside the inspector with
+an explicit Back control and focus return. Session info starts collapsed and
+contains the title editor, metadata, Git facts, source/confidence and diagnostics.
+Independent review remains an explicit action there; available resume controls
+and actionable recovery warnings remain outside the disclosure. Changing the
+visible subject resets the activity subpage and disclosure.
+
 Actions (#805) uses the same inspector or temporary page. It groups canonical
 live session attention before the existing ordered workspace recommendations,
 with source labels and separate required-session-attention and recommendation

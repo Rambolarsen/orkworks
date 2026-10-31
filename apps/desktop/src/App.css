@@ -1758,17 +1758,53 @@ html, body, #root {
 .session-detail {
   height: 100%;
   overflow-y: auto;
-  border-left: 3px solid transparent;
   display: flex;
   flex-direction: column;
 }
 
-.session-detail[data-attention="needs-you"] { border-left-color: var(--attention-needs-you); }
-.session-detail[data-attention="blocked"]   { border-left-color: var(--attention-blocked); }
-.session-detail[data-attention="done"]      { border-left-color: var(--attention-done); }
-.session-detail[data-attention="working"]   { border-left-color: var(--attention-working); }
-.session-detail[data-attention="failed"]    { border-left-color: var(--attention-failed); }
-.session-detail[data-attention="idle"]      { border-left-color: var(--attention-idle); }
+.session-menu { display: flex; flex-direction: column; gap: 4px; padding: 12px; }
+.session-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 62px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 10px;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.session-menu-item:hover:not(:disabled) { background: var(--surface-3); border-color: var(--border-subtle); }
+.session-menu-item:focus-visible, .session-menu-back:focus-visible, .session-info > summary:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: -2px;
+}
+.session-menu-item:disabled { cursor: default; color: var(--text-muted); }
+.session-menu-icon {
+  display: grid; place-items: center; flex-shrink: 0; width: 32px; height: 32px;
+  background: var(--surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-md);
+}
+.session-menu-text { display: flex; flex-direction: column; flex: 1; min-width: 0; gap: 4px; }
+.session-menu-label { color: var(--text-primary); font-size: var(--text-md); font-weight: var(--weight-medium); }
+.session-menu-item:disabled .session-menu-label { color: inherit; }
+.session-menu-description { color: var(--text-muted); font-size: var(--text-xs); line-height: 1.4; }
+.session-menu-count { flex-shrink: 0; background: var(--surface-2); border-radius: var(--radius-sm); padding: 3px 6px; font-size: var(--text-xs); }
+.session-info { margin: 8px 16px 16px; border-top: 1px solid var(--border-subtle); }
+.session-info > summary { padding: 17px 4px; color: var(--text-muted); font-size: var(--text-sm); cursor: pointer; }
+.session-info .detail-facts { border-top: 0; padding: 4px; }
+.session-info .detail-provenance { padding: 14px 4px; }
+.session-menu-back {
+  display: flex; align-items: center; gap: 8px; align-self: flex-start; margin: 16px;
+  border: 0; border-radius: var(--radius-sm); padding: 6px; background: transparent;
+  color: var(--text-secondary); font: inherit; font-size: var(--text-sm); cursor: pointer;
+}
+.session-menu-back:hover { color: var(--text-primary); background: var(--surface-3); }
+.session-detail > .detail-task-history { border-top: 0; padding-top: 0; }
+.session-detail .detail-task-history-title { margin: 0 0 8px; font-weight: var(--weight-medium); }
+.session-detail .detail-task-history-list { max-height: none; overflow: visible; gap: 16px; }
 
 .session-detail-label {
   font-size: var(--text-xs);
@@ -1790,20 +1826,6 @@ html, body, #root {
   color: var(--text-muted);
   margin-top: 1px;
 }
-
-/* Surface 1 — situation hero: tone-tinted, the distilled "what's going on" line. */
-.detail-situation {
-  padding: var(--space-4) var(--space-5);
-  border-bottom: 1px solid var(--border-subtle);
-  background: var(--surface-1);
-}
-
-.detail-situation[data-attention="needs-you"] { background: color-mix(in srgb, var(--attention-needs-you) 9%, var(--surface-1)); }
-.detail-situation[data-attention="blocked"]   { background: color-mix(in srgb, var(--attention-blocked) 9%, var(--surface-1)); }
-.detail-situation[data-attention="done"]      { background: color-mix(in srgb, var(--attention-done) 9%, var(--surface-1)); }
-.detail-situation[data-attention="working"]   { background: color-mix(in srgb, var(--attention-working) 9%, var(--surface-1)); }
-.detail-situation[data-attention="failed"]    { background: color-mix(in srgb, var(--attention-failed) 9%, var(--surface-1)); }
-.detail-situation[data-attention="idle"]      { background: color-mix(in srgb, var(--attention-idle) 9%, var(--surface-1)); }
 
 .detail-situation-top {
   display: flex;
@@ -1840,32 +1862,6 @@ html, body, #root {
   color: var(--text-muted);
   white-space: nowrap;
 }
-
-.detail-headline {
-  font-size: var(--text-xl);
-  font-weight: var(--weight-medium);
-  color: var(--text-primary);
-  line-height: var(--leading-snug);
-}
-
-.detail-tail {
-  margin-top: var(--space-3);
-  padding: 8px 10px;
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  background: var(--term-bg);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  line-height: 1.45;
-  color: var(--term-fg);
-  border-left: 2px solid var(--border-default);
-}
-
-.detail-tail[data-attention="needs-you"] { border-left-color: var(--attention-needs-you); }
-.detail-tail[data-attention="blocked"]   { border-left-color: var(--attention-blocked); }
-.detail-tail[data-attention="done"]      { border-left-color: var(--attention-done); }
-.detail-tail[data-attention="working"]   { border-left-color: var(--attention-working); }
-.detail-tail[data-attention="failed"]    { border-left-color: var(--attention-failed); }
-.detail-tail[data-attention="idle"]      { border-left-color: var(--attention-idle); }
 
 .conflict-warning {
   margin-top: var(--space-3);

@@ -26,8 +26,41 @@ if (process.versions.electron) {
       await fresh();
       const scenario = process.env.ORKWORKS_SHELL_SCENARIO;
       const click = async command => evaluate('(()=>{const b=document.querySelector("[data-shell-command=' + command + ']");b.focus();b.click()})()');
-      if (scenario === 'session-title') {
+      if (scenario === 'session-menu') {
+        await evaluate('fixture.setSessionState({hasOpenablePlan:true,repoRoot:"/tmp/test",branch:"feature",changedFiles:3})');
         await click('details');
+        await waitFor('document.querySelector("nav.session-menu")');
+        assert.equal(await evaluate('!!document.querySelector(".session-detail details[open]")'), false, 'session information starts collapsed');
+        assert.deepEqual(await evaluate('[...document.querySelectorAll(".session-menu-label")].map(el=>el.textContent)'), ['Plan','Changes','Activity']);
+        if (process.env.ORKWORKS_CAPTURE_SESSION_MENU) {
+          const {writeFileSync}=await import('node:fs');
+          writeFileSync(process.env.ORKWORKS_CAPTURE_SESSION_MENU,(await win.webContents.capturePage()).toPNG());
+        }
+        await evaluate('document.querySelector("[data-session-activity]").click()');
+        await waitFor('document.querySelector("[data-session-menu-back]")===document.activeElement');
+        await waitFor('document.querySelector(".detail-task-history")?.textContent.includes("Checkpoint coding")');
+        await evaluate('document.querySelector("[data-session-menu-back]").click()');
+        await waitFor('document.querySelector("[data-session-activity]")===document.activeElement');
+        await evaluate('document.querySelector(".session-info summary").click()');
+        await waitFor('document.querySelector(".session-info").open');
+        await evaluate('document.querySelector("[data-session-activity]").click();fixture.select("other")');
+        await waitFor('document.querySelector("[data-session-activity]")');
+        assert.equal(await evaluate('document.querySelector(".session-info").open'), false, 'switching subjects resets disclosures and activity');
+        await evaluate('document.querySelector("[data-session-activity]").click()');
+        await waitFor('document.querySelector(".detail-task-history")?.textContent.includes("Checkpoint other")');
+        assert.equal(await evaluate('document.querySelector(".detail-task-history").textContent.includes("Checkpoint coding")'), false);
+        await evaluate('document.querySelector("[data-session-menu-back]").click()');
+        await evaluate('document.querySelector("[data-session-plan]").click()');
+        await waitFor('document.querySelector("[data-shell-region=review]")');
+        assert.equal(await evaluate('fixture.prompts'), 0, 'opening a plan never requests execution or independent review');
+        await evaluate('fixture.setSessionState({});fixture.command("terminal");fixture.command("details",true)');
+        await waitFor('document.querySelector("[data-session-plan]")?.disabled');
+        assert.equal(await evaluate('document.querySelector("[data-review-changes]").disabled'), true, 'unavailable destinations explain their disabled state');
+        assert.deepEqual(await evaluate('fixture.errors'), []);
+        return;
+      } else if (scenario === 'session-title') {
+        await click('details');
+        await evaluate('document.querySelector(".session-info summary").click()');
         await waitFor('document.querySelector(".session-title-current button")');
         await evaluate('document.querySelector(".session-title-current button").click()');
         await waitFor('document.querySelector(".session-title-editor input")');
@@ -49,6 +82,8 @@ if (process.versions.electron) {
         await evaluate('document.querySelector(".session-title-editor form").requestSubmit()');
         await waitFor('!!fixture.finishTitle');
         await evaluate('fixture.select("other")');
+        await waitFor('!document.querySelector(".session-info").open');
+        await evaluate('document.querySelector(".session-info summary").click()');
         await waitFor('document.querySelector(".session-title-current").textContent.includes("other")');
         await evaluate('fixture.finishTitle()');
         assert.equal(await evaluate('document.querySelector(".session-title-current").textContent.includes("Old session title")'),false);
@@ -512,6 +547,7 @@ if (process.versions.electron) {
         await waitFor('document.querySelector(".review-plan-content")');
         await click('details');
         await waitFor('document.querySelector("[data-shell-region=inspector]")');
+        await evaluate('document.querySelector(".session-info summary").click()');
         await evaluate(`fixture.clickBoth=()=>{document.querySelector('[data-review-request]').click();Array.from(document.querySelectorAll('.resume-option')).find(button=>button.textContent.includes('Request independent review')).click()};fixture.clickBoth()`);
         assert.equal(await evaluate('fixture.prompts'),1,'two visible controls share one in-flight request');
         await evaluate('fixture.finishPrompt()');
@@ -533,6 +569,7 @@ if (process.versions.electron) {
         await evaluate('new Promise(resolve=>setTimeout(resolve,50))');
         await click('details');
         await waitFor('document.querySelector("[data-shell-region=inspector]")');
+        await evaluate('if (!document.querySelector(".session-info").open) document.querySelector(".session-info summary").click()');
         await evaluate(`Array.from(document.querySelectorAll('.resume-option')).find(button=>button.textContent.includes('Request independent review')).click()`);
         assert.equal(await evaluate('fixture.prompts'),4,'old settlement cannot release the new generation guard');
         await evaluate('fixture.finishPrompt()');
@@ -692,6 +729,7 @@ if (process.versions.electron) {
       } else if (scenario === 'app-review-details-request') {
         await waitFor('fixture.runtime()?.terminal.element?.isConnected');
         await click('details');
+        await evaluate('document.querySelector(".session-info summary").click()');
         await waitFor('Array.from(document.querySelectorAll(".resume-option")).some(button=>button.textContent.includes("Request independent review"))');
         await evaluate(`(()=>{const button=Array.from(document.querySelectorAll('.resume-option')).find(button=>button.textContent.includes('Request independent review'));button.click();button.click()})()`);
         assert.equal(await evaluate('fixture.prompts'),1,'Details guards clicks before React rerenders');
@@ -803,8 +841,8 @@ if (process.versions.electron) {
         assert.equal(await evaluate('fixture.socketCount'),1);
         assert.match(await evaluate('fixture.runtime().terminal.buffer.active.getLine(0).translateToString()'),/output while reading/);
         await click('details');
-        await waitFor('Array.from(document.querySelectorAll(".resume-option-label")).some(node=>node.textContent==="Review plan")');
-        await evaluate(`Array.from(document.querySelectorAll('.resume-option')).find(button=>button.textContent.trim()==='Review plan').click()`);
+        await waitFor('document.querySelector("[data-session-plan]")');
+        await evaluate('document.querySelector("[data-session-plan]").click()');
         await waitFor('document.querySelector("[data-shell-region=review]")');
         await evaluate('fixture.navigationBeforeRefresh=fixture.navigation.length;fixture.plan="# Revised plan";document.querySelector("[data-review-refresh]").click()');
         await waitFor('document.querySelector(".review-change-notice[role=status]")?.textContent.includes("Plan changed")');
@@ -1717,7 +1755,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['session-title','app-skills-picker','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['session-menu','session-title','app-skills-picker','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
@@ -1838,6 +1876,9 @@ if (process.versions.electron) {
               return {ok:true,json:async()=>body};
             };
           }
+          if (${JSON.stringify(scenario)}==='session-menu') {
+            window.fetch=async url=>({ok:true,json:async()=>({entries:[{timestamp:'2026-10-31T10:00:00Z',summary:'Checkpoint '+new URL(url).pathname.split('/')[2],source:'agent_hook'}]})});
+          }
           function Preferences() {const prefs=useShellPreferences();return <ShellPreferencesNotice {...prefs} onCommand={command=>{fixture.noticeCommands.push(command);void prefs.reset()}}/>;}
           function PreferencesHarness() {const [generation,setGeneration]=useState(0);fixture.remountPreferences=()=>setGeneration(n=>n+1);return <Preferences key={generation}/>;}
           function Harness() {
@@ -1856,13 +1897,13 @@ if (process.versions.electron) {
             fixture.activeSessionId=activeSessionId;
             fixture.select=setActiveSessionId;
             const [preferences,setPreferences]=useState({sessionsWidth:240,inspectorWidth:320,sessionsVisible:true,density:'low'});fixture.setPreferences=setPreferences;
-            return <ApplicationShell centralSurface={reviewing ? {kind:"review",sessionId:activeSessionId,artifactId:"plan"} : {kind:"terminal",sessionId:activeSessionId}} onCloseReview={()=>setReviewing(false)} reviewContent={<p>Current plan</p>} sessions={empty ? [] : ((${JSON.stringify(scenario)}==='sidebar-controls'?['coding','other',...Array.from({length:80},(_,i)=>'history-'+i)]:['coding','other']).map((id,i)=>({id,name:id,cwd:'/tmp/test',harnessId:'codex',harness:'codex',lifecycle:'alive',status:'running',attention:(${JSON.stringify(scenario)}==='actions' && id==='other'?'needs_you':'idle'),...sessionState,label:id,createdAt:'2026-10-10T10:00:00Z',lastActivityAt:i?'2026-10-10T09:00:00Z':'2026-10-10T10:00:00Z'})))}
+            return <ApplicationShell centralSurface={reviewing ? {kind:"review",sessionId:activeSessionId,artifactId:"plan"} : {kind:"terminal",sessionId:activeSessionId}} onOpenReview={()=>setReviewing(true)} onCloseReview={()=>setReviewing(false)} reviewContent={<p>Current plan</p>} sessions={empty ? [] : ((${JSON.stringify(scenario)}==='sidebar-controls'?['coding','other',...Array.from({length:80},(_,i)=>'history-'+i)]:['coding','other']).map((id,i)=>({id,name:id,cwd:'/tmp/test',harnessId:'codex',harness:'codex',lifecycle:'alive',status:'running',attention:(${JSON.stringify(scenario)}==='actions' && id==='other'?'needs_you':'idle'),...sessionState,label:id,createdAt:'2026-10-10T10:00:00Z',lastActivityAt:i?'2026-10-10T09:00:00Z':'2026-10-10T10:00:00Z'})))}
               workspace={{path:'/tmp/test',workspaceIdentity:['open-session-app','skills-main'].includes(${JSON.stringify(scenario)})?'/real/test':'/tmp/test'}} workspaceControl={<div className="shell-workspace-control"><span className="titlebar-text">test</span><WorkspaceHistoryDropdown triggerLabel="⇄" triggerClassName="titlebar-switch-button" triggerAriaLabel="Switch workspace" currentWorkspacePath="/tmp/test" isSwitching={false} onOpenPath={()=>{fixture.workspaceOpens++;setGeneration(n=>n+1)}} onOpenOtherFolder={()=>{}} onError={()=>{}}/></div>} onOpenSettings={()=>fixture.settingsOpened++} onCreateSession={()=>{fixture.sessionsCreated++;if(${JSON.stringify(scenario)}==='new-session'){setCreating(true);fixture.command('new-session')}}} activeSessionId={activeSessionId} workspaceGeneration={generation}
               newSessionContent={creating ? <NewSessionDialog key={generation} harnesses={[]} providerRuntime={null} onConfirm={async opts=>{fixture.submitted=opts;fixture.finishCreate=new Promise(resolve=>fixture.resolveCreate=resolve);await fixture.finishCreate;setCreating(false);fixture.command("terminal")}} onCancel={()=>fixture.command("cancel-new-session")}/> : null}
               onCancelNewSession={()=>setCreating(false)} backendStatus={backendStatus} sessionsSourceStatus={sessionsSourceStatus} taskmasterReady={['actions-sources','recommendation-status-error'].includes(${JSON.stringify(scenario)})} onOpenRecommendation={id=>fixture.openedRecommendations.push(id)} onFixWithAi={()=>fixture.prompts++} onRunCleanup={()=>fixture.prompts++} harnesses={[]} debugSettings={{showSessionIds:false}}
               commandRequest={commandRequest} preferences={preferences} onPreferencesChange={setPreferences} onResetPreferences={()=>new Promise(resolve=>{fixture.finishReset=resolve})}
               inspector={inspector} onInspect={setInspector} unreadIds={new Set(${JSON.stringify(scenario)}==='actions'?['other']:[])} acknowledgedIds={new Set()}
-              visibleSubjectId={['resume-session','session-title'].includes(${JSON.stringify(scenario)})?activeSessionId:undefined} resumingSessionIds={resumingSessionIds} onResumeSession={(id,strategy)=>fixture.resumed.push({id,strategy})} onSelectSession={id=>{fixture.selections++;if(${JSON.stringify(scenario)}.endsWith('-main'))setInspector(null);setActiveSessionId(id)}} onFocusTerminal={()=>fixture.runtime()?.terminal.focus()} onBackendUnavailable={()=>{}} />;
+              visibleSubjectId={['resume-session','session-title','session-menu'].includes(${JSON.stringify(scenario)})?activeSessionId:undefined} resumingSessionIds={resumingSessionIds} onResumeSession={(id,strategy)=>fixture.resumed.push({id,strategy})} onSelectSession={id=>{fixture.selections++;if(${JSON.stringify(scenario)}.endsWith('-main'))setInspector(null);setActiveSessionId(id)}} onFocusTerminal={()=>fixture.runtime()?.terminal.focus()} onBackendUnavailable={()=>{}} />;
           }
           createRoot(document.getElementById('root')).render(${JSON.stringify(scenario)}.startsWith('preferences-')?<PreferencesHarness/>:${JSON.stringify(scenario)}.startsWith('app-')?<App/>:<Harness/>);
         `, resolveDir: root, loader: 'tsx' },
@@ -1875,7 +1916,7 @@ if (process.versions.electron) {
           builder.onLoad({filter:/.*/,namespace:'no-gpu'},()=>({contents:'export class WebglAddon { constructor(){throw new Error("GPU unavailable in headless fixture")} }',loader:'js'}));
           // Panel bodies connect to the backend/PTY; retain real React shell and terminal ownership.
           builder.onResolve({ filter: /^\.\/(SessionDetailPanel|RecommendationsPanel)$/ },
-            args => ((scenario.startsWith('app-review') || ['resume-session','session-title'].includes(scenario)) && args.path === './SessionDetailPanel') || (['inspector-overlay','recommendation-status-error'].includes(scenario) && args.path === './RecommendationsPanel') ? undefined : ({ path: args.path, namespace: 'empty-panel' }));
+            args => ((scenario.startsWith('app-review') || ['resume-session','session-title','session-menu'].includes(scenario)) && args.path === './SessionDetailPanel') || (['inspector-overlay','recommendation-status-error'].includes(scenario) && args.path === './RecommendationsPanel') ? undefined : ({ path: args.path, namespace: 'empty-panel' }));
           builder.onLoad({ filter: /.*/, namespace: 'empty-panel' },
             () => ({ contents: 'export default function Panel(){return null}', loader: 'tsx', resolveDir: root }));
 

@@ -52,7 +52,7 @@ different; live processes do not survive a backend restart.
 
 ## Name a session
 
-In current source builds, open **Details** and choose the pencil beside **Title**
+In current source builds, open **Details**, expand **Session info**, and choose the pencil beside **Title**
 to rename a session. **Save** keeps your title until you choose **Use automatic
 title**; **Cancel** leaves it unchanged. Titles can contain up to 100 characters.
 A manual title stays through later observations and conversation resets.
@@ -163,6 +163,12 @@ or Actions overlay hides it without interrupting the clicked control.
 Pinned inspectors stay open. Narrow windows keep the temporary inspector page.
 This describes current source builds; published installers may differ.
 
+Details starts with a session menu: **Plan** and **Changes** open in the main
+view, while **Activity** shows recent checkpoints inside the panel. Choose
+**Session menu** to return from Activity. Expand **Session info** for metadata,
+title editing, Git facts, and independent review. Changing the inspected session
+returns to the menu with Session info collapsed.
+
 If saved layout preferences cannot be read, the shell uses defaults and offers
 **Reset Layout…**. Its native confirmation dialog asks before rebuilding those
 preferences. Cancel keeps the current view and leaves the saved data untouched.
@@ -200,7 +206,8 @@ The session details keep its working directory and Git context near the
 conversation. OrkWorks shows context; your existing tools still create
 branches, manage worktrees, and merge changes.
 
-In current source builds, the Details Git row shows live uncommitted changes,
+In current source builds, expand **Session info** in Details to see the Git row
+with live uncommitted changes,
 for example **3 files · +124 −37**: changed files, added lines, and removed
 lines. It includes staged edits, unstaged edits, and non-ignored new files.
 Pure renames contribute no line changes. Binary files count toward files but
@@ -222,7 +229,7 @@ count. Sharing a dirty linked worktree receives the shared-worktree advice too.
 ## Inspect Git changes
 
 In current source builds, select a session and choose **Changes** in the main
-toolbar, or open **Details** and choose **Review changes**. Changes opens in the
+toolbar, or open **Details** and choose **Changes**. Changes opens in the
 main window with a filterable file list beside a read-only diff. Choose a file
 to inspect it, and switch between **Unified** and **Split** layouts. Line numbers,
 addition/deletion markers and basic syntax coloring help you read the patch.
@@ -279,7 +286,7 @@ page, `Ctrl+Alt+Y` / `Ctrl+Alt+E` line by line, and `Ctrl+Alt+U` /
 
 In current source builds, select a session with an associated readable plan or
 specification, then choose **Review** in the content header or View menu, or
-**Review plan** in Details. The document replaces the terminal in the main work
+**Plan** in Details. The document replaces the terminal in the main work
 area. **Back to Terminal** returns to the same session's terminal or saved
 history, including in narrow windows. Escape also returns when focus is in the
 Review document or its navigation controls. Focus returns to the opening
