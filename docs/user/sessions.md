@@ -221,9 +221,12 @@ count. Sharing a dirty linked worktree receives the shared-worktree advice too.
 
 ## Inspect Git changes
 
-In current source builds, select a session, open **Details**, and choose
-**Review changes**. The existing right panel shows a file list and read-only
-unified diff; **Back to Details** returns to the session facts. The entry is
+In current source builds, select a session and choose **Changes** in the main
+toolbar, or open **Details** and choose **Review changes**. Changes opens in the
+main window with a filterable file list beside a read-only diff. Choose a file
+to inspect it, and switch between **Unified** and **Split** layouts. Line numbers,
+addition/deletion markers and basic syntax coloring help you read the patch.
+Large diffs initially show 1,000 rows; **Show next** reveals more. The entry is
 available even for clean worktrees, which may still contain branch commits.
 
 Use **Comparison** to distinguish two views:
@@ -246,16 +249,20 @@ File/symlink conversions appear as one changed file with removed and replacement
 content. Their line totals describe net content changes across the conversion.
 Symlinks display their target text.
 
-The panel identifies the worktree, baseline and capture time. Base choices use
+Expand **Comparison details** to see the full worktree, directory source,
+baseline and commit IDs. Branch and capture time stay visible. Base choices use
 local refs; the viewer never fetches. Choose **Refresh** to capture newer changes.
 Sessions sharing a worktree show the same changes; this does not identify which
 session made an edit. Limits and unavailable/binary content are labeled, and an
 incomplete comparison is not reported as clean. Reading changes never stages,
 discards, edits, commits, approves or submits work to a coding tool.
 
-The panel keeps the selected terminal alongside it at wide widths and uses the
-normal temporary page at narrower widths. These instructions describe source
-behavior; an older published installer may not include the viewer.
+The terminal session keeps running while you review. **Back to terminal** or
+Escape within Changes returns to it without sending input. Selecting a session
+leaves Changes for that session's terminal. The existing Sessions sidebar remains
+available at wide widths; narrow windows keep the normal Sessions page. When
+space is limited, the file list stacks above the diff. These instructions
+describe source behavior; an older published installer may not include the viewer.
 
 ## Scroll a terminal
 

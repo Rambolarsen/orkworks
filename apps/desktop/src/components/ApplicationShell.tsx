@@ -114,7 +114,8 @@ export default function ApplicationShell(props: Props) {
     recommendations.items, recommendations.status);
   const recommendationsPage = props.inspector === "recommendations";
   const skillsPage = props.inspector === "skills";
-  const centralUtility = recommendationsPage || skillsPage;
+  const changesPage = props.inspector === "changes";
+  const centralUtility = recommendationsPage || skillsPage || changesPage;
   const layout = computeShellLayout(width, props.preferences, props.inspector !== null && !centralUtility);
   const compact = layout.mode === "compact";
   const showSessionsPage = compact && sessionsPage;
@@ -159,7 +160,8 @@ export default function ApplicationShell(props: Props) {
     ++navigationIntent.current;
     setSessionsPage(false);
     props.onInspect(null);
-    requestFocus("return");
+    if (changesPage) props.onCloseReview?.();
+    requestFocus(changesPage ? "terminal" : "return");
   };
   const closeReviewPage = () => {
     invokerRef.current = reviewInvoker.current?.element ?? null;
@@ -239,6 +241,11 @@ export default function ApplicationShell(props: Props) {
       if (props.inspector === command && !reveal) { closePage(); return; }
       // Preserve the original invoker when changing utilities inside a temporary page.
       if (!props.inspector && !sessionsPage) captureInvoker(command);
+      if (command === "changes") {
+        props.onCloseReview?.();
+        props.onCancelNewSession?.();
+        creationReturn.current = null;
+      }
       setSessionsPage(false);
       props.onInspect(command);
       requestFocus("page");
@@ -329,7 +336,7 @@ export default function ApplicationShell(props: Props) {
     if (skillsPage) return <SkillsSettings currentWorkspacePath={props.isSwitchingWorkspace ? null : props.workspace?.workspaceIdentity ?? props.workspace?.path ?? null} />;
     if (props.inspector === "changes") return <GitChangesPanel key={`${props.workspaceGeneration}:${props.activeSessionId}:${session?.repoRoot ?? ""}:${session?.worktreeBinding?.root ?? ""}:${session?.worktreeBinding?.commonDir ?? ""}`}
       session={props.sessions.find(s => s.id === props.activeSessionId) ?? null}
-      onBack={() => { props.onInspect("details"); requestFocus("changes-return"); }} />;
+      onBack={() => runCommand("terminal")} />;
     if (props.inspector === "details") return <SessionDetailPanel key={props.workspaceGeneration} sessions={props.sessions}
       workspaceIdentity={props.isSwitchingWorkspace ? undefined : props.workspace?.workspaceIdentity} onTitleUpdated={props.onTitleUpdated}
       visibleSessionId={props.visibleSubjectId} harnesses={props.harnesses}
@@ -465,7 +472,9 @@ export default function ApplicationShell(props: Props) {
           {session?.hasOpenablePlan && props.onOpenReview && !showComposer && <button type="button" data-shell-command="review"
             aria-pressed={reviewing} disabled={props.reviewLoading || props.backendStatus !== "connected" || props.isSwitchingWorkspace}
             onClick={() => runCommand("review")}>{props.reviewLoading ? "Opening Review…" : "Review"}</button>}
-          {(!showTerminal || props.reviewLoading) && <button type="button" data-shell-command="terminal" onClick={() => runCommand("terminal")}>Terminal</button>}
+          {!showComposer && session && <button type="button" data-shell-command="changes" aria-expanded={changesPage}
+            disabled={!(session.repoRoot || session.branch)} onClick={() => runCommand("changes")}>Changes</button>}
+          {(!showTerminal || props.reviewLoading) && !changesPage && <button type="button" data-shell-command="terminal" onClick={() => runCommand("terminal")}>Terminal</button>}
           <div className="shell-actions-controls">
             <button type="button" data-shell-command="actions" aria-expanded={props.inspector === "actions"} onClick={() => runCommand("actions")}>Actions</button>
             <button type="button" data-shell-command="next-action" onClick={() => runCommand("next-action")}>Show next action</button>
@@ -486,7 +495,7 @@ export default function ApplicationShell(props: Props) {
           {props.reviewContent}
         </section>}
         {temporaryUtility && <section className="shell-region shell-region--central" aria-label={centralUtility && props.inspector ? TITLES[props.inspector] : "Temporary content page"} data-shell-region="utility">
-          {!skillsPage && utilityHeader(true)}{renderUtility()}
+          {!skillsPage && !changesPage && utilityHeader(true)}{renderUtility()}
         </section>}
       </main>}
       {showInspector && <div className={layout.inspectorOverlay ? "shell-inspector-host shell-inspector-host--overlay" : "shell-inspector-host"}

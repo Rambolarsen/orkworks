@@ -124,4 +124,6 @@ Decision records and their original rationale and consequences.
 
 - [0100: Score-directed readiness improvements](0100-score-directed-readiness-improvements.md) — Approved feasible evidence admission and grounded capability-improvement suggestions; implementation in progress.
 
+- [0101: Main-window Git changes](0101-main-window-git-changes.md) — Central file browser and diff; preserves bounded read-only access.
+
 - [Readiness evidence before candidates](0099-readiness-evidence-before-candidates.md) — Approved #1175 evidence-first investigation after two independently failed fixed sets; live qualification remains separate.

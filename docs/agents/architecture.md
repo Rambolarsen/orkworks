@@ -453,6 +453,10 @@ capture-admission handles; workspace adoption replaces them to invalidate old
 requests, independently of ordinary Git-context polling. Electron main exposes
 only the Changes-specific preload request and retains the desktop credential
 and backend-generation fence. See [ADR 0091](../adr/0091-read-only-session-git-changes.md).
+The renderer presents Changes in the central utility host with a filterable file
+list and unified/split diff under [ADR 0101](../adr/0101-main-window-git-changes.md).
+It reuses transient destination state; persisted Terminal/Review navigation and
+the terminal runtime lifetime remain unchanged.
 
 Electron runs with `nodeIntegration: false` and `contextIsolation: true` (ADR 0009). The renderer cannot call Node APIs directly. All privileged operations go through `electron/preload.ts`, which exposes `window.orkworks` with backend discovery, workspace memory, layout memory, menu-command, panel-visibility, and app-settings methods. Adding new capabilities requires extending the preload, not relaxing context isolation. `titleBarStyle: 'hiddenInset'` is set on macOS so the web content extends into the title bar area; the renderer reads `window.orkworks.platform` (exposed synchronously by the preload) to apply a `data-platform` attribute on `<html>`, which CSS uses to add traffic-light clearance (`padding-left: 80px`) on darwin only.
 

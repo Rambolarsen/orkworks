@@ -131,4 +131,6 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 
 - [0100: Score-directed readiness improvements](0100-score-directed-readiness-improvements.md) — Accepted on 2026-10-30; implementation in progress.
 
+- [0101: Main-window Git changes](0101-main-window-git-changes.md) — Supersedes the inspector-only presentation of ADR 0091; retrieval remains accepted.
+
 - [Readiness evidence before candidates](0099-readiness-evidence-before-candidates.md) — Approved #1175 evidence-first investigation after two independently failed fixed sets; live qualification remains separate.
