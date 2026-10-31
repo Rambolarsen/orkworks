@@ -14,7 +14,10 @@ pub(super) fn capture_stage_output(prompt: &str, output: &str) {
     EVIDENCE_DIR.with(|dir| {
         if let Some(dir) = dir.borrow().as_ref() {
             let prompt: serde_json::Value = serde_json::from_str(prompt).unwrap();
-            let stage = if prompt["protocol"] == "taskmaster-discovery-v1" {
+            let stage = if matches!(
+                prompt["protocol"].as_str(),
+                Some("taskmaster-discovery-v1" | "taskmaster-readiness-investigation-v1")
+            ) {
                 "discovery"
             } else {
                 "final"

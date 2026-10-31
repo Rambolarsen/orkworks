@@ -130,14 +130,15 @@ is evidence planning before a positive candidate exists. Changing that protocol
 requires a separately reviewed concrete design before dependent implementation;
 do not spend more calls on prompt-only replacements.
 
-## Proposed evidence-first follow-up (not approved)
+## Approved evidence-first follow-up (ADR 0099)
 
-[Proposed ADR 0099](../../adr/0099-readiness-evidence-before-candidates.md) is the
+[Accepted ADR 0099](../../adr/0099-readiness-evidence-before-candidates.md) is the
 concrete next decision. It moves only combined readiness discovery from candidate
 justification to bounded evidence planning. It does not add calls or tools, relax
 proposal grounding, change standalone discovery, or expand access.
 
-Delivery, after owner design approval:
+Owner approved implementation on 2026-10-31 ("go ahead"), with no additional
+live provider calls. Delivery:
 
 1. Add the readiness-only closed investigation response/parser and native shape,
    with rejection tests for unknown/duplicate keys, unsupported concept pages,
@@ -159,9 +160,30 @@ Delivery, after owner design approval:
 | Reversibility | 3 | Disable combined admission and forward-fix; old code must reject changed identity. |
 | Uncertainty | 4 | Ordering failure is retained; improved inference remains unqualified until fixed trials. |
 
-Total 15/25. This is a design gate, not permission to implement or spend calls.
-Plan review: **Ready for owner design decision**, not implementation approval.
+Total 15/25. The owner subsequently approved implementation; no live calls
+are included in that approval.
+Plan review: **Ready for owner design decision**; the owner subsequently
+approved implementation on 2026-10-31. The review itself was not approval.
 One fresh-context medium review checked ADR 0099 and this material plan section
 for buildability, bounded evidence/authority, compatibility/recovery and honest
 qualification. No actionable findings. The review separately approved the narrow
 prose correction; it did not run provider calls or treat offline replay as quality.
+
+Evidence-first implementation: the real orchestrator regression was
+observed rejecting a candidate-free plan before the change, then accepting it,
+reading the selected implementation and reaching final assessment in four calls.
+Closed-plan, both no-proposal routes, signed citations and existing recovery/access
+regressions are deterministic fixtures. Scripted final responses establish evidence
+availability and routing only; they do not qualify model usefulness or regrade the
+retained failures. Fresh live qualification still requires separate authorization.
+
+
+Fresh medium code review found that standalone admission could reuse a combined
+report and reconstruct its readiness source. A failing router regression confirmed
+that cache collision. Admission now has an explicit standalone capture purpose,
+reuses only format-2 reports, and avoids loading failed score sources when no
+proposed assessment recommendation requires a freshness fence. The regression
+passes for both completed and failed/evicted combined sources; standalone still
+uses discovery-v1 and produces a format-2 report. Combined recommendation,
+currentness and recovery consumers retain their saved purpose. Fresh re-review of
+the full current diff found no remaining actionable issues. No live calls were made.

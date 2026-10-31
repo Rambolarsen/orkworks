@@ -1,20 +1,20 @@
 ---
 type: Architecture Decision
 title: Gather readiness investigation evidence before requiring a candidate
-description: Proposed readiness-only evidence planning that preserves independent proposal grounding and the four-call ceiling.
+description: Readiness-only evidence planning that preserves independent proposal grounding and the four-call ceiling.
 tags: [orkworks, architecture, taskmaster, readiness, evidence]
-status: draft
-workflow_status: proposed
+status: stable
+workflow_status: approved
 ---
 
 # Readiness evidence before candidates
 
-- Status: proposed; not implementation approval.
+- Status: accepted; owner approved implementation on 2026-10-31 ("go ahead"). No additional live provider calls are included.
 - Tracking: [#1175](https://github.com/Rambolarsen/orkworks/issues/1175), draft PR #1178.
-- Scope: would partially supersede the combined suggestion-stage discovery in
+- Scope: partially supersedes the combined suggestion-stage discovery in
   [ADR 0098](0098-score-directed-readiness-improvements.md), leaving standalone
   workflow discovery and all score/approval authority unchanged.
-- Delivery: [the existing plan's proposed follow-up](../superpowers/plans/2026-10-30-score-directed-readiness.md#proposed-evidence-first-follow-up-not-approved).
+- Delivery: [the existing plan's approved follow-up](../superpowers/plans/2026-10-30-score-directed-readiness.md#approved-evidence-first-follow-up-adr-0099).
 
 ## Evidence and outcome
 
@@ -26,7 +26,7 @@ discovery returns no candidate because its seed evidence does not contain the
 implementation. Another proposal ambiguously duplicates existing assertions
 instead of explicitly connecting their existing test target.
 
-Current discovery requires positive candidate evidence before granting its one
+Standalone discovery and the previous combined protocol require positive candidate evidence before granting its one
 bounded follow-up read. A related implementation can therefore remain unknown
 because there is not yet enough evidence to justify a candidate. More prompt
 wording did not reliably bridge this ordering problem.
@@ -35,10 +35,10 @@ The intended result is one concrete, independently grounded next change, or an
 honest no-proposal result, after reading the relevant implementation. Low or
 unknown scores never establish a defect or require a proposal.
 
-## Proposed contract
+## Accepted contract
 
 Only a server-owned combined run with its exact newly saved readiness reference
-would use `taskmaster-readiness-investigation-v1`. Its first suggestion call
+uses `taskmaster-readiness-investigation-v1`. Its first suggestion call
 plans evidence; it does not invent or approve a candidate. A closed response is:
 
 ```json
@@ -81,7 +81,9 @@ nor action authority. Actual changes still require the existing Fix with AI flow
 - `assessment` branches only on the captured server-owned readiness purpose.
   It chooses the discovery prompt/decoder, captures the same bounded read set,
   and always reaches final assessment for a valid affordable readiness plan.
-  Standalone candidate/refutation behavior is unchanged.
+  Standalone candidate/refutation behavior is unchanged. New standalone admission
+  uses its own purpose and cannot reuse a combined report, focus or read selection;
+  existing combined recommendations retain their independent currentness fences.
 - `readiness_focus` advances its prompt identity to v3. Source reference,
   selected plan response digest, actual read manifest and signed guidance remain
   bound to cache/currentness checks before every dispatch and publication.
@@ -117,3 +119,7 @@ positive samples to earn independent usefulness credit. Both negative controls
 must finish valid scoring and final no-proposal; a failed control is not a pass.
 Do not count syntax-valid outputs, duplicate work, or offline repair as quality.
 No additional live calls are authorized by this proposal.
+
+Deterministic scripted responses verify contract enforcement and that the final
+stage receives the selected implementation. They do not establish model usefulness
+or change the adjudication of either retained failed experiment.

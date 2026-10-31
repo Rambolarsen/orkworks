@@ -1032,6 +1032,350 @@ mod integration_tests {
         (f, runtime)
     }
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn invalid_readiness_investigation_stops_before_reading_or_final_dispatch() {
+        let (f, runtime) = production_fixture("proposed");
+        std::fs::write(f.dir.path().join("provider-response.investigation"),json!({"version":1,"conceptPageIds":["concepts/verification.md"],"requestedFileIds":[999]}).to_string()).unwrap();
+        assert_eq!(
+            schedule_mode(f.state.clone(), runtime, true).outcome,
+            "scheduled"
+        );
+        let parent = combined_terminal(&f.workspace_root()).await;
+        assert_eq!(parent.reason_code.as_deref(), Some("suggestion_failed"));
+        assert_eq!(
+            std::fs::read(f.dir.path().join("provider-dispatched.count"))
+                .unwrap()
+                .len(),
+            3
+        );
+        assert!(!f
+            .dir
+            .path()
+            .join("provider-response.final-focus-prompt")
+            .exists());
+        assert!(f
+            .state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .list()
+            .unwrap()
+            .is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn satisfied_and_unknown_readiness_investigations_both_reach_final_no_proposal() {
+        for unknown in [false, true] {
+            let (f, runtime) = production_fixture("no_proposal");
+            if unknown {
+                let c = capture(&f.state, &runtime).unwrap();
+                let response = json!({"version":1,"summary":"Insufficient supplied evidence","concepts":c.rubric.concepts.iter().map(|c|json!({"conceptId":c.concept_id,"maturity":null,"confidence":null,"repositoryFactIds":[],"rubricPageId":c.page_id,"rationale":"The supplied evidence does not establish this capability.","limits":[],"nextTransition":"Evidence of a supported capability","unassessedReason":"Insufficient supplied evidence"})).collect::<Vec<_>>()});
+                std::fs::write(
+                    f.dir.path().join("provider-response.readiness-final"),
+                    response.to_string(),
+                )
+                .unwrap();
+            }
+            assert_eq!(
+                schedule_mode(f.state.clone(), runtime, true).outcome,
+                "scheduled"
+            );
+            let parent = combined_terminal(&f.workspace_root()).await;
+            assert_eq!(
+                parent.reason_code.as_deref(),
+                Some("no_proposal"),
+                "{parent:?}"
+            );
+            assert_eq!(
+                std::fs::read(f.dir.path().join("provider-dispatched.count"))
+                    .unwrap()
+                    .len(),
+                4
+            );
+            let final_prompt: Value = serde_json::from_slice(
+                &std::fs::read(f.dir.path().join("provider-response.final-focus-prompt")).unwrap(),
+            )
+            .unwrap();
+            assert!(final_prompt.get("candidateHypothesis").is_none());
+            if unknown {
+                assert!(final_prompt["readinessContext"]["areas"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|a| a["maturity"].is_null()));
+                let history = ReadinessStore::new(&f.workspace_root()).history().unwrap();
+                assert_eq!(
+                    history.snapshots[0].data.as_ref().unwrap().overall_score,
+                    None
+                );
+            }
+            assert!(f
+                .state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .recommendation_store
+                .list()
+                .unwrap()
+                .is_empty());
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn standalone_admission_does_not_reuse_combined_readiness_context() {
+        for missing_source in [false, true] {
+            let (f, runtime) = production_fixture("no_proposal");
+            assert_eq!(
+                schedule_mode(f.state.clone(), runtime.clone(), true).outcome,
+                "scheduled"
+            );
+            assert_eq!(
+                combined_terminal(&f.workspace_root())
+                    .await
+                    .reason_code
+                    .as_deref(),
+                Some("no_proposal")
+            );
+            let store = super::super::assessment_store::AssessmentStore::new(&f.workspace_root());
+            if missing_source {
+                let mut record = store
+                    .load::<super::super::assessment_report::AssessmentRecord>()
+                    .unwrap()
+                    .unwrap();
+                record.state = super::super::assessment_report::AssessmentState::Failed;
+                store.save(&record).unwrap();
+                std::fs::remove_file(f.workspace_root().join("readiness-history.json")).unwrap();
+            }
+            assert_eq!(
+                super::super::assessment::schedule(f.state.clone(), f.runtime_root.clone()).status,
+                super::super::assessment::AssessmentRequestStatus::Scheduled,
+                "missing source: {missing_source}"
+            );
+            for _ in 0..3000 {
+                if store
+                    .load::<super::super::assessment_report::AssessmentRecord>()
+                    .unwrap()
+                    .is_some_and(|r| {
+                        r.state == super::super::assessment_report::AssessmentState::Succeeded
+                            && r.format_version == 2
+                    })
+                {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+            let record = store
+                .load::<super::super::assessment_report::AssessmentRecord>()
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                record.state,
+                super::super::assessment_report::AssessmentState::Succeeded
+            );
+            assert_eq!(record.format_version, 2);
+            assert!(record.readiness_reference.is_none());
+            let prompt: Value = serde_json::from_slice(
+                &std::fs::read(f.dir.path().join("provider-response.discovery-prompt")).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(prompt["protocol"], "taskmaster-discovery-v1");
+            assert!(prompt.get("readinessContext").is_none());
+            assert_eq!(
+                std::fs::read(f.dir.path().join("provider-dispatched.count"))
+                    .unwrap()
+                    .len(),
+                6
+            );
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn readiness_plan_supplies_existing_checks_or_assertion_gap_to_final_cited_proposals() {
+        use sha2::{Digest, Sha256};
+        for has_assertions in [true, false] {
+            let (f, runtime) = production_fixture("proposed");
+            let path = f
+                .state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .path
+                .clone();
+            let mut settings = runtime
+                .readiness_evaluation_snapshot(&path)
+                .unwrap()
+                .0
+                .settings;
+            settings.context_level = super::super::runtime::ContextLevel::SourceCode;
+            runtime.replace_settings(settings).unwrap();
+            let sources: std::collections::BTreeMap<String,String> = serde_json::from_str(if has_assertions {
+                include_str!("../../../../docs/validation/fixtures/score-directed-readiness-v4-2026-10-31/skipped-tests-sources.json")
+            } else {
+                include_str!("../../../../docs/validation/fixtures/score-directed-readiness-v4-2026-10-31/assertions-omitted-sources.json")
+            }).unwrap();
+            for (relative, content) in &sources {
+                let target = path.join(relative);
+                std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+                std::fs::write(target, content).unwrap();
+            }
+            let body = &sources["src/catalog.test.ts"];
+            let package = &sources["package.json"];
+            let c = capture(&f.state, &runtime).unwrap();
+            let id = c
+                .repository
+                .catalog
+                .iter()
+                .position(|p| p == "src/catalog.test.ts")
+                .unwrap();
+            std::fs::write(f.dir.path().join("provider-response.investigation"),json!({"version":1,"conceptPageIds":["concepts/verification.md"],"requestedFileIds":[id]}).to_string()).unwrap();
+            let summary = if has_assertions {
+                "The package verification entry point would connect the existing asserted catalog suite. This would provide behavioral evidence through the existing checks. Validation scope covers stock behavior and failure propagation. Restoring the prior entry point is the rollback."
+            } else {
+                "The visible stock test body would assert the retrieved value. This would distinguish the expected stock result from an unchecked call. Validation scope covers the expected value and failure propagation. Restoring the prior body is the rollback."
+            };
+            std::fs::write(f.dir.path().join("provider-response.json"),json!({"version":1,"outcome":"proposed","summary":"Current source evidence supports a bounded verification improvement.","repositoryFactHashes":[hex::encode(Sha256::digest(body.as_bytes())),hex::encode(Sha256::digest(package.as_bytes()))],"knowledgePageIds":["concepts/verification.md"],"unverifiedChecks":["Whether the expected behavior and failure propagation are demonstrated remains unverified."],"proposal":{"targetSurface":if has_assertions {"tooling"} else {"test"},"title":if has_assertions {"Catalog verification entry point"} else {"Stock result assertion"},"summary":summary},"noProposalReason":null}).to_string()).unwrap();
+            assert_eq!(
+                schedule_mode(f.state.clone(), runtime, true).outcome,
+                "scheduled"
+            );
+            let parent = combined_terminal(&f.workspace_root()).await;
+            assert_eq!(
+                parent.reason_code.as_deref(),
+                Some("recommendation_created"),
+                "{parent:?}"
+            );
+            let final_prompt: Value = serde_json::from_slice(
+                &std::fs::read(f.dir.path().join("provider-response.final-focus-prompt")).unwrap(),
+            )
+            .unwrap();
+            assert!(final_prompt["repositoryFacts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|fact| fact["path"] == "src/catalog.test.ts"
+                    && fact["excerpt"] == body.as_str()));
+            let lock = f.state.workspace.lock().unwrap();
+            let recommendations = lock.as_ref().unwrap().recommendation_store.list().unwrap();
+            assert_eq!(recommendations.len(), 1);
+            assert!(recommendations[0]
+                .repository_evidence
+                .iter()
+                .any(|e| e.path == "src/catalog.test.ts"));
+            assert_eq!(
+                recommendations[0]
+                    .assessment
+                    .as_ref()
+                    .unwrap()
+                    .readiness_reference
+                    .as_ref()
+                    .unwrap()
+                    .concept_ids,
+                ["verification"]
+            );
+            assert_eq!(
+                std::fs::read(f.dir.path().join("provider-dispatched.count"))
+                    .unwrap()
+                    .len(),
+                4
+            );
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn readiness_evidence_plan_reads_implementation_without_a_candidate_and_reaches_final() {
+        let (f, runtime) = production_fixture("no_proposal");
+        let path = f
+            .state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .path
+            .clone();
+        let mut settings = runtime
+            .readiness_evaluation_snapshot(&path)
+            .unwrap()
+            .0
+            .settings;
+        settings.context_level = super::super::runtime::ContextLevel::SourceCode;
+        runtime.replace_settings(settings).unwrap();
+        std::fs::create_dir(path.join("src")).unwrap();
+        let body =
+            "test('catalog invariants', () => { catalog.add('A',2); catalog.stock('A'); });\n";
+        std::fs::write(path.join("src/catalog.test.ts"), body).unwrap();
+        let c = capture(&f.state, &runtime).unwrap();
+        let id = c
+            .repository
+            .catalog
+            .iter()
+            .position(|p| p == "src/catalog.test.ts")
+            .unwrap();
+        let plan = json!({"version":1,"conceptPageIds":["concepts/verification.md"],"requestedFileIds":[id]});
+        for extension in ["discovery", "investigation"] {
+            std::fs::write(
+                f.dir.path().join(format!("provider-response.{extension}")),
+                plan.to_string(),
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            schedule_mode(f.state.clone(), runtime, true).outcome,
+            "scheduled"
+        );
+        let parent = combined_terminal(&f.workspace_root()).await;
+        assert_eq!(
+            parent.reason_code.as_deref(),
+            Some("no_proposal"),
+            "{parent:?}"
+        );
+        assert_eq!(
+            std::fs::read(f.dir.path().join("provider-dispatched.count"))
+                .unwrap()
+                .len(),
+            4
+        );
+        let final_prompt: Value = serde_json::from_slice(
+            &std::fs::read(f.dir.path().join("provider-response.final-focus-prompt")).unwrap(),
+        )
+        .unwrap();
+        assert!(final_prompt.get("candidateHypothesis").is_none());
+        assert_eq!(
+            final_prompt["investigationFocus"]["conceptPageIds"],
+            json!(["concepts/verification.md"])
+        );
+        assert_eq!(
+            final_prompt["readinessPromptVersion"],
+            "taskmaster-readiness-focus-v3"
+        );
+        assert!(final_prompt["repositoryFacts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|fact| fact["path"] == "src/catalog.test.ts" && fact["excerpt"] == body));
+        let record = super::super::assessment_store::AssessmentStore::new(&f.workspace_root())
+            .load::<super::super::assessment_report::AssessmentRecord>()
+            .unwrap()
+            .unwrap();
+        assert_eq!(record.input_manifest.unwrap().requested_file_ids, [id]);
+        let schema: Value = serde_json::from_slice(
+            &std::fs::read(f.dir.path().join("provider-response.discovery-schema")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(schema["additionalProperties"], false);
+        assert_eq!(
+            schema["required"],
+            json!(["version", "conceptPageIds", "requestedFileIds"])
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn combined_rejects_an_unrelated_final_capability_citation() {
         let (f, runtime) = production_fixture("proposed");
         let file = f.dir.path().join("provider-response.json");

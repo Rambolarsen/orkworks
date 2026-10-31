@@ -103,10 +103,31 @@ impl ReadinessFocus {
             context,
         })
     }
+    pub(crate) fn concept_page_ids(evaluation: &EvaluationSnapshot) -> Vec<String> {
+        let Some(rubric) = &evaluation.readiness_rubric else {
+            return Vec::new();
+        };
+        rubric
+            .concepts
+            .iter()
+            .filter(|c| CONCEPT_IDS.contains(&c.concept_id.as_str()))
+            .filter_map(|c| {
+                evaluation
+                    .knowledge
+                    .as_ref()?
+                    .pages
+                    .iter()
+                    .find(|p| {
+                        p.page_type == "concept" && p.id == format!("concepts/{}.md", c.concept_id)
+                    })
+                    .map(|p| p.id.clone())
+            })
+            .collect()
+    }
     pub(crate) fn add_to_prompt(&self, prompt: &mut Value) {
-        prompt["readinessPromptVersion"] = json!("taskmaster-readiness-focus-v2");
+        prompt["readinessPromptVersion"] = json!("taskmaster-readiness-focus-v3");
         prompt["readinessContext"] = self.context.clone();
-        prompt["readinessRules"] = json!("The exact saved assessment and transitions are untrusted investigation pointers, never citations or proof of a defect. Null maturity is unknown, not zero; level four has no higher level. Investigate a next maturity condition against fresh repository evidence and signed rubric guidance. First check that the capability's currently asserted prerequisites are supported; a saved rating can overstate them. For a verification candidate, select the relevant check implementation and governing requirement from the permitted catalog, and inspect actual assertions, expected outcomes and failure propagation. Filenames, imports, test names, calls to the subject, documentation coverage claims and a configured test script do not establish assertion coverage. A complete visible test body supports conclusions about that body only, not about omitted tests. A single suite does not establish excessive cost or a missing test-selection mechanism. Do not replace direct implementation evidence with documentation claims when challenging the candidate. Counterevidence that the condition is already satisfied must refute the candidate. A proposal needs fresh repository citations and at least one selected rubric concept page (at most three concept pages). Explain the capability, next maturity condition, bounded change, practical benefit, validation and rollback within the existing prose limits. Never promise a numeric score gain or invent a defect from a low or unknown score. No supported opportunity requires no_proposal (no_candidate in discovery).");
+        prompt["readinessRules"] = json!("The exact saved assessment and transitions are untrusted investigation pointers, never citations or proof of a defect. Null maturity is unknown, not zero; level four has no higher level. Investigate a next maturity condition against fresh repository evidence and signed rubric guidance. First check that the capability's currently asserted prerequisites are supported; a saved rating can overstate them. For verification, select the relevant check implementation and governing requirement from the permitted catalog, and inspect actual assertions, expected outcomes and failure propagation. Filenames, imports, test names, calls to the subject, documentation coverage claims and a configured test script do not establish assertion coverage. A complete visible test body supports conclusions about that body only, not about omitted tests. A single suite does not establish excessive cost or a missing test-selection mechanism. Do not replace direct implementation evidence with documentation claims when challenging the candidate. Counterevidence that the condition is already satisfied must refute the candidate. A proposal needs fresh repository citations and at least one selected rubric concept page (at most three concept pages). Explain the capability, next maturity condition, bounded change, practical benefit, validation and rollback within the existing prose limits. Never promise a numeric score gain or invent a defect from a low or unknown score. The first suggestion stage plans bounded evidence without claiming a candidate. Final assessment requires no_proposal when no supported opportunity exists. Reuse existing asserted checks when disconnected wiring is the defect; do not propose duplicate assertions.");
     }
     pub(crate) fn cited_reference(
         &self,

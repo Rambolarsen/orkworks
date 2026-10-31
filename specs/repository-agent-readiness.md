@@ -447,12 +447,12 @@ the four-call ceiling. Collector-4 prompt-v3 history remains readable. Changed
 prompt identities invalidate reuse/currentness. The prior failed usefulness corpus
 is retained unchanged and does not qualify this correction without fresh trials.
 
-### Proposed evidence-planning follow-up (not approved)
+### Accepted evidence-planning follow-up (ADR 0099)
 
-[ADR 0099](../docs/adr/0099-readiness-evidence-before-candidates.md) proposes a
+[ADR 0099](../docs/adr/0099-readiness-evidence-before-candidates.md) defines a
 readiness-only investigation response selecting signed concept pages and permitted
-catalog IDs before a candidate is required. Final assessment would remain the
-sole proposal gate, within the same four calls and access/evidence limits.
-Standalone discovery, persisted schemas and Fix with AI authority would remain
-unchanged. This proposal requires owner approval before dependent implementation;
-it does not supersede current runtime behavior or authorize another live trial set.
+catalog IDs before a candidate is required. Final assessment remains the sole
+proposal gate, within the same four calls and access/evidence limits. Standalone
+discovery, persisted schemas and Fix with AI authority remain unchanged. The owner approved this design and implementation on 2026-10-31 ("go ahead").
+It supersedes candidate-first combined discovery when implemented, while
+standalone discovery remains unchanged. No additional live trial set is authorized.

@@ -129,4 +129,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 
 - [0098: Score-directed readiness improvements](0098-score-directed-readiness-improvements.md) — Accepted on 2026-10-30; implementation in progress.
 
-- [Readiness evidence before candidates](0099-readiness-evidence-before-candidates.md) — Proposed #1175 investigation ordering after two independently failed fixed sets; not implementation approval.
+- [Readiness evidence before candidates](0099-readiness-evidence-before-candidates.md) — Approved #1175 evidence-first investigation after two independently failed fixed sets; live qualification remains separate.

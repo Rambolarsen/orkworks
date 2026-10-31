@@ -25,6 +25,13 @@ fn nullable(object: Value) -> Value {
 
 fn schema(shape: NativeResponseShape) -> Value {
     match shape {
+        NativeResponseShape::ReadinessInvestigationV1 => json!({
+            "type":"object","additionalProperties":false,
+            "required":["version","conceptPageIds","requestedFileIds"],
+            "properties":{"version":{"type":"integer","enum":[1]},
+                "conceptPageIds":{"type":"array","items":{"type":"string"},"description":"One to three distinct supplied signed concept page IDs."},
+                "requestedFileIds":{"type":"array","items":{"type":"integer"},"description":"Zero to eight distinct supplied numeric catalog IDs."}}
+        }),
         NativeResponseShape::ReadinessDiscoveryV2 => {
             json!({"type":"object","additionalProperties":false,"required":["version","preferredFileIds"],"properties":{"version":{"type":"integer","enum":[2]},"preferredFileIds":{"type":"array","items":{"type":"integer"}}}})
         }
