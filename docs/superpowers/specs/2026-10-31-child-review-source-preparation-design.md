@@ -520,3 +520,19 @@ ObjectRef dependency purpose, evaluation-freshness consumer or current-summary
 input. The initial no-purge profile supplies no debit/source eviction or repaired
 zero ledgers. These new representation/retention choices need scoped acceptance;
 this annotation does not accept the broader #1183 proposal or pass native gates.
+
+
+## Debit accounting consumer accepted; source proposal remains — 2026-10-31
+
+The owner [accepted #1210's exact debit representation](2026-10-31-artifact-read-debit-proof-design.md#owner-acceptance-and-source-closure-handoff--2026-10-31),
+including the historical artifact_read_debits accounting consumer and required
+source/mapping/custody/direct-proof validation retention. That supersedes the
+preceding consumer annotation's owner-pending status only for the debit choice.
+Reconcile its full incoming membership into this source registry before complete
+source-state qualification; it remains neither an ObjectRef dependency purpose
+nor a current-summary/evaluation-freshness input.
+
+This does not accept this document's broader #1183 source/profile/leaf/codec,
+8 MiB/run or 64 MiB/workspace source-budget choices, or qualify real source/control/
+preparation/attachment authority. The separate Gate A and source-owner/consumer/
+native gates remain. No source fixture, database, probe or runtime work follows.

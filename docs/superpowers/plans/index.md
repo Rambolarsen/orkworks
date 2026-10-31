@@ -243,4 +243,4 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 - [Contextual session titles](2026-10-31-session-titles.md) — Native refresh, contextual fallback and manual rename implementation.
 
-- [Artifact debit qualification handoff](2026-10-31-artifact-read-debit-qualification.md) — Scoped codec review, source/consumer closure and conditional recovery packet before separately approved native work.
+- [Artifact debit qualification handoff](2026-10-31-artifact-read-debit-qualification.md) — Accepted codec decision followed by gated source/consumer closure, conditional recovery packet and separately approved native work.

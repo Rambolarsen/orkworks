@@ -221,4 +221,4 @@ Dated design records; these do not establish current product behavior.
 
 - [Retained child reviewer source/preparation proposal](2026-10-31-child-review-source-preparation-design.md) — Proposed one-task child source records, exact preparation/consumer joins and gated qualification; new choices require owner review.
 
-- [Artifact read-work debit representation](2026-10-31-artifact-read-debit-proof-design.md) — Proposed exact internal command/decision row, recovery accounting and closed format-4 integration under accepted #1184 policy.
+- [Artifact read-work debit representation](2026-10-31-artifact-read-debit-proof-design.md) — Accepted exact debit command/recovery representation; source, consumer and native qualification remain gated.
