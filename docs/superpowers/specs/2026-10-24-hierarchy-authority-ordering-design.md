@@ -315,3 +315,20 @@ No physical/whole-command qualification, remaining domain/reserved/finalization
 schema/default acceptance, migration, probe, executable plan or runtime approval
 follows. The linked record lists the remaining gates and next bounded metadata/
 budget design work. #740 stays deferred/no-go until November; keep #744/#746 open.
+
+
+## Separate artifact debit authority — 2026-10-31
+
+The [#1184 owner decision](../../validation/artifact-read-work-authority.md#owner-acceptance-and-command-proof-handoff--2026-10-31)
+accepts a distinct one-command internal permit for `evaluation-artifact-read-work`.
+Its permit-first attempted debit may settle after later capability revocation;
+content fetch and response handoff still require current authority. This does not
+expand the #744 publication claim scope, action tags or ClaimProofV2. Every other
+listed exclusion is unchanged.
+
+The separate decision includes immediate closure for queued/later work, ordinary
+stop independence, no refund and one active-or-retiring worker/old lease through
+disposition, with no exception for actual lease loss or mutable source eligibility.
+Exact command/proof codecs and native enforcement remain unqualified under
+[#1210](https://github.com/Rambolarsen/orkworks/issues/1210). No existing proof/domain
+is reinterpreted and no transaction, migration, native probe or runtime work follows.

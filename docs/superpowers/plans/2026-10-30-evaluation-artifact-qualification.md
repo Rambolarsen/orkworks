@@ -167,3 +167,31 @@ no-go remain. Owner decision, exact proof/command codecs, #1183 source closure a
 a separately approved bounded native plan still precede dependent transactions.
 Gate 2 remains Investigate; no #744 claim reuse, fixture, native probe, database or
 runtime implementation follows.
+
+
+## Debit policy decision and representation handoff — 2026-10-31
+
+The owner [accepted #1184's exact internal debit-permit tradeoff](../../validation/artifact-read-work-authority.md#owner-acceptance-and-command-proof-handoff--2026-10-31).
+The written investigation and reviewed handoff are complete. This resolves the
+policy-choice portion of Gate 2's read-work item, not the enforcement/complete-state
+check or Gate 2 as a whole. Reuse the existing old/new charge and failure oracles
+under the now-accepted permit-first policy. Unchanged technical choices need no
+repeat owner decision.
+
+Remaining sequence within the existing gates:
+
+- [ ] [#1210](https://github.com/Rambolarsen/orkworks/issues/1210): propose exact
+  internal command, nonsecret permit/commit proof, recovery lookup and closed
+  format-4 commitment/accounting representation; obtain scoped acceptance of
+  those new choices before dependent transaction fixtures.
+- [ ] Close #1183 source/preparation/consumer/custody evidence and all applicable
+  complete-command bounds, then independently qualify the complete old/new packet.
+- [ ] Prepare the separately approved bounded native plan after applicable
+  contracts close; prove actual transition participation, commit/disposition,
+  lease/retirement and ordinary stop independence. Policy acceptance supplies
+  no native mechanism or complete source proof.
+
+Status remains Gate 2 Investigate, Gates 3–4 gated. No fixture/checker, database/
+migration, native/model probe or runtime implementation is delivered or authorized.
+The #744 claim scope/proof and all source/global limits stay unchanged; #740 and
+maximum-profile qualification remain independent.

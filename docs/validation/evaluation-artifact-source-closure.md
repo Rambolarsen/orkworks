@@ -134,3 +134,20 @@ no-go remain. Owner decision, exact proof/command codecs, #1183 source closure a
 a separately approved bounded native plan still precede dependent transactions.
 Gate 2 remains Investigate; no #744 claim reuse, fixture, native probe, database or
 runtime implementation follows.
+
+
+## Debit policy accepted; exact representation remains — 2026-10-31
+
+The [#1184 acceptance record](artifact-read-work-authority.md#owner-acceptance-and-command-proof-handoff--2026-10-31)
+completes the written investigation/owner-decision/handoff: one exact internal
+permit-first debit may reach disposition after later capability revocation,
+without content/delivery rights or #744 ClaimProofV2 reuse. This supersedes the
+prior owner-pending cutoff wording only for that debit. Source/health/lease/quota
+validation and ordinary stop independence remain binding.
+
+[#1210](https://github.com/Rambolarsen/orkworks/issues/1210) tracks exact command/
+permit-proof/recovery/format-4 representation; no codec was selected or accepted
+by the policy decision. #1183 source/preparation/consumer/custody joins and actual
+native authority/lease/retirement remain unclosed. Gate 2 remains Investigate;
+dependent complete-state/manifest fixtures, database/native/model probes,
+migration and runtime work remain gated.
