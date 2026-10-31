@@ -461,3 +461,16 @@ dependent format-4 fixture/checker creation or execution, live model/native prob
 or executable/runtime plan is
 approved here. New source-codec or authority choices still need scoped owner
 review. Keep #1176 and owning component issues open for their remaining gates.
+
+
+## Proposed retained child source follow-up — 2026-10-31
+
+The [child source/preparation proposal](2026-10-31-child-review-source-preparation-design.md)
+and [gated handoff](../plans/2026-10-31-child-review-source-qualification.md) address
+#1183 with a bounded single-task retained-data slice, exact source/configuration/
+input/approval/reservation/allocation/attachment joins, fresh preparation and source
+consumer retention. Its new child/plan/leaf/source codecs, resource and profile
+choices need scoped owner review before dependent fixtures. Existing technical
+contracts, artifact acceptance, identity/wire domains and all catalogs/checkers are
+unchanged. This does not pass artifact Gate 2, qualify underlying control/native
+sources or widen claim-first; #1184/#740 and executable plans remain separate.
