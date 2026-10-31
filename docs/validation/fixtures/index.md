@@ -18,3 +18,5 @@ Captured fixture context for reproducible validation.
 - [Score-directed readiness qualification](score-directed-readiness-2026-10-30/index.md) — Five fixed Luna medium combined samples; usefulness gate failed.
 
 - [Score-directed prompt-v4 qualification](score-directed-readiness-v4-2026-10-31/index.md) — Separate sixteen-call fixed set; independent usefulness gate still failed.
+
+- [Evidence-first readiness qualification](score-directed-investigation-2026-10-31/index.md) — Separate twenty-call fixed set passed independent usefulness: three positives and both valid no-proposal controls.

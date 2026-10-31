@@ -123,3 +123,17 @@ No additional live calls are authorized by this proposal.
 Deterministic scripted responses verify contract enforcement and that the final
 stage receives the selected implementation. They do not establish model usefulness
 or change the adjudication of either retained failed experiment.
+
+
+## Implementation and qualification outcome (2026-10-31)
+
+Implemented at `5017a281`, then integrated with main at `4cd953f9` with the
+reviewed source-navigation correction. Full repository verification and fresh
+medium code review passed. Standalone admission uses an explicit separate
+purpose, while currentness and recovery retain saved combined provenance.
+
+The separately owner-approved [fixed qualification](../validation/fixtures/score-directed-investigation-2026-10-31/index.md)
+consumed twenty calls, no retries or replacements. Fresh independent review
+credits all three positives and both valid scoring/final no-proposal controls.
+This passes the fixed usefulness gate; it does not establish general scoring
+accuracy or a published installer. Both earlier failures remain unchanged.

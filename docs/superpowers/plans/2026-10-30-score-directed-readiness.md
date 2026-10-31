@@ -187,3 +187,15 @@ passes for both completed and failed/evicted combined sources; standalone still
 uses discovery-v1 and produces a format-2 report. Combined recommendation,
 currentness and recovery consumers retain their saved purpose. Fresh re-review of
 the full current diff found no remaining actionable issues. No live calls were made.
+
+
+### Evidence-first qualification result
+
+The owner separately approved one fixed five-sample set, maximum twenty calls,
+after implementation was verified and reviewable. All twenty calls completed at
+`4cd953f9`, with no retries, replacements or model changes. The [retained fresh
+independent review](../../validation/fixtures/score-directed-investigation-2026-10-31/index.md)
+passes: 3/3 useful positives and both controls with valid scoring and final
+no-proposal. Existing-suite wiring, CI wiring and missing actual assertions are
+now distinguished. This qualifies the fixed synthetic gate only; earlier failed
+sets retain their original verdicts. No fixture command was executed.

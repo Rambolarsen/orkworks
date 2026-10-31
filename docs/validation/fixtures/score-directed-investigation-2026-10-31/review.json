@@ -1,0 +1,42 @@
+{
+  "reviewer": "fresh-context independent subagent gpt-6-luna medium (/root/investigation_qualification_review)",
+  "head": "4cd953f9d7d3ee80e0661c203c22082e314f9554",
+  "gate": "pass",
+  "positiveCredits": 3,
+  "minimumPositiveCredits": 2,
+  "logicalProviderCalls": 20,
+  "retries": 0,
+  "replacements": 0,
+  "samples": {
+    "skipped-tests": {
+      "credit": 1,
+      "reason": "The skipped console-only test script is a real gap; the separate complete asserted suite already covers stored value, duplicate, negative and fractional inputs. The proposal explicitly reconnects/reuses those assertions rather than duplicating them, cites current facts and selected signed verification guidance, and bounds validation and rollback. Actual discovery and CI failure propagation remain unverified."
+    },
+    "ci-omits-tests": {
+      "credit": 1,
+      "reason": "The fresh CI file only performs a syntax check while package configuration exposes an existing asserted behavioral suite. Wiring the existing suite into CI is a concrete bounded correction, not duplicate tests. Current repository and selected verification citations support the change, validation and rollback; execution remains unverified."
+    },
+    "assertions-omitted": {
+      "credit": 1,
+      "reason": "The complete visible test body only calls add/stock and contains no assertions. Supplied guide/domain facts define stored-value, duplicate, negative and fractional outcomes. Adding those outcome assertions is distinct and bounded; repository and selected concept citations, validation and rollback are present with no claimed execution or promised score gain."
+    },
+    "already-satisfied": {
+      "control": "pass",
+      "validScoring": true,
+      "finalNoProposal": true,
+      "reason": "Existing asserted suite, configured test target, CI wiring and focused guidance leave no evidenced gap. Final no-proposal is supported by the retained facts."
+    },
+    "evidence-unknown": {
+      "control": "pass",
+      "validScoring": true,
+      "finalNoProposal": true,
+      "reason": "Placeholder context explicitly withholds implementation/workflow evidence and says omission does not establish a defect. Valid scoring and final no-proposal invent neither missing checks nor a capability gap."
+    }
+  },
+  "independentReviewerMadeProviderCalls": false,
+  "limits": [
+    "Only retained fixed inputs, outputs and supplied source excerpts adjudicated; no fixture commands/tests executed.",
+    "Suggestion inputs retain lossless pretty-printed application JSON, not original compact transport bytes.",
+    "This fixed trial does not qualify general scoring accuracy or all repositories."
+  ]
+}
