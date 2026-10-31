@@ -439,11 +439,15 @@ fn refresh_rollup_parent_projection(
 // stale snapshot.
 static TERMINAL_SIZE_WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+mod titles;
+pub(crate) use titles::TitleAction;
+
 fn persist_peon_input_label_metadata(
     workspace: Option<&crate::WorkspaceState>,
     session_id: &str,
     label: &str,
     from_initial_prompt: bool,
+    contextual: bool,
 ) -> Option<bool> {
     let Some(workspace) = workspace else {
         return (!from_initial_prompt).then_some(false);
@@ -453,6 +457,7 @@ fn persist_peon_input_label_metadata(
         .mutate_session_optional(session_id, WriteScope::NONE, |meta| {
             if (from_initial_prompt && !meta.label_from_initial_prompt)
                 || !meta.label_source.accepts_peon()
+                || meta.label_context_refined
             {
                 return Ok(false);
             }
@@ -462,6 +467,7 @@ fn persist_peon_input_label_metadata(
             } else {
                 metadata::LabelSource::Peon
             };
+            meta.label_context_refined = contextual;
             Ok(true)
         }) {
         Ok(Some(_)) => Some(true),
@@ -1813,8 +1819,10 @@ impl SessionApplication {
                 PeonInferencePersistenceResult {
                     inference_persisted: true,
                     permanent_hold: false,
-                    label_update: history_summary
-                        .map(|summary| (summary.chars().take(100).collect(), captured_label_epoch)),
+                    label_update: workspace
+                        .metadata
+                        .read_session(session_id)
+                        .map(|meta| (meta.label, captured_label_epoch)),
                     workspace_path,
                 }
             }
@@ -2181,6 +2189,7 @@ impl SessionApplication {
                         metadata.label = label_line.to_string();
                         metadata.label_source = metadata::LabelSource::TerminalInput;
                         metadata.label_from_initial_prompt = false;
+                        metadata.label_context_refined = false;
                         seeded_label = true;
                     }
                     metadata.last_user_input = Some(label_line.to_string());
@@ -2715,7 +2724,7 @@ impl SessionApplication {
     /// epoch bump, queued-work clearing, and both label projections so an
     /// older refinement cannot restore the previous conversation's label.
     pub(crate) fn reset_session_topic(&self, id: &str) -> bool {
-        let placeholder = crate::session_types::placeholder_label(id);
+        let mut placeholder = crate::session_types::placeholder_label(id);
         let harness_identity = self
             .state
             .workspace
@@ -2751,9 +2760,14 @@ impl SessionApplication {
             let ws_guard = self.state.workspace.lock().unwrap();
             if let Some(ref ws) = *ws_guard {
                 if let Err(error) = ws.metadata.mutate_session(id, WriteScope::NONE, |meta| {
+                    if meta.label_source == metadata::LabelSource::User {
+                        placeholder = meta.label.clone();
+                        return Ok(());
+                    }
                     meta.label = placeholder.clone();
                     meta.label_source = metadata::LabelSource::Placeholder;
                     meta.label_from_initial_prompt = false;
+                    meta.label_context_refined = false;
                     Ok(())
                 }) {
                     if !matches!(error, SessionTransactionError::Io(ref error) if error.kind() == std::io::ErrorKind::NotFound)
@@ -3513,7 +3527,7 @@ impl SessionApplication {
 
         let ws_guard = self.state.workspace.lock().unwrap();
         let Some(mut updated) =
-            persist_peon_input_label_metadata(ws_guard.as_ref(), id, &label, false)
+            persist_peon_input_label_metadata(ws_guard.as_ref(), id, &label, false, false)
         else {
             return false;
         };
@@ -3530,6 +3544,7 @@ impl SessionApplication {
         label: String,
         captured_epoch: u64,
         from_initial_prompt: bool,
+        contextual: bool,
     ) -> bool {
         let id = context.session_id();
         let epochs = self.state.peon.label_epochs.read().unwrap();
@@ -3546,9 +3561,13 @@ impl SessionApplication {
         {
             return false;
         }
-        let Some(metadata_updated) =
-            persist_peon_input_label_metadata(ws_guard.as_ref(), id, &label, from_initial_prompt)
-        else {
+        let Some(metadata_updated) = persist_peon_input_label_metadata(
+            ws_guard.as_ref(),
+            id,
+            &label,
+            from_initial_prompt,
+            contextual,
+        ) else {
             return false;
         };
         let mut updated = metadata_updated;
@@ -3589,6 +3608,7 @@ impl SessionApplication {
                     return false;
                 }
 
+                let mut unchanged = false;
                 let saved = ws
                     .metadata
                     .mutate_session_optional(id, WriteScope::NONE, |meta| {
@@ -3603,12 +3623,17 @@ impl SessionApplication {
                         {
                             return Ok(false);
                         }
+                        if meta.label == label && meta.label_source == metadata::LabelSource::Codex
+                        {
+                            unchanged = true;
+                            return Ok(false);
+                        }
                         meta.label = label.clone();
                         meta.label_source = metadata::LabelSource::Codex;
                         meta.label_from_initial_prompt = false;
                         Ok(true)
                     });
-                if !matches!(saved, Ok(Some(_))) {
+                if !(matches!(saved, Ok(Some(_))) || (unchanged && matches!(saved, Ok(None)))) {
                     return false;
                 }
                 handle.info.label = label;
@@ -6531,6 +6556,7 @@ async fn create_session_workflow(
                     metadata::LabelSource::Placeholder
                 },
                 label_from_initial_prompt: initial_prompt_label.is_some(),
+                label_context_refined: false,
                 workspace: ws.path.display().to_string(),
                 task: String::new(),
                 harness: resolved_launch
@@ -13439,6 +13465,7 @@ mod tests {
                 text: "stale topic".into(),
                 epoch: 4,
                 from_initial_prompt: false,
+                context: Vec::new(),
             },
         );
         state.peon.label_pending.write().unwrap().insert(id.into());
@@ -13551,6 +13578,7 @@ mod tests {
                 text: "stale topic".into(),
                 epoch: 4,
                 from_initial_prompt: false,
+                context: Vec::new(),
             },
         );
         state.peon.label_pending.write().unwrap().insert(id.into());
@@ -13621,6 +13649,7 @@ mod tests {
                 text: "queued topic".into(),
                 epoch: 7,
                 from_initial_prompt: false,
+                context: Vec::new(),
             },
         );
         state.peon.label_pending.write().unwrap().insert(id.into());
@@ -13640,6 +13669,7 @@ mod tests {
                 text: "queued topic".into(),
                 epoch: 7,
                 from_initial_prompt: false,
+                context: Vec::new(),
             })
         );
         assert!(state.peon.label_pending.read().unwrap().contains(id));
@@ -13755,6 +13785,34 @@ mod tests {
             .unwrap();
         assert_eq!(stored.label, "Saved Codex name");
         assert_eq!(stored.label_source, metadata::LabelSource::Codex);
+        let revision = || {
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .try_read_revisioned_session(id)
+                .unwrap()
+                .unwrap()
+                .revision
+        };
+        let before = revision();
+        assert!(
+            SessionApplication::new(state.clone()).persist_codex_label_for_runtime(
+                id,
+                "thread-42",
+                "Saved Codex name".into(),
+                &runtime_identity,
+                0,
+            )
+        );
+        assert_eq!(
+            revision(),
+            before,
+            "unchanged native titles must not rewrite metadata"
+        );
         assert_eq!(
             state.sessions.lock().unwrap()[id].info.label,
             "Saved Codex name"
@@ -16104,7 +16162,87 @@ mod tests {
     }
 
     #[test]
-    fn persist_peon_inference_merges_eligible_metadata_and_returns_history_label() {
+    fn contextual_title_refinement_happens_once_and_respects_native_and_user_ownership() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let mut meta = crate::test_support::test_session_metadata(
+            "context-title",
+            "session titles",
+            root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        meta.label_source = metadata::LabelSource::TerminalInput;
+        let workspace = state.workspace.lock().unwrap();
+        let ws = workspace.as_ref().unwrap();
+        ws.metadata.write_session(&meta);
+        assert_eq!(
+            persist_peon_input_label_metadata(
+                Some(ws),
+                "context-title",
+                "Improve session titles",
+                false,
+                false
+            ),
+            Some(true)
+        );
+        assert_eq!(
+            persist_peon_input_label_metadata(
+                Some(ws),
+                "context-title",
+                "Sync contextual coding session titles",
+                false,
+                true
+            ),
+            Some(true)
+        );
+        assert_eq!(
+            persist_peon_input_label_metadata(
+                Some(ws),
+                "context-title",
+                "Running title tests",
+                false,
+                true
+            ),
+            None
+        );
+        assert_eq!(
+            persist_peon_input_label_metadata(
+                Some(ws),
+                "context-title",
+                "Late initial guess",
+                false,
+                false
+            ),
+            None
+        );
+        let stored = ws.metadata.read_session("context-title").unwrap();
+        assert_eq!(stored.label, "Sync contextual coding session titles");
+        assert!(stored.label_context_refined);
+        for source in [metadata::LabelSource::User, metadata::LabelSource::Codex] {
+            ws.metadata
+                .mutate_session("context-title", WriteScope::NONE, |meta| {
+                    meta.label_source = source;
+                    meta.label_context_refined = false;
+                    Ok(())
+                })
+                .unwrap();
+            assert_eq!(
+                persist_peon_input_label_metadata(
+                    Some(ws),
+                    "context-title",
+                    "Inferred replacement",
+                    false,
+                    true
+                ),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn persist_peon_inference_preserves_topic_when_activity_changes() {
         let root = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "peon-inference-application";
@@ -16167,7 +16305,7 @@ mod tests {
                 .label_update
                 .as_ref()
                 .map(|(label, _)| label.as_str()),
-            Some("Need a decision")
+            Some("Peon inference")
         );
         let stored = state
             .workspace

@@ -119,3 +119,5 @@ Decision records and their original rationale and consequences.
 - [Readiness workflow suggestions](0096-readiness-workflow-suggestions.md) — Accepted combined action retaining independent score and recommendation owners.
 
 - [0097: Desktop-owned skill management](0097-desktop-skill-management.md) — Accepted Electron-main inventory and qualified APM install boundary.
+
+- [Contextual session titles](0098-contextual-session-titles.md) — Stable topics with native updates and user ownership.

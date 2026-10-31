@@ -14,6 +14,8 @@ tags: ["orkworks", "architecture"]
   deterministic-correlation decision below is superseded on 2026-10-08 by
   recurrence-only eligibility in `specs/taskmaster.md` § Eligibility)
 - Deciders: Rambolarsen
+- Naming clause: superseded in part by [ADR 0098](./0098-contextual-session-titles.md)
+  for native updates, contextual refinement and manual title ownership.
 - Date: 2026-08-14
 
 ## Context

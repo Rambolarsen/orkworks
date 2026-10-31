@@ -349,6 +349,16 @@ approval-control capability. See [ADR 0093](../docs/adr/0093-codex-terminal-prog
 
 ### Deterministic harness-supplied signals
 
+Session titles describe a stable task topic, separately from activity summaries.
+Authenticated native Codex names may refresh on subsequent exact-identity reports;
+unchanged names are no-ops. Peon uses a dedicated naming prompt and bounded task
+context, with at most one successful contextual refinement after concrete work
+output. A desktop-authorized manual rename wins until explicitly restored to
+automatic naming, including across conversation resets. Title operations preserve
+attention, native identity and activity timestamps. Legacy unknown title provenance
+remains protected from native replacement. See [ADR 0098](../docs/adr/0098-contextual-session-titles.md)
+and [#1203](https://github.com/Rambolarsen/orkworks/issues/1203).
+
 Alongside Peon's LLM-based inference, some harnesses expose deterministic, higher-confidence signals that OrkWorks can consume directly instead of inferring them from terminal output:
 
 - **Attention state** (`waiting_for_input` and related statuses): a harness's own notification mechanism — e.g. Claude Code's `Notification` hook — can call `POST /sessions/:id/attention` on the sidecar. Today, writes use `metadataSource: "agent"` with `metadataConfidence: 1.0` and respect the same priority/staleness rule Peon already respects: they cannot overwrite fresh `user` or fresh `agent` metadata, but always outrank `peon`/`backend_inference`/`process`/`unknown`. The proposed native-enabled path uses separate attention provenance as described above.

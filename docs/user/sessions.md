@@ -50,6 +50,20 @@ process: other sessions keep running while the backend remains alive. Recent
 terminal history is replayed when you return. Closing the application is
 different; live processes do not survive a backend restart.
 
+## Name a session
+
+In current source builds, open **Details** and choose the pencil beside **Title**
+to rename a session. **Save** keeps your title until you choose **Use automatic
+title**; **Cancel** leaves it unchanged. Titles can contain up to 100 characters.
+A manual title stays through later observations and conversation resets.
+
+Automatic titles describe the task. Codex sessions can follow the saved native
+thread name when an authenticated integration report arrives; an idle rename
+may appear after the next report. Other tools use Peon's naming fallback, which
+can refine its initial guess once useful task context arrives. Activity summaries
+remain separate. These changes describe source builds; published installers may
+not include them yet.
+
 ## Close, archive or delete a session
 
 Current source builds have three session states: **Active**, **Closed** and

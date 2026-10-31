@@ -2065,6 +2065,13 @@ html, body, #root {
   gap: var(--space-4);
 }
 
+.session-title-editor { margin-bottom: 14px; }
+.session-title-current { display: flex; align-items: center; gap: 8px; overflow-wrap: anywhere; }
+.session-title-current span { min-width: 0; flex: 1; }
+.session-title-current button { flex-shrink: 0; }
+.session-title-editor input { width: 100%; box-sizing: border-box; }
+.session-title-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.session-title-help { font-size: 12px; color: var(--text-muted); }
 .detail-facts-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

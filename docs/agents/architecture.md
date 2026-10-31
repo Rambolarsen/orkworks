@@ -737,6 +737,25 @@ prompt-plus-Enter. Other harnesses retain plain input delivery.
 
 ## Metadata protocol
 
+Session title operations are separate from attention/work metadata. The renderer
+uses `window.orkworks.sessionTitle` through Electron main's generation-bound
+transport. `POST /sessions/:id/title` requires the desktop token and canonical
+`workspaceIdentity`, and accepts `action: read | set | automatic` (`set` also
+requires `title`). SessionApplication's `titles` module owns validation,
+transactional persistence, label epochs and the live mirror. User titles survive
+conversation resets; restoring automatic naming re-enables Peon/native updates.
+No coding-tool title is written back. See [ADR 0098](../adr/0098-contextual-session-titles.md).
+
+Peon input naming uses a dedicated topic prompt through the existing provider
+runner. After concrete work evidence, one contextual pass can refine an automatic
+topic with at most 40 current-runtime output rows (500 characters each), reduced
+to the latest 4,096 characters in the prompt; the instruction is bounded to 4,096
+characters. The persisted `labelContextRefined` marker prevents later output
+from churning the topic. Activity scans mirror the canonical title instead of
+copying their summary into live state. Codex keeps its exact-ID read-only adapter
+and five-second report-driven refresh cooldown, including after a native name
+was already accepted; identical native title/source values do not rewrite metadata.
+
 The source-owned `session-metadata.py` producer prepares API-only agent reporting
 for #789. With `ORKWORKS_SESSION_METADATA_API_VERSION=1`, it requires authenticated
 GET, validation-only PATCH, and follow-up GET with the same revision before a

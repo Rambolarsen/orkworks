@@ -7,7 +7,8 @@ tags: ["orkworks", "architecture"]
 
 # Codex native session names enrich automatic session labels
 
-- Status: accepted
+- Status: superseded in part by [ADR 0098](./0098-contextual-session-titles.md);
+  exact-ID read-only lookup and ownership constraints remain accepted.
 - Deciders: Rambolarsen, Codex
 - Date: 2026-09-24
 

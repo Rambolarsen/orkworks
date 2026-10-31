@@ -110,6 +110,13 @@ qualification gates remain unchanged. See the [helper proxy contract](harness-in
 
 ## Session organization
 
+Session title ownership is independent of attention source priority. Desktop
+title set/restore operations require the existing desktop token and expected
+canonical workspace. Manual titles persist until explicitly restored to automatic
+naming, including across conversation resets; late Peon/native work cannot
+replace them. Output activity summaries never become live titles. Native Codex
+refresh and one bounded contextual Peon refinement follow [ADR 0098](../adr/0098-contextual-session-titles.md).
+
 The accepted [archive design](../superpowers/specs/2026-10-18-session-archive.md)
 and [ADR 0088](../adr/0088-session-archive-state.md) add Active, Closed and Archived
 as organization states, independently of runtime status and attention. The

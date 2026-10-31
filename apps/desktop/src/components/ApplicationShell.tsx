@@ -78,6 +78,7 @@ interface Props {
   onResumeSession: (id: string, strategy?: import("../api").ResumeStrategy) => void;
   onRowResumeSession?: (id: string) => void;
   onApplyDebugAttention: (id: string, attention: SessionAttention, message?: string) => void;
+  onTitleUpdated?: () => void;
   onFocusTerminal: () => void;
   onOpenSettings: (section?: "tools" | "providers") => void;
   onOpenWorkspace: () => void;
@@ -330,6 +331,7 @@ export default function ApplicationShell(props: Props) {
       session={props.sessions.find(s => s.id === props.activeSessionId) ?? null}
       onBack={() => { props.onInspect("details"); requestFocus("changes-return"); }} />;
     if (props.inspector === "details") return <SessionDetailPanel key={props.workspaceGeneration} sessions={props.sessions}
+      workspaceIdentity={props.isSwitchingWorkspace ? undefined : props.workspace?.workspaceIdentity} onTitleUpdated={props.onTitleUpdated}
       visibleSessionId={props.visibleSubjectId} harnesses={props.harnesses}
       onReviewChanges={() => runCommand("changes", true)}
       onReviewPlan={() => runCommand("review")} onRequestPlanReview={props.onRequestPlanReview}

@@ -898,6 +898,7 @@ fn queue_label_hint_at_epoch(
             text: line,
             epoch,
             from_initial_prompt,
+            context: Vec::new(),
         },
     );
     state
@@ -3148,6 +3149,7 @@ mod tests {
                 text: "fix the login redirect bug".into(),
                 epoch: 0,
                 from_initial_prompt: false,
+                context: Vec::new(),
             })
         );
         assert!(state
@@ -3200,6 +3202,7 @@ mod tests {
                 text: input.clone(),
                 epoch: 0,
                 from_initial_prompt: false,
+                context: Vec::new(),
             })
         );
     }
@@ -3277,6 +3280,7 @@ mod tests {
                 text: text.to_string(),
                 epoch,
                 from_initial_prompt: false,
+                context: Vec::new(),
             },
         );
         state
@@ -3448,6 +3452,7 @@ mod tests {
                 text: "old topic".into(),
                 epoch: 0,
                 from_initial_prompt: false,
+                context: Vec::new(),
             }),
             "{case}"
         );
@@ -3492,6 +3497,7 @@ mod tests {
                 text: "fix the next login bug".into(),
                 epoch: 1,
                 from_initial_prompt: false,
+                context: Vec::new(),
             })
         );
     }
@@ -3580,6 +3586,7 @@ mod tests {
                 text: "fix the next login bug".into(),
                 epoch: 1,
                 from_initial_prompt: false,
+                context: Vec::new(),
             })
         );
 
@@ -3600,6 +3607,7 @@ mod tests {
                 text: "then rework the retry policy".into(),
                 epoch: 2,
                 from_initial_prompt: false,
+                context: Vec::new(),
             })
         );
     }
@@ -4673,6 +4681,7 @@ mod tests {
                 label: "Test".into(),
                 label_source: metadata::LabelSource::Legacy,
                 label_from_initial_prompt: false,
+                label_context_refined: false,
                 workspace: dir.path().display().to_string(),
                 task: "".into(),
                 harness: "".into(),
@@ -4827,6 +4836,7 @@ mod tests {
                 label: "Test".into(),
                 label_source: metadata::LabelSource::Legacy,
                 label_from_initial_prompt: false,
+                label_context_refined: false,
                 workspace: dir.path().display().to_string(),
                 task: "".into(),
                 harness: "".into(),
@@ -5051,6 +5061,7 @@ mod tests {
                 label: "Test".into(),
                 label_source: metadata::LabelSource::Legacy,
                 label_from_initial_prompt: false,
+                label_context_refined: false,
                 workspace: dir.path().display().to_string(),
                 task: "".into(),
                 harness: "".into(),
@@ -5284,6 +5295,7 @@ mod tests {
                 id: session_id.clone(),
                 label: "Test".into(),
                 label_from_initial_prompt: false,
+                label_context_refined: false,
                 label_source: metadata::LabelSource::Legacy,
                 workspace: dir.path().display().to_string(),
                 task: "".into(),

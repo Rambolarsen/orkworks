@@ -591,7 +591,7 @@ pub(crate) async fn forget_session(
         .unwrap_or_else(application_error_response)
 }
 
-fn application_error_response(
+pub(super) fn application_error_response(
     error: crate::session_application::SessionError,
 ) -> axum::response::Response {
     match error {
@@ -934,10 +934,8 @@ fn should_schedule_codex_label_refresh(
     label_source: metadata::LabelSource,
 ) -> bool {
     match result {
-        metadata::HarnessSessionMergeResult::Accepted => label_source.is_automatic(),
-        metadata::HarnessSessionMergeResult::IgnoredUnchanged => {
-            label_source.is_automatic() && label_source != metadata::LabelSource::Codex
-        }
+        metadata::HarnessSessionMergeResult::Accepted
+        | metadata::HarnessSessionMergeResult::IgnoredUnchanged => label_source.is_automatic(),
         _ => false,
     }
 }
@@ -1141,7 +1139,7 @@ mod tests {
     include!("copilot_attention_tests.rs");
 
     #[test]
-    fn unchanged_codex_reports_retry_only_automatic_labels_not_already_from_codex() {
+    fn unchanged_codex_reports_refresh_native_titles_but_preserve_user_titles() {
         assert!(should_schedule_codex_label_refresh(
             metadata::HarnessSessionMergeResult::IgnoredUnchanged,
             metadata::LabelSource::Placeholder,
@@ -1154,7 +1152,7 @@ mod tests {
             metadata::HarnessSessionMergeResult::Accepted,
             metadata::LabelSource::Codex,
         ));
-        assert!(!should_schedule_codex_label_refresh(
+        assert!(should_schedule_codex_label_refresh(
             metadata::HarnessSessionMergeResult::IgnoredUnchanged,
             metadata::LabelSource::Codex,
         ));
@@ -1656,6 +1654,7 @@ mod tests {
             label: "Test".into(),
             label_source: metadata::LabelSource::Legacy,
             label_from_initial_prompt: false,
+            label_context_refined: false,
             workspace: workspace.clone(),
             task: "".into(),
             harness: "".into(),
@@ -2702,6 +2701,7 @@ mod tests {
                     label: "Known".into(),
                     label_source: metadata::LabelSource::Legacy,
                     label_from_initial_prompt: false,
+                    label_context_refined: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
                     harness: "codex".into(),
@@ -3128,6 +3128,7 @@ mod tests {
                     label: "Known".into(),
                     label_source: metadata::LabelSource::Legacy,
                     label_from_initial_prompt: false,
+                    label_context_refined: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
                     harness: "opencode".into(),
@@ -4426,6 +4427,7 @@ mod tests {
                     label: "Resume Attached".into(),
                     label_source: metadata::LabelSource::Legacy,
                     label_from_initial_prompt: false,
+                    label_context_refined: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
                     harness: "opencode".into(),
@@ -4541,6 +4543,7 @@ mod tests {
                     label: "Resume Detached Live".into(),
                     label_source: metadata::LabelSource::Legacy,
                     label_from_initial_prompt: false,
+                    label_context_refined: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
                     harness: "opencode".into(),
@@ -5544,6 +5547,7 @@ mod tests {
                     label: "Known".into(),
                     label_source: metadata::LabelSource::Legacy,
                     label_from_initial_prompt: false,
+                    label_context_refined: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
                     harness: "claude-code".into(),
@@ -7150,6 +7154,7 @@ mod tests {
                 text: "fix the login redirect bug".into(),
                 epoch: 0,
                 from_initial_prompt: true,
+                context: Vec::new(),
             })
         );
         assert!(state
@@ -7273,6 +7278,7 @@ mod tests {
                 text: prompt.clone(),
                 epoch: 0,
                 from_initial_prompt: true,
+                context: Vec::new(),
             })
         );
     }
@@ -7794,6 +7800,7 @@ mod tests {
                 label: "Killed".into(),
                 label_source: metadata::LabelSource::Legacy,
                 label_from_initial_prompt: false,
+                label_context_refined: false,
                 workspace: dir.path().display().to_string(),
                 task: "".into(),
                 harness: "".into(),
@@ -8070,6 +8077,7 @@ mod tests {
                     label: "Delete Ending".into(),
                     label_source: metadata::LabelSource::Legacy,
                     label_from_initial_prompt: false,
+                    label_context_refined: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
                     harness: "".into(),
@@ -9176,6 +9184,7 @@ mod tests {
                 label: "Remembered Derived".into(),
                 label_source: metadata::LabelSource::Legacy,
                 label_from_initial_prompt: false,
+                label_context_refined: false,
                 workspace: dir.path().display().to_string(),
                 task: "".into(),
                 harness: "opencode".into(),

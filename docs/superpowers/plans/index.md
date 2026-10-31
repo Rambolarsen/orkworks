@@ -239,3 +239,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Evaluation-artifact qualification handoff](2026-10-30-evaluation-artifact-qualification.md) — Gated owner, source/authority, conditional-state and native qualification handoff for the proposed evaluation-artifact producer.
 
 - [Retained child review source qualification handoff](2026-10-31-child-review-source-qualification.md) — Proposed one-task child source records, exact preparation/consumer joins and gated qualification; new choices require owner review.
+
+- [Contextual session titles](2026-10-31-session-titles.md) — Native refresh, contextual fallback and manual rename implementation.
