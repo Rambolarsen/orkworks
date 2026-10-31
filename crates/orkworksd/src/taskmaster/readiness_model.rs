@@ -135,6 +135,20 @@ mod tests {
     use super::*;
     use crate::taskmaster::readiness_rubric::{ReadinessRubric, CONCEPT_IDS};
     #[test]
+    fn retained_unknown_evidence_prose_is_accepted_without_inventing_a_score() {
+        let input: serde_json::Value = serde_json::from_str(include_str!("../../../../docs/validation/fixtures/score-directed-readiness-v4-2026-10-31/evidence-unknown-score-final-input.json")).unwrap();
+        let rubric: ReadinessRubric = serde_json::from_value(input["rubric"].clone()).unwrap();
+        let output=include_str!("../../../../docs/validation/fixtures/score-directed-readiness-v4-2026-10-31/evidence-unknown-score-final-output.json");
+        let response = decode(
+            output,
+            input["repositoryFacts"].as_array().unwrap().len(),
+            &rubric,
+        )
+        .expect("descriptive unknown-evidence prose must remain readable");
+        assert_eq!(response.totals(), (0, None, None));
+    }
+
+    #[test]
     fn retained_command_literal_stays_rejected_but_role_description_is_decodable() {
         let input: serde_json::Value = serde_json::from_str(include_str!("../../../../docs/validation/fixtures/score-directed-readiness-2026-10-30/skipped-tests-score-final-input.json")).unwrap();
         let rubric: ReadinessRubric = serde_json::from_value(input["rubric"].clone()).unwrap();

@@ -112,3 +112,56 @@ The failed corpus stays unchanged and receives no new credit from offline replay
 No additional live calls are authorized or made by this correction pass. A new
 fixed qualification set requires a concrete budget decision after the corrected
 implementation is reviewable.
+
+### Results of the separately authorized v4 set
+
+The owner approved one new five-fixture set, at most twenty calls, by answering
+“keep going” to that explicit request. It consumed sixteen calls; unused budget
+does not authorize replacement samples. The [retained independent review](../../validation/fixtures/score-directed-readiness-v4-2026-10-31/index.md)
+still fails the gate: only the CI proposal earns credit. The ambiguous skipped
+suite proposal and missed assertion defect receive none; the unknown control
+fails prose validation. Preserve both failed sets.
+
+The unchanged unknown-control output now supplies an offline regression for a
+narrow false positive in negative noun lists (“issue breakdown”). Correcting
+that grammar preserves imperative/command rejection and unknown totals, and
+never grants retrospective quality credit. The remaining investigation problem
+is evidence planning before a positive candidate exists. Changing that protocol
+requires a separately reviewed concrete design before dependent implementation;
+do not spend more calls on prompt-only replacements.
+
+## Proposed evidence-first follow-up (not approved)
+
+[Proposed ADR 0099](../../adr/0099-readiness-evidence-before-candidates.md) is the
+concrete next decision. It moves only combined readiness discovery from candidate
+justification to bounded evidence planning. It does not add calls or tools, relax
+proposal grounding, change standalone discovery, or expand access.
+
+Delivery, after owner design approval:
+
+1. Add the readiness-only closed investigation response/parser and native shape,
+   with rejection tests for unknown/duplicate keys, unsupported concept pages,
+   invalid catalog IDs and oversized selections. Keep standalone discovery-v1.
+2. Route a captured readiness continuation through that evidence plan and final
+   assessment, retaining current signed-page pinning, manifest restoration,
+   currentness/lease/recovery fences and final provenance. Advance focus identity.
+   Prove candidate-free evidence reading does not grant proposal/action authority.
+3. Verify honest final no-proposal for both negative cases, useful reuse of an
+   existing asserted suite, and a distinct visible assertion gap. Run repository
+   checks and fresh current-code review. Only then request separate live budget;
+   preserve and independently adjudicate every fixed sample without replacement.
+
+| Dimension | Rating | Evidence and mitigation |
+| --- | --- | --- |
+| Dependencies | 3 | Known parser, native constraint, assessment and context owners. |
+| Blast radius | 3 | Shared orchestrator; server-owned purpose isolates standalone behavior. |
+| State changes | 2 | Private response shape changes; persisted format stays 3 with existing digest/read IDs. |
+| Reversibility | 3 | Disable combined admission and forward-fix; old code must reject changed identity. |
+| Uncertainty | 4 | Ordering failure is retained; improved inference remains unqualified until fixed trials. |
+
+Total 15/25. This is a design gate, not permission to implement or spend calls.
+Plan review: **Ready for owner design decision**, not implementation approval.
+One fresh-context medium review checked ADR 0099 and this material plan section
+for buildability, bounded evidence/authority, compatibility/recovery and honest
+qualification. No actionable findings. The review separately approved the narrow
+prose correction; it did not run provider calls or treat offline replay as quality.

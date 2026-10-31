@@ -403,3 +403,20 @@ Only one of three positive samples produced a useful grounded change; the
 required minimum is two. Both negative controls produced no recommendation.
 The changed prompt/collector remains **unqualified for usefulness**. These results
 do not establish that the missing usable-analysis problem is resolved.
+
+### Prompt-v4 fixed set and offline prose correction
+
+The [separate v4/focus-v2 corpus](fixtures/score-directed-readiness-v4-2026-10-31/index.md)
+consumed sixteen authorized calls on the same Luna medium profile, without
+retries or replacements. Independent adjudication still gives only one of three
+positive trials credit: an ambiguous recommendation may duplicate existing
+assertions, and another trial never inspected the test body. The unknown-evidence
+control failed scoring validation, so it is not a valid no-proposal control.
+
+Offline replay isolated a prose-validator false positive: comma splitting
+classified the noun item “issue breakdown” in a negative inventory ending
+“is supplied” as an imperative. A narrow descriptive-list correction accepts the
+unchanged retained response as a partial assessment with zero assessed areas
+and no overall score; imperative and literal-command cases remain rejected.
+This codec regression does not repair the recorded provider trial or establish
+end-to-end qualification. The usefulness gate remains failed.
