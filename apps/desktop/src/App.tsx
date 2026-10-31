@@ -861,6 +861,7 @@ function App() {
       </div>
       {!workspace && shellNavigation.inspector !== "skills" && (
         <div className="workspace-picker-screen">
+          <img className="workspace-picker-watermark" src={orkworksIcon} alt="" aria-hidden="true" draggable={false} />
           <section className="workspace-picker-card" aria-label="Workspace picker">
             {backendStatus !== "picker" && <p role="status">{backendStatus}</p>}
             {workspaceHistoryDiagnostic && (
