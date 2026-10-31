@@ -35,9 +35,6 @@ fn schema(shape: NativeResponseShape) -> Value {
         NativeResponseShape::ReadinessDiscoveryV2 => {
             json!({"type":"object","additionalProperties":false,"required":["version","preferredFileIds"],"properties":{"version":{"type":"integer","enum":[2]},"preferredFileIds":{"type":"array","items":{"type":"integer"}}}})
         }
-        NativeResponseShape::ReadinessDiscoveryV1 => {
-            json!({"type":"object","additionalProperties":false,"required":["version","requestedFileIds"],"properties":{"version":{"type":"integer","enum":[1]},"requestedFileIds":{"type":"array","items":{"type":"integer"}}}})
-        }
         NativeResponseShape::ReadinessV1 => {
             let rated = json!({"type":"object","additionalProperties":false,"required":["conceptId","maturity","confidence","repositoryFactIds","rubricPageId","rationale","limits","nextTransition","unassessedReason"],"properties":{
                 "conceptId":{"type":"string"},"maturity":{"type":"integer","minimum":0,"maximum":4},"confidence":{"type":"string","enum":["low","medium","high"]},"repositoryFactIds":{"type":"array","items":{"type":"integer"}},"rubricPageId":{"type":"string"},"rationale":prose(),"limits":{"type":"array","items":prose()},"nextTransition":{"type":"string","description":"A prospective noun phrase beginning Evidence of, describing the next supported level. No completed-check claims, literal commands or instructions. Use usage for descriptive usage, not ambiguous use."},"unassessedReason":{"type":"null"}
