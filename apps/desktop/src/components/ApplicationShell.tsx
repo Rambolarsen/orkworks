@@ -1,5 +1,5 @@
 import { isSessionAlive } from "../sessionRuntimeState";
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { PanelLeft, PanelRight, Plus, ChevronDown, Lightbulb, BookOpen, Settings, Pin, PinOff, X } from "lucide-react";
 import type { CentralSurface } from "../shellNavigation";
 import type { SessionAction, SessionAttention, SessionInfo, WorkflowRecommendation, WorkspaceInfo } from "../api";
@@ -94,6 +94,10 @@ export default function ApplicationShell(props: Props) {
   const reviewInvoker = useRef<{ element: HTMLElement | null; selector: string | null } | null>(null);
   const navigationIntent = useRef(0);
   const creationReturn = useRef<{ inspector: ShellDestination | null; sessionsPage: boolean } | null>(null);
+  const selectSession = useCallback((id: string) => {
+    creationReturn.current = null;
+    props.onSelectSession(id);
+  }, [props.onSelectSession]);
   const workspaceGenerationRef = useRef(props.workspaceGeneration);
   workspaceGenerationRef.current = props.workspaceGeneration;
   const focusIntent = useRef<"page" | "changes-return" | "return" | "review-return" | "terminal" | "sessions" | null>(null);
@@ -425,10 +429,7 @@ export default function ApplicationShell(props: Props) {
         </header>
         <SessionListPanel workspaceGeneration={props.workspaceGeneration} workspace={props.workspace} sessions={props.sessions} activeSessionId={props.activeSessionId}
           unreadIds={props.unreadIds} acknowledgedIds={props.acknowledgedIds} harnesses={props.harnesses}
-          onSelectSession={id => {
-            creationReturn.current = null;
-            props.onSelectSession(id);
-          }}
+          onSelectSession={selectSession}
           resumingSessionIds={props.resumingSessionIds}
           actionsEnabled={props.backendStatus === "connected" && !props.isSwitchingWorkspace}
           onSessionAction={props.onSessionAction} onResumeSession={props.onRowResumeSession ?? props.onResumeSession}
