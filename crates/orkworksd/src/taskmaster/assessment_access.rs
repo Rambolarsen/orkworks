@@ -56,11 +56,12 @@ pub(crate) fn redact_recommendation(
         .clear();
     recommendation.workflow_improvement.expected_benefit.clear();
     recommendation.proposed_change = None;
-    recommendation
+    let provenance = recommendation
         .assessment
         .as_mut()
-        .expect("assessment provenance")
-        .access_redacted = true;
+        .expect("assessment provenance");
+    provenance.access_redacted = true;
+    provenance.readiness_reference = None;
     if let Some(packet) = recommendation.completion_packet.as_mut() {
         packet.action.prompt = REDACTED_SUMMARY.into();
         packet.action.scope = REDACTED_SUMMARY.into();
@@ -178,7 +179,7 @@ pub(crate) fn fence_recommendation(
     }
     let fresh = !provenance.access_redacted
         && record.is_some_and(|record| {
-            record.format_version == 2
+            matches!(record.format_version, 2 | 3)
                 && record.state == AssessmentState::Succeeded
                 && record.pending_recommendation.is_none()
                 && record.id == provenance.id
@@ -569,7 +570,7 @@ pub(crate) fn status_for(
         };
         return serde_json::json!({"state":state,"phase": if record.state == AssessmentState::Running { record.phase } else { None },"report":null,"errorSummary":error,"reused":false});
     }
-    if record.format_version != 2 {
+    if !matches!(record.format_version, 2 | 3) {
         return unavailable();
     }
     let Some(report) = record

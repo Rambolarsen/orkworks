@@ -7,15 +7,26 @@ use super::super::{
 use super::*;
 use std::fs;
 thread_local! { static EVIDENCE_DIR: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) }; }
+pub(crate) fn evidence_directory(directory: Option<PathBuf>) {
+    EVIDENCE_DIR.with(|target| *target.borrow_mut() = directory);
+}
 pub(super) fn capture_stage_output(prompt: &str, output: &str) {
     EVIDENCE_DIR.with(|dir| {
         if let Some(dir) = dir.borrow().as_ref() {
             let prompt: serde_json::Value = serde_json::from_str(prompt).unwrap();
-            let stage = if prompt["protocol"] == "taskmaster-discovery-v1" {
+            let stage = if matches!(
+                prompt["protocol"].as_str(),
+                Some("taskmaster-discovery-v1" | "taskmaster-readiness-investigation-v1")
+            ) {
                 "discovery"
             } else {
                 "final"
             };
+            fs::write(
+                dir.join(format!("{stage}-input.json")),
+                serde_json::to_vec_pretty(&prompt).unwrap(),
+            )
+            .unwrap();
             fs::write(dir.join(format!("{stage}-output.json")), output).unwrap();
         }
     });
@@ -151,6 +162,7 @@ fn selected_provider_quality_matrix() {
                 .metadata
                 .root_path();
             let record = AssessmentRecord {
+                readiness_reference: None,
                 format_version: 2,
                 input_manifest: None,
                 phase: None,

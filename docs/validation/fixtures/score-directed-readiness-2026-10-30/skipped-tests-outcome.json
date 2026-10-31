@@ -1,0 +1,189 @@
+{
+  "history": {
+    "formatVersion": 1,
+    "snapshots": []
+  },
+  "parent": {
+    "assessmentId": null,
+    "completedAt": "2026-10-30T16:19:21.808Z",
+    "formatVersion": 1,
+    "id": "55959e3b-13ec-49b6-90cb-83114b55a57d",
+    "phase": "finished",
+    "readinessRunId": "833ea996-ae3b-4b6e-a6b4-6b21f9c09eee",
+    "reasonCode": "scoring_failed",
+    "recommendationId": null,
+    "startedAt": "2026-10-30T16:18:58.515Z",
+    "state": "failed"
+  },
+  "report": null,
+  "run": {
+    "completedAt": null,
+    "errorCode": null,
+    "formatVersion": 1,
+    "id": "833ea996-ae3b-4b6e-a6b4-6b21f9c09eee",
+    "inputIdentity": {
+      "comparisonFingerprint": "bde1dc276127cf894f5a5ed7058b1d3a35f28d92bd59d7f72b2d477d8efd5a19",
+      "contextLevel": "source_code",
+      "excludedPaths": [],
+      "git": {
+        "dirty": null,
+        "headOid": null
+      },
+      "inferenceIdentity": {
+        "custom": null,
+        "generation": 2,
+        "knowledge": {
+          "bundle_sha256": "ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511",
+          "format_version": 2,
+          "privacy_policy_version": 1,
+          "public_key_sha256": "a35da5934c629903f8f31db5067a9c5086f8372c34e3d917c9efb7decfd465dd",
+          "sequence": 3,
+          "version": "brain-3"
+        },
+        "native": {
+          "document_revision": null,
+          "profile": "Codex"
+        },
+        "selection": {
+          "model": "gpt-6-luna",
+          "provider": "codex",
+          "reasoningEffort": "medium"
+        }
+      },
+      "inputFingerprint": "efdd00d35d2142a41b22327b6f483284227557102d220f1d49d9c7ff33bbfc90",
+      "inputManifest": {
+        "collector": {
+          "catalogComplete": true,
+          "catalogDigest": "dda403810a1694393a3b580278e5e40a76279feae127b10cd5fd9c7b0af4302f",
+          "collectorVersion": 4,
+          "contextLevel": "source_code",
+          "discoveryDigest": "a1618dc7e36dddc4ca9ed24aca7042ea4356b06aab8e7061c00ba310f1595c8b",
+          "excludedPaths": [],
+          "files": [
+            {
+              "bytes": 471,
+              "excerptDigest": "51add3d4d8995176e37ad7c9a4188f14c5c603630edf398ecf250de8fe2d9ea6",
+              "excerptEnd": 471,
+              "excerptStart": 0,
+              "path": "AGENTS.md",
+              "seed": true,
+              "sha256": "51add3d4d8995176e37ad7c9a4188f14c5c603630edf398ecf250de8fe2d9ea6"
+            },
+            {
+              "bytes": 196,
+              "excerptDigest": "f0029d376ded0061128e1ac13bdb774972ca9a496a8948670da13197ddfd7618",
+              "excerptEnd": 196,
+              "excerptStart": 0,
+              "path": "package.json",
+              "seed": true,
+              "sha256": "f0029d376ded0061128e1ac13bdb774972ca9a496a8948670da13197ddfd7618"
+            },
+            {
+              "bytes": 299,
+              "excerptDigest": "ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b",
+              "excerptEnd": 299,
+              "excerptStart": 0,
+              "path": ".github/workflows/ci.yml",
+              "seed": true,
+              "sha256": "ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b"
+            },
+            {
+              "bytes": 366,
+              "excerptDigest": "dd79961ddf606b64f62bf075ab44dbb207559a297d0fcf348e1bbae9edc4b04b",
+              "excerptEnd": 366,
+              "excerptStart": 0,
+              "path": "README.md",
+              "seed": true,
+              "sha256": "dd79961ddf606b64f62bf075ab44dbb207559a297d0fcf348e1bbae9edc4b04b"
+            },
+            {
+              "bytes": 302,
+              "excerptDigest": "f1693566484194859059352d40b95de7a4069ba5bc3afde0ecdc469f96d036e7",
+              "excerptEnd": 302,
+              "excerptStart": 0,
+              "path": "docs/architecture.md",
+              "seed": true,
+              "sha256": "f1693566484194859059352d40b95de7a4069ba5bc3afde0ecdc469f96d036e7"
+            },
+            {
+              "bytes": 590,
+              "excerptDigest": "7299fb412eacab5cde8b6bb735915981df7e9637f712b1f39625972ab6d4136c",
+              "excerptEnd": 590,
+              "excerptStart": 0,
+              "path": "docs/domain.md",
+              "seed": true,
+              "sha256": "7299fb412eacab5cde8b6bb735915981df7e9637f712b1f39625972ab6d4136c"
+            },
+            {
+              "bytes": 147,
+              "excerptDigest": "3b25dc7482a666d5691f051f43fcc8638527aadac6a71ea7dfcc65f71bd045cd",
+              "excerptEnd": 147,
+              "excerptStart": 0,
+              "path": "docs/lessons.md",
+              "seed": true,
+              "sha256": "3b25dc7482a666d5691f051f43fcc8638527aadac6a71ea7dfcc65f71bd045cd"
+            },
+            {
+              "bytes": 380,
+              "excerptDigest": "683c4eaba43b054a7dce65c398b5902163363400041fb7e7013e22d04f244eeb",
+              "excerptEnd": 380,
+              "excerptStart": 0,
+              "path": "src/catalog.test.ts",
+              "seed": false,
+              "sha256": "683c4eaba43b054a7dce65c398b5902163363400041fb7e7013e22d04f244eeb"
+            }
+          ],
+          "instructionCoverageComplete": true,
+          "preferredFileIds": [
+            2,
+            3,
+            1,
+            0,
+            7,
+            4,
+            5,
+            6
+          ],
+          "promptVersion": "taskmaster-readiness-v3",
+          "purpose": "readiness",
+          "redacted": false,
+          "requestedFileIds": [
+            2,
+            3,
+            1,
+            0,
+            7,
+            4,
+            5,
+            6
+          ]
+        },
+        "observationsDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "purpose": "readiness",
+        "version": 1
+      },
+      "knowledgeIdentity": {
+        "bundle_sha256": "ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511",
+        "format_version": 2,
+        "privacy_policy_version": 1,
+        "public_key_sha256": "a35da5934c629903f8f31db5067a9c5086f8372c34e3d917c9efb7decfd465dd",
+        "sequence": 3,
+        "version": "brain-3"
+      },
+      "rubricDigest": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+      "versions": {
+        "collector": 4,
+        "discoverySchema": 2,
+        "finalSchema": 1,
+        "prompt": "taskmaster-readiness-v3",
+        "scoring": 1
+      },
+      "workspaceInstance": 1,
+      "workspacePath": "/private/tmp/orkworks-1175-score-directed-trials/skipped-tests/workspace"
+    },
+    "phase": "scoring_readiness",
+    "startedAt": "2026-10-30T16:18:58.508Z",
+    "state": "running"
+  },
+  "scoringError": "scoring_invalid_prose"
+}

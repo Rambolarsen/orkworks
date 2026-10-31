@@ -1,0 +1,461 @@
+{
+  "history": {
+    "formatVersion": 1,
+    "snapshots": [
+      {
+        "completedAt": "2026-10-30T16:21:53.209Z",
+        "data": {
+          "comparisonFingerprint": "bde1dc276127cf894f5a5ed7058b1d3a35f28d92bd59d7f72b2d477d8efd5a19",
+          "concepts": [
+            {
+              "conceptId": "context-discovery",
+              "confidence": null,
+              "limits": [
+                "The supplied AGENTS.md and README.md excerpts identify themselves as evidence placeholders and do not establish entry-point basics."
+              ],
+              "maturity": null,
+              "nextTransition": "Evidence of an entry point stating repository basics.",
+              "rationale": "The supplied excerpts do not establish a maturity level.",
+              "repositoryFactHashes": [
+                "bcac7f7170d3393e3109d320842f8b630e73cd955fa9ec444ae25f2929ea2ee9",
+                "f054427960e2ef3c76a56a77b01fdd829e772b7a8f05098b9f82ba3442d0939b"
+              ],
+              "rubricPageId": "playbooks/agent-readiness-rubric.md",
+              "unassessedReason": "The excerpts do not establish qualifying entry-point content, and omitted repository context cannot establish its absence."
+            },
+            {
+              "conceptId": "progressive-disclosure",
+              "confidence": null,
+              "limits": [
+                "The supplied excerpts do not establish linked summary and supporting guidance."
+              ],
+              "maturity": null,
+              "nextTransition": "Evidence of entry points distinguishing summary guidance from supporting detail.",
+              "rationale": "The supplied excerpts do not establish guidance layering.",
+              "repositoryFactHashes": [
+                "bcac7f7170d3393e3109d320842f8b630e73cd955fa9ec444ae25f2929ea2ee9",
+                "f054427960e2ef3c76a56a77b01fdd829e772b7a8f05098b9f82ba3442d0939b"
+              ],
+              "rubricPageId": "playbooks/agent-readiness-rubric.md",
+              "unassessedReason": "The excerpts do not show whether repository guidance is layered; omitted context cannot establish its absence."
+            },
+            {
+              "conceptId": "instruction-scoping",
+              "confidence": null,
+              "limits": [
+                "The supplied excerpts do not establish nested or sectioned instructions."
+              ],
+              "maturity": null,
+              "nextTransition": "Evidence of nested or sectioned repository instructions.",
+              "rationale": "The supplied excerpts do not establish subsystem instruction scope.",
+              "repositoryFactHashes": [
+                "bcac7f7170d3393e3109d320842f8b630e73cd955fa9ec444ae25f2929ea2ee9",
+                "f054427960e2ef3c76a56a77b01fdd829e772b7a8f05098b9f82ba3442d0939b"
+              ],
+              "rubricPageId": "playbooks/agent-readiness-rubric.md",
+              "unassessedReason": "The excerpts do not establish whether scoped instructions exist; omitted context cannot establish their absence."
+            },
+            {
+              "conceptId": "architecture-awareness",
+              "confidence": null,
+              "limits": [
+                "The supplied excerpts do not establish architecture documentation or its maintenance."
+              ],
+              "maturity": null,
+              "nextTransition": "Evidence of discoverable architecture documentation.",
+              "rationale": "The supplied excerpts do not establish architecture documentation.",
+              "repositoryFactHashes": [
+                "bcac7f7170d3393e3109d320842f8b630e73cd955fa9ec444ae25f2929ea2ee9",
+                "f054427960e2ef3c76a56a77b01fdd829e772b7a8f05098b9f82ba3442d0939b"
+              ],
+              "rubricPageId": "playbooks/agent-readiness-rubric.md",
+              "unassessedReason": "The excerpts do not establish architecture documentation or its absence."
+            },
+            {
+              "conceptId": "domain-knowledge",
+              "confidence": null,
+              "limits": [
+                "The supplied excerpts do not establish domain documentation or domain rules."
+              ],
+              "maturity": null,
+              "nextTransition": "Evidence of discoverable domain documentation.",
+              "rationale": "The supplied excerpts do not establish domain knowledge resources.",
+              "repositoryFactHashes": [
+                "bcac7f7170d3393e3109d320842f8b630e73cd955fa9ec444ae25f2929ea2ee9",
+                "f054427960e2ef3c76a56a77b01fdd829e772b7a8f05098b9f82ba3442d0939b"
+              ],
+              "rubricPageId": "playbooks/agent-readiness-rubric.md",
+              "unassessedReason": "The excerpts do not establish domain documentation or its absence."
+            },
+            {
+              "conceptId": "environment-reproducibility",
+              "confidence": null,
+              "limits": [
+                "The supplied excerpts do not establish setup instructions, automation, or environment outcomes."
+              ],
+              "maturity": null,
+              "nextTransition": "Evidence of documented environment setup steps.",
+              "rationale": "The supplied excerpts do not establish environment setup practices.",
+              "repositoryFactHashes": [
+                "bcac7f7170d3393e3109d320842f8b630e73cd955fa9ec444ae25f2929ea2ee9",
+                "f054427960e2ef3c76a56a77b01fdd829e772b7a8f05098b9f82ba3442d0939b"
+              ],
+              "rubricPageId": "playbooks/agent-readiness-rubric.md",
+              "unassessedReason": "The excerpts do not establish environment setup or its reproducibility."
+            },
+            {
+              "conceptId": "tool-accessibility",
+              "confidence": null,
+              "limits": [
+                "The supplied excerpts do not establish required tools or provisioned toolchains."
+              ],
+              "maturity": null,
+              "nextTransition": "Evidence of documented required tools.",
+              "rationale": "The supplied excerpts do not establish tool requirements or availability.",
+              "repositoryFactHashes": [
+                "bcac7f7170d3393e3109d320842f8b630e73cd955fa9ec444ae25f2929ea2ee9",
+                "f054427960e2ef3c76a56a77b01fdd829e772b7a8f05098b9f82ba3442d0939b"
+              ],
+              "rubricPageId": "playbooks/agent-readiness-rubric.md",
+              "unassessedReason": "The excerpts do not establish required tools or how they are provided."
+            },
+            {
+              "conceptId": "task-decomposition",
+              "confidence": null,
+              "limits": [
+                "The supplied excerpts do not establish decomposed work examples or repository workflow guidance."
+              ],
+              "maturity": null,
+              "nextTransition": "Evidence of a decomposed work example or documented workflow.",
+              "rationale": "The supplied excerpts do not establish task decomposition practices.",
+              "repositoryFactHashes": [
+                "bcac7f7170d3393e3109d320842f8b630e73cd955fa9ec444ae25f2929ea2ee9",
+                "f054427960e2ef3c76a56a77b01fdd829e772b7a8f05098b9f82ba3442d0939b"
+              ],
+              "rubricPageId": "playbooks/agent-readiness-rubric.md",
+              "unassessedReason": "The excerpts do not establish decomposition patterns or their absence."
+            },
+            {
+              "conceptId": "verification",
+              "confidence": null,
+              "limits": [
+                "The supplied excerpts do not establish documented validation procedures, automation, or results."
+              ],
+              "maturity": null,
+              "nextTransition": "Evidence of documented build and test procedures.",
+              "rationale": "The supplied excerpts do not establish validation guidance or outcomes.",
+              "repositoryFactHashes": [
+                "bcac7f7170d3393e3109d320842f8b630e73cd955fa9ec444ae25f2929ea2ee9",
+                "f054427960e2ef3c76a56a77b01fdd829e772b7a8f05098b9f82ba3442d0939b"
+              ],
+              "rubricPageId": "playbooks/agent-readiness-rubric.md",
+              "unassessedReason": "The excerpts do not establish validation procedures or capability."
+            },
+            {
+              "conceptId": "observability",
+              "confidence": null,
+              "limits": [
+                "The supplied excerpts do not establish repository records or their consistent availability and consultation."
+              ],
+              "maturity": null,
+              "nextTransition": "Evidence of a repository record of changes or outcomes.",
+              "rationale": "The supplied excerpts do not establish observability practices.",
+              "repositoryFactHashes": [
+                "bcac7f7170d3393e3109d320842f8b630e73cd955fa9ec444ae25f2929ea2ee9",
+                "f054427960e2ef3c76a56a77b01fdd829e772b7a8f05098b9f82ba3442d0939b"
+              ],
+              "rubricPageId": "playbooks/agent-readiness-rubric.md",
+              "unassessedReason": "The excerpts do not establish records of repository activity or their absence."
+            },
+            {
+              "conceptId": "change-safety",
+              "confidence": null,
+              "limits": [
+                "The supplied excerpts do not establish risk guidance, operational guardrails, or near-miss feedback."
+              ],
+              "maturity": null,
+              "nextTransition": "Evidence of documented risky operations and safer alternatives.",
+              "rationale": "The supplied excerpts do not establish change-safety practices.",
+              "repositoryFactHashes": [
+                "bcac7f7170d3393e3109d320842f8b630e73cd955fa9ec444ae25f2929ea2ee9",
+                "f054427960e2ef3c76a56a77b01fdd829e772b7a8f05098b9f82ba3442d0939b"
+              ],
+              "rubricPageId": "playbooks/agent-readiness-rubric.md",
+              "unassessedReason": "The excerpts do not establish guardrails or documented risk guidance."
+            },
+            {
+              "conceptId": "feedback-loops",
+              "confidence": null,
+              "limits": [
+                "The supplied excerpts do not establish recorded outcomes or their incorporation into guidance."
+              ],
+              "maturity": null,
+              "nextTransition": "Evidence of a mechanism for recording outcomes.",
+              "rationale": "The supplied excerpts do not establish feedback mechanisms or usage.",
+              "repositoryFactHashes": [
+                "bcac7f7170d3393e3109d320842f8b630e73cd955fa9ec444ae25f2929ea2ee9",
+                "f054427960e2ef3c76a56a77b01fdd829e772b7a8f05098b9f82ba3442d0939b"
+              ],
+              "rubricPageId": "playbooks/agent-readiness-rubric.md",
+              "unassessedReason": "The excerpts do not establish outcome records or feedback practices."
+            },
+            {
+              "conceptId": "durable-memory",
+              "confidence": null,
+              "limits": [
+                "The supplied excerpts do not establish repository knowledge capture procedures or habitual capture."
+              ],
+              "maturity": null,
+              "nextTransition": "Evidence of a durable repository knowledge store.",
+              "rationale": "The supplied excerpts do not establish durable repository memory practices.",
+              "repositoryFactHashes": [
+                "bcac7f7170d3393e3109d320842f8b630e73cd955fa9ec444ae25f2929ea2ee9",
+                "f054427960e2ef3c76a56a77b01fdd829e772b7a8f05098b9f82ba3442d0939b"
+              ],
+              "rubricPageId": "playbooks/agent-readiness-rubric.md",
+              "unassessedReason": "The excerpts do not establish repository knowledge stores or capture practices."
+            },
+            {
+              "conceptId": "human-oversight",
+              "confidence": null,
+              "limits": [
+                "The supplied excerpts do not establish oversight guidance, risk categories, or structural review points."
+              ],
+              "maturity": null,
+              "nextTransition": "Evidence of guidance on when human review is needed.",
+              "rationale": "The supplied excerpts do not establish human-oversight expectations.",
+              "repositoryFactHashes": [
+                "bcac7f7170d3393e3109d320842f8b630e73cd955fa9ec444ae25f2929ea2ee9",
+                "f054427960e2ef3c76a56a77b01fdd829e772b7a8f05098b9f82ba3442d0939b"
+              ],
+              "rubricPageId": "playbooks/agent-readiness-rubric.md",
+              "unassessedReason": "The excerpts do not establish oversight guidance or practices."
+            }
+          ],
+          "contextLevel": "source_code",
+          "coverage": 0,
+          "excludedPaths": [],
+          "git": {
+            "dirty": null,
+            "headOid": null
+          },
+          "inferenceIdentity": {
+            "custom": null,
+            "generation": 2,
+            "knowledge": {
+              "bundle_sha256": "ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511",
+              "format_version": 2,
+              "privacy_policy_version": 1,
+              "public_key_sha256": "a35da5934c629903f8f31db5067a9c5086f8372c34e3d917c9efb7decfd465dd",
+              "sequence": 3,
+              "version": "brain-3"
+            },
+            "native": {
+              "document_revision": null,
+              "profile": "Codex"
+            },
+            "selection": {
+              "model": "gpt-6-luna",
+              "provider": "codex",
+              "reasoningEffort": "medium"
+            }
+          },
+          "inputFingerprint": "95a5d7f7fe6119e156b8f3f83895480f08108a4791b8c66c578e61ce44c316e0",
+          "inputManifest": {
+            "collector": {
+              "catalogComplete": true,
+              "catalogDigest": "79507f1ea5abc03e2784187ac501cfc8a032a119689ca697f51d4a8fb6bf7c84",
+              "collectorVersion": 4,
+              "contextLevel": "source_code",
+              "discoveryDigest": "2ab937fd2c9f7ff284cb22b1bb08dac0ae10ba0813bfa4172fbcaa6a7382f661",
+              "excludedPaths": [],
+              "files": [
+                {
+                  "bytes": 204,
+                  "excerptDigest": "2379c9fbf74c740b847032f1d79d8e5c26bd5e9b7b3eff42e85ae8ee3dbe0427",
+                  "excerptEnd": 204,
+                  "excerptStart": 0,
+                  "path": "AGENTS.md",
+                  "seed": true,
+                  "sha256": "2379c9fbf74c740b847032f1d79d8e5c26bd5e9b7b3eff42e85ae8ee3dbe0427"
+                },
+                {
+                  "bytes": 130,
+                  "excerptDigest": "9cdc979e40510d31885ed7c0ad310c07d7dd022bcd9df17edb85dd5d16f68dfb",
+                  "excerptEnd": 130,
+                  "excerptStart": 0,
+                  "path": "README.md",
+                  "seed": true,
+                  "sha256": "9cdc979e40510d31885ed7c0ad310c07d7dd022bcd9df17edb85dd5d16f68dfb"
+                }
+              ],
+              "instructionCoverageComplete": true,
+              "preferredFileIds": [
+                0,
+                1
+              ],
+              "promptVersion": "taskmaster-readiness-v3",
+              "purpose": "readiness",
+              "redacted": false,
+              "requestedFileIds": [
+                0,
+                1
+              ]
+            },
+            "observationsDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "purpose": "readiness",
+            "version": 1
+          },
+          "knowledgeEvidence": [
+            {
+              "bundleVersion": "brain-3",
+              "excerpt": "\n# Agent-readiness rubric\n\nFourteen evidence-based maturity ratings describe repository capabilities.\nLevels identify realistic next transitions; confidence remains separate.\nA documented command is not proof of its successful execution. Missing or\ntruncated evidence is unknown, not level zero. The progressive-disclosure\nmapping applies the shared progression to the existing disclosure principle.\n\n## context-discovery\n\n- Level 0 — Implicit: Project rules live only in people's heads, chat history, or scattered PR comments. No file an agent would read on its own states them.\n- Level 1 — Discoverable: A root-level file (README, AGENTS.md, CLAUDE.md, or equivalent) exists and states the basics, but may be incomplete or drift out of date.\n- Level 2 — Usable: The entry-point file accurately covers build, test, and key conventions; an agent can act on it directly without trial and error.\n- Level 3 — Integrated: Discovery is scoped — nested/linked instructions for subprojects, links to architecture and domain docs — so an agent loads only what its current task needs.\n- Level 4 — Adaptive: Gaps found during real work (an agent hits an undocumented constraint) feed back into updating the entry-point docs, closing the loop.\n\n## progressive-disclosure\n\n- Level 0 — Implicit: Guidance is monolithic or requires loading unrelated detail before work can begin.\n- Level 1 — Discoverable: Entry points distinguish summary guidance from supporting detail.\n- Level 2 — Usable: Linked guidance lets an agent load the relevant detail for common tasks.\n- Level 3 — Integrated: Layered guidance follows workflow and subsystem boundaries and stays current with changes.\n- Level 4 — Adaptive: Evidence of missing context or excessive context feeds back into better layering and routing.\n\n## instruction-scoping\n\n- Level 0 — Implicit: One global instructions file (if any) mixes every subsystem's rules together, or scoping doesn't exist at all.\n- Level 1 — Discoverable: Some nested or sectioned instructi",
+              "pageId": "playbooks/agent-readiness-rubric.md",
+              "sha256": "6b029eef45c0f32c7b6e7b9591ff43356738bf4b764952309dee1ff9bc6c5cd8",
+              "status": "active",
+              "title": "Agent-readiness rubric"
+            }
+          ],
+          "knowledgeIdentity": {
+            "bundle_sha256": "ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511",
+            "format_version": 2,
+            "privacy_policy_version": 1,
+            "public_key_sha256": "a35da5934c629903f8f31db5067a9c5086f8372c34e3d917c9efb7decfd465dd",
+            "sequence": 3,
+            "version": "brain-3"
+          },
+          "overallScore": null,
+          "rawTotal": null,
+          "repositoryEvidence": [
+            {
+              "excerpt": "# Agent guide\nThe supplied repository is an evidence placeholder. Application source, operational history and workflow configuration are outside this fixture. Missing context does not establish a defect.\n",
+              "factId": "bcac7f7170d3393e3109d320842f8b630e73cd955fa9ec444ae25f2929ea2ee9",
+              "observedAt": "2026-10-30T16:21:34.254Z",
+              "path": "AGENTS.md",
+              "sha256": "2379c9fbf74c740b847032f1d79d8e5c26bd5e9b7b3eff42e85ae8ee3dbe0427"
+            },
+            {
+              "excerpt": "# Evidence placeholder\nNo application behavior or workflow implementation is supplied. No change request or defect is documented.\n",
+              "factId": "f054427960e2ef3c76a56a77b01fdd829e772b7a8f05098b9f82ba3442d0939b",
+              "observedAt": "2026-10-30T16:21:34.254Z",
+              "path": "README.md",
+              "sha256": "9cdc979e40510d31885ed7c0ad310c07d7dd022bcd9df17edb85dd5d16f68dfb"
+            }
+          ],
+          "rubricDigest": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+          "summary": "The supplied AGENTS.md and README.md excerpts describe an evidence placeholder and provide no application or workflow details. Maturity for all concepts remains unassessed; the limited excerpts do not establish either qualifying capabilities or their absence.",
+          "versions": {
+            "collector": 4,
+            "discoverySchema": 2,
+            "finalSchema": 1,
+            "prompt": "taskmaster-readiness-v3",
+            "scoring": 1
+          },
+          "workspaceInstance": 5,
+          "workspacePath": "/private/tmp/orkworks-1175-score-directed-trials/evidence-unknown/workspace"
+        },
+        "id": "6adc6e51-0677-4a0f-9582-3158261f0f37",
+        "redacted": false,
+        "startedAt": "2026-10-30T16:21:34.257Z"
+      }
+    ]
+  },
+  "parent": {
+    "assessmentId": "assessment-57bfee69-6943-4425-bb3e-0d25d012a9ac",
+    "completedAt": "2026-10-30T16:21:57.987Z",
+    "formatVersion": 1,
+    "id": "054b5b08-dfaf-4c8e-87a5-449ba98cce17",
+    "phase": "finished",
+    "readinessRunId": "6adc6e51-0677-4a0f-9582-3158261f0f37",
+    "reasonCode": "no_proposal",
+    "recommendationId": null,
+    "startedAt": "2026-10-30T16:21:34.260Z",
+    "state": "succeeded"
+  },
+  "report": {
+    "completedAt": "2026-10-30T16:21:57.921198+00:00",
+    "errorSummary": null,
+    "formatVersion": 3,
+    "id": "assessment-57bfee69-6943-4425-bb3e-0d25d012a9ac",
+    "inputManifest": {
+      "catalogComplete": true,
+      "catalogDigest": "79507f1ea5abc03e2784187ac501cfc8a032a119689ca697f51d4a8fb6bf7c84",
+      "collectorVersion": 3,
+      "contextLevel": "source_code",
+      "discoveryDigest": "29deed080febfa0c05b6ddf487195dd579bd0d229880ed660f467f752b15ee89",
+      "excludedPaths": [],
+      "files": [
+        {
+          "bytes": 204,
+          "excerptDigest": "2379c9fbf74c740b847032f1d79d8e5c26bd5e9b7b3eff42e85ae8ee3dbe0427",
+          "excerptEnd": 204,
+          "excerptStart": 0,
+          "path": "AGENTS.md",
+          "seed": true,
+          "sha256": "2379c9fbf74c740b847032f1d79d8e5c26bd5e9b7b3eff42e85ae8ee3dbe0427"
+        },
+        {
+          "bytes": 130,
+          "excerptDigest": "9cdc979e40510d31885ed7c0ad310c07d7dd022bcd9df17edb85dd5d16f68dfb",
+          "excerptEnd": 130,
+          "excerptStart": 0,
+          "path": "README.md",
+          "seed": true,
+          "sha256": "9cdc979e40510d31885ed7c0ad310c07d7dd022bcd9df17edb85dd5d16f68dfb"
+        }
+      ],
+      "instructionCoverageComplete": true,
+      "promptVersion": "taskmaster-assessment-v2",
+      "redacted": false,
+      "requestedFileIds": []
+    },
+    "pendingRecommendation": null,
+    "phase": "assessing",
+    "readinessReference": {
+      "rubricDigest": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+      "snapshotId": "6adc6e51-0677-4a0f-9582-3158261f0f37"
+    },
+    "report": {
+      "bundleVersion": "brain-3",
+      "contextLevel": "source_code",
+      "excludedPaths": [],
+      "id": "assessment-57bfee69-6943-4425-bb3e-0d25d012a9ac",
+      "inputFingerprint": "14ddb2d0eb0f6d6b70179d00fe06bee33cb71e7af8ac6bdcdedba7e963befc0c",
+      "knowledgeEvidence": [],
+      "knowledgeIdentity": {
+        "bundle_sha256": "ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511",
+        "format_version": 2,
+        "privacy_policy_version": 1,
+        "public_key_sha256": "a35da5934c629903f8f31db5067a9c5086f8372c34e3d917c9efb7decfd465dd",
+        "sequence": 3,
+        "version": "brain-3"
+      },
+      "model": "gpt-6-luna",
+      "noProposalReason": "The supplied repository facts are explicit evidence placeholders stating that no application behavior, workflow implementation, or documented defect is available. The bounded assessment guidance treats missing context as unknown, not proof of a gap, so no specific workflow improvement is supported.",
+      "observedAt": "2026-10-30T16:21:57.921198+00:00",
+      "outcome": "no_proposal",
+      "proposal": null,
+      "provider": "codex",
+      "recommendationId": null,
+      "repositoryEvidence": [],
+      "summary": "Repository discovery completed without a justified proposal.",
+      "unverifiedChecks": [],
+      "workspaceInstance": 5,
+      "workspacePath": "/private/tmp/orkworks-1175-score-directed-trials/evidence-unknown/workspace"
+    },
+    "reused": false,
+    "startedAt": "2026-10-30T16:21:53.344929+00:00",
+    "state": "succeeded"
+  },
+  "run": {
+    "completedAt": "2026-10-30T16:21:53.236Z",
+    "errorCode": null,
+    "formatVersion": 1,
+    "id": "6adc6e51-0677-4a0f-9582-3158261f0f37",
+    "inputIdentity": null,
+    "phase": null,
+    "startedAt": "2026-10-30T16:21:34.257Z",
+    "state": "succeeded"
+  },
+  "scoringError": null
+}

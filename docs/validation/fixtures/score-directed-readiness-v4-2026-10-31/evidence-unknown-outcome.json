@@ -1,0 +1,123 @@
+{
+  "history": {
+    "formatVersion": 1,
+    "snapshots": []
+  },
+  "parent": {
+    "assessmentId": null,
+    "completedAt": "2026-10-31T12:04:56.472Z",
+    "formatVersion": 1,
+    "id": "26c24339-b2b2-4852-9661-15bdb3716b7f",
+    "phase": "finished",
+    "readinessRunId": "e9936c59-6795-4731-b7f8-d9576e3ccac7",
+    "reasonCode": "scoring_failed",
+    "recommendationId": null,
+    "startedAt": "2026-10-31T12:04:36.156Z",
+    "state": "failed"
+  },
+  "report": null,
+  "run": {
+    "completedAt": null,
+    "errorCode": null,
+    "formatVersion": 1,
+    "id": "e9936c59-6795-4731-b7f8-d9576e3ccac7",
+    "inputIdentity": {
+      "comparisonFingerprint": "d1f663134de62984005ae8b221ee5c8e33fe4cc54472cd07d3c34f8e72b6b0ac",
+      "contextLevel": "source_code",
+      "excludedPaths": [],
+      "git": {
+        "dirty": null,
+        "headOid": null
+      },
+      "inferenceIdentity": {
+        "custom": null,
+        "generation": 2,
+        "knowledge": {
+          "bundle_sha256": "ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511",
+          "format_version": 2,
+          "privacy_policy_version": 1,
+          "public_key_sha256": "a35da5934c629903f8f31db5067a9c5086f8372c34e3d917c9efb7decfd465dd",
+          "sequence": 3,
+          "version": "brain-3"
+        },
+        "native": {
+          "document_revision": null,
+          "profile": "Codex"
+        },
+        "selection": {
+          "model": "gpt-6-luna",
+          "provider": "codex",
+          "reasoningEffort": "medium"
+        }
+      },
+      "inputFingerprint": "4a0f9d335030ad14b27a785b34553c88003d22ecfd8c5a25cb6dd906c5f14b97",
+      "inputManifest": {
+        "collector": {
+          "catalogComplete": true,
+          "catalogDigest": "79507f1ea5abc03e2784187ac501cfc8a032a119689ca697f51d4a8fb6bf7c84",
+          "collectorVersion": 4,
+          "contextLevel": "source_code",
+          "discoveryDigest": "2ab937fd2c9f7ff284cb22b1bb08dac0ae10ba0813bfa4172fbcaa6a7382f661",
+          "excludedPaths": [],
+          "files": [
+            {
+              "bytes": 204,
+              "excerptDigest": "2379c9fbf74c740b847032f1d79d8e5c26bd5e9b7b3eff42e85ae8ee3dbe0427",
+              "excerptEnd": 204,
+              "excerptStart": 0,
+              "path": "AGENTS.md",
+              "seed": true,
+              "sha256": "2379c9fbf74c740b847032f1d79d8e5c26bd5e9b7b3eff42e85ae8ee3dbe0427"
+            },
+            {
+              "bytes": 130,
+              "excerptDigest": "9cdc979e40510d31885ed7c0ad310c07d7dd022bcd9df17edb85dd5d16f68dfb",
+              "excerptEnd": 130,
+              "excerptStart": 0,
+              "path": "README.md",
+              "seed": true,
+              "sha256": "9cdc979e40510d31885ed7c0ad310c07d7dd022bcd9df17edb85dd5d16f68dfb"
+            }
+          ],
+          "instructionCoverageComplete": true,
+          "preferredFileIds": [
+            0,
+            1
+          ],
+          "promptVersion": "taskmaster-readiness-v4",
+          "purpose": "readiness",
+          "redacted": false,
+          "requestedFileIds": [
+            0,
+            1
+          ]
+        },
+        "observationsDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "purpose": "readiness",
+        "version": 1
+      },
+      "knowledgeIdentity": {
+        "bundle_sha256": "ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511",
+        "format_version": 2,
+        "privacy_policy_version": 1,
+        "public_key_sha256": "a35da5934c629903f8f31db5067a9c5086f8372c34e3d917c9efb7decfd465dd",
+        "sequence": 3,
+        "version": "brain-3"
+      },
+      "rubricDigest": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+      "versions": {
+        "collector": 4,
+        "discoverySchema": 2,
+        "finalSchema": 1,
+        "prompt": "taskmaster-readiness-v4",
+        "scoring": 1
+      },
+      "workspaceInstance": 5,
+      "workspacePath": "/private/tmp/orkworks-1178-v4-qualification-2026-10-31/evidence-unknown/workspace"
+    },
+    "phase": "scoring_readiness",
+    "startedAt": "2026-10-31T12:04:36.148Z",
+    "state": "running"
+  },
+  "scoringError": "scoring_invalid_prose"
+}

@@ -233,3 +233,10 @@ model-accuracy or installer-availability claim. Calibration is tracked in #1097.
 Final local verification, reviewed code SHA, CI and merge state are recorded on
 the PR. No separate review of unchanged artifacts or new inference retry was used
 to replace a failed sample.
+
+## Scoped follow-up approved 2026-10-30
+
+[ADR 0100](../../adr/0100-score-directed-readiness-improvements.md) supersedes the
+score-input exclusion above with scored-area investigation pointers. The existing
+repository grounding, authority and four-call limits remain. Its implementation
+is tracked separately in [#1175](https://github.com/Rambolarsen/orkworks/issues/1175).

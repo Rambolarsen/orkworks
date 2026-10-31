@@ -117,6 +117,45 @@ pub(crate) fn parse_discovery_response(
     Ok(response)
 }
 
+/// A readiness evidence plan grants only a bounded read, never proposal authority.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct ReadinessInvestigation {
+    pub version: u8,
+    pub concept_page_ids: Vec<String>,
+    pub requested_file_ids: Vec<usize>,
+}
+
+pub(crate) fn parse_readiness_investigation(
+    output: &str,
+    signed_concept_page_ids: &[String],
+    catalog_len: usize,
+) -> Result<ReadinessInvestigation, String> {
+    if output.len() > MAX_RESPONSE_BYTES {
+        return Err("readiness investigation exceeds the size limit".into());
+    }
+    let plan: ReadinessInvestigation =
+        serde_json::from_str(output).map_err(|_| "readiness investigation has an invalid shape")?;
+    if plan.version != 1 || plan.concept_page_ids.is_empty() {
+        return Err("readiness investigation requires supported concept guidance".into());
+    }
+    validate_references(
+        &plan.concept_page_ids,
+        3,
+        &signed_concept_page_ids.iter().map(String::as_str).collect(),
+    )?;
+    let mut seen = HashSet::new();
+    if plan.requested_file_ids.len() > 8
+        || plan
+            .requested_file_ids
+            .iter()
+            .any(|id| *id >= catalog_len || *id >= 512 || !seen.insert(*id))
+    {
+        return Err("readiness investigation contains invalid catalog IDs".into());
+    }
+    Ok(plan)
+}
+
 fn validate_references(
     values: &[String],
     limit: usize,
@@ -140,6 +179,74 @@ fn validate_references(
 mod tests {
     use super::*;
     use serde_json::{json, Value};
+
+    #[test]
+    fn readiness_evidence_plans_are_closed_bounded_and_cannot_claim_candidates() {
+        let allowed = vec![
+            "concepts/verification.md".into(),
+            "concepts/context-discovery.md".into(),
+            "concepts/feedback-loops.md".into(),
+        ];
+        let plan = json!({"version":1,"conceptPageIds":[allowed[0]],"requestedFileIds":[0,7]});
+        assert_eq!(
+            parse_readiness_investigation(&plan.to_string(), &allowed, 8)
+                .unwrap()
+                .requested_file_ids,
+            [0, 7]
+        );
+        let mut empty = plan.clone();
+        empty["requestedFileIds"] = json!([]);
+        assert!(parse_readiness_investigation(&empty.to_string(), &allowed, 0).is_ok());
+        for (field, value) in [
+            ("version", json!(2)),
+            ("conceptPageIds", json!([])),
+            ("conceptPageIds", json!([allowed[0], allowed[0]])),
+            (
+                "conceptPageIds",
+                json!(["playbooks/agent-readiness-rubric.md"]),
+            ),
+            (
+                "conceptPageIds",
+                json!([
+                    allowed[0],
+                    allowed[1],
+                    allowed[2],
+                    "concepts/observability.md"
+                ]),
+            ),
+            ("requestedFileIds", json!([8])),
+            ("requestedFileIds", json!([0, 0])),
+            ("requestedFileIds", json!([-1])),
+            ("requestedFileIds", json!([0.5])),
+            ("requestedFileIds", json!(["src/test.ts"])),
+            ("requestedFileIds", json!([0, 1, 2, 3, 4, 5, 6, 7, 8])),
+        ] {
+            let mut bad = plan.clone();
+            bad[field] = value;
+            assert!(
+                parse_readiness_investigation(&bad.to_string(), &allowed, 8).is_err(),
+                "accepted {bad}"
+            );
+        }
+        for field in ["candidate", "outcome", "reason", "paths", "commands"] {
+            let mut bad = plan.clone();
+            bad[field] = json!(null);
+            assert!(parse_readiness_investigation(&bad.to_string(), &allowed, 8).is_err());
+        }
+        assert!(parse_readiness_investigation(r#"{"version":1,"version":1,"conceptPageIds":["concepts/verification.md"],"requestedFileIds":[]}"#,&allowed,8).is_err());
+        assert!(
+            parse_readiness_investigation(&" ".repeat(MAX_RESPONSE_BYTES + 1), &allowed, 8)
+                .is_err()
+        );
+        let mut out_of_bounds = plan.clone();
+        out_of_bounds["requestedFileIds"] = json!([512]);
+        assert!(parse_readiness_investigation(&out_of_bounds.to_string(), &allowed, 1024).is_err());
+        assert!(parse_readiness_investigation(&plan.to_string(), &[], 8).is_err());
+        assert!(
+            parse_discovery_response(&plan.to_string(), &facts(), &pages(), 8).is_err(),
+            "standalone contract accepted readiness plan"
+        );
+    }
 
     fn facts() -> Vec<RepositoryEvidence> {
         vec![RepositoryEvidence {

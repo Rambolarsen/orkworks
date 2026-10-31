@@ -6,6 +6,8 @@ interface Props {
   workspacePath: string;
   disabled: boolean;
   onBusyChange: (busy: boolean) => void;
+  requestedSnapshot?: { snapshotId: string };
+  onHistory?: (snapshots: ReadinessSnapshot[]) => void;
   onSuggestion?: (recommendationId: string | null) => void;
 }
 const phaseLabels = {
@@ -20,7 +22,7 @@ function snapshotOptions(snapshots: ReadinessSnapshot[]) {
   </option>);
 }
 
-export default function ReadinessPanel({ workspacePath, disabled, onBusyChange, onSuggestion }: Props) {
+export default function ReadinessPanel({ workspacePath, disabled, onBusyChange, onSuggestion, onHistory, requestedSnapshot }: Props) {
   const [status, setStatus] = useState<ReadinessStatus | null>(null);
   const [error, setError] = useState<string>();
   const [message, setMessage] = useState<string>();
@@ -42,6 +44,7 @@ export default function ReadinessPanel({ workspacePath, disabled, onBusyChange, 
         return;
       }
       setStatus(result);
+      onHistory?.(result.snapshots);
       setError(undefined);
     } catch (cause) {
       if (generation === epoch.current && sequence === refreshSequence.current) {
@@ -64,6 +67,16 @@ export default function ReadinessPanel({ workspacePath, disabled, onBusyChange, 
       window.clearInterval(timer);
     };
   }, [workspacePath]);
+
+  const openedSource = useRef<Props['requestedSnapshot']>(undefined);
+  useEffect(() => {
+    if (requestedSnapshot && openedSource.current !== requestedSnapshot && status?.snapshots.some(snapshot => snapshot.id === requestedSnapshot.snapshotId && !snapshot.redacted)) {
+      openedSource.current = requestedSnapshot;
+      setSelectedId(requestedSnapshot.snapshotId);
+      setBaselineId(null);
+      document.getElementById('readiness-history')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [requestedSnapshot, status?.snapshots]);
 
   const suggestion = status?.suggestionRun;
   const suggestionActive = suggestion?.state === 'queued' || suggestion?.state === 'running';
@@ -111,7 +124,7 @@ export default function ReadinessPanel({ workspacePath, disabled, onBusyChange, 
     : earlier.find(snapshot => snapshot.id === baselineId);
   const actionsDisabled = disabled || requesting || running;
 
-  return <section className="readiness-panel" aria-label="Repository agent readiness">
+  return <section id="readiness-history" className="readiness-panel" aria-label="Repository agent readiness">
     <div className="readiness-heading">
       <div><h3>Agent readiness</h3><p>Assess, improve, and see your repository evolve.</p></div>
       <button type="button" disabled={actionsDisabled} onClick={() => void start(true)}>{running ? 'Assessing…' : requesting ? 'Requesting…' : 'Assess and suggest'}</button>

@@ -325,6 +325,7 @@ mod tests {
                 parent.assessment_id = Some(id.clone());
                 AssessmentStore::new(root.path())
                     .save(&AssessmentRecord {
+                        readiness_reference: None,
                         format_version: 2,
                         input_manifest: None,
                         phase: None,

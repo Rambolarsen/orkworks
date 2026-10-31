@@ -1,0 +1,26 @@
+{
+  "head": "4cd953f9d7d3ee80e0661c203c22082e314f9554",
+  "scoringPromptVersion": "taskmaster-readiness-v4",
+  "focusPromptVersion": "taskmaster-readiness-focus-v3",
+  "suggestionInvestigationProtocol": "taskmaster-readiness-investigation-v1",
+  "logicalProviderCalls": 20,
+  "sampleCalls": {
+    "skipped-tests": 4,
+    "ci-omits-tests": 4,
+    "assertions-omitted": 4,
+    "already-satisfied": 4,
+    "evidence-unknown": 4
+  },
+  "retries": 0,
+  "replacements": 0,
+  "modelChanges": 0,
+  "syntheticOnly": true,
+  "authorization": "Owner async reply: Yes, run the fixed five (max 20 calls)",
+  "inputEncoding": {
+    "score": "original prompt bytes",
+    "suggestion": "lossless pretty-printed application JSON; original compact transport bytes not retained"
+  },
+  "outputEncoding": "original provider output bytes",
+  "sourceEncoding": "JSON strings preserve synthetic source text",
+  "qualification": "pass: independent3/3positivecredits, both valid scoring and final no-proposal controls"
+}

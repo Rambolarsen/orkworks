@@ -128,3 +128,7 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 - [0097: Desktop-owned skill management](0097-desktop-skill-management.md) — Accepted Electron-main inventory and qualified APM install boundary.
 
 - [Contextual session titles](0098-contextual-session-titles.md) — Native updates, bounded fallback refinement and user naming.
+
+- [0100: Score-directed readiness improvements](0100-score-directed-readiness-improvements.md) — Accepted on 2026-10-30; implementation in progress.
+
+- [Readiness evidence before candidates](0099-readiness-evidence-before-candidates.md) — Approved #1175 evidence-first investigation after two independently failed fixed sets; live qualification remains separate.

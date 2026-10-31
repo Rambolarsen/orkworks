@@ -423,3 +423,36 @@ independent stage failure, no-replay recovery and model qualification.
 The standalone scoring contract above remains in force. The linked design is
 the authoritative combined-action contract; implementation and model qualification
 evidence do not establish availability in a published installer.
+
+
+## Accepted score-directed improvements (#1175)
+
+The owner clarified on 2026-10-30 that recommendations should identify concrete
+changes to improve assessed agent-readiness capabilities. [ADR 0100](../docs/adr/0100-score-directed-readiness-improvements.md)
+and its [implementation plan](../docs/superpowers/plans/2026-10-30-score-directed-readiness.md)
+define feasible readiness evidence preferences and score-directed investigation
+with independently grounded proposals. The owner approved the concrete contract and implementation on 2026-10-30.
+It supersedes #1091's score-input exclusion and readiness's indivisible discovery
+request semantics only. Score/history semantics and #1077's separate observation
+quality scope remain unchanged.
+
+### Prompt correction after the retained 2026-10-30 failure
+
+Scoring prompt v4 and readiness-focus prompt v2 clarify existing evidence rules:
+use role descriptions instead of literal invocations; distinguish assertions in a
+complete visible test body from documentation claims; verify capability prerequisites
+before optimizing the next maturity condition. They do not relax command-text
+validation, permit absence claims from omitted evidence, change schemas or increase
+the four-call ceiling. Collector-4 prompt-v3 history remains readable. Changed
+prompt identities invalidate reuse/currentness. The prior failed usefulness corpus
+is retained unchanged and does not qualify this correction without fresh trials.
+
+### Accepted evidence-planning follow-up (ADR 0099)
+
+[ADR 0099](../docs/adr/0099-readiness-evidence-before-candidates.md) defines a
+readiness-only investigation response selecting signed concept pages and permitted
+catalog IDs before a candidate is required. Final assessment remains the sole
+proposal gate, within the same four calls and access/evidence limits. Standalone
+discovery, persisted schemas and Fix with AI authority remain unchanged. The owner approved this design and implementation on 2026-10-31 ("go ahead").
+It supersedes candidate-first combined discovery when implemented, while
+standalone discovery remains unchanged. No additional live trial set is authorized.

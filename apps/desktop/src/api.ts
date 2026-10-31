@@ -722,7 +722,21 @@ export interface KnowledgeEvidence {
   excerpt: string;
 }
 
+export interface ReadinessReference {
+  snapshotId: string;
+  rubricDigest: string;
+  conceptIds: string[];
+}
+export interface AssessmentProvenance {
+  id: string;
+  inputFingerprint: string;
+  contextLevel: string;
+  excludedPaths: string[];
+  accessRedacted?: boolean;
+  readinessReference?: ReadinessReference;
+}
 export interface WorkflowRecommendation {
+  assessment?: AssessmentProvenance;
   repositoryEvidence?: RepositoryEvidence[];
   knowledgeEvidence?: KnowledgeEvidence[];
   id: string;

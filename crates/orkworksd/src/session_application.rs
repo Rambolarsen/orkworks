@@ -15793,6 +15793,7 @@ mod tests {
                 .unwrap();
             let mut recommendation = store.get(&recommendation_id).unwrap().unwrap();
             recommendation.assessment = Some(crate::taskmaster::AssessmentProvenance {
+                readiness_reference: None,
                 access_redacted: false,
                 id: "assessment-redacted-later".into(),
                 input_fingerprint: "sha256:assessment-input".into(),

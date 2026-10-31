@@ -62,3 +62,12 @@ test('individual score details show only cited evidence and suppress incompatibl
  assert.match(area, /previously low/);
  assert.match(html, /Assessment conditions changed/);
 });
+
+
+test('budget-limited evidence is visible beside the saved score',()=>{
+ const value=snapshot('limited',75);
+ value.data.inputManifest={collector:{collectorVersion:4,preferredFileIds:[0,1],requestedFileIds:[1],selectionOmissions:[{id:0,reason:'evidence_limit'}]}};
+ const html=renderToStaticMarkup(createElement(Summary,{snapshot:value,freshness:'current'}));
+ assert.match(html,/1 evidence selection did not fit/);
+ assert.match(html,/Unread evidence remains unknown/);
+});
