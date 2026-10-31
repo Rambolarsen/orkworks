@@ -32,7 +32,33 @@ if (process.versions.electron) {
       };
       const scenario = process.env.ORKWORKS_ARCHIVE_CASE;
       if (scenario) {
-        if (scenario.startsWith('close-feedback')) {
+        if (scenario === 'row-rendering') {
+          await wait('document.querySelector("[data-session-id=closed] .session-row-tool")');
+          await evaluate('fixture.reads={};fixture.setRows(rows=>rows.map(r=>r.id==="live"?{...r,label:"updated live session"}:r))');
+          await wait('document.querySelector("[data-session-id=live]").textContent.includes("updated live session")');
+          assert.equal(await evaluate('fixture.reads.closed ?? 0'), 0,
+            'updating a live session must not rebuild unchanged history row contents');
+          assert.equal(await evaluate('Object.entries(fixture.reads).filter(([id])=>id!=="live").reduce((sum,[,reads])=>sum+reads,0)'), 0,
+            'background updates must reuse the entire unchanged history, including off-screen rows');
+          await evaluate('fixture.setRows(rows=>rows.map(r=>r.id==="closed"?{...r,label:"updated history",harness:"opencode",sessionActionToken:"fresh-token"}:r))');
+          await wait('document.querySelector("[data-session-id=closed]").textContent.includes("updated history")');
+          assert.match(await evaluate('document.querySelector("[data-session-id=closed] .session-row-tool").innerHTML'), /opencode/i);
+          await evaluate('fixture.setRows(rows=>rows.map(r=>r.id==="live"?{...r,attention:"needs_you"}:r))');
+          await wait('document.querySelector("[data-session-id=live]").classList.contains("session-row--loud")');
+          await evaluate('fixture.setAcknowledged(new Set(["live"]))');
+          await wait('!document.querySelector("[data-session-id=live]").classList.contains("session-row--loud")');
+          assert.equal(await evaluate('document.querySelector("[data-session-id=live] .session-row-attention").textContent'), 'Needs you');
+          await evaluate('document.querySelector("[data-session-id=closed] .session-row-select").click()');
+          await wait('document.querySelector("[data-session-id=closed]").dataset.selected==="true"');
+          assert.equal(await evaluate('document.querySelector("[data-session-id=live]").dataset.selected'), 'false');
+          await more('closed'); await action('Archive'); await wait('fixture.calls.length===1');
+          assert.deepEqual(await evaluate('fixture.calls[0]'), ['closed','archive','fresh-token']);
+          await evaluate('fixture.setWorkspace(null)');
+          await wait('document.body.textContent.includes("Open a workspace to see sessions.")');
+          await evaluate('fixture.setWorkspace({path:"/tmp",workspaceIdentity:"test"})');
+          await wait('document.querySelector("[data-session-id=live]")');
+          assert.deepEqual(await evaluate('fixture.errors'), []);
+        } else if (scenario.startsWith('close-feedback')) {
           await evaluate('fixture.pauseAction=true');
           await more('live'); await action('Close');
           await wait('fixture.finishAction');
@@ -159,21 +185,23 @@ if (process.versions.electron) {
   const { join } = await import('node:path');
   const { spawnSync } = await import('node:child_process');
   const require = createRequire(import.meta.url);
-  for (const scenario of ['', 'close-feedback', 'close-feedback-error', 'close-feedback-generation', 'delete-copy', 'restore-warning', 'archived-attention', 'generation-menu', 'generation-pending']) test('archive UI '+(scenario || 'workflow'), async () => {
+  for (const scenario of ['', 'row-rendering', 'close-feedback', 'close-feedback-error', 'close-feedback-generation', 'delete-copy', 'restore-warning', 'archived-attention', 'generation-menu', 'generation-pending']) test('archive UI '+(scenario || 'workflow'), async () => {
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-archive-'));
     try {
       const { build } = await import('esbuild');
       const root = fileURLToPath(new URL('..', import.meta.url));
       const bundle = await build({ stdin: { contents: `
-        import React,{useState} from 'react';import{createRoot}from'react-dom/client';
+        import React,{useCallback,useState} from 'react';import{createRoot}from'react-dom/client';
         import SessionListPanel from './src/components/SessionListPanel';import './src/styles/tokens.css';import './src/App.css';
-        window.fixture={ready:true,calls:[],selections:[],confirmations:[],errors:[],selected:'live'};
+        window.fixture={ready:true,reads:{},calls:[],selections:[],confirmations:[],errors:[],selected:'live'};
         window.addEventListener('error',e=>fixture.errors.push(e.message));
         window.confirm=message=>{fixture.confirmations.push(message);return false};
         const row=(id,state)=>({id,label:id,sessionState:state,sessionActionToken:'token-'+id,lifecycle:state==='active'?'alive':'dead',lifecyclePhase:state==='active'?'active':'ended',status:state==='active'?'running':'ended',created_at:'2026-10-18T10:00:00Z',cwd:'/tmp',memoryState:'remembered',resumeStrategy:'none'});
-        function Harness(){const[rows,setRows]=useState([row('live','active'),row('closed','closed'),row('saved','archived')]);const[selected,setSelected]=useState('live');const[enabled,setEnabled]=useState(true);const[generation,setGeneration]=useState(0);fixture.nextGeneration=()=>setGeneration(g=>g+1);fixture.setRows=setRows;fixture.setActionsEnabled=setEnabled;fixture.selectHidden=()=>setSelected('saved');fixture.selectLive=()=>setSelected('live');
-          return <SessionListPanel workspaceGeneration={generation} workspace={{path:'/tmp',workspaceIdentity:'test'}} sessions={rows} activeSessionId={selected} unreadIds={new Set(['saved'])} acknowledgedIds={new Set()} harnesses={[]}
-            actionsEnabled={enabled} onSelectSession={id=>{fixture.selections.push(id);fixture.selected=id;setSelected(id)}} onFocusTerminal={()=>{}} onOpenWorkspace={()=>{}}
+        const harnesses=[];
+        const trackedRow=(id,state)=>{const value=row(id,state);Object.defineProperty(value,'harness',{enumerable:true,get(){fixture.reads[id]=(fixture.reads[id]??0)+1;return 'codex'}});return value};
+        function Harness(){const[workspace,setWorkspace]=useState({path:'/tmp',workspaceIdentity:'test'});fixture.setWorkspace=setWorkspace;const[rows,setRows]=useState(()=>[trackedRow('live','active'),trackedRow('closed','closed'),trackedRow('saved','archived'),...(${JSON.stringify(scenario)}==='row-rendering'?Array.from({length:707},(_,i)=>trackedRow('history-'+i,'closed')):[])]);const[selected,setSelected]=useState('live');const[acknowledged,setAcknowledged]=useState(new Set());fixture.setAcknowledged=setAcknowledged;const[enabled,setEnabled]=useState(true);const[generation,setGeneration]=useState(0);fixture.nextGeneration=()=>setGeneration(g=>g+1);fixture.setRows=setRows;fixture.setActionsEnabled=setEnabled;fixture.selectHidden=()=>setSelected('saved');fixture.selectLive=()=>setSelected('live');const select=useCallback(id=>{fixture.selections.push(id);fixture.selected=id;setSelected(id)},[]);
+          return <SessionListPanel workspaceGeneration={generation} workspace={workspace} sessions={rows} activeSessionId={selected} unreadIds={new Set(['saved'])} acknowledgedIds={acknowledged} harnesses={harnesses}
+            actionsEnabled={enabled} onSelectSession={select} onFocusTerminal={()=>{}} onOpenWorkspace={()=>{}}
             onSessionAction={async(id,action,token)=>{fixture.calls.push([id,action,token]);if(fixture.pauseAction)await new Promise(resolve=>fixture.finishAction=resolve);if(fixture.failAction)throw new Error("Close failed");setRows(rows=>action==='delete'?rows.filter(r=>r.id!==id):rows.map(r=>r.id===id?{...r,sessionState:action==='archive'?'archived':'closed',sessionActionToken:r.sessionActionToken+'-next',lifecycle:'dead',lifecyclePhase:'ended'}:r))}}/>}
         createRoot(document.getElementById('root')).render(<Harness/>);
       `, resolveDir: root, loader: 'tsx' }, bundle: true, write: false, outdir: directory, format: 'iife', platform: 'browser', define: { 'process.env.NODE_ENV': '"development"' } });
