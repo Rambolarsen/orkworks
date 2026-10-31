@@ -2777,19 +2777,63 @@ html, body, #root {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--surface-1);
+  background: radial-gradient(ellipse at 50% 40%, color-mix(in srgb, var(--accent) 3%, var(--surface-1)), var(--surface-1) 70%);
+  isolation: isolate;
+  overflow: hidden;
   z-index: 10;
+}
+
+.workspace-picker-watermark {
+  position: absolute;
+  width: min(780px, 90vw, 110vh);
+  height: auto;
+  top: 44%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  opacity: 0.045;
+  pointer-events: none;
+  user-select: none;
+  z-index: -1;
 }
 
 .workspace-picker-card {
   width: min(480px, calc(100vw - var(--space-5) * 2));
   max-height: calc(100vh - var(--titlebar-height) - var(--space-5) * 2);
   overflow-y: auto;
-  background: var(--surface-2);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  padding: var(--space-5);
-  box-shadow: var(--shadow-lg, 0 8px 24px rgba(0, 0, 0, 0.25));
+  box-sizing: border-box;
+  background: color-mix(in srgb, var(--surface-2) 92%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-default) 75%, transparent);
+  border-radius: var(--radius-modal);
+  padding: var(--space-6);
+  box-shadow: var(--shadow-modal);
+}
+
+.workspace-picker-card .workspace-history-section-label {
+  margin: var(--space-4) 0 var(--space-2);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-eyebrow);
+}
+
+.workspace-picker-card .workspace-history-section-label:first-child {
+  margin-top: 0;
+}
+
+.workspace-picker-card .workspace-history-row {
+  min-height: 40px;
+}
+
+.workspace-picker-card .workspace-history-row-open {
+  padding: var(--space-2);
+}
+
+.workspace-picker-card .workspace-history-other-folder {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  color: var(--accent);
+}
+
+.workspace-picker-card .workspace-history-other-folder:hover {
+  color: var(--accent-strong);
 }
 
 .workspace-history-dropdown {
