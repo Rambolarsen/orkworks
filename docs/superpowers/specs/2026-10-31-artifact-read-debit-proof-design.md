@@ -1,10 +1,10 @@
 ---
 type: Design Proposal
 title: Artifact read-work debit command and recovery evidence
-description: Proposed exact internal debit bytes, retained decision row and format-4 ledger/manifest recovery joins under the accepted debit-only policy.
+description: Accepted exact internal debit representation and recovery joins for further source and native qualification, with execution still gated.
 tags: [orkworks, hierarchy, artifacts, authority, recovery, storage]
 status: draft
-workflow_status: representation-owner-review-required
+workflow_status: representation-accepted-source-qualification-required
 ---
 
 # Artifact read-work debit command and recovery evidence
@@ -13,11 +13,13 @@ Tracking: [#1210](https://github.com/Rambolarsen/orkworks/issues/1210),
 [#1176](https://github.com/Rambolarsen/orkworks/issues/1176), #744/#746; initiative
 [#738](https://github.com/Rambolarsen/orkworks/issues/738).
 Inspection base: `30e88921ec7a0a4695a31b76f32cccc8b172784a`.
-**New representation proposal for scoped owner review.** The
-[#1184 debit-only policy is already accepted](../../validation/artifact-read-work-authority.md#owner-acceptance-and-command-proof-handoff--2026-10-31).
-This document does not accept a new codec/catalog/retention choice or authorize
-conditional transaction fixtures, SQL/database/migration, native/model probes,
-production routes, a new worker or runtime implementation.
+**Exact representation choices accepted for further qualification.** See the
+[scoped acceptance](#owner-acceptance-and-source-closure-handoff--2026-10-31).
+The [#1184 debit-only policy](../../validation/artifact-read-work-authority.md#owner-acceptance-and-command-proof-handoff--2026-10-31)
+is unchanged. Proposed/owner-pending wording below records the reviewed design
+before that decision. Source/consumer closure still precedes complete transaction
+fixtures; no SQL/database/migration, native/model probe, production route, new
+worker or runtime implementation is authorized.
 
 ## Outcome and preserved authority
 
@@ -336,3 +338,53 @@ commit/recovery/lease instrumentation and OS evidence. Component widths or hashe
 qualify none of those mechanisms. #740, source/custody/native, maximum-profile and
 runtime/executable-plan gates remain open. Keep #1210 and component issues open
 through applicable review/qualification; no runtime work is delivered here.
+
+
+## Owner acceptance and source-closure handoff — 2026-10-31
+
+After the concrete command/recovery proposal was merged in PR #1217, the owner
+was asked to approve the new codecs/table, 16 KiB row bound, retained evidence
+and format-4 additions for further qualification, with source closure and runtime
+gates separate. The owner answered “go ahead”. This records acceptance of the
+four exact reviewed representation choices at
+`250a647615ae73b8c273eef6c58ad73cdd5eca11`, merged as
+`752f11de5dfda40188c8972a472da6d1978542f6`:
+
+- Independent checked generation-scoped DebitIdentityV1 and exact
+  ArtifactReadDebitV1/DebitIntentV1 fields, canonical bytes and
+  orkworks.evaluation-artifact-read-debit.v1 digest. No bearer, public idempotency
+  field or #744 ClaimProofV2 reuse is introduced.
+- One immutable artifact_read_debits row with full-key/body recovery and the
+  16 KiB complete key/value wrapper bound, including its links. Retain historical
+  debit evidence, its direct origin/predecessor proofs and exact source/mapping/
+  custody/accounting-consumer joins. This can consume store capacity before work
+  quotas fill; there is no silent pruning, refund, reset or new allowance.
+- Exactly four sorted manifest changes (debit insert and three producing-owner
+  ledger replacements), plus the two existing header/new-proof controls.
+  claim:null, existing manifest field shape and every stated row/link/hash
+  exclusion remain exact; source/receipt/summary state is not changed by a debit.
+- Integration into the one closed fresh format-4 catalog and accounting profile,
+  with no row-presence-selected subset, old-store import, mixed-domain rewrite
+  or migration. All readers must support the whole applicable reviewed catalog.
+
+The poststate-recoverability-before-admission clarification at the reviewed head
+is included. Width arithmetic remains only a syntactic bound, not source-valid
+state, supported maximum profile or native enforcement evidence. Existing #1184
+policy, source/request/wire/receipt domains, quotas, fetch/handoff authority and
+worker/lease/stop rules remain unchanged. No field, value or technical body from
+the reviewed representation is revised by this acceptance record.
+
+This completes #1210's written specification, scoped decision and reviewed handoff.
+Further artifact qualification remains tracked by #1176 and #1183. Gate 1 of the
+[debit qualification handoff](../plans/2026-10-31-artifact-read-debit-qualification.md)
+is complete; Gate 2 remains Investigate, Gates 3–4 gated. The next prerequisite is
+#1183's separate retained-source/profile decision and actual source/control/
+preparation/consumer closure, including the now-accepted debit accounting consumer.
+The broader #1183 codecs, 8 MiB/run and 64 MiB/workspace source pool and one-task
+profile are not accepted by this debit-only representation decision.
+
+No complete old/new source transaction, fixture/checker, SQL/database/migration,
+live model/native probe, eligible #740 profile or executable/runtime plan follows.
+Actual transition participation, complete source custody, native disposition/lease/
+retirement and maximal-profile evidence remain independent. No missing historical
+source/ledger is initialized or replaced by a synthetic child identity.

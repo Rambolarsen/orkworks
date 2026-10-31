@@ -207,3 +207,19 @@ historical accounting-consumer/proof retention still require scoped owner review
 Source-valid complete-state fixtures follow only after applicable acceptance and
 #1183 source/consumer/preparation closure; native enforcement and separately
 approved executable plans remain independent. Gate 2 stays Investigate.
+
+
+## Debit representation decision complete — 2026-10-31
+
+The owner [accepted #1210's exact representation choices](../specs/2026-10-31-artifact-read-debit-proof-design.md#owner-acceptance-and-source-closure-handoff--2026-10-31)
+from PR #1217. Its written specification, scoped decision and reviewed handoff are
+complete, including retained debit-accounting consumers and direct proofs. This
+resolves the representation-choice portion of Gate 2; it passes neither the source/
+consumer/preparation check nor actual native authority/lease/retirement evidence.
+
+#1183's retained-source/profile choices still need their own scoped decision and
+source-owner closure. Mutable source/control codecs and bounded complete consumer
+membership are not supplied by accepting debit bytes. Continue from that existing
+source handoff before any complete conditional transaction packet. Gate 2 remains
+Investigate, Gates 3–4 gated; #740 and maximal-profile/executable-plan gates remain
+independent. No fixture/checker, database, probe, migration or runtime work follows.

@@ -514,3 +514,20 @@ ClaimProofV2, source/request/receipt domains, frame/quota limits and the single
 closed fresh format-4 profile. No new codec or catalog choice is accepted by
 this routing; source/custody/native/maximal-profile/#740 and separately approved
 executable-plan gates remain. No fixture, database, probe or runtime work follows.
+
+
+## Debit representation accepted — 2026-10-31
+
+The owner [accepted #1210's exact debit representation](2026-10-31-artifact-read-debit-proof-design.md#owner-acceptance-and-source-closure-handoff--2026-10-31)
+from PR #1217 for further qualification: independent command/identity/domain,
+retained full-key recovery/accounting row with 16 KiB complete wrapper bound,
+historical consumer/direct-proof retention, exact four manifest changes plus
+two controls with claim:null, and the one closed fresh format-4 catalog.
+The earlier proposed/owner-pending status is superseded for these choices only.
+No source/wire domain, quota or #1184 authority policy changes.
+
+#1210's written deliverable is complete. #1176/#1183 retain the actual source/
+consumer/preparation/custody and complete-state qualification work. Broader child
+source/profile acceptance, native authority/lease/retirement, #740, maximal-profile
+and separately approved executable plans remain gates. No complete transaction
+fixture, database/migration, native/model probe or runtime implementation follows.

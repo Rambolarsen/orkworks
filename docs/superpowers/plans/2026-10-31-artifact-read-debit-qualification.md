@@ -4,7 +4,7 @@ title: Artifact debit representation and recovery qualification handoff
 description: Scoped representation review, source closure and conditional ledger/manifest evidence before separately approved native debit qualification.
 tags: [orkworks, artifacts, debit, qualification, recovery]
 status: draft
-workflow_status: representation-owner-review-required
+workflow_status: representation-accepted-source-closure-required
 ---
 
 # Artifact debit representation and recovery qualification handoff
@@ -12,7 +12,8 @@ workflow_status: representation-owner-review-required
 Outcome: exact recoverable debit accounting under the accepted #1184 policy.
 Pass condition: accepted command/row/catalog choices and source-valid complete
 conditional effects, then independently approved native enforcement evidence.
-**Ready for written review only; no fixture, adapter or runtime execution.**
+**Gate 1 representation accepted; Gate 2 source/accounting closure remains
+Investigate. No complete transaction fixture, adapter or runtime execution.**
 Tracking: [#1210](https://github.com/Rambolarsen/orkworks/issues/1210),
 [#1176](https://github.com/Rambolarsen/orkworks/issues/1176).
 Contract: [debit representation proposal](../specs/2026-10-31-artifact-read-debit-proof-design.md).
@@ -37,10 +38,10 @@ handoff, reusing #1184's accepted policy and prior technical review.
 
 ## Gate 1 — exact representation decision
 
-- [ ] Review the four concrete choices at the contract's end, including the
+- [x] Review the four concrete choices at the contract's end, including the
   independent sequence, 16 KiB complete row bound, direct full-key lookup,
   retained accounting consumers/proofs and single closed format-4 catalog.
-- [ ] Record owner acceptance/revisions against exact reviewed bytes. Unchanged
+- [x] Record owner acceptance/revisions against exact reviewed bytes. Unchanged
   #1184 policy, wire/source/request/receipt domains and quotas need no repeat
   approval; new representation choices do need their scoped decision.
 
@@ -130,3 +131,25 @@ poststate recovery/recount eligibility within existing work bounds before adding
 a debit, rather than admitting a history known to be unrecoverable. This adds no
 quota or supported profile; no independent re-review of that clarification is
 claimed. Complete source/native qualification remains gated.
+
+
+## Gate 1 accepted; source closure remains — 2026-10-31
+
+The owner [accepted the four exact representation choices](../specs/2026-10-31-artifact-read-debit-proof-design.md#owner-acceptance-and-source-closure-handoff--2026-10-31)
+from PR #1217, including the complete row bound, retention cost, exact six-row
+commit and single catalog. Gate 1 is complete and #1210's specification/decision/
+handoff is delivered. Reuse those unchanged bytes and prior reviews; do not
+request another decision on the same debit codecs.
+
+The next permitted prerequisite is #1183's separate source/profile review and
+source-owner closure, tracked with #1176. Its current child-source proposal and
+Gate A remain unaccepted; mutable #742 control/event codecs, real atomic fresh
+preparation/attachment, bounded complete consumers and native authority do not
+follow from a valid source-record digest. The accepted debit consumer must join
+that complete registry before Gate 2 can pass. No synthetic prestate or assumed
+absent consumer can open Gate 3.
+
+Gate 2 remains Investigate, Gates 3–4 gated. No conditional complete-state packet,
+fixture/checker, database/migration, native/model probe or runtime work ran.
+#740, actual source/custody/native and maximal-profile/executable-plan gates remain
+separate. This status annotation changes no contract bytes or accepted bounds.

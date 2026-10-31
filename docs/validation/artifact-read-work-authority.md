@@ -317,3 +317,14 @@ retained full-key recovery row and accounting consumer, exact six-row commit and
 closed format-4 catalog integration. The accepted #1184 policy is unchanged;
 these new representation/retention choices remain proposed. No dependent
 transaction fixture, native mechanism or runtime implementation is delivered.
+
+
+## Exact representation accepted — 2026-10-31
+
+The [#1210 acceptance record](../superpowers/specs/2026-10-31-artifact-read-debit-proof-design.md#owner-acceptance-and-source-closure-handoff--2026-10-31)
+completes its written specification/decision/handoff. The four reviewed command/
+row/retention/catalog choices are accepted for further qualification; #1184 policy
+and all source/request/wire/receipt domains remain unchanged. Source/profile
+acceptance and complete fresh preparation/consumer/custody evidence remain with
+#1183/#1176. Gate 2 remains Investigate; there is no source-valid complete-state
+fixture, native enforcement or runtime implementation result.
