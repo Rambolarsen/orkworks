@@ -507,3 +507,16 @@ Existing conditional sources remain unchanged evidence. #1183 remains open for
 review and source-owner agreement; #1176 Gate 2, #1184, #740 and native/executable
 plans remain separate. No source-valid complete profile, database/migration,
 fixture/checker, model/native probe, launch or runtime implementation is delivered.
+
+
+## Proposed debit accounting consumer — 2026-10-31
+
+The [#1210 representation proposal](2026-10-31-artifact-read-debit-proof-design.md#recovery-accounting-completeness-and-retention)
+adds a proposed direct historical accounting consumer: artifact_read_debits rows
+retain exact producerSource, artifact/resolved evaluation and direct commit-proof
+validation joins. Reconcile that closed-table retention membership with this
+source/consumer registry before complete-state qualification. It is not a new
+ObjectRef dependency purpose, evaluation-freshness consumer or current-summary
+input. The initial no-purge profile supplies no debit/source eviction or repaired
+zero ledgers. These new representation/retention choices need scoped acceptance;
+this annotation does not accept the broader #1183 proposal or pass native gates.

@@ -195,3 +195,15 @@ Status remains Gate 2 Investigate, Gates 3–4 gated. No fixture/checker, databa
 migration, native/model probe or runtime implementation is delivered or authorized.
 The #744 claim scope/proof and all source/global limits stay unchanged; #740 and
 maximum-profile qualification remain independent.
+
+
+## Exact debit representation review prepared — 2026-10-31
+
+The [#1210 proposal](../specs/2026-10-31-artifact-read-debit-proof-design.md) and
+[bounded qualification handoff](2026-10-31-artifact-read-debit-qualification.md)
+prepare the exact command/row/recovery/catalog decision under the unchanged
+accepted #1184 policy. Their new representation, 16 KiB metadata bound and
+historical accounting-consumer/proof retention still require scoped owner review.
+Source-valid complete-state fixtures follow only after applicable acceptance and
+#1183 source/consumer/preparation closure; native enforcement and separately
+approved executable plans remain independent. Gate 2 stays Investigate.
