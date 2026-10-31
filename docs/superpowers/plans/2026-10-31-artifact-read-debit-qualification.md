@@ -123,3 +123,10 @@ Reviewed disposition: Ready for Gate 1's one scoped representation decision;
 Investigate for source-valid/conditional/native qualification. Existing contracts,
 source identities, #1184 policy and fixture catalogs remain unchanged. No new
 representation choice is accepted by this review or by publishing the proposal.
+
+
+Author clarification after the bounded reviews: command admission must prove
+poststate recovery/recount eligibility within existing work bounds before adding
+a debit, rather than admitting a history known to be unrecoverable. This adds no
+quota or supported profile; no independent re-review of that clarification is
+claimed. Complete source/native qualification remains gated.

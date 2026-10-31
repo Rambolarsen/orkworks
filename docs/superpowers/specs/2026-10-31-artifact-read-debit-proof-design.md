@@ -282,7 +282,10 @@ cause saturation before read-work pools fill. Retention is finite by positive B:
 workspace count ≤134,217,728 at B≥1, a deliberately loose arithmetic bound, not a
 supported profile. Full recovery/recount/source discovery must fit existing work
 limits, including 100,000 visited logical rows per operation; large histories that
-cannot do so remain ineligible/unavailable. No automatic chunking, unbounded scan
+cannot do so remain ineligible/unavailable. Admission must establish that the
+resulting retained history is recoverable within those bounds before committing
+a new debit; an unproved poststate denies admission rather than creating a known
+unrecoverable history. No automatic chunking, unbounded scan
 or new recovery allowance is authorized. A maximum profile remains unqualified.
 
 Preserve one active-or-retiring materializer, zero queued artifact materializers
