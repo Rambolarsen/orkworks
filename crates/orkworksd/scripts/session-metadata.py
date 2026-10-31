@@ -48,7 +48,7 @@ class Transport:
             raise ProducerError("invalid metadata reporting capability")
         self.proxy_port = None
         if http_proxy is not None:
-            # Explicitly selected trusted relay only. Do not use URL parsing
+            # Caller-selected or qualified managed worktree relay. Do not use URL parsing
             # that normalizes controls, credentials or ambiguous host spellings.
             proxy = re.fullmatch(r"http://127\.0\.0\.1:([0-9]{1,5})/?", http_proxy)
             if proxy is None or not 0 < int(proxy[1]) <= 65535:
@@ -61,7 +61,7 @@ class Transport:
         encoded = None if body is None else json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         if encoded is not None and len(encoded) > MAX_BODY:
             raise ProducerError("metadata patch exceeds the size limit")
-        # Ambient proxies are ignored. An explicit relay is trusted with the
+        # Unqualified ambient proxies are ignored. The selected relay receives the
         # capability; the origin remains pinned and redirects are never followed.
         connection = http.client.HTTPConnection("127.0.0.1", self.proxy_port or self.port, timeout=TIMEOUT_SECONDS)
         try:
@@ -123,7 +123,10 @@ def worktree_instructions():
     context = (
         "OrkWorks task worktree reporting: after selecting or creating your task worktree, "
         "before editing there, run `python3 " + helper + " worktree ABSOLUTE_PATH` from your "
-        "actual tool execution context. If that context requires an already owner-authorized "
+        "actual tool execution context. This command automatically uses the Codex-managed "
+        "HTTP relay when CODEX_NETWORK_PROXY_ACTIVE=1 qualifies its strict loopback HTTP_PROXY; "
+        "unqualified ambient proxy settings remain ignored. A selected relay failure never "
+        "falls back to direct access. If another context requires an already owner-authorized "
         "sandbox-managed HTTP proxy, explicitly select the verified proxy with "
         "`python3 " + helper + " worktree ABSOLUTE_PATH --http-proxy TRUSTED_PROXY_URL` "
         "instead of the direct command. TRUSTED_PROXY_URL must be the actual authorized "
@@ -196,6 +199,13 @@ def main():
         path = None if arguments[1] == "--clear" else arguments[1]
         if path is not None and (not Path(path).is_absolute() or len(path.encode("utf-8")) > 4096 or any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in path)):
             raise ProducerError("worktree requires an absolute path")
+        # Only this narrow command opts into the owner-approved Codex runtime
+        # transport. The active marker qualifies the runtime-injected HTTP_PROXY;
+        # a loopback address or ambient proxy alone is never sufficient.
+        if http_proxy is None and os.environ.get("CODEX_NETWORK_PROXY_ACTIVE") == "1":
+            http_proxy = os.environ.get("HTTP_PROXY", "")
+            if "http_proxy" in os.environ and os.environ["http_proxy"] != http_proxy:
+                raise ProducerError("inconsistent managed HTTP proxy environment")
         client = Transport(http_proxy)
         record = client.read()
         result = client.request("PATCH", {"metadataRevision": record["metadataRevision"], "patch": {"agentMetadata": {"worktreePath": path}}})
