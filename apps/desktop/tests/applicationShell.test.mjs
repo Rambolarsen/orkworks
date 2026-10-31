@@ -280,6 +280,13 @@ if (process.versions.electron) {
         await evaluate('document.querySelector("[data-diff-more]").click()');
         await waitFor('document.querySelector(".git-changes-patch").textContent.includes("row1099")');
         assert.equal(await evaluate('!!document.querySelector("[data-diff-more]")'),false,'the last batch is reachable');
+        await evaluate('document.querySelector(".git-changes-filter input").focus();document.querySelector(".git-changes-filter input").select()');
+        await win.webContents.insertText('.ts');
+        await waitFor('document.querySelectorAll(".git-changes-files button").length===2');
+        await evaluate('Array.from(document.querySelectorAll(".git-changes-files button")).find(b=>b.textContent.includes("other.ts")).click()');
+        await waitFor('document.querySelector("[data-diff-more]") && document.querySelector(".git-changes-file-header h3").textContent==="other.ts"');
+        assert.equal(await evaluate('document.querySelectorAll(".git-diff-line").length'),999,'switching files resets the initial display batch');
+        assert.doesNotMatch(await evaluate('document.querySelector(".git-changes-patch").textContent'),/row1099/);
         await evaluate('fixture.partialChanges=true;document.querySelector("[data-git-refresh]").click()');
         await waitFor('document.querySelector(".git-changes-count")?.textContent.includes("Totals unavailable")');
         assert.match(await evaluate('document.querySelector(".git-changes-status").textContent'),/Partial comparison/);
@@ -1758,6 +1765,7 @@ if (process.versions.electron) {
             fixture.captureCount=(fixture.captureCount||0)+1;
             if(fixture.changeFailure)throw new Error('fixture refresh failed');
             const result={snapshotId:request.comparison+'-'+request.sessionId+'-'+fixture.captureCount,sessionId:request.sessionId,worktree:fixture.worktree||'/tmp/test',gitContextSource:fixture.worktree?'agent':'launch',branch:'feature',comparison:request.comparison,baseRef:request.baseRef||null,baseOid:'bbbbbbbb',baselineOid:'aaaaaaaa',headOid:'cccccccc',capturedAt:'2026-10-24T10:00:00Z',partial:!!fixture.partialChanges,notice:null,files:[{id:'file',path:'src/change.ts',oldPath:null,status:'Modified',additions:1,deletions:0,notice:null}]};
+            if(${JSON.stringify(scenario)}==='app-review-changes')result.files.push({id:'other-file',path:'src/other.ts',oldPath:null,status:'Modified',additions:1,deletions:0,notice:null});
             if(fixture.deferChanges)await new Promise(resolve=>fixture.finishChanges=resolve);
             return result;
           };
