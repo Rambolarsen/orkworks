@@ -64,7 +64,7 @@ expand the fantasy naming without an explicit spec update.
 
 ## Single-central-context UX invariant
 
-The desktop shell shows one central context at a time: Terminal, Review, or an
+The desktop shell shows one central context at a time: Terminal, Review, Changes, or an
 eligible Workflow overview, with transient Recommendations, Skills and a New session composer for ordinary
 creation and empty workspaces. There remains one selected terminal, and selecting
 an actual session explicitly switches to that session's Terminal. The compact
@@ -86,7 +86,8 @@ parallel visibility. See [ADR 0078](../adr/0078-fixed-desktop-shell-and-central-
 for the accepted shell and navigation contract.
 
 The [selected-session Git changes viewer](../../specs/session-git-changes.md)
-uses the same inspector for distinct uncommitted and committed-branch comparisons.
+uses the main window for distinct uncommitted and committed-branch comparisons,
+with a file browser beside the diff under [ADR 0101](../adr/0101-main-window-git-changes.md).
 This is read-only observation: it grants no Git mutation authority, result
 acceptance or session authorship attribution and preserves central plan/spec
 Review. The concrete design and scoped plan were owner-approved on 2026-10-24.

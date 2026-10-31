@@ -8,7 +8,7 @@ status: stable
 
 # Read-only selected-session Git changes
 
-- Status: accepted
+- Status: superseded in part by [ADR 0101](0101-main-window-git-changes.md); read-only retrieval remains accepted
 - Deciders: user
 - Date: 2026-10-24
 

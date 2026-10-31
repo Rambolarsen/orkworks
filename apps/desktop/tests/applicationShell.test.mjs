@@ -221,6 +221,20 @@ if (process.versions.electron) {
         assert.equal(await evaluate('fixture.captureCount'),1,'default base must not restart uncommitted capture');
         await evaluate('fixture.deferChanges=false;fixture.finishChanges()');
         await waitFor('document.querySelector(".git-changes-patch")?.textContent.includes("working edit")');
+        assert.equal(await evaluate('!!document.querySelector("[data-shell-region=utility] .git-changes")'),true,'Changes occupies the main window');
+        assert.equal(await evaluate('!!document.querySelector("[data-shell-region=inspector]")'),false);
+        assert.equal(await evaluate('!!document.querySelector("[data-shell-region=sessions]")'),true);
+        assert.equal(await evaluate('document.querySelector(".git-changes-details").open'),false,'technical details start collapsed');
+        await evaluate('document.querySelector("[data-diff-mode=split]").click()');
+        await waitFor('document.querySelector(".git-diff--split")');
+        await evaluate('document.querySelector("[data-diff-mode=unified]").click()');
+        await evaluate('document.querySelector(".git-changes-filter input").focus()');
+        await win.webContents.insertText('missing');
+        await waitFor('document.querySelector(".git-changes-file-list").textContent.includes("No files match")');
+        assert.match(await evaluate('document.querySelector(".git-changes-patch").textContent'),/working edit/,'filtering preserves the selected patch');
+        await evaluate('document.querySelector(".git-changes-filter input").select()');
+        await win.webContents.insertText('change.ts');
+        await waitFor('document.querySelectorAll(".git-changes-files button").length===1');
         assert.match(await evaluate('document.querySelector(".git-changes").textContent'),/HEAD.*working tree/);
         await evaluate('(()=>{const s=document.querySelector("[data-git-comparison]");s.value="branch";s.dispatchEvent(new Event("change",{bubbles:true}))})()');
         await waitFor('document.querySelector(".git-changes-patch")?.textContent.includes("committed edit")');
@@ -237,9 +251,15 @@ if (process.versions.electron) {
           await win.setContentSize(width,700);
           await waitFor(`document.querySelector(".shell-layout").dataset.mode==="${width>=1180?'wide':width>=860?'medium':'compact'}"`);
           await waitFor('document.querySelector(".git-changes")');
+          assert.equal(await evaluate('(()=>{const p=document.querySelector(".git-changes");return p.scrollWidth<=p.clientWidth+1})()'),true,'Changes fits the content width');
+          assert.equal(await evaluate('(()=>{const p=document.querySelector(".git-changes-file-content");return p.getBoundingClientRect().height>80})()'),true,'diff retains reading space');
           await evaluate('fixture.output("changes panel output\\r\\n")');
           assert.equal(await evaluate('fixture.socketCount'),sockets);
         }
+        win.webContents.setZoomFactor(2);
+        await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        assert.equal(await evaluate('document.querySelector(".git-changes").scrollWidth<=document.querySelector(".git-changes").clientWidth+1'),true,'controls fit at 200% zoom');
+        win.webContents.setZoomFactor(1);
         // A binding change inside the same repository invalidates the open capture,
         // including a deferred old response and a failed replacement refresh.
         await evaluate('fixture.deferChanges=true;document.querySelector("[data-git-refresh]").click()');
@@ -254,10 +274,44 @@ if (process.versions.electron) {
         await waitFor('document.querySelector(".git-changes-patch")');
         assert.match(await evaluate('document.querySelector(".git-changes-subject").textContent'),/feature/);
         assert.match(await evaluate('document.querySelector(".git-changes").textContent'),/Reported task worktree/);
+        await evaluate('fixture.changePatch="@@ -0,0 +1,1100 @@\\n"+Array.from({length:1100},(_,i)=>"+const row"+i+" = "+i+";").join("\\n");document.querySelector("[data-git-refresh]").click()');
+        await waitFor('document.querySelector("[data-diff-more]")');
+        assert.equal(await evaluate('document.querySelectorAll(".git-diff-line").length'),999,'the hunk and code rows share the initial 1000-row batch');
+        await evaluate('document.querySelector("[data-diff-more]").click()');
+        await waitFor('document.querySelector(".git-changes-patch").textContent.includes("row1099")');
+        assert.equal(await evaluate('!!document.querySelector("[data-diff-more]")'),false,'the last batch is reachable');
+        await evaluate('document.querySelector(".git-changes-filter input").focus();document.querySelector(".git-changes-filter input").select()');
+        await win.webContents.insertText('.ts');
+        await waitFor('document.querySelectorAll(".git-changes-files button").length===2');
+        await evaluate('Array.from(document.querySelectorAll(".git-changes-files button")).find(b=>b.textContent.includes("other.ts")).click()');
+        await waitFor('document.querySelector("[data-diff-more]") && document.querySelector(".git-changes-file-header h3").textContent==="other.ts"');
+        assert.equal(await evaluate('document.querySelectorAll(".git-diff-line").length'),999,'switching files resets the initial display batch');
+        assert.doesNotMatch(await evaluate('document.querySelector(".git-changes-patch").textContent'),/row1099/);
+        await evaluate('fixture.partialChanges=true;document.querySelector("[data-git-refresh]").click()');
+        await waitFor('document.querySelector(".git-changes-count")?.textContent.includes("Totals unavailable")');
+        assert.match(await evaluate('document.querySelector(".git-changes-status").textContent'),/Partial comparison/);
+        if (process.env.ORKWORKS_CAPTURE_CHANGES) {
+          await win.setContentSize(1440,900);
+          await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+          const {writeFileSync} = await import('node:fs');
+          writeFileSync(process.env.ORKWORKS_CAPTURE_CHANGES,(await win.webContents.capturePage()).toPNG());
+        }
         await evaluate('document.querySelector("[data-git-back]").click()');
-        await waitFor('document.activeElement?.hasAttribute("data-review-changes")');
-        await evaluate('document.querySelector("[data-shell-return]").click()');
         await waitFor('fixture.runtime()?.terminal.element?.isConnected');
+        await waitFor('document.activeElement?.classList.contains("xterm-helper-textarea") || document.activeElement?.hasAttribute("data-shell-terminal-focus")');
+        await click('changes');
+        await waitFor('document.querySelector(".git-changes")');
+        await evaluate('document.querySelector(".git-changes h2").focus()');
+        win.webContents.sendInputEvent({type:'keyDown',keyCode:'Escape'});
+        win.webContents.sendInputEvent({type:'keyUp',keyCode:'Escape'});
+        await waitFor('!document.querySelector(".git-changes") && fixture.runtime()?.terminal.element?.isConnected');
+        await win.setContentSize(1280,700);
+        await waitFor('document.querySelector(".shell-layout").dataset.mode==="wide"');
+        await click('changes');
+        await waitFor('document.querySelector(".git-changes")');
+        await waitFor('document.querySelector("[data-session-id=other] .session-row-select")');
+        await evaluate('document.querySelector("[data-session-id=other] .session-row-select").click()');
+        await waitFor('!document.querySelector(".git-changes") && document.querySelector("[data-shell-region=terminal]")');
         assert.equal(await evaluate('fixture.input.length'),0);
         assert.deepEqual(await evaluate('fixture.errors'),[]);
         return;
@@ -1707,10 +1761,11 @@ if (process.versions.electron) {
           window.orkworks.pinWorkspacePath=async()=>{fixture.pins++;return {pinned:[],recent:['/tmp/test','/tmp/other'],diagnostic:null}};
           window.orkworks.readGitChanges=async request=>{
             if(request.kind==='bases'){if(fixture.deferBases)await new Promise(resolve=>fixture.finishBases=resolve);return {refs:['refs/heads/main'],defaultRef:'refs/heads/main',limited:false,unavailableReason:null};}
-            if(request.kind==='file')return {snapshotId:request.snapshotId,fileId:request.fileId,patch:request.snapshotId.includes('branch')?'+committed edit':'+working edit',notice:null};
+            if(request.kind==='file')return {snapshotId:request.snapshotId,fileId:request.fileId,patch:fixture.changePatch||(request.snapshotId.includes('branch')?'+committed edit':'+working edit'),notice:null};
             fixture.captureCount=(fixture.captureCount||0)+1;
             if(fixture.changeFailure)throw new Error('fixture refresh failed');
-            const result={snapshotId:request.comparison+'-'+request.sessionId,sessionId:request.sessionId,worktree:fixture.worktree||'/tmp/test',gitContextSource:fixture.worktree?'agent':'launch',branch:'feature',comparison:request.comparison,baseRef:request.baseRef||null,baseOid:'bbbbbbbb',baselineOid:'aaaaaaaa',headOid:'cccccccc',capturedAt:'2026-10-24T10:00:00Z',partial:false,notice:null,files:[{id:'file',path:'src/change.ts',oldPath:null,status:'Modified',additions:1,deletions:0,notice:null}]};
+            const result={snapshotId:request.comparison+'-'+request.sessionId+'-'+fixture.captureCount,sessionId:request.sessionId,worktree:fixture.worktree||'/tmp/test',gitContextSource:fixture.worktree?'agent':'launch',branch:'feature',comparison:request.comparison,baseRef:request.baseRef||null,baseOid:'bbbbbbbb',baselineOid:'aaaaaaaa',headOid:'cccccccc',capturedAt:'2026-10-24T10:00:00Z',partial:!!fixture.partialChanges,notice:null,files:[{id:'file',path:'src/change.ts',oldPath:null,status:'Modified',additions:1,deletions:0,notice:null}]};
+            if(${JSON.stringify(scenario)}==='app-review-changes')result.files.push({id:'other-file',path:'src/other.ts',oldPath:null,status:'Modified',additions:1,deletions:0,notice:null});
             if(fixture.deferChanges)await new Promise(resolve=>fixture.finishChanges=resolve);
             return result;
           };

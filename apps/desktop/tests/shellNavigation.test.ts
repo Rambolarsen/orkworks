@@ -38,6 +38,18 @@ test("explicit session selection changes only that session and acknowledges only
   assert.deepEqual(state.centralSurface, { kind: "terminal", sessionId: "session-b" });
 });
 
+test("selecting a session leaves Changes for its terminal instead of following it in the viewer", () => {
+  const initial = createShellNavigationState({ workspaceGeneration: 4, activeSessionId: "session-a" });
+  const changes = reduceShellNavigation(initial, { type: "inspector-opened", destination: "changes",
+    subject: { kind: "session", sessionId: "session-a" }, generation: 4 });
+  assert.deepEqual(changes.acknowledgedSessionIds, []);
+  const selected = reduceShellNavigation(changes, { type: "session-selected", sessionId: "session-b", generation: 4 });
+  assert.equal(selected.inspector, null);
+  assert.equal(selected.inspectedSubject, null);
+  assert.deepEqual(selected.centralSurface, {kind:"terminal",sessionId:"session-b"});
+  assert.deepEqual(selected.acknowledgedSessionIds, ["session-b"]);
+});
+
 test("workspace generation changes clear stale navigation destinations", () => {
   const initial = createShellNavigationState({ workspaceGeneration: 4, activeSessionId: "session-a" });
   const reviewing = reduceShellNavigation(initial, {
@@ -314,12 +326,12 @@ for (const destination of ["recommendations", "actions"] as const) {
   });
 }
 
-test("Changes follows explicit session selection without retaining the old subject", () => {
+test("leaving Changes and switching workspace clears its transient navigation", () => {
   const initial=createShellNavigationState({workspaceGeneration:4,activeSessionId:"a"});
   const open=reduceShellNavigation(initial,{type:"inspector-opened",destination:"changes",subject:{kind:"session",sessionId:"a"},generation:4});
   const next=reduceShellNavigation(open,{type:"session-selected",sessionId:"b",generation:4});
-  assert.equal(next.inspector,"changes");
-  assert.deepEqual(next.inspectedSubject,{kind:"session",sessionId:"b"});
+  assert.equal(next.inspector,null);
+  assert.equal(next.inspectedSubject,null);
   assert.deepEqual(next.centralSurface,{kind:"terminal",sessionId:"b"});
   assert.equal(reduceShellNavigation(next,{type:"workspace-generation-changed",generation:5}).inspector,null);
 });

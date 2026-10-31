@@ -6,7 +6,7 @@ Tracking: [#96](https://github.com/Rambolarsen/orkworks/issues/96).
 ## Outcome and authority
 
 Inspect the selected session's current worktree and committed branch changes
-without leaving its terminal. The owner requested both comparisons and an
+in the main window while its terminal keeps running. The owner requested both comparisons and an
 obvious distinction between them on 2026-10-24. The owner approved the concrete design and linked scoped implementation plan
 in the PR #1003 conversation.
 
@@ -24,39 +24,50 @@ live or historical sessions when their current registered directory is available
 Missing Git context shows a disabled button and an explanatory reason. Revalidate
 on open: old metadata is not evidence that a directory still exists.
 
-Changes replaces Details in the existing fixed right inspector. Keep its
-280–420px resize bounds, overlay/pin modes, focus-scoped Escape, close control
-and temporary utility page below 1180 CSS px (ADR 0083). No geometry amendment,
-new sidebar, terminal, or shell tabs. Use a vertically arranged file list and
-single unified patch with horizontal scrolling, suitable for the existing width.
+The owner approved the main-window redesign on 2026-10-31 and authorized
+implementation under [#1207](https://github.com/Rambolarsen/orkworks/issues/1207).
+[ADR 0101](../docs/adr/0101-main-window-git-changes.md) supersedes the original
+inspector-only presentation. Changes uses the central utility host, retaining
+the existing Sessions sidebar. No new terminal, shell tabs, movable panels or
+persisted navigation fields. Selecting a session explicitly leaves Changes for
+that session's Terminal. Opening Changes leaves document Review; Review remains
+independently reachable through its existing entry.
 
-The header identifies the selected session and provides **Back to Details**.
-Details, Changes, and future Markdown/app previews (#18/#19) are alternative
-contents of this one host. This increment adds only Changes; it does not build
-those previews or change central plan/spec Review or its review actions.
-Replacing inspector content releases Changes data and resets file/scroll state;
-Back to Details focuses its Review changes button. Closing restores the existing
-shell invoker, with the shell's safe heading fallback if it disappeared. Opening
-moves focus to the panel heading. A later explicit open starts in Uncommitted.
+The header identifies the selected session and provides **Back to terminal**.
+Keep **Review changes** in Details and add a central toolbar Changes entry.
+Closing or focus-scoped Escape returns focus to the selected Terminal without
+changing attention or sending input. Opening focuses the Changes heading. A
+later explicit open starts in Uncommitted. A compact comparison toolbar sits
+above a filterable file list beside the diff; both reading regions scroll
+independently. At narrow content widths the bounded file list stacks above the
+diff. Controls wrap at zoom. Long paths wrap in file rows and remain available
+in the selected-file header. Comparison details disclose full paths, source,
+baseline and abbreviated OIDs; capture time, branch and partial/error status
+remain visible without expanding details.
 
-Illustrative wide-window panel (the terminal remains the central surface):
+Unified and split diffs show line numbers, addition/deletion signs and colors,
+and basic syntax coloring for common code tokens. Split mode aligns replacement
+blocks and leaves empty cells for unmatched lines; hunk headers, patch metadata
+and no-newline markers retain their meaning. Render code as escaped React text,
+never HTML. Render an initial batch of 1,000 display rows for large patches,
+disclose the displayed/total row count and let the user reveal the next 1,000.
+This display batching does not alter captured file or comparison totals.
+Unsupported/binary/conflict notices remain explicit.
+
+Illustrative wide-window content (the terminal runtime remains alive):
 
 ```text
-Changes · selected session                 Pin  Close
-Back to Details
-/work/feature-checkout · feature
+Changes · selected session                   Back to terminal
+feature
 
 Comparison: [Uncommitted changes v]
 HEAD → working tree · staged, unstaged, new files
 Updated 14:32:08                           Refresh
-2 files · +12 −3
-  Modified  src/App.tsx
-  New       src/changes.ts
-
-src/App.tsx
-@@ ... @@
-- old line
-+ new line
+Comparison details (collapsed)
+2 files · +12 −3              src/App.tsx          Unified / Split
+Filter files                 @@ ... @@
+  Modified  src/App.tsx       - old line
+  New       src/changes.ts   + new line
 ```
 
 Selecting Branch changes replaces the baseline line with, for example,
@@ -175,9 +186,10 @@ implement bounded, no-follow access is a blocker, not permission to weaken it.
 
 Use request generations in the renderer. Clear old results synchronously when
 session/workspace/comparison/base changes, and ignore stale list, base or patch
-responses including stale errors. Session switches while Changes is open follow
-the newly selected session, reset comparison/base/file state and load fresh.
-Workspace switches close Changes and clear its data. Switching comparison/base
+responses including stale errors. A later explicit open resets
+comparison/base/file state and loads fresh for the selected session.
+Workspace switches close Changes and clear its data. Explicit session selection
+closes Changes and returns to Terminal. Switching comparison/base
 keeps focus on its selector; successful Refresh retains selected file and scroll
 only if the file identity remains, otherwise focuses the file-list heading.
 
@@ -190,7 +202,7 @@ manual refresh only for the same exact subject/comparison/base and label it
 **Refresh failed; showing capture from …**. Source invalidation clears it.
 Loading, empty, partial, binary, unavailable, busy and retry states are distinct.
 
-Opening/closing/replacing the inspector neither selects another session nor
+Opening/closing/replacing Changes or the inspector neither selects another session nor
 changes attention, lifecycle, approval, unread state or terminal input. Preserve
 PTY output draining, attachment/refit and replay through wide overlay, pin and
 responsive page transitions. Retain no durable Changes navigation or snapshots;
@@ -201,11 +213,15 @@ existing layout preference schema and central Review restoration stay unchanged.
 The linked [implementation plan](../docs/superpowers/plans/2026-10-24-session-git-changes.md)
 covers Git fixtures, authenticated bounded access, real entry/panel interactions,
 stale-response fencing, accessibility and terminal continuity. The source viewer
-implements the read-only comparisons and existing-inspector entry described here;
+implements the read-only comparisons and main-window presentation described here;
 this does not establish availability in older published installers. Owner approval
 of the concrete design and scoped plan was given on 2026-10-24, satisfying the #96
 implementation gate. [ADR 0091](../docs/adr/0091-read-only-session-git-changes.md)
 records the accepted read boundary.
+The 2026-10-31 owner-approved redesign under #1207 changes presentation and
+navigation only; it preserves those retrieval and security acceptance criteria.
+Same-file refresh scroll restoration remains tracked separately in
+[#1143](https://github.com/Rambolarsen/orkworks/issues/1143).
 
 ## Explicit task-worktree binding
 
