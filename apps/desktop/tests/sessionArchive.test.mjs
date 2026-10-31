@@ -32,7 +32,37 @@ if (process.versions.electron) {
       };
       const scenario = process.env.ORKWORKS_ARCHIVE_CASE;
       if (scenario) {
-        if (scenario.startsWith('close-feedback')) {
+        if (scenario === 'row-reuse') {
+          // Counting presentation-field reads observes real row reconstruction;
+          // no production component is replaced with a test double.
+          assert.equal(await evaluate('document.querySelectorAll("[data-session-id]").length'), 700);
+          await evaluate('fixture.labelReads={};fixture.bumpCallbacks();fixture.setRows(rows=>rows.map(r=>r.id==="live"?{...r,label:"Updated live"}:r))');
+          await wait('document.querySelector("[data-session-id=live] .session-row-label").textContent==="Updated live"');
+          assert.equal(await evaluate('fixture.labelReads.closed ?? 0'), 0, 'an unrelated background update must reuse closed row contents');
+          assert.equal(await evaluate('Object.entries(fixture.labelReads).filter(([id])=>id!=="live").reduce((total,[,count])=>total+count,0)'), 0, 'all 699 unchanged visible rows reuse their presentation');
+          await evaluate('fixture.setResuming(true)');
+          await wait('document.querySelector("[data-session-id=closed] .session-row-progress").textContent.includes("Resuming")');
+          await evaluate('fixture.setResuming(false)');
+          await wait('!document.querySelector("[data-session-id=closed] .session-row-progress")');
+          await evaluate('document.querySelector("[data-session-id=closed] .session-row-select").click()');
+          await wait('document.querySelector("[data-session-id=closed] .session-row-select").getAttribute("aria-pressed")==="true"');
+          assert.equal(await evaluate('fixture.selectionVersions.at(-1)'), 1, 'reused contents must call the latest selection handler');
+          assert.equal(await evaluate('document.querySelector("[data-session-id=live] .session-row-select").getAttribute("aria-pressed")'), 'false');
+          await evaluate('document.getElementById("sessions-list").dispatchEvent(new KeyboardEvent("keydown",{key:"ArrowUp",bubbles:true}))');
+          await wait('fixture.selected==="live"');
+          await more('closed');
+          await evaluate('fixture.setRows(rows=>rows.map(r=>r.id==="closed"?{...r,sessionActionToken:"fresh-token"}:r))');
+          await wait('Array.from(document.querySelectorAll("[role=menuitem]")).every(b=>b.disabled)');
+          await evaluate('document.querySelector("[role=menu]").dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
+          await more('closed'); await action('Archive'); await wait('fixture.calls.length===1');
+          assert.deepEqual(await evaluate('fixture.calls[0]'), ['closed','archive','fresh-token'], 'reopened actions target the current session/token');
+          assert.equal(await evaluate('fixture.actionVersions.at(-1)'), 1, 'actions use the current callback');
+          await wait('!document.querySelector("[data-session-id=closed]")');
+          assert.equal(await evaluate('document.activeElement.id'), 'sessions-list');
+        } else if (scenario === 'row-time') {
+          await wait('document.querySelector("[data-session-id=live] .session-row-time").textContent==="<1m ago"');
+          await wait('document.querySelector("[data-session-id=live] .session-row-time").textContent==="1m ago"');
+        } else if (scenario.startsWith('close-feedback')) {
           await evaluate('fixture.pauseAction=true');
           await more('live'); await action('Close');
           await wait('fixture.finishAction');
@@ -159,7 +189,7 @@ if (process.versions.electron) {
   const { join } = await import('node:path');
   const { spawnSync } = await import('node:child_process');
   const require = createRequire(import.meta.url);
-  for (const scenario of ['', 'close-feedback', 'close-feedback-error', 'close-feedback-generation', 'delete-copy', 'restore-warning', 'archived-attention', 'generation-menu', 'generation-pending']) test('archive UI '+(scenario || 'workflow'), async () => {
+  for (const scenario of ['', 'close-feedback', 'close-feedback-error', 'close-feedback-generation', 'delete-copy', 'restore-warning', 'archived-attention', 'generation-menu', 'generation-pending', 'row-reuse', 'row-time']) test('archive UI '+(scenario || 'workflow'), async () => {
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-archive-'));
     try {
       const { build } = await import('esbuild');
@@ -167,14 +197,14 @@ if (process.versions.electron) {
       const bundle = await build({ stdin: { contents: `
         import React,{useState} from 'react';import{createRoot}from'react-dom/client';
         import SessionListPanel from './src/components/SessionListPanel';import './src/styles/tokens.css';import './src/App.css';
-        window.fixture={ready:true,calls:[],selections:[],confirmations:[],errors:[],selected:'live'};
+        window.fixture={ready:true,calls:[],selections:[],confirmations:[],errors:[],selected:'live',labelReads:{},selectionVersions:[],actionVersions:[]};
         window.addEventListener('error',e=>fixture.errors.push(e.message));
         window.confirm=message=>{fixture.confirmations.push(message);return false};
-        const row=(id,state)=>({id,label:id,sessionState:state,sessionActionToken:'token-'+id,lifecycle:state==='active'?'alive':'dead',lifecyclePhase:state==='active'?'active':'ended',status:state==='active'?'running':'ended',created_at:'2026-10-18T10:00:00Z',cwd:'/tmp',memoryState:'remembered',resumeStrategy:'none'});
-        function Harness(){const[rows,setRows]=useState([row('live','active'),row('closed','closed'),row('saved','archived')]);const[selected,setSelected]=useState('live');const[enabled,setEnabled]=useState(true);const[generation,setGeneration]=useState(0);fixture.nextGeneration=()=>setGeneration(g=>g+1);fixture.setRows=setRows;fixture.setActionsEnabled=setEnabled;fixture.selectHidden=()=>setSelected('saved');fixture.selectLive=()=>setSelected('live');
+        const row=(id,state)=>({id,get label(){fixture.labelReads[id]=(fixture.labelReads[id]??0)+1;return id},lastActivityAt:${JSON.stringify(scenario)}==='row-time'?new Date(Date.now()-58000).toISOString():undefined,sessionState:state,sessionActionToken:'token-'+id,lifecycle:state==='active'?'alive':'dead',lifecyclePhase:state==='active'?'active':'ended',status:state==='active'?'running':'ended',created_at:'2026-10-18T10:00:00Z',cwd:'/tmp',memoryState:'remembered',resumeStrategy:'none'});
+        function Harness(){const[rows,setRows]=useState(()=>[row('live','active'),row('closed','closed'),row('saved','archived'),...(${JSON.stringify(scenario)}==='row-reuse'?Array.from({length:698},(_,i)=>row('history-'+i,'closed')):[])]);const[selected,setSelected]=useState('live');const[callbackVersion,setCallbackVersion]=useState(0);fixture.bumpCallbacks=()=>setCallbackVersion(v=>v+1);const[enabled,setEnabled]=useState(true);const[resuming,setResuming]=useState(false);fixture.setResuming=setResuming;const[generation,setGeneration]=useState(0);fixture.nextGeneration=()=>setGeneration(g=>g+1);fixture.setRows=setRows;fixture.setActionsEnabled=setEnabled;fixture.selectHidden=()=>setSelected('saved');fixture.selectLive=()=>setSelected('live');
           return <SessionListPanel workspaceGeneration={generation} workspace={{path:'/tmp',workspaceIdentity:'test'}} sessions={rows} activeSessionId={selected} unreadIds={new Set(['saved'])} acknowledgedIds={new Set()} harnesses={[]}
-            actionsEnabled={enabled} onSelectSession={id=>{fixture.selections.push(id);fixture.selected=id;setSelected(id)}} onFocusTerminal={()=>{}} onOpenWorkspace={()=>{}}
-            onSessionAction={async(id,action,token)=>{fixture.calls.push([id,action,token]);if(fixture.pauseAction)await new Promise(resolve=>fixture.finishAction=resolve);if(fixture.failAction)throw new Error("Close failed");setRows(rows=>action==='delete'?rows.filter(r=>r.id!==id):rows.map(r=>r.id===id?{...r,sessionState:action==='archive'?'archived':'closed',sessionActionToken:r.sessionActionToken+'-next',lifecycle:'dead',lifecyclePhase:'ended'}:r))}}/>}
+            resumingSessionIds={new Set(resuming?['closed']:[])} actionsEnabled={enabled} onSelectSession={id=>{fixture.selections.push(id);fixture.selectionVersions.push(callbackVersion);fixture.selected=id;setSelected(id)}} onFocusTerminal={()=>{}} onOpenWorkspace={()=>{}}
+            onSessionAction={async(id,action,token)=>{fixture.calls.push([id,action,token]);fixture.actionVersions.push(callbackVersion);if(fixture.pauseAction)await new Promise(resolve=>fixture.finishAction=resolve);if(fixture.failAction)throw new Error("Close failed");setRows(rows=>action==='delete'?rows.filter(r=>r.id!==id):rows.map(r=>r.id===id?{...r,sessionState:action==='archive'?'archived':'closed',sessionActionToken:r.sessionActionToken+'-next',lifecycle:'dead',lifecyclePhase:'ended'}:r))}}/>}
         createRoot(document.getElementById('root')).render(<Harness/>);
       `, resolveDir: root, loader: 'tsx' }, bundle: true, write: false, outdir: directory, format: 'iife', platform: 'browser', define: { 'process.env.NODE_ENV': '"development"' } });
       const fixture = join(directory, 'index.html');

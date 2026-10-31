@@ -1,5 +1,5 @@
 import { isHistoricalSession } from "../sessionRuntimeState";
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { LoaderCircle, MoreHorizontal } from "lucide-react";
 import type { SessionAction, SessionInfo, WorkspaceInfo } from "../api";
 import type { HarnessConfig } from "../harnessTypes";
@@ -8,6 +8,7 @@ import { harnessDisplayName, sessionCodingTool } from "../sessionProviderContext
 import { groupSessionList, nextSessionGroupRefreshMs } from "../sessionGroups";
 import {
   VOCAB,
+  type AttentionTone,
   attentionLabel,
   attentionTone,
   isLoudTone,
@@ -25,6 +26,64 @@ import SessionContextMenu, { type SessionMenuAnchor } from "./SessionContextMenu
 const actionProgress: Record<SessionAction, string> = {
   close: "Closing…", archive: "Archiving…", restore: "Restoring…", delete: "Deleting…",
 };
+
+interface SessionRowContentsProps {
+  session: SessionInfo;
+  selected: boolean;
+  unread: boolean;
+  attention: boolean;
+  tone: AttentionTone;
+  statusLabel: string;
+  tool: string | undefined;
+  now: Date;
+  pendingAction: SessionAction | undefined;
+  resuming: boolean;
+  menuOpen: boolean;
+}
+
+// Keep current interaction handlers on the outer row. Unchanged stream rows
+// retain their SessionInfo object, so their presentation can skip reconstruction.
+const SessionRowContents = memo(function SessionRowContents({
+  session, selected, unread, attention, tone, statusLabel, tool, now,
+  pendingAction, resuming, menuOpen,
+}: SessionRowContentsProps) {
+  return (
+    <>
+      <button type="button" className="session-row-select" tabIndex={-1} aria-pressed={selected}>
+        <span className="session-row-leading">
+          <span className="session-row-primary">
+            <StatusIndicator tone={tone} label={statusLabel} variant={unread ? "unread" : "status"} />
+            <span className="session-row-label">{session.label}</span>
+          </span>
+        </span>
+        <span className="session-row-secondary">
+          {pendingAction || resuming ? (
+            <span role="status" className="session-row-progress">
+              <LoaderCircle size={12} className="status-indicator-spin" aria-hidden="true" />
+              {resuming ? "Resuming…" : actionProgress[pendingAction!]}
+            </span>
+          ) : <>
+            {attention && (
+              <span className="session-row-attention" data-attention={tone}>{statusLabel}</span>
+            )}
+            <span className="session-row-meta">
+              <span className="session-row-tool" aria-hidden={!tool}>
+                {tool && <HarnessIcon tool={tool} />}
+              </span>
+              <span className="session-row-time">{lastActivity(session, now)}</span>
+            </span>
+          </>}
+        </span>
+      </button>
+      <div className="session-row-actions">
+        <button type="button" className="session-row-more" aria-label={`More actions for ${session.label}`}
+          aria-haspopup="menu" aria-expanded={menuOpen} disabled={!!pendingAction}>
+          <MoreHorizontal size={16} />
+        </button>
+      </div>
+    </>
+  );
+});
 
 interface SessionListPanelProps {
   workspace: WorkspaceInfo | null;
@@ -238,7 +297,17 @@ function SessionListPanel({
                     data-selected={s.id === activeSessionId}
                     aria-busy={pending.has(s.id)}
                     data-attention={tone}
-                    onClick={() => handleSelect(s.id)}
+                    onClick={event => {
+                      const more = (event.target as Element).closest<HTMLButtonElement>(".session-row-more");
+                      if (more) {
+                        event.stopPropagation();
+                        if (more.disabled) return;
+                        const bounds = more.getBoundingClientRect();
+                        openMenu(s, bounds.left, bounds.bottom, more);
+                        return;
+                      }
+                      handleSelect(s.id);
+                    }}
                     onContextMenu={event => { event.preventDefault(); openMenu(s, event.clientX, event.clientY, event.currentTarget.querySelector<HTMLButtonElement>(".session-row-more")); }}
                     onKeyDown={event => {
                       if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
@@ -248,47 +317,10 @@ function SessionListPanel({
                       }
                     }}
                   >
-                    <button type="button" className="session-row-select" tabIndex={-1} aria-pressed={s.id === activeSessionId}>
-                    <span className="session-row-leading">
-                      <span className="session-row-primary">
-                        <StatusIndicator
-                          tone={tone}
-                          label={attentionLabel(attn)}
-                          variant={unread ? "unread" : "status"}
-                        />
-                        <span className="session-row-label">{s.label}</span>
-                      </span>
-                    </span>
-                    <span className="session-row-secondary">
-                      {pending.has(s.id) || resumingSessionIds?.has(s.id) ? (
-                        <span role="status" className="session-row-progress">
-                          <LoaderCircle size={12} className="status-indicator-spin" aria-hidden="true" />
-                          {resumingSessionIds?.has(s.id) ? "Resuming…" : actionProgress[pending.get(s.id)!]}
-                        </span>
-                      ) : <>
-                        {attention && (
-                          <span className="session-row-attention" data-attention={tone}>
-                            {attentionLabel(attn)}
-                          </span>
-                        )}
-                        <span className="session-row-meta">
-                          <span className="session-row-tool" aria-hidden={!tool}>
-                            {tool && <HarnessIcon tool={tool} />}
-                          </span>
-                          <span className="session-row-time">{lastActivity(s, now)}</span>
-                        </span>
-                      </>}
-                    </span>
-                    </button>
-                    <div className="session-row-actions">
-                      <button type="button" className="session-row-more" aria-label={`More actions for ${s.label}`} aria-haspopup="menu" aria-expanded={menu?.session.id === s.id}
-                        disabled={pending.has(s.id)}
-                        onClick={event => {
-                          event.stopPropagation();
-                          const bounds = event.currentTarget.getBoundingClientRect();
-                          openMenu(s, bounds.left, bounds.bottom, event.currentTarget);
-                        }}><MoreHorizontal size={16} /></button>
-                    </div>
+                    <SessionRowContents session={s} selected={s.id === activeSessionId}
+                      unread={unread} attention={attention} tone={tone} statusLabel={attentionLabel(attn)}
+                      tool={tool} now={now} pendingAction={pending.get(s.id)}
+                      resuming={resumingSessionIds?.has(s.id) ?? false} menuOpen={menu?.session.id === s.id} />
                   </li>
                 );
               })}
