@@ -24,6 +24,7 @@ pub(crate) fn resolve_harness_or_generic_shell<'a>(
 /// else its frozen launch-time `cwd`. Shared by `enrich_sessions_with_git_context`
 /// and `detect_conflicts` so git-context enrichment and collision warnings
 /// agree on where a session actually is right now.
+#[cfg(test)]
 pub(crate) fn resolve_effective_cwds(
     sessions: &[SessionInfo],
     reported_cwds: &HashMap<String, String>,

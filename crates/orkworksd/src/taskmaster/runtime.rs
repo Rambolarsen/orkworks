@@ -647,6 +647,7 @@ impl TaskmasterRuntime {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn record_manual_request_disposition(
         &self,
         workspace: &Path,
@@ -789,6 +790,7 @@ impl TaskmasterRuntime {
         Ok(result)
     }
 
+    #[cfg(test)]
     pub(crate) fn replace_settings(&self, settings: TaskmasterSettings) -> Result<(), String> {
         self.replace_settings_with_reconcile(settings, |_, _| Ok(()))
     }

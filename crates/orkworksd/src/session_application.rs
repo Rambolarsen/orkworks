@@ -4012,6 +4012,7 @@ impl SessionApplication {
         resume_session_workflow(self.state.clone(), id, requested_strategy).await
     }
 
+    #[cfg(test)]
     pub(crate) fn report_harness_session(
         &self,
         id: &str,

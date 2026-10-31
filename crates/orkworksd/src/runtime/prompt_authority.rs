@@ -645,6 +645,7 @@ impl PromptAuthorityRegistry {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn epoch(&self, session_id: &str) -> Option<u64> {
         self.sessions
             .lock()

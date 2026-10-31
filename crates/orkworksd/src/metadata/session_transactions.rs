@@ -62,6 +62,7 @@ impl WriteScope {
         attention: true,
         work: false,
     };
+    #[cfg(test)]
     pub(crate) const WORK: Self = Self {
         attention: false,
         work: true,

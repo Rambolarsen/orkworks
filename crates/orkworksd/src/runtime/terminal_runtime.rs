@@ -30,6 +30,7 @@ pub(crate) fn terminal_env_overrides() -> Vec<(String, String)> {
 /// `ORKWORKS_REPORT_TOKEN` so a coding agent inside the session can call
 /// `POST /sessions/:id/workflow-observations` without a harness-specific
 /// protocol.
+#[cfg(test)]
 pub(crate) fn session_env_overrides(
     session_id: &str,
     port: Option<u16>,
@@ -1242,6 +1243,7 @@ pub(crate) fn resolve_windows_program(program: &str) -> String {
 /// racing exit paths (e.g. DELETE handler + kill-signal branch) cannot clobber
 /// the captured ending snapshot or re-open a finalized session. Returns whether
 /// the transition was applied — callers schedule finalization only on `true`.
+#[cfg(test)]
 pub(crate) async fn set_session_status(state: &Arc<AppState>, id: &str, status: &str) -> bool {
     set_session_status_inner(state, id, None, status).await
 }

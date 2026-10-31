@@ -1602,6 +1602,7 @@ impl MetadataStore {
         write_atomic(&path, &json)
     }
 
+    #[cfg(test)]
     pub fn write_session(&self, meta: &SessionMetadata) {
         if let Err(e) = self.try_write_session(meta) {
             warn!("failed to write session {}: {e}", meta.id);
