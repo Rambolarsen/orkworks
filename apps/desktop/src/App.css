@@ -2801,7 +2801,7 @@ html, body, #root {
   max-height: calc(100vh - var(--titlebar-height) - var(--space-5) * 2);
   overflow-y: auto;
   box-sizing: border-box;
-  background: color-mix(in srgb, var(--surface-2) 92%, transparent);
+  background: color-mix(in srgb, var(--surface-2) 82%, transparent);
   border: 1px solid color-mix(in srgb, var(--border-default) 75%, transparent);
   border-radius: var(--radius-modal);
   padding: var(--space-6);
