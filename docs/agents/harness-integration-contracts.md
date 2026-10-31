@@ -385,6 +385,16 @@ Redirects, failed proxies and invalid responses never trigger direct/file
 fallback. Omit the option for unchanged direct access; ambient proxy variables
 remain ignored. Automatic bootstrap callers do not select this option yet.
 
+For the narrow `worktree` command, the owner-approved 2026-10-31 transport
+amendment qualifies Codex's runtime-injected `HTTP_PROXY` only when
+`CODEX_NETWORK_PROXY_ACTIVE=1`. The URL must pass the same strict loopback
+grammar; a present lowercase `http_proxy` must match uppercase exactly. Missing,
+invalid or ambiguous managed URLs fail before any request. Unmarked ambient
+settings remain ignored, explicit `--http-proxy` takes precedence, and a selected
+relay failure never falls back to direct access. These inherited runtime inputs
+are trusted environment provenance, not proof against environment replacement.
+This does not activate automatic routing for bootstrap/get/patch.
+
 This is source helper support under the [approved proxy design](../superpowers/specs/2026-10-24-sandbox-metadata-proxy-design.md).
 Installed distributions must receive the updated helper through normal Settings
 reconciliation before this syntax is available there. API-only launch markers,

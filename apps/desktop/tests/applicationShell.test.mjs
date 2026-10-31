@@ -26,7 +26,35 @@ if (process.versions.electron) {
       await fresh();
       const scenario = process.env.ORKWORKS_SHELL_SCENARIO;
       const click = async command => evaluate('(()=>{const b=document.querySelector("[data-shell-command=' + command + ']");b.focus();b.click()})()');
-      if (scenario === 'app-skills-picker') {
+      if (scenario === 'session-title') {
+        await click('details');
+        await waitFor('document.querySelector(".session-title-current button")');
+        await evaluate('document.querySelector(".session-title-current button").click()');
+        await waitFor('document.querySelector(".session-title-editor input")');
+        await evaluate('document.querySelector(".session-title-editor input").select()');
+        await win.webContents.insertText('Repair login redirect');
+        await evaluate('document.querySelector(".session-title-editor form").requestSubmit()');
+        await waitFor('document.querySelector(".session-title-current").textContent.includes("Repair login redirect")');
+        assert.deepEqual(await evaluate('fixture.titleRequests'), [{sessionId:'coding',workspaceIdentity:'/tmp/test',action:'set',title:'Repair login redirect'}]);
+        await evaluate('document.querySelector(".session-title-current button").click()');
+        await evaluate('Array.from(document.querySelectorAll(".session-title-editor button")).find(b=>b.textContent==="Cancel").click()');
+        assert.equal(await evaluate('fixture.titleRequests.length'),1,'cancel never changes the title');
+        await evaluate('document.querySelector(".session-title-current button").click()');
+        await evaluate('Array.from(document.querySelectorAll(".session-title-editor button")).find(b=>b.textContent==="Use automatic title").click()');
+        await waitFor('document.querySelector(".session-title-current").textContent.includes("Automatic login topic")');
+        assert.equal(await evaluate('fixture.titleRequests.at(-1).action'),'automatic');
+        await evaluate('fixture.deferTitle=true;document.querySelector(".session-title-current button").click()');
+        await evaluate('document.querySelector(".session-title-editor input").select()');
+        await win.webContents.insertText('Old session title');
+        await evaluate('document.querySelector(".session-title-editor form").requestSubmit()');
+        await waitFor('!!fixture.finishTitle');
+        await evaluate('fixture.select("other")');
+        await waitFor('document.querySelector(".session-title-current").textContent.includes("other")');
+        await evaluate('fixture.finishTitle()');
+        assert.equal(await evaluate('document.querySelector(".session-title-current").textContent.includes("Old session title")'),false);
+        assert.deepEqual(await evaluate('fixture.errors'), []);
+        return;
+      } else if (scenario === 'app-skills-picker') {
         await waitFor('document.querySelector(".workspace-picker-screen")');
         assert.equal(await evaluate('Array.from(document.querySelectorAll(".workspace-picker-screen button")).some(button => button.textContent.trim() === "Skills")'), false);
         assert.equal(await evaluate('!!document.querySelector(".workspace-picker-screen .workspace-history-other-folder")'), true);
@@ -1635,7 +1663,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['app-skills-picker','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['session-title','app-skills-picker','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
@@ -1674,6 +1702,8 @@ if (process.versions.electron) {
             return value;
           };
           window.orkworks.openSessionApp=async(...args)=>{if(fixture.nativeFailure)throw new Error('App refused');fixture.nativeOpened.push(args)};
+          fixture.titleRequests=[];
+          window.orkworks.sessionTitle=async request=>{fixture.titleRequests.push(request);if(fixture.deferTitle)await new Promise(resolve=>fixture.finishTitle=resolve);return {title:request.action==='automatic'?'Automatic login topic':request.title,automatic:request.action!=='set'}};
           window.orkworks.pinWorkspacePath=async()=>{fixture.pins++;return {pinned:[],recent:['/tmp/test','/tmp/other'],diagnostic:null}};
           window.orkworks.readGitChanges=async request=>{
             if(request.kind==='bases'){if(fixture.deferBases)await new Promise(resolve=>fixture.finishBases=resolve);return {refs:['refs/heads/main'],defaultRef:'refs/heads/main',limited:false,unavailableReason:null};}
@@ -1777,7 +1807,7 @@ if (process.versions.electron) {
               onCancelNewSession={()=>setCreating(false)} backendStatus={backendStatus} sessionsSourceStatus={sessionsSourceStatus} taskmasterReady={['actions-sources','recommendation-status-error'].includes(${JSON.stringify(scenario)})} onOpenRecommendation={id=>fixture.openedRecommendations.push(id)} onFixWithAi={()=>fixture.prompts++} onRunCleanup={()=>fixture.prompts++} harnesses={[]} debugSettings={{showSessionIds:false}}
               commandRequest={commandRequest} preferences={preferences} onPreferencesChange={setPreferences} onResetPreferences={()=>new Promise(resolve=>{fixture.finishReset=resolve})}
               inspector={inspector} onInspect={setInspector} unreadIds={new Set(${JSON.stringify(scenario)}==='actions'?['other']:[])} acknowledgedIds={new Set()}
-              visibleSubjectId={'resume-session'===${JSON.stringify(scenario)}?activeSessionId:undefined} resumingSessionIds={resumingSessionIds} onResumeSession={(id,strategy)=>fixture.resumed.push({id,strategy})} onSelectSession={id=>{fixture.selections++;if(${JSON.stringify(scenario)}.endsWith('-main'))setInspector(null);setActiveSessionId(id)}} onFocusTerminal={()=>fixture.runtime()?.terminal.focus()} onBackendUnavailable={()=>{}} />;
+              visibleSubjectId={['resume-session','session-title'].includes(${JSON.stringify(scenario)})?activeSessionId:undefined} resumingSessionIds={resumingSessionIds} onResumeSession={(id,strategy)=>fixture.resumed.push({id,strategy})} onSelectSession={id=>{fixture.selections++;if(${JSON.stringify(scenario)}.endsWith('-main'))setInspector(null);setActiveSessionId(id)}} onFocusTerminal={()=>fixture.runtime()?.terminal.focus()} onBackendUnavailable={()=>{}} />;
           }
           createRoot(document.getElementById('root')).render(${JSON.stringify(scenario)}.startsWith('preferences-')?<PreferencesHarness/>:${JSON.stringify(scenario)}.startsWith('app-')?<App/>:<Harness/>);
         `, resolveDir: root, loader: 'tsx' },
@@ -1790,7 +1820,7 @@ if (process.versions.electron) {
           builder.onLoad({filter:/.*/,namespace:'no-gpu'},()=>({contents:'export class WebglAddon { constructor(){throw new Error("GPU unavailable in headless fixture")} }',loader:'js'}));
           // Panel bodies connect to the backend/PTY; retain real React shell and terminal ownership.
           builder.onResolve({ filter: /^\.\/(SessionDetailPanel|RecommendationsPanel)$/ },
-            args => ((scenario.startsWith('app-review') || scenario === 'resume-session') && args.path === './SessionDetailPanel') || (['inspector-overlay','recommendation-status-error'].includes(scenario) && args.path === './RecommendationsPanel') ? undefined : ({ path: args.path, namespace: 'empty-panel' }));
+            args => ((scenario.startsWith('app-review') || ['resume-session','session-title'].includes(scenario)) && args.path === './SessionDetailPanel') || (['inspector-overlay','recommendation-status-error'].includes(scenario) && args.path === './RecommendationsPanel') ? undefined : ({ path: args.path, namespace: 'empty-panel' }));
           builder.onLoad({ filter: /.*/, namespace: 'empty-panel' },
             () => ({ contents: 'export default function Panel(){return null}', loader: 'tsx', resolveDir: root }));
 

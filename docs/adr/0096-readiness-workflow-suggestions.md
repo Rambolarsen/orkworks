@@ -48,7 +48,7 @@ or availability in a published installer.
 
 ## Partial supersession on 2026-10-30
 
-Accepted [ADR 0098](0098-score-directed-readiness-improvements.md) supplies scored
+Accepted [ADR 0100](0100-score-directed-readiness-improvements.md) supplies scored
 areas as investigation pointers and budget-feasible readiness preferences. It
 supersedes the concrete plan's score-input exclusion only; this ADR's independent
 evidence, score/history, authority, call ceiling and recovery decisions remain.

@@ -20,3 +20,4 @@ pub(crate) mod session_metadata_handlers;
 pub(crate) mod git_changes_handlers;
 
 pub(crate) mod readiness_handlers;
+pub(crate) mod session_title_handlers;

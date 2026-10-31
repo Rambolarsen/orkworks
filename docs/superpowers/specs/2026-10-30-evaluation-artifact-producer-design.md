@@ -415,3 +415,62 @@ retention, packing and fault oracles. Physical/native/allocator/read/worker/maxi
 profile and #740 qualification need separate approved executable plans. No
 production schema, adapter, runtime or source-valid transaction is delivered by
 this proposal. Keep #1176/#741/#744/#746 open for their applicable remaining gates.
+
+
+## Owner acceptance and Gate 2 handoff — 2026-10-30
+
+After the concrete proposal/limits and its no-purge/no-reset costs were presented,
+the owner said “go ahead”. This records scoped acceptance of the reviewed choices
+in merged PR #1181 (`11c99357809f24f3282846d3a60e7fa82f12175f`), exact reviewed
+head `4db4f144b45c60e750b1249c37c25256f0746918`, for further source/authority
+closure and qualification:
+
+- The closed metadata artifact object/domain and immutable producer/declaration
+  stream mapping, with shared exact evaluation content and reciprocal custody.
+  Connected target/reviewer history cannot be purged individually in this slice;
+  no permanent saturation recovery or automatic deletion is supplied.
+- Distinct new-store-only format 4, explicit header/manifest/row version/domains,
+  closed-profile selection, unchanged existing source/request/receipt/ClaimProofV2
+  domains and no old-store migration/adoption.
+- Separate producing-assignment/run/workspace retained artifact limits of
+  8/32/64 MiB and cumulative artifact read-work limits of 16/64/128 MiB, inclusive,
+  with zero future reservation, retained occurrence accounting and no read-work
+  refund/reset. The reviewed metadata/stream bounds and bounded capacity/error
+  policy are included; no prior record/payload/receipt/store limit is raised.
+- The exact internal read-work precharge boundary, explicitly without extending
+  the write claim-first exception or using a charge as a read grant. Its native
+  current-authority/physical-commit ordering remains unqualified.
+- One active-or-retiring artifact materializer and a 4 MiB aggregate budget per
+  sidecar instance, including retiring-workspace buffers, no queued materializers,
+  replacement worker or staging files; existing reserved UI lanes remain separate.
+
+This supersedes earlier proposed/owner-review-required status for these named
+choices only. It changes no reviewed definition, value, byte codec or authority
+rule. The [source/authority closure audit](../../validation/evaluation-artifact-source-closure.md)
+starts the next gate and records concrete prerequisites
+[#1183](https://github.com/Rambolarsen/orkworks/issues/1183) and
+[#1184](https://github.com/Rambolarsen/orkworks/issues/1184).
+Gate 1 in the [qualification handoff](../plans/2026-10-30-evaluation-artifact-qualification.md)
+is complete. Gate 2 is **Investigate**, not passed: retained child preparation/
+configuration/consumer codecs and read-work reservation authority still need
+closure before dependent complete-state/manifest/packing fixtures.
+
+No broader #741/#742/#744/#746 lifecycle/component acceptance, complete format-4
+catalog/source profile, native mechanism, eligible adapter, database/migration,
+dependent format-4 fixture/checker creation or execution, live model/native probe
+or executable/runtime plan is
+approved here. New source-codec or authority choices still need scoped owner
+review. Keep #1176 and owning component issues open for their remaining gates.
+
+
+## Proposed retained child source follow-up — 2026-10-31
+
+The [child source/preparation proposal](2026-10-31-child-review-source-preparation-design.md)
+and [gated handoff](../plans/2026-10-31-child-review-source-qualification.md) address
+#1183 with a bounded single-task retained-data slice, exact source/configuration/
+input/approval/reservation/allocation/attachment joins, fresh preparation and source
+consumer retention. Its new child/plan/leaf/source codecs, resource and profile
+choices need scoped owner review before dependent fixtures. Existing technical
+contracts, artifact acceptance, identity/wire domains and all catalogs/checkers are
+unchanged. This does not pass artifact Gate 2, qualify underlying control/native
+sources or widen claim-first; #1184/#740 and executable plans remain separate.

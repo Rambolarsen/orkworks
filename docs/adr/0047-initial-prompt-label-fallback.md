@@ -7,7 +7,8 @@ tags: ["orkworks", "architecture"]
 
 # Initial-prompt labels are replaceable bootstrap fallbacks
 
-- Status: accepted
+- Status: superseded in part by [ADR 0098](./0098-contextual-session-titles.md);
+  bootstrap handoff and stale-bootstrap protection remain accepted.
 - Deciders: Rambolarsen
 - Date: 2026-09-05
 

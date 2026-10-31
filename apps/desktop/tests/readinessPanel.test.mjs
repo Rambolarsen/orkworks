@@ -123,3 +123,28 @@ test('a completed suggestion is surfaced once across status refreshes', async t 
  view.render(); await view.settle();
  assert.deepEqual(surfaced, ['recommendation-one']);
 });
+
+
+test('each source click reopens its saved assessment without polling overriding manual selection', async t => {
+ const source = snapshot(), other = snapshot(); other.id = 'other';
+ const initial = status([other, source]);
+ let scrolls = 0;
+ const prior = globalThis.document;
+ globalThis.document = { getElementById: () => ({ scrollIntoView: () => scrolls++ }) };
+ t.after(() => globalThis.document = prior);
+ const props = { requestedSnapshot: { snapshotId: source.id } };
+ const view = await fixture(t, initial, props);
+ view.render(); await view.settle();
+ assert.equal(view.summary().id, source.id);
+ const chooseOther = () => nodes(view.render()).find(node => node.type === 'select').props.onChange({ target: { value: other.id } });
+ chooseOther(); assert.equal(view.summary().id, other.id);
+ props.requestedSnapshot = { snapshotId: source.id };
+ view.render(); await view.settle();
+ assert.equal(view.summary().id, source.id);
+ assert.equal(scrolls, 2);
+ chooseOther();
+ view.queue.push(Promise.resolve(structuredClone(initial))); view.tick(); await view.settle();
+ view.render(); await view.settle();
+ assert.equal(view.summary().id, other.id);
+ assert.equal(scrolls, 2);
+});

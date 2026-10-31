@@ -140,8 +140,14 @@ the binding when appropriate. Do not change another session, print inherited
 credentials, edit metadata files, or weaken sandbox policy if reporting fails.
 If the helper or capability is unavailable, report that limitation and continue
 the authorized development work; do not claim OrkWorks has followed the worktree.
-Use an explicit trusted proxy only when already configured/authorized for the
-metadata helper; never infer one from ambient proxy variables.
+The current helper automatically selects Codex's runtime `HTTP_PROXY` for
+`worktree` only when `CODEX_NETWORK_PROXY_ACTIVE=1` qualifies it and the strict
+loopback URL validation passes. A present lowercase `http_proxy` must match.
+Unmarked proxy variables remain ignored; selected-relay failure never falls
+back. Older installed helpers still require explicit `--http-proxy` with the
+verified, owner-authorized relay. Never infer trust from a loopback URL alone.
+The source transport amendment does not establish that a running install has
+received the helper; use normal integration reconciliation for installation.
 
 ## While the work is in flight
 

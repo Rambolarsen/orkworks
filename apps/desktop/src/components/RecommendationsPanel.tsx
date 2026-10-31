@@ -263,8 +263,8 @@ function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePat
   const [assessmentBusy, setAssessmentBusy] = useState(false);
   const [readinessBusy, setReadinessBusy] = useState(false);
   const [readinessSnapshots, setReadinessSnapshots] = useState<ReadinessSnapshot[]>([]);
-  const [readinessSourceId, setReadinessSourceId] = useState<string>();
-  useEffect(() => { setReadinessSnapshots([]); setReadinessSourceId(undefined); }, [workspacePath]);
+  const [readinessSource, setReadinessSource] = useState<{ snapshotId: string }>();
+  useEffect(() => { setReadinessSnapshots([]); setReadinessSource(undefined); }, [workspacePath]);
   const [assessmentMessage, setAssessmentMessage] = useState<string>();
   const [assessmentError, setAssessmentError] = useState<string>();
   const [auditBusy, setAuditBusy] = useState(false);
@@ -664,7 +664,7 @@ function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePat
           <button type="button" disabled={!hasWorkspace || !taskmasterReady} onClick={() => void refresh()}>Reload</button>
         </div>
       </div>
-      {workspacePath && taskmasterReady && <ReadinessPanel onHistory={setReadinessSnapshots} requestedSnapshotId={readinessSourceId} key={workspacePath} workspacePath={workspacePath} disabled={analysisBusy || assessmentBusy || Boolean(currentRunStatus?.activeAttempt)} onBusyChange={setReadinessBusy} onSuggestion={(id) => { void refresh(); if (id) setOriginFilter("analysis"); }} />}
+      {workspacePath && taskmasterReady && <ReadinessPanel onHistory={setReadinessSnapshots} requestedSnapshot={readinessSource} key={workspacePath} workspacePath={workspacePath} disabled={analysisBusy || assessmentBusy || Boolean(currentRunStatus?.activeAttempt)} onBusyChange={setReadinessBusy} onSuggestion={(id) => { void refresh(); if (id) setOriginFilter("analysis"); }} />}
       {hasWorkspace && taskmasterReady && <TaskmasterAnalysisStatus
         status={currentRunStatus}
         requesting={analysisBusy}
@@ -715,7 +715,7 @@ function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePat
           key={recommendation.id}
           recommendation={recommendation}
           readinessSnapshots={readinessSnapshots}
-          onOpenReadiness={setReadinessSourceId}
+          onOpenReadiness={(snapshotId) => setReadinessSource({ snapshotId })}
           onDismiss={dismiss}
           onSelectSession={onSelectSession}
           onFixWithAi={onFixWithAi}

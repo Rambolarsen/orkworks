@@ -15,6 +15,12 @@ workflow_status: approved
 - Date: 2026-10-30
 - Implementation and checks: [score-directed readiness plan](../superpowers/plans/2026-10-30-score-directed-readiness.md)
 
+
+Numbering note (2026-10-31): this decision was originally approved as ADR 0098.
+It was renumbered to ADR 0100 when the main branch independently merged the
+contextual-session-titles ADR 0098. The approval and decision are unchanged;
+ADR 0099's evidence-first follow-up retains its existing number.
+
 ## Context and evidence
 
 The owner wants concrete changes that improve agent readiness, rather than a

@@ -103,10 +103,19 @@ full protocol detail.
 The owner-approved [explicit helper proxy transport](../superpowers/specs/2026-10-24-sandbox-metadata-proxy-design.md)
 permits a caller-selected trusted loopback HTTP relay for the metadata helper.
 The relay can observe its bearer token. Direct mode still ignores ambient proxy
-variables; automatic launch selection and all metadata/attention qualification
-gates remain unchanged. See the [helper proxy contract](harness-integration-contracts.md#explicit-metadata-helper-proxy).
+variables except the narrow owner-approved worktree command: the qualified
+Codex managed-runtime marker and strict loopback URL select its relay, with no
+failure fallback. General metadata commands and all metadata/attention
+qualification gates remain unchanged. See the [helper proxy contract](harness-integration-contracts.md#explicit-metadata-helper-proxy).
 
 ## Session organization
+
+Session title ownership is independent of attention source priority. Desktop
+title set/restore operations require the existing desktop token and expected
+canonical workspace. Manual titles persist until explicitly restored to automatic
+naming, including across conversation resets; late Peon/native work cannot
+replace them. Output activity summaries never become live titles. Native Codex
+refresh and one bounded contextual Peon refinement follow [ADR 0098](../adr/0098-contextual-session-titles.md).
 
 The accepted [archive design](../superpowers/specs/2026-10-18-session-archive.md)
 and [ADR 0088](../adr/0088-session-archive-state.md) add Active, Closed and Archived

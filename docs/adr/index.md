@@ -120,6 +120,8 @@ Decision records and their original rationale and consequences.
 
 - [0097: Desktop-owned skill management](0097-desktop-skill-management.md) — Accepted Electron-main inventory and qualified APM install boundary.
 
-- [0098: Score-directed readiness improvements](0098-score-directed-readiness-improvements.md) — Approved feasible evidence admission and grounded capability-improvement suggestions; implementation in progress.
+- [Contextual session titles](0098-contextual-session-titles.md) — Stable topics with native updates and user ownership.
+
+- [0100: Score-directed readiness improvements](0100-score-directed-readiness-improvements.md) — Approved feasible evidence admission and grounded capability-improvement suggestions; implementation in progress.
 
 - [Readiness evidence before candidates](0099-readiness-evidence-before-candidates.md) — Approved #1175 evidence-first investigation after two independently failed fixed sets; live qualification remains separate.

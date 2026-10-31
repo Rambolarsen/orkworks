@@ -7,7 +7,7 @@ use crate::harness::{ResumeMemory, ResumeState, ResumeStrategy};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::SystemTime;
@@ -386,6 +386,9 @@ pub struct SessionMetadata {
         skip_serializing_if = "is_false"
     )]
     pub label_from_initial_prompt: bool,
+    /// One contextual Peon refinement per conversation topic (ADR 0098).
+    #[serde(rename = "labelContextRefined", default)]
+    pub label_context_refined: bool,
     pub workspace: String,
     pub task: String,
     #[serde(rename = "harnessId", alias = "harness", default)]
@@ -886,6 +889,7 @@ pub(crate) fn assert_session_metadata_serializes_connectivity_terminal_outcome_a
         label: "Test".into(),
         label_source: LabelSource::Legacy,
         label_from_initial_prompt: false,
+        label_context_refined: false,
         workspace: "/tmp".into(),
         task: String::new(),
         harness: String::new(),
@@ -2628,13 +2632,16 @@ impl MetadataStore {
         let path = self.terminal_output_path(id);
         let existing_len = fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0);
         let versioned = existing_len > 0 && terminal_output_is_versioned(&path);
-        let mut file = match fs::OpenOptions::new().create(true).append(true).open(&path) {
+        let file = match fs::OpenOptions::new().create(true).append(true).open(&path) {
             Ok(f) => f,
             Err(e) => {
                 warn!("failed to open terminal output file for {id}: {e}");
                 return;
             }
         };
+        // Coalesce the per-record text and delimiter writes, but publish the
+        // batch before checking retention or allowing another workspace user.
+        let mut file = BufWriter::new(file);
         if existing_len == 0 {
             if file
                 .write_all(format!("{TERMINAL_OUTPUT_FILE_MARKER}\n").as_bytes())
@@ -2658,10 +2665,14 @@ impl MetadataStore {
                 return;
             }
         }
+        if let Err(e) = file.flush() {
+            warn!("failed to flush terminal output for {id}: {e}");
+            return;
+        }
         // Inline trim once the file exceeds either budget. Bytes are checked
         // directly because a fixed bytes-per-line estimate cannot bound large
         // records; lines are counted with a bounded streaming read.
-        let len_hint = file.metadata().map(|m| m.len()).unwrap_or(0);
+        let len_hint = file.get_ref().metadata().map(|m| m.len()).unwrap_or(0);
         drop(file);
         let content_len_hint = if versioned || existing_len == 0 {
             len_hint.saturating_sub(format!("{TERMINAL_OUTPUT_FILE_MARKER}\n").len() as u64)
@@ -2857,7 +2868,9 @@ fn terminal_output_exceeds_line_limit(path: &Path, max_lines: usize) -> bool {
     let Ok(file) = fs::File::open(path) else {
         return false;
     };
-    let mut reader = BufReader::new(file);
+    // Scan without copying every record into a growing temporary line. The
+    // larger read buffer amortizes filesystem reads for near-budget histories.
+    let mut reader = BufReader::with_capacity(64 * 1024, file);
     let mut line = Vec::new();
     let count = match reader.read_until(b'\n', &mut line) {
         Ok(0) | Err(_) => return false,
@@ -2865,8 +2878,7 @@ fn terminal_output_exceeds_line_limit(path: &Path, max_lines: usize) -> bool {
         Ok(_) => 1,
     };
     for _ in count..=max_lines {
-        line.clear();
-        match reader.read_until(b'\n', &mut line) {
+        match reader.skip_until(b'\n') {
             Ok(0) => return false,
             Ok(_) => {}
             Err(_) => return false,
@@ -3157,6 +3169,7 @@ mod tests {
             label: "Test".into(),
             label_source: LabelSource::Legacy,
             label_from_initial_prompt: false,
+            label_context_refined: false,
             workspace: "/tmp".into(),
             task: "".into(),
             harness: "".into(),
@@ -3799,6 +3812,7 @@ mod tests {
             label: "Session abc12345".into(),
             label_source: LabelSource::Legacy,
             label_from_initial_prompt: false,
+            label_context_refined: false,
             workspace: "/tmp".into(),
             task: "".into(),
             harness: "".into(),
@@ -3955,6 +3969,7 @@ mod tests {
             label: "Test".into(),
             label_source: LabelSource::Legacy,
             label_from_initial_prompt: false,
+            label_context_refined: false,
             workspace: "/tmp".into(),
             task: "".into(),
             harness: "".into(),
@@ -4697,6 +4712,7 @@ mod tests {
             label: "Test".into(),
             label_source: LabelSource::Legacy,
             label_from_initial_prompt: false,
+            label_context_refined: false,
             workspace: "/tmp".into(),
             task: "".into(),
             harness: "".into(),
@@ -6113,6 +6129,66 @@ mod tests {
         }
     }
 
+    /// Run explicitly with --ignored --nocapture in an optimized test build.
+    #[test]
+    #[ignore = "manual terminal-history append benchmark"]
+    fn terminal_output_append_benchmark() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let application = crate::session_application::SessionApplication::new(state.clone());
+        let path = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .terminal_output_path("append-bench");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        for width in [128, 1024] {
+            let seed = format!(
+                "{TERMINAL_OUTPUT_FILE_MARKER}\n{}",
+                format!(
+                    "{}\n",
+                    encode_terminal_output_record(&TerminalOutputRecord::raw(
+                        "x".repeat(width),
+                        "\n"
+                    ))
+                )
+                .repeat(750)
+            );
+            for batch_size in [1, 32] {
+                let records = vec![TerminalOutputRecord::raw("new output", "\n"); batch_size];
+                let mut samples = Vec::new();
+                for _ in 0..7 {
+                    fs::write(&path, &seed).unwrap();
+                    let start = Instant::now();
+                    for _ in 0..100 {
+                        application
+                            .append_terminal_output_batch("append-bench", black_box(&records));
+                    }
+                    samples.push(start.elapsed().as_secs_f64() * 1e6 / 100.0);
+                }
+                samples.sort_by(f64::total_cmp);
+                println!(
+                    "history_record_bytes={width} batch_records={batch_size} median_us={:.2}",
+                    samples[3]
+                );
+                if let Ok(budget) = std::env::var("ORKWORKS_APPEND_BENCH_MAX_US") {
+                    let budget: f64 = budget.parse().expect("benchmark budget in microseconds");
+                    assert!(
+                        samples[3] < budget,
+                        "append median {:.2} us exceeds {budget} us",
+                        samples[3]
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn terminal_output_round_trip_and_trim() {
         let dir = tempfile::tempdir().unwrap();
@@ -6391,6 +6467,35 @@ mod tests {
 
         assert!(!tail.discarded);
         assert_eq!(tail.lines.len(), 5);
+    }
+
+    #[test]
+    fn terminal_output_line_limit_counts_legacy_records_and_excludes_only_the_marker() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history.terminal");
+        for (content, limit, exceeds) in [
+            ("", 0, false),
+            ("one", 0, true),
+            ("one\n", 1, false),
+            ("one\ntwo", 1, true),
+            ("one\ntwo\n", 2, false),
+            ("\n\n", 1, true),
+            ("\u{001e}orkworks-terminal-v1\n", 0, false),
+            ("\u{001e}orkworks-terminal-v1\none\n", 1, false),
+            ("\u{001e}orkworks-terminal-v1\none\ntwo", 1, true),
+            ("\u{001e}orkworks-terminal-v1-extra\none\n", 1, true),
+        ] {
+            fs::write(&path, content).unwrap();
+            assert_eq!(
+                terminal_output_exceeds_line_limit(&path, limit),
+                exceeds,
+                "content={content:?}, limit={limit}"
+            );
+        }
+        // A record spanning multiple read buffers must still count as one.
+        fs::write(&path, format!("{}\ntwo", "x".repeat(128 * 1024))).unwrap();
+        assert!(!terminal_output_exceeds_line_limit(&path, 2));
+        assert!(terminal_output_exceeds_line_limit(&path, 1));
     }
 
     #[test]

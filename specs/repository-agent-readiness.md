@@ -428,7 +428,7 @@ evidence do not establish availability in a published installer.
 ## Accepted score-directed improvements (#1175)
 
 The owner clarified on 2026-10-30 that recommendations should identify concrete
-changes to improve assessed agent-readiness capabilities. [ADR 0098](../docs/adr/0098-score-directed-readiness-improvements.md)
+changes to improve assessed agent-readiness capabilities. [ADR 0100](../docs/adr/0100-score-directed-readiness-improvements.md)
 and its [implementation plan](../docs/superpowers/plans/2026-10-30-score-directed-readiness.md)
 define feasible readiness evidence preferences and score-directed investigation
 with independently grounded proposals. The owner approved the concrete contract and implementation on 2026-10-30.

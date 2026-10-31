@@ -31,12 +31,19 @@ The user-facing UI may call the selected CLI application a **Coding tool**, but 
 
 ## SessionMetadata
 
+`labelContextRefined` defaults false and records one successful contextual Peon
+title refinement per topic. Bootstrap handoff, conversation reset and explicit
+restoration of automatic naming clear it. Manual title operations use existing
+`labelSource: user`, preserve activity/attention/native identity, and invalidate
+queued label work. Native Codex title refresh remains available on subsequent
+authenticated exact-identity reports. See [ADR 0098](../adr/0098-contextual-session-titles.md).
+
 File: `crates/orkworksd/src/metadata.rs`
 
 `SessionMetadata` is the persisted record read from and written to `~/.orkworks/workspaces/<hash>/sessions/<id>.json`. It is a flat, serde-mapped struct — not an aggregate with behavior. Notable fields:
 
 - `id`, `workspace`, `task`, `cwd`
-- `label` — the session's display title, with persisted `labelSource` provenance, not the turn-by-turn activity in `summary`. New sessions begin with a placeholder, bootstrap prompt, or terminal-input source; Peon may refine its automatic topic, and authenticated Codex reports may replace automatic sources when the native thread provides a name/title. A future explicit user source wins. Sessions written before `labelSource` existed deserialize as `legacy` and are preserved from native replacement because their provenance is unknown (ADR 0063). A descriptive New Session dialog prompt is an immediate bootstrap fallback; the first later descriptive terminal input may replace that fallback once (ADR 0047).
+- `label` — the session's display title, with persisted `labelSource` provenance, not the turn-by-turn activity in `summary`. New sessions begin with a placeholder, bootstrap prompt, or terminal-input source; Peon may refine its automatic topic, and authenticated Codex reports may replace automatic sources when the native thread provides a name/title. An explicit user rename wins until automatic naming is restored. Sessions written before `labelSource` existed deserialize as `legacy` and are preserved from native replacement because their provenance is unknown (ADR 0063). A descriptive New Session dialog prompt is an immediate bootstrap fallback; the first later descriptive terminal input may replace that fallback once (ADR 0047).
 - `harness: String` (serialized `harnessId`, aliased from legacy `harness`)
 - `model: String` (serialized `modelId`, aliased from legacy `model`)
 - `status: String` — process/terminal state (see vocabulary below)
@@ -217,7 +224,7 @@ durable summary-checkpoint mechanism superseded ADR 0024 added to the event
 log. `label` (ADR 0029, extended by ADR 0063) remains outside this snapshot
 and outside the `metadata_source`/`metadata_confidence` precedence system;
 its `labelSource` provenance lets automatic Peon and Codex title updates
-coexist with future explicit user labels.
+coexist with explicit user labels.
 
 A new, independent record type, `WorkflowObservation`, answers "what made
 this work harder than necessary?" rather than "what is happening now?":

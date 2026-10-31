@@ -4297,6 +4297,7 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
                 text: "hello".into(),
                 epoch: 0,
                 from_initial_prompt: false,
+                context: Vec::new(),
             },
         );
         state

@@ -236,7 +236,7 @@ to replace a failed sample.
 
 ## Scoped follow-up approved 2026-10-30
 
-[ADR 0098](../../adr/0098-score-directed-readiness-improvements.md) supersedes the
+[ADR 0100](../../adr/0100-score-directed-readiness-improvements.md) supersedes the
 score-input exclusion above with scored-area investigation pointers. The existing
 repository grounding, authority and four-call limits remain. Its implementation
 is tracked separately in [#1175](https://github.com/Rambolarsen/orkworks/issues/1175).

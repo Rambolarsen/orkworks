@@ -6,7 +6,7 @@ interface Props {
   workspacePath: string;
   disabled: boolean;
   onBusyChange: (busy: boolean) => void;
-  requestedSnapshotId?: string;
+  requestedSnapshot?: { snapshotId: string };
   onHistory?: (snapshots: ReadinessSnapshot[]) => void;
   onSuggestion?: (recommendationId: string | null) => void;
 }
@@ -22,7 +22,7 @@ function snapshotOptions(snapshots: ReadinessSnapshot[]) {
   </option>);
 }
 
-export default function ReadinessPanel({ workspacePath, disabled, onBusyChange, onSuggestion, onHistory, requestedSnapshotId }: Props) {
+export default function ReadinessPanel({ workspacePath, disabled, onBusyChange, onSuggestion, onHistory, requestedSnapshot }: Props) {
   const [status, setStatus] = useState<ReadinessStatus | null>(null);
   const [error, setError] = useState<string>();
   const [message, setMessage] = useState<string>();
@@ -68,15 +68,15 @@ export default function ReadinessPanel({ workspacePath, disabled, onBusyChange, 
     };
   }, [workspacePath]);
 
-  const openedSource = useRef<string | undefined>(undefined);
+  const openedSource = useRef<Props['requestedSnapshot']>(undefined);
   useEffect(() => {
-    if (requestedSnapshotId && openedSource.current !== requestedSnapshotId && status?.snapshots.some(snapshot => snapshot.id === requestedSnapshotId && !snapshot.redacted)) {
-      openedSource.current = requestedSnapshotId;
-      setSelectedId(requestedSnapshotId);
+    if (requestedSnapshot && openedSource.current !== requestedSnapshot && status?.snapshots.some(snapshot => snapshot.id === requestedSnapshot.snapshotId && !snapshot.redacted)) {
+      openedSource.current = requestedSnapshot;
+      setSelectedId(requestedSnapshot.snapshotId);
       setBaselineId(null);
       document.getElementById('readiness-history')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
-  }, [requestedSnapshotId, status?.snapshots]);
+  }, [requestedSnapshot, status?.snapshots]);
 
   const suggestion = status?.suggestionRun;
   const suggestionActive = suggestion?.state === 'queued' || suggestion?.state === 'running';

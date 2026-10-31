@@ -12,7 +12,7 @@ workflow_status: approved
 - Status: accepted; owner approved implementation on 2026-10-31 ("go ahead"). No additional live provider calls are included.
 - Tracking: [#1175](https://github.com/Rambolarsen/orkworks/issues/1175), draft PR #1178.
 - Scope: partially supersedes the combined suggestion-stage discovery in
-  [ADR 0098](0098-score-directed-readiness-improvements.md), leaving standalone
+  [ADR 0100](0100-score-directed-readiness-improvements.md), leaving standalone
   workflow discovery and all score/approval authority unchanged.
 - Delivery: [the existing plan's approved follow-up](../superpowers/plans/2026-10-30-score-directed-readiness.md#approved-evidence-first-follow-up-adr-0099).
 

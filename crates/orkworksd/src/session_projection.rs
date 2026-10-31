@@ -1,6 +1,8 @@
 use crate::git;
 use crate::metadata;
+#[cfg(test)]
 use crate::plan_handoff::resolve_openable_plan_reference;
+use crate::plan_handoff::PlanAvailabilityResolver;
 use crate::session_types::SessionInfo;
 use crate::session_view::{
     detect_conflicts, merge_live_session_info, resolve_harness_or_generic_shell,
@@ -121,11 +123,10 @@ impl GitContextCache {
 fn resolve_has_openable_plan(
     plan_path: Option<&metadata::PlanReference>,
     workspace: Option<&WorkspaceSnapshot>,
+    resolve: &mut impl FnMut(&Path, &metadata::PlanReference) -> Result<PathBuf, String>,
 ) -> Option<bool> {
     plan_path.and_then(|reference| {
-        workspace.map(|snapshot| {
-            resolve_openable_plan_reference(&snapshot.workspace_path, reference).is_ok()
-        })
+        workspace.map(|snapshot| resolve(&snapshot.workspace_path, reference).is_ok())
     })
 }
 
@@ -157,6 +158,16 @@ impl SessionProjection {
     }
 
     fn snapshot(&self) -> io::Result<ProjectionSnapshot> {
+        let mut plans = PlanAvailabilityResolver::default();
+        self.snapshot_with_plan_resolver(&mut |workspace, reference| {
+            plans.resolve(workspace, reference)
+        })
+    }
+
+    fn snapshot_with_plan_resolver(
+        &self,
+        resolve: &mut impl FnMut(&Path, &metadata::PlanReference) -> Result<PathBuf, String>,
+    ) -> io::Result<ProjectionSnapshot> {
         let registry = self
             .state
             .harness_catalog
@@ -235,7 +246,15 @@ impl SessionProjection {
         let saved_codex_session_ids =
             crate::codex_session_store::saved_sessions(&codex_native_session_ids);
         let live_ids: HashSet<String> = live_sessions.iter().map(|info| info.id.clone()).collect();
-        let peon_last_inference = self.state.peon.last_inference.read().unwrap();
+        // PTY output also writes this map. Capture only live-session values
+        // and release its guard before any filesystem/Git plan validation.
+        let peon_last_inference: HashMap<_, _> = {
+            let inference = self.state.peon.last_inference.read().unwrap();
+            live_ids
+                .iter()
+                .filter_map(|id| inference.get(id).map(|value| (id.clone(), value.clone())))
+                .collect()
+        };
 
         let mut infos = live_sessions
             .into_iter()
@@ -256,6 +275,7 @@ impl SessionProjection {
                 info.has_openable_plan = resolve_has_openable_plan(
                     meta.and_then(|meta| meta.plan_path.as_ref()),
                     workspace.as_ref(),
+                    resolve,
                 );
                 info
             })
@@ -270,6 +290,7 @@ impl SessionProjection {
                 &registry,
                 workspace.as_ref(),
                 &saved_codex_session_ids,
+                resolve,
             ));
         }
 
@@ -758,6 +779,7 @@ fn remembered_session_info(
     registry: &crate::harness::registry::ResolvedHarnessRegistry,
     workspace: Option<&WorkspaceSnapshot>,
     saved_codex_session_ids: &std::collections::HashSet<String>,
+    resolve: &mut impl FnMut(&Path, &metadata::PlanReference) -> Result<PathBuf, String>,
 ) -> SessionInfo {
     let harness_id = (!meta.harness.is_empty()).then_some(meta.harness.as_str());
     let resolved_harness = resolve_harness_or_generic_shell(registry, harness_id);
@@ -770,7 +792,7 @@ fn remembered_session_info(
         resolved_harness,
         saved_codex_session_ids,
     );
-    info.has_openable_plan = resolve_has_openable_plan(meta.plan_path.as_ref(), workspace);
+    info.has_openable_plan = resolve_has_openable_plan(meta.plan_path.as_ref(), workspace, resolve);
     info
 }
 
@@ -783,6 +805,186 @@ mod tests {
     use crate::test_support::test_session_metadata;
     use crate::AppState;
     use std::sync::Arc;
+
+    #[test]
+    #[ignore = "manual shared-state plan projection benchmark"]
+    fn benchmark_plan_projection_repository_reuse() {
+        let dir = tempfile::tempdir().unwrap();
+        git2::Repository::init(dir.path()).unwrap();
+        std::fs::create_dir(dir.path().join("specs")).unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let store = &workspace.as_ref().unwrap().metadata;
+            for i in 0..710 {
+                let mut meta = test_session_metadata(
+                    format!("history-{i}"),
+                    "History",
+                    dir.path().display().to_string(),
+                    "ended",
+                    "2026-01-01T00:00:00Z",
+                    "2026-01-01T00:00:00Z",
+                );
+                if i < 32 {
+                    let relative = format!("specs/plan-{i}.md");
+                    std::fs::write(dir.path().join(&relative), "# Plan").unwrap();
+                    meta.plan_path = Some(crate::metadata::PlanReference {
+                        worktree_root: Some(dir.path().display().to_string()),
+                        relative_path: relative,
+                        source: crate::metadata::PlanSource::AgentReported,
+                    });
+                }
+                store.write_session(&meta);
+            }
+        }
+        let projection = SessionProjection::new(state.clone());
+        let mut uncached = Vec::new();
+        let mut request_local = Vec::new();
+        for i in 0..7 {
+            // Alternate order to reduce a systematic warm-filesystem advantage.
+            for cached in if i % 2 == 0 {
+                [false, true]
+            } else {
+                [true, false]
+            } {
+                let _gate = state.projection_lock.lock().unwrap();
+                let start = std::time::Instant::now();
+                let snapshot = if cached {
+                    projection.snapshot().unwrap()
+                } else {
+                    projection
+                        .snapshot_with_plan_resolver(&mut super::resolve_openable_plan_reference)
+                        .unwrap()
+                };
+                let elapsed = start.elapsed().as_secs_f64() * 1000.0;
+                assert_eq!(snapshot.infos.len(), 710);
+                assert_eq!(
+                    snapshot
+                        .infos
+                        .iter()
+                        .filter(|row| row.has_openable_plan == Some(true))
+                        .count(),
+                    32
+                );
+                if cached {
+                    request_local.push(elapsed);
+                } else {
+                    uncached.push(elapsed);
+                }
+            }
+        }
+        uncached.sort_by(f64::total_cmp);
+        request_local.sort_by(f64::total_cmp);
+        eprintln!("710-record shared-state snapshot, 32 anchored plans: uncached median {:.3} ms; request-local median {:.3} ms",
+            uncached[3], request_local[3]);
+    }
+
+    // A plan validator stalled on filesystem/Git work must not stall the
+    // same inference-map writer used by the PTY output driver.
+    #[test]
+    fn blocked_plan_validation_releases_inference_lock() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        for live in [true, false] {
+            let dir = tempfile::tempdir().unwrap();
+            std::fs::write(dir.path().join("plan.md"), "# Plan\n").unwrap();
+            let state = crate::test_support::test_app_state_with_workspace(dir.path());
+            let mut meta = test_session_metadata(
+                "session",
+                "Session",
+                dir.path().display().to_string(),
+                "ended",
+                "2026-01-01T00:00:00Z",
+                "2026-01-01T00:00:00Z",
+            );
+            meta.plan_path = Some(serde_json::from_str("\"plan.md\"").unwrap());
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .write_session(&meta);
+            state
+                .peon
+                .last_inference
+                .write()
+                .unwrap()
+                .insert("session".into(), "captured".into());
+            if live {
+                let (kill_tx, _) = tokio::sync::watch::channel(false);
+                state.sessions.lock().unwrap().insert(
+                    "session".into(),
+                    crate::SessionHandle {
+                        info: crate::test_support::test_session_info(
+                            "session",
+                            "Session",
+                            dir.path().display().to_string(),
+                            "running",
+                            "now",
+                        ),
+                        kill_tx,
+                        output_buffer: crate::peon::RingBuffer::new(200),
+                        scan_buf: String::new(),
+                        pending_work_signal: None,
+                        runtime: crate::runtime::session_runtime::SessionRuntime::detached(24, 80),
+                        terminal_attached: false,
+                        resume_in_progress: false,
+                        capacity: Default::default(),
+                        active_work_hook: false,
+                    },
+                );
+            }
+            let (entered_tx, entered_rx) = mpsc::channel();
+            let (release_tx, release_rx) = mpsc::channel();
+            let projection_state = state.clone();
+            let projection = std::thread::spawn(move || {
+                SessionProjection::new(projection_state)
+                    .snapshot_with_plan_resolver(&mut |root, reference| {
+                        entered_tx.send(()).unwrap();
+                        release_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+                        super::resolve_openable_plan_reference(root, reference)
+                    })
+                    .unwrap()
+            });
+            entered_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+            let (written_tx, written_rx) = mpsc::channel();
+            let writer_state = state.clone();
+            let writer = std::thread::spawn(move || {
+                writer_state
+                    .peon
+                    .last_inference
+                    .write()
+                    .unwrap()
+                    .insert("session".into(), "new output".into());
+                written_tx.send(()).unwrap();
+            });
+            let written_while_blocked = written_rx.recv_timeout(Duration::from_secs(2)).is_ok();
+            // Always unblock and join before asserting, including on regression.
+            release_tx.send(()).unwrap();
+            let snapshot = projection.join().unwrap();
+            writer.join().unwrap();
+            assert!(
+                written_while_blocked,
+                "plan validation retained inference lock (live={live})"
+            );
+            assert_eq!(snapshot.infos.len(), 1);
+            assert_eq!(snapshot.infos[0].has_openable_plan, Some(true));
+            assert_eq!(
+                snapshot.infos[0].peon_last_inference.as_deref(),
+                if live { Some("captured") } else { None }
+            );
+            std::fs::remove_file(dir.path().join("plan.md")).unwrap();
+            let next = SessionProjection::new(state).snapshot().unwrap();
+            assert_eq!(next.infos[0].has_openable_plan, Some(false));
+            assert_eq!(
+                next.infos[0].peon_last_inference.as_deref(),
+                if live { Some("new output") } else { None }
+            );
+        }
+    }
 
     #[test]
     fn legacy_closed_session_exposes_organization_and_action_precondition() {
@@ -1469,7 +1671,13 @@ mod tests {
             "2026-06-28T09:05:00Z",
         );
 
-        let info = remembered_session_info(&meta, &registry(), None, &Default::default());
+        let info = remembered_session_info(
+            &meta,
+            &registry(),
+            None,
+            &Default::default(),
+            &mut super::resolve_openable_plan_reference,
+        );
 
         assert_eq!(info.created_at, "2026-06-28T09:00:00Z");
         assert_eq!(
@@ -1494,7 +1702,13 @@ mod tests {
         assert!(meta.summary.is_none());
         assert!(meta.repo_root.is_none());
 
-        let info = remembered_session_info(&meta, &registry(), None, &Default::default());
+        let info = remembered_session_info(
+            &meta,
+            &registry(),
+            None,
+            &Default::default(),
+            &mut super::resolve_openable_plan_reference,
+        );
 
         assert_eq!(info.summary, None);
         assert_eq!(info.repo_root, None);
@@ -1518,7 +1732,13 @@ mod tests {
         );
         meta.lifecycle = "dead".into();
 
-        let info = remembered_session_info(&meta, &registry(), None, &Default::default());
+        let info = remembered_session_info(
+            &meta,
+            &registry(),
+            None,
+            &Default::default(),
+            &mut super::resolve_openable_plan_reference,
+        );
 
         assert_eq!(info.attention, None);
     }

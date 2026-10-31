@@ -10,10 +10,10 @@ workflow_status: in-progress
 # Score-directed readiness suggestions
 
 Tracking: [#1175](https://github.com/Rambolarsen/orkworks/issues/1175).
-Design: [accepted ADR 0098](../../adr/0098-score-directed-readiness-improvements.md).
+Design: [accepted ADR 0100](../../adr/0100-score-directed-readiness-improvements.md).
 Status: owner approved the concrete design, implementation and maximum twenty-call
 synthetic qualification budget on 2026-10-30 ("keep going"). The earlier one-run
-approval was separate and is exhausted. Runtime execution now follows ADR 0098.
+approval was separate and is exhausted. Runtime execution now follows ADR 0100.
 
 ## Outcome and pass conditions
 

@@ -89,7 +89,7 @@ pub(crate) struct PeonOutputCaptureIdentity {
 }
 
 impl PeonOutputCaptureIdentity {
-    fn is_current(
+    pub(crate) fn is_current(
         &self,
         input_generation: u64,
         min_revision: u64,
@@ -597,11 +597,19 @@ fn output_inference_is_current(
 }
 
 fn apply_output_label_update(context: &AttemptContextView, label_update: (String, u64)) {
-    let (label, captured_epoch) = label_update;
+    let (_, captured_epoch) = label_update;
     let label_epochs = context.state.peon.label_epochs.read().unwrap();
     if label_epochs.get(context.session_id()).copied().unwrap_or(0) != captured_epoch {
         return;
     }
+    let workspace = context.state.workspace.lock().unwrap();
+    let Some(label) = workspace
+        .as_ref()
+        .and_then(|ws| ws.metadata.read_session(context.session_id()))
+        .map(|meta| meta.label)
+    else {
+        return;
+    };
     let mut sessions = context.state.sessions.lock().unwrap();
     if let Some(handle) = sessions
         .get_mut(context.session_id())
@@ -743,6 +751,14 @@ where
                 }
             }
 
+            let captured_title_epoch = state
+                .peon
+                .label_epochs
+                .read()
+                .unwrap()
+                .get(&session_id)
+                .copied()
+                .unwrap_or(0);
             let (output_snapshot, output_boundary, output_cols) = {
                 let mut sessions = state.sessions.lock().unwrap();
                 match sessions.get_mut(&session_id) {
@@ -859,15 +875,24 @@ where
                 let id = attempt_context.session_id().to_string();
                 let provider_state = attempt_context.state().clone();
                 let provider_output = output_snapshot.clone();
+                let title_hint = hint.clone();
                 let applied_provider = provider_state.providers.get_applied();
                 let provider_failure = ProviderFailureContext {
                     provider_id: applied_provider.provider.clone(),
                     provider_model: applied_provider.model.clone(),
                 };
                 let mut provider_task = tokio::task::spawn_blocking(move || {
-                    provider_state
-                        .providers
-                        .run_inference_with_applied(&provider_output, applied_provider)
+                    if let Some(hint) = title_hint {
+                        provider_state.providers.run_title_inference_with_applied(
+                            &hint.text,
+                            &hint.context,
+                            applied_provider,
+                        )
+                    } else {
+                        provider_state
+                            .providers
+                            .run_inference_with_applied(&provider_output, applied_provider)
+                    }
                 });
                 let provider_result = match tokio::time::timeout(
                     std::time::Duration::from_secs(120),
@@ -942,6 +967,7 @@ where
                                             label,
                                             hint.epoch,
                                             hint.from_initial_prompt,
+                                            !hint.context.is_empty(),
                                         );
                                     }
                                 }
@@ -1013,6 +1039,19 @@ where
                         return;
                     }
                     let inference_persisted = persistence.inference_persisted;
+                    if inference_persisted && peon::has_title_context(&output_snapshot) {
+                        if let Some(capture) = output_boundary.as_ref() {
+                            crate::session_application::SessionApplication::new(
+                                state_clone.clone(),
+                            )
+                            .queue_contextual_title(
+                                &post_context,
+                                capture,
+                                captured_title_epoch,
+                                &output_snapshot,
+                            );
+                        }
+                    }
                     let permanent_hold = persistence.permanent_hold;
                     let label_update = persistence.label_update;
                     let captured_workspace_path = persistence.workspace_path;
@@ -1237,6 +1276,104 @@ mod tests {
     }
 
     #[test]
+    fn contextual_title_queue_is_fenced_and_manual_title_survives_late_work() {
+        let _lease_guard = diagnostic_test_guard();
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let id = "contextual-title-runtime";
+        let runtime = crate::runtime::session_runtime::SessionRuntime::detached(24, 80);
+        let identity = runtime.identity();
+        let capture = PeonOutputCaptureIdentity {
+            input_generation: runtime.input_generation,
+            min_revision: runtime.min_peon_output_revision,
+            first_revision: 1,
+            last_revision: 2,
+            runtime_instance_id: identity.runtime_instance_id.clone(),
+            run_generation: identity.run_generation,
+        };
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        state.sessions.lock().unwrap().insert(
+            id.into(),
+            crate::SessionHandle {
+                info: test_session_info(
+                    id,
+                    "Fix login",
+                    dir.path().display().to_string(),
+                    "running",
+                    "now",
+                ),
+                runtime,
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                terminal_attached: false,
+                resume_in_progress: false,
+                capacity: Default::default(),
+                active_work_hook: false,
+            },
+        );
+        let mut meta = test_session_metadata(
+            id,
+            "Fix login",
+            dir.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        meta.label_source = metadata::LabelSource::TerminalInput;
+        meta.last_user_input = Some("fix login redirects".into());
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
+        state.peon.in_flight.write().unwrap().insert(id.into());
+        state.peon.mark_candidate(id);
+        let attempt = state.peon.begin_attempt(id, identity).unwrap();
+        let context = attempt_context(state.clone(), id, &attempt);
+        let app = crate::session_application::SessionApplication::new(state.clone());
+        let output = vec!["The callback drops the return URL".into()];
+        let mut stale_capture = capture.clone();
+        stale_capture.input_generation += 1;
+        assert!(!app.queue_contextual_title(&context.view(), &stale_capture, 0, &output));
+        assert!(app.queue_contextual_title(&context.view(), &capture, 0, &output));
+        assert_eq!(state.peon.label_hint.read().unwrap()[id].context, output);
+        assert!(app.persist_input_label(
+            &context.view(),
+            "Repair login return URLs".into(),
+            0,
+            false,
+            true
+        ));
+        assert!(!app.queue_contextual_title(&context.view(), &capture, 0, &output));
+        app.session_title(
+            id,
+            &dir.path().canonicalize().unwrap().display().to_string(),
+            crate::session_application::TitleAction::Set,
+            Some("My auth task".into()),
+        )
+        .unwrap();
+        assert!(!app.persist_input_label(
+            &context.view(),
+            "Late inferred name".into(),
+            0,
+            false,
+            true
+        ));
+        assert!(!app.queue_contextual_title(&context.view(), &capture, 0, &output));
+        let epoch = state.peon.label_epochs.read().unwrap()[id];
+        apply_output_label_update(&context.view(), ("Running tests".into(), epoch));
+        assert_eq!(
+            state.sessions.lock().unwrap()[id].info.label,
+            "My auth task"
+        );
+    }
+
+    #[test]
     fn output_label_update_cannot_restore_a_topic_after_reset() {
         let _lease_guard = diagnostic_test_guard();
         let dir = tempfile::tempdir().unwrap();
@@ -1402,7 +1539,7 @@ mod tests {
         );
         assert!(
             !crate::session_application::SessionApplication::new(state.clone())
-                .persist_input_label(&context.view(), "late startup topic".into(), 0, true,)
+                .persist_input_label(&context.view(), "late startup topic".into(), 0, true, false)
         );
         assert_eq!(
             state.sessions.lock().unwrap()[session_id].info.label,
@@ -1431,6 +1568,7 @@ mod tests {
                     "late startup topic after workspace switch".into(),
                     0,
                     true,
+                    false,
                 )
         );
         assert_eq!(
@@ -1446,6 +1584,7 @@ mod tests {
                     "late startup topic without workspace".into(),
                     0,
                     true,
+                    false,
                 )
         );
         assert_eq!(
@@ -1827,6 +1966,7 @@ mod tests {
             &context_view,
             "Cancelled topic".into(),
             0,
+            false,
             false,
         ));
         assert_eq!(
@@ -2796,6 +2936,7 @@ mod tests {
                 text: "describe this task".into(),
                 epoch: 0,
                 from_initial_prompt: false,
+                context: Vec::new(),
             },
         );
         state.peon.label_pending.write().unwrap().insert(id.clone());
@@ -2907,6 +3048,7 @@ mod tests {
                 text: "describe this task".into(),
                 epoch: 0,
                 from_initial_prompt: false,
+                context: Vec::new(),
             },
         );
         state.peon.label_pending.write().unwrap().insert(id.clone());
@@ -3069,6 +3211,7 @@ mod tests {
                 text: "describe this task".into(),
                 epoch: 0,
                 from_initial_prompt: false,
+                context: Vec::new(),
             },
         );
         state.peon.label_pending.write().unwrap().insert(id.clone());
@@ -3214,6 +3357,7 @@ mod tests {
                 text: "describe this task".into(),
                 epoch: 0,
                 from_initial_prompt: false,
+                context: Vec::new(),
             },
         );
         state.peon.label_pending.write().unwrap().insert(id.clone());
@@ -3366,6 +3510,7 @@ mod tests {
                 text: input_hint,
                 epoch: 0,
                 from_initial_prompt: false,
+                context: Vec::new(),
             },
         );
         state.peon.label_pending.write().unwrap().insert(id.clone());
@@ -3527,6 +3672,7 @@ mod tests {
                     label: "Test".into(),
                     label_source: metadata::LabelSource::Legacy,
                     label_from_initial_prompt: false,
+                    label_context_refined: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
                     harness: "".into(),
@@ -4094,6 +4240,7 @@ mod tests {
                     label: "Test".into(),
                     label_source: metadata::LabelSource::Legacy,
                     label_from_initial_prompt: false,
+                    label_context_refined: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
                     harness: "".into(),
@@ -4267,6 +4414,7 @@ mod tests {
                     label: "Test".into(),
                     label_source: metadata::LabelSource::Legacy,
                     label_from_initial_prompt: false,
+                    label_context_refined: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
                     harness: "".into(),
@@ -4454,6 +4602,7 @@ mod tests {
                     label: "Test".into(),
                     label_source: metadata::LabelSource::Legacy,
                     label_from_initial_prompt: false,
+                    label_context_refined: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
                     harness: "".into(),
@@ -4625,6 +4774,7 @@ mod tests {
                     label: "Test".into(),
                     label_source: metadata::LabelSource::Legacy,
                     label_from_initial_prompt: false,
+                    label_context_refined: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
                     harness: "".into(),
@@ -4794,6 +4944,7 @@ mod tests {
                     label: "Test".into(),
                     label_source: metadata::LabelSource::Legacy,
                     label_from_initial_prompt: false,
+                    label_context_refined: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
                     harness: "".into(),
@@ -4973,6 +5124,7 @@ mod tests {
                     label: "Test".into(),
                     label_source: metadata::LabelSource::Legacy,
                     label_from_initial_prompt: false,
+                    label_context_refined: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
                     harness: "".into(),
@@ -5164,6 +5316,7 @@ mod tests {
                     label: "Test".into(),
                     label_source: metadata::LabelSource::Legacy,
                     label_from_initial_prompt: false,
+                    label_context_refined: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
                     harness: "".into(),
@@ -5360,6 +5513,131 @@ mod tests {
             "last_output should be refreshed even when persist is skipped and inference was terminal; \
              session must remain eligible for retry, not silently exit the candidate pool"
         );
+    }
+
+    #[tokio::test]
+    async fn ordinary_investigation_output_refines_title_without_history_checkpoint() {
+        let _lease_guard = diagnostic_test_guard();
+        let dir = tempfile::tempdir().unwrap();
+        let id = "ordinary-title-context";
+        let mut state = test_app_state_with_workspace(dir.path());
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mutable = Arc::get_mut(&mut state).unwrap();
+        mutable.peon.config.interval_secs = 1;
+        mutable.providers = providers::ProviderManager::for_tests(
+            providers::ProviderSettingsPayload {
+                version: 1,
+                revision: 1,
+                peon_model: None,
+                peon_selection: Some(providers::PeonSelection {
+                    provider: "opencode".into(),
+                    model: "test-model".into(),
+                    reasoning_effort: None,
+                    ollama_base_url: None,
+                }),
+                ollama_base_url: providers::default_ollama_base_url(),
+                providers: vec![providers::ProviderSettingsEntry {
+                    id: "opencode".into(),
+                    enabled: true,
+                    fallback_order: 0,
+                    model: None,
+                    default_state: providers::ProviderCapacityState::Healthy,
+                    override_state: None,
+                }],
+            },
+            vec![providers::FakeProvider::new("opencode")
+                .stdout(r#"{"summary":"Repair login callback return URLs","confidence":0.9}"#)
+                .with_counter(calls.clone())],
+        );
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        let mut output_buffer = peon::RingBuffer::new(200);
+        output_buffer.push(
+            "The login callback discards the requested return URL during authentication".into(),
+        );
+        state.sessions.lock().unwrap().insert(
+            id.into(),
+            crate::SessionHandle {
+                info: test_session_info(
+                    id,
+                    "Login redirect",
+                    dir.path().display().to_string(),
+                    "running",
+                    "now",
+                ),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(24, 80),
+                kill_tx,
+                output_buffer,
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                terminal_attached: false,
+                resume_in_progress: false,
+                capacity: Default::default(),
+                active_work_hook: false,
+            },
+        );
+        let mut meta = test_session_metadata(
+            id,
+            "Login redirect",
+            dir.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        meta.label_source = metadata::LabelSource::TerminalInput;
+        meta.last_user_input = Some("fix login redirects".into());
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
+        state.peon.last_output.write().unwrap().insert(
+            id.into(),
+            tokio::time::Instant::now() - std::time::Duration::from_secs(2),
+        );
+        let (task, shutdown) = spawn_test_peon_loop(state.clone());
+        let refined = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                if state
+                    .workspace
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .metadata
+                    .read_session(id)
+                    .unwrap()
+                    .label_context_refined
+                {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .is_ok();
+        stop_test_peon_loop(task, shutdown).await;
+        assert!(
+            refined,
+            "ordinary useful output must schedule contextual naming without a history checkpoint"
+        );
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(stored.label, "Repair login callback return URLs");
+        assert!(
+            stored.summary.is_none(),
+            "title context must not loosen activity-history evidence"
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test]
