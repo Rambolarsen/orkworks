@@ -1,3 +1,4 @@
+use super::sql_context::IssuedEffect;
 use super::*;
 use crate::session_application::sql_writes::{Outcome, SessionWrites};
 use crate::session_store::{test_worker, SessionStore, StoreError};
@@ -10,7 +11,7 @@ type Fixture = (
     Arc<AppState>,
     Arc<SessionStore>,
     Arc<SessionWrites>,
-    Effect,
+    IssuedEffect,
     tokio::sync::mpsc::Receiver<super::super::session_runtime::RuntimeCommand>,
 );
 async fn fixture() -> Fixture {
@@ -43,25 +44,35 @@ async fn fixture() -> Fixture {
     let mut tracker = NativeApprovalState::new(runtime.run_generation());
     tracker.root = Some("root-id".into());
     let start = Instant::now() - Duration::from_secs(2);
-    tracker.reducer.observe(
+    tracker.observe_sql(
+        &runtime.attention_owner,
         super::super::codex_approval::NativeStatus::Active,
         true,
         start,
         start,
     );
-    tracker
-        .reducer
-        .hook(HookEvent::PreToolUse, Some("tool"), start);
-    tracker
-        .reducer
-        .hook(HookEvent::PermissionRequest, None, start);
+    tracker.hook_sql(
+        &runtime.attention_owner,
+        HookEvent::PreToolUse,
+        Some("tool"),
+        start,
+    );
+    tracker.hook_sql(
+        &runtime.attention_owner,
+        HookEvent::PermissionRequest,
+        None,
+        start,
+    );
     let now = Instant::now();
-    let effect = tracker.reducer.observe(
-        super::super::codex_approval::NativeStatus::ApprovalPending,
-        true,
-        now,
-        now,
-    )[0];
+    let effect = tracker
+        .observe_sql(
+            &runtime.attention_owner,
+            super::super::codex_approval::NativeStatus::ApprovalPending,
+            true,
+            now,
+            now,
+        )
+        .remove(0);
     runtime.native_approval = Some(tracker);
     state.sessions.lock().unwrap().insert(
         ID.into(),
@@ -93,23 +104,22 @@ async fn fixture() -> Fixture {
     let writes = SessionWrites::bind(state.clone(), store.clone()).unwrap();
     (dir, state, store, writes, effect, commands)
 }
-fn clear(state: &Arc<AppState>) -> Effect {
+fn clear(state: &Arc<AppState>) -> IssuedEffect {
     let mut sessions = state.sessions.lock().unwrap();
-    let tracker = sessions
-        .get_mut(ID)
-        .unwrap()
-        .runtime
-        .native_approval
-        .as_mut()
-        .unwrap();
+    let h = sessions.get_mut(ID).unwrap();
+    let tracker = h.runtime.native_approval.as_mut().unwrap();
     let now = Instant::now();
-    tracker.reducer.observe(
-        super::super::codex_approval::NativeStatus::Active,
-        true,
-        now,
-        now,
-    )[0]
+    tracker
+        .observe_sql(
+            &h.runtime.attention_owner,
+            super::super::codex_approval::NativeStatus::Active,
+            true,
+            now,
+            now,
+        )
+        .remove(0)
 }
+
 #[tokio::test]
 async fn native_sql_commits_before_live_acknowledgement_and_uses_owned_clear() {
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
@@ -622,4 +632,124 @@ async fn native_sql_transition_contention_rejects_execution_or_detaches_publicat
         );
         store.close().await.unwrap();
     }
+}
+
+#[tokio::test]
+async fn native_sql_effect_from_replaced_issuing_tracker_is_rejected_before_capture() {
+    let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
+    let (_dir, state, store, writes, effect, _commands) = fixture().await;
+    let raw = effect.effect;
+    let current = {
+        let mut sessions = state.sessions.lock().unwrap();
+        let h = sessions.get_mut(ID).unwrap();
+        let mut replacement = NativeApprovalState::new(h.runtime.run_generation());
+        replacement.root = Some("root-id".into());
+        let start = Instant::now() - Duration::from_secs(2);
+        replacement.observe_sql(
+            &h.runtime.attention_owner,
+            super::super::codex_approval::NativeStatus::Active,
+            true,
+            start,
+            start,
+        );
+        replacement.hook_sql(
+            &h.runtime.attention_owner,
+            HookEvent::PreToolUse,
+            Some("tool"),
+            start,
+        );
+        replacement.hook_sql(
+            &h.runtime.attention_owner,
+            HookEvent::PermissionRequest,
+            None,
+            start,
+        );
+        let now = Instant::now();
+        // SQL issuance reduces and mints together; it cannot rewrap old raw values.
+        let current = replacement
+            .observe_sql(
+                &h.runtime.attention_owner,
+                super::super::codex_approval::NativeStatus::ApprovalPending,
+                true,
+                now,
+                now,
+            )
+            .remove(0);
+        assert_eq!(
+            raw, current.effect,
+            "candidate counters restart, reproducing the collision"
+        );
+        h.runtime.native_approval = Some(replacement);
+        current
+    };
+    assert!(matches!(
+        writes
+            .native(ID.into(), effect, Arc::new(AtomicBool::new(false)))
+            .await,
+        Err(StoreError::Conflict)
+    ));
+    assert_eq!(
+        store.get(ID.into()).await.unwrap().unwrap()["metadataRevision"],
+        "1"
+    );
+    let sessions = state.sessions.lock().unwrap();
+    assert_ne!(sessions[ID].info.attention.as_deref(), Some("needs_you"));
+    assert!(sessions[ID]
+        .runtime
+        .native_approval
+        .as_ref()
+        .unwrap()
+        .reducer
+        .accepts(&raw));
+    drop(sessions);
+    assert_eq!(
+        writes
+            .native(ID.into(), current, Arc::new(AtomicBool::new(false)))
+            .await
+            .unwrap(),
+        Outcome::Committed
+    );
+    assert_eq!(
+        store.get(ID.into()).await.unwrap().unwrap()["metadataRevision"],
+        "2"
+    );
+    store.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn native_sql_old_clear_cannot_borrow_a_reissued_effects_fresh_observation() {
+    let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
+    let (_dir, state, store, writes, shown, _commands) = fixture().await;
+    writes
+        .native(ID.into(), shown, Arc::new(AtomicBool::new(false)))
+        .await
+        .unwrap();
+    let old = clear(&state);
+    let fresh = clear(&state);
+    assert_eq!(
+        old.effect, fresh.effect,
+        "pending clears reuse the same candidate and fence"
+    );
+    assert!(matches!(
+        writes
+            .native_coordinated_for_test(ID.into(), old, Arc::new(AtomicBool::new(false)))
+            .await,
+        Err(StoreError::Conflict)
+    ));
+    assert_eq!(
+        store.get(ID.into()).await.unwrap().unwrap()["metadataRevision"],
+        "2"
+    );
+    assert_eq!(
+        writes
+            .native_coordinated_for_test(ID.into(), fresh, Arc::new(AtomicBool::new(false)))
+            .await
+            .unwrap(),
+        Outcome::Committed
+    );
+    assert_eq!(
+        store.get(ID.into()).await.unwrap().unwrap()["metadataRevision"],
+        "3"
+    );
+    store.close().await.unwrap();
 }

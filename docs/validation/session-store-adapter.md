@@ -282,7 +282,12 @@ The source-only native application owner now uses the worker-shared per-session
 lane and bounded admission/definitive-result protocol. It reads the exact SQL
 record without runtime guards, captures an issued reducer effect under short
 projection/transition/workspace/session/authority guards, and revalidates that
-capture when claiming execution and publishing. Capture binds tracker instance,
+capture when claiming execution and publishing. SQL observation/hook/tick entry points reduce and mint an opaque effect together
+under the issuing tracker/attention guards, before releasing them or reading SQL.
+There is no SQL issuance entry point accepting a queued raw effect. The effect retains
+its issuing tracker instance, hook revision, live attention token and original
+clear observation start; capture cannot adopt a replacement tracker or borrow a
+newer observation for an equal candidate/fence value. Capture binds tracker instance,
 runtime/control, creation, native root, hook/fence, committed input sequence,
 live attention ownership and prompt authority. Cancellation, user/question/options
 attention, ending sessions and superseded effects reject conservatively. Clear
@@ -303,7 +308,9 @@ Application regressions cover current ShowWait and test-only coordinated
 ClearWait, closed production clearing, queued input/sequence/hook/tracker/root/
 attention/question/options/user/lifecycle/workspace/cancellation changes, caller
 cancellation before/after execution, durable revision conflict, expired clear and
-runtime replacement. A controlled runtime-command consumer delivers bytes to an
+runtime replacement, tracker replacement before capture with an identical effect,
+and old-clear rejection after an equal effect is reissued from a fresh observation.
+A controlled runtime-command consumer delivers bytes to an
 actual PTY while native SQL is stalled after its execution claim. This proves
 input independence at this boundary, not complete terminal-load or #1247 latency
 qualification.

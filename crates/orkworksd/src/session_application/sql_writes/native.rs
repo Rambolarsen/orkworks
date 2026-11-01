@@ -1,8 +1,8 @@
 //! Dormant native effect application using the same worker/session lane as Peon.
 use super::*;
-use crate::runtime::codex_approval::Effect;
 use crate::runtime::codex_approval_application::{
-    sql_context::NativeCapture, COORDINATED_METADATA_WRITERS,
+    sql_context::{IssuedEffect, NativeCapture},
+    COORDINATED_METADATA_WRITERS,
 };
 use std::sync::atomic::AtomicBool;
 struct NativeView {
@@ -58,7 +58,7 @@ impl SessionWrites {
     pub(crate) async fn native(
         self: &Arc<Self>,
         id: String,
-        effect: Effect,
+        effect: IssuedEffect,
         cancelled: Arc<AtomicBool>,
     ) -> Result<Outcome, StoreError> {
         self.native_inner(id, effect, cancelled, COORDINATED_METADATA_WRITERS)
@@ -68,7 +68,7 @@ impl SessionWrites {
     pub(crate) async fn native_coordinated_for_test(
         self: &Arc<Self>,
         id: String,
-        effect: Effect,
+        effect: IssuedEffect,
         cancelled: Arc<AtomicBool>,
     ) -> Result<Outcome, StoreError> {
         self.native_inner(id, effect, cancelled, true).await
@@ -76,7 +76,7 @@ impl SessionWrites {
     async fn native_inner(
         self: &Arc<Self>,
         id: String,
-        effect: Effect,
+        effect: IssuedEffect,
         cancelled: Arc<AtomicBool>,
         coordinated: bool,
     ) -> Result<Outcome, StoreError> {

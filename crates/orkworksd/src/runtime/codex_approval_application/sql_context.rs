@@ -4,6 +4,79 @@ use crate::metadata::internal_mutations::InternalMutation;
 use crate::session_store::AttentionProof;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+/// Mint alongside reducer emission under the issuing tracker/attention guards,
+/// before releasing them or reading SQL. Never reconstruct from a raw queued effect.
+#[derive(Clone)]
+pub(crate) struct IssuedEffect {
+    pub(super) effect: Effect,
+    instance: Arc<()>,
+    hook_revision: u64,
+    attention: AttentionWriteToken,
+    observation_start: Option<Instant>,
+}
+impl NativeApprovalState {
+    pub(crate) fn observe_sql(
+        &mut self,
+        owner: &super::super::observed_status::AttentionOwner,
+        status: super::super::codex_approval::NativeStatus,
+        complete_singleton_root: bool,
+        started_at: Instant,
+        now: Instant,
+    ) -> Vec<IssuedEffect> {
+        let effects = self
+            .reducer
+            .observe(status, complete_singleton_root, started_at, now);
+        self.wrap_sql_effects(effects, owner)
+    }
+    pub(crate) fn hook_sql(
+        &mut self,
+        owner: &super::super::observed_status::AttentionOwner,
+        event: HookEvent,
+        tool_id: Option<&str>,
+        now: Instant,
+    ) -> Vec<IssuedEffect> {
+        let effects = self.reducer.hook(event, tool_id, now);
+        self.wrap_sql_effects(effects, owner)
+    }
+    pub(crate) fn tick_sql(
+        &mut self,
+        owner: &super::super::observed_status::AttentionOwner,
+        now: Instant,
+    ) -> Vec<IssuedEffect> {
+        let effects = self.reducer.tick(now);
+        self.wrap_sql_effects(effects, owner)
+    }
+    fn wrap_sql_effects(
+        &self,
+        effects: Vec<Effect>,
+        owner: &super::super::observed_status::AttentionOwner,
+    ) -> Vec<IssuedEffect> {
+        effects
+            .into_iter()
+            .filter_map(|effect| self.wrap_sql_effect(effect, owner))
+            .collect()
+    }
+    fn wrap_sql_effect(
+        &self,
+        effect: Effect,
+        owner: &super::super::observed_status::AttentionOwner,
+    ) -> Option<IssuedEffect> {
+        if !self.reducer.accepts(&effect) {
+            return None;
+        }
+        Some(IssuedEffect {
+            effect,
+            instance: self.instance.clone(),
+            hook_revision: self.hook_revision?,
+            attention: owner.snapshot()?,
+            observation_start: match effect {
+                Effect::ClearWait { .. } => Some(self.reducer.clear_observation_start()?),
+                Effect::ShowWait { .. } => None,
+            },
+        })
+    }
+}
+
 pub(crate) struct NativeCapture {
     pub(crate) created: String,
     effect: Effect,
@@ -23,11 +96,20 @@ impl NativeCapture {
     pub(crate) fn capture(
         h: &SessionHandle,
         meta: &crate::metadata::SessionMetadata,
-        effect: Effect,
+        issued: IssuedEffect,
         cancelled: Arc<AtomicBool>,
         coordinated: bool,
     ) -> Option<Self> {
+        let effect = issued.effect;
         let tracker = h.runtime.native_approval.as_ref()?;
+        if !Arc::ptr_eq(&issued.instance, &tracker.instance)
+            || tracker.hook_revision != Some(issued.hook_revision)
+            || !h.runtime.attention_owner.owns(&issued.attention)
+            || (matches!(effect, Effect::ClearWait { .. })
+                && tracker.reducer.clear_observation_start() != issued.observation_start)
+        {
+            return None;
+        }
         let root = tracker.root.clone()?;
         if meta.created_at != h.info.created_at || accepted_root(meta) != Some(root.as_str()) {
             return None;
@@ -39,19 +121,15 @@ impl NativeCapture {
         let captured = Self {
             created: h.info.created_at.clone(),
             effect,
-            instance: tracker.instance.clone(),
+            instance: issued.instance,
             runtime: h.runtime.identity(),
             control: h.runtime.control_tx.clone(),
             fence: tracker.fence,
             hook_revision: tracker.hook_revision?,
             root,
-            attention: h.runtime.attention_owner.snapshot()?,
+            attention: issued.attention,
             committed_input_sequence: h.runtime.committed_input_sequence,
-            observation_start: if clear {
-                Some(tracker.reducer.clear_observation_start()?)
-            } else {
-                None
-            },
+            observation_start: issued.observation_start,
             cancelled,
             proof: if clear {
                 Some(tracker.sql_ownership.as_ref()?.1.clone())
