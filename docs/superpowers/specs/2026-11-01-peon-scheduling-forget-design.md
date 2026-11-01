@@ -1,10 +1,10 @@
 ---
 type: Design
 title: Peon scheduling across session deletion
-description: Proposed serialization of Peon scheduling writes with session deletion without extending provider lock scope.
+description: Approved serialization of Peon scheduling writes with session deletion without extending provider lock scope.
 tags: [peon, concurrency, sessions, cleanup]
 status: draft
-workflow_status: approved
+workflow_status: implemented
 ---
 
 # Peon scheduling across session deletion
@@ -43,8 +43,9 @@ analysis of that baseline completed with no scanner errors or analysis warnings
 (source fingerprint `57b777171bb5b2f4c801e34a584e23804c7edfc99c55eb21a07816a9949c6f0e`).
 Its report is retained locally at `/tmp/orkworks-peon-stale-sonar-baseline.json`,
 alongside `/tmp/orkworks-peon-stale-probe.rs` and its `.log` result. The probe was
-removed and source restored exactly. No changed-source comparison or coverage
-claim is made for this design-only proposal.
+removed and source restored exactly. That original design-only investigation
+made no changed-source comparison or coverage claim. Subsequent implementation
+validation is recorded in the [execution evidence](../plans/2026-11-01-peon-scheduling-forget.md#execution-evidence).
 
 Preserve [runtime contracts](../../agents/runtime-contracts.md#metadata-protocol),
 [runtime ownership](../../adr/0041-session-runtime-generation-ownership.md),
@@ -55,7 +56,7 @@ live/persisted transition work; [#181](https://github.com/Rambolarsen/orkworks/i
 remains the typed-state assessment. Neither transition ownership nor public
 status vocabulary changes here.
 
-## Recommended boundary
+## Selected boundary
 
 Use the existing `AppState::projection_lock` for synchronous scheduler admission
 and timer-origin repair. Manual forget, session-action Delete, retention and
