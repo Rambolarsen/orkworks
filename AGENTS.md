@@ -46,6 +46,12 @@ use links and small contract examples instead of prewriting implementation.
 
 ## Task-specific context
 
+For code cleanup, simplification, complexity/duplication reduction, or
+repository-health requests (including "more code cleanup" and "simplify the
+repo"), load [simplifying-repo](skills/simplifying-repo/SKILL.md) **before
+selecting work**. Follow its local SonarQube evidence workflow; if analysis is
+unavailable, report the limitation before proceeding with authorized inspection.
+
 Before changing a subsystem, read its canonical instructions:
 
 | Scope | Read |
