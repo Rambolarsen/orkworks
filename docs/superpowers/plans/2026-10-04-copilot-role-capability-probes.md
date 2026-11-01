@@ -17,9 +17,22 @@ tags: ["orkworks", "plans"]
 
 **Spec:** [Role configuration](../specs/2026-10-04-agent-role-configuration-design.md), [preparation lifecycle](../specs/2026-10-04-orchestrator-preparation-design.md), [capability register](../../validation/agent-role-capabilities.md). Tracks [#740](https://github.com/Rambolarsen/orkworks/issues/740); consumers #741–#743, initiative #738.
 
+## One-batch synthetic-history amendment — 2026-11-01
+
+A [bounded settings-only comparison proposal](2026-11-01-copilot-synthetic-capture-boundary.md)
+separates ordinary disposable native history from retained exporter evidence.
+The owner explicitly approved its exact native-history exception and two-call
+configuration in #1276; that comparison completed and its budget is exhausted.
+This is no waiver of production role/profile, complete capture-safety or
+later-batch requirements. The existing all-persistence gate remains unverified
+outside that one approved research exception.
+
 ## Scope and authorization
 
-This document proposes a **separate user-authorized probe session**. This session refreshed version/help and synthetic instruction/skill discovery only. No inference request, denial test, shell sandbox mutation, MCP process or orchestration launch has run.
+Original scope recorded on 2026-10-04: this document proposed a **separate
+user-authorized probe session** after version/help and synthetic discovery only.
+Later bounded hosted observations are recorded in the linked 2026-11-01
+one-batch amendment and reports; they do not complete this broader role plan.
 
 The first candidate is `review`, with the whole exact synthetic worktree root explicitly requested for reads. This does not certify an artifact-only read profile or access to a real repository. Research with external sources, implementation, verification and remediation are excluded from this first batch. A review result cannot qualify the orchestrator's coordination-only profile.
 

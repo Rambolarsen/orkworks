@@ -1,0 +1,7 @@
+{
+  "configurationSha256": "c9d27f1752467e12baf9ac26e19ea9e46645e2171c9af8464a6b8423def09777",
+  "ownerResponse": "go ahead",
+  "context": "Owner response to: Approve the two-call batch in draft PR #1276?",
+  "recordedAtUtc": "2026-11-01T12:09:49.624838+00:00",
+  "scope": "Exact reviewed native-history exception and two-call batch, including explicit known managed-capture and remote/provider-retention uncertainties. No later probe or role launch."
+}

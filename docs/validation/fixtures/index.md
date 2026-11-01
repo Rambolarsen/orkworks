@@ -24,3 +24,5 @@ Captured fixture context for reproducible validation.
 - [Copilot November evidence](copilot-1.0.90-november/index.md) — Sanitized hosted-turn measurements and exact configuration.
 
 - [Copilot settings discovery packet](copilot-1.0.90-settings/index.md) — Six model-free discovery cases and pinned source selections.
+
+- [Copilot capture comparison](copilot-1.0.90-capture-comparison/index.md) — Approved, exhausted two-call comparison with sanitized measurements.

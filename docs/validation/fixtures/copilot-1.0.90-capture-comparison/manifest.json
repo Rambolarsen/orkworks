@@ -1,0 +1,44 @@
+{
+  "artifacts": {
+    ".gitattributes": {
+      "bytes": 8,
+      "sha256": "705fd4d6451a31d36b3df7de96f83f30ac976c9b4a6d1e51671d8e2f33e2d0da"
+    },
+    "authorization.json": {
+      "bytes": 454,
+      "sha256": "8b6f792749abe689827231fcf4c1ddf82ce0ea6c9140fd65d478e82c0ff884c4"
+    },
+    "configuration.json": {
+      "bytes": 7650,
+      "sha256": "c9d27f1752467e12baf9ac26e19ea9e46645e2171c9af8464a6b8423def09777"
+    },
+    "embedded-runtime-identity.json": {
+      "bytes": 1773,
+      "sha256": "712b5f13cd9b2e005ad40cdd066bbb6a37355374377ac4943e71e441d52dd151"
+    },
+    "index.md": {
+      "bytes": 596,
+      "sha256": "c9a2fdfb2db48e817e8977e0aaff8c9cc34867bc906f683dfd3f839b1c24acbc"
+    },
+    "observe-comparison.py": {
+      "bytes": 20408,
+      "sha256": "73e42ed08e55de45b7c21921f4f1ac7e929d32c66b06f1f3bf5381436034b309"
+    },
+    "root-rule.txt": {
+      "bytes": 162,
+      "sha256": "3a6e956ccfb390cb01486879a229b5b2936d1211f5d676d39b08972113a27be7"
+    },
+    "settings-instructions-and-tools.json": {
+      "bytes": 459,
+      "sha256": "1868053a64e8001ee46ab9725b094a8664beed6c3192e471219e1bead18a2ca8"
+    },
+    "settings-metadata-only.json": {
+      "bytes": 461,
+      "sha256": "968082667c0608a65d476bcee1650a35a719e03907e568c52c899e92b6ae7641"
+    },
+    "summary.json": {
+      "bytes": 16939,
+      "sha256": "459ae1d90ae2537831017897f65676e4ae96b5561e92b42727a0333a3fcfa72a"
+    }
+  }
+}

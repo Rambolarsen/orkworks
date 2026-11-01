@@ -1,0 +1,2 @@
+# Synthetic capture comparison
+Use the harmless rule marker ORK740_SETTINGS_ONLY_RULE_20261101. Do not use tools, run commands, edit files or explain the answer.

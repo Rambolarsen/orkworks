@@ -350,3 +350,15 @@ edit takes effect. This is discovery-setting evidence, not telemetry precedence,
 skill content delivery or permission enforcement. OTel, local native history and
 remote export remain separate unqualified boundaries. All six roles remain
 unverified/no-go; #740 stays open. No new model call ran.
+
+## Settings-only hosted comparison — 2026-11-01
+
+The [two-case hosted comparison](copilot-settings-only-capture-comparison.md)
+passed under an explicitly approved disposable-native-history exception.
+All-off settings omitted prompt/system/tool-definition span attributes; enabling
+prompts and toolArguments supplied exact synthetic rule text and definitions.
+Both checked span projections omitted response-content attributes, and settings
+bytes were unchanged. This is one settings-only OTel contrast, not full capture
+safety, selected skill delivery, permission enforcement or remote/native-history
+exclusion. All six roles remain unverified/no-go. Two calls ran; this approved
+batch is exhausted and #740 remains open.
