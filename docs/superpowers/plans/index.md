@@ -254,4 +254,4 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 - [Copilot disposable synthetic-history boundary](2026-11-01-copilot-synthetic-capture-boundary.md) — Approved one-batch exception and exhausted settings-only comparison.
 
-- [Copilot selected skill startup delivery](2026-11-01-copilot-startup-skill-delivery.md) — Proposed one-call exact selected-source delivery through startup context.
+- [Copilot selected skill startup delivery](2026-11-01-copilot-startup-skill-delivery.md) — Approved, exhausted one-call selected-source delivery through startup context.

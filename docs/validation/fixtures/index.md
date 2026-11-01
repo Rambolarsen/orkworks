@@ -27,4 +27,4 @@ Captured fixture context for reproducible validation.
 
 - [Copilot capture comparison](copilot-1.0.90-capture-comparison/index.md) — Approved, exhausted two-call comparison with sanitized measurements.
 
-- [Proposed startup skill-delivery packet](copilot-1.0.90-startup-skill/index.md) — Exact source, wrapper, settings and one-call observer awaiting approval.
+- [Startup skill-delivery packet](copilot-1.0.90-startup-skill/index.md) — Exact supplied source, matched request receipt and exhausted one-call authority.

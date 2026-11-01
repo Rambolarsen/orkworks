@@ -1,7 +1,8 @@
-# Proposed startup skill-delivery evidence
+# Startup skill-delivery evidence
 
-- [Bounded plan](../../../superpowers/plans/2026-11-01-copilot-startup-skill-delivery.md) — Exact one-call startup-context probe, awaiting concrete approval.
+- [Executed one-call plan](../../../superpowers/plans/2026-11-01-copilot-startup-skill-delivery.md) — Exact approved source and exhausted budget.
+- [Observed startup delivery](../../copilot-startup-skill-delivery.md) — Full selected-source receipt and limits.
 
-Files preserve the selected synthetic skill source, complete startup wrapper,
-materialized settings, exact configuration, observer and checksum manifest.
-There is no live result or reusable authorization in this packet.
+Artifacts retain exact source, wrapper, settings, configuration, observer,
+historical authorization, runtime identities and sanitized results. No raw
+native history, vendor prompt or model reasoning is retained.

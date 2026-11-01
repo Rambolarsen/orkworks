@@ -362,3 +362,13 @@ bytes were unchanged. This is one settings-only OTel contrast, not full capture
 safety, selected skill delivery, permission enforcement or remote/native-history
 exclusion. All six roles remain unverified/no-go. Two calls ran; this approved
 batch is exhausted and #740 remains open.
+
+## Selected skill startup delivery — 2026-11-01
+
+The [single-call startup-delivery probe](copilot-startup-skill-delivery.md)
+observed all 286 bytes of one selected synthetic skill source in the request's
+startup context, with a matching source digest. This is supplied-context
+packaging through synthetic AGENTS.md, not native skill discovery/loading,
+invocation or adherence. It tests no additional resources or permissions.
+The approved attempt is exhausted; all six roles remain unverified/no-go
+and #740 stays open.

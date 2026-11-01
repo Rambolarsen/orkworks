@@ -4,13 +4,21 @@
       "bytes": 8,
       "sha256": "705fd4d6451a31d36b3df7de96f83f30ac976c9b4a6d1e51671d8e2f33e2d0da"
     },
+    "authorization.json": {
+      "bytes": 516,
+      "sha256": "d4d8c46bc26d41dcad7f4f48504c7eeb19fec86913b0b446eef200f17dd584a2"
+    },
     "configuration.json": {
       "bytes": 8471,
       "sha256": "7f226c88b54d02352ffaf788ebf2b545080aee128cc28f7a2155f668af0aa6c0"
     },
+    "embedded-runtime-identity.json": {
+      "bytes": 1773,
+      "sha256": "712b5f13cd9b2e005ad40cdd066bbb6a37355374377ac4943e71e441d52dd151"
+    },
     "index.md": {
-      "bytes": 425,
-      "sha256": "2fae1806ffd4c085214acbdf014730686a66f759173531a4ef34dea3722851bb"
+      "bytes": 512,
+      "sha256": "56ed938bbb2c7a45e92201714dccab6342ebdb8a94bc1049b4969d4357be3a67"
     },
     "observe-startup-skill.py": {
       "bytes": 21688,
@@ -27,6 +35,10 @@
     "settings-instructions-and-tools.json": {
       "bytes": 459,
       "sha256": "1868053a64e8001ee46ab9725b094a8664beed6c3192e471219e1bead18a2ca8"
+    },
+    "summary.json": {
+      "bytes": 10539,
+      "sha256": "bd8b223f0782977e71667a91dd2d4781dd4ef6f9963d7d832c268b6328d40695"
     }
   }
 }

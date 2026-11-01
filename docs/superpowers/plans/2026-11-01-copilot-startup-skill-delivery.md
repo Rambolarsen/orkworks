@@ -4,7 +4,7 @@ title: Copilot selected skill startup delivery
 description: Exact one-call synthetic startup-context skill-content probe with a fresh finite authorization gate.
 tags: [copilot, plans, validation, role-profiles]
 status: draft
-workflow_status: awaiting-approval
+workflow_status: completed
 ---
 
 # Copilot selected skill startup delivery
@@ -24,9 +24,12 @@ adapter or eligible role. All six roles remain unavailable.
 
 The owner requested work on the next skill-body delivery step after
 [the two-call comparison](../../validation/copilot-settings-only-capture-comparison.md).
-That batch is exhausted. **This new one-call configuration and fresh usage
-budget require explicit approval before inference.** Preparing/reviewing a
-proposal is not approval, and a historical authorization receipt is not reusable.
+That earlier batch is exhausted. The owner then explicitly answered “Approve
+this exact one-call probe” to the configuration/hash/budget question for this
+new case. The [historical authorization](../../validation/fixtures/copilot-1.0.90-startup-skill/authorization.json)
+binds that approval to the configuration below. The call completed and this
+fresh budget is also exhausted. Preparing/reviewing a proposal was not the
+source of authority; historical receipts authorize no replay.
 
 The approved research boundary is proposed unchanged for this new batch:
 [private disposable native history](2026-11-01-copilot-synthetic-capture-boundary.md#approved-one-batch-exception-and-unchanged-limits)
@@ -67,28 +70,28 @@ The owning session writes the fixtures, runs the approved native CLI, projects
 sanitized evidence and removes its own disposable roots. Review is read-only.
 No product runtime code or SDK integration is in scope.
 
-- [ ] **Bind authority and inputs:** Record exact owner approval of configuration
+- [x] **Bind authority and inputs:** Record exact owner approval of configuration
   hash, fresh one-attempt/one-observed-call budget, existing auth and the stated
   native-history/managed/remote risks. Reconfirm pinned runtime/cache identities.
-- [ ] **Preflight:** Initialize one private synthetic repo with empty Git
+- [x] **Preflight:** Initialize one private synthetic repo with empty Git
   templates/global config disabled for the observer command. Seed settings.json
   only, no legacy config. Two discovery commands must show only the synthetic
   root instruction and the two known vendor built-in skills. Extra or ambiguous
   sources stop before inference; discovery is not complete startup attestation.
-- [ ] **Measure once:** Run the exact configuration, max 120 seconds and five
+- [x] **Measure once:** Run the exact configuration, max 120 seconds and five
   minutes total, no retry/fallback/resume. Expect one gpt-6-luna/github chat span,
   no tool invocation, unchanged settings and the expected arithmetic completion.
   Correlate session/turn/interaction internally. Unexpected access, source,
   operation, model/provider, content field, extra call, failure or ambiguity ends
   the batch without another attempt. These are observer limits, not certified
   provider request/billing or process-tree bounds.
-- [ ] **Reduce and clean:** In the narrow chat system-instruction receipt, match
+- [x] **Reduce and clean:** In the narrow chat system-instruction receipt, match
   the entire wrapper and skill source; retain the matched source hash/size and
   booleans, never vendor prompt or model reasoning. Skip native content values;
   retain only allowed names/counts/metadata correlation. Limit artifacts to
   128 KiB each and 2 MiB total. Remove raw roots, including native history and
   OTel, on success/failure and record cleanup. Deletion is not exclusion proof.
-- [ ] **Review handoff:** Check manifest/staged/CRLF bytes, docs build and drift,
+- [x] **Review handoff:** Check manifest/staged/CRLF bytes, docs build and drift,
   review findings against retained measurements, and update #740/#741–#743 with
   this exact delivery mechanism. The batch becomes exhausted after its attempt;
   no subsequent native-skill or role launch is authorized.
@@ -99,15 +102,23 @@ A historical receipt remains an audit input, not enforceable authority.
 
 ## Review and remaining decisions
 
-Disposition: **Ready for exact owner approval.** Fresh read-only Luna review
+Disposition: **Executed and independently reviewed.** The owner approved the
+exact one-call case and it passed; its budget is exhausted. Fresh read-only Luna review
 confirmed source/wrapper/hash binding, the limited observer deltas and one-call
-budget, with no material findings. No live probe ran. The proposed
+budget, with no material findings before launch. The
+[observed result](../../validation/copilot-startup-skill-delivery.md) records the
+subsequent one-call execution. The proposed
 choice is the permitted startup-context path because one fresh call can measure
 complete selected source bytes without adding a tool-output capture class or
-introducing a later model input. The owner may decline this one-call proposal;
+introducing a later model input. The owner approved this one-call proposal only;
 no substitute native-invocation/provider experiment is inferred.
 
 Risk sizing reuses the unchanged assessment in the prior boundary plan:
 synthetic local blast radius, native state retained only temporarily, incomplete
 remote/provider reversibility and unknown complete capture/permission coverage.
 This result cannot satisfy broader eligibility simply by hashing it.
+
+Final independent read-only Luna evidence review found no actionable findings.
+Configuration/authority/source/wrapper and all ten manifest entries agree; the
+result is limited to supplied startup delivery. No reviewer ran a live probe.
+This batch is complete and exhausted; broader #740 work remains open.
