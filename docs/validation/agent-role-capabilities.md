@@ -328,3 +328,15 @@ model continuation. All six profiles and live-batch gates remain unchanged.
 ## Probe 0 transport qualification follow-up — 2026-10-06
 
 A single owner-approved qualification probe ran against Copilot 1.0.90 (quota refused the model call). Native OTel with granular capture settings delivered system-instruction and effective-tool-inventory evidence; response exclusion, skill-body delivery and the built-in MCP discovery question remain open. See [Probe 0 report](copilot-probe0-transport-qualification.md). All six role profiles remain unverified/no-go.
+
+## November hosted-turn follow-up — 2026-11-01
+
+The [November transport probe](copilot-november-transport-probe.md) completed
+one owner-approved `gpt-6-luna` hosted turn after sandbox and model-availability
+failures. Exact synthetic root-rule delivery and model-visible definitions
+were observed; the launch requested `grep`, while the new inventory exposes `rg`; their
+relationship is unverified.
+No response-content attribute appeared in OTel, but separate session persistence
+contains assistant content and nonempty reasoning-related fields. This is not
+complete capture exclusion, skill delivery or permission evidence. All six
+role profiles remain unverified/no-go; #740 remains open.
