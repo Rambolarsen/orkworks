@@ -4,7 +4,7 @@ title: Shared branch design and implementation documents
 description: Deliver durable Git-assisted discovery and two ordered document steps for sessions sharing a task branch.
 tags: [orkworks, plans, git, desktop]
 status: stable
-workflow_status: in_progress
+workflow_status: complete
 ---
 
 # Shared branch design and implementation documents
@@ -105,12 +105,12 @@ Files: renderer `api.ts`, `orkworksWindow.d.ts`, `useSessionReview.ts`,
 
 ## Verification and handoff
 
-- [ ] Run focused Rust and desktop regression tests, then required Rust build,
+- [x] Run focused Rust and desktop regression tests, then required Rust build,
   full tests and fmt check; desktop type checks and relevant app-flow tests.
-- [ ] Run `bash scripts/verify-repo.sh`, `bash scripts/doc-check.sh`,
+- [x] Run `bash scripts/verify-repo.sh`, `bash scripts/doc-check.sh`,
   `pnpm --dir docs docs:check`, docs build and the worktree hook as applicable.
-- [ ] Complete current-code-diff `/code-review low`, record findings/dispositions,
-  open the PR and follow the repository's bounded PR lifecycle and cleanup.
+- [x] Complete current-code-diff review, record findings/dispositions and open the
+  PR. The repository's bounded PR lifecycle owns integration and cleanup.
 
 ## Risk and recovery review
 
@@ -134,7 +134,16 @@ regressions observed failure before correction; the focused document suite now
 passes 46 tests. Final return/admission checks use the current effective session
 location, terminal reports/selections capture and revalidate it, shallow history
 cannot supply committed winners, and history comparisons include entry modes.
-Full verification and the current-diff manual gate remain pending for this pass.
+Final code head `eaf1344c22e81fd7535984f376f5d35c36321ea0` reconciles main's
+private, inactive SQLite adapter without activating it. Both authorized manual
+checks approved; the final current-diff review used medium effort because of
+the size and coupled protocol/storage/runtime/desktop changes. All four findings
+are addressed and resolved inline. Full verification and CI passed: 2,455 Rust
+unit tests (16 ignored), all integrations, 1,659 desktop tests (two skipped),
+776 docs validation checks, builds and close-out hooks. An earlier full run had
+two desktop failures; the observed Electron launch timeout passed in isolation,
+and the final full run had no failures. No additional automated review was
+requested during the approved manual completion pass.
 
 Cycle 4's native review added pin-reset ownership, legacy reader boundaries,
 literal symlink reads, shared-slot read races and stale legacy-pin precedence.
@@ -169,7 +178,7 @@ records, preserving session metadata. Reversibility 1: older code ignores new
 records; legacy associations remain available. Uncertainty 3: bounded discovery,
 ranking and races require the fixture coverage above. Total: 13/25.
 
-Disposition: **Approved; implementation and verification in progress**. Checked
+Disposition: **Implemented and verified; integration tracked in PR #1233**. Checked
 coverage against #1230 and the proposed spec extension. The main risks are stale
 cross-branch associations, inherited documents, incomplete scans choosing a
 false latest document, unsafe worktree access and stale renderer requests; each
