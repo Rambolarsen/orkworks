@@ -1,0 +1,28 @@
+{
+  "artifacts": {
+    ".gitattributes": {
+      "bytes": 8,
+      "sha256": "705fd4d6451a31d36b3df7de96f83f30ac976c9b4a6d1e51671d8e2f33e2d0da"
+    },
+    "configuration.json": {
+      "bytes": 7650,
+      "sha256": "c9d27f1752467e12baf9ac26e19ea9e46645e2171c9af8464a6b8423def09777"
+    },
+    "index.md": {
+      "bytes": 353,
+      "sha256": "080e393d80f9c05f0678c1a36acdf69a3560b66aaf21e226db4251201671e441"
+    },
+    "root-rule.txt": {
+      "bytes": 162,
+      "sha256": "3a6e956ccfb390cb01486879a229b5b2936d1211f5d676d39b08972113a27be7"
+    },
+    "settings-instructions-and-tools.json": {
+      "bytes": 459,
+      "sha256": "1868053a64e8001ee46ab9725b094a8664beed6c3192e471219e1bead18a2ca8"
+    },
+    "settings-metadata-only.json": {
+      "bytes": 461,
+      "sha256": "968082667c0608a65d476bcee1650a35a719e03907e568c52c899e92b6ae7641"
+    }
+  }
+}

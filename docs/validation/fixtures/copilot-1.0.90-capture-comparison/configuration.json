@@ -1,0 +1,162 @@
+{
+  "schema": "orkworks.research-probe-proposal.v1",
+  "proposalId": "copilot-1.0.90-settings-only-comparison-2026-11-01",
+  "status": "proposed-not-authorized",
+  "nativePath": "/opt/homebrew/lib/node_modules/@github/copilot/node_modules/@github/copilot-darwin-arm64/copilot",
+  "nativeSha256": "3ae21a3f00fcc216faaa1f062ee98451c7807066ee26f0fe1c85c6ed315e5458",
+  "cachePath": "/Users/froomiebot/Library/Caches/copilot/pkg/darwin-arm64/1.0.90",
+  "appSha256": "f84061b62eeb1cd78a655555890fe1a776509203fca68144745467e26e443813",
+  "runtimeSha256": "ad89ad135478cd2b19a5b99bb19064d0be281961cab0506f3767f39234d4c591",
+  "argv": [
+    "<pinned-native>",
+    "--no-auto-update",
+    "--model",
+    "gpt-6-luna",
+    "--available-tools",
+    "view",
+    "grep",
+    "glob",
+    "skill",
+    "--deny-tool",
+    "shell",
+    "write",
+    "url",
+    "--disable-builtin-mcps",
+    "--disallow-temp-dir",
+    "--no-remote",
+    "--no-remote-export",
+    "--log-dir",
+    "<case>/logs",
+    "-s",
+    "-p",
+    "Return exactly the decimal result of 17 + 25. Do not use tools or explain."
+  ],
+  "cwd": "<case>/repo",
+  "cases": [
+    {
+      "id": "metadata-only",
+      "captureOverrides": {},
+      "settingsFile": "settings-metadata-only.json",
+      "settingsSha256": "968082667c0608a65d476bcee1650a35a719e03907e568c52c899e92b6ae7641"
+    },
+    {
+      "id": "instructions-and-tools",
+      "captureOverrides": {
+        "prompts": true,
+        "toolArguments": true
+      },
+      "settingsFile": "settings-instructions-and-tools.json",
+      "settingsSha256": "1868053a64e8001ee46ab9725b094a8664beed6c3192e471219e1bead18a2ca8"
+    }
+  ],
+  "settingsJsonBase": {
+    "telemetry": {
+      "captureContent": false,
+      "capture": {
+        "identity": false,
+        "prompts": false,
+        "responses": false,
+        "toolArguments": false,
+        "toolOutput": false,
+        "policyDetail": false
+      }
+    },
+    "disableAllHooks": true,
+    "memory": false,
+    "ide": {
+      "autoConnect": false
+    },
+    "continueOnAutoMode": false,
+    "customAgents": {
+      "defaultLocalOnly": true
+    },
+    "remoteExport": false,
+    "remoteSessions": false
+  },
+  "initialConfigJson": "absent; never seed legacy user settings",
+  "rootRuleInput": "root-rule.txt as repo/AGENTS.md, exact UTF-8 bytes",
+  "expectedStdout": "42",
+  "environment": {
+    "construction": "Start empty; inherit only the named bindings, then set explicit overrides. Do not inherit any other variable.",
+    "inheritedBindingNames": [
+      "PATH",
+      "HOME",
+      "TMPDIR"
+    ],
+    "retainInheritedNonsecretValues": "Record before launch with owner-home/temp prefixes normalized; raw values remain private.",
+    "explicitOverrides": {
+      "COPILOT_HOME": "<case>/settings",
+      "COPILOT_AUTO_UPDATE": "false",
+      "COPILOT_OTEL_FILE_EXPORTER_PATH": "<case>/otel.jsonl",
+      "COPILOT_OTEL_EXPORTER_TYPE": "file",
+      "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "false",
+      "USE_TGREP": "false",
+      "NO_COLOR": "1"
+    }
+  },
+  "authentication": "Existing owner-authorized Copilot authentication through normal native resolution with inherited HOME only; this may access native credential state. No observer reads/copies real credential files, changes login, introduces token environment bindings or substitutes provider/helper. No HOME-loaded personal task context is permitted; source preflight guards the candidate but is not a complete startup attestation. Stop on auth failure.",
+  "limits": {
+    "maxObservedModelCalls": 2,
+    "secondsPerProcess": 120,
+    "secondsPerBatch": 600,
+    "maxRetainedBytesPerArtifact": 131072,
+    "maxRetainedBytesPerBatch": 2097152,
+    "automaticRetries": 0,
+    "observerLimitsOnly": true,
+    "maxLiveCliAttempts": 2
+  },
+  "storageBoundary": "Proposed exception: ordinary native history allowed only in private disposable synthetic homes; no raw native history or model reasoning retained or sent to agent context. OTel uses the exact narrow classes above. No exclusion claim for native persistence. Remote control/export requested off and unknown actual remote behavior blocks any no-export claim.",
+  "stopConditions": [
+    "First failed, refused or unavailable model; no second case after failure",
+    "Unexpected tool call, tool inventory, source, provider/model or capture attribute",
+    "Timeout, overflow, extra observed model call, parse/correlation ambiguity or unaccounted process",
+    "Unknown secret-bearing inherited binding or policy requiring broader capture; never broaden capture or permissions"
+  ],
+  "decisionLimit": "Transport comparison only. No skill delivery, permission, runtime role eligibility, full request coverage, continuation, native-history exclusion or remote-export enforcement certified.",
+  "expectedObservedToolNamesWhenAvailable": [
+    "view",
+    "skill",
+    "rg",
+    "glob"
+  ],
+  "toolNameLimit": "These are allowed observed native names for this transport experiment only. Requested grep versus observed rg remains unresolved; no action equivalence or permission mapping is inferred. Metadata-only case has no tool-definition receipt.",
+  "preflight": {
+    "maxDiscoveryCommands": 4,
+    "secondsPerCommand": 30,
+    "argvs": [
+      [
+        "<pinned-native>",
+        "--no-auto-update",
+        "instruction",
+        "list",
+        "--json"
+      ],
+      [
+        "<pinned-native>",
+        "--no-auto-update",
+        "skill",
+        "list",
+        "--json"
+      ]
+    ],
+    "perCase": "Run both commands before adding OTel activation variables; same synthetic cwd and home. Discovery is a source guard, not a full native-startup attestation.",
+    "allowedInstructionSources": [
+      "<case>/repo/AGENTS.md only"
+    ],
+    "allowedSkills": [
+      "customize-cloud-agent from pinned native package",
+      "github-pr-media from pinned native package"
+    ],
+    "onOtherOrAmbiguousSources": "Stop before inference; never read their contents or silently accept user context. Existing HOME is approved only for normal authentication resolution, not as task content.",
+    "managedPolicy": "No complete effective managed-capture receipt has been established. Fail on any supported diagnostic requiring broader capture; otherwise classify effective policy as unknown, an explicit owner-accepted canary risk, not enforcement proof. Never enumerate real managed files or change policy.",
+    "repositoryCreation": "Use git init with empty template directory, GIT_CONFIG_NOSYSTEM=1 and GIT_CONFIG_GLOBAL=/dev/null for the observer command; do not copy host templates/hooks."
+  },
+  "settingsPostcondition": "Record after-settings size/hash and require byte equality to the exact synthetic before-settings file. If changed, fail and do not retain or print changed contents. Native managed config/state bodies are never retained.",
+  "ownerRiskAcknowledgment": [
+    "Ordinary native history may contain assistant content and reasoning-related values inside private disposable roots; no observer extraction or retention of those values",
+    "Vendor system context and existing native authentication source are accepted; personal model-facing instructions/skills/extensions are not accepted",
+    "Discovery is not full startup attestation; unknown managed capture and remote/provider retention remain unqualified canary risks, not isolation guarantees",
+    "Narrow requested OTel capture could fail or be overridden; unexpected content stops the batch and raw data is removed without printing values",
+    "Two live attempts and two observed calls maximum; limits are observer stops, not certified provider request/billing caps"
+  ]
+}

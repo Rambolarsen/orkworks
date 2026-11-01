@@ -17,6 +17,15 @@ tags: ["orkworks", "plans"]
 
 **Spec:** [Role configuration](../specs/2026-10-04-agent-role-configuration-design.md), [preparation lifecycle](../specs/2026-10-04-orchestrator-preparation-design.md), [capability register](../../validation/agent-role-capabilities.md). Tracks [#740](https://github.com/Rambolarsen/orkworks/issues/740); consumers #741–#743, initiative #738.
 
+## Proposed synthetic-history amendment — 2026-11-01
+
+A [bounded settings-only comparison proposal](2026-11-01-copilot-synthetic-capture-boundary.md)
+separates ordinary disposable native history from retained exporter evidence.
+Its native-history exception and concrete live configuration require explicit
+owner approval before execution. Until then, this plan's existing all-persistence
+gate remains unchanged. Even if approved for that batch, it does not waive any
+production role/profile, complete capture-safety or later-batch requirement.
+
 ## Scope and authorization
 
 This document proposes a **separate user-authorized probe session**. This session refreshed version/help and synthetic instruction/skill discovery only. No inference request, denial test, shell sandbox mutation, MCP process or orchestration launch has run.
