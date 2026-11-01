@@ -830,12 +830,6 @@ app.whenReady().then(async () => {
   knowledgeTimer.unref();
   app.once("before-quit", () => { clearInterval(knowledgeTimer); knowledgeUpdates.setEnabled(false); });
   let activeHarnessRevision = 0;
-  // Main's copy of the persisted active-harness selection, kept in sync with
-  // the sidecar: seeded from workspace restoration and updated only after a
-  // confirmed PUT succeeds (never in the stale-skip branch below, which
-  // returns without writing). Per-row integration reconcile reads this to
-  // decide install/repair vs uninstall without trusting renderer state.
-  let persistedActiveHarnessIds: string[] = [];
 
   function publishBackendLifecycle(event: BackendLifecycleEvent): void {
     latestBackendLifecycle = event;
@@ -961,19 +955,13 @@ app.whenReady().then(async () => {
       ) {
         return { ok: false, error: "The sidecar returned an invalid active harness revision." };
       }
-      // The workspace can switch while this PUT is in flight; the pre-fetch
-      // guard check cannot catch that. If the response arrives against a
-      // switched workspace, discard it the same way as the pre-fetch
-      // stale-skip above — saveActiveHarnessesWithIntegrations re-checks the
-      // guard and reports stale_workspace, so this result is discarded —
-      // without letting the old workspace's selection or revision clobber
-      // the state the new workspace's onReady seeded (and that per-row
-      // integration reconcile reads back).
+      // The workspace can switch while this PUT is in flight. Discard a stale
+      // response without overwriting the revision seeded by the new workspace.
+      // Callers re-check their guards and report stale_workspace.
       if (isStale(guard, { workspacePath, generation: backendGeneration, activeHarnessRevision })) {
         return { ok: true, activeHarnessRevision: expectedActiveHarnessRevision };
       }
       activeHarnessRevision = savedActiveHarnessRevision;
-      persistedActiveHarnessIds = ids;
       return { ok: true, activeHarnessRevision: savedActiveHarnessRevision };
     }
     const body = await response.json().catch(() => ({ error: undefined, code: undefined })) as {
@@ -1153,7 +1141,6 @@ app.whenReady().then(async () => {
     clearTimeout: (timer) => clearTimeout(timer as NodeJS.Timeout),
     onReady: (port, workspace) => {
       activeHarnessRevision = workspace?.activeHarnessRevision ?? 0;
-      persistedActiveHarnessIds = workspace?.activeHarnessIds ?? [];
     },
     onFailure: (error) => {
       logBackendLifecycleFailure("restoration", error);
