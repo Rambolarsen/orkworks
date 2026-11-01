@@ -133,3 +133,5 @@ Decision records and their original rationale and consequences.
 - [Slow terminal projections compute outside the input fence](0102-terminal-projection-input-fence.md) — Accepted capacity/input fence separation with stale-result rejection.
 
 - [Ordinary sessions use SQLite with bounded history reads](0103-sqlite-session-storage.md) — Accepted ordinary-session database, bounded history and maintenance-only migration; implementation pending.
+
+- [Peon admission shares the session deletion fence](0104-peon-scheduling-deletion-fence.md) — Accepted synchronous admission/timer fence; provider execution remains independent.

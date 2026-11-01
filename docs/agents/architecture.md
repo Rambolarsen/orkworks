@@ -754,6 +754,16 @@ prompt-plus-Enter. Other harnesses retain plain input delivery.
 
 ## Metadata protocol
 
+Peon scheduling and deletion share the existing projection fence for synchronous
+attempt preparation and idle-timer origin repair. Prepared attempts retain the
+existing runtime/attempt identity; provider work, hard-wrap reassembly and idle
+transition application execute after the fence is released. Forget invalidates
+admitted attempts and clears runtime plus conversation tracking through
+`SessionApplication::clear_forgotten_session_tracking`. Ordinary end retains
+conversation label work. This ordering prevents locally selected IDs from
+recreating forgotten tracking without another lifecycle authority; see
+[ADR 0104](../adr/0104-peon-scheduling-deletion-fence.md).
+
 The owner-approved [ordinary-session SQLite contract](../../specs/session-storage.md)
 and [ADR 0103](../adr/0103-sqlite-session-storage.md) replace session/organization
 file authority and complete-history projection after qualified format-2 cutover.

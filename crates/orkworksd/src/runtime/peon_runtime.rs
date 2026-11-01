@@ -646,6 +646,301 @@ async fn peon_loop_for_test(state: Arc<AppState>, shutdown: tokio::sync::oneshot
     .await;
 }
 
+struct PreparedPeonAttempt {
+    attempt_context: AttemptContext,
+    mode: InferenceMode,
+    hint: Option<crate::LabelHint>,
+    output_snapshot: Vec<String>,
+    output_cols: u16,
+    output_boundary: Option<PeonOutputCaptureIdentity>,
+    captured_title_epoch: u64,
+}
+
+fn prepare_peon_attempts(
+    state: &Arc<AppState>,
+    pending_output: &mut HashMap<String, PendingOutputObservation>,
+    cancellation: &Arc<AtomicBool>,
+    #[cfg(test)] after_selection: impl FnOnce(),
+) -> Vec<PreparedPeonAttempt> {
+    // Forget/retention/workspace replacement hold this same fence through
+    // cleanup. Only admitted, identity-owned attempts may escape this scope.
+    let _projection = state.projection_lock.lock().unwrap();
+    let interval = state.peon.config.interval_secs;
+    let mut prepared = Vec::new();
+    let now = tokio::time::Instant::now();
+    let deadline = now - std::time::Duration::from_secs(interval);
+
+    // Sessions with a pending label inference (input-triggered, no debounce)
+    let pending: Vec<String> = state.peon.label_pending.write().unwrap().drain().collect();
+
+    // Prefer quiet output, but bound the wait when terminal redraws or
+    // continuous work keep resetting last_output. Track the evidence boundary,
+    // not the latest chunk, so new input/resume cannot inherit an old deadline.
+    let mut candidates: Vec<(String, InferenceMode)> = {
+        // Settlement may hold sessions while writing output/lease tracking.
+        // Never wait for sessions while retaining either Peon map guard.
+        let last_output = state.peon.last_output.read().unwrap().clone();
+        let in_flight = state.peon.in_flight.read().unwrap().clone();
+        let sessions = state.sessions.lock().unwrap();
+        pending_output.retain(|id, pending| {
+            last_output.contains_key(id)
+                && sessions.get(id).is_some_and(|handle| {
+                    handle.info.lifecycle_phase == "active"
+                        && handle.runtime.identity() == pending.runtime_identity
+                        && handle.runtime.input_generation == pending.input_generation
+                        && handle.runtime.min_peon_output_revision == pending.min_revision
+                        && handle.output_buffer.has_after(pending.min_revision)
+                })
+        });
+
+        last_output
+            .iter()
+            .filter_map(|(id, &last_chunk)| {
+                let handle = sessions.get(id)?;
+                if handle.info.lifecycle_phase != "active"
+                    || in_flight.contains(id)
+                    || !handle
+                        .output_buffer
+                        .has_after(handle.runtime.min_peon_output_revision)
+                {
+                    return None;
+                }
+                let pending =
+                    pending_output
+                        .entry(id.clone())
+                        .or_insert_with(|| PendingOutputObservation {
+                            runtime_identity: handle.runtime.identity(),
+                            input_generation: handle.runtime.input_generation,
+                            min_revision: handle.runtime.min_peon_output_revision,
+                            since: now,
+                        });
+                (last_chunk <= deadline
+                    || now.duration_since(pending.since)
+                        >= MAX_OUTPUT_OBSERVATION_WAIT
+                            .max(std::time::Duration::from_secs(interval)))
+                .then(|| (id.clone(), InferenceMode::Output))
+            })
+            .collect()
+    };
+
+    #[cfg(test)]
+    after_selection();
+
+    for (session_id, _) in &candidates {
+        state.peon.mark_candidate(session_id);
+        state.updates.sessions_changed();
+    }
+
+    for id in pending {
+        if !state.sessions.lock().unwrap().contains_key(&id) {
+            continue;
+        }
+        if !state.peon.in_flight.read().unwrap().contains(&id)
+            && !candidates
+                .iter()
+                .any(|(candidate_id, _)| candidate_id == &id)
+        {
+            candidates.push((id, InferenceMode::InputLabel));
+        } else {
+            // Can't schedule this tick (already in flight, or this
+            // session already has a same-tick Output candidate) — put it
+            // back rather than dropping the one-shot request entirely.
+            state.peon.label_pending.write().unwrap().insert(id);
+        }
+    }
+
+    for (session_id, mode) in candidates {
+        if matches!(mode, InferenceMode::Output) {
+            pending_output.remove(&session_id);
+        }
+        {
+            let mut in_flight = state.peon.in_flight.write().unwrap();
+            if !in_flight.insert(session_id.clone()) {
+                continue;
+            }
+        }
+
+        let captured_title_epoch = state
+            .peon
+            .label_epochs
+            .read()
+            .unwrap()
+            .get(&session_id)
+            .copied()
+            .unwrap_or(0);
+        let (output_snapshot, output_boundary, output_cols) = {
+            let mut sessions = state.sessions.lock().unwrap();
+            match sessions.get_mut(&session_id) {
+                Some(handle) => match mode {
+                    InferenceMode::Output => {
+                        let cols = handle.runtime.last_cols;
+                        let capture_is_current = handle
+                            .runtime
+                            .peon_output_capture
+                            .as_ref()
+                            .is_some_and(|capture| {
+                                output_inference_is_current(
+                                    capture.input_generation,
+                                    capture.min_revision,
+                                    handle.runtime.input_generation,
+                                    handle.runtime.min_peon_output_revision,
+                                )
+                            });
+                        if !capture_is_current {
+                            handle.runtime.peon_output_capture = None;
+                        }
+                        if handle.runtime.peon_output_capture.is_none() {
+                            handle.runtime.peon_output_capture = handle
+                                .output_buffer
+                                .snapshot_after_with_revisions(
+                                    handle.runtime.min_peon_output_revision,
+                                )
+                                .map(|snapshot| peon::PeonOutputCapture {
+                                    lines: snapshot.lines,
+                                    input_generation: handle.runtime.input_generation,
+                                    min_revision: handle.runtime.min_peon_output_revision,
+                                    first_revision: snapshot.first_revision,
+                                    last_revision: snapshot.last_revision,
+                                    runtime_instance_id: handle.runtime.runtime_instance_id.clone(),
+                                });
+                        }
+                        handle
+                            .runtime
+                            .peon_output_capture
+                            .clone()
+                            .map(|capture| {
+                                (
+                                    capture.lines.clone(),
+                                    Some(PeonOutputCaptureIdentity {
+                                        input_generation: capture.input_generation,
+                                        min_revision: capture.min_revision,
+                                        first_revision: capture.first_revision,
+                                        last_revision: capture.last_revision,
+                                        runtime_instance_id: capture.runtime_instance_id,
+                                        run_generation: handle.runtime.run_generation(),
+                                    }),
+                                    cols,
+                                )
+                            })
+                            .unwrap_or((Vec::new(), None, cols))
+                    }
+                    InferenceMode::InputLabel => (Vec::new(), None, 0),
+                },
+                None => {
+                    drop(sessions);
+                    state.peon.in_flight.write().unwrap().remove(&session_id);
+                    continue;
+                }
+            }
+        };
+
+        let hint = (matches!(mode, InferenceMode::InputLabel))
+            .then(|| state.peon.label_hint.write().unwrap().remove(&session_id))
+            .flatten();
+        if output_snapshot.is_empty() && hint.is_none() {
+            state.peon.in_flight.write().unwrap().remove(&session_id);
+            state.peon.mark_idle(&session_id, "no_new_silent_output");
+            continue;
+        }
+
+        let state_clone = state.clone();
+        let id = session_id.clone();
+        let Some(runtime_identity) = output_boundary
+            .as_ref()
+            .map(|capture| RuntimeIdentity {
+                runtime_instance_id: capture.runtime_instance_id.clone(),
+                run_generation: capture.run_generation,
+            })
+            .or_else(|| {
+                state
+                    .sessions
+                    .lock()
+                    .unwrap()
+                    .get(&id)
+                    .map(|handle| handle.runtime.identity())
+            })
+        else {
+            state.peon.in_flight.write().unwrap().remove(&id);
+            continue;
+        };
+        let Some(attempt) = state.peon.begin_attempt(&id, runtime_identity) else {
+            state.peon.in_flight.write().unwrap().remove(&id);
+            continue;
+        };
+        let cancellation = cancellation.clone();
+        let attempt_context = AttemptContext::new(state_clone.clone(), id, attempt, cancellation);
+        prepared.push(PreparedPeonAttempt {
+            attempt_context,
+            mode,
+            hint,
+            output_snapshot,
+            output_cols,
+            output_boundary,
+            captured_title_epoch,
+        });
+    }
+    prepared
+}
+
+fn prepare_idle_candidates(
+    state: &Arc<AppState>,
+    #[cfg(test)] after_selection: impl FnOnce(),
+) -> Vec<(String, RuntimeGeneration)> {
+    let _projection = state.projection_lock.lock().unwrap();
+    let idle_timeout = state.peon.config.idle_timeout_secs;
+    let idle_deadline = tokio::time::Instant::now() - std::time::Duration::from_secs(idle_timeout);
+    let last_output = state.peon.last_output.read().unwrap().clone();
+
+    let (silent_ids, missing_last_output_ids): (Vec<(String, RuntimeGeneration)>, Vec<String>) = {
+        let sessions = state.sessions.lock().unwrap();
+        let mut silent_ids = Vec::new();
+        let mut missing_last_output_ids = Vec::new();
+
+        for (id, handle) in sessions.iter() {
+            // Active-hook sessions are hook-authoritative: the hook may
+            // legitimately go silent on the PTY for long stretches while
+            // still working, and only the hook (or process end) may
+            // clear that state — this timer must not race it to idle.
+            if handle.info.status != "running"
+                || handle.info.lifecycle_phase != "active"
+                || handle.active_work_hook
+                || handle.runtime.codex_terminal_status_active
+                || crate::runtime::prompt_authority::registry().is_active(id)
+                || !matches!(
+                    handle.info.observed_status.as_deref(),
+                    None | Some("working")
+                )
+            {
+                continue;
+            }
+
+            match last_output.get(id) {
+                Some(&t) if t <= idle_deadline => {
+                    silent_ids.push((id.clone(), handle.runtime.run_generation()));
+                }
+                Some(_) => {}
+                None => missing_last_output_ids.push(id.clone()),
+            }
+        }
+
+        (silent_ids, missing_last_output_ids)
+    };
+    #[cfg(test)]
+    after_selection();
+
+    if !missing_last_output_ids.is_empty() {
+        let now = tokio::time::Instant::now();
+        let mut last_output = state.peon.last_output.write().unwrap();
+        for id in missing_last_output_ids {
+            // Self-heal the transient gap where a session is visible
+            // as running before its startup idle timer origin exists.
+            last_output.entry(id).or_insert(now);
+        }
+    }
+
+    silent_ids
+}
+
 async fn peon_loop_until<F>(state: Arc<AppState>, shutdown: F)
 where
     F: std::future::Future<Output = ()> + Send,
@@ -667,211 +962,32 @@ where
         }
         while inference_tasks.try_join_next().is_some() {}
 
-        let now = tokio::time::Instant::now();
-        let deadline = now - std::time::Duration::from_secs(interval);
-
-        // Sessions with a pending label inference (input-triggered, no debounce)
-        let pending: Vec<String> = state.peon.label_pending.write().unwrap().drain().collect();
-
-        // Prefer quiet output, but bound the wait when terminal redraws or
-        // continuous work keep resetting last_output. Track the evidence boundary,
-        // not the latest chunk, so new input/resume cannot inherit an old deadline.
-        let mut candidates: Vec<(String, InferenceMode)> = {
-            let last_output = state.peon.last_output.read().unwrap();
-            let in_flight = state.peon.in_flight.read().unwrap();
-            let sessions = state.sessions.lock().unwrap();
-            pending_output.retain(|id, pending| {
-                last_output.contains_key(id)
-                    && sessions.get(id).is_some_and(|handle| {
-                        handle.info.lifecycle_phase == "active"
-                            && handle.runtime.identity() == pending.runtime_identity
-                            && handle.runtime.input_generation == pending.input_generation
-                            && handle.runtime.min_peon_output_revision == pending.min_revision
-                            && handle.output_buffer.has_after(pending.min_revision)
-                    })
-            });
-
-            last_output
-                .iter()
-                .filter_map(|(id, &last_chunk)| {
-                    let handle = sessions.get(id)?;
-                    if handle.info.lifecycle_phase != "active"
-                        || in_flight.contains(id)
-                        || !handle
-                            .output_buffer
-                            .has_after(handle.runtime.min_peon_output_revision)
-                    {
-                        return None;
-                    }
-                    let pending = pending_output.entry(id.clone()).or_insert_with(|| {
-                        PendingOutputObservation {
-                            runtime_identity: handle.runtime.identity(),
-                            input_generation: handle.runtime.input_generation,
-                            min_revision: handle.runtime.min_peon_output_revision,
-                            since: now,
-                        }
-                    });
-                    (last_chunk <= deadline
-                        || now.duration_since(pending.since)
-                            >= MAX_OUTPUT_OBSERVATION_WAIT
-                                .max(std::time::Duration::from_secs(interval)))
-                    .then(|| (id.clone(), InferenceMode::Output))
-                })
-                .collect()
-        };
-
-        for (session_id, _) in &candidates {
-            state.peon.mark_candidate(session_id);
-            state.updates.sessions_changed();
-        }
-
-        for id in pending {
-            if !state.peon.in_flight.read().unwrap().contains(&id)
-                && !candidates
-                    .iter()
-                    .any(|(candidate_id, _)| candidate_id == &id)
-            {
-                candidates.push((id, InferenceMode::InputLabel));
-            } else {
-                // Can't schedule this tick (already in flight, or this
-                // session already has a same-tick Output candidate) — put it
-                // back rather than dropping the one-shot request entirely.
-                state.peon.label_pending.write().unwrap().insert(id);
-            }
-        }
-
-        for (session_id, mode) in candidates {
-            if matches!(mode, InferenceMode::Output) {
-                pending_output.remove(&session_id);
-            }
-            {
-                let mut in_flight = state.peon.in_flight.write().unwrap();
-                if !in_flight.insert(session_id.clone()) {
-                    continue;
-                }
-            }
-
-            let captured_title_epoch = state
-                .peon
-                .label_epochs
-                .read()
-                .unwrap()
-                .get(&session_id)
-                .copied()
-                .unwrap_or(0);
-            let (output_snapshot, output_boundary, output_cols) = {
-                let mut sessions = state.sessions.lock().unwrap();
-                match sessions.get_mut(&session_id) {
-                    Some(handle) => match mode {
-                        InferenceMode::Output => {
-                            let cols = handle.runtime.last_cols;
-                            let capture_is_current =
-                                handle.runtime.peon_output_capture.as_ref().is_some_and(
-                                    |capture| {
-                                        output_inference_is_current(
-                                            capture.input_generation,
-                                            capture.min_revision,
-                                            handle.runtime.input_generation,
-                                            handle.runtime.min_peon_output_revision,
-                                        )
-                                    },
-                                );
-                            if !capture_is_current {
-                                handle.runtime.peon_output_capture = None;
-                            }
-                            if handle.runtime.peon_output_capture.is_none() {
-                                handle.runtime.peon_output_capture = handle
-                                    .output_buffer
-                                    .snapshot_after_with_revisions(
-                                        handle.runtime.min_peon_output_revision,
-                                    )
-                                    .map(|snapshot| peon::PeonOutputCapture {
-                                        lines: snapshot.lines,
-                                        input_generation: handle.runtime.input_generation,
-                                        min_revision: handle.runtime.min_peon_output_revision,
-                                        first_revision: snapshot.first_revision,
-                                        last_revision: snapshot.last_revision,
-                                        runtime_instance_id: handle
-                                            .runtime
-                                            .runtime_instance_id
-                                            .clone(),
-                                    });
-                            }
-                            handle
-                                .runtime
-                                .peon_output_capture
-                                .clone()
-                                .map(|capture| {
-                                    (
-                                        capture.lines.clone(),
-                                        Some(PeonOutputCaptureIdentity {
-                                            input_generation: capture.input_generation,
-                                            min_revision: capture.min_revision,
-                                            first_revision: capture.first_revision,
-                                            last_revision: capture.last_revision,
-                                            runtime_instance_id: capture.runtime_instance_id,
-                                            run_generation: handle.runtime.run_generation(),
-                                        }),
-                                        cols,
-                                    )
-                                })
-                                .unwrap_or((Vec::new(), None, cols))
-                        }
-                        InferenceMode::InputLabel => (Vec::new(), None, 0),
-                    },
-                    None => {
-                        state.peon.in_flight.write().unwrap().remove(&session_id);
-                        state.peon.mark_idle(&session_id, "not_active");
-                        continue;
-                    }
-                }
-            };
-
-            let output_snapshot = peon::rejoin_hard_wrapped_lines(&output_snapshot, output_cols);
-
-            let hint = (matches!(mode, InferenceMode::InputLabel))
-                .then(|| state.peon.label_hint.write().unwrap().remove(&session_id))
-                .flatten();
-            if output_snapshot.is_empty() && hint.is_none() {
-                state.peon.in_flight.write().unwrap().remove(&session_id);
-                state.peon.mark_idle(&session_id, "no_new_silent_output");
+        for PreparedPeonAttempt {
+            attempt_context,
+            mode,
+            hint,
+            output_snapshot,
+            output_cols,
+            output_boundary,
+            captured_title_epoch,
+        } in prepare_peon_attempts(
+            &state,
+            &mut pending_output,
+            &cancellation,
+            #[cfg(test)]
+            || {},
+        ) {
+            if !attempt_context.is_current() {
                 continue;
             }
-
             let output_snapshot = hint
                 .as_ref()
                 .map(|h| vec![format!("[User input]: {}", h.text)])
-                .unwrap_or(output_snapshot);
-
-            let state_clone = state.clone();
-            let id = session_id.clone();
-            let Some(runtime_identity) = output_boundary
-                .as_ref()
-                .map(|capture| RuntimeIdentity {
-                    runtime_instance_id: capture.runtime_instance_id.clone(),
-                    run_generation: capture.run_generation,
-                })
-                .or_else(|| {
-                    state
-                        .sessions
-                        .lock()
-                        .unwrap()
-                        .get(&id)
-                        .map(|handle| handle.runtime.identity())
-                })
-            else {
-                state.peon.in_flight.write().unwrap().remove(&id);
-                state.peon.mark_idle(&id, "not_active");
-                continue;
-            };
-            let Some(attempt) = state.peon.begin_attempt(&id, runtime_identity) else {
-                state.peon.in_flight.write().unwrap().remove(&id);
-                continue;
-            };
-            let cancellation = cancellation.clone();
-            let attempt_context =
-                AttemptContext::new(state_clone.clone(), id, attempt, cancellation);
+                .unwrap_or_else(|| peon::rejoin_hard_wrapped_lines(&output_snapshot, output_cols));
             inference_tasks.spawn(async move {
+                if !attempt_context.is_current() {
+                    return;
+                }
                 let id = attempt_context.session_id().to_string();
                 let provider_state = attempt_context.state().clone();
                 let provider_output = output_snapshot.clone();
@@ -1166,67 +1282,14 @@ where
             });
         }
 
-        // Timer-based idle detection: mark sessions that have been silent
-        // for idle_timeout_secs as idle, without waiting for the LLM.
-        {
-            let idle_timeout = state.peon.config.idle_timeout_secs;
-            let idle_deadline =
-                tokio::time::Instant::now() - std::time::Duration::from_secs(idle_timeout);
-            let last_output = state.peon.last_output.read().unwrap();
-
-            let (silent_ids, missing_last_output_ids): (
-                Vec<(String, RuntimeGeneration)>,
-                Vec<String>,
-            ) = {
-                let sessions = state.sessions.lock().unwrap();
-                let mut silent_ids = Vec::new();
-                let mut missing_last_output_ids = Vec::new();
-
-                for (id, handle) in sessions.iter() {
-                    // Active-hook sessions are hook-authoritative: the hook may
-                    // legitimately go silent on the PTY for long stretches while
-                    // still working, and only the hook (or process end) may
-                    // clear that state — this timer must not race it to idle.
-                    if handle.info.status != "running"
-                        || handle.info.lifecycle_phase != "active"
-                        || handle.active_work_hook
-                        || handle.runtime.codex_terminal_status_active
-                        || crate::runtime::prompt_authority::registry().is_active(id)
-                        || !matches!(
-                            handle.info.observed_status.as_deref(),
-                            None | Some("working")
-                        )
-                    {
-                        continue;
-                    }
-
-                    match last_output.get(id) {
-                        Some(&t) if t <= idle_deadline => {
-                            silent_ids.push((id.clone(), handle.runtime.run_generation()));
-                        }
-                        Some(_) => {}
-                        None => missing_last_output_ids.push(id.clone()),
-                    }
-                }
-
-                (silent_ids, missing_last_output_ids)
-            };
-            drop(last_output);
-
-            if !missing_last_output_ids.is_empty() {
-                let now = tokio::time::Instant::now();
-                let mut last_output = state.peon.last_output.write().unwrap();
-                for id in missing_last_output_ids {
-                    // Self-heal the transient gap where a session is visible
-                    // as running before its startup idle timer origin exists.
-                    last_output.entry(id).or_insert(now);
-                }
-            }
-
-            for (id, generation) in &silent_ids {
-                crate::session_application::SessionApplication::new(state.clone())
-                    .apply_idle_timeout(id, Some(*generation));
-            }
+        // Apply generation-checked transitions after synchronous timer preparation.
+        for (id, generation) in prepare_idle_candidates(
+            &state,
+            #[cfg(test)]
+            || {},
+        ) {
+            crate::session_application::SessionApplication::new(state.clone())
+                .apply_idle_timeout(&id, Some(generation));
         }
     }
 }
@@ -1269,6 +1332,345 @@ mod tests {
     use std::collections::{HashMap, HashSet};
     use std::sync::atomic::{AtomicU16, AtomicUsize, Ordering};
     use std::sync::{Arc, Barrier, Mutex, RwLock};
+
+    fn scheduling_fixture(state: &Arc<AppState>, id: &str, timer: bool) {
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        let mut output_buffer = peon::RingBuffer::new(200);
+        output_buffer.push("working on the requested change".into());
+        state.sessions.lock().unwrap().insert(
+            id.into(),
+            crate::SessionHandle {
+                info: test_session_info(id, id, "/tmp/scheduling", "running", "now"),
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(24, 80),
+                kill_tx,
+                output_buffer,
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                terminal_attached: false,
+                resume_in_progress: false,
+                capacity: Default::default(),
+                active_work_hook: false,
+            },
+        );
+        let workspace = state.workspace.lock().unwrap();
+        let ws = workspace.as_ref().unwrap();
+        for (session_id, time) in [
+            (id, "2024-01-01T00:00:00Z"),
+            ("keep", "2024-02-01T00:00:00Z"),
+        ] {
+            ws.metadata.write_session(&test_session_metadata(
+                session_id,
+                session_id,
+                "/tmp/scheduling",
+                "ended",
+                time,
+                time,
+            ));
+        }
+        if !timer {
+            state.peon.last_output.write().unwrap().insert(
+                id.into(),
+                tokio::time::Instant::now() - std::time::Duration::from_secs(3600),
+            );
+            // An output candidate with a pending label must requeue that label.
+            state.peon.label_pending.write().unwrap().insert(id.into());
+        }
+        state
+            .peon
+            .input_buf
+            .write()
+            .unwrap()
+            .insert(id.into(), "partial input".into());
+        state.peon.mark_idle("keep", "no_new_silent_output");
+    }
+
+    async fn delete_scheduling_fixture(state: Arc<AppState>, deletion: u8) {
+        if deletion == 0 {
+            let _ = crate::session_application::SessionApplication::new(state)
+                .forget_session("scheduled")
+                .await;
+        } else {
+            {
+                let mut config = state.retention_config.write().await;
+                config.max_age_days = if deletion == 1 { 1 } else { 0 };
+                config.max_sessions = if deletion == 2 { 1 } else { 0 };
+            }
+            let now = chrono::DateTime::parse_from_rfc3339("2024-02-01T00:00:00Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc);
+            crate::runtime::retention::retention_cleanup_once(&state, now).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn scheduling_cannot_recreate_tracking_across_forget_and_retention() {
+        let _lease_guard = diagnostic_test_guard();
+        for timer in [false, true] {
+            for deletion in 0..3 {
+                for failure in 0..3 {
+                    let dir = tempfile::tempdir().unwrap();
+                    let state = test_app_state_with_workspace(dir.path());
+                    scheduling_fixture(&state, "scheduled", timer);
+                    let (selected_tx, selected_rx) = std::sync::mpsc::channel();
+                    let (resume_tx, resume_rx) = std::sync::mpsc::channel();
+                    let scheduling_state = state.clone();
+                    let task = std::thread::spawn(move || {
+                        let pause = || {
+                            selected_tx.send(()).unwrap();
+                            resume_rx
+                                .recv_timeout(std::time::Duration::from_secs(10))
+                                .unwrap();
+                        };
+                        if timer {
+                            prepare_idle_candidates(&scheduling_state, pause);
+                            Vec::new()
+                        } else {
+                            prepare_peon_attempts(
+                                &scheduling_state,
+                                &mut HashMap::new(),
+                                &Arc::new(AtomicBool::new(false)),
+                                pause,
+                            )
+                        }
+                    });
+                    selected_rx
+                        .recv_timeout(std::time::Duration::from_secs(10))
+                        .unwrap();
+                    // Runtime exit may finish after selection. Deletion is
+                    // eligible only after that exit; it uses the real owner.
+                    {
+                        let mut sessions = state.sessions.lock().unwrap();
+                        let info = &mut sessions.get_mut("scheduled").unwrap().info;
+                        info.status = "ended".into();
+                        info.lifecycle = "dead".into();
+                        info.lifecycle_phase = "ended".into();
+                    }
+                    {
+                        let workspace = state.workspace.lock().unwrap();
+                        let ws = workspace.as_ref().unwrap();
+                        if failure == 1 {
+                            let path = ws
+                                .metadata
+                                .root_path()
+                                .join("workflow-observations/scheduled.ndjson");
+                            std::fs::create_dir(path).unwrap();
+                        } else if failure == 2 {
+                            let path = ws.metadata.root_path().join("recommendations");
+                            std::fs::remove_dir_all(&path).unwrap();
+                            std::fs::write(path, "unavailable recommendations").unwrap();
+                        }
+                    }
+                    // Force deletion before the captured writes when no fence
+                    // exists. With the fence, run the opposite legal ordering.
+                    // Channels control progress; no sleep decides the outcome.
+                    let fenced = state.projection_lock.try_lock().is_err();
+                    let mut deletion_task = None;
+                    if fenced {
+                        let handle = tokio::runtime::Handle::current();
+                        let deleting_state = state.clone();
+                        deletion_task = Some(std::thread::spawn(move || {
+                            handle.block_on(delete_scheduling_fixture(deleting_state, deletion));
+                        }));
+                    } else {
+                        delete_scheduling_fixture(state.clone(), deletion).await;
+                    }
+                    resume_tx.send(()).unwrap();
+                    let prepared = task.join().unwrap();
+                    if let Some(task) = deletion_task {
+                        task.join().unwrap();
+                    }
+                    for prepared in prepared {
+                        let result = providers::ProviderRunResult {
+                            inference: peon::parse_inference(
+                                r#"{"status":"blocked","confidence":0.9}"#,
+                            ),
+                            observation: None,
+                            attempts: Vec::new(),
+                            runtime: HashMap::new(),
+                        };
+                        assert!(!prepared.attempt_context.complete(&result));
+                        assert!(!prepared.attempt_context.fail("late", "late failure", None));
+                        prepared.attempt_context.timeout(None);
+                        drop(prepared);
+                    }
+                    let workspace = state.workspace.lock().unwrap();
+                    let ws = workspace.as_ref().unwrap();
+                    assert!(ws.metadata.session_file_exists("keep"));
+                    assert!(state.peon.diagnostics.read().unwrap().contains_key("keep"));
+                    assert_eq!(ws.metadata.session_file_exists("scheduled"), failure == 1);
+                    if failure == 1 {
+                        assert_eq!(
+                            state.peon.input_buf.read().unwrap()["scheduled"],
+                            "partial input"
+                        );
+                    } else {
+                        assert!(
+                            !state
+                                .peon
+                                .diagnostics
+                                .read()
+                                .unwrap()
+                                .contains_key("scheduled"),
+                            "captured candidate recreated diagnostic"
+                        );
+                        assert!(
+                            !state
+                                .peon
+                                .label_pending
+                                .read()
+                                .unwrap()
+                                .contains("scheduled"),
+                            "captured label was requeued after deletion"
+                        );
+                        assert!(
+                            !state
+                                .peon
+                                .last_output
+                                .read()
+                                .unwrap()
+                                .contains_key("scheduled"),
+                            "timer recreated forgotten output tracking"
+                        );
+                        assert!(!state.peon.in_flight.read().unwrap().contains("scheduled"));
+                        assert!(!state
+                            .peon
+                            .input_buf
+                            .read()
+                            .unwrap()
+                            .contains_key("scheduled"));
+                        assert!(!diagnostic_leases()
+                            .lock()
+                            .unwrap()
+                            .contains_key("scheduled"));
+                    }
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn preparation_after_forget_prunes_local_output_without_admitting_work() {
+        let _lease_guard = diagnostic_test_guard();
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        scheduling_fixture(&state, "scheduled", false);
+        let runtime = state
+            .sessions
+            .lock()
+            .unwrap()
+            .remove("scheduled")
+            .unwrap()
+            .runtime;
+        let mut pending_output = HashMap::from([(
+            "scheduled".into(),
+            PendingOutputObservation {
+                runtime_identity: runtime.identity(),
+                input_generation: runtime.input_generation,
+                min_revision: runtime.min_peon_output_revision,
+                since: tokio::time::Instant::now(),
+            },
+        )]);
+        crate::session_application::SessionApplication::new(state.clone())
+            .forget_session("scheduled")
+            .await
+            .unwrap();
+        let prepared = prepare_peon_attempts(
+            &state,
+            &mut pending_output,
+            &Arc::new(AtomicBool::new(false)),
+            || {},
+        );
+        assert!(prepared.is_empty());
+        assert!(pending_output.is_empty());
+        assert!(prepare_idle_candidates(&state, || {}).is_empty());
+        assert!(!state
+            .peon
+            .diagnostics
+            .read()
+            .unwrap()
+            .contains_key("scheduled"));
+        assert!(!state.peon.in_flight.read().unwrap().contains("scheduled"));
+        assert!(!state
+            .peon
+            .label_pending
+            .read()
+            .unwrap()
+            .contains("scheduled"));
+        assert!(!state
+            .peon
+            .last_output
+            .read()
+            .unwrap()
+            .contains_key("scheduled"));
+    }
+
+    #[tokio::test]
+    async fn blocked_provider_does_not_hold_the_forget_fence() {
+        let _lease_guard = diagnostic_test_guard();
+        let dir = tempfile::tempdir().unwrap();
+        let mut state = test_app_state_with_workspace(dir.path());
+        let entered = Arc::new(Barrier::new(2));
+        let released = Arc::new(Barrier::new(2));
+        let settings = providers::ProviderSettingsPayload {
+            providers: vec![providers::ProviderSettingsEntry {
+                id: "ollama".into(),
+                enabled: true,
+                fallback_order: 0,
+                model: None,
+                default_state: providers::ProviderCapacityState::Healthy,
+                override_state: None,
+            }],
+            ..Default::default()
+        };
+        let manager = providers::ProviderManager::for_tests(
+            settings,
+            vec![providers::FakeProvider::new("ollama")
+                .stdout(r#"{"status":"working","confidence":0.9}"#)
+                .with_barriers(entered.clone(), released.clone())],
+        );
+        manager.mark_applied_for_tests("ollama", Some("test-model"));
+        Arc::get_mut(&mut state).unwrap().providers = manager;
+        scheduling_fixture(&state, "scheduled", false);
+        let (loop_task, shutdown) = spawn_test_peon_loop(state.clone());
+        tokio::task::spawn_blocking(move || entered.wait())
+            .await
+            .unwrap();
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let info = &mut sessions.get_mut("scheduled").unwrap().info;
+            info.status = "ended".into();
+            info.lifecycle = "dead".into();
+            info.lifecycle_phase = "ended".into();
+        }
+        let (deleted_tx, deleted_rx) = std::sync::mpsc::channel();
+        let deleting_state = state.clone();
+        let handle = tokio::runtime::Handle::current();
+        let deletion = std::thread::spawn(move || {
+            let result = handle.block_on(
+                crate::session_application::SessionApplication::new(deleting_state)
+                    .forget_session("scheduled"),
+            );
+            deleted_tx.send(result).unwrap();
+        });
+        let deleted = tokio::task::spawn_blocking(move || {
+            deleted_rx.recv_timeout(std::time::Duration::from_secs(10))
+        })
+        .await
+        .unwrap();
+        // Always release the provider, including when a bad fence scope has
+        // blocked deletion, so a failed regression cannot strand its runner.
+        released.wait();
+        deletion.join().unwrap();
+        assert!(deleted.expect("forget waited for blocked provider").is_ok());
+        stop_test_peon_loop(loop_task, shutdown).await;
+        assert!(!state
+            .peon
+            .diagnostics
+            .read()
+            .unwrap()
+            .contains_key("scheduled"));
+        assert!(!state.peon.in_flight.read().unwrap().contains("scheduled"));
+    }
 
     #[tokio::test]
     async fn retention_forgets_residual_peon_state_after_age_and_count_deletion() {

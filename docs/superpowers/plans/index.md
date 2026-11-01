@@ -250,3 +250,4 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Restore terminal responsiveness during session projection](2026-10-31-terminal-input-lag.md) — Approved inline implementation and concurrency/security checks.
 
 - [SQLite session storage and history delivery](2026-11-01-sqlite-session-storage.md) — Reviewed task sequence for the approved ordinary-session storage contract, with compatibility/recovery and rollout gates.
+- [Fence Peon scheduling against forgetting](2026-11-01-peon-scheduling-forget.md) — Proposed concurrency fix and deterministic deletion-boundary checks for #403.
