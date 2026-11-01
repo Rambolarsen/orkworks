@@ -1,7 +1,7 @@
 import { open, realpath, readdir, lstat, stat } from "node:fs/promises";
 import { constants } from "node:fs";
 import { createHash } from "node:crypto";
-import { join, resolve, dirname, isAbsolute } from "node:path";
+import { join, resolve, dirname, isAbsolute, relative, sep } from "node:path";
 import * as yaml from "js-yaml";
 import type {
   SkillEntry,
@@ -42,6 +42,24 @@ export async function boundedText(
 ): Promise<string> {
   return (await boundedBytes(path, limit)).toString("utf8");
 }
+// Inventory only needs a bounded prefix; a long instruction body is not invalid metadata.
+async function boundedSkillHeader(path: string): Promise<string> {
+  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const info = await handle.stat();
+    if (!info.isFile()) throw new Error("Expected a regular skill file.");
+    const buffer = Buffer.alloc(Math.min(info.size, 65536));
+    let total = 0;
+    while (total < buffer.length) {
+      const { bytesRead } = await handle.read(buffer, total, buffer.length - total, total);
+      if (!bytesRead) break;
+      total += bytesRead;
+    }
+    return buffer.subarray(0, total).toString("utf8");
+  } finally {
+    await handle.close();
+  }
+}
 export function skillMetadata(text: string): {
   name: string;
   description: string;
@@ -62,6 +80,71 @@ export function skillMetadata(text: string): {
   return { name: metadata.name, description: metadata.description };
 }
 const missing = (error: unknown) => record(error).code === "ENOENT";
+// Cached packages are filesystem evidence, not proof of activation or version selection.
+async function codexPluginRoots(codexHome: string, diagnostics: string[]) {
+  const roots: Array<{ path: string; plugin: string; version?: string }> = [];
+  let directoriesLeft = 256;
+  const directories = async (path: string) => {
+    try {
+      const children = (await readdir(path, { withFileTypes: true }))
+        .filter(child => child.isDirectory() && !child.name.startsWith("."))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      if (children.length > directoriesLeft && !diagnostics.includes("Codex plugin cache discovery limit reached."))
+        diagnostics.push("Codex plugin cache discovery limit reached.");
+      const selected = children.slice(0, directoriesLeft);
+      directoriesLeft -= selected.length;
+      return selected;
+    } catch (error) {
+      if (!missing(error)) diagnostics.push(`${path}: Codex plugin cache directory is unreadable.`);
+      return [];
+    }
+  };
+  const cache = join(codexHome, "plugins/cache");
+  for (const marketplace of await directories(cache)) {
+    const marketPath = join(cache, marketplace.name);
+    for (const plugin of await directories(marketPath)) {
+      const pluginPath = join(marketPath, plugin.name);
+      for (const version of await directories(pluginPath)) {
+        const packagePath = join(pluginPath, version.name);
+        try {
+          let manifest: Record<string, any>;
+          let portable = true;
+          try {
+            manifest = record(JSON.parse(await boundedText(join(packagePath, "plugin.json"))));
+          } catch (error) {
+            if (!missing(error)) throw error;
+            portable = false;
+            manifest = record(JSON.parse(await boundedText(join(packagePath, ".codex-plugin/plugin.json"))));
+          }
+          if (manifest.name !== plugin.name) throw new Error("Plugin identity does not match cache directory.");
+          const source = portable ? "./skills" : manifest.skills;
+          if (source === undefined) continue; // A plugin can contain only tools.
+          if (typeof source !== "string" || !source.startsWith("./"))
+            throw new Error("Unsupported skill directory; expected a package-relative path.");
+          const path = resolve(packagePath, source);
+          const contained = (base: string, target: string) => {
+            const child = relative(base, target);
+            return !isAbsolute(child) && child !== ".." && !child.startsWith(".." + sep);
+          };
+          if (!contained(packagePath, path)) throw new Error("Skill directory escapes its plugin package.");
+          try {
+            if (!contained(await realpath(packagePath), await realpath(path)))
+              throw new Error("Skill directory resolves outside its plugin package.");
+          } catch (error) {
+            if (missing(error)) continue;
+            throw error;
+          }
+          roots.push({ path, plugin: `${plugin.name}@${marketplace.name}`, version: version.name });
+        } catch (error) {
+          diagnostics.push(`${packagePath}: Codex plugin skills could not be inspected (${error instanceof Error ? error.message : "invalid manifest"}).`);
+        }
+      }
+    }
+  }
+  if (roots.length)
+    diagnostics.push("Codex cached plugin skills are found files; enabled state and active version are not verified. Multiple cached versions remain separate.");
+  return roots;
+}
 export async function discoverSkills(options: {
   workspace: string | null;
   home: string;
@@ -79,12 +162,14 @@ export async function discoverSkills(options: {
     scope: SkillScope;
     tools: SkillTool[];
     plugin?: string;
+    version?: string;
   }> = [];
   const add = (
     path: string,
     scope: SkillScope,
     tools: SkillTool[],
     plugin?: string,
+    version?: string,
   ) => {
     if (roots.length >= 128) {
       if (!result.diagnostics.includes("Discovery root limit reached."))
@@ -96,7 +181,7 @@ export async function discoverSkills(options: {
     );
     if (existing)
       existing.tools = Array.from(new Set([...existing.tools, ...tools]));
-    else roots.push({ path, scope, tools, plugin });
+    else roots.push({ path, scope, tools, plugin, version });
   };
   const conventional = (base: string, scope: SkillScope) => {
     add(join(base, ".agents/skills"), scope, ["codex", "copilot", "opencode"]);
@@ -121,7 +206,10 @@ export async function discoverSkills(options: {
   };
   conventional(home, "personal");
   // Older/local Codex installs are visible without claiming current native discovery.
-  add(join(env.CODEX_HOME || join(home, ".codex"), "skills"), "personal", []);
+  const codexHome = env.CODEX_HOME || join(home, ".codex");
+  add(join(codexHome, "skills"), "personal", []);
+  // This explicit hidden root is materialized by Codex; other hidden trees stay excluded.
+  add(join(codexHome, "skills/.system"), "personal", ["codex"]);
   if (env.CLAUDE_CONFIG_DIR)
     add(join(env.CLAUDE_CONFIG_DIR, "skills"), "personal", ["claude"]);
   if (env.XDG_CONFIG_HOME)
@@ -208,11 +296,13 @@ export async function discoverSkills(options: {
         "Claude plugin registrations could not be inspected.",
       );
   }
+  for (const root of await codexPluginRoots(codexHome, result.diagnostics))
+    add(root.path, "personal", ["codex"], root.plugin, root.version);
   result.diagnostics.push(
     "Known filesystem roots only. Native loading, precedence, disabled skills, session overrides, enterprise/remote skills and unregistered plugin roots are not verified.",
   );
   result.diagnostics.push(
-    "OpenCode JSONC/global custom paths and Codex/Copilot plugin registries are not yet covered. Legacy Codex roots have unknown tool discovery.",
+    "OpenCode JSONC/global custom paths and the Copilot plugin registry are not yet covered. Legacy Codex roots have unknown tool discovery.",
   );
   const entries = new Map<string, SkillEntry>();
   let directoriesLeft = 4000,
@@ -252,7 +342,7 @@ export async function discoverSkills(options: {
       }
       seen.add(canonical);
       try {
-        const text = await boundedText(join(canonical, "SKILL.md"));
+        const text = await boundedSkillHeader(join(canonical, "SKILL.md"));
         metadataBytes += Buffer.byteLength(text);
         if (metadataBytes > 16 * 1024 * 1024)
           throw new Error("Inventory metadata budget reached.");
@@ -266,6 +356,7 @@ export async function discoverSkills(options: {
               new Set([...(existing.plugins || []), root.plugin]),
             ).sort();
             existing.management = "plugin";
+            if (root.version) existing.version = root.version;
           }
           existing.tools = Array.from(
             new Set([...existing.tools, ...root.tools]),
@@ -280,6 +371,7 @@ export async function discoverSkills(options: {
             tools: [...root.tools],
             management: root.plugin ? "plugin" : "local",
             ...(root.plugin ? { plugins: [root.plugin] } : {}),
+            ...(root.version ? { version: root.version } : {}),
           });
         return;
       } catch (error) {

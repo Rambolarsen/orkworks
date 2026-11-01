@@ -31,6 +31,8 @@ if (process.env.ORKWORKS_SKILLS_FIXTURE) {
       const click = (selector) =>
         evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
       await wait('document.querySelectorAll("[data-skill-row]").length===4');
+      assert.match(await evaluate('document.querySelector("[data-skill-scope=personal] h3").innerText'), /3 found/);
+      assert.match(await evaluate('document.body.innerText'), /Counts show skills found/);
       assert.deepEqual(await evaluate(`Array.from(document.querySelectorAll('[data-skill-scope="personal"] [data-skill-plugin]')).map(group => [group.dataset.skillPlugin, group.querySelectorAll('[data-skill-row]').length])`), [["alpha@local", 1], ["beta@local", 1], ["", 1]]);
       await evaluate(`(()=>{const el=document.querySelector('input[type="search"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set.call(el,"alpha@local");el.dispatchEvent(new Event("input",{bubbles:true}))})()`);
       await wait('document.querySelectorAll("[data-skill-row]").length===1');

@@ -52,6 +52,12 @@ unreadable roots produce specific diagnostics; partial discovery is not an empty
 successful inventory. APM being missing disables Add but not local discovery.
 
 The same name in two scopes produces two rows with scope and source preserved.
+Counts describe skills found in the inspected locations, not a coding tool’s
+loaded or enabled skill total. Codex discovery includes its explicit system
+skill directory and bounded cached plugin packages with portable or compatibility
+manifests. Cached versions remain separate when they resolve to different
+directories; no active/latest version is inferred from cache presence.
+
 Aliases of the same directory within a scope can share one row with multiple
 source/discovery labels. Never merge Workspace and Personal merely because
 names or contents match. Show precedence only for a verified coding-tool/version

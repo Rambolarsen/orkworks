@@ -177,3 +177,79 @@ test("retains all plugin registrations when roots and local aliases share a skil
   assert.equal(result.skills[0].management, "plugin");
   assert.deepEqual(result.skills[0].plugins, ["alpha@local", "beta@local"]);
 });
+
+async function codexPlugin(f: Awaited<ReturnType<typeof fixture>>, plugin: string, version: string, manifest: object, portable = false) {
+  const directory = join(f.home, ".codex/plugins/cache/test-market", plugin, version);
+  const file = join(directory, portable ? "plugin.json" : ".codex-plugin/plugin.json");
+  await mkdir(join(file, ".."), { recursive: true });
+  await writeFile(file, JSON.stringify(manifest));
+  return directory;
+}
+
+test("includes Codex system and manifest-declared cached plugin skills without claiming an active version", async (t) => {
+  const f = await fixture(t);
+  await f.put(f.home, ".codex/skills/.system/system");
+  await f.put(f.home, ".codex/skills/.other/hidden");
+  const legacy = await codexPlugin(f, "legacy", "1.0", { name: "legacy", skills: "./workflows", version: "1.0" });
+  await f.put(legacy, "workflows/first");
+  await f.put(legacy, "skills/not-declared");
+  const portable = await codexPlugin(f, "portable", "2.0", { name: "portable", version: "2.0" }, true);
+  await f.put(portable, "skills/second");
+  const older = await codexPlugin(f, "portable", "1.0", { name: "portable", version: "1.0" }, true);
+  await f.put(older, "skills/second");
+  const result = await discoverSkills({ workspace: null, home: f.home, env: {} });
+  assert.equal(result.skills.length, 4);
+  assert.ok(result.skills.every(s => s.tools.includes("codex") && s.scope === "personal"));
+  assert.deepEqual(result.skills.filter(s => s.plugins?.includes("portable@test-market")).map(s => s.version).sort(), ["1.0", "2.0"]);
+  assert.equal(result.skills.find(s => s.plugins?.includes("legacy@test-market"))?.version, "1.0");
+  assert.ok(result.diagnostics.some(s => /Codex.*active version.*not verified/.test(s)));
+});
+
+test("uses CODEX_HOME for system and plugin discovery and does not walk escaped manifest paths", async (t) => {
+  const f = await fixture(t);
+  const customHome = join(f.root, "custom-codex");
+  await f.put(customHome, "skills/.system/system");
+  const outside = await f.put(f.root, "outside");
+  const bad = await codexPlugin(f, "bad", "1", { name: "bad", skills: outside });
+  const linked = await codexPlugin(f, "linked", "1", { name: "linked", skills: "./skills" });
+  await symlink(outside, join(linked, "skills"), "dir");
+  await codexPlugin(f, "traversal", "1", { name: "traversal", skills: "./../../../../../../outside" });
+  const malformed = await codexPlugin(f, "malformed", "1", {});
+  await writeFile(join(malformed, ".codex-plugin/plugin.json"), "broken {");
+  const unsupported = await codexPlugin(f, "unsupported", "1", { name: "unsupported", skills: ["./skills"] });
+  await f.put(unsupported, "skills/unsupported");
+  const result = await discoverSkills({ workspace: null, home: f.home, env: { CODEX_HOME: customHome } });
+  assert.equal(result.skills.length, 1);
+  assert.ok(result.skills[0].tools.includes("codex"));
+  // Default-home cache must not leak into the overridden inventory.
+  assert.ok(!result.roots.some(r => r.path.startsWith(join(f.home, ".codex"))));
+  const rejected = await discoverSkills({ workspace: null, home: f.home, env: {} });
+  assert.equal(rejected.skills.length, 0);
+  for (const name of ["bad", "linked", "traversal", "malformed", "unsupported"])
+    assert.ok(rejected.diagnostics.some(s => s.includes(name)), name);
+});
+
+test("bounds Codex cache traversal and reports incomplete discovery", async (t) => {
+  const f = await fixture(t);
+  for (let n = 0; n < 140; n++) {
+    const directory = await codexPlugin(f, `plugin-${String(n).padStart(3, "0")}`, "1", { name: `plugin-${String(n).padStart(3, "0")}`, skills: "./skills" });
+    await f.put(directory, "skills/example");
+  }
+  const result = await discoverSkills({ workspace: null, home: f.home, env: {} });
+  assert.ok(result.skills.length > 0 && result.skills.length < 140);
+  assert.ok(result.diagnostics.some(s => /limit|budget/.test(s)));
+});
+
+
+test("counts valid bounded skill metadata even when its instruction body exceeds the detail limit", async (t) => {
+  const f = await fixture(t);
+  const directory = await f.put(f.home, ".codex/skills/.system/long", "---\nname: long\ndescription: Small metadata, long body.\n---\n" + "x".repeat(100000));
+  await f.put(f.home, ".codex/skills/.system/huge-header", "---\nname: huge\ndescription: Invalidly large metadata.\npadding: " + "x".repeat(65536) + "\n---\n");
+  const inventory = await discoverSkills({ workspace: null, home: f.home, env: {} });
+  assert.equal(inventory.skills.length, 1);
+  assert.equal(inventory.skills[0].name, "long");
+  assert.ok(inventory.skills[0].tools.includes("codex"));
+  assert.ok(!inventory.diagnostics.some(s => s.includes(directory)));
+  // Inventory metadata does not grant an unbounded detail read.
+  await assert.rejects(readSkillDetail(inventory, inventory.skills[0].id), /bounded|limit/);
+});
