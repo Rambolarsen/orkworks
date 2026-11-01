@@ -115,7 +115,7 @@ async fn typed_detached_review_preserves_the_session_local_legacy_selection() {
             .unwrap();
     }
     let app = SessionApplication::new(state);
-    let selection_id = doc.selection_id();
+    let selection_id = doc.selection_id(None);
     assert_eq!(
         app.read_document_content(
             "runtime-review",

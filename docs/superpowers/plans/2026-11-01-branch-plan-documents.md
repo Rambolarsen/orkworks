@@ -51,17 +51,17 @@ inline in the owned `branch-plan-documents` worktree.
 Files: new Rust branch-document modules; `session_location.rs`, `git_changes.rs`,
 `plan_handoff.rs`, `metadata.rs` and focused module tests where necessary.
 
-- [ ] Add failing repository fixtures for committed design and plan discovery,
+- [x] Add failing repository fixtures for committed design and plan discovery,
   dirty/untracked documents, inherited documents, multiple work items, two
   sessions sharing a branch, distinct repositories with equal branch names,
   branch switches and detached/unborn/unavailable repositories.
-- [ ] Implement the scoped ranking, classification and validation rules in the
+- [x] Implement the scoped ranking, classification and validation rules in the
   contract. Share the existing default-base selection policy with Changes.
   Bound scans; incomplete discovery never replaces an established selection.
-- [ ] Add atomic, versioned branch selection persistence using the existing
+- [x] Add atomic, versioned branch selection persistence using the existing
   workspace single-writer boundary. Test restart, pin precedence, corrupt
   records, missing documents and rollback with legacy session metadata intact.
-- [ ] Route accepted hook, metadata, terminal and explicit selections into the
+- [x] Route accepted hook, metadata, terminal and explicit selections into the
   appropriate slot without changing attention or native identity. An existing
   legacy association remains session-local unless fresh evidence establishes
   branch ownership; never copy a historical reference to today's checkout.
@@ -72,16 +72,16 @@ Files: `session_application.rs`, `session_projection.rs`, `session_types.rs`,
 `http/session_handlers.rs`, `main.rs`; Electron `planOpener.ts`, `main.ts`,
 `preload.ts`; independent renderer contract types.
 
-- [ ] Add failing route/projection tests for both slots, shared associations,
+- [x] Add failing route/projection tests for both slots, shared associations,
   unavailable bound roots, deleted/symlinked documents, missing desktop token,
   legacy requests, slot validation and workspace-generation races.
-- [ ] Project two sanitized document summaries plus branch sharing context.
+- [x] Project two sanitized document summaries plus branch sharing context.
   Retain `hasOpenablePlan` as the compatibility aggregate. Discover outside
   runtime/workspace mutexes and reuse bounded per-worktree results for polling.
-- [ ] Add optional closed document-kind selection to content and fixed-review
+- [x] Add optional closed document-kind selection to content and fixed-review
   endpoints and the narrow preload bridge. Bodyless calls preserve legacy
   behavior. A read or handoff revalidates branch and path before use.
-- [ ] Ensure document changes refresh session rows/update-stream snapshots;
+- [x] Ensure document changes refresh session rows/update-stream snapshots;
   no polling, projection or discovery operation types into a terminal.
 
 ### Two ordered document steps
@@ -90,17 +90,17 @@ Files: renderer `api.ts`, `orkworksWindow.d.ts`, `useSessionReview.ts`,
 `components/SessionDetailPanel.tsx`, `components/ReviewPanel.tsx`,
 `components/ApplicationShell.tsx`, `App.tsx`, `App.css`; existing shell fixtures.
 
-- [ ] Add failing UI tests for two available steps, either missing slot,
+- [x] Add failing UI tests for two available steps, either missing slot,
   opening each document, shared-branch sessions, switching branches, unavailable
   refresh and stale reads crossing document/session/workspace boundaries.
-- [ ] Replace the single plan card with Design/specification then Implementation
+- [x] Replace the single plan card with Design/specification then Implementation
   plan, filenames/titles, available/missing state and expandable provenance.
   Add the slot-specific Use latest action for explicitly pinned selections.
   Selecting a step opens it in the central reader; retain return-to-Terminal and
   Workflow behavior. No approval, completed-step checkmarks or gates.
-- [ ] Preserve explicit independent review for the displayed document and a live
+- [x] Preserve explicit independent review for the displayed document and a live
   session. Ensure exactly one handoff and no arbitrary path/text input.
-- [ ] Visually verify desktop/narrow layouts and shared-session behavior in an
+- [x] Visually verify desktop/narrow layouts and shared-session behavior in an
   isolated app fixture matching the approved concept.
 
 ## Verification and handoff

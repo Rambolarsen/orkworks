@@ -138,7 +138,9 @@ impl SessionApplication {
         );
         let content = branch_documents::read_document(&root, &doc.reference.relative_path)?;
         doc.content_hash = branch_documents::content_hash(&content);
-        if selection_id.is_some_and(|expected| expected != doc.selection_id()) {
+        if selection_id
+            .is_some_and(|expected| expected != doc.selection_id(context.branch.as_ref()))
+        {
             return Err("Document selection changed; refresh.".into());
         }
         if !current(&self.state, id, &context) {
@@ -200,7 +202,9 @@ impl SessionApplication {
         let path = root.join(&doc.reference.relative_path);
         let content = branch_documents::read_document(&root, &doc.reference.relative_path)?;
         doc.content_hash = branch_documents::content_hash(&content);
-        if selection_id.is_some_and(|expected| expected != doc.selection_id()) {
+        if selection_id
+            .is_some_and(|expected| expected != doc.selection_id(context.branch.as_ref()))
+        {
             return Err("Document selection changed; refresh.".into());
         }
         let prompt=format!("Please review the plan or specification at {}. Delegate this review to a subagent if you can; otherwise review it yourself. Check for missing requirements, risky assumptions, and unclear steps, then report the findings.\r",path.display());

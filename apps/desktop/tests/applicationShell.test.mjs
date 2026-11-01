@@ -72,6 +72,17 @@ if (process.versions.electron) {
           await waitFor('document.querySelector("[data-document-kind=design]")');
           writeFileSync(process.env.ORKWORKS_CAPTURE_BRANCH_DOCUMENTS.replace('.png','-narrow.png'),(await win.webContents.capturePage()).toPNG());
         }
+        await evaluate('fixture.unreadable=true;fixture.sessionList[0]={...fixture.sessionList[0],planDocuments:{...fixture.sessionList[0].planDocuments,steps:fixture.sessionList[0].planDocuments.steps.map(step=>step.kind==="implementation"?{...step,pinned:true,available:false}:step)}}');
+        await waitFor('document.body.innerText.includes("This plan is no longer available.")');
+        assert.equal(await evaluate('!!document.querySelector(".review-plan-content")'),false);
+        await evaluate('fixture.readsBeforeRetry=fixture.documentKinds.length;document.querySelector("[data-review-refresh]").click()');
+        await waitFor('fixture.documentKinds.length===fixture.readsBeforeRetry+1 && document.body.innerText.includes("This plan is no longer available.")');
+        assert.equal(await evaluate('fixture.documentKinds.at(-1)'), 'implementation');
+        await evaluate('fixture.unreadable=false;fixture.sessionList[0]={...fixture.sessionList[0],planDocuments:{...fixture.sessionList[0].planDocuments,steps:fixture.sessionList[0].planDocuments.steps.map(step=>({...step,available:true}))}}');
+        await waitFor('document.querySelector(".review-plan-content")?.textContent.includes("Newer implementation")');
+        await evaluate('fixture.unreadable=true;fixture.sessionList[0]={...fixture.sessionList[0],hasOpenablePlan:false,planDocuments:{...fixture.sessionList[0].planDocuments,steps:fixture.sessionList[0].planDocuments.steps.map(step=>({...step,available:false,pinned:false,selectionId:null}))}}');
+        await waitFor('document.body.innerText.includes("This plan is no longer available.")');
+        assert.equal(await evaluate('document.body.innerText.includes("Loading plan…")'),false);
         assert.deepEqual(await evaluate('fixture.errors'),[]);
         return;
       } else if (scenario === 'session-menu') {

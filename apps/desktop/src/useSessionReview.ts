@@ -45,6 +45,12 @@ export function useSessionReview(sessionId: string | null, generation: number, e
     setError(false);
   }, []);
   useEffect(() => { close(); return () => { ++request.current; }; }, [sessionId, generation, enabled, scopeKey, close]);
+  const unavailable = useCallback((kind?: PlanDocumentKind, selectionId?: string) => {
+    close();
+    selectedKind.current = kind;
+    selectedId.current = selectionId;
+    setError(true);
+  }, [close]);
   const load = useCallback(async (persist = true, restoring = false, printedPath?: string, kind?: PlanDocumentKind, selectionId?: string) => {
     if (!sessionId || !enabled) return;
     const token = ++request.current;
@@ -82,5 +88,5 @@ export function useSessionReview(sessionId: string | null, generation: number, e
     }
   }, [sessionId, generation, enabled, scopeKey]);
   return { document: document?.sessionId === sessionId && document.generation === generation && document.scopeKey === scopeKey && enabled ? document : null,
-    loading, error, changed, load, close };
+    loading, error, changed, load, close, unavailable };
 }

@@ -362,7 +362,8 @@ function App() {
         || navigationIntent.current === reviewLoadIntent.current);
   const lastReviewKind = useRef<import("./api").PlanDocumentKind | undefined>(undefined);
   const reviewScope = JSON.stringify([activeSession?.repoRoot ?? activeSession?.cwd, activeSession?.planDocuments?.branch ?? activeSession?.branch,
-    activeSession?.planDocuments?.steps.map(step => [step.kind, step.selectionId])]);
+    activeSession?.hasOpenablePlan,
+    activeSession?.planDocuments?.steps.map(step => [step.kind, step.selectionId, step.available])]);
   const review = useSessionReview(activeSessionId, shellNavigation.workspaceGeneration,
     // A picker attempt can be cancelled without changing the workspace generation.
     backendStatus === "connected" && !!activeSession,
@@ -389,14 +390,19 @@ function App() {
   useEffect(() => {
     const changed = priorReviewScope.current !== reviewScope;
     priorReviewScope.current = reviewScope;
-    if (!changed || shellNavigationRef.current.centralSurface.kind !== "review" || !activeSession?.hasOpenablePlan) return;
-    const steps = activeSession.planDocuments?.steps;
+    if (!changed || shellNavigationRef.current.centralSurface.kind !== "review") return;
+    const steps = activeSession?.planDocuments?.steps;
+    const priorStep = steps?.find(step => step.kind === lastReviewKind.current);
+    if (!activeSession?.hasOpenablePlan || (priorStep && !priorStep.available)) {
+      review.unavailable(priorStep?.kind ?? lastReviewKind.current, priorStep?.selectionId ?? undefined);
+      return;
+    }
     const kind = steps?.find(step => step.kind === lastReviewKind.current && step.available)?.kind
       ?? steps?.find(step => step.kind === "implementation" && step.available)?.kind
       ?? steps?.find(step => step.kind === "design" && step.available)?.kind;
     reviewLoadIntent.current = ++navigationIntent.current;
     void review.load(false, false, undefined, kind, steps?.find(step => step.kind === kind)?.selectionId ?? undefined);
-  }, [reviewScope, activeSession?.hasOpenablePlan, activeSession?.planDocuments, review.load]);
+  }, [reviewScope, activeSession?.hasOpenablePlan, activeSession?.planDocuments, review.load, review.unavailable]);
   const openReview = useCallback((kind?: import("./api").PlanDocumentKind) => {
     reviewLoadIntent.current = ++navigationIntent.current;
     const steps = activeSession?.planDocuments?.steps;

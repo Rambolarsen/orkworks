@@ -489,8 +489,14 @@ impl MetadataStore {
             .is_some_and(|agent| matches!(agent.plan_path, FieldUpdate::Set(_)))
         {
             if let Some(reference) = &updated.metadata.plan_path {
-                crate::branch_documents::publish(&self.branch_documents, reference)
-                    .map_err(|e| AgentPatchError::Io(io::Error::other(e)))?;
+                if let Err(error) =
+                    crate::branch_documents::publish(&self.branch_documents, reference)
+                {
+                    // The revisioned patch has committed. Its acknowledgement
+                    // must reach runtime bookkeeping even if supplementary
+                    // branch publication is unavailable; discovery can retry it.
+                    tracing::warn!(session_id = id, %error, "Accepted metadata patch could not publish its branch document");
+                }
             }
         }
         Ok(updated)
@@ -1079,5 +1085,49 @@ mod tests {
             plan.worktree_root.as_deref(),
             dir.path().canonicalize().unwrap().to_str()
         );
+    }
+
+    #[test]
+    fn branch_document_publication_failure_does_not_reject_an_already_committed_patch() {
+        let dir = tempfile::tempdir().unwrap();
+        git2::Repository::init(dir.path()).unwrap();
+        std::fs::create_dir(dir.path().join("specs")).unwrap();
+        std::fs::write(dir.path().join("specs/plan.md"), "# Plan\n").unwrap();
+        let store = MetadataStore::new(&dir.path().join("metadata"));
+        let id = "publication-failure";
+        store.write_session(&live_meta(id, dir.path().to_str().unwrap()));
+        let doc = crate::branch_documents::document(
+            dir.path(),
+            "specs/plan.md",
+            PlanSource::AgentReported,
+            false,
+        )
+        .unwrap();
+        store
+            .branch_documents
+            .report(&crate::branch_documents::identity(dir.path()).unwrap(), doc)
+            .unwrap();
+        let record = std::fs::read_dir(store.root_path().join("branch-documents"))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        std::fs::write(&record, "{").unwrap();
+        let before = store.try_read_revisioned_session(id).unwrap().unwrap();
+        let patch = parse(json!({"metadataRevision":"0","patch":{
+            "agentMetadata":{"planPath":"specs/plan.md"},
+            "attentionState":{"observedStatus":"working","needsUserInput":false,"detectedQuestion":null,"suggestedOptions":[]}
+        }})).unwrap().patch;
+        let accepted = store
+            .apply_agent_patch(id, &before.revision, &patch)
+            .expect("committed patch must be acknowledged so live bookkeeping proceeds");
+        assert_ne!(accepted.revision, before.revision);
+        assert_eq!(
+            accepted.metadata.observed_status.as_deref(),
+            Some("working")
+        );
+        assert!(accepted.metadata.plan_path.is_some());
+        assert_eq!(std::fs::read_to_string(record).unwrap(), "{");
     }
 }

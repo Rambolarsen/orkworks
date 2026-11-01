@@ -45,8 +45,9 @@ pub(crate) struct Document {
 }
 
 impl Document {
-    pub(crate) fn selection_id(&self) -> String {
+    pub(crate) fn selection_id(&self, branch: Option<&Identity>) -> String {
         let encoded = serde_json::to_vec(&(
+            branch,
             &self.reference.worktree_root,
             &self.reference.relative_path,
             &self.content_hash,
@@ -54,7 +55,7 @@ impl Document {
         .unwrap_or_default();
         hex::encode(Sha256::digest(encoded))
     }
-    pub(crate) fn current_selection_id(&self) -> String {
+    pub(crate) fn current_selection_id(&self, branch: Option<&Identity>) -> String {
         let mut current = self.clone();
         if let Some(content) = self
             .reference
@@ -64,7 +65,7 @@ impl Document {
         {
             current.content_hash = content_hash(&content);
         }
-        current.selection_id()
+        current.selection_id(branch)
     }
 }
 
@@ -169,7 +170,7 @@ pub(crate) fn projection(store: &crate::branch_documents_store::Store, root: &Pa
                 }),
                 source: selected.map(|d| d.reference.source),
                 pinned: selected.is_some_and(|d| d.pinned),
-                selection_id: selected.map(|d| d.current_selection_id()),
+                selection_id: selected.map(|d| d.current_selection_id(id.as_ref())),
             }
         })
         .collect();
@@ -759,6 +760,39 @@ mod tests {
         .unwrap();
         repo.set_head("refs/heads/task").unwrap();
         (dir, repo)
+    }
+
+    #[test]
+    fn stale_branch_document_actions_cannot_clear_another_branchs_identical_pin() {
+        let (dir, repo) = fixture();
+        let state = tempfile::tempdir().unwrap();
+        let store = crate::branch_documents_store::Store::new(state.path());
+        let first = identity(dir.path()).unwrap();
+        let doc = document(
+            dir.path(),
+            "specs/inherited.md",
+            PlanSource::UserSelected,
+            true,
+        )
+        .unwrap();
+        store.report(&first, doc.clone()).unwrap();
+        let stale_id = projection(&store, dir.path()).steps[0]
+            .selection_id
+            .clone()
+            .unwrap();
+        repo.branch(
+            "second",
+            &repo.head().unwrap().peel_to_commit().unwrap(),
+            false,
+        )
+        .unwrap();
+        repo.set_head("refs/heads/second").unwrap();
+        let second = identity(dir.path()).unwrap();
+        store.report(&second, doc).unwrap();
+        assert!(store
+            .use_latest(&second, DocumentKind::Design, Some(&stale_id))
+            .is_err());
+        assert!(store.load(&second).unwrap()[0].pinned);
     }
 
     #[test]

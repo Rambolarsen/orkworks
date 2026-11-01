@@ -157,7 +157,9 @@ Extend authenticated content/review access with an optional closed
 `design | implementation` kind. Electron validates it and retains the desktop
 credential and workspace-generation fence; renderer supplies session ID, kind
 and an optional opaque selection ID from the projected slot. This ID identifies
-the displayed document and content without exposing paths or granting authority.
+the owning repository/branch, displayed document and content without exposing
+paths or granting authority. Availability changes invalidate cached reader bytes
+and show an unavailable state, including when the last document disappears.
 Content, review and pin-reset requests reject a changed selection rather than
 silently acting on a newer document. Existing bodyless requests preserve their legacy
 selection, otherwise default to implementation then design. Pin reset accepts
@@ -173,8 +175,11 @@ without recorded branch identity remains session-local until fresh explicit or
 agent evidence establishes that identity. It may remain the compatibility
 fallback, but must not seed another branch's shared record merely because a
 session is now inspecting that branch. Preserve existing explicit-clear behavior
-for legacy fallback. Failed storage publication leaves the prior record intact
-and reports failure. Downgrading ignores additive branch records and retains
+for legacy fallback. Failed storage publication leaves the prior branch record
+intact. Dedicated document-report operations report that failure. A revisioned
+metadata patch already committed must still acknowledge success and update live
+bookkeeping; supplementary branch-publication failure is logged, while its
+session-local reference remains available. Downgrading ignores additive branch records and retains
 the original session metadata; no downgrade deletes user selections.
 
 ### Acceptance additions

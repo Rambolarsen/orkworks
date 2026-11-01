@@ -232,7 +232,7 @@ impl Store {
         if let Some(expected) = selection_id {
             if !current
                 .iter()
-                .any(|doc| doc.kind == kind && doc.current_selection_id() == expected)
+                .any(|doc| doc.kind == kind && doc.current_selection_id(Some(id)) == expected)
             {
                 return Err("Document selection changed; refresh.".into());
             }
