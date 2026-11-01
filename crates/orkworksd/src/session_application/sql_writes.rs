@@ -205,13 +205,17 @@ impl SessionWrites {
             };
             let execution = async {
                 let (ticket, ready) = prepared.enqueue(RuntimeWriteResources::new(lane, lease))?;
+                let mut finished = Box::pin(ticket.finish());
+                let mut delivered = None;
                 let request = tokio::select! {
                     biased;
                     _ = result.closed() => return Err(StoreError::Expired),
+                    completion = &mut finished => {
+                        delivered = Some(completion);
+                        None
+                    },
                     ready = ready => ready.ok(),
                 };
-                let mut finished = Box::pin(ticket.finish());
-                let mut delivered = None;
                 if let Some(request) = request {
                     // A blocking validation may outlive queued expiry. Always
                     // consume the definitive worker result concurrently so an

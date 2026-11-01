@@ -667,3 +667,50 @@ async fn queued_expiry_releases_resources_while_execution_validation_is_blocked(
     );
     store.close().await.unwrap();
 }
+
+#[tokio::test]
+async fn queued_expiry_retires_resources_before_a_stalled_worker_resumes() {
+    let _lease_guard = diagnostic_test_guard();
+    let (_dir, state, store, writes, context, capture, _, _commands) = fixture().await;
+    let lease = Arc::downgrade(
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .lease
+            .as_ref()
+            .unwrap(),
+    );
+    let paused = test_worker::pause(&store);
+    let mut writer =
+        tokio::spawn(async move { writes.peon(context.view(), capture, intent()).await });
+    test_worker::wait_for_internal(&store, ID).await;
+    *state.workspace.lock().unwrap() = None;
+    let result = tokio::time::timeout(Duration::from_millis(2500), &mut writer).await;
+    let lease_released = lease.upgrade().is_none();
+    let prepared = store
+        .prepare_internal(ID.into(), CREATED.into(), intent())
+        .unwrap();
+    let lane_available = prepared.lane().unwrap().try_lock_owned().is_ok();
+    drop(prepared);
+    drop(paused);
+    if result.is_err() {
+        let _ = writer.await;
+    }
+    assert!(matches!(result, Ok(Ok(Err(StoreError::Expired)))));
+    assert!(
+        lease_released,
+        "queued expiry retained lease behind a stalled worker"
+    );
+    assert!(
+        lane_available,
+        "queued expiry retained lane behind a stalled worker"
+    );
+    assert_eq!(
+        store.get(ID.into()).await.unwrap().unwrap()["metadataRevision"],
+        "1"
+    );
+    store.close().await.unwrap();
+}

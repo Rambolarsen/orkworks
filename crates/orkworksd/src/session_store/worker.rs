@@ -229,6 +229,7 @@ struct Delivered {
     resources: Option<RuntimeWriteResources>,
 }
 struct Ticket {
+    shared: std::sync::Weak<Shared>,
     receiver: oneshot::Receiver<Delivered>,
     state: Arc<AtomicU8>,
     deadline: Instant,
@@ -240,6 +241,11 @@ impl Drop for Ticket {
         let _ = self
             .state
             .compare_exchange(0, 2, Ordering::AcqRel, Ordering::Acquire);
+        if self.state.load(Ordering::Acquire) == 2 {
+            if let Some(shared) = self.shared.upgrade() {
+                shared.retire_cancelled(&self.state);
+            }
+        }
     }
 }
 struct PreparedJob {
@@ -400,6 +406,31 @@ struct Shared {
     lanes: Mutex<std::collections::HashMap<String, std::sync::Weak<tokio::sync::Mutex<()>>>>,
     #[cfg(test)]
     after_claim: Mutex<Option<(String, oneshot::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
+}
+impl Shared {
+    fn retire_cancelled(&self, state: &Arc<AtomicU8>) {
+        // The queued-to-executing CAS has already rejected execution. Remove
+        // only this exact ticket; a dequeued/executing owner keeps its resources.
+        let retired = self.queue.lock().ok().and_then(|mut queue| {
+            if let Some(index) = queue
+                .mutations
+                .iter()
+                .position(|job| Arc::ptr_eq(&job.state, state))
+            {
+                queue.mutations.remove(index)
+            } else if let Some(index) = queue
+                .reads
+                .iter()
+                .position(|job| Arc::ptr_eq(&job.state, state))
+            {
+                queue.reads.remove(index)
+            } else {
+                None
+            }
+        });
+        // Reservation::drop reacquires queue; never drop a job under its mutex.
+        drop(retired);
+    }
 }
 struct Startup {
     shared: Arc<Shared>,
@@ -619,6 +650,7 @@ impl SessionStore {
             shared: self.shared.clone(),
             job,
             ticket: Ticket {
+                shared: Arc::downgrade(&self.shared),
                 receiver,
                 state,
                 deadline: admitted + Duration::from_secs(2),
@@ -1181,6 +1213,38 @@ mod tests {
         drop(held);
         assert!(second.lane().unwrap().try_lock_owned().is_ok());
         drop((first, second, other));
+        store.close().await.unwrap();
+    }
+    #[tokio::test]
+    async fn queued_cancellation_frees_admission_before_a_stalled_worker_resumes() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::initialize(dir.path().into(), "/workspace".into())
+            .await
+            .unwrap();
+        let paused = testing::pause(&store);
+        let mut tickets = Vec::new();
+        for i in 0..32 {
+            tickets.push(
+                store
+                    .submit(Command::Create(document(&format!("queued-{i}"))))
+                    .unwrap(),
+            );
+        }
+        assert!(matches!(
+            store.submit(Command::Create(document("over-capacity"))),
+            Err(StoreError::QueueFull)
+        ));
+        drop(tickets.pop());
+        let replacement = store.submit(Command::Create(document("replacement")));
+        let admitted = replacement.is_ok();
+        drop(replacement);
+        drop(tickets);
+        drop(paused);
+        assert!(
+            admitted,
+            "cancelled queued work retained admission behind the stalled worker"
+        );
+        assert!(store.get("queued-31".into()).await.unwrap().is_none());
         store.close().await.unwrap();
     }
     #[tokio::test]

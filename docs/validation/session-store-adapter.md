@@ -171,6 +171,11 @@ Prepared mutations reserve the existing worker's intent/result byte budget and
 pending mutation slot before waiting for a per-session application lane. That
 wait and later queue time share the original two-second pre-execution deadline.
 Cancellation or expiry before execution releases the reservation without writing.
+The owner polls definitive completion from enqueue, including while waiting for
+worker readiness. Cancelled queued tickets retire their exact queue entry and
+release slot/bytes/lane/lease without waiting for a stalled earlier command;
+resources are dropped after the queue mutex is released. Dequeued or executing
+jobs retain their definitive worker ownership.
 Weak lane entries are shared by the exact worker owner and reclaimed; separate
 application handles cannot create separate lanes for one store/session. History
 size must not grow the lane inventory. Close rejects still-unqueued preparations
@@ -219,11 +224,13 @@ projection/workspace/session guard spans lane/worker waits or SQL.
 
 Deterministic worker tests cover prepared slot/byte admission and cleanup, the
 shared deadline, rejection/cancellation/late grants, claim-before-SQL release,
-close-before-enqueue and lane/lease retention even when a result owner drops.
+close-before-enqueue, admission recovery behind a stalled worker and lane/lease
+retention even when a result owner drops.
 Real application-state tests cover changed input, workspace/attempt/attention
 authority, runtime replacement after commit, caller cancellation before/after
 execution, permanent user holds, current-only publication, contended-guard
-executor responsiveness, expiry during blocked execution validation, transition
+executor responsiveness, expiry before worker readiness and during blocked
+execution validation, transition
 exclusion at execution/publication and post-commit publication failure. A controlled runtime-command consumer
 writes to an actual PTY while this application SQL boundary is stalled. This
 proves guard/input-delivery independence at this boundary, not a qualified
