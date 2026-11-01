@@ -343,6 +343,11 @@ impl AgentPatch {
         }))
     }
 
+    pub(crate) fn apply_checked(&self, meta: &mut SessionMetadata) -> Result<(), AgentPatchError> {
+        self.apply(meta)
+            .map_err(|error| map_error(SessionTransactionError::Io(error)))
+    }
+
     fn apply(&self, meta: &mut SessionMetadata) -> io::Result<()> {
         require_live(meta)?;
         let plan = self.validate_current(meta, true)?;

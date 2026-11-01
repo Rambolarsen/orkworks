@@ -35,6 +35,7 @@ mod session_application;
 mod session_archive;
 mod session_location;
 mod session_projection;
+mod session_store;
 mod session_types;
 mod session_view;
 mod taskmaster;
