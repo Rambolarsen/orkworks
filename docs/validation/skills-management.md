@@ -106,7 +106,9 @@ conflicting/incomplete alias baselines, per-file and aggregate limits, and
 preserved APM ownership. A controlled filesystem fixture retains real handles
 and modifies a temporary file after the first hash read, verifying that an
 unstable read is unavailable. Electron fixtures cover collapsed change cues, all three source
-results, package filtering, and narrow layout. Comparisons are point-in-time
+results, package filtering, and narrow layout. Changed only filtering is covered
+for its off-by-default state, confirmed differences, combined search/tool/scope
+filters, counts, empty results, clearing, and source-specific instruction reads. Comparisons are point-in-time
 observations of SKILL.md, not companion-resource verification, package
 reputation/authenticity, or proof of a manual edit. No files are repaired or
 installed and no session is restarted.

@@ -27,7 +27,7 @@ the main view at every width, including through the collapsed rail and compact
 Workspace menu. It replaces the former Skills section in Settings and contains
 a Plugins section grouping skills by recorded plugin, a Local skills section
 for sources without recorded plugin ownership, a search field, coding-tool and
-scope filters, Refresh, and Add skill. Each row expands to its sources, each
+scope filters, Changed only, Refresh, and Add skill. Each row expands to its sources, each
 clearly labeled Workspace or Personal. Back, its toggle, or Escape within the page
 returns to the previous central content; selecting a session opens its Terminal.
 Skills is transient and is not restored after restart.
@@ -90,7 +90,12 @@ with separate scoped sources.
 Counts describe distinct exact names and a separate matching source-entry total,
 not a coding tool’s loaded or enabled skill total. Search and coding-tool/scope
 filters apply to source entries before grouping; counts and expanded lists show
-only matching sources. Codex discovery includes its explicit system
+only matching sources. Changed only is off by default and includes only sources
+whose APM instruction comparison is differs. Matching, unavailable, and unowned
+sources are excluded from that view. Combine it with search, coding-tool and
+scope filters before grouping, keeping matching source counts and source details.
+When empty, say no changed skills match the current filters; clearing the control
+restores the otherwise matching sources. Codex discovery includes its explicit system
 skill directory and bounded cached plugin packages with portable or compatibility
 manifests. Cached versions remain separate sources when they resolve to different
 directories; no active/latest version is inferred from cache presence.

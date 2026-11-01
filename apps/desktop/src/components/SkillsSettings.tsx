@@ -34,6 +34,7 @@ export default function SkillsSettings({
   const [query, setQuery] = useState("");
   const [tool, setTool] = useState("");
   const [filterScope, setFilterScope] = useState("");
+  const [changedOnly, setChangedOnly] = useState(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
@@ -109,6 +110,7 @@ export default function SkillsSettings({
   const filtered = (inventory?.skills || []).filter(
     (skill) =>
       (!filterScope || skill.scope === filterScope) &&
+      (!changedOnly || skill.apmIntegrity?.status === "differs") &&
       (!tool || skill.tools.includes(tool as SkillTool)) &&
       [skill.name, skill.description, skill.packageSource || "", ...(skill.plugins || []), ...skill.paths]
         .join(" ")
@@ -310,6 +312,15 @@ export default function SkillsSettings({
             <option value="personal">Personal</option>
           </select>
         </label>
+        <label className="skills-changed-filter">
+          <input
+            type="checkbox"
+            aria-label="Changed only"
+            checked={changedOnly}
+            onChange={(event) => setChangedOnly(event.target.checked)}
+          />
+          Changed only
+        </label>
       </div>
       <p className="skills-group-caption">
         Skills are grouped by recorded plugin, with other files under Local skills.
@@ -448,7 +459,9 @@ export default function SkillsSettings({
           <span>· {filtered.length} {filtered.length === 1 ? "source" : "sources"}</span>
         </h3>
         {!grouped.length && (
-          <p>{inventory ? "No matching skills found in the inspected roots." : "Loading skills…"}</p>
+          <p>{inventory
+            ? changedOnly ? "No changed skills match the current filters." : "No matching skills found in the inspected roots."
+            : "Loading skills…"}</p>
         )}
         {!!pluginGroups.length && (
           <section className="skills-installation-group" aria-label="Plugins">
