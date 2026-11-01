@@ -808,22 +808,10 @@ fn apply_effect_inner(
             meta.observed_status = Some("waiting_for_input".into());
             meta.attention = Some("needs_you".into());
             let durable = match store.try_mutate_session_owned(&handle.info.id, |latest| {
-                if latest.lifecycle != "alive"
-                    || latest.attention_source() == "user"
-                    || latest.attention.as_deref() == Some("needs_you")
-                    || latest.needs_user_input == Some(true)
-                    || latest.detected_question.is_some()
-                    || latest.suggested_options.is_some()
-                {
-                    return Ok(false);
-                }
-                latest.observed_status = Some("waiting_for_input".into());
-                latest.attention = Some("needs_you".into());
-                latest.provenance.attention_source = Some("agent".into());
-                latest.provenance.attention_confidence = Some(1.0);
-                latest.provenance.attention_origin = Some("native_codex".into());
-                latest.last_activity = crate::workspace_runtime::iso_now();
-                Ok(true)
+                Ok(crate::metadata::internal_mutations::apply_native_show_wait(
+                    latest,
+                    &crate::workspace_runtime::iso_now(),
+                ))
             }) {
                 Ok(token) => token,
                 Err(_) => return ApplyOutcome::PersistFailed,
@@ -873,9 +861,12 @@ fn apply_effect_inner(
             {
                 return reject(tracker);
             }
-            meta.observed_status = Some("working".into());
-            meta.attention = Some("working".into());
-            meta.last_activity = crate::workspace_runtime::iso_now();
+            if !crate::metadata::internal_mutations::apply_native_clear_wait(
+                &mut meta,
+                &crate::workspace_runtime::iso_now(),
+            ) {
+                return reject(tracker);
+            }
             match store.try_write_session_if_owned_when(&meta, durable, || {
                 tracker.reducer.clear_is_fresh(clock())
             }) {
@@ -2447,5 +2438,96 @@ mod tests {
         for excluded in [&id, "root-id", "turn", "test-report-token", "old question"] {
             assert!(!safe.contains(excluded));
         }
+    }
+    #[tokio::test]
+    async fn native_metadata_intents_match_the_json_observer_show_and_clear() {
+        use crate::metadata::internal_mutations::InternalMutation;
+        let (dir, files, mut handle, mut tracker, start) = fixture();
+        let initial = files
+            .try_read_revisioned_session(&handle.info.id)
+            .unwrap()
+            .unwrap();
+        let sql =
+            crate::session_store::SessionStore::initialize(dir.path().join("sql"), "/tmp".into())
+                .await
+                .unwrap();
+        sql.create(serde_json::to_value(initial).unwrap())
+            .await
+            .unwrap();
+        let mut proof = None;
+        for step in 0..2 {
+            let at = start + Duration::from_millis(2000 + step * 100);
+            let status = if step == 0 {
+                NativeStatus::ApprovalPending
+            } else {
+                NativeStatus::Active
+            };
+            let effect = tracker.reducer.observe(status, true, at, at)[0];
+            assert_eq!(
+                apply_effect(&files, &mut handle, &mut tracker, &effect, || at, true),
+                ApplyOutcome::Applied
+            );
+            let written = files
+                .try_read_revisioned_session(&handle.info.id)
+                .unwrap()
+                .unwrap();
+            let intent = if step == 0 {
+                InternalMutation::NativeShowWait {
+                    timestamp: written.metadata.last_activity.clone(),
+                }
+            } else {
+                InternalMutation::NativeClearWait {
+                    timestamp: written.metadata.last_activity.clone(),
+                    observation_started_at: Instant::now(),
+                }
+            };
+            let result = if step == 0 {
+                sql.mutate_internal(handle.info.id.clone(), "now".into(), None, intent)
+                    .await
+            } else {
+                sql.mutate_owned_attention(
+                    handle.info.id.clone(),
+                    "now".into(),
+                    proof.take().unwrap(),
+                    intent,
+                )
+                .await
+            }
+            .unwrap();
+            if step == 0 {
+                proof = result.attention_proof;
+            }
+            let sql_doc = result.document.unwrap();
+            let file_doc = serde_json::to_value(written).unwrap();
+            let attention = if step == 0 { "needs_you" } else { "working" };
+            let observed = if step == 0 {
+                "waiting_for_input"
+            } else {
+                "working"
+            };
+            for doc in [&sql_doc, &file_doc] {
+                assert_eq!(doc["attention"], attention);
+                assert_eq!(doc["observedStatus"], observed);
+                assert_eq!(doc["attentionSource"], "agent");
+                assert_eq!(doc["attentionOrigin"], "native_codex");
+                assert_eq!(doc["metadataRevision"], if step == 0 { "2" } else { "3" });
+            }
+            for field in [
+                "attention",
+                "observedStatus",
+                "attentionSource",
+                "attentionOrigin",
+                "attentionConfidence",
+                "needsUserInput",
+                "detectedQuestion",
+                "suggestedOptions",
+                "summary",
+                "lastActivity",
+                "metadataRevision",
+            ] {
+                assert_eq!(sql_doc[field], file_doc[field], "{field}");
+            }
+        }
+        sql.close().await.unwrap();
     }
 }

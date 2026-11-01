@@ -27,10 +27,34 @@ impl Database {
         proof: Option<&super::AttentionProof>,
         intent: &InternalMutation,
     ) -> Result<InternalMutationResult> {
-        if (matches!(intent, InternalMutation::HookCompletion { .. }) != proof.is_some())
+        self.mutate_internal_owned_with_clock(
+            id,
+            created,
+            expected,
+            proof,
+            intent,
+            std::time::Instant::now,
+        )
+    }
+    fn mutate_internal_owned_with_clock(
+        &mut self,
+        id: &str,
+        created: &str,
+        expected: Option<&MetadataRevision>,
+        proof: Option<&super::AttentionProof>,
+        intent: &InternalMutation,
+        mut clock: impl FnMut() -> std::time::Instant,
+    ) -> Result<InternalMutationResult> {
+        if (matches!(
+            intent,
+            InternalMutation::HookCompletion { .. } | InternalMutation::NativeClearWait { .. }
+        ) != proof.is_some())
             || proof.is_some_and(|proof| !self.owns_attention(id, created, proof))
         {
             return Err(StoreError::Conflict);
+        }
+        if !intent.ready_at(clock()) {
+            return Err(StoreError::Expired);
         }
         let tx = self
             .conn
@@ -91,6 +115,10 @@ impl Database {
         )?;
         if historical || new_historical {
             bump_generation(&tx)?;
+        }
+        // Recheck after all staged SQL work at the irreversible commit boundary.
+        if !intent.ready_at(clock()) {
+            return Err(StoreError::Expired);
         }
         tx.commit()?;
         let attention_proof = if scope.attention {
@@ -643,3 +671,6 @@ mod tests {
         store.close().await.unwrap();
     }
 }
+
+#[cfg(test)]
+mod native_observer_tests;
