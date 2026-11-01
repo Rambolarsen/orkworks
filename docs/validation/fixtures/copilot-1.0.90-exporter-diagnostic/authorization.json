@@ -1,0 +1,7 @@
+{
+  "configurationSha256": "1b80abcb90ac7645be92cb90d6b39cb89be34b47a8f63594d485c43d80a8aced",
+  "ownerResponse": "keep going",
+  "context": "Owner response to exact bounded diagnostic approval in draft PR #1282",
+  "recordedAtUtc": "2026-11-01T20:16:29.491697+00:00",
+  "scope": "One network-enabled Copilot 1.0.90 process, gpt-6-luna, at most two observed calls/one owned-file view; 120 seconds/process and 300 seconds batch, no retry/fallback. Existing auth, source guards, disposable native-history/exporter exception and acknowledged managed-capture/remote/provider-retention uncertainties. Fixed forbidden-name receipt only; no body inspection or later batch."
+}

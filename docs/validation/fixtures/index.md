@@ -30,3 +30,5 @@ Captured fixture context for reproducible validation.
 - [Startup skill-delivery packet](copilot-1.0.90-startup-skill/index.md) — Exact supplied source, matched request receipt and exhausted one-call authority.
 
 - [View read-scope stopped-probe packet](copilot-1.0.90-read-scope/index.md) — Approved synthetic case, partial stop receipt and exact observer binding.
+
+- [Exporter attribute-name diagnostic packet](copilot-1.0.90-exporter-diagnostic/index.md) — Exhausted positive-view diagnostic with fixed-name stop evidence.
