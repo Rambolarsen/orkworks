@@ -66,8 +66,6 @@ function deps(overrides: Partial<WorkspaceSessionControllerDeps> = {}): Workspac
     listSessions: async () => [],
     createSession: async (_baseUrl, _options) => session("created", "creating", "creating"),
     resumeSession: async (_baseUrl, id) => session(id),
-    deleteSession: async () => {},
-    forgetSession: async () => {},
     sessionAction: async () => {},
     setActiveWorkspaceSession: async () => {},
     pruneTerminals: () => {},
@@ -345,17 +343,20 @@ test("adopts the restored workspace before polling after a failed switch and ret
   controller.dispose();
 });
 
-test("deleting the active session clears it deliberately before publishing the refreshed snapshot", async () => {
+test("the delete action disposes and deliberately clears the active session before publishing the refreshed snapshot", async () => {
   const events: string[] = [];
   const controller = createWorkspaceSessionController({
-    deps: deps({ listSessions: async () => [session("active")] }),
+    deps: deps({
+      listSessions: async () => [],
+      disposeTerminal: id => events.push(`dispose:${id}`),
+    }),
     onActiveSession: (id, cause) => events.push(`active:${id}${cause?.deliberate ? ":deliberate" : ""}`),
     onSessions: () => events.push("sessions"),
   });
   controller.selectSession("active");
   events.length = 0;
-  await controller.deleteSession("active", false);
-  assert.deepEqual(events, ["active:null:deliberate", "sessions"]);
+  await controller.sessionAction("active", "delete", "captured-token");
+  assert.deepEqual(events, ["dispose:active", "active:null:deliberate", "sessions"]);
   controller.dispose();
 });
 

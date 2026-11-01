@@ -384,16 +384,6 @@ export async function listSessions(
   return resp.json();
 }
 
-export async function deleteSession(
-  baseUrl: string,
-  id: string,
-): Promise<void> {
-  const resp = await fetch(`${baseUrl}/sessions/${id}`, {
-    method: "DELETE",
-  });
-  if (!resp.ok) throw new Error(`delete session failed: ${resp.status}`);
-}
-
 export async function sessionAction(baseUrl: string, id: string, action: SessionAction, token: string): Promise<void> {
   const resp = await fetch(`${baseUrl}/sessions/${encodeURIComponent(id)}/state`, {
     method: "POST",
@@ -410,16 +400,6 @@ export async function sessionAction(baseUrl: string, id: string, action: Session
     } catch { /* The sidecar's application errors use plain text. */ }
     throw new Error(message);
   }
-}
-
-export async function forgetSession(
-  baseUrl: string,
-  id: string,
-): Promise<void> {
-  const resp = await fetch(`${baseUrl}/sessions/${id}/forget`, {
-    method: "DELETE",
-  });
-  if (!resp.ok) throw new Error(`forget session failed: ${resp.status}`);
 }
 
 export interface WorkspaceInfo {
