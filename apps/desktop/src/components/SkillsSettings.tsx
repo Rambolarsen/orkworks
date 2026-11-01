@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronRight, Plus, RefreshCw } from "lucide-react";
 import type {
+  SkillEntry,
   SkillInventory,
   SkillPreview,
   SkillScope,
@@ -15,6 +16,19 @@ const toolNames: Record<SkillTool, string> = {
 };
 const message = (error: unknown) =>
   error instanceof Error ? error.message : "Could not complete the request.";
+function pluginGroups(skills: SkillEntry[]) {
+  const groups = new Map<string, SkillEntry[]>();
+  for (const skill of skills) {
+    // Keep aliased skills in one row, even if multiple registrations expose them.
+    const name = [...(skill.plugins || [])].sort().join(" · ");
+    const group = groups.get(name) || [];
+    group.push(skill);
+    groups.set(name, group);
+  }
+  return [...groups].sort(([a], [b]) =>
+    !a ? 1 : !b ? -1 : a.localeCompare(b),
+  );
+}
 export default function SkillsSettings({
   currentWorkspacePath,
 }: {
@@ -98,7 +112,7 @@ export default function SkillsSettings({
   const filtered = (inventory?.skills || []).filter(
     (skill) =>
       (!tool || skill.tools.includes(tool as SkillTool)) &&
-      [skill.name, skill.description, ...skill.paths]
+      [skill.name, skill.description, ...(skill.plugins || []), ...skill.paths]
         .join(" ")
         .toLowerCase()
         .includes(query.toLowerCase()),
@@ -145,7 +159,7 @@ export default function SkillsSettings({
           <input
             className="ui-input"
             aria-label="Search skills"
-            placeholder="Find a skill by name, description, or path…"
+            placeholder="Find a skill by name, plugin, description, or path…"
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
@@ -310,74 +324,77 @@ export default function SkillsSettings({
                 : "Loading skills…"}
             </p>
           )}
-          {filtered
-            .filter((skill) => skill.scope === group)
-            .map((skill) => (
-              <article key={skill.id} data-skill-row className="skills-row">
-                <details>
-                  <summary className="skills-row-heading">
-                    <ChevronRight className="skills-chevron" size={15} aria-hidden="true" />
-                    <strong>{skill.name}</strong>
-                    <span className="skills-badge">
-                      {skill.management === "apm"
-                        ? "APM record"
-                        : skill.management === "plugin"
-                          ? "Plugin"
-                          : "Local file"}
-                    </span>
-                  </summary>
-                  <div className="skills-row-body">
-                    <p>{skill.description}</p>
-                    <p className="skills-tool-coverage">
-                      Found ·{" "}
-                      {skill.tools.length
-                        ? skill.tools.map((tool) => toolNames[tool]).join(", ")
-                        : "Coding-tool discovery unknown"}
-                      {skill.version ? ` · ${skill.version}` : ""}
-                    </p>
-                    {skill.paths.map((path) => (
-                      <p className="skills-path" key={path}>
-                        {path}
+          {pluginGroups(filtered.filter((skill) => skill.scope === group)).map(([plugin, skills]) => (
+            <section key={plugin} data-skill-plugin={plugin} className="skills-plugin-group" aria-label={plugin ? `Plugin: ${plugin}` : "Other skills"}>
+              <h4>{plugin || "Other skills"} <span>{skills.length}</span></h4>
+              {skills.map((skill) => (
+                <article key={skill.id} data-skill-row className="skills-row">
+                  <details>
+                    <summary className="skills-row-heading">
+                      <ChevronRight className="skills-chevron" size={15} aria-hidden="true" />
+                      <strong>{skill.name}</strong>
+                      <span className="skills-badge">
+                        {skill.management === "apm"
+                          ? "APM record"
+                          : skill.management === "plugin"
+                            ? "Plugin"
+                            : "Local file"}
+                      </span>
+                    </summary>
+                    <div className="skills-row-body">
+                      <p>{skill.description}</p>
+                      <p className="skills-tool-coverage">
+                        Found ·{" "}
+                        {skill.tools.length
+                          ? skill.tools.map((tool) => toolNames[tool]).join(", ")
+                          : "Coding-tool discovery unknown"}
+                        {skill.version ? ` · ${skill.version}` : ""}
                       </p>
-                    ))}
-                    {!skill.paths.includes(skill.resolvedPath) && (
-                      <p className="skills-path">
-                        Resolves to {skill.resolvedPath}
-                      </p>
-                    )}
-                    {skill.packageSource && (
-                      <p className="skills-path">Package: {skill.packageSource}</p>
-                    )}
-                    <button
-                      data-skill-detail
-                      className="ui-button ui-button--sm ui-button--secondary"
-                      disabled={busy}
-                      onClick={() =>
-                        void perform(async () => {
-                          const request = generation.current;
-                          const text = await window.orkworks.readSkillDetail(
-                            skill.id,
-                          );
-                          if (request === generation.current)
-                            setDetail({ id: skill.id, text });
-                        })
-                      }
-                    >
-                      Read skill
-                    </button>
-                    {detail?.id === skill.id && (
-                      <section className="skills-detail" aria-label={`${skill.name} instructions`}>
-                        <div className="skills-heading">
-                          <h4>SKILL.md</h4>
-                          <button className="ui-button ui-button--sm ui-button--secondary" onClick={() => setDetail(null)}>Close text</button>
-                        </div>
-                        <pre data-skill-content>{detail.text}</pre>
-                      </section>
-                    )}
-                  </div>
-                </details>
-              </article>
-            ))}
+                      {skill.paths.map((path) => (
+                        <p className="skills-path" key={path}>
+                          {path}
+                        </p>
+                      ))}
+                      {!skill.paths.includes(skill.resolvedPath) && (
+                        <p className="skills-path">
+                          Resolves to {skill.resolvedPath}
+                        </p>
+                      )}
+                      {skill.packageSource && (
+                        <p className="skills-path">Package: {skill.packageSource}</p>
+                      )}
+                      <button
+                        data-skill-detail
+                        className="ui-button ui-button--sm ui-button--secondary"
+                        disabled={busy}
+                        onClick={() =>
+                          void perform(async () => {
+                            const request = generation.current;
+                            const text = await window.orkworks.readSkillDetail(
+                              skill.id,
+                            );
+                            if (request === generation.current)
+                              setDetail({ id: skill.id, text });
+                          })
+                        }
+                      >
+                        Read skill
+                      </button>
+                      {detail?.id === skill.id && (
+                        <section className="skills-detail" aria-label={`${skill.name} instructions`}>
+                          <div className="skills-heading">
+                            <h4>SKILL.md</h4>
+                            <button className="ui-button ui-button--sm ui-button--secondary" onClick={() => setDetail(null)}>Close text</button>
+                          </div>
+                          <pre data-skill-content>{detail.text}</pre>
+                        </section>
+                      )}
+                    </div>
+                  </details>
+                </article>
+              ))}
+            </section>
+          ))}
         </section>
       ))}
       {inventory && (

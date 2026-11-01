@@ -30,7 +30,18 @@ if (process.env.ORKWORKS_SKILLS_FIXTURE) {
       };
       const click = (selector) =>
         evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
+      await wait('document.querySelectorAll("[data-skill-row]").length===4');
+      assert.deepEqual(await evaluate(`Array.from(document.querySelectorAll('[data-skill-scope="personal"] [data-skill-plugin]')).map(group => [group.dataset.skillPlugin, group.querySelectorAll('[data-skill-row]').length])`), [["alpha@local", 1], ["beta@local", 1], ["", 1]]);
+      await evaluate(`(()=>{const el=document.querySelector('input[type="search"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set.call(el,"alpha@local");el.dispatchEvent(new Event("input",{bubbles:true}))})()`);
+      await wait('document.querySelectorAll("[data-skill-row]").length===1');
+      assert.equal(await evaluate('document.querySelector("[data-skill-row] strong").innerText'), "plan");
+      await evaluate(`(()=>{const el=document.querySelector('input[type="search"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set.call(el,"");el.dispatchEvent(new Event("input",{bubbles:true}))})()`);
+      await wait('document.querySelectorAll("[data-skill-row]").length===4');
+      await evaluate(`(()=>{const el=document.querySelector('.skills-filters select');el.value="codex";el.dispatchEvent(new Event("change",{bubbles:true}))})()`);
       await wait('document.querySelectorAll("[data-skill-row]").length===2');
+      assert.equal(await evaluate(`Array.from(document.querySelectorAll('[data-skill-plugin]')).some(group => group.dataset.skillPlugin)`), false);
+      await evaluate(`(()=>{const el=document.querySelector('.skills-filters select');el.value="";el.dispatchEvent(new Event("change",{bubbles:true}))})()`);
+      await wait('document.querySelectorAll("[data-skill-row]").length===4');
       assert.equal(
         await evaluate(
           'document.querySelectorAll("[data-skill-scope]").length',
@@ -41,7 +52,7 @@ if (process.env.ORKWORKS_SKILLS_FIXTURE) {
         await evaluate('!!document.querySelector("img[data-injected]")'),
         false,
       );
-      assert.equal(await evaluate('document.querySelectorAll("[data-skill-row] details:not([open])").length'), 2, 'skills start collapsed');
+      assert.equal(await evaluate('document.querySelectorAll("[data-skill-row] details:not([open])").length'), 4, 'skills start collapsed');
       assert.equal(await evaluate('document.querySelector("[data-skill-row]").innerText.includes("/repo/.agents")'), false, 'paths do not clutter collapsed rows');
       assert.equal(await evaluate('document.querySelector("[data-skill-row]").innerText.includes("Review code")'), false, 'descriptions stay inside expanded rows');
       if (process.env.ORKWORKS_SKILLS_CAPTURE) {
@@ -92,7 +103,7 @@ if (process.env.ORKWORKS_SKILLS_FIXTURE) {
       await evaluate('window.finishSkillInstall();new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
       await wait('document.querySelector("[role=status]").innerText !== "Working…"');
       assert.equal(await evaluate('document.querySelector("[role=status]").innerText.includes("Old workspace")'), false, 'old completion cannot label the new workspace');
-      assert.equal(await evaluate('document.querySelectorAll("[data-skill-row]").length'), 1);
+      assert.equal(await evaluate('document.querySelectorAll("[data-skill-row]").length'), 3);
       await click("[data-skill-row] summary");
       for (const width of [1000, 700, 360]) {
         win.setContentSize(width, 850);

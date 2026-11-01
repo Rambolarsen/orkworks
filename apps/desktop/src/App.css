@@ -3257,3 +3257,7 @@ html, body, #root {
 .resume-menu--details .resume-menu-popover { position: static; width: 100%; box-sizing: border-box; margin-top: 6px; }
 
 .shell-region--central > .skills-settings { flex: 1; min-height: 0; overflow: auto; padding: 20px; align-content: start; }
+
+.skills-plugin-group { min-width: 0; margin-bottom: 12px; }
+.skills-plugin-group h4 { display: flex; align-items: center; gap: 8px; margin: 10px 0 4px; color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
+.skills-plugin-group h4 span { flex-shrink: 0; font-weight: 400; }

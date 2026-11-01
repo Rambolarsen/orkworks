@@ -138,11 +138,7 @@ test("includes configured OpenCode paths and Claude plugin registrations with ho
       (s) => s.resolvedPath === configured && s.tools.includes("opencode"),
     ),
   );
-  assert.ok(
-    result.skills.some(
-      (s) => s.management === "plugin" && s.scope === "personal",
-    ),
-  );
+  assert.deepEqual(result.skills.find((s) => s.management === "plugin")?.plugins, ["sample@local"]);
 });
 
 test("refuses detail after a discovered file is replaced by an external symlink", async (t) => {
@@ -160,4 +156,24 @@ test("refuses detail after a discovered file is replaced by an external symlink"
     readSkillDetail(inventory, inventory.skills[0].id),
     /changed|regular|link/i,
   );
+});
+
+// A local alias must not erase the registered plugin identity.
+test("retains all plugin registrations when roots and local aliases share a skill", async (t) => {
+  const f = await fixture(t);
+  const original = await f.put(f.home, ".agents/skills/example");
+  const plugin = join(f.home, "plugins/shared");
+  await mkdir(join(plugin, "skills"), { recursive: true });
+  await symlink(original, join(plugin, "skills/example"), "dir");
+  await mkdir(join(f.home, ".claude/plugins"), { recursive: true });
+  await writeFile(join(f.home, ".claude/plugins/installed_plugins.json"), JSON.stringify({
+    plugins: {
+      "alpha@local": [{ scope: "user", installPath: plugin }],
+      "beta@local": [{ scope: "user", installPath: plugin }],
+    },
+  }));
+  const result = await discoverSkills({ workspace: null, home: f.home, env: {} });
+  assert.equal(result.skills.length, 1);
+  assert.equal(result.skills[0].management, "plugin");
+  assert.deepEqual(result.skills[0].plugins, ["alpha@local", "beta@local"]);
 });
