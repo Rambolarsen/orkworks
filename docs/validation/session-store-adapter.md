@@ -42,7 +42,8 @@ reports, provider context and user-title changes. Current JSON owners and the
 isolated SQL worker execute shared pure reducers in
 `metadata/internal_mutations.rs`; source/age arbitration is not duplicated in SQL.
 The SQL command checks the latest record, mandatory creation identity and optional
-expected revision inside its transaction. True no-ops preserve bytes, revisions
+expected revision inside its transaction, then applies the same read-time metadata
+normalization as the JSON owner before evaluating the intent. True no-ops preserve bytes, revisions
 and scope clocks, including at counter exhaustion. A same-identity harness
 last-seen update deliberately advances the revision, matching the JSON contract.
 Historical internal writes invalidate history in the same transaction.
@@ -106,7 +107,8 @@ Real temporary SQLite fixtures exercise:
   policy, arbitration against a newer agent write, exact Codex identity protection,
   last-seen-only revisions, title/provider ownership, FTS/history invalidation,
   no-ops at u64 exhaustion and invalid/oversized rollback. Actual JSON/SQL Peon
-  outcomes are compared across all four attention policies; JSON event ownership
+  outcomes are compared across all four attention policies and repeated ended-session
+  reports (including activity timestamps); JSON event ownership
   remains observable in the original wrapper.
 - An independent real Unix PTY exchanges input/output while the worker is paused.
   This validates this isolated worker boundary, not the unchanged application's

@@ -29,6 +29,9 @@ impl Database {
         }
         let old = serde_json::to_value(&record)?;
         let old_workspace = record.metadata.workspace.clone();
+        // Match the file owner's read-time normalization. Keep the raw snapshot
+        // above so accepted writes persist normalization and true no-ops do not.
+        record.metadata = crate::metadata::normalize_session_metadata(record.metadata);
         let decision = intent.apply(&mut record.metadata).map_err(|e| {
             if e.kind() == std::io::ErrorKind::InvalidInput {
                 StoreError::Invalid(e.to_string())
@@ -103,6 +106,67 @@ mod tests {
         d["attentionUpdatedAt"] = json!("2000-01-01T00:00:00Z");
         d["workMetadataUpdatedAt"] = json!("2020-01-01T00:00:00Z");
         d
+    }
+    #[tokio::test]
+    async fn repeated_peon_reports_on_ended_sessions_match_json_activity_and_normalization() {
+        let dir = tempfile::tempdir().unwrap();
+        let files = crate::metadata::MetadataStore::new(&dir.path().join("legacy"));
+        let sql = SessionStore::initialize(dir.path().join("sql"), "/workspace".into())
+            .await
+            .unwrap();
+        let mut d = super::super::tests::closed_document("ended");
+        d.as_object_mut().unwrap().remove("futureExtension");
+        d["metadataSource"] = json!("peon");
+        d["attentionSource"] = json!("peon");
+        d["attentionConfidence"] = json!(0.8);
+        d["attentionOrigin"] = json!("peon_inference");
+        d["attentionUpdatedAt"] = json!("2000-01-01T00:00:00Z");
+        d["workMetadataUpdatedAt"] = json!("2020-01-01T00:00:00Z");
+        files
+            .try_write_session(&serde_json::from_value(d.clone()).unwrap())
+            .unwrap();
+        sql.create(d).await.unwrap();
+        for timestamp in ["2026-01-03T00:00:00Z", "2026-01-04T00:00:00Z"] {
+            files
+                .merge_peon_inference_with_history_policy_scoped(
+                    "ended",
+                    &inference(),
+                    timestamp,
+                    None,
+                    None,
+                    crate::metadata::PeonAttentionPolicy::Infer,
+                )
+                .unwrap();
+            let mut actual = sql
+                .mutate_internal(
+                    "ended".into(),
+                    "2026-01-01T00:00:00Z".into(),
+                    None,
+                    InternalMutation::Peon {
+                        inference: inference(),
+                        timestamp: timestamp.into(),
+                        provider: None,
+                        history_summary: None,
+                        policy: PeonPolicy::Infer,
+                    },
+                )
+                .await
+                .unwrap()
+                .document
+                .unwrap();
+            let mut legacy: serde_json::Value = serde_json::from_slice(
+                &std::fs::read(files.sessions_dir().join("ended.json")).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(actual["lastActivity"], legacy["lastActivity"]);
+            assert_eq!(actual["lastActivity"], timestamp);
+            for field in ["attentionUpdatedAt", "workMetadataUpdatedAt"] {
+                actual.as_object_mut().unwrap().remove(field);
+                legacy.as_object_mut().unwrap().remove(field);
+            }
+            assert_eq!(actual, legacy);
+        }
+        sql.close().await.unwrap();
     }
     #[tokio::test]
     async fn delayed_peon_uses_latest_agent_source_instead_of_its_captured_snapshot() {
