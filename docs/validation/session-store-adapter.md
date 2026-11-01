@@ -37,6 +37,26 @@ field/source/plan validators. Canonical records preserve unknown object members 
 revision strings and immutable creation identity. Import-specific provenance,
 manifest and organization loading remain migration work.
 
+Internal metadata commands also cover Peon scope merging, harness identity
+reports, provider context and user-title changes. Current JSON owners and the
+isolated SQL worker execute shared pure reducers in
+`metadata/internal_mutations.rs`; source/age arbitration is not duplicated in SQL.
+The SQL command checks the latest record, mandatory creation identity and optional
+expected revision inside its transaction, then applies the same read-time metadata
+normalization as the JSON owner before evaluating the intent. True no-ops preserve bytes, revisions
+and scope clocks, including at counter exhaustion. A same-identity harness
+last-seen update deliberately advances the revision, matching the JSON contract.
+Historical internal writes invalidate history in the same transaction.
+
+These commands are metadata primitives. The existing JSON Peon/harness wrappers
+still own events, checkpoints and follow-up identity capture. The SQL worker does
+not append external files or execute arbitrary callbacks. Production SQL routing
+must preserve those outer operations and their actual partial-failure semantics;
+this does not establish SQL/event atomicity or complete producer integration.
+Title authentication, live label epochs, runtime/source reservations and native
+eligibility remain with their current owners. Capturing a reported native ID does
+not authorize native startup or clearing.
+
 The worker admits at most 32 queued mutations and eight reads, reserves serialized
 intent plus possible result bytes against 32 MiB, and rejects intents over 1 MiB.
 Reservations survive execution and unread result delivery. Eight FIFO mutations
@@ -83,6 +103,13 @@ Real temporary SQLite fixtures exercise:
   Deterministic gates cover startup cancellation after readiness and ticket drop
   between the worker's liveness check and its atomic execution claim, plus
   a descheduled deadline boundary with the caller timeout deliberately unpolled.
+- Shared internal-write tests exercise independent Peon scopes and protected hook
+  policy, arbitration against a newer agent write, exact Codex identity protection,
+  last-seen-only revisions, title/provider ownership, FTS/history invalidation,
+  no-ops at u64 exhaustion and invalid/oversized rollback. Actual JSON/SQL Peon
+  outcomes are compared across all four attention policies and repeated ended-session
+  reports (including activity timestamps); JSON event ownership
+  remains observable in the original wrapper.
 - An independent real Unix PTY exchanges input/output while the worker is paused.
   This validates this isolated worker boundary, not the unchanged application's
   complete runtime integration or the #1247 latency budgets.
@@ -98,8 +125,8 @@ current guards. The concrete traces that still need typed integration are:
 
 | Owner | Preserved cutoff and required next work |
 | --- | --- |
-| `metadata/session_transactions.rs` | Latest-record optional/decided mutations, no-op revisions/scope clocks and append-before-replace partial effects need corresponding domain intents; never offer arbitrary SQL or execute caller closures on the worker |
-| `metadata.rs` Peon/harness merges and session titles | Preserve independent scope source/age arbitration, protected waits, title epochs and append/checkpoint ownership when adding remaining intents |
+| `metadata/session_transactions.rs` | Ordinary internal metadata cores now have typed decisions/no-ops; remaining lifecycle/conditional-native and append-before-replace partial effects need their domain intents. Never offer arbitrary SQL or execute caller closures on the worker |
+| `metadata.rs` Peon/harness/provider merges and session titles | Shared pure reducers cover canonical metadata and manual titles. Preserve runtime/automatic-title epochs, Peon events/checkpoints and follow-up native identity capture when routing complete producers to SQL |
 | `runtime/terminal_runtime.rs` input-derived attention | Currently reads workspace/session guards through a conditional metadata mutation; capture intent and release input-critical guards before any future database await, then revalidate runtime/input authority before publication |
 | `runtime/codex_approval_application.rs` ShowWait/ClearWait | Preserve latest-record guards, live/durable ownership pair, freshness, coordinated-writer gate and the exact side-effect/publication ordering; SQL success alone cannot authorize clearing |
 | `runtime/codex_completion_application.rs` | Preserve invocation/order correlation and conditional latest-record edits that retain unrelated work; no production stream or eligibility is enabled here |

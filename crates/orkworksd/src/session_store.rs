@@ -1,5 +1,8 @@
 //! Private ordinary-session persistence. Production selection belongs to #1244.
 #![allow(dead_code)] // Isolated adapter until recoverable format-2 activation.
+mod internal_mutations;
+#[allow(unused_imports)] // Internal API becomes a production path only at qualified cutover.
+pub(crate) use internal_mutations::InternalMutationResult;
 mod queries;
 mod worker;
 #[allow(unused_imports)] // Query DTOs are consumed by the later format-2 adapter.

@@ -834,6 +834,13 @@ and never falls back after a selected proxy fails. The proxy receives the bearer
 capability; loopback validation is not identity proof. Automatic callers do not
 select this transport. See the [approved proxy design](../superpowers/specs/2026-10-24-sandbox-metadata-proxy-design.md).
 
+Internal Peon/harness/provider merges and user-title selection share pure
+`metadata/internal_mutations.rs` rules between the current JSON callers and the
+isolated SQLite worker. Typed SQL commands check creation identity, optional
+revision and scope decisions against the latest record. Production remains
+JSON-backed; lifecycle/conditional-native reservations and external events still
+need their owned integration before SQL selection.
+
 The versioned agent API uses `metadata/session_transactions.rs`: checked, durable
 revisions are stored in the canonical session JSON, and scoped mutations hold the
 retained store's per-session lock across read/check/modify/replace. Internal
