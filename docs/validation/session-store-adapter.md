@@ -81,7 +81,8 @@ Real temporary SQLite fixtures exercise:
 - Queue count/byte rejection, fairness, before/after-execution cancellation,
   timely queued rejection while storage is stalled and cooperative SQL interruption.
   Deterministic gates cover startup cancellation after readiness and ticket drop
-  between the worker's liveness check and its atomic execution claim.
+  between the worker's liveness check and its atomic execution claim, plus
+  a descheduled deadline boundary with the caller timeout deliberately unpolled.
 - An independent real Unix PTY exchanges input/output while the worker is paused.
   This validates this isolated worker boundary, not the unchanged application's
   complete runtime integration or the #1247 latency budgets.

@@ -47,6 +47,13 @@ enum Command {
     Pause(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>),
     #[cfg(test)]
     #[serde(skip)]
+    CreateAtDeadlineBoundary(
+        serde_json::Value,
+        std::sync::mpsc::Sender<()>,
+        std::sync::mpsc::Receiver<()>,
+    ),
+    #[cfg(test)]
+    #[serde(skip)]
     CreateAtCutoff(
         serde_json::Value,
         std::sync::mpsc::Sender<()>,
@@ -77,7 +84,9 @@ impl Command {
         #[cfg(test)]
         match self {
             Self::Pause(..) => return Ok(0),
-            Self::CreatePaused(value, ..) | Self::CreateAtCutoff(value, ..) => {
+            Self::CreatePaused(value, ..)
+            | Self::CreateAtCutoff(value, ..)
+            | Self::CreateAtDeadlineBoundary(value, ..) => {
                 return Ok(serde_json::to_vec(value)?.len())
             }
             _ => {}
@@ -137,6 +146,11 @@ impl Command {
             Self::Pause(entered, release) => {
                 let _ = entered.send(());
                 release.recv().map_err(|_| StoreError::Cancelled)?;
+                Ok(Reply::Unit)
+            }
+            #[cfg(test)]
+            Self::CreateAtDeadlineBoundary(value, ..) => {
+                db.create_session(value)?;
                 Ok(Reply::Unit)
             }
             #[cfg(test)]
@@ -536,11 +550,19 @@ fn run_worker(shared: &Shared, db: &mut Database) {
                 let _ = entered.send(());
                 let _ = release.recv();
             }
-            let result = if admitted.elapsed() >= Duration::from_secs(2)
-                || state
-                    .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
-                    .is_err()
-            {
+            // Claim before the deadline check so a scheduler pause cannot
+            // turn a stale age observation into a late execution admission.
+            let result = if state
+                .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+                .is_err()
+                || {
+                    #[cfg(test)]
+                    if let Command::CreateAtDeadlineBoundary(_, entered, release) = &command {
+                        let _ = entered.send(());
+                        let _ = release.recv();
+                    }
+                    admitted.elapsed() >= Duration::from_secs(2)
+                } {
                 Err(StoreError::Expired)
             } else {
                 command.run(db)
@@ -865,6 +887,45 @@ mod tests {
             Command::Retention(i64::MAX, 100).result_bound() >= encoded,
             "reservation undercounts {encoded} encoded result bytes"
         );
+    }
+    #[tokio::test]
+    async fn worker_cannot_claim_an_expired_mutation_when_caller_timer_is_unpolled() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::initialize(dir.path().into(), "/workspace".into())
+            .await
+            .unwrap();
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let mut ticket = store
+            .submit(Command::CreateAtDeadlineBoundary(
+                document("expired-at-claim"),
+                entered_tx,
+                release_rx,
+            ))
+            .unwrap();
+        entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        tokio::time::sleep(Duration::from_millis(2100)).await;
+        release_tx.send(()).unwrap();
+        // Poll only delivery: do not run receive()'s timeout task, so the worker
+        // itself must enforce expiry after a pause between its two predicates.
+        let delivered = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                match ticket.receiver.try_recv() {
+                    Ok(value) => break value,
+                    Err(oneshot::error::TryRecvError::Empty) => tokio::task::yield_now().await,
+                    Err(e) => panic!("{e:?}"),
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert!(matches!(delivered.result, Err(StoreError::Expired)));
+        drop(delivered);
+        assert!(store
+            .get("expired-at-claim".into())
+            .await
+            .unwrap()
+            .is_none());
     }
     #[tokio::test]
     async fn worker_commits_before_acknowledgement_and_reopens_without_json_mirror() {
