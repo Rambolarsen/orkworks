@@ -69,6 +69,117 @@ class ProducerTests(unittest.TestCase):
             arguments += ["--http-proxy", proxy_url]
         return subprocess.run(arguments, input=body, text=True, capture_output=True, env=env, timeout=15)
 
+    def test_ordinary_storage_protocol_bootstraps_without_native_marker(self):
+        with endpoint(bootstrap_replies()) as (port, requests):
+            result = self.invoke("bootstrap", port, marker=None,
+                ORKWORKS_SESSION_STORAGE_PROTOCOL="sidecar-v1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([(r[0], r[1]) for r in requests], [
+            ("GET", "/sessions/session-1/metadata"),
+            ("PATCH", "/sessions/session-1/metadata?validateOnly=true"),
+            ("GET", "/sessions/session-1/metadata")])
+        self.assertTrue(json.loads(result.stdout)["validated"])
+        self.assertNotIn(TOKEN, result.stdout + result.stderr)
+
+    def test_ordinary_response_budget_includes_the_revision_envelope(self):
+        metadata = {"id": "session-1", "summary": ""}
+        overhead = len(json.dumps(metadata, separators=(",", ":")).encode())
+        metadata["summary"] = "x" * (1024 * 1024 - overhead)
+        record = {**metadata, "metadataRevision": "7"}
+        self.assertEqual(len(json.dumps(metadata, separators=(",", ":")).encode()), 1024 * 1024)
+        self.assertGreater(len(json.dumps(record).encode()), 1024 * 1024)
+        with endpoint([ok(record)]) as (port, requests):
+            result = self.invoke("get", port, marker=None,
+                ORKWORKS_SESSION_STORAGE_PROTOCOL="sidecar-v1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), record)
+        self.assertEqual(len(requests), 1)
+
+    def test_worktree_response_budget_includes_the_revision_envelope(self):
+        metadata = {"id": "session-1", "summary": ""}
+        overhead = len(json.dumps(metadata, separators=(",", ":")).encode())
+        metadata["summary"] = "x" * (1024 * 1024 - overhead)
+        record = {**metadata, "metadataRevision": "7"}
+        with endpoint([ok(record), ok(record)]) as (port, requests):
+            result = self.invoke(["worktree", "/task/feature"], port, marker=None)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(requests), 2)
+        self.assertEqual(requests[-1][3], {"metadataRevision": "7", "patch": {
+            "agentMetadata": {"worktreePath": "/task/feature"}}})
+        self.assertNotIn(TOKEN, result.stdout + result.stderr)
+
+    def test_ordinary_storage_protocol_preserves_stale_revision_conflict(self):
+        with endpoint(bootstrap_replies() + [(409, {"secret": TOKEN}, {})]) as (port, requests):
+            result = self.invoke("patch", port, json.dumps(PATCH), marker=None,
+                ORKWORKS_SESSION_STORAGE_PROTOCOL="sidecar-v1")
+        self.assertEqual(result.returncode, 3, result.stderr)
+        self.assertEqual(len(requests), 4)
+        self.assertEqual(requests[-1][3], PATCH)
+        self.assertNotIn(TOKEN, result.stdout + result.stderr)
+
+    def test_ordinary_storage_protocol_failure_never_uses_file_fallback(self):
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / "session.json"
+            target.write_text("unchanged")
+            with endpoint([(503, {"secret": TOKEN}, {})]) as (port, requests):
+                result = self.invoke("patch", port, json.dumps(PATCH), marker=None,
+                    ORKWORKS_SESSION_STORAGE_PROTOCOL="sidecar-v1", ORKWORKS_METADATA_PATH=str(target))
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(len(requests), 1)
+            self.assertEqual(target.read_text(), "unchanged")
+            self.assertNotIn(TOKEN, result.stdout + result.stderr)
+
+    def test_unknown_storage_protocol_never_downgrades_to_native_marker(self):
+        for value in ("", "sidecar-v2", "Sidecar-v1"):
+            with self.subTest(value=value), endpoint([]) as (port, requests):
+                result = self.invoke("bootstrap", port,
+                    ORKWORKS_SESSION_STORAGE_PROTOCOL=value)
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(requests, [])
+            self.assertNotIn(TOKEN, result.stdout + result.stderr)
+
+    def test_unknown_native_marker_never_downgrades_to_ordinary_protocol(self):
+        with endpoint([]) as (port, requests):
+            result = self.invoke("bootstrap", port, marker="2",
+                ORKWORKS_SESSION_STORAGE_PROTOCOL="sidecar-v1")
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(requests, [])
+
+    def test_ordinary_instructions_do_not_claim_native_eligibility(self):
+        result = self.invoke("instructions", marker=None,
+            ORKWORKS_SESSION_STORAGE_PROTOCOL="sidecar-v1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("ordinary session storage", context)
+        self.assertIn("API-only", context)
+        self.assertIn("bootstrap", context)
+        self.assertIn("does not authorize", context)
+        self.assertNotIn(TOKEN, result.stdout + result.stderr)
+
+    def test_ordinary_session_start_command_delivers_api_instructions(self):
+        env = {key: value for key, value in os.environ.items() if not key.startswith("ORKWORKS_") and key != "CODEX_NETWORK_PROXY_ACTIVE"}
+        env.update(ORKWORKS_SESSION_ID="session-1", ORKWORKS_PORT="1", ORKWORKS_REPORT_TOKEN=TOKEN,
+            ORKWORKS_SESSION_STORAGE_PROTOCOL="sidecar-v1")
+        result = subprocess.run(["bash", str(SCRIPT.with_name("report-harness-event.sh")),
+            "--marker", "orkworks:harness-integration:v2:codex", "--event", "SessionStart"],
+            input="{}", text=True, capture_output=True, env=env, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("ordinary session storage", context)
+        self.assertIn("API-only", context)
+        self.assertNotIn(TOKEN, result.stdout + result.stderr)
+
+    def test_ordinary_protocol_explicit_relay_pins_origin(self):
+        with endpoint([]) as (origin, direct), endpoint(bootstrap_replies()) as (relay, requests):
+            result = self.invoke("bootstrap", origin, marker=None,
+                proxy_url=f"http://127.0.0.1:{relay}", ORKWORKS_SESSION_STORAGE_PROTOCOL="sidecar-v1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(direct, [])
+        target = f"http://127.0.0.1:{origin}/sessions/session-1/metadata"
+        self.assertEqual([(r[0], r[1]) for r in requests], [
+            ("GET", target), ("PATCH", target + "?validateOnly=true"), ("GET", target)])
+        self.assertNotIn(TOKEN, result.stdout + result.stderr)
+
     def test_worktree_command_without_general_marker_sends_only_narrow_patch(self):
         for proxy in (False, True):
             for path in ("/task/feature", "--clear"):

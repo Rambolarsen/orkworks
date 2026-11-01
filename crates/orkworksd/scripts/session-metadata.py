@@ -10,7 +10,8 @@ import shlex
 import sys
 
 MAX_BODY = 8192
-MAX_RESPONSE = 1024 * 1024
+MAX_RESPONSE = 2 * 1024 * 1024
+LEGACY_MAX_RESPONSE = 1024 * 1024
 TIMEOUT_SECONDS = 5
 
 
@@ -37,6 +38,7 @@ def valid_revision(value):
 
 class Transport:
     def __init__(self, http_proxy=None):
+        self.max_response = MAX_RESPONSE
         self.session_id = os.environ.get("ORKWORKS_SESSION_ID", "")
         port = os.environ.get("ORKWORKS_PORT", "")
         self.token = os.environ.get("ORKWORKS_REPORT_TOKEN", "")
@@ -74,8 +76,8 @@ class Transport:
                 raise RevisionConflict("metadata revision conflict; reread and retry the intended patch")
             if response.status != 200:
                 raise ProducerError("metadata API request failed (HTTP " + str(response.status) + ")")
-            raw = response.read(MAX_RESPONSE + 1)
-            if len(raw) > MAX_RESPONSE:
+            raw = response.read(self.max_response + 1)
+            if len(raw) > self.max_response:
                 raise ProducerError("metadata response exceeds the size limit")
             value = json.loads(raw, object_pairs_hook=unique_object)
             if not isinstance(value, dict) or not valid_revision(value.get("metadataRevision")):
@@ -108,11 +110,28 @@ class Transport:
         return result
 
 
+def metadata_protocol(required=False):
+    # Ordinary storage negotiation is independent of the gated native marker.
+    # A present unknown value never downgrades to another protocol or to files.
+    ordinary = os.environ.get("ORKWORKS_SESSION_STORAGE_PROTOCOL")
+    native = os.environ.get("ORKWORKS_SESSION_METADATA_API_VERSION")
+    if ordinary is not None:
+        if ordinary != "sidecar-v1" or (native is not None and native != "1"):
+            raise ProducerError("unsupported session metadata protocol environment")
+        return "ordinary"
+    if native == "1":
+        return "native"
+    if required:
+        raise ProducerError("API-only metadata protocol version 1 is required")
+    return None
+
+
 class Client(Transport):
     def __init__(self, http_proxy=None):
-        if os.environ.get("ORKWORKS_SESSION_METADATA_API_VERSION") != "1":
-            raise ProducerError("API-only metadata protocol version 1 is required")
+        protocol = metadata_protocol(required=True)
         super().__init__(http_proxy)
+        if protocol == "native":
+            self.max_response = LEGACY_MAX_RESPONSE
 
 
 def worktree_instructions():
@@ -158,12 +177,15 @@ def read_patch():
 
 
 def instructions():
-    if os.environ.get("ORKWORKS_SESSION_METADATA_API_VERSION") != "1":
+    protocol = metadata_protocol()
+    if protocol is None:
         return None
     helper_path = str(Path(__file__).resolve())
     helper = "\'" + helper_path.replace("\'", "\'\'") + "\'" if os.name == "nt" else shlex.quote(helper_path)
     context = (
-        "OrkWorks session metadata uses API-only protocol version 1 for this session. "
+        ("OrkWorks ordinary session storage uses API-only sidecar-v1 reporting for this session. "
+         if protocol == "ordinary" else
+         "OrkWorks session metadata uses API-only protocol version 1 for this session. ") +
         "Never write session metadata JSON files directly, including on API failure. "
         "Before any metadata mutation, run `python3 " + helper + " bootstrap` from your actual "
         "agent shell/tool execution context under its effective sandbox. This performs "

@@ -526,6 +526,17 @@ mod tests {
         command: &str,
         body: Option<Value>,
     ) -> std::process::Output {
+        run_metadata_producer_with_protocol(state, id, command, body, false).await
+    }
+
+    #[cfg(unix)]
+    async fn run_metadata_producer_with_protocol(
+        state: Arc<AppState>,
+        id: &str,
+        command: &str,
+        body: Option<Value>,
+        ordinary: bool,
+    ) -> std::process::Output {
         use tokio::io::AsyncWriteExt;
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -537,7 +548,16 @@ mod tests {
                 "/scripts/session-metadata.py"
             ))
             .arg(command)
-            .env("ORKWORKS_SESSION_METADATA_API_VERSION", "1")
+            .env_remove("ORKWORKS_SESSION_METADATA_API_VERSION")
+            .env_remove("ORKWORKS_SESSION_STORAGE_PROTOCOL")
+            .env(
+                if ordinary {
+                    "ORKWORKS_SESSION_STORAGE_PROTOCOL"
+                } else {
+                    "ORKWORKS_SESSION_METADATA_API_VERSION"
+                },
+                if ordinary { "sidecar-v1" } else { "1" },
+            )
             .env("ORKWORKS_SESSION_ID", id)
             .env("ORKWORKS_PORT", port.to_string())
             .env("ORKWORKS_REPORT_TOKEN", "secret")
@@ -571,61 +591,77 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn producer_bootstrap_is_read_only_and_identical_attention_patch_revokes_owner() {
-        let (state, id, _dir) = fixture().await;
-        install_hook_owned_wait(&state, &id);
-        let path = state
-            .workspace
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .metadata
-            .sessions_dir()
-            .join(format!("{id}.json"));
-        let before = std::fs::read(&path).unwrap();
-        let owner = state.sessions.lock().unwrap()[&id]
-            .runtime
-            .attention_owner
-            .snapshot()
-            .unwrap();
-        let output = run_metadata_producer(state.clone(), &id, "bootstrap", None).await;
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        assert_eq!(std::fs::read(&path).unwrap(), before);
-        assert!(state.sessions.lock().unwrap()[&id]
-            .runtime
-            .attention_owner
-            .owns(&owner));
-        let validated: Value = serde_json::from_slice(&output.stdout).unwrap();
-        assert_eq!(validated["validated"], true);
-        let patch = json!({"metadataRevision": validated["metadataRevision"], "patch": {"attentionState": {
-            "observedStatus": "waiting_for_input", "needsUserInput": true,
-            "detectedQuestion": null, "suggestedOptions": null
-        }}});
-        let output = run_metadata_producer(state.clone(), &id, "patch", Some(patch)).await;
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        let sessions = state.sessions.lock().unwrap();
-        let handle = &sessions[&id];
-        assert!(!handle.runtime.attention_owner.owns(&owner));
-        assert_eq!(handle.info.attention.as_deref(), Some("needs_you"));
-        assert_eq!(
-            handle.info.provenance.attention_origin.as_deref(),
-            Some("direct_agent")
-        );
-        assert!(!handle
-            .runtime
-            .native_approval
-            .as_ref()
-            .unwrap()
-            .protects_permission_wait(&handle.runtime.attention_owner, &handle.info));
-        crate::runtime::terminal_runtime::clear_workflow_report_token(&id);
+        for ordinary in [false, true] {
+            let (state, id, _dir) = fixture().await;
+            install_hook_owned_wait(&state, &id);
+            let path = state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .sessions_dir()
+                .join(format!("{id}.json"));
+            let before = std::fs::read(&path).unwrap();
+            let owner = state.sessions.lock().unwrap()[&id]
+                .runtime
+                .attention_owner
+                .snapshot()
+                .unwrap();
+            let output = run_metadata_producer_with_protocol(
+                state.clone(),
+                &id,
+                "bootstrap",
+                None,
+                ordinary,
+            )
+            .await;
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert_eq!(std::fs::read(&path).unwrap(), before);
+            assert!(state.sessions.lock().unwrap()[&id]
+                .runtime
+                .attention_owner
+                .owns(&owner));
+            let validated: Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert_eq!(validated["validated"], true);
+            let patch = json!({"metadataRevision": validated["metadataRevision"], "patch": {"attentionState": {
+                "observedStatus": "waiting_for_input", "needsUserInput": true,
+                "detectedQuestion": null, "suggestedOptions": null
+            }}});
+            let output = run_metadata_producer_with_protocol(
+                state.clone(),
+                &id,
+                "patch",
+                Some(patch),
+                ordinary,
+            )
+            .await;
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let sessions = state.sessions.lock().unwrap();
+            let handle = &sessions[&id];
+            assert!(!handle.runtime.attention_owner.owns(&owner));
+            assert_eq!(handle.info.attention.as_deref(), Some("needs_you"));
+            assert_eq!(
+                handle.info.provenance.attention_origin.as_deref(),
+                Some("direct_agent")
+            );
+            assert!(!handle
+                .runtime
+                .native_approval
+                .as_ref()
+                .unwrap()
+                .protects_permission_wait(&handle.runtime.attention_owner, &handle.info));
+            crate::runtime::terminal_runtime::clear_workflow_report_token(&id);
+        }
     }
 
     #[cfg(unix)]

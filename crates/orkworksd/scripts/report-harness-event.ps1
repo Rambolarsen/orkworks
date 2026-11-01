@@ -554,6 +554,6 @@ if ($sessionSource -eq "codex_hook" -and $HOME) {
 
 # The host hook delivers context; worktree reporting runs in the agent tool context.
 if ($sessionSource -eq "codex_hook" -and $Event -eq "SessionStart") {
-    $instructionMode = if ($env:ORKWORKS_SESSION_METADATA_API_VERSION -ceq "1") { "instructions" } else { "worktree-instructions" }
+    $instructionMode = if ($env:ORKWORKS_SESSION_METADATA_API_VERSION -ceq "1" -or (Test-Path Env:ORKWORKS_SESSION_STORAGE_PROTOCOL)) { "instructions" } else { "worktree-instructions" }
     & python3 (Join-Path $PSScriptRoot "session-metadata.py") $instructionMode
 }
