@@ -222,7 +222,8 @@ implementation gate. [ADR 0091](../docs/adr/0091-read-only-session-git-changes.m
 records the accepted read boundary.
 The 2026-10-31 owner-approved redesign under #1207 changes presentation and
 navigation only; it preserves those retrieval and security acceptance criteria.
-Same-file refresh scroll restoration remains tracked separately in
+Current source builds preserve both scroll axes and revealed diff rows when
+Refresh retains the selected file, as tracked in
 [#1143](https://github.com/Rambolarsen/orkworks/issues/1143).
 
 ## Explicit task-worktree binding
