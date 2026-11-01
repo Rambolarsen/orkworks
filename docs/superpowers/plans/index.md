@@ -246,3 +246,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Artifact debit qualification handoff](2026-10-31-artifact-read-debit-qualification.md) — Accepted codec decision followed by gated source/consumer closure, conditional recovery packet and separately approved native work.
 
 - [Restore terminal responsiveness during session projection](2026-10-31-terminal-input-lag.md) — Approved inline implementation and concurrency/security checks.
+
+- [SQLite session storage and history delivery](2026-11-01-sqlite-session-storage.md) — Reviewed task sequence for the approved ordinary-session storage contract, with compatibility/recovery and rollout gates.

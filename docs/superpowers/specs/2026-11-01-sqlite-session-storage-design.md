@@ -1,10 +1,10 @@
 ---
-type: Design Proposal
+type: Design
 title: SQLite session storage and bounded history
 description: Proposed ordinary-session database ownership, history queries, producer migration and recoverable cutover.
 tags: [orkworks, sessions, sqlite, history, migration]
-status: draft
-workflow_status: proposed
+status: stable
+workflow_status: accepted
 ---
 
 # SQLite session storage and bounded history
@@ -12,11 +12,12 @@ workflow_status: proposed
 Tracking: [#1241](https://github.com/Rambolarsen/orkworks/issues/1241), parent
 [#1240](https://github.com/Rambolarsen/orkworks/issues/1240). Inspection base:
 `120744c71d28cdc760c4f0c572fea82c45ce8116`.
-The owner accepted SQLite as the direction and requested this work. The concrete
-contract below, its limits and migration are **proposed for owner review**.
-No runtime code, live migration, retention change or native qualification is
-authorized by this document. The [proposed product spec](../../../specs/session-storage.md)
-defines the outcome; this document defines the proposed implementation contract.
+The owner approved this concrete contract, limits and migration design on
+2026-11-01 after reviewing PR #1253 at `1183221b672aa2850c3916408965aaa00017dbec`
+and answering “yes, go ahead.” Task-scoped implementation may proceed through
+the [delivery plan](../plans/2026-11-01-sqlite-session-storage.md). Live migration,
+retention changes and native qualification retain their separate gates. The [accepted product spec](../../../specs/session-storage.md)
+defines the outcome; this document defines the accepted implementation contract.
 
 ## Outcome and scope
 
@@ -135,7 +136,7 @@ authority cutoff. A store completion cannot authorize a replacement runtime.
 The implementation plan must trace each dormant conditional-native writer;
 SQLite alone cannot move or weaken its check/effect ordering.
 
-Proposed scheduler: at most 32 mutation commands and 8 read requests queued;
+Accepted scheduler: at most 32 mutation commands and 8 read requests queued;
 each carries at most 1 MiB of serialized intent, with a total 32 MiB admission
 budget. The normalized canonical metadata record, including preserved extensions,
 is limited to 1 MiB on import and after every mutation. A history page returns
@@ -173,7 +174,7 @@ automatic database recreation or direct-JSON fallback is permitted.
 ## Paged history and live transport
 
 Negotiate `sessionReadProtocol=2` before consuming the new endpoints/stream.
-New clients use these proposed routes; exact TypeScript/Rust DTO names remain
+New clients use these accepted routes; exact TypeScript/Rust DTO names remain
 an implementation choice, but the wire behavior is fixed:
 
 | Read | Behavior |
@@ -375,15 +376,15 @@ after required cleanup. Do not claim rollback restores deleted payloads.
 Recommendation/evidence protection stays authoritative. Archived/unknown state
 remains retention-protected; original 0/0 defaults and applied limits survive.
 
-## Proposed measurable budgets and verification
+## Accepted measurable budgets and verification
 
-These are proposed release criteria, not measured SQLite results. Use the same
+These are accepted release criteria, not measured SQLite results. Use the same
 five active sessions, PTY output/input workload and machine/build profile at
 724, 10,000 and 100,000 synthetic historical records. Capture source SHA,
 dependency versions, OS, storage medium, row/content distributions, warm/cold
 conditions and contention. Keep fixture creation outside the measured interval.
 
-| Surface | Proposed criterion |
+| Surface | Accepted criterion |
 | --- | --- |
 | Live list/update preparation | No history enumeration, payload reads, native/Git history checks or full-history SQL; work proportional to five live sessions |
 | History page | Default 50 / maximum 100 rows, serialized response at most 256 KiB; p95 service time at most 100 ms warm, 250 ms cold on the qualified profile; timeout is explicit failure |
@@ -410,10 +411,11 @@ invalid cursors, history churn, off-page selected IDs and no authoritative remov
 from partial results. Verify Taskmaster/conflict consumers with relevant records
 beyond the first page and history with missing native resources/worktrees.
 
-## Delivery, review and remaining gate
+## Delivery and approval record
 
-1. #1241: owner review of this contract and product amendment; settle baseline
-   harness/budgets, record the accepted ADR and concise implementation plan.
+1. #1241: owner approval is recorded for the contract, product amendment and
+   budgets; the accepted ADR and reviewed delivery plan route the remaining work.
+   The full baseline harness/evidence is handed to #1247 before controlled cutover.
 2. #1242 + #1243: qualify ordinary producers and implement private storage, with
    no production cutover. #1248 fixes historical-fact/availability behavior.
 3. #1250 + #1244: complete backup/recovery, migration and cleanup integration.
@@ -428,8 +430,8 @@ complete metadata and live summaries now have distinct size contracts with
 pagination progress; missing markers plus any cutover evidence now block normal
 opening rather than re-enable stale JSON. The reviews found no additional
 material source/native/hierarchy contract blocker in their inspected scope.
-The owner must still approve the proposed contract and limits; runtime behavior,
-platform durability and large-history performance remain unverified. Owner
-approval is required because this changes the existing storage/protocol/migration
-contract, as specified by root AGENTS.md. Approval of SQLite direction alone is
-not approval of new numeric limits or a live cutover.
+The owner approved the corrected contract and limits on 2026-11-01. Runtime
+behavior, platform durability and large-history performance remain unverified.
+The [reviewed implementation plan](../plans/2026-11-01-sqlite-session-storage.md)
+preserves those qualification and live-cutover gates. No repeat architecture
+approval is needed for implementation that stays within this contract.

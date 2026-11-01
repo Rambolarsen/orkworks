@@ -874,9 +874,10 @@ See [ADR 0088](../docs/adr/0088-session-archive-state.md) and the
 
 #### Session Metadata Protocol
 
-Proposed follow-up: [ordinary session storage and history](session-storage.md)
-replaces legacy session-file authority only after owner approval, qualified
-producer migration and recoverable cutover. It does not change current behavior.
+Accepted follow-up: [ordinary session storage and history](session-storage.md)
+replaces legacy session-file authority after qualified producer migration and
+recoverable format-2 cutover. The owner approved its concrete contract on
+2026-11-01; implementation and rollout remain pending.
 
 
 - create `.orkworks/` structure under `~/.orkworks/workspaces/<path-hash>/` when enabled:

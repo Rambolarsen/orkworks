@@ -1,9 +1,9 @@
 # Ordinary session storage and history
 
-Status: proposed; owner review required before implementation.
+Status: accepted by the owner on 2026-11-01; implementation and rollout pending.
 Tracking: [#1240](https://github.com/Rambolarsen/orkworks/issues/1240),
 [#1241](https://github.com/Rambolarsen/orkworks/issues/1241).
-Concrete contract: [SQLite session storage design](../docs/superpowers/specs/2026-11-01-sqlite-session-storage-design.md).
+Accepted contract: [SQLite session storage design](../docs/superpowers/specs/2026-11-01-sqlite-session-storage-design.md).
 
 ## Purpose
 
@@ -12,7 +12,7 @@ record processing to terminal input or routine live-session updates. Session
 count is not active runtime count. Preserve the existing observe/recommend
 product boundary and exact session/runtime ownership.
 
-## Proposed scope
+## Scope
 
 Use one workspace-owned SQLite store as the authority for ordinary session
 metadata, revisions, searchable/indexed history fields and session organization.
@@ -20,7 +20,7 @@ Retain replay, event history, terminal-size records and images as external files
 Keep their existing ownership and content bounds. Do not maintain a permanent
 authoritative JSON mirror or let external producers mutate the database directly.
 
-This proposal changes the MVP's legacy direct-session-file protocol only after
+This accepted contract changes the MVP's legacy direct-session-file protocol only after
 the qualified producer transition and recoverable cutover defined by the linked
 design. Existing source behavior and published installers remain unchanged until
 their corresponding implementation and rollout are verified.
@@ -90,8 +90,8 @@ their logical ownership.
 
 ## Acceptance
 
-The concrete design supplies proposed finite page/queue/payload limits and
-numeric performance budgets. Approve those before implementation; verify them
+The concrete design supplies accepted finite page/queue/payload limits and
+numeric performance budgets. The owner approved those on 2026-11-01; verify them
 with the same five active sessions at 724, 10,000 and 100,000 historical records.
 Measure input latency, history-query time/bytes, CPU and memory with reproducible
 fixtures and failure cases. Database use alone is not performance evidence.

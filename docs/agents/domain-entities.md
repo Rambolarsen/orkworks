@@ -31,6 +31,12 @@ The user-facing UI may call the selected CLI application a **Coding tool**, but 
 
 ## SessionMetadata
 
+The owner accepted [SQLite session storage](../../specs/session-storage.md) on
+2026-11-01. Implementation is pending: format 2 will store the canonical metadata
+and organization transactionally, with recorded historical facts separate from
+current resource/native availability. The current source model below remains
+format-1 JSON; identity, provenance and lifecycle vocabulary are preserved.
+
 `labelContextRefined` defaults false and records one successful contextual Peon
 title refinement per topic. Bootstrap handoff, conversation reset and explicit
 restoration of automatic naming clear it. Manual title operations use existing

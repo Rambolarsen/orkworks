@@ -40,3 +40,14 @@ mutations while preserving history. Old binaries cannot honor archive-aware
 retention; rollback must retain those guards to preserve the guarantee.
 The [implementation plan](../superpowers/plans/2026-10-18-session-archive.md)
 defines runtime, storage, accessibility and verification checks.
+
+## Scoped supersession — 2026-11-01
+
+[ADR 0103](0103-sqlite-session-storage.md) supersedes organization-file
+persistence after qualified format-2 activation. Identity-bound organization
+revisions, Active derivation, close-first actions, stale-action validation and
+archive/unknown-state retention protection remain unchanged.
+The accepted [storage contract](../../specs/session-storage.md) and
+[delivery plan](../superpowers/plans/2026-11-01-sqlite-session-storage.md) govern
+the replacement. Current format-1 source behavior remains until implementation
+and activation; this does not claim a shipped SQLite migration.
