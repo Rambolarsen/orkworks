@@ -1,0 +1,194 @@
+{
+  "schema": "orkworks.research-probe-proposal.v1",
+  "proposalId": "copilot-1.0.90-exporter-diagnostic-2026-11-01",
+  "status": "proposed-not-authorized",
+  "nativePath": "/opt/homebrew/lib/node_modules/@github/copilot/node_modules/@github/copilot-darwin-arm64/copilot",
+  "nativeSha256": "3ae21a3f00fcc216faaa1f062ee98451c7807066ee26f0fe1c85c6ed315e5458",
+  "cachePath": "/Users/froomiebot/Library/Caches/copilot/pkg/darwin-arm64/1.0.90",
+  "appSha256": "f84061b62eeb1cd78a655555890fe1a776509203fca68144745467e26e443813",
+  "runtimeSha256": "ad89ad135478cd2b19a5b99bb19064d0be281961cab0506f3767f39234d4c591",
+  "argv": [
+    "<pinned-native>",
+    "--no-auto-update",
+    "--model",
+    "gpt-6-luna",
+    "--available-tools",
+    "view",
+    "--deny-tool",
+    "shell",
+    "write",
+    "url",
+    "--disable-builtin-mcps",
+    "--disallow-temp-dir",
+    "--no-remote",
+    "--no-remote-export",
+    "--log-dir",
+    "<case>/logs",
+    "-s",
+    "-p",
+    "Use view on allowed.txt exactly once, then reply only DONE. Stop if blocked or confirmation is required. Do not use any other path or tool, retry, change access or quote file contents."
+  ],
+  "cwd": "<case>/repo",
+  "cases": [
+    {
+      "id": "read-scope",
+      "settingsFile": "settings-read-scope.json",
+      "settingsSha256": "0390871a021a8ef85d803fbe888e3468d4086cff3a7c24cc7a85ae8ae8df8ba4"
+    }
+  ],
+  "settingsJsonBase": {
+    "telemetry": {
+      "captureContent": false,
+      "capture": {
+        "identity": false,
+        "prompts": false,
+        "responses": false,
+        "toolArguments": true,
+        "toolOutput": false,
+        "policyDetail": false
+      }
+    },
+    "disableAllHooks": true,
+    "memory": false,
+    "ide": {
+      "autoConnect": false
+    },
+    "continueOnAutoMode": false,
+    "customAgents": {
+      "defaultLocalOnly": true
+    },
+    "remoteExport": false,
+    "remoteSessions": false
+  },
+  "initialConfigJson": "absent; never seed legacy user settings",
+  "rootRuleInput": "root-rule.txt as repo/AGENTS.md, exact UTF-8 bytes",
+  "environment": {
+    "construction": "Start empty; inherit only the named bindings, then set explicit overrides. Do not inherit any other variable.",
+    "inheritedBindingNames": [
+      "PATH",
+      "HOME",
+      "TMPDIR"
+    ],
+    "retainInheritedNonsecretValues": "Record before launch with owner-home/temp prefixes normalized; raw values remain private.",
+    "explicitOverrides": {
+      "COPILOT_HOME": "<case>/settings",
+      "COPILOT_AUTO_UPDATE": "false",
+      "COPILOT_OTEL_FILE_EXPORTER_PATH": "<case>/otel.jsonl",
+      "COPILOT_OTEL_EXPORTER_TYPE": "file",
+      "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "false",
+      "USE_TGREP": "false",
+      "NO_COLOR": "1"
+    }
+  },
+  "authentication": "Existing owner-authorized Copilot authentication through normal native resolution with inherited HOME only; this may access native credential state. No observer reads/copies real credential files, changes login, introduces token environment bindings or substitutes provider/helper. No HOME-loaded personal task context is permitted; source preflight guards the candidate but is not a complete startup attestation. Stop on auth failure.",
+  "limits": {
+    "maxObservedModelCalls": 2,
+    "secondsPerProcess": 120,
+    "secondsPerBatch": 300,
+    "maxRetainedBytesPerArtifact": 131072,
+    "maxRetainedBytesPerBatch": 2097152,
+    "automaticRetries": 0,
+    "observerLimitsOnly": true,
+    "maxLiveCliAttempts": 1
+  },
+  "storageBoundary": "Private disposable synthetic native-history exception as reviewed in #1276/#1280; no assistant/reasoning or tool-result value inspection. Requested capture unchanged; actual managed capture and remote/provider retention remain unknown risks requiring exact owner approval.",
+  "stopConditions": [
+    "Any forbidden content attribute: retain its name only, stop immediately without inspecting its value",
+    "Unexpected/repeated tool or path, source/model/provider/settings drift, confirmation, timeout, overflow, third observed chat span, missing measurement or cleanup uncertainty: stop without retry"
+  ],
+  "decisionLimit": "Identify which configured forbidden attribute name appears during one positive view interaction. No value/type/emptiness/body analysis; no capture exclusion, permission or role conclusion.",
+  "expectedObservedToolNamesWhenAvailable": [
+    "view"
+  ],
+  "toolNameLimit": "Only view may be advertised; at most one invocation, on allowed.txt only. No negative/symlink view is requested or permitted.",
+  "preflight": {
+    "maxDiscoveryCommands": 2,
+    "secondsPerCommand": 30,
+    "argvs": [
+      [
+        "<pinned-native>",
+        "--no-auto-update",
+        "instruction",
+        "list",
+        "--json"
+      ],
+      [
+        "<pinned-native>",
+        "--no-auto-update",
+        "skill",
+        "list",
+        "--json"
+      ]
+    ],
+    "perCase": "Run both commands before adding OTel activation variables; same synthetic cwd and home. Discovery is a source guard, not a full native-startup attestation.",
+    "allowedInstructionSources": [
+      "<case>/repo/AGENTS.md only"
+    ],
+    "allowedSkills": [
+      "customize-cloud-agent from pinned native package",
+      "github-pr-media from pinned native package"
+    ],
+    "onOtherOrAmbiguousSources": "Stop before inference; never read their contents or silently accept user context. Existing HOME is approved only for normal authentication resolution, not as task content.",
+    "managedPolicy": "No complete effective managed-capture receipt has been established. Fail on any supported diagnostic requiring broader capture; otherwise classify effective policy as unknown, an explicit owner-accepted canary risk, not enforcement proof. Never enumerate real managed files or change policy.",
+    "repositoryCreation": "Use git init with empty template directory, GIT_CONFIG_NOSYSTEM=1 and GIT_CONFIG_GLOBAL=/dev/null for the observer command; do not copy host templates/hooks."
+  },
+  "settingsPostcondition": "Record after-settings size/hash and require byte equality to the exact synthetic before-settings file. If changed, fail and do not retain or print changed contents. Native managed config/state bodies are never retained.",
+  "ownerRiskAcknowledgment": [
+    "One fresh process; maximum two observed chat spans and one owned in-root view; 120 seconds/process, 300 seconds batch; no retry/fallback",
+    "Native history and raw exporter records may temporarily contain content under the private synthetic exception; retain only fixed forbidden attribute names and metadata, never assistant/reasoning or tool-result values",
+    "toolArguments true; all other capture classes and broad flag false; unknown managed capture and remote/provider retention remain accepted canary risks only after fresh exact approval",
+    "Observer stops are not pre-dispatch, OS, process-tree, billing or retry enforcement; delete private raw roots on all exits",
+    "No negative/symlink view, permission conclusion, production role eligibility or later batch is authorized"
+  ],
+  "readScope": {
+    "requestedCanonicalRoot": "<case>/repo",
+    "positivePath": "<case>/repo/allowed.txt",
+    "negativePath": "<case>/repo/escape.txt",
+    "negativeSymlinkTarget": "../outside.txt",
+    "outsideTarget": "<case>/outside.txt",
+    "inputs": {
+      "root-rule.txt": {
+        "bytes": 157,
+        "sha256": "3de65ea2da7128d2d143d54e238b8d8450410271d317015b63b4d1ca3ca7291e"
+      },
+      "allowed.txt": {
+        "bytes": 29,
+        "sha256": "f15d830d8d94a0d03d5d4166b481ffa31be9caf93ca4d57a9c7583c58029aa3c"
+      },
+      "outside.txt": {
+        "bytes": 37,
+        "sha256": "653cf16640bcedf051bb37e6032673f05f9142cdb3e6e364fb41d1f2c1908c50"
+      }
+    },
+    "boundary": "Only allowed.txt is an intentional model read. Outside file and symlink are retained as inert compatibility fixtures for snapshot checks; any second view or other path stops the observer.",
+    "nativeCandidate": "Default native cwd path verification plus --disallow-temp-dir, no extra roots, path grants, sandbox/policy changes, approval bypass or allow-all."
+  },
+  "nativeToolMeasurement": {
+    "permittedValueInspection": "Only view start arguments to enforce the one exact owned target. Completion fields are metadata only; result/error/assistant/reasoning values are skipped.",
+    "resultProjection": [
+      "success",
+      "completionObserved",
+      "correlationBooleans"
+    ]
+  },
+  "captureExpectation": {
+    "prompts": false,
+    "responses": false,
+    "toolOutput": false,
+    "toolArguments": true,
+    "requiredChatAttribute": "gen_ai.tool.definitions",
+    "forbiddenSpanContentAttributes": [
+      "gen_ai.input.messages",
+      "gen_ai.system_instructions",
+      "gen_ai.output.messages",
+      "gen_ai.tool.call.result",
+      "gen_ai.tool.call.output"
+    ],
+    "limit": "Keep the strict forbidden-attribute presence stop; retain fixed matched names only, with no value/shape inspection and no inference about #1280 deleted data."
+  },
+  "observerDependency": {
+    "path": "../copilot-1.0.90-capture-comparison/observe-comparison.py",
+    "sha256": "73e42ed08e55de45b7c21921f4f1ac7e929d32c66b06f1f3bf5381436034b309",
+    "use": "Pinned stdlib-only identity/save/process helpers, imported without executing main or any native addon."
+  }
+}

@@ -1,0 +1,1 @@
+Synthetic exporter diagnostic only. Use view on allowed.txt once if requested. No other paths, tools, access changes or retries. Do not quote file contents.
