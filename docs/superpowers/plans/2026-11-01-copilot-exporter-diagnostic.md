@@ -3,8 +3,8 @@ type: Research Probe Plan
 title: Copilot exporter attribute-name diagnostic
 description: One bounded positive view interaction to identify a forbidden exporter attribute name without inspecting its value.
 tags: [copilot, plans, validation, telemetry]
-status: draft
-workflow_status: awaiting-approval
+status: stable
+workflow_status: executed-stopped
 ---
 
 # Copilot exporter attribute-name diagnostic
@@ -21,6 +21,16 @@ exhausted and its missing attribute name cannot be recovered. The owner’s
 configuration still requires concrete approval before inference under the
 [synthetic-history boundary](2026-11-01-copilot-synthetic-capture-boundary.md).
 No product runtime, adapter or role profile changes are in scope.
+
+## Execution disposition
+
+The owner approved the exact reviewed diagnostic with “keep going”. One native
+process ran and stopped at `gen_ai.output.messages` before decoding its value.
+The narrow name-identification goal was observed; the full diagnostic batch and
+read/permission outcomes remain unverified. Authority is exhausted, with no
+retry. See the [evidence](../../validation/copilot-exporter-attribute-diagnostic.md).
+The proposal below records the pre-run boundary; historical approval is not
+reusable authority.
 
 ## Exact candidate
 
@@ -97,11 +107,11 @@ a complete native/provider call receipt.
 
 ## Review and remaining boundaries
 
-Disposition: **Ready for exact owner approval.** Fresh read-only review confirmed
+Pre-run disposition: **Ready for exact owner approval.** Fresh read-only review confirmed
 that the whole-record decoding and arbitrary authority-retention findings are
 resolved by lexical early stop/latching and binding-only retention. Seven
-model-free checks pass; artifact hashes match. No native inference ran.
-Next gate is exact owner approval.
+model-free checks pass; artifact hashes match. At that review no native inference had run.
+The owner subsequently approved the exact attempt recorded above.
 Risk ratings: dependencies 3 (pinned native/exporter); blast radius 1 (owned
 synthetic roots); state changes 1 (disposable only); reversibility Unknown
 (remote/provider retention); uncertainty 5 (actual attribute unknown). Total
@@ -110,3 +120,16 @@ incomplete. Reuse the prior boundary; scores never confer authority.
 Native tool enforcement, emitted value meaning, native skill loading, complete
 capture/storage/request coverage, continuation and broader roles remain untested.
 A later experiment requires its own finite authority; this batch grants none.
+
+The actual scanner stopped inside an attributes object before the complete row
+passed shape/source checks or the chat-span counter updated. The retained zero
+count is therefore incomplete and cannot establish zero inference or billing.
+No attribute value, type, emptiness or raw record was retained; cleanup removed
+the private roots, settings and file/symlink snapshots were unchanged. The key
+cannot identify the different exhausted #1280 attempt’s missing trigger.
+
+Final fresh evidence review found no blocker in authority, privacy, claims or
+source binding. Seven model-free tests, all 13 artifact hashes, executed-source
+identity, docs metadata/index checks, 776 fixtures and the docs build pass.
+Existing circular/large-chunk build warnings are unrelated to this docs-only
+diff. Raw data is deleted and the name receipt cannot independently be rechecked.

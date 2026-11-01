@@ -1,0 +1,9 @@
+{
+  "executedObserver": {
+    "file": "observe-diagnostic.py",
+    "bytes": 19579,
+    "sha256": "5cc40a1083d54e3f223aca73211064a64b2db9de55bafc7827f413eccf6c52f0"
+  },
+  "configurationSha256": "1b80abcb90ac7645be92cb90d6b39cb89be34b47a8f63594d485c43d80a8aced",
+  "status": "Exact source used for the single exhausted attempt; no later native run authorized"
+}

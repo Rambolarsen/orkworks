@@ -31,4 +31,4 @@ Captured fixture context for reproducible validation.
 
 - [View read-scope stopped-probe packet](copilot-1.0.90-read-scope/index.md) — Approved synthetic case, partial stop receipt and exact observer binding.
 
-- [Exporter attribute-name diagnostic packet](copilot-1.0.90-exporter-diagnostic/index.md) — Prepared finite positive-view diagnostic; no live result.
+- [Exporter attribute-name diagnostic packet](copilot-1.0.90-exporter-diagnostic/index.md) — Exhausted positive-view diagnostic with fixed-name stop evidence.
