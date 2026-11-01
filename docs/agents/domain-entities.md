@@ -175,6 +175,14 @@ database fields after reopen. Shared lifecycle and hook reducers cover durable
 metadata decisions; live runtime/source reservations and qualification remain
 application-owned. Production continues using the JSON transaction lane.
 
+The source-only SQL Peon application owner also retains a per-session lane and
+workspace lease through commit and publication. Its execution claim is serialized
+with short runtime/input ownership checks; SQL is released only after shared
+guards are dropped. Changed runtime context after commit suppresses live
+publication and yields an internal committed-but-detached result, never a
+rollback claim or a new persisted session state. Production SQL routing and
+participation of the remaining conflicting writers are still pending.
+
 Attention has separate `attentionSource`, `attentionConfidence`, `attentionOrigin`,
 and `attentionUpdatedAt` fields. `metadataSource` and `metadataConfidence` describe
 work metadata, whose freshness uses `workMetadataUpdatedAt`. Legacy reads hydrate

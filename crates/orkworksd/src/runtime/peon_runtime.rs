@@ -6390,3 +6390,6 @@ mod tests {
         stop_test_peon_loop(task, shutdown).await;
     }
 }
+
+#[cfg(test)]
+mod sql_reservation_tests;

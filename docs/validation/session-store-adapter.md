@@ -159,3 +159,66 @@ current guards. The concrete traces that still need typed integration are:
 [#1244](https://github.com/Rambolarsen/orkworks/issues/1244) must not treat this
 foundation as completion of #1243's writer/authority coverage. Backup, qualified
 producers, quiescent migration and controlled rollout retain their separate gates.
+
+## Runtime reservation boundary
+
+Source-only implementation within the approved storage contract; production routing
+remains JSON-backed. The first async application boundary handles Peon metadata
+only. Native observer clears, input bookkeeping, lifecycle/spawn and external
+events retain their current owners and must join this boundary before activation.
+
+Prepared mutations reserve the existing worker's intent/result byte budget and
+pending mutation slot before waiting for a per-session application lane. That
+wait and later queue time share the original two-second pre-execution deadline.
+Cancellation or expiry before execution releases the reservation without writing.
+Weak lane entries are shared by the exact worker owner and reclaimed; separate
+application handles cannot create separate lanes for one store/session. History
+size must not grow the lane inventory. Close rejects still-unqueued preparations
+and drains queued/executing work; a preparation cannot enqueue a late write after
+close has completed.
+
+A prepared application job asks its application owner for an execution grant
+when the worker reaches it, before claiming execution or opening a transaction.
+The application briefly rechecks its captured workspace/store instance, runtime
+identity, input/output boundaries, committed input sequence, attention/prompt
+ownership (issued authority instance, native identity and reset epoch) and Peon
+attempt under the
+existing projection/workspace/sessions ordering. It sends the one-use grant while
+those guards are held, atomically claiming queued-to-executing and checking the
+absolute deadline before granting. This successful claim is the operation's
+execution/admission cutoff; cancellation can win only before that same CAS.
+The claim returns a one-use execution token without waking SQL. Only after
+the guards have been released does the owner release that token to the worker;
+dropping it rejects the job. The claim is serialized with current
+input/replacement admission; it is not
+native qualification or authority to act on a replacement runtime. Domain/source,
+creation and revision checks still happen on the latest SQL record.
+
+The async owner retains the session lane and workspace lease through the definitive
+store result, including caller cancellation after the grant claims execution. Before that
+claim, queued caller cancellation can win the same state transition and guarantee
+no write.
+Capture, cutoff validation and publication run on the blocking pool so
+contended synchronous guards do not block the async executor. Publication
+rechecks the same context under short guards; its blocking job retains the
+lane/lease/budget even if its async waiter is dropped. No-ops retain the Peon
+permanent-hold decision. A committed write with
+a changed runtime is reported internally as committed-but-detached; it cannot
+publish into that replacement or be misreported as rolled back. No global
+projection/workspace/session guard spans lane/worker waits or SQL.
+
+Deterministic worker tests cover prepared slot/byte admission and cleanup, the
+shared deadline, rejection/cancellation/late grants, claim-before-SQL release,
+close-before-enqueue and lane/lease retention even when a result owner drops.
+Real application-state tests cover changed input, workspace/attempt/attention
+authority, runtime replacement after commit, caller cancellation before/after
+execution, permanent user holds, current-only publication, contended-guard
+executor responsiveness and post-commit publication failure. A controlled runtime-command consumer
+writes to an actual PTY while this application SQL boundary is stalled. This
+proves guard/input-delivery independence at this boundary, not a qualified
+SQL-backed producer profile, complete terminal workload or #1247 latency result.
+
+This boundary is not producer migration. Events/checkpoints and policy selection
+remain outside it. All conflicting production writers must participate in the
+per-session admission protocol before SQL selection; the unchanged JSON/runtime
+paths must not be mixed with the SQL authority.

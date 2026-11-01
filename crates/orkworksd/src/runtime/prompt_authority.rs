@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BindResult {
@@ -56,8 +56,28 @@ pub(crate) struct ResetCommit {
     pub(crate) reset_submission_input_sequence: Option<u64>,
 }
 
+#[derive(Clone, Default, Debug)]
+struct AuthorityInstance(Arc<()>);
+impl PartialEq for AuthorityInstance {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+impl Eq for AuthorityInstance {}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct AuthoritySnapshot {
+    instance: AuthorityInstance,
+    epoch: u64,
+    native_session_id: Option<String>,
+    revoked: bool,
+    active: bool,
+    reset_pending: bool,
+}
+
 #[derive(Default)]
 struct SessionAuthority {
+    instance: AuthorityInstance,
     harness_id: String,
     generation: String,
     native_session_id: Option<String>,
@@ -551,6 +571,23 @@ impl PromptAuthorityRegistry {
         }
         entry.active = true;
         true
+    }
+
+    /// Captures one issued authority and its current identity/reset epoch.
+    /// Reissuing even the same generation creates a distinct instance.
+    pub(crate) fn snapshot(&self, session_id: &str) -> Option<AuthoritySnapshot> {
+        self.sessions
+            .lock()
+            .unwrap()
+            .get(session_id)
+            .map(|entry| AuthoritySnapshot {
+                instance: entry.instance.clone(),
+                epoch: entry.epoch,
+                native_session_id: entry.native_session_id.clone(),
+                revoked: entry.revoked,
+                active: entry.active,
+                reset_pending: entry.reset.is_some(),
+            })
     }
 
     pub(crate) fn is_active(&self, session_id: &str) -> bool {

@@ -844,6 +844,14 @@ proofs preserve scoped ownership without surviving reopen. Application runtime
 reservations, native-observer freshness and external events still need their
 owned integration before SQL selection.
 
+The source-only Peon SQL application boundary prepares bounded writes before
+waiting for a per-session lane shared by that worker. It retains the workspace
+lease, revalidates runtime/input/attention/attempt context at an atomic execution
+claim, releases shared guards before waking SQL, and rechecks live publication.
+Queued cancellation competes with that claim; later cancellation retains the
+definitive result. Other producer/lifecycle/native writers must join the same
+admission protocol before production SQL routing is selected.
+
 The versioned agent API uses `metadata/session_transactions.rs`: checked, durable
 revisions are stored in the canonical session JSON, and scoped mutations hold the
 retained store's per-session lock across read/check/modify/replace. Internal
