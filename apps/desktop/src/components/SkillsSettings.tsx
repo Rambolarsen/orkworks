@@ -467,10 +467,13 @@ export default function SkillsSettings({
           <section className="skills-installation-group" aria-label="Plugins">
             <h3><Package size={16} aria-hidden="true" /> Plugins <span>{pluginGroups.length}</span></h3>
             {pluginGroups.map(([plugin, entries]) => (
-              <section key={plugin} data-skill-plugin={plugin} className="skills-plugin" aria-label={`Plugin: ${plugin}`}>
-                <h4 className="skills-plugin-heading"><Package size={14} aria-hidden="true" />{plugin}<span className="skills-badge">{skillNameGroups(entries).length} {skillNameGroups(entries).length === 1 ? "skill" : "skills"}</span></h4>
+              <details open key={plugin} data-skill-plugin={plugin} className="skills-plugin" aria-label={`Plugin: ${plugin}`}>
+                <summary className="skills-plugin-heading">
+                  <ChevronRight className="skills-chevron" size={15} aria-hidden="true" />
+                  <h4><Package size={14} aria-hidden="true" />{plugin}<span className="skills-badge">{skillNameGroups(entries).length} {skillNameGroups(entries).length === 1 ? "skill" : "skills"}</span></h4>
+                </summary>
                 {renderRows(entries)}
-              </section>
+              </details>
             ))}
           </section>
         )}

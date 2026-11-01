@@ -121,6 +121,9 @@ failures appear in that tool's status, so check the message before retrying.
 
 In current source builds, open **Skills** in the left sidebar, below
 Recommendations. **Plugins** groups skills beneath their recorded plugin names.
+Select a plugin heading to collapse or expand its skills; the plugin name and
+matching skill count stay visible. Plugin groups start expanded, and each toggles
+independently with a click or Space while its heading has keyboard focus.
 **Local skills** lists sources without recorded plugin ownership, including local
 files and APM records. Expand a skill name within either group to inspect its
 sources. Sources keep their **Workspace** or **Personal** scope, plugin name,
