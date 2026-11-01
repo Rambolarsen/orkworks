@@ -120,15 +120,26 @@ failures appear in that tool's status, so check the message before retrying.
 ## Workspace and personal skills
 
 In current source builds, open **Skills** in the left sidebar, below
-Recommendations. Each skill name appears once; expand it to list its discovered
+Recommendations. **Plugins** groups skills beneath their recorded plugin names.
+**Local skills** lists sources without recorded plugin ownership, including local
+files and APM records. Expand a skill name within either group to inspect its
 sources. Sources keep their **Workspace** or **Personal** scope, plugin name,
 version, description, paths and coding-tool coverage. The workspace caption names
 the exact open directory or worktree. Personal sources may be available across
 projects, and remain browsable without an open workspace.
 
-Counts show distinct names and a separate source total. Search and the coding-tool
+A **Local + plugin** badge marks a skill name with separate local and plugin
+sources. It remains visible when filters hide the other source. Local means
+ownership is unrecorded; it does not prove a manual install or identical
+instructions. Aliases of one source and APM-only ownership do not trigger it.
+APM-owned sources show **APM** and their recorded package. Sources without an
+ownership record say **Local file · ownership unknown**. An APM record does not
+verify that the file is unchanged since installation.
+
+Counts show distinct names and a separate source total, even when one source
+belongs to multiple plugins. Search and the coding-tool
 and scope filters narrow the sources before names are grouped. Search also
-matches plugin names, descriptions and paths. Same-named sources can contain
+matches plugin names, recorded APM packages, descriptions and paths. Same-named sources can contain
 different instructions; **Read skill** opens the text for the source you choose.
 Found does not establish loaded or enabled. Codex includes cached plugin and
 system skills; multiple cached versions remain separate source entries.

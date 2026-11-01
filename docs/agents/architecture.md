@@ -751,6 +751,13 @@ prompt-plus-Enter. Other harnesses retain plain input delivery.
 
 ## Metadata protocol
 
+The owner-approved [ordinary-session SQLite contract](../../specs/session-storage.md)
+and [ADR 0103](../adr/0103-sqlite-session-storage.md) replace session/organization
+file authority and complete-history projection after qualified format-2 cutover.
+The [delivery plan](../superpowers/plans/2026-11-01-sqlite-session-storage.md)
+retains producer, backup, recovery and performance gates. Implementation is
+pending; the paths and source behavior below still describe format 1.
+
 The accepted [branch document extension](../../specs/session-plan-review.md#branch-document-extension)
 replaces single-session display with design/specification and implementation-plan
 slots shared by canonical repository and branch identity. [ADR 0102](../adr/0102-branch-document-association.md)

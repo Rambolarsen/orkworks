@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronRight, Plus, RefreshCw } from "lucide-react";
+import { ChevronRight, Copy, Package, Plus, RefreshCw } from "lucide-react";
 import type {
   SkillEntry,
   SkillInventory,
@@ -110,12 +110,115 @@ export default function SkillsSettings({
     (skill) =>
       (!filterScope || skill.scope === filterScope) &&
       (!tool || skill.tools.includes(tool as SkillTool)) &&
-      [skill.name, skill.description, ...(skill.plugins || []), ...skill.paths]
+      [skill.name, skill.description, skill.packageSource || "", ...(skill.plugins || []), ...skill.paths]
         .join(" ")
         .toLowerCase()
         .includes(query.toLowerCase()),
   );
   const grouped = skillNameGroups(filtered);
+  const pluginEntries = new Map<string, SkillEntry[]>();
+  const localSkills: SkillEntry[] = [];
+  for (const skill of filtered) {
+    const plugins = [...new Set(
+      skill.plugins?.length ? skill.plugins
+        : skill.management === "plugin" ? ["Plugin (name unknown)"] : [],
+    )];
+    if (!plugins.length) localSkills.push(skill);
+    for (const plugin of plugins) {
+      const entries = pluginEntries.get(plugin) || [];
+      entries.push(skill);
+      pluginEntries.set(plugin, entries);
+    }
+  }
+  const pluginGroups = [...pluginEntries].sort(([a], [b]) => a.localeCompare(b));
+  const overlappingNames = new Set(
+    skillNameGroups(inventory?.skills || [])
+      .filter(([, sources]) =>
+        sources.some((local) => local.management === "local" && !local.plugins?.length
+          && sources.some((plugin) =>
+            (plugin.management === "plugin" || plugin.plugins?.length)
+            && plugin.resolvedPath !== local.resolvedPath,
+          )),
+      )
+      .map(([name]) => name),
+  );
+  const renderRows = (entries: SkillEntry[]) =>
+    skillNameGroups(entries).map(([name, sources]) => (
+      <article key={name} data-skill-row={name} className="skills-row">
+        <details>
+          <summary className="skills-row-heading">
+            <ChevronRight className="skills-chevron" size={15} aria-hidden="true" />
+            <strong>{name}</strong>
+            <span className="skills-badge">
+              {sources.length} {sources.length === 1 ? "source" : "sources"}
+            </span>
+            {overlappingNames.has(name) && (
+              <span data-skill-overlap className="skills-badge skills-badge--overlap" title="This name has separate local and plugin sources. Local means ownership is unrecorded; it does not prove manual installation. Other sources may be hidden by filters.">
+                <Copy size={12} aria-hidden="true" /> Local + plugin
+              </span>
+            )}
+          </summary>
+          <div className="skills-row-body">
+            {sources.map((skill) => (
+              <section key={skill.id} data-skill-source={skill.id} className="skills-source" aria-label={`${name} source: ${skill.paths[0]}`}>
+                <h4>
+                  <span className="skills-badge">{skill.scope === "workspace" ? "Workspace" : "Personal"}</span>
+                  <span>{skill.plugins?.join(" · ") || (skill.management === "apm" ? `APM · ${skill.packageSource || "package unknown"}` : skill.management === "plugin" ? "Plugin (name unknown)" : "Local file · ownership unknown")}</span>
+                  {skill.plugins?.length && skill.management === "apm" ? <span className="skills-badge">APM · {skill.packageSource || "package unknown"}</span> : null}
+                </h4>
+                <p>{skill.description}</p>
+                <p className="skills-tool-coverage">
+                  Found ·{" "}
+                  {skill.tools.length
+                    ? skill.tools.map((tool) => toolNames[tool]).join(", ")
+                    : "Coding-tool discovery unknown"}
+                  {skill.version ? ` · ${skill.version}` : ""}
+                </p>
+                {skill.paths.map((path) => (
+                  <p className="skills-path" key={path}>
+                    {path}
+                  </p>
+                ))}
+                {!skill.paths.includes(skill.resolvedPath) && (
+                  <p className="skills-path">
+                    Resolves to {skill.resolvedPath}
+                  </p>
+                )}
+                {skill.packageSource && (
+                  <p className="skills-path">Package: {skill.packageSource}</p>
+                )}
+                <button
+                  data-skill-detail
+                  className="ui-button ui-button--sm ui-button--secondary"
+                  disabled={busy}
+                  onClick={() =>
+                    void perform(async () => {
+                      const request = generation.current;
+                      const text = await window.orkworks.readSkillDetail(
+                        skill.id,
+                      );
+                      if (request === generation.current)
+                        setDetail({ id: skill.id, text });
+                    })
+                  }
+                >
+                  Read skill
+                </button>
+                {detail?.id === skill.id && (
+                  <section className="skills-detail" aria-label={`${skill.name} instructions`}>
+                    <div className="skills-heading">
+                      <h4>SKILL.md</h4>
+                      <button className="ui-button ui-button--sm ui-button--secondary" onClick={() => setDetail(null)}>Close text</button>
+                    </div>
+                    <pre data-skill-content>{detail.text}</pre>
+                  </section>
+                )}
+              </section>
+            ))}
+          </div>
+        </details>
+      </article>
+    ));
   return (
     <section className="skills-settings" aria-label="Skills">
       <div className="skills-heading">
@@ -158,7 +261,7 @@ export default function SkillsSettings({
           <input
             className="ui-input"
             aria-label="Search skills"
-            placeholder="Find a skill by name, plugin, description, or path…"
+            placeholder="Find a skill by name, plugin, package, description, or path…"
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
@@ -195,8 +298,10 @@ export default function SkillsSettings({
         </label>
       </div>
       <p className="skills-group-caption">
-        Counts show skill names found. Expand a name to see its sources, which
-        may have different instructions. Found does not mean loaded or enabled.
+        Skills are grouped by recorded plugin, with other files under Local skills.
+        Expand a skill to inspect its sources. Local + plugin marks a name found in
+        both, even if another source is hidden by filters. Matching names may have
+        different instructions. Found does not mean loaded or enabled.
       </p>
       <p className="skills-group-caption">
         {currentWorkspacePath
@@ -329,77 +434,24 @@ export default function SkillsSettings({
         {!grouped.length && (
           <p>{inventory ? "No matching skills found in the inspected roots." : "Loading skills…"}</p>
         )}
-        {grouped.map(([name, sources]) => (
-          <article key={name} data-skill-row={name} className="skills-row">
-            <details>
-              <summary className="skills-row-heading">
-                <ChevronRight className="skills-chevron" size={15} aria-hidden="true" />
-                <strong>{name}</strong>
-                <span className="skills-badge">
-                  {sources.length} {sources.length === 1 ? "source" : "sources"}
-                </span>
-              </summary>
-              <div className="skills-row-body">
-                {sources.map((skill) => (
-                  <section key={skill.id} data-skill-source={skill.id} className="skills-source" aria-label={`${name} source: ${skill.paths[0]}`}>
-                    <h4>
-                      <span className="skills-badge">{skill.scope === "workspace" ? "Workspace" : "Personal"}</span>
-                      <span>{skill.plugins?.join(" · ") || (skill.management === "apm" ? "APM record" : skill.management === "plugin" ? "Plugin (name unknown)" : "Local file")}</span>
-                      {skill.plugins?.length && skill.management === "apm" ? <span className="skills-badge">APM record</span> : null}
-                    </h4>
-                    <p>{skill.description}</p>
-                    <p className="skills-tool-coverage">
-                      Found ·{" "}
-                      {skill.tools.length
-                        ? skill.tools.map((tool) => toolNames[tool]).join(", ")
-                        : "Coding-tool discovery unknown"}
-                      {skill.version ? ` · ${skill.version}` : ""}
-                    </p>
-                    {skill.paths.map((path) => (
-                      <p className="skills-path" key={path}>
-                        {path}
-                      </p>
-                    ))}
-                    {!skill.paths.includes(skill.resolvedPath) && (
-                      <p className="skills-path">
-                        Resolves to {skill.resolvedPath}
-                      </p>
-                    )}
-                    {skill.packageSource && (
-                      <p className="skills-path">Package: {skill.packageSource}</p>
-                    )}
-                    <button
-                      data-skill-detail
-                      className="ui-button ui-button--sm ui-button--secondary"
-                      disabled={busy}
-                      onClick={() =>
-                        void perform(async () => {
-                          const request = generation.current;
-                          const text = await window.orkworks.readSkillDetail(
-                            skill.id,
-                          );
-                          if (request === generation.current)
-                            setDetail({ id: skill.id, text });
-                        })
-                      }
-                    >
-                      Read skill
-                    </button>
-                    {detail?.id === skill.id && (
-                      <section className="skills-detail" aria-label={`${skill.name} instructions`}>
-                        <div className="skills-heading">
-                          <h4>SKILL.md</h4>
-                          <button className="ui-button ui-button--sm ui-button--secondary" onClick={() => setDetail(null)}>Close text</button>
-                        </div>
-                        <pre data-skill-content>{detail.text}</pre>
-                      </section>
-                    )}
-                  </section>
-                ))}
-              </div>
-            </details>
-          </article>
-        ))}
+        {!!pluginGroups.length && (
+          <section className="skills-installation-group" aria-label="Plugins">
+            <h3><Package size={16} aria-hidden="true" /> Plugins <span>{pluginGroups.length}</span></h3>
+            {pluginGroups.map(([plugin, entries]) => (
+              <section key={plugin} data-skill-plugin={plugin} className="skills-plugin" aria-label={`Plugin: ${plugin}`}>
+                <h4 className="skills-plugin-heading"><Package size={14} aria-hidden="true" />{plugin}<span className="skills-badge">{skillNameGroups(entries).length} {skillNameGroups(entries).length === 1 ? "skill" : "skills"}</span></h4>
+                {renderRows(entries)}
+              </section>
+            ))}
+          </section>
+        )}
+        {!!localSkills.length && (
+          <section data-local-skills className="skills-installation-group" aria-label="Local skills">
+            <h3>Local skills</h3>
+            <p className="skills-group-caption">No recorded plugin ownership. These may include manually installed or APM-generated files.</p>
+            {renderRows(localSkills)}
+          </section>
+        )}
       </section>
       {inventory && (
         <details className="skills-coverage">

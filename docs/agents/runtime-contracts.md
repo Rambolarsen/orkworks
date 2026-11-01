@@ -73,6 +73,12 @@ of published records does not prove complete upstream hook invocation.
 
 ## Metadata protocol
 
+The accepted [ordinary-session storage contract](../../specs/session-storage.md)
+changes authority only after qualified format-2 cutover; implementation is
+pending. [ADR 0103](../adr/0103-sqlite-session-storage.md) and its delivery plan
+preserve current native/hierarchy gates, content and retention settings. Existing
+format-1 paths below remain current until activation.
+
 The detailed paths, bounds, lifecycle, authentication, and ADR reference are in the [architecture concept](architecture.md#metadata-protocol).
 
 - Metadata is workspace-scoped under `~/.orkworks/workspaces/<hash>/`; global harness definitions and stable hook reporters live under `~/.orkworks/`.

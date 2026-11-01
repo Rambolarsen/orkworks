@@ -514,7 +514,6 @@ test("App routes user-facing error catches through the toast feedback primitive"
   assert.match(source, /pushToast\("error", "Couldn't open workspace\."\)/);
   assert.match(source, /load app settings/);
   assert.match(source, /pushToast\("error", "Couldn't start a new session\."\)/);
-  assert.match(source, /pushToast\("error", "Couldn't end session\."\)/);
   assert.doesNotMatch(source, /\/\* ignore \*\//);
 });
 

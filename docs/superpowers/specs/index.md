@@ -224,3 +224,5 @@ Dated design records; these do not establish current product behavior.
 - [Artifact read-work debit representation](2026-10-31-artifact-read-debit-proof-design.md) — Accepted exact debit command/recovery representation; source, consumer and native qualification remain gated.
 
 - [Responsive terminal input during session projection](2026-10-31-terminal-input-lag-design.md) — Approved fenced capacity analysis and conservative sensitivity repair.
+
+- [SQLite session storage and bounded history](2026-11-01-sqlite-session-storage-design.md) — Accepted ordinary-session SQL authority, paged reads and recoverable producer/cutover contract; implementation pending.

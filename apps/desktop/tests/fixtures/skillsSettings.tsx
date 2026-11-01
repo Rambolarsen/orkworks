@@ -28,11 +28,23 @@ const inventory = {
   diagnostics: ["Coverage is limited; native loading is unknown."],
   apm: { available: true, message: "APM found" },
 };
+const edgeSkills = [
+  { ...skill, id: "apm-local", name: "apm-skill", scope: "personal", management: "apm", packageSource: "owner/package" },
+  { ...skill, id: "apm-plugin", name: "apm-skill", scope: "personal", management: "plugin", plugins: ["alpha@local"], resolvedPath: "/plugin/apm-skill", paths: ["/plugin/apm-skill"] },
+  { ...skill, id: "alias", name: "alias-skill", scope: "personal", management: "plugin", plugins: ["alpha@local"], paths: ["/local/alias", "/plugin/alias"] },
+  { ...skill, id: "multi", name: "multi-skill", scope: "personal", management: "apm", plugins: ["alpha@local", "beta@local"], packageSource: "/sources/" + "very-long-package-name/".repeat(20) },
+  { ...skill, id: "unknown", name: "unknown-skill", scope: "personal", management: "plugin" },
+];
+edgeSkills.push(
+  { ...skill, id: "cross-local", name: "cross-alias", scope: "workspace", management: "local", paths: ["/repo/.agents/skills/cross-alias"], resolvedPath: "/shared/plugin/cross-alias" },
+  { ...skill, id: "cross-plugin", name: "cross-alias", scope: "personal", management: "plugin", plugins: ["alpha@local"], paths: ["/shared/plugin/cross-alias"], resolvedPath: "/shared/plugin/cross-alias" },
+);
+let useEdgeSkills = false;
 let workspaceOpen = true;
 let installs = 0;
 Object.assign(window, {
   orkworks: {
-    getSkillInventory: async () => ({...inventory, workspace: workspaceOpen ? "/repo" : null, skills: inventory.skills.filter(skill => workspaceOpen || skill.scope === "personal")}),
+    getSkillInventory: async () => ({...inventory, workspace: workspaceOpen ? "/repo" : null, skills: (useEdgeSkills ? edgeSkills : inventory.skills).filter(skill => useEdgeSkills || workspaceOpen || skill.scope === "personal")}),
     readSkillDetail: async (id: string) =>
       `Read-only instructions for ${id}.`,
     pickSkillSource: async () => "/source/review",
@@ -57,6 +69,7 @@ function Fixture() {
   const [path, setPath] = useState<string | null>("/repo");
   return (
     <>
+      <button data-provenance onClick={() => { useEdgeSkills = true; }}>Provenance cases</button>
       <button data-switch onClick={() => {workspaceOpen=false;setPath(null);}}>
         Close workspace
       </button>

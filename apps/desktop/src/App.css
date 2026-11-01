@@ -3231,8 +3231,13 @@ html, body, #root {
 .skills-group h3 span { color: var(--text-muted); background: var(--surface-2); padding: 2px 7px; border-radius: 6px; font-size: 11px; font-weight: 500; }
 .skills-group-caption { margin-bottom: 12px !important; }
 .skills-add, .skills-preview, .skills-detail { border: 1px solid var(--border-default); background: var(--surface-1); border-radius: 10px; padding: 16px; }
+.skills-installation-group { min-width: 0; margin-top: 18px; }
+.skills-plugin { min-width: 0; margin: 12px 0 18px; padding: 12px; border: 1px solid var(--border-subtle); border-radius: 10px; }
+.skills-plugin-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 8px 10px; overflow-wrap: anywhere; }
+.skills-plugin-heading > svg { flex-shrink: 0; color: var(--text-muted); }
+.skills-badge.skills-badge--overlap { display: inline-flex; align-items: center; gap: 5px; color: var(--text-primary); border: 1px solid var(--accent-focus); }
 .skills-row { min-width: 0; border-bottom: 1px solid var(--border-subtle); }
-.skills-row-heading { cursor: pointer; padding: 10px 8px; min-height: 22px; border-radius: 6px; list-style: none; }
+.skills-row-heading { flex-wrap: wrap; cursor: pointer; padding: 10px 8px; min-height: 22px; border-radius: 6px; list-style: none; }
 .skills-row-heading::-webkit-details-marker { display: none; }
 .skills-row-heading:hover { background: var(--surface-2); }
 .skills-row-heading:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: -2px; }
@@ -3277,4 +3282,5 @@ html, body, #root {
 
 .skills-source { display: grid; gap: 10px; min-width: 0; padding: 12px; border: 1px solid var(--border-subtle); border-radius: 8px; }
 .skills-source h4 { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; margin: 0; font-size: 12px; overflow-wrap: anywhere; }
+.skills-source h4 > .skills-badge { max-width: 100%; box-sizing: border-box; overflow-wrap: anywhere; }
 .skills-source h4 > span:not(.skills-badge) { min-width: 0; overflow-wrap: anywhere; }

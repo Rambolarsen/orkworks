@@ -51,3 +51,13 @@ On migration, if an old `<workspace>/.orkworks/workspace.json` exists and the ne
 - One-time migration copies existing data; no user action required
 - File watcher watches a single global tree, simplifying watcher lifecycle
 - ADR 0004 is superseded
+
+## Scoped supersession — 2026-11-01
+
+[ADR 0103](0103-sqlite-session-storage.md) supersedes ordinary session JSON
+file authority/watching after qualified format-2 activation. The global
+workspace-hashed placement and independently owned stores remain unchanged.
+The accepted [storage contract](../../specs/session-storage.md) and
+[delivery plan](../superpowers/plans/2026-11-01-sqlite-session-storage.md) govern
+the replacement. Current format-1 source behavior remains until implementation
+and activation; this does not claim a shipped SQLite migration.
