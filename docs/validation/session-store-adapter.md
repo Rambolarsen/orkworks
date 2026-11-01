@@ -194,7 +194,16 @@ projection. It remains held through the validation callback, serializing native
 identity/reset transitions with the execution claim and live publication. The
 registry mutex also remains held from snapshot comparison through the bounded
 in-memory callback, covering authority cleanup paths that remove entries without
-the transition mutex. These callbacks do not re-enter the registry, wait or do I/O.
+the transition mutex. Attempt lease and diagnostic read guards are try-acquired
+inside that registry callback and retained through capture, execution claim or
+publication; contention rejects conservatively. Attempt cleanup cannot retire the
+owner between validation and application. The final atomic cancellation check
+under those guards is Peon callback admission: callbacks admitted before the
+unchanged immediate shutdown flag store may finish; later callbacks, including
+post-commit publication, reject. This is separate from caller cancellation/expiry,
+which still competes on the exact worker execution CAS. Shutdown retains its
+bounded drain and never waits for attempt ownership to signal cancellation.
+These callbacks do not re-enter the registry/Peon owners, wait or do I/O.
 It sends the one-use grant while
 those guards are held, atomically claiming queued-to-executing and checking the
 absolute deadline before granting. This successful claim is the operation's
@@ -231,7 +240,8 @@ authority, runtime replacement after commit, caller cancellation before/after
 execution, permanent user holds, current-only publication, contended-guard
 executor responsiveness, expiry before worker readiness and during blocked
 execution validation, transition
-exclusion at execution/publication and post-commit publication failure. A controlled runtime-command consumer
+exclusion at execution/publication, attempt retirement/shutdown between validation
+and callback, and post-commit publication failure. A controlled runtime-command consumer
 writes to an actual PTY while this application SQL boundary is stalled. This
 proves guard/input-delivery independence at this boundary, not a qualified
 SQL-backed producer profile, complete terminal workload or #1247 latency result.

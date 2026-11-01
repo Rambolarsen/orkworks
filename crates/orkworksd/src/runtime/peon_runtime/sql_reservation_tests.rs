@@ -714,3 +714,91 @@ async fn queued_expiry_retires_resources_before_a_stalled_worker_resumes() {
     );
     store.close().await.unwrap();
 }
+
+#[tokio::test]
+async fn attempt_retirement_or_shutdown_before_callback_blocks_claim_and_publication() {
+    for after_claim in [false, true] {
+        for shutdown in [false, true] {
+            let _lease_guard = diagnostic_test_guard();
+            let (_dir, _state, store, writes, context, capture, cancellation, _commands) =
+                fixture().await;
+            let view = context.view();
+            let mut context = Some(context);
+            let paused = (!after_claim).then(|| test_worker::pause(&store));
+            let mut claimed = after_claim.then(|| test_worker::hold_next_internal(&store, ID));
+            let owner = writes.clone();
+            let writer = tokio::spawn(async move { owner.peon(view, capture, intent()).await });
+            if let Some(claimed) = claimed.as_mut() {
+                tokio::time::timeout(Duration::from_secs(2), claimed.entered())
+                    .await
+                    .unwrap();
+            } else {
+                test_worker::wait_for_internal(&store, ID).await;
+            }
+            let (entered, ready) = std::sync::mpsc::channel();
+            let (release, released) = std::sync::mpsc::channel();
+            let blocker = std::thread::spawn(move || {
+                crate::runtime::prompt_authority::registry().with_snapshot(ID, |_| {
+                    entered.send(()).unwrap();
+                    released.recv_timeout(Duration::from_secs(3)).unwrap();
+                });
+            });
+            ready.recv_timeout(Duration::from_secs(2)).unwrap();
+            let before_callback = writes.test_before_callback();
+            drop(paused);
+            drop(claimed);
+            tokio::time::timeout(Duration::from_secs(1), before_callback)
+                .await
+                .unwrap()
+                .unwrap();
+            if shutdown {
+                shutdown_inference_tasks(&mut tokio::task::JoinSet::new(), &cancellation).await;
+            } else {
+                drop(context.take());
+            }
+            release.send(()).unwrap();
+            blocker.join().unwrap();
+            let outcome = writer.await.unwrap();
+            if after_claim {
+                assert_eq!(outcome.unwrap(), Outcome::CommittedDetached);
+            } else {
+                assert!(matches!(outcome, Err(StoreError::Conflict)));
+            }
+            assert_eq!(
+                store.get(ID.into()).await.unwrap().unwrap()["metadataRevision"],
+                if after_claim { "2" } else { "1" }
+            );
+            store.close().await.unwrap();
+        }
+    }
+}
+
+#[tokio::test]
+async fn shutdown_does_not_wait_for_a_contended_attempt_lease() {
+    let _lease_guard = diagnostic_test_guard();
+    let (entered, ready) = std::sync::mpsc::channel();
+    let (release, released) = std::sync::mpsc::channel();
+    let blocker = std::thread::spawn(move || {
+        let _leases = diagnostic_leases().lock().unwrap();
+        entered.send(()).unwrap();
+        let _ = released.recv_timeout(Duration::from_secs(3));
+    });
+    ready.recv_timeout(Duration::from_secs(2)).unwrap();
+    let cancellation = Arc::new(AtomicBool::new(false));
+    let result = tokio::time::timeout(
+        Duration::from_millis(100),
+        shutdown_inference_tasks(&mut tokio::task::JoinSet::new(), &cancellation),
+    )
+    .await;
+    let signalled = cancellation.load(Ordering::SeqCst);
+    let _ = release.send(());
+    blocker.join().unwrap();
+    assert!(
+        result.is_ok(),
+        "shutdown waited for diagnostic ownership before its bounded drain"
+    );
+    assert!(
+        signalled,
+        "shutdown did not signal cancellation immediately"
+    );
+}

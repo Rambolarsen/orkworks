@@ -18,6 +18,8 @@ pub(crate) struct SessionWrites {
     state: Arc<AppState>,
     store: Arc<SessionStore>,
     workspace: RecommendationDeliveryWorkspace,
+    #[cfg(test)]
+    before_callback: std::sync::Mutex<Option<oneshot::Sender<()>>>,
 }
 struct Capture {
     created: String,
@@ -54,7 +56,15 @@ impl SessionWrites {
             state,
             store,
             workspace,
+            #[cfg(test)]
+            before_callback: std::sync::Mutex::new(None),
         }))
+    }
+    #[cfg(test)]
+    pub(crate) fn test_before_callback(&self) -> oneshot::Receiver<()> {
+        let (sent, received) = oneshot::channel();
+        *self.before_callback.lock().unwrap() = Some(sent);
+        received
     }
     /// No filesystem or SQL work here; callers hold these guards only for
     /// bounded identity validation, the execution claim, or live publication.
@@ -85,13 +95,11 @@ impl SessionWrites {
         }
         let mut sessions = self.state.sessions.lock().unwrap();
         let handle = sessions.get_mut(attempt.session_id())?;
-        if !attempt.is_current_with_session(handle)
-            || !output.is_current(
-                handle.runtime.input_generation,
-                handle.runtime.min_peon_output_revision,
-                &handle.runtime.identity(),
-            )
-            || handle.info.lifecycle != "alive"
+        if !output.is_current(
+            handle.runtime.input_generation,
+            handle.runtime.min_peon_output_revision,
+            &handle.runtime.identity(),
+        ) || handle.info.lifecycle != "alive"
             || captured.is_some_and(|c| {
                 handle.info.created_at != c.created
                     || !handle.runtime.attention_owner.owns(&c.attention)
@@ -108,13 +116,17 @@ impl SessionWrites {
         {
             return None;
         }
+        #[cfg(test)]
+        if let Some(sent) = self.before_callback.lock().unwrap().take() {
+            let _ = sent.send(());
+        }
         crate::runtime::prompt_authority::registry().with_snapshot(
             attempt.session_id(),
             |authority| {
                 if captured.is_some_and(|c| authority != c.prompt_authority) {
                     return None;
                 }
-                Some(apply(ws, handle, authority))
+                attempt.with_current_session(handle, |handle| apply(ws, handle, authority))
             },
         )
     }
