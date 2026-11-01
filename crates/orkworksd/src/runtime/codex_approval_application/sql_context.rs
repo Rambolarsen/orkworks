@@ -246,3 +246,209 @@ impl NativeCapture {
         tracker.live_revision = h.runtime.attention_owner.snapshot();
     }
 }
+
+/// Captured before a SQL read or RPC, so neither can adopt a replacement owner.
+pub(crate) struct ObservationContext {
+    captured_at: Instant,
+    id: String,
+    created: String,
+    instance: Arc<()>,
+    runtime: super::super::session_runtime::RuntimeIdentity,
+    control: tokio::sync::mpsc::Sender<super::super::session_runtime::RuntimeCommand>,
+    fence: Fence,
+    hook_revision: u64,
+    root: Option<String>,
+    live_root: Option<String>,
+    attention: AttentionWriteToken,
+    input_generation: u64,
+    committed_input_sequence: u64,
+    active_work_hook: bool,
+    authority: Option<super::super::prompt_authority::AuthoritySnapshot>,
+    cancelled: Arc<AtomicBool>,
+}
+impl ObservationContext {
+    pub(crate) fn capture(
+        h: &SessionHandle,
+        generation: u64,
+        cancelled: Arc<AtomicBool>,
+        authority: Option<super::super::prompt_authority::AuthoritySnapshot>,
+    ) -> Option<Self> {
+        let tracker = h.runtime.native_approval.as_ref()?;
+        if h.runtime.run_generation() != generation
+            || tracker.fence.runtime_generation != generation
+            || h.info.lifecycle != "alive"
+            || h.info.lifecycle_phase != "active"
+            || h.info.harness_id.as_deref().or(h.info.harness.as_deref()) != Some("codex")
+            || cancelled.load(Ordering::Acquire)
+        {
+            return None;
+        }
+        Some(Self {
+            captured_at: Instant::now(),
+            id: h.info.id.clone(),
+            created: h.info.created_at.clone(),
+            instance: tracker.instance.clone(),
+            runtime: h.runtime.identity(),
+            control: h.runtime.control_tx.clone(),
+            fence: tracker.fence,
+            hook_revision: tracker.hook_revision?,
+            root: tracker.root.clone(),
+            live_root: h
+                .info
+                .resume
+                .as_ref()
+                .and_then(|r| r.harness_session_id.clone()),
+            attention: h.runtime.attention_owner.snapshot()?,
+            input_generation: h.runtime.input_generation,
+            committed_input_sequence: h.runtime.committed_input_sequence,
+            active_work_hook: h.active_work_hook,
+            authority,
+            cancelled,
+        })
+    }
+    pub(crate) fn matches(
+        &self,
+        h: &SessionHandle,
+        authority: &Option<super::super::prompt_authority::AuthoritySnapshot>,
+    ) -> bool {
+        let Some(tracker) = h.runtime.native_approval.as_ref() else {
+            return false;
+        };
+        h.info.id == self.id
+            && h.info.created_at == self.created
+            && h.info.lifecycle == "alive"
+            && h.info.lifecycle_phase == "active"
+            && h.info.harness_id.as_deref().or(h.info.harness.as_deref()) == Some("codex")
+            && h.runtime.matches_identity(&self.runtime)
+            && h.runtime.control_tx.same_channel(&self.control)
+            && h.runtime.input_generation == self.input_generation
+            && h.runtime.committed_input_sequence == self.committed_input_sequence
+            && h.active_work_hook == self.active_work_hook
+            && Arc::ptr_eq(&tracker.instance, &self.instance)
+            && tracker.fence == self.fence
+            && tracker.hook_revision == Some(self.hook_revision)
+            && tracker.root == self.root
+            && h.info
+                .resume
+                .as_ref()
+                .and_then(|r| r.harness_session_id.as_ref())
+                == self.live_root.as_ref()
+            && h.runtime.attention_owner.owns(&self.attention)
+            && &self.authority == authority
+            && !self.cancelled.load(Ordering::Acquire)
+    }
+    pub(crate) fn root(&self) -> Option<&str> {
+        self.root.as_deref()
+    }
+    pub(crate) fn cancellation(&self) -> Arc<AtomicBool> {
+        self.cancelled.clone()
+    }
+}
+
+pub(crate) fn begin_sql_observation(
+    h: &mut SessionHandle,
+    meta: &crate::metadata::SessionMetadata,
+    origin: &ObservationContext,
+    authority: Option<super::super::prompt_authority::AuthoritySnapshot>,
+) -> Option<(ObservationContext, Vec<IssuedEffect>)> {
+    if !origin.matches(h, &authority)
+        || meta.id != origin.id
+        || meta.created_at != origin.created
+        || meta.lifecycle != "alive"
+        || meta.lifecycle_phase != "active"
+    {
+        return None;
+    }
+    let mut tracker = h.runtime.native_approval.take()?;
+    let effects = (|| {
+        tracker.sync(h, meta);
+        let root = tracker.root.as_deref()?;
+        if h.info
+            .resume
+            .as_ref()
+            .and_then(|r| r.harness_session_id.as_deref())
+            != Some(root)
+        {
+            return None;
+        }
+        Some(tracker.tick_sql(&h.runtime.attention_owner, Instant::now()))
+    })();
+    h.runtime.native_approval = Some(tracker);
+    let effects = effects?;
+    let context = ObservationContext::capture(
+        h,
+        origin.runtime.run_generation,
+        origin.cancelled.clone(),
+        authority,
+    )?;
+    Some((context, effects))
+}
+
+pub(crate) fn finish_sql_observation(
+    h: &mut SessionHandle,
+    meta: &crate::metadata::SessionMetadata,
+    origin: &ObservationContext,
+    authority: Option<super::super::prompt_authority::AuthoritySnapshot>,
+    result: Result<
+        super::super::codex_native::NativeObservation,
+        super::super::codex_native::NativeError,
+    >,
+) -> Option<Vec<IssuedEffect>> {
+    if result
+        .as_ref()
+        .is_ok_and(|observation| observation.started_at < origin.captured_at)
+    {
+        return None;
+    }
+    if !origin.matches(h, &authority)
+        || meta.id != origin.id
+        || meta.created_at != origin.created
+        || meta.lifecycle != "alive"
+        || meta.lifecycle_phase != "active"
+    {
+        return None;
+    }
+    let mut tracker = h.runtime.native_approval.take()?;
+    tracker.sync(h, meta);
+    h.runtime.native_approval = Some(tracker);
+    // Sync can discover a durable identity/input/source transition. The RPC
+    // belongs to the old fence and cannot be fed into the updated reducer.
+    if !origin.matches(h, &authority) {
+        return None;
+    }
+    let tracker = h.runtime.native_approval.as_mut()?;
+    #[cfg(test)]
+    if let Some(sink) = &tracker.diagnostic {
+        let mut metrics = sink.lock().unwrap();
+        metrics.observations += 1;
+        match &result {
+            Ok(observation) => {
+                metrics.last_status = Some(observation.status);
+                metrics.last_error = None;
+                metrics.singleton = observation.complete_singleton_root;
+                metrics.observation_age_ms = observation.started_at.elapsed().as_millis();
+            }
+            Err(error) => {
+                metrics.last_status = None;
+                metrics.last_error = Some(*error);
+                metrics.singleton = false;
+            }
+        }
+    }
+    let now = Instant::now();
+    let effects = match result {
+        Ok(observation) => tracker.observe_sql(
+            &h.runtime.attention_owner,
+            observation.status,
+            observation.complete_singleton_root,
+            observation.started_at,
+            now,
+        ),
+        Err(_) => {
+            tracker.reducer.disconnected();
+            tracker.tick_sql(&h.runtime.attention_owner, now)
+        }
+    };
+    tracker.live_revision = h.runtime.attention_owner.snapshot();
+    Some(effects)
+}

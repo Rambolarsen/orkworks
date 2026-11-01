@@ -315,3 +315,5 @@ fn protected_permission(handle: &crate::SessionHandle) -> bool {
 }
 
 mod native;
+
+pub(crate) use native::observer::SqlObservationSnapshot;

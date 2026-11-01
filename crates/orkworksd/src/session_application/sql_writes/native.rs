@@ -156,3 +156,5 @@ impl SessionWrites {
         received.await.map_err(|_| StoreError::Unavailable)?
     }
 }
+
+pub(super) mod observer;

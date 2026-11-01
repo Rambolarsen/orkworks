@@ -4,9 +4,9 @@ use crate::session_application::sql_writes::{Outcome, SessionWrites};
 use crate::session_store::{test_worker, SessionStore, StoreError};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
-const ID: &str = "native-sql";
-const CREATED: &str = "2026-01-01T00:00:00Z";
-type Fixture = (
+pub(crate) const ID: &str = "native-sql";
+pub(super) const CREATED: &str = "2026-01-01T00:00:00Z";
+pub(crate) type Fixture = (
     tempfile::TempDir,
     Arc<AppState>,
     Arc<SessionStore>,
@@ -15,6 +15,9 @@ type Fixture = (
     tokio::sync::mpsc::Receiver<super::super::session_runtime::RuntimeCommand>,
 );
 async fn fixture() -> Fixture {
+    fixture_with_root("root-id").await
+}
+pub(crate) async fn fixture_with_root(root_id: &str) -> Fixture {
     let dir = tempfile::tempdir().unwrap();
     let state = crate::test_support::test_app_state_with_workspace(dir.path());
     let (root, path) = {
@@ -36,13 +39,13 @@ async fn fixture() -> Fixture {
     info.resume = Some(crate::harness::ResumeMemory {
         state: crate::harness::ResumeState::Available,
         preferred_strategy: crate::harness::ResumeStrategy::Exact,
-        harness_session_id: Some("root-id".into()),
+        harness_session_id: Some(root_id.into()),
         latest_fallback: false,
         last_seen_at: None,
     });
     let (mut runtime, commands) = super::super::session_runtime::SessionRuntime::live(24, 80);
     let mut tracker = NativeApprovalState::new(runtime.run_generation());
-    tracker.root = Some("root-id".into());
+    tracker.root = Some(root_id.into());
     let start = Instant::now() - Duration::from_secs(2);
     tracker.observe_sql(
         &runtime.attention_owner,

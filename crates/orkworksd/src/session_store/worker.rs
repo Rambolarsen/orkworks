@@ -949,6 +949,26 @@ pub(crate) mod testing {
             }
         }).await.expect("application mutation did not enter the worker queue");
     }
+    pub(crate) async fn wait_for_get(store: &SessionStore, id: &str) {
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let queued = store
+                    .shared
+                    .queue
+                    .lock()
+                    .unwrap()
+                    .reads
+                    .iter()
+                    .any(|job| matches!(&job.command, Command::Get(queued) if queued == id));
+                if queued {
+                    return;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("observer metadata read did not enter the worker queue");
+    }
     pub(crate) struct ClaimPause {
         entered: Option<oneshot::Receiver<()>>,
         release: Option<std::sync::mpsc::Sender<()>>,

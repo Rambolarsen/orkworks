@@ -846,7 +846,10 @@ attention proofs and the existing monotonic freshness check at commit admission.
 The source-only native application boundary now reserves the same worker/session
 lane, rechecks issued effect/runtime/ownership context at execution and publication,
 and acknowledges only current committed effects. Its conservative SQL revision
-precondition rejects concurrent durable changes. Native observer/hook routing,
+precondition rejects concurrent durable changes. The optional source-only observer backend now reads SQL outside runtime guards,
+binds pre-RPC ownership, revalidates returned observations and uses that emission
+boundary; its separate storage-error watch cannot signal PTY termination. The
+production observer still selects JSON. Hook relay activation/boundary writes,
 lifecycle/input bookkeeping and external events still need their owned integration
 before SQL selection; native eligibility gates remain unchanged.
 
