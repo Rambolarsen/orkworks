@@ -323,6 +323,10 @@ application owner. Metadata supplies only the already accepted native root;
 it must agree with the live native reference, and loaded threads never discover
 or rebind identity. A due tick effect uses the existing reservation boundary;
 that iteration skips RPC so a later poll captures its new attention owner.
+If publication detaches or the effect becomes a no-op, the owner retires the
+rejected candidate only while its original context and issued effect still
+match. Contention can defer that cleanup to a later poll. Polling then resumes
+without adopting the detached durable proof or gaining permission to clear it.
 
 After RPC, a second unlocked SQL read hydrates the latest canonical metadata.
 The owner rechecks the original snapshot before feeding the result into the

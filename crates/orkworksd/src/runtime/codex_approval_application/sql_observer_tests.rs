@@ -476,3 +476,101 @@ async fn sql_observer_pipeline_retains_post_rpc_metadata_read_deadline_errors() 
     );
     store.close().await.unwrap();
 }
+
+#[tokio::test]
+async fn sql_observer_recovers_rpc_polling_after_detached_wait_without_adopting_proof() {
+    let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
+    let (_dir, state, store, writes, _effect, _commands) = fixture_with_root("root").await;
+    let generation = state.sessions.lock().unwrap()[ID].runtime.run_generation();
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let mut held = crate::session_store::test_worker::hold_next_internal(&store, ID);
+    let writer = writes.clone();
+    let cancellation = cancelled.clone();
+    let pending = tokio::spawn(async move {
+        writer
+            .begin_native_observation(ID.into(), generation, cancellation)
+            .await
+    });
+    held.entered().await;
+    let transition = super::super::prompt_authority::transition_lock()
+        .lock()
+        .unwrap();
+    drop(held);
+    assert!(pending.await.unwrap().unwrap().is_none());
+    drop(transition);
+    assert_ne!(
+        state.sessions.lock().unwrap()[ID].info.attention.as_deref(),
+        Some("needs_you")
+    );
+    let mut snapshot = None;
+    for _ in 0..2 {
+        snapshot = writes
+            .begin_native_observation(ID.into(), generation, cancelled.clone())
+            .await
+            .unwrap();
+        if snapshot.is_some() {
+            break;
+        }
+    }
+    let snapshot = snapshot.expect("polling must resume after transition contention clears");
+    assert!(writes
+        .finish_native_observation_coordinated_for_test(snapshot, result())
+        .await
+        .unwrap());
+    let record = store.get(ID.into()).await.unwrap().unwrap();
+    assert_eq!(record["attention"], "needs_you");
+    assert_eq!(record["metadataRevision"], "2");
+    assert!(state.sessions.lock().unwrap()[ID]
+        .runtime
+        .native_approval
+        .as_ref()
+        .unwrap()
+        .sql_ownership
+        .is_none());
+    store.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn sql_observer_rejected_tick_cleanup_cannot_invalidate_a_replacement() {
+    let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
+    for replacement in ["hook", "attention", "tracker", "cancel"] {
+        let (_dir, state, store, _writes, issued, _commands) = fixture_with_root("root").await;
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let h = sessions.get_mut(ID).unwrap();
+            let generation = h.runtime.run_generation();
+            let cancelled = Arc::new(AtomicBool::new(false));
+            let origin =
+                sql_context::ObservationContext::capture(h, generation, cancelled.clone(), None)
+                    .unwrap();
+            match replacement {
+                "hook" => {
+                    let t = h.runtime.native_approval.as_mut().unwrap();
+                    t.hook_revision = t.hook_revision.map(|r| r + 1);
+                }
+                "attention" => {
+                    h.runtime.attention_owner.accepted_write();
+                }
+                "tracker" => {
+                    h.runtime.native_approval.as_mut().unwrap().instance = Arc::new(());
+                }
+                "cancel" => cancelled.store(true, Ordering::Release),
+                _ => unreachable!(),
+            }
+            assert!(
+                !sql_context::reject_sql_observation_effect(h, &origin, &issued, &None),
+                "{replacement}"
+            );
+            assert!(
+                h.runtime
+                    .native_approval
+                    .as_ref()
+                    .unwrap()
+                    .reducer
+                    .accepts(&issued.effect),
+                "replacement candidate was invalidated: {replacement}"
+            );
+        }
+        store.close().await.unwrap();
+    }
+}

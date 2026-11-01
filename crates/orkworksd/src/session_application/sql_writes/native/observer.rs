@@ -43,9 +43,23 @@ impl SessionWrites {
         if !effects.is_empty() {
             // A tick's durable publication changes attention ownership. The
             // next loop captures a new origin rather than adopting a token here.
+            let context = Arc::new(context);
             for effect in effects {
-                self.native(id.clone(), effect, context.cancellation())
-                    .await?;
+                match self
+                    .native(id.clone(), effect.clone(), context.cancellation())
+                    .await?
+                {
+                    Outcome::Committed => {}
+                    Outcome::Noop { .. } | Outcome::CommittedDetached => {
+                        let origin = context.clone();
+                        self.native_current(id.clone(), None, None, move |_, h, authority| {
+                            sql_context::reject_sql_observation_effect(
+                                h, &origin, &effect, &authority,
+                            )
+                        })
+                        .await?;
+                    }
+                }
             }
             return Ok(None);
         }
