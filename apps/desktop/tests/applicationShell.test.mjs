@@ -1348,6 +1348,15 @@ if (process.versions.electron) {
           assert.equal(await evaluate('!!document.querySelector("[data-shell-region=sessions]")'),true);
           assert.equal(await evaluate('!!document.querySelector("[data-shell-region=terminal]")'),false);
           await waitFor('document.activeElement.id==="nsd-prompt"');
+          await evaluate('document.querySelector(".new-session-cancel").focus();fixture.command("new-session")');
+          await waitFor('document.activeElement.id==="nsd-prompt"');
+          await click('recommendations');
+          await waitFor('document.querySelector("[data-shell-region=new-session]").hidden');
+          await evaluate('document.querySelector("[data-shell-create]").focus();document.querySelector("[data-shell-create]").click()');
+          await waitFor('!document.querySelector("[data-shell-region=new-session]").hidden');
+          await waitFor('document.activeElement.id==="nsd-prompt"');
+          await evaluate('document.querySelector(".new-session-cancel").focus();fixture.setSessionState({status:"waiting"})');
+          await waitFor('document.querySelector(".new-session-cancel")===document.activeElement');
           if (process.env.ORKWORKS_CAPTURE_COMPOSER) {
             await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
             const {writeFileSync} = await import('node:fs');
@@ -1392,6 +1401,7 @@ if (process.versions.electron) {
           await waitFor('document.getElementById("sessions-list")===document.activeElement');
           await click('sessions');
           await waitFor('document.querySelector("[data-shell-region=new-session]")?.getClientRects().length');
+          await waitFor('document.activeElement.id==="nsd-prompt"');
           assert.equal(await evaluate('document.querySelector("#nsd-prompt").value'),'Keep this draft','compact session browsing preserves the draft');
           const bounds = await evaluate(`(()=>{const prompt=document.querySelector('#nsd-prompt').getBoundingClientRect();const model=document.querySelector('#nsd-model').getBoundingClientRect();const start=document.querySelector('.new-session-confirm').getBoundingClientRect();return {promptRight:prompt.right,modelRight:model.right,startBottom:start.bottom,width:innerWidth,height:innerHeight};})()`);
           assert.ok(bounds.promptRight<=bounds.width && bounds.modelRight<=bounds.width && bounds.startBottom<=bounds.height,'compact composer controls stay inside the viewport');

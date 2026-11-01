@@ -99,7 +99,7 @@ export default function ApplicationShell(props: Props) {
   }, [props.onSelectSession]);
   const workspaceGenerationRef = useRef(props.workspaceGeneration);
   workspaceGenerationRef.current = props.workspaceGeneration;
-  const focusIntent = useRef<"page" | "changes-return" | "return" | "review-return" | "terminal" | "sessions" | null>(null);
+  const focusIntent = useRef<"composer" | "page" | "changes-return" | "return" | "review-return" | "terminal" | "sessions" | null>(null);
   const [width, setWidth] = useState(() => window.innerWidth);
   const [sessionsPage, setSessionsPage] = useState(false);
   const [focusTick, setFocusTick] = useState(0);
@@ -206,6 +206,7 @@ export default function ApplicationShell(props: Props) {
       }
       setSessionsPage(false);
       props.onInspect(null);
+      requestFocus("composer");
     } else if (command === "cancel-new-session") {
       const target = creationReturn.current;
       creationReturn.current = null;
@@ -293,7 +294,9 @@ export default function ApplicationShell(props: Props) {
       : invokerSelectorRef.current ? root.querySelector<HTMLElement>(invokerSelectorRef.current) : null;
     const closedDisclosure = returnTarget?.closest("details:not([open])");
     if (closedDisclosure) returnTarget = closedDisclosure.querySelector<HTMLElement>("summary");
-    if (intent === "changes-return") {
+    if (intent === "composer" && showComposer) {
+      root.querySelector<HTMLElement>("[data-shell-composer-focus]")?.focus({ preventScroll: true });
+    } else if (intent === "changes-return") {
       root.querySelector<HTMLElement>("[data-review-changes]")?.focus({ preventScroll: true });
     } else if ((intent === "return" || intent === "review-return") && returnTarget?.getClientRects().length) {
       returnTarget.focus({ preventScroll: true });
@@ -308,6 +311,9 @@ export default function ApplicationShell(props: Props) {
       (root.querySelector<HTMLElement>("[data-shell-page-heading]") ?? root.querySelector<HTMLElement>("[data-shell-review-heading]") ?? root.querySelector<HTMLElement>("[data-shell-terminal-focus]") ?? root.querySelector<HTMLElement>("[data-shell-sessions-heading]"))?.focus({ preventScroll: true });
     }
   }, [focusTick, showTerminal, showSessionsPage, temporaryUtility, showInspector, props.onFocusTerminal]);
+  useLayoutEffect(() => {
+    if (showComposer) rootRef.current?.querySelector<HTMLElement>("[data-shell-composer-focus]")?.focus({ preventScroll: true });
+  }, [showComposer]);
   useLayoutEffect(() => {
     if (reviewing) rootRef.current?.querySelector<HTMLElement>("[data-shell-review-heading]")?.focus({ preventScroll: true });
   }, [reviewing]);

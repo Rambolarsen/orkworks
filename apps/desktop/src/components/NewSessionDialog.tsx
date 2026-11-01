@@ -322,6 +322,7 @@ export default function NewSessionDialog({ workspacePath = "", harnesses, provid
             <textarea
               ref={promptRef}
               id="nsd-prompt"
+              data-shell-composer-focus
               className="new-session-textarea"
               aria-label="Initial prompt"
               aria-describedby="nsd-prompt-hint"
