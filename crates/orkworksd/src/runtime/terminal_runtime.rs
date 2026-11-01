@@ -1244,6 +1244,12 @@ fn metadata_protocol_marker_cannot_be_inherited_from_the_parent() {
         "ORKWORKS_SESSION_METADATA_API_VERSION"
     ));
     assert!(!should_forward_terminal_env(
+        "ORKWORKS_SESSION_STORAGE_PROTOCOL"
+    ));
+    assert!(!should_forward_terminal_env(
+        "orkworks_session_storage_protocol"
+    ));
+    assert!(!should_forward_terminal_env(
         "orkworks_session_metadata_api_version"
     ));
 }
@@ -1257,6 +1263,7 @@ pub(crate) fn should_forward_terminal_env(key: &str) -> bool {
         && key != "ORKWORKS_CODEX_SESSION_REPORT_DIR"
         && !key.eq_ignore_ascii_case("ORKWORKS_CODEX_NATIVE_APPROVAL")
         && !key.eq_ignore_ascii_case("ORKWORKS_SESSION_METADATA_API_VERSION")
+        && !key.eq_ignore_ascii_case("ORKWORKS_SESSION_STORAGE_PROTOCOL")
         && key != "ORKWORKS_PROMPT_HOOK_GENERATION"
 }
 

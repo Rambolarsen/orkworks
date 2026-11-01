@@ -371,6 +371,23 @@ custom tools and other platforms remain unsupported for
 new-session image context. Existing text-only startup is unchanged. A capability
 response or synthetic argv test alone cannot qualify another delivery route.
 
+## Ordinary storage reporting preparation
+
+The source helper separately accepts
+`ORKWORKS_SESSION_STORAGE_PROTOCOL=sidecar-v1`, using the same authenticated
+revisioned API bootstrap without the native metadata marker. Unknown ordinary
+versions fail before reporting rather than downgrading. Parent launch environment
+filtering strips this marker case-insensitively; no production path emits it yet.
+Codex SessionStart source reporters select API-only helper context when the
+ordinary marker is present. Other tool/installed/sandbox profiles remain subject
+to their own qualification; HTTP hook reporting alone does not qualify general
+agent metadata writes. See the [compatibility evidence](../validation/session-storage-producers.md).
+
+This is preparation for #1242/#1244, not a format-2 launch, installed-helper update
+or #789/native eligibility change. General bootstrap/get/patch still require an
+explicit already-authorized relay when direct access is unavailable; the automatic
+managed-relay exception remains worktree-only.
+
 ## Explicit metadata helper proxy
 
 The accepted [ordinary-session storage contract](../../specs/session-storage.md)

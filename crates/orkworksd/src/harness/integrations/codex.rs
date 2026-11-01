@@ -936,41 +936,51 @@ mod tests {
         let command = document["hooks"]["SessionStart"][0]["hooks"][0]["command"]
             .as_str()
             .unwrap();
-        let mut child = Command::new("bash")
-            .args(["-c", command])
-            .env("HOME", home.path())
-            .env("ORKWORKS_SESSION_METADATA_API_VERSION", "1")
-            .env_remove("ORKWORKS_PORT")
-            .env_remove("ORKWORKS_SESSION_ID")
-            .env_remove("ORKWORKS_REPORT_TOKEN")
-            .env_remove("ORKWORKS_CODEX_NATIVE_APPROVAL")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-        child
-            .stdin
-            .take()
-            .unwrap()
-            .write_all(br#"{"session_id":"root-id","source":"startup"}"#)
-            .unwrap();
-        let output = child.wait_with_output().unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        let context: Value = serde_json::from_slice(&output.stdout).unwrap();
-        assert_eq!(
-            context["hookSpecificOutput"]["hookEventName"],
-            "SessionStart"
-        );
-        let text = context["hookSpecificOutput"]["additionalContext"]
-            .as_str()
-            .unwrap();
-        assert!(text.contains("API-only"));
-        assert!(text.contains("bootstrap"));
+        for (marker, version) in [
+            ("ORKWORKS_SESSION_METADATA_API_VERSION", "1"),
+            ("ORKWORKS_SESSION_STORAGE_PROTOCOL", "sidecar-v1"),
+        ] {
+            let mut child = Command::new("bash")
+                .args(["-c", command])
+                .env("HOME", home.path())
+                .env_remove("ORKWORKS_SESSION_METADATA_API_VERSION")
+                .env_remove("ORKWORKS_SESSION_STORAGE_PROTOCOL")
+                .env(marker, version)
+                .env_remove("ORKWORKS_PORT")
+                .env_remove("ORKWORKS_SESSION_ID")
+                .env_remove("ORKWORKS_REPORT_TOKEN")
+                .env_remove("ORKWORKS_CODEX_NATIVE_APPROVAL")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(br#"{"session_id":"root-id","source":"startup"}"#)
+                .unwrap();
+            let output = child.wait_with_output().unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let context: Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert_eq!(
+                context["hookSpecificOutput"]["hookEventName"],
+                "SessionStart"
+            );
+            let text = context["hookSpecificOutput"]["additionalContext"]
+                .as_str()
+                .unwrap();
+            assert!(text.contains("API-only"));
+            assert!(text.contains("bootstrap"));
+            if marker == "ORKWORKS_SESSION_STORAGE_PROTOCOL" {
+                assert!(text.contains("ordinary session storage"));
+            }
+        }
         assert!(resolver
             .stable_path("session-metadata.py")
             .unwrap()
