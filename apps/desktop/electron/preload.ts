@@ -90,6 +90,7 @@ contextBridge.exposeInMainWorld("orkworks", {
   completeWorkspaceNavigation: (surface: LastCentralSurface): Promise<ShellMemoryResult> => ipcRenderer.invoke("complete-workspace-navigation", surface),
   deleteWorkspaceNavigation: (): Promise<ShellMemoryResult> => ipcRenderer.invoke("delete-workspace-navigation"),
   rebuildWorkspaceNavigation: (): Promise<ShellMemoryRebuildResult> => ipcRenderer.invoke("rebuild-workspace-navigation"),
+  saveApmExecutable: (path: string): Promise<void> => ipcRenderer.invoke("save-apm-executable", path),
   getSkillInventory: (): Promise<import("./skillTypes").SkillInventory> => ipcRenderer.invoke("get-skill-inventory"),
   readSkillDetail: (id: string): Promise<string> => ipcRenderer.invoke("read-skill-detail", id),
   pickSkillSource: (): Promise<string | null> => ipcRenderer.invoke("pick-skill-source"),

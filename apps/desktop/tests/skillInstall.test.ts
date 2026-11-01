@@ -30,21 +30,29 @@ async function fixture(t: any) {
   );
   let current: string | null = workspace;
   let confirmed = true;
+  let selectedExecutable = executable;
   let confirmations = 0;
+  let revision = 0;
+  let changeOnConfirm = false;
+  let changeOnVersion = false;
   const operations: Array<{ args: string[]; cwd: string }> = [];
   const installer = new SkillInstaller({
     home,
     env: { PATH: "/usr/bin" },
     workspace: () => current,
-    executable: async () => executable,
+    configurationRevision: () => String(revision),
+    executable: async () => selectedExecutable,
     confirm: async () => {
       confirmations++;
+      if (changeOnConfirm) revision++;
       return confirmed;
     },
     run: async (_file, args, cwd) => {
       operations.push({ args, cwd });
-      if (args[0] === "--version")
+      if (args[0] === "--version") {
+        if (changeOnVersion) revision++;
         return "Agent Package Manager (APM) CLI version 0.33.0 (18c4c43)";
+      }
       if (args.includes("--dry-run")) {
         assert.notEqual(cwd, workspace);
         assert.notEqual(cwd, home);
@@ -70,6 +78,10 @@ async function fixture(t: any) {
     installer,
     operations,
     setWorkspace: (v: string | null) => (current = v),
+    changeExecutableSelection: () => revision++,
+    resolveExecutableTo: (path: string) => { selectedExecutable = path; },
+    changeSelectionDuringVersion: () => { changeOnVersion = true; },
+    changeSelectionDuringConfirmation: () => { changeOnConfirm = true; },
     decline: () => (confirmed = false),
     count: () => confirmations,
   };
@@ -262,4 +274,45 @@ test("custom includes cannot expand the reviewed install scope", async (t) => {
     ).available,
     false,
   );
+});
+
+test("changing APM selection invalidates an existing installation review", async t => {
+  const f = await fixture(t);
+  const review = await f.installer.preview({ scope: "personal", source: f.source, target: "codex" });
+  assert.equal(review.available, true);
+  f.changeExecutableSelection();
+  assert.equal((await f.installer.install(review.id)).ok, false);
+  assert.equal(f.count(), 0);
+  await assert.rejects(readFile(join(f.home, ".agents/skills/example/SKILL.md")));
+});
+
+test("changing APM selection during native confirmation prevents deployment", async t => {
+  const f = await fixture(t);
+  const review = await f.installer.preview({ scope: "personal", source: f.source, target: "codex" });
+  assert.equal(review.available, true);
+  f.changeSelectionDuringConfirmation();
+  assert.equal((await f.installer.install(review.id)).ok, false);
+  assert.equal(f.count(), 1);
+  assert.equal(f.operations.filter(op => op.args[0] === "install" && !op.args.includes("--dry-run")).length, 0);
+  await assert.rejects(readFile(join(f.home, ".agents/skills/example/SKILL.md")));
+});
+
+test("a selection change during the version probe cannot produce a stale preview", async t => {
+  const f = await fixture(t);
+  f.changeSelectionDuringVersion();
+  const review = await f.installer.preview({ scope: "personal", source: f.source, target: "codex" });
+  assert.equal(review.available, false);
+  assert.equal(review.id, null);
+});
+
+test("a changed executable resolution invalidates the review even with unchanged settings", async t => {
+  const f = await fixture(t);
+  const review = await f.installer.preview({ scope: "personal", source: f.source, target: "codex" });
+  assert.equal(review.available, true);
+  const replacement = join(f.root, "replacement-apm");
+  await writeFile(replacement, "replacement executable");
+  f.resolveExecutableTo(replacement);
+  assert.equal((await f.installer.install(review.id)).ok, false);
+  assert.equal(f.count(), 0);
+  await assert.rejects(readFile(join(f.home, ".agents/skills/example/SKILL.md")));
 });

@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   access,
   lstat,
+  stat,
   readdir,
   realpath,
   mkdtemp,
@@ -20,6 +21,7 @@ import {
   skillMetadata,
 } from "./skillInventory.ts";
 import type {
+  ApmStatus,
   SkillAddRequest,
   SkillPreview,
   SkillInstallResult,
@@ -41,23 +43,47 @@ export function skillProcessEnvironment(
     ),
   );
 }
-export async function findApm(env: NodeJS.ProcessEnv): Promise<string> {
+export function apmExecutablePath(value: unknown): string | null {
+  if (value == null || value === "") return null;
+  if (typeof value !== "string" || value.length > 4096 || /[\x00-\x1f]/.test(value) || !isAbsolute(value))
+    throw new Error("Enter an absolute APM executable path, or leave it empty for automatic detection.");
+  return value;
+}
+export async function findApm(env: NodeJS.ProcessEnv, override: string | null = null): Promise<string> {
+  const explicit = apmExecutablePath(override);
+  const executable = async (candidate: string) => {
+    await access(candidate, constants.X_OK);
+    if (!(await stat(candidate)).isFile()) throw new Error("Not an executable file.");
+    return realpath(candidate);
+  };
+  if (explicit) {
+    try { return await executable(explicit); }
+    catch { throw new Error("The configured APM executable is unavailable. Update its path or clear it for automatic detection."); }
+  }
   for (const directory of (env.PATH || "").split(delimiter)) {
     if (!isAbsolute(directory)) continue;
-    const candidate = join(
-      directory,
-      process.platform === "win32" ? "apm.exe" : "apm",
-    );
-    try {
-      await access(candidate, constants.X_OK);
-      return await realpath(candidate);
-    } catch {
-      /* next PATH entry */
-    }
+    try { return await executable(join(directory, process.platform === "win32" ? "apm.exe" : "apm")); }
+    catch { /* next PATH entry */ }
   }
-  throw new Error(
-    "APM is not installed on the desktop PATH. Install APM separately, then Refresh.",
-  );
+  throw new Error("APM is not installed on the desktop PATH. Install APM separately or configure its path, then Check again.");
+}
+export async function inspectApm(env: NodeJS.ProcessEnv, override: string | null = null): Promise<ApmStatus> {
+  const result: ApmStatus = { available: false, compatible: false, path: null, version: null, executableOverride: override, message: "" };
+  try {
+    result.path = await findApm(env, override);
+    result.available = true;
+    const output = await runApm(result.path, ["--version"], tmpdir(), skillProcessEnvironment(env));
+    result.version = output.match(/CLI version (\d+\.\d+\.\d+)\b/)?.[1] || null;
+    result.compatible = result.version === "0.33.0" && process.platform !== "win32";
+    result.message = result.compatible
+      ? "APM 0.33.0 supports reviewed installations. Each source and destination is checked during preview."
+      : process.platform === "win32" ? "Windows APM installation is not yet qualified. Browsing remains available."
+      : "This APM version is not qualified for reviewed installation (supported: 0.33.0). Browsing remains available.";
+  } catch (error) {
+    result.message = result.path ? "The APM version could not be checked. Verify the executable and Check again. Browsing remains available."
+      : error instanceof Error ? error.message : "APM could not be found.";
+  }
+  return result;
 }
 export function runApm(
   file: string,
@@ -195,6 +221,7 @@ interface Dependencies {
   env: NodeJS.ProcessEnv;
   workspace(): string | null;
   workspaceRevision?(): string;
+  configurationRevision?(): string;
   executable?(): Promise<string>;
   run?(
     file: string,
@@ -352,6 +379,7 @@ export class SkillInstaller {
       manifest,
       fingerprint: createHash("sha256")
         .update(fingerprint)
+        .update(this.deps.configurationRevision?.() || "")
         .update(userManifest)
         .update(JSON.stringify(this.deps.env))
         .update(
@@ -367,6 +395,7 @@ export class SkillInstaller {
   }
   async preview(value: unknown): Promise<SkillPreview> {
     const request = validateRequest(value);
+    const configurationRevision = this.deps.configurationRevision?.();
     const destination =
       request.scope === "personal" ? this.deps.home : this.deps.workspace();
     const view: SkillPreview = {
@@ -425,7 +454,7 @@ export class SkillInstaller {
         await rm(stage, { recursive: true, force: true });
       }
       const after = await this.check(request, destination, executable);
-      if (after.fingerprint !== before.fingerprint)
+      if (after.fingerprint !== before.fingerprint || this.deps.configurationRevision?.() !== configurationRevision)
         throw new Error("Inputs changed during preview. Preview again.");
       const metadata =
         request.scope === "personal" ? join(destination, ".apm") : destination;
@@ -473,6 +502,8 @@ export class SkillInstaller {
     let started = false;
     try {
       const valid = async () => {
+        const executable = await (this.deps.executable ? this.deps.executable() : findApm(this.deps.env));
+        if (executable !== review.executable) throw new Error("APM executable changed. Preview again.");
         if (
           review.expires < Date.now() ||
           (await this.check(review.request, destination, review.executable))

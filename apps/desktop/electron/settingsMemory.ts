@@ -1,5 +1,5 @@
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 
 import { peonSelectionMatchesAppliedState, type PeonAppliedState, type PeonSelection, type ProviderId, type ProviderCapacityState, type ProviderSettings, type ProviderSettingsEntry } from "./providerTypes.ts";
 
@@ -16,6 +16,7 @@ export interface DebugSettings {
 export interface AppSettings {
   [key: string]: unknown;
   version: 1;
+  apmExecutablePath?: string | null;
   hotkeys: HotkeySettings;
   retention: RetentionSettings;
   debug: DebugSettings;
@@ -139,6 +140,7 @@ export const DEFAULT_PROVIDER_SETTINGS: ProviderSettings = {
 
 export const DEFAULT_SETTINGS: AppSettings = {
   version: 1,
+  apmExecutablePath: null,
   hotkeys: { ...DEFAULT_HOTKEYS },
   retention: { ...DEFAULT_RETENTION },
   debug: { ...DEFAULT_DEBUG_SETTINGS },
@@ -235,6 +237,7 @@ function normalizeSettingsWithDefinitions(
   return {
     ...parsed,
     version: 1,
+    apmExecutablePath: typeof parsed.apmExecutablePath === "string" && parsed.apmExecutablePath.length <= 4096 && !/[\x00-\x1f]/.test(parsed.apmExecutablePath) && isAbsolute(parsed.apmExecutablePath) ? parsed.apmExecutablePath : null,
     hotkeys: normalizeHotkeys(parsed.hotkeys),
     retention: normalizeRetention(parsed.retention),
     debug: normalizeDebugSettings(parsed.debug),
@@ -708,6 +711,7 @@ export function validateHotkeys(hotkeys: HotkeySettings): HotkeyValidationResult
 function defaultSettings(): AppSettings {
   return {
     version: 1,
+    apmExecutablePath: null,
     hotkeys: { ...DEFAULT_HOTKEYS },
     retention: { ...DEFAULT_RETENTION },
     debug: { ...DEFAULT_DEBUG_SETTINGS },

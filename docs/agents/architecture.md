@@ -529,7 +529,10 @@ qualified APM execution in Electron main. `skillInventory.ts` inventories known
 Workspace/Personal roots; `skillInstall.ts` owns private previews, input
 fingerprints, single-use review IDs and per-destination install exclusion. Narrow
 preload operations expose inventory/detail, native local-source selection,
-preview and confirmed install. The renderer never receives a general filesystem
+preview, confirmed install and a validated APM executable-path save operation.
+Desktop settings retain the optional path; automatic resolution uses desktop PATH.
+Inventory includes bounded version-probe status. Configuration revisions participate
+in review fingerprints and are rechecked after native confirmation. The renderer never receives a general filesystem
 or command-execution API. Source and installed-profile coverage is recorded in
 [skill management qualification](../validation/skills-management.md). Installed
 skills do not establish native loading/use or change session lifecycle authority.
