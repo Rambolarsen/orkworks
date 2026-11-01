@@ -138,7 +138,9 @@ per document read and 4 MiB aggregate document reads per scan. Report limits or
 unavailable inspection explicitly; an incomplete scan cannot claim a latest
 winner or overwrite an established association. Cache results for at most five
 seconds per worktree/branch/HEAD and invalidate on accepted reports/selections,
-root/branch changes and workspace adoption. A scan captured before a newer
+root/branch changes and workspace adoption. Discovery runs outside the global
+terminal-input fence; revalidate workspace and session location before returning
+the projection. A scan captured before a newer
 publication cannot overwrite it. Automatic associations retain normalized
 content-hash evidence as well as ancestry, so reverting a branch change cannot
 keep an inherited document attached. Never hold runtime/workspace locks
@@ -166,6 +168,10 @@ selection, otherwise default to implementation then design. Pin reset accepts
 only session ID, kind and optional selection ID through that desktop boundary.
 Revalidate workspace, effective root, branch, anchored repository containment,
 regular Markdown type and read bounds for each read and review handoff.
+Terminal-link selection returns its validated kind and opaque selection ID;
+retain these for the subsequent content/read handoff. Its own same-branch
+publication cannot cancel the explicit open, while session, workspace and branch
+switches still invalidate it. Legacy clients may ignore the additive response.
 Capture the runtime before document inspection; at input admission revalidate
 that runtime, workspace and selected document. A resumed runtime cannot receive
 a click made for its predecessor. Audit only acknowledged delivery.

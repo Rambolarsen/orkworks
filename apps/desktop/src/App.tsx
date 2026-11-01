@@ -362,7 +362,6 @@ function App() {
         || navigationIntent.current === reviewLoadIntent.current);
   const lastReviewKind = useRef<import("./api").PlanDocumentKind | undefined>(undefined);
   const reviewScope = JSON.stringify([activeSession?.repoRoot ?? activeSession?.cwd, activeSession?.planDocuments?.branch ?? activeSession?.branch,
-    activeSession?.hasOpenablePlan,
     activeSession?.planDocuments?.steps.map(step => [step.kind, step.selectionId, step.available])]);
   const review = useSessionReview(activeSessionId, shellNavigation.workspaceGeneration,
     // A picker attempt can be cancelled without changing the workspace generation.
@@ -385,7 +384,7 @@ function App() {
         return false;
       }
       return true;
-    }, reviewScope);
+    }, reviewScope, JSON.stringify([activeSession?.repoRoot ?? activeSession?.cwd, activeSession?.planDocuments?.branch ?? activeSession?.branch]));
   const priorReviewScope = useRef(reviewScope);
   useEffect(() => {
     const changed = priorReviewScope.current !== reviewScope;

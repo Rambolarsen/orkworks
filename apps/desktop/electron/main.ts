@@ -1724,7 +1724,7 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle("select-terminal-plan", async (_event, sessionId: unknown, printedPath: unknown) => {
     if (typeof sessionId !== "string" || !sessionId || typeof printedPath !== "string" || !printedPath) throw new Error("Invalid plan selection.");
-    await withReadyBackendGeneration((port, token, signal) =>
+    return await withReadyBackendGeneration((port, token, signal) =>
       selectTerminalPlan(sidecarUrl(port), sessionId, printedPath, token, fetch, signal));
   });
 

@@ -93,6 +93,11 @@ test("selects a terminal plan through the authenticated sidecar endpoint", async
   }]);
 });
 
+test("retains sidecar-resolved terminal document identity", async () => {
+  const selected = {kind: "design", selectionId: "d".repeat(64)};
+  assert.deepEqual(await selectTerminalPlan("http://127.0.0.1:4444", "session", "specs/plan.md", "token", async () => Response.json(selected), new AbortController().signal), selected);
+});
+
 test("starts the sidecar with the plan token without startup workspace adoption", async () => {
   const mainSource = await readFile(new URL("../electron/main.ts", import.meta.url), "utf8");
 

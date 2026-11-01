@@ -1,5 +1,44 @@
 use super::*;
 
+#[cfg(unix)]
+#[test]
+fn legacy_branch_document_reads_reject_replacement_symlinks() {
+    let (root, state, _store, _rx) = fixture();
+    let reference = branch_documents::document(
+        root.path(),
+        "specs/current.md",
+        crate::metadata::PlanSource::UserSelected,
+        true,
+    )
+    .unwrap()
+    .reference;
+    state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .metadata
+        .mutate_session(
+            "runtime-review",
+            crate::session_application::WriteScope::NONE,
+            |meta| {
+                meta.plan_path = Some(reference);
+                Ok(())
+            },
+        )
+        .unwrap();
+    std::fs::rename(
+        root.path().join("specs/current.md"),
+        root.path().join("specs/target.md"),
+    )
+    .unwrap();
+    std::os::unix::fs::symlink("target.md", root.path().join("specs/current.md")).unwrap();
+    assert!(SessionApplication::new(state)
+        .read_plan_content("runtime-review")
+        .is_err());
+}
+
 fn fixture() -> (
     tempfile::TempDir,
     Arc<AppState>,
@@ -48,6 +87,178 @@ fn fixture() -> (
         },
     );
     (root, state, store, old_rx)
+}
+
+#[test]
+fn untyped_branch_document_read_skips_an_unavailable_pin_in_another_slot() {
+    let (root, state, store, _rx) = fixture();
+    let path = root.path().join("docs/superpowers/plans/missing.md");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, "# Plan\n").unwrap();
+    let identity = branch_documents::identity(root.path()).unwrap();
+    store
+        .report(
+            &identity,
+            branch_documents::document(
+                root.path(),
+                "docs/superpowers/plans/missing.md",
+                crate::metadata::PlanSource::UserSelected,
+                true,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    std::fs::remove_file(path).unwrap();
+    let app = SessionApplication::new(state);
+    assert_eq!(
+        app.read_document_content("runtime-review", None, None)
+            .unwrap(),
+        "# Design\n"
+    );
+    assert!(app
+        .read_document_content("runtime-review", Some(DocumentKind::Implementation), None)
+        .is_err());
+}
+
+#[tokio::test]
+async fn branch_document_explicit_binding_rejects_terminal_paths_in_a_sibling() {
+    let (root, state, _store, _rx) = fixture();
+    let repo = git2::Repository::open(root.path()).unwrap();
+    let tree = repo
+        .find_tree(repo.index().unwrap().write_tree().unwrap())
+        .unwrap();
+    let sig = git2::Signature::now("Test", "test@example.com").unwrap();
+    repo.commit(Some("HEAD"), &sig, &sig, "base", &tree, &[])
+        .unwrap();
+    let siblings = tempfile::tempdir().unwrap();
+    let other = siblings.path().join("other");
+    repo.worktree("other", &other, None).unwrap();
+    std::fs::create_dir(other.join("specs")).unwrap();
+    let path = other.join("specs/other.md");
+    std::fs::write(&path, "# Other\n").unwrap();
+    let binding = crate::session_location::WorktreeBinding::resolve(
+        root.path().to_str().unwrap(),
+        root.path().to_str().unwrap(),
+    )
+    .unwrap();
+    state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .metadata
+        .mutate_session(
+            "runtime-review",
+            crate::session_application::WriteScope::NONE,
+            |meta| {
+                meta.worktree_binding = Some(binding);
+                Ok(())
+            },
+        )
+        .unwrap();
+    let app = SessionApplication::new(state);
+    assert!(app
+        .select_plan(
+            "runtime-review",
+            crate::session_application::PlanSelection {
+                printed_path: path.to_string_lossy().into_owned()
+            }
+        )
+        .await
+        .is_err());
+    assert!(!app.persist_printed_plan_fallback("runtime-review", path.to_str().unwrap()));
+}
+
+#[test]
+fn branch_document_hook_reports_follow_the_effective_sibling_worktree() {
+    let (root, state, _store, _rx) = fixture();
+    let repo = git2::Repository::open(root.path()).unwrap();
+    let tree = repo
+        .find_tree(repo.index().unwrap().write_tree().unwrap())
+        .unwrap();
+    let sig = git2::Signature::now("Test", "test@example.com").unwrap();
+    repo.commit(Some("HEAD"), &sig, &sig, "base", &tree, &[])
+        .unwrap();
+    let sibling = tempfile::tempdir().unwrap();
+    let task = sibling.path().join("task");
+    repo.worktree("other-task", &task, None).unwrap();
+    std::fs::create_dir(task.join("specs")).unwrap();
+    std::fs::write(task.join("specs/current.md"), "# Task design\n").unwrap();
+    state
+        .peon
+        .reported_cwd
+        .write()
+        .unwrap()
+        .insert("runtime-review".into(), task.to_string_lossy().into_owned());
+    let app = SessionApplication::new(state.clone());
+    app.report_plan_path("runtime-review", "specs/current.md")
+        .unwrap();
+    let ws = state.workspace.lock().unwrap();
+    let meta = ws
+        .as_ref()
+        .unwrap()
+        .metadata
+        .read_session("runtime-review")
+        .unwrap();
+    assert_eq!(
+        PathBuf::from(meta.plan_path.unwrap().worktree_root.unwrap()),
+        task.canonicalize().unwrap()
+    );
+}
+
+#[test]
+fn branch_document_binding_survives_removal_of_the_original_launch_worktree() {
+    let (root, state, _store, _rx) = fixture();
+    let repo = git2::Repository::open(root.path()).unwrap();
+    let tree = repo
+        .find_tree(repo.index().unwrap().write_tree().unwrap())
+        .unwrap();
+    let sig = git2::Signature::now("Test", "test@example.com").unwrap();
+    repo.commit(Some("HEAD"), &sig, &sig, "base", &tree, &[])
+        .unwrap();
+    let siblings = tempfile::tempdir().unwrap();
+    let launch = siblings.path().join("launch");
+    let task = siblings.path().join("task");
+    repo.worktree("launch", &launch, None).unwrap();
+    repo.worktree("task-docs", &task, None).unwrap();
+    std::fs::create_dir(task.join("specs")).unwrap();
+    std::fs::write(task.join("specs/current.md"), "# Bound design\n").unwrap();
+    let binding = crate::session_location::WorktreeBinding::resolve(
+        launch.to_str().unwrap(),
+        task.to_str().unwrap(),
+    )
+    .unwrap();
+    state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .metadata
+        .mutate_session(
+            "runtime-review",
+            crate::session_application::WriteScope::NONE,
+            |meta| {
+                meta.cwd = launch.to_string_lossy().into_owned();
+                meta.worktree_binding = Some(binding.clone());
+                Ok(())
+            },
+        )
+        .unwrap();
+    {
+        let mut sessions = state.sessions.lock().unwrap();
+        let info = &mut sessions.get_mut("runtime-review").unwrap().info;
+        info.cwd = launch.to_string_lossy().into_owned();
+        info.worktree_binding = Some(binding);
+    }
+    std::fs::remove_dir_all(launch).unwrap();
+    assert_eq!(
+        SessionApplication::new(state)
+            .read_document_content("runtime-review", Some(DocumentKind::Design), None)
+            .unwrap(),
+        "# Bound design\n"
+    );
 }
 
 #[tokio::test]

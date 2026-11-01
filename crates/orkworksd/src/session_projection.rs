@@ -379,7 +379,39 @@ impl SessionProjection {
         }
         let mut infos = self.project_capacity(self.snapshot()?, &prepared)?;
         self.project_organization(&mut infos);
-        Ok(self.enrich_workspace(infos))
+        drop(_fence);
+        let document_context = |id: &str| {
+            crate::session_location::subject(&self.state, id)
+                .ok()
+                .map(|(root, _)| {
+                    let branch = crate::branch_documents::identity(&root).ok();
+                    (root, branch)
+                })
+        };
+        let contexts: Vec<_> = infos
+            .iter()
+            .map(|info| (info.id.clone(), document_context(&info.id)))
+            .collect();
+        let infos = self.enrich_workspace(infos);
+        let _fence = self.state.projection_lock.lock().unwrap();
+        let matches = {
+            let current = self.state.workspace.lock().unwrap();
+            match (&workspace, current.as_ref()) {
+                (None, None) => true,
+                (Some(expected), Some(current)) => expected.matches(current),
+                _ => false,
+            }
+        };
+        if !matches
+            || contexts
+                .iter()
+                .any(|(id, context)| document_context(id) != *context)
+        {
+            return Err(io::Error::other(
+                "workspace or session location changed during document inspection",
+            ));
+        }
+        Ok(infos)
     }
 
     fn capture_capacity(&self) -> io::Result<(Option<CapacityWorkspace>, Vec<CapacityInput>)> {
@@ -539,10 +571,11 @@ impl SessionProjection {
                 let projection = root
                     .as_deref()
                     .filter(|root| {
-                        root.to_str().is_some_and(|root| {
-                            crate::session_location::WorktreeBinding::resolve(&info.cwd, root)
-                                .is_ok()
-                        })
+                        info.worktree_binding.is_some()
+                            || root.to_str().is_some_and(|root| {
+                                crate::session_location::WorktreeBinding::resolve(&info.cwd, root)
+                                    .is_ok()
+                            })
                     })
                     .map(|root| crate::branch_documents::projection(&store, root));
                 if let Some(projection) = projection {
@@ -1370,6 +1403,43 @@ mod tests {
                 .control_revision()
                 .unwrap()
                 > 0
+        );
+    }
+
+    #[tokio::test]
+    async fn branch_document_discovery_does_not_hold_the_terminal_input_fence() {
+        let (dir, state, _receiver) = input_fixture();
+        git2::Repository::init(dir.path()).unwrap();
+        let store = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .branch_documents
+            .clone();
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        *store.before_scan.lock().unwrap() = Some(Box::new(move || {
+            let _ = entered_tx.send(());
+            release_rx
+                .recv_timeout(std::time::Duration::from_secs(10))
+                .unwrap();
+        }));
+        let projection_state = state.clone();
+        let projection =
+            std::thread::spawn(move || SessionProjection::new(projection_state).list());
+        tokio::time::timeout(std::time::Duration::from_secs(5), entered_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        let input_can_enter = state.projection_lock.try_lock().is_ok();
+        release_tx.send(()).unwrap();
+        projection.join().unwrap().unwrap();
+        assert!(
+            input_can_enter,
+            "document inspection must not block terminal input"
         );
     }
 

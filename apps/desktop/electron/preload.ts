@@ -145,7 +145,7 @@ contextBridge.exposeInMainWorld("orkworks", {
   getPlanContent: (sessionId: string, kind?: "design" | "implementation", selectionId?: string): Promise<string> => ipcRenderer.invoke("get-plan-content", sessionId, kind, selectionId),
   requestPlanReview: (sessionId: string, kind?: "design" | "implementation", selectionId?: string): Promise<void> => ipcRenderer.invoke("request-plan-review", sessionId, kind, selectionId),
   useLatestPlanDocument: (sessionId: string, kind: "design" | "implementation", selectionId?: string): Promise<void> => ipcRenderer.invoke("use-latest-plan-document", sessionId, kind, selectionId),
-  selectTerminalPlan: (sessionId: string, printedPath: string): Promise<void> => ipcRenderer.invoke("select-terminal-plan", sessionId, printedPath),
+  selectTerminalPlan: (sessionId: string, printedPath: string): Promise<{kind: "design" | "implementation"; selectionId: string} | undefined> => ipcRenderer.invoke("select-terminal-plan", sessionId, printedPath),
   setHotkeyCaptureActive: (active: boolean) => {
     ipcRenderer.send("orkworks:hotkey-capture-active", active);
   },

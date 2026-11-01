@@ -46,7 +46,14 @@ export async function useLatestPlanDocument(baseUrl: string, sessionId: string, 
   if (!response.ok) throw new Error("Couldn’t restore the latest document.");
 }
 
-export async function selectTerminalPlan(baseUrl: string, sessionId: string, printedPath: string, token: string, fetchImpl: typeof fetch, signal: AbortSignal): Promise<void> {
+export async function selectTerminalPlan(baseUrl: string, sessionId: string, printedPath: string, token: string, fetchImpl: typeof fetch, signal: AbortSignal): Promise<{kind: PlanDocumentKind; selectionId: string} | undefined> {
   const response = await fetchImpl(`${baseUrl}/sessions/${encodeURIComponent(sessionId)}/select-terminal-plan`, { method: "POST", headers: { "Content-Type": "application/json", "x-orkworks-open-plan-token": token }, body: JSON.stringify({ printedPath }), signal });
   if (!response.ok) throw new Error("Couldn’t open this plan. It may have moved or be outside this repository’s worktrees.");
+  if (response.status === 204) return;
+  const body = await response.json() as {kind?: unknown; selectionId?: unknown};
+  if (body.kind == null && body.selectionId == null) return;
+  validatePlanDocumentKind(body.kind);
+  validatePlanSelectionId(body.selectionId);
+  if (body.kind === undefined || body.selectionId === undefined) throw new Error("Invalid document selection.");
+  return {kind: body.kind, selectionId: body.selectionId};
 }

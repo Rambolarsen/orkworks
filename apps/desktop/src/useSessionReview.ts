@@ -16,7 +16,7 @@ export interface ReviewDocument {
 export function useSessionReview(sessionId: string | null, generation: number, enabled: boolean,
   onLoaded: (document: ReviewDocument, persist: boolean) => boolean,
   onUnavailable: (sessionId: string, generation: number, persist: boolean, restoring: boolean) => boolean,
-  scopeKey?: string) {
+  scopeKey?: string, locationKey?: string) {
   const [document, setDocument] = useState<ReviewDocument | null>(null);
   const [loading, setLoading] = useState(false);
   const [changed, setChanged] = useState(false);
@@ -25,10 +25,12 @@ export function useSessionReview(sessionId: string | null, generation: number, e
   const request = useRef(0);
   const selectedKind = useRef<PlanDocumentKind | undefined>(undefined);
   const selectedId = useRef<string | undefined>(undefined);
-  const scope = useRef({ sessionId, generation, enabled, scopeKey });
+  const explicitSelection = useRef<number | null>(null);
+  const scope = useRef({ sessionId, generation, enabled, scopeKey, locationKey });
   if (scope.current.sessionId !== sessionId || scope.current.generation !== generation || scope.current.enabled !== enabled || scope.current.scopeKey !== scopeKey) {
-    scope.current = { sessionId, generation, enabled, scopeKey };
-    ++request.current;
+    const sameLocation = scope.current.sessionId === sessionId && scope.current.generation === generation && scope.current.enabled === enabled && scope.current.locationKey === locationKey;
+    scope.current = { sessionId, generation, enabled, scopeKey, locationKey };
+    if (explicitSelection.current === null || !sameLocation) ++request.current;
   }
   const onLoadedRef = useRef(onLoaded);
   onLoadedRef.current = onLoaded;
@@ -43,8 +45,12 @@ export function useSessionReview(sessionId: string | null, generation: number, e
     setChanged(false);
     setLoading(false);
     setError(false);
+    explicitSelection.current = null;
   }, []);
-  useEffect(() => { close(); return () => { ++request.current; }; }, [sessionId, generation, enabled, scopeKey, close]);
+  useEffect(() => {
+    if (explicitSelection.current !== request.current) close();
+  }, [sessionId, generation, enabled, scopeKey, locationKey, close]);
+  useEffect(() => () => { ++request.current; }, []);
   const unavailable = useCallback((kind?: PlanDocumentKind, selectionId?: string) => {
     close();
     selectedKind.current = kind;
@@ -54,8 +60,9 @@ export function useSessionReview(sessionId: string | null, generation: number, e
   const load = useCallback(async (persist = true, restoring = false, printedPath?: string, kind?: PlanDocumentKind, selectionId?: string) => {
     if (!sessionId || !enabled) return;
     const token = ++request.current;
-    const requestedKind = printedPath !== undefined ? undefined : kind ?? selectedKind.current;
-    const requestedId = printedPath !== undefined ? undefined : selectionId ?? (kind === undefined || kind === selectedKind.current ? selectedId.current : undefined);
+    let requestedKind = printedPath !== undefined ? undefined : kind ?? selectedKind.current;
+    let requestedId = printedPath !== undefined ? undefined : selectionId ?? (kind === undefined || kind === selectedKind.current ? selectedId.current : undefined);
+    if (printedPath !== undefined) explicitSelection.current = token;
     selectedKind.current = requestedKind;
     selectedId.current = requestedId;
     setLoading(true);
@@ -63,14 +70,18 @@ export function useSessionReview(sessionId: string | null, generation: number, e
     setDocument(null);
     try {
       if (printedPath !== undefined) {
-        await window.orkworks.selectTerminalPlan(sessionId, printedPath);
+        const selection = await window.orkworks.selectTerminalPlan(sessionId, printedPath);
         if (request.current !== token) return;
+        requestedKind = selection?.kind;
+        requestedId = selection?.selectionId;
+        selectedKind.current = requestedKind;
+        selectedId.current = requestedId;
       }
       const content = requestedKind === undefined ? await window.orkworks.getPlanContent(sessionId) : await window.orkworks.getPlanContent(sessionId, requestedKind, requestedId);
       const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${requestedKind ?? "legacy"}\0${content}`));
       if (request.current !== token) return;
       const artifactId = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
-      const next = { sessionId, generation, artifactId, content, kind: requestedKind, scopeKey, selectionId: requestedId };
+      const next = { sessionId, generation, artifactId, content, kind: requestedKind, scopeKey: scope.current.scopeKey, selectionId: requestedId };
       if (!onLoadedRef.current(next, persist)) return;
       setChanged(previousDigest.current !== null && previousDigest.current !== artifactId);
       previousDigest.current = artifactId;
@@ -84,6 +95,7 @@ export function useSessionReview(sessionId: string | null, generation: number, e
       }
       if (request.current === token && onUnavailableRef.current(sessionId, generation, persist, restoring)) setError(true);
     } finally {
+      if (explicitSelection.current === token) explicitSelection.current = null;
       if (request.current === token) setLoading(false);
     }
   }, [sessionId, generation, enabled, scopeKey]);

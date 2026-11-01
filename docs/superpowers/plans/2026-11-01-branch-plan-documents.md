@@ -114,6 +114,27 @@ Files: renderer `api.ts`, `orkworksWindow.d.ts`, `useSessionReview.ts`,
 
 ## Risk and recovery review
 
+### Execution checkpoint, 2026-11-01
+
+Implementation is in [PR #1233](https://github.com/Rambolarsen/orkworks/pull/1233).
+The published head is `3330425f`; three substantive review cycles are consumed.
+An explicit extension of at most two cycles has been requested and remains
+pending. No additional review trigger or merge is authorized by elapsed time.
+
+The local corrective pass adds safe original-path legacy reads, effective
+worktree hook reports, surviving bindings when launch worktrees disappear,
+independent agent slot reports, document inspection outside the input fence,
+typed terminal selections that survive their own publication, readable-slot
+fallback for untyped callers and explicit-binding containment for terminal paths.
+Thirty-one focused Rust document regressions and the real Electron terminal-link
+flow passed. Full verification of the combined corrective pass is pending.
+
+Before another review cycle, vet the four additional findings in Copilot's full
+review body: saved pins when discovery fails, `core.symlinks=false` index modes,
+nested repository boundaries, and preserving stronger reporting provenance.
+Refresh main and resolve any reported merge conflict, then verify and review the
+current diff. Do not treat an earlier passing review as approval of later code.
+
 Dependencies 3: sidecar discovery/storage and duplicated Electron/renderer
 contracts ship together. Blast radius 3: shared document projection and content
 routes, without lifecycle changes. State changes 3: additive versioned branch

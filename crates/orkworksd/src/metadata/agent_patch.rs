@@ -328,6 +328,7 @@ impl AgentPatch {
             .plan_path
             .as_ref()
             .is_some_and(|plan| plan.source == PlanSource::UserSelected)
+            && matches!(agent.plan_path, FieldUpdate::Clear)
         {
             return Err(semantic_error(PatchSemanticError::Conflict));
         }
@@ -353,6 +354,18 @@ impl AgentPatch {
         if binding.is_some() && root != launch {
             return Err(semantic_error(PatchSemanticError::BadRequest));
         }
+        if let Some(pin) = meta
+            .plan_path
+            .as_ref()
+            .filter(|plan| plan.source == PlanSource::UserSelected)
+        {
+            let independent = crate::branch_documents::kind_for_path(&pin.relative_path)
+                .zip(crate::branch_documents::kind_for_path(&relative_path))
+                .is_some_and(|(pinned, reported)| pinned != reported);
+            if !independent {
+                return Err(semantic_error(PatchSemanticError::Conflict));
+            }
+        }
         Ok(Some(PlanReference {
             worktree_root: Some(root.to_string_lossy().into_owned()),
             relative_path,
@@ -360,7 +373,7 @@ impl AgentPatch {
         }))
     }
 
-    fn apply(&self, meta: &mut SessionMetadata) -> io::Result<()> {
+    fn apply(&self, meta: &mut SessionMetadata) -> io::Result<Option<PlanReference>> {
         require_live(meta)?;
         let plan = self.validate_current(meta, true)?;
         let binding = match self.agent_metadata.as_ref().map(|a| &a.worktree_path) {
@@ -414,11 +427,19 @@ impl AgentPatch {
             match &agent.plan_path {
                 FieldUpdate::Omitted => {}
                 FieldUpdate::Clear => meta.plan_path = None,
-                FieldUpdate::Set(_) => meta.plan_path = plan,
+                FieldUpdate::Set(_) => {
+                    if !meta
+                        .plan_path
+                        .as_ref()
+                        .is_some_and(|reference| reference.source == PlanSource::UserSelected)
+                    {
+                        meta.plan_path = plan.clone();
+                    }
+                }
             }
         }
         meta.last_activity = iso_now();
-        Ok(())
+        Ok(plan)
     }
 }
 
@@ -480,15 +501,19 @@ impl MetadataStore {
         expected: &MetadataRevision,
         patch: &AgentPatch,
     ) -> Result<RevisionedSession, AgentPatchError> {
+        let mut reported = None;
         let updated = self
-            .try_update_session_scoped(id, expected, patch.scope(), |meta| patch.apply(meta))
+            .try_update_session_scoped(id, expected, patch.scope(), |meta| {
+                reported = patch.apply(meta)?;
+                Ok(())
+            })
             .map_err(map_error)?;
         if patch
             .agent_metadata
             .as_ref()
             .is_some_and(|agent| matches!(agent.plan_path, FieldUpdate::Set(_)))
         {
-            if let Some(reference) = &updated.metadata.plan_path {
+            if let Some(reference) = &reported {
                 if let Err(error) =
                     crate::branch_documents::publish(&self.branch_documents, reference)
                 {
@@ -1129,5 +1154,46 @@ mod tests {
         );
         assert!(accepted.metadata.plan_path.is_some());
         assert_eq!(std::fs::read_to_string(record).unwrap(), "{");
+    }
+
+    #[test]
+    fn branch_document_report_for_other_slot_preserves_a_legacy_user_pin() {
+        let dir = tempfile::tempdir().unwrap();
+        git2::Repository::init(dir.path()).unwrap();
+        std::fs::create_dir_all(dir.path().join("specs")).unwrap();
+        std::fs::create_dir_all(dir.path().join("docs/superpowers/plans")).unwrap();
+        std::fs::write(dir.path().join("specs/design.md"), "# Design\n").unwrap();
+        std::fs::write(
+            dir.path().join("docs/superpowers/plans/implementation.md"),
+            "# Implementation\n",
+        )
+        .unwrap();
+        let store = MetadataStore::new(&dir.path().join("metadata"));
+        let mut meta = live_meta("independent-slot", dir.path().to_str().unwrap());
+        let pin = crate::branch_documents::document(
+            dir.path(),
+            "specs/design.md",
+            PlanSource::UserSelected,
+            true,
+        )
+        .unwrap();
+        meta.plan_path = Some(pin.reference.clone());
+        store.write_session(&meta);
+        let identity = crate::branch_documents::identity(dir.path()).unwrap();
+        store.branch_documents.report(&identity, pin).unwrap();
+        let before = store
+            .try_read_revisioned_session(&meta.id)
+            .unwrap()
+            .unwrap();
+        let patch = parse(json!({"metadataRevision":"0","patch":{"agentMetadata":{"planPath":"docs/superpowers/plans/implementation.md"}}})).unwrap().patch;
+        let after = store
+            .apply_agent_patch(&meta.id, &before.revision, &patch)
+            .unwrap();
+        assert_eq!(after.metadata.plan_path, meta.plan_path);
+        let documents = store.branch_documents.load(&identity).unwrap();
+        assert_eq!(documents.len(), 2);
+        assert!(documents
+            .iter()
+            .any(|doc| doc.kind == crate::branch_documents::DocumentKind::Implementation));
     }
 }

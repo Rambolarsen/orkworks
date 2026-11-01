@@ -30,11 +30,13 @@ pub(crate) fn subject(state: &AppState, id: &str) -> Result<Subject, String> {
         )
     };
     let (root, _) = crate::session_location::subject(state, id)?;
-    crate::session_location::WorktreeBinding::resolve(
-        &meta.cwd,
-        root.to_str().ok_or("Unsupported worktree path.")?,
-    )
-    .map_err(str::to_owned)?;
+    if meta.worktree_binding.is_none() {
+        crate::session_location::WorktreeBinding::resolve(
+            &meta.cwd,
+            root.to_str().ok_or("Unsupported worktree path.")?,
+        )
+        .map_err(str::to_owned)?;
+    }
     let branch = branch_documents::identity(&root).ok();
     let head = git2::Repository::open(&root)
         .ok()
@@ -72,7 +74,12 @@ pub(crate) fn selected(
             if let Some(doc) = documents.iter().find(|d| d.kind == wanted) {
                 // A missing pinned selection is authoritative; never substitute
                 // another document or another slot for an explicit request.
-                branch_documents::validate_document(identity, doc)?;
+                if let Err(error) = branch_documents::validate_document(identity, doc) {
+                    if kind.is_some() {
+                        return Err(error);
+                    }
+                    continue;
+                }
                 result = Some(doc.clone());
                 break;
             }
