@@ -21,6 +21,8 @@ const inventory = {
       scope: "personal",
       paths: ["/home/.agents/skills/review"],
     },
+    { ...skill, id: "plugin-one", name: "plan", scope: "personal", management: "plugin", plugins: ["alpha@local"], tools: ["claude"] },
+    { ...skill, id: "plugin-two", name: "build", scope: "personal", management: "plugin", plugins: ["beta@local"], tools: ["claude"] },
   ],
   roots: [],
   diagnostics: ["Coverage is limited; native loading is unknown."],

@@ -31,6 +31,9 @@ returns to the previous central content; selecting a session opens its Terminal.
 Skills is transient and is not restored after restart.
 Personal discovery works without an open workspace; Workspace then explains
 that opening a workspace is required.
+Within each scope, group skills by recorded plugin registration name, with other
+skills in a separate group. Search also matches plugin names. A skill exposed by
+several registrations stays in one row under their combined names.
 
 Workspace names the exact open directory, including when it is a linked
 worktree. It does not substitute the Git common directory or another session's

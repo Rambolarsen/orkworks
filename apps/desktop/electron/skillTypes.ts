@@ -9,6 +9,7 @@ export interface SkillEntry {
   resolvedPath: string;
   tools: SkillTool[];
   management: "local" | "apm" | "plugin";
+  plugins?: string[];
   packageSource?: string;
   version?: string;
 }

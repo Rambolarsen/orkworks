@@ -123,7 +123,10 @@ In current source builds, open **Skills** in the left sidebar, below Recommendat
 **Workspace** and **Personal** groups. Workspace names the exact open directory
 or worktree. Personal shows skills found in your user configuration, which may
 be available across projects. Source paths and coding-tool filters help you
-identify each copy; duplicate names remain visible in both scopes.
+identify each copy; duplicate names remain visible in both scopes. Within each
+scope, skills are grouped by recorded plugin name, with **Other skills** listed
+separately. Search matches plugin names as well as skill names, descriptions and
+paths.
 
 Rows start collapsed to keep the inventory compact. Expand a row to see its
 description, source paths and coding-tool coverage, then use **Read skill** to

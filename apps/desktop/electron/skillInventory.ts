@@ -78,13 +78,13 @@ export async function discoverSkills(options: {
     path: string;
     scope: SkillScope;
     tools: SkillTool[];
-    plugin?: boolean;
+    plugin?: string;
   }> = [];
   const add = (
     path: string,
     scope: SkillScope,
     tools: SkillTool[],
-    plugin = false,
+    plugin?: string,
   ) => {
     if (roots.length >= 128) {
       if (!result.diagnostics.includes("Discovery root limit reached."))
@@ -174,7 +174,7 @@ export async function discoverSkills(options: {
         ),
       ),
     );
-    for (const registrations of Object.values(record(config.plugins)))
+    for (const [plugin, registrations] of Object.entries(record(config.plugins)))
       if (Array.isArray(registrations))
         for (const entry of registrations) {
           const registration = record(entry);
@@ -188,7 +188,7 @@ export async function discoverSkills(options: {
               join(registration.installPath, "skills"),
               "personal",
               ["claude"],
-              true,
+              plugin,
             );
           if (
             workspace &&
@@ -199,7 +199,7 @@ export async function discoverSkills(options: {
               join(registration.installPath, "skills"),
               "workspace",
               ["claude"],
-              true,
+              plugin,
             );
         }
   } catch (error) {
@@ -261,6 +261,12 @@ export async function discoverSkills(options: {
         const existing = entries.get(key);
         if (existing) {
           existing.paths = Array.from(new Set([...existing.paths, path]));
+          if (root.plugin) {
+            existing.plugins = Array.from(
+              new Set([...(existing.plugins || []), root.plugin]),
+            ).sort();
+            existing.management = "plugin";
+          }
           existing.tools = Array.from(
             new Set([...existing.tools, ...root.tools]),
           );
@@ -273,6 +279,7 @@ export async function discoverSkills(options: {
             resolvedPath: canonical,
             tools: [...root.tools],
             management: root.plugin ? "plugin" : "local",
+            ...(root.plugin ? { plugins: [root.plugin] } : {}),
           });
         return;
       } catch (error) {
