@@ -36,7 +36,7 @@ interface Props {
   reviewContent?: ReactNode;
   reviewLoading?: boolean;
   reviewError?: boolean;
-  onOpenReview?: () => void;
+  onOpenReview?: (kind?: import("../api").PlanDocumentKind) => void;
   onSelectPlan?: (sessionId: string, path: string) => Promise<void>;
   onRequestPlanReview?: (sessionId: string) => Promise<void>;
   onNavigate?: () => void;
@@ -344,7 +344,16 @@ export default function ApplicationShell(props: Props) {
       workspaceIdentity={props.isSwitchingWorkspace ? undefined : props.workspace?.workspaceIdentity} onTitleUpdated={props.onTitleUpdated}
       visibleSessionId={props.visibleSubjectId} harnesses={props.harnesses}
       onReviewChanges={() => runCommand("changes", true)}
-      onReviewPlan={() => runCommand("review")} onRequestPlanReview={props.onRequestPlanReview}
+      onReviewPlan={kind => {
+        if (!kind) { runCommand("review"); return; }
+        if (props.backendStatus !== "connected" || props.isSwitchingWorkspace || !props.onOpenReview) return;
+        captureInvoker("review");
+        reviewInvoker.current = { element: invokerRef.current, selector: invokerSelectorRef.current };
+        setSessionsPage(false);
+        props.onCancelNewSession?.();
+        if (layout.inspectorPage) props.onInspect(null);
+        props.onOpenReview(kind);
+      }} onRequestPlanReview={props.onRequestPlanReview}
       resumingSessionIds={props.resumingSessionIds} onResumeSession={props.onResumeSession} onApplyDebugAttention={props.onApplyDebugAttention}
       onOpenSettings={() => props.onOpenSettings("providers")} onOpenRecommendation={props.onOpenRecommendation}
       showDebugMetadata={props.debugSettings.showSessionIds} />;

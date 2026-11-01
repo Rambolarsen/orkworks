@@ -402,6 +402,7 @@ pub(crate) fn project_session_info(
             .and_then(|m| m.resumed_from.clone())
             .or(info.resumed_from),
         has_openable_plan: None,
+        plan_documents: None,
         provider: meta
             .and_then(|m| m.provider_label.clone())
             .or(info.provider),
@@ -556,6 +557,7 @@ mod tests {
             resume_options: vec![],
             resumed_from: None,
             has_openable_plan: None,
+            plan_documents: None,
         }
     }
 

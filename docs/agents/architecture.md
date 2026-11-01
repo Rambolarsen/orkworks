@@ -762,6 +762,21 @@ retains producer, backup, recovery and performance gates. The [private adapter f
 writer integration and activation remain pending. The paths and source behavior
 below still describe format 1.
 
+The accepted [branch document extension](../../specs/session-plan-review.md#branch-document-extension)
+replaces single-session display with design/specification and implementation-plan
+slots shared by canonical repository and branch identity. [ADR 0102](../adr/0102-branch-document-association.md)
+records the additive branch-store and authenticated document-kind design.
+The owner approved architecture and implementation on 2026-11-01 under
+[#1230](https://github.com/Rambolarsen/orkworks/issues/1230). `branch_documents.rs`
+owns validated identity, bounded discovery and sanitized projections;
+`branch_documents_store.rs` owns additive version-1 records and short-lived
+scan caches. Session projection uses the effective worktree outside runtime
+locks. `branch_documents_application.rs` owns document reads and handoffs through
+the existing `SessionApplication`; `session_location.rs` supplies the shared
+validated root resolver. The thin `http/branch_documents_handlers.rs` extends content/review access with
+the closed optional `kind` selector and adds authenticated pin reset. The
+existing `planPath` metadata and bodyless legacy APIs remain compatible.
+
 Session title operations are separate from attention/work metadata. The renderer
 uses `window.orkworks.sessionTitle` through Electron main's generation-bound
 transport. `POST /sessions/:id/title` requires the desktop token and canonical

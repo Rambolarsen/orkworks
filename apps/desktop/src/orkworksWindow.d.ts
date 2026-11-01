@@ -218,9 +218,10 @@ declare global {
       openExternalLink: (url: string) => Promise<void>;
       readGitChanges: (request: GitChangesRequest) => Promise<GitChangesResult>;
       sessionTitle: (request: import("./sessionTitleTypes").SessionTitleRequest) => Promise<import("./sessionTitleTypes").SessionTitleResult>;
-      getPlanContent: (sessionId: string) => Promise<string>;
-      requestPlanReview: (sessionId: string) => Promise<void>;
-      selectTerminalPlan: (sessionId: string, printedPath: string) => Promise<void>;
+      getPlanContent: (sessionId: string, kind?: import("./api").PlanDocumentKind, selectionId?: string) => Promise<string>;
+      requestPlanReview: (sessionId: string, kind?: import("./api").PlanDocumentKind, selectionId?: string) => Promise<void>;
+      useLatestPlanDocument: (sessionId: string, kind: import("./api").PlanDocumentKind, selectionId?: string) => Promise<void>;
+      selectTerminalPlan: (sessionId: string, printedPath: string) => Promise<{kind: import("./api").PlanDocumentKind; selectionId: string; branch?: string | null} | undefined>;
       setHotkeyCaptureActive: (active: boolean) => void;
       onMenuCommand: (callback: (data: { action: string; panelId?: string }) => void) => () => void;
       notifyPanelVisibility: (panelId: string, visible: boolean) => void;

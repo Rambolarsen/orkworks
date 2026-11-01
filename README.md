@@ -82,6 +82,11 @@ Other utility pages replace Terminal at narrower widths without ending its sessi
 navigation remain follow-up work under [#755](https://github.com/Rambolarsen/orkworks/issues/755).
 This describes source behavior, not the contents of published installers.
 
+Current source displays the latest branch design/specification and implementation
+plan as two shared document steps, with Git-assisted discovery and explicit user
+pins. This is a document viewer; the coding workflow owns approvals and gates.
+See [ADR 0102](docs/adr/0102-branch-document-association.md).
+
 The accepted [brain-informed Taskmaster design](specs/taskmaster-knowledge.md)
 adds independently updated reference knowledge, a separate analysis model, and
 user-controlled background discovery; implementation is tracked in

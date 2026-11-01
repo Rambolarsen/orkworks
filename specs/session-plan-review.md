@@ -37,3 +37,187 @@ The sidecar constructs one fixed prompt using the validated workspace-relative p
 - [ ] Missing, absolute, non-Markdown, and workspace-escaping paths are rejected before any PTY input.
 - [ ] The renderer never receives an artifact path or sends arbitrary terminal text.
 - [ ] The user-approved handoff is recorded in the session event log.
+
+## Branch document extension
+
+Status: accepted, 2026-11-01. The owner approved the shared branch behavior,
+two-step UI, latest ordering and additive storage/protocol design in the
+originating conversation under
+[#1230](https://github.com/Rambolarsen/orkworks/issues/1230). This extension
+supersedes the single-session, single-document association/display rules above;
+the existing reporting transports and user-approved review authority remain.
+
+### Outcome and display
+
+Replace the single session artifact with two independently available documents:
+**1. Design / specification**, then **2. Implementation plan**. The Details
+inspector keeps both steps visible, shows readable document titles and
+available/missing state, and offers expandable source information. Selecting a
+step reads it in the existing single central Review surface with its existing
+Terminal/Workflow return destination. A step number indicates order, never
+approval, completion or permission to proceed. The underlying coding workflow
+owns all approvals and gates. Retain the explicit fixed independent-review
+action for the selected document and live session.
+
+Default to the latest document of each kind on the branch. A branch may be
+reused for several work items; OrkWorks does not infer a work-item hierarchy or
+try to pair documents semantically. A new spec can temporarily appear with the
+previous plan. Older/other documents remain accessible through Changes.
+
+### Identity and durable association
+
+Within one workspace owner, a document pair belongs to the canonical Git common
+directory and full local branch ref, not to a session, branch display name or
+worktree path alone. Sessions resolving to that key share selections and source
+information. Use the validated explicit worktree binding before existing
+harness/process/launch directory fallbacks. An unavailable explicit binding is
+unavailable; never silently inspect a different root.
+
+Resolve the branch from the current validated worktree on each refresh/read.
+Switching branches uses the new branch's pair without copying the old pair.
+Detached HEAD has no shared branch key: retain a revalidated session-local
+explicit/reported artifact, but do not invent a branch or share by commit ID.
+Unborn branches may discover uncommitted documents. Independent workspace
+instances retain their existing isolation; this change creates no cross-instance
+writer, registry or global ownership service.
+
+Store a version-1 additive branch record under the owning workspace's
+`branch-documents/<sha256-key>.json`. The key hashes an unambiguous encoding of
+the canonical common directory and full branch ref; the record also stores and
+checks those identity fields. Each optional slot retains the anchored reference,
+source, observation time and whether a user explicitly pinned it. Use atomic
+replacement and a retained per-key lock under the workspace's single-writer
+lease. Reject malformed/unknown-version records without overwriting them.
+Preserve existing `SessionMetadata.planPath`; no destructive migration.
+
+Retain a selected automatic document's establishing HEAD/object evidence. A
+commit or advancing base does not erase a valid established branch association
+when there is no newer candidate. Deletion, repository mismatch or rewritten
+history that no longer supports that evidence invalidates the automatic
+association; rediscover without copying it to another branch. Explicit pins
+remain deliberate choices and are revalidated for readability and containment.
+
+Explicit user selection pins the corresponding branch slot and survives restart
+and later automatic discoveries. Missing pinned files display unavailable;
+automatic discovery must not silently substitute a different document. A narrow
+**Use latest** action clears that slot's pin. A terminal link remains an explicit
+selection; agent/hook reports and terminal heuristics are automatic evidence,
+not implicit pins. Share them only after binding to the originating repository
+and branch at acceptance time; old session metadata cannot be reattributed to
+whatever branch happens to be checked out later.
+
+### Discovery and latest ordering
+
+Supported Markdown roots remain `docs/superpowers/specs/`,
+`docs/superpowers/plans/`, and `specs/`. Classify the first and third as
+design/specification, the second as implementation plan. Exclude directory
+indexes (`index.md`, `README.md`) from automatic discovery. Do not classify by
+prose semantics, search the entire repository or create documents.
+
+Agent/hook paths and existing conservative terminal signals remain discovery
+inputs. Git additionally discovers eligible uncommitted regular files and
+committed net changes against the branch's default base. Reuse Changes' local
+base preference: origin/HEAD, then local main, then local master, excluding the
+current branch. No fetch. No eligible base, ambiguous/missing merge base or
+shallow/incomplete history makes committed discovery unavailable; it does not
+authorize scanning all inherited documents. Uncommitted discovery and validated
+explicit/reported paths may still work independently.
+
+For automatic defaults, rank current uncommitted changes before committed
+documents. Rank dirty/untracked candidates by filesystem modification time,
+then deterministic relative-path order for ties. Among committed net branch
+candidates, walk HEAD's first-parent history back to the unique merge base;
+the nearest commit changing a candidate wins. Use history order rather than
+author/committer clocks. A reverted/deleted path is not an openable candidate.
+Agent reports do not permanently freeze an older automatic default; when the
+same chosen path has stronger reporting evidence, retain that provenance.
+
+Inspection is read-only and bounded: at most 10,000 visited file/tree/commit
+entries, 500 eligible documents, a five-second cooperative scan budget, 1 MiB
+per document read and 4 MiB aggregate document reads per scan. Report limits or
+unavailable inspection explicitly; an incomplete scan cannot claim a latest
+winner or overwrite an established association. Failed scans still revalidate
+saved selections independently, so a readable pin remains accessible. Exclude
+nested repositories and Gitlinks from discovery and access; preserve Git's
+literal-symlink checkout semantics. Cache results for at most five
+seconds per worktree/branch/HEAD and invalidate on accepted reports/selections,
+root/branch changes and workspace adoption. Discovery runs outside the global
+terminal-input fence; revalidate workspace ownership and session location before
+publishing prepared scan results, then revalidate before returning the projection.
+A scan captured before a newer
+publication cannot overwrite it. Automatic associations retain normalized
+content-hash evidence as well as ancestry, so reverting a branch change cannot
+keep an inherited document attached. Never hold runtime/workspace locks
+through discovery. Reuse bounded Git-object and no-follow regular-file access;
+never read symlinks, FIFOs, devices, source Git control files through ordinary
+libgit2 filesystem readers, or execute external filters/drivers.
+
+### Access, compatibility and recovery
+
+Expose sanitized ordered slot summaries and shared-branch session context in
+session projection. Titles come from bounded document content or a sanitized
+filename fallback. Do not return trusted filesystem paths to the renderer.
+Keep `hasOpenablePlan` as the aggregate of readable slots for older consumers.
+
+Extend authenticated content/review access with an optional closed
+`design | implementation` kind. Electron validates it and retains the desktop
+credential and workspace-generation fence; renderer supplies session ID, kind
+and an optional opaque selection ID from the projected slot. This ID identifies
+the owning repository/branch, displayed document and content without exposing
+paths or granting authority. Availability changes invalidate cached reader bytes
+and show an unavailable state, including when the last document disappears.
+Content, review and pin-reset requests reject a changed selection rather than
+silently acting on a newer document. Existing bodyless requests preserve their legacy
+selection, otherwise default to implementation then design. Pin reset accepts
+only session ID, kind and optional selection ID through that desktop boundary.
+Revalidate workspace, effective root, branch, anchored repository containment,
+regular Markdown type and read bounds for each read and review handoff.
+Terminal-link selection returns its validated kind, opaque selection ID and
+source branch label; retain these for the subsequent content/read handoff and
+reader refresh scope. Its own same-branch
+publication cannot cancel the explicit open, while session, workspace and branch
+switches still invalidate it. Legacy clients may ignore the additive response.
+For an unbound session's permitted sibling-worktree selection, resolve the exact
+validated explicit selection by its opaque ID and use the document's branch for
+admission while preserving the session's own location/runtime fences. Explicit
+task-worktree bindings remain authoritative and reject sibling selections.
+Polling the session's branch must not replace an explicitly opened sibling
+document; actual session/workspace/location changes still invalidate the reader.
+Historical bodyless paths use the same repository-boundary, literal-symlink and
+no-follow Markdown validation without being limited to auto-discovery roots.
+Recheck the shared slot under its lock before returning bytes. Pin reset retains
+the validated workspace owner through mutation; stale legacy user-selected
+references cannot block fresh reports into an unpinned current-branch slot.
+Capture the runtime before document inspection; at input admission revalidate
+that runtime, workspace and selected document. A resumed runtime cannot receive
+a click made for its predecessor. Audit only acknowledged delivery.
+
+Keep legacy string/anchored `planPath` records readable. A legacy reference
+without recorded branch identity remains session-local until fresh explicit or
+agent evidence establishes that identity. It may remain the compatibility
+fallback, but must not seed another branch's shared record merely because a
+session is now inspecting that branch. Preserve existing explicit-clear behavior
+for legacy fallback. Failed storage publication leaves the prior branch record
+intact. Dedicated document-report operations report that failure. A revisioned
+metadata patch already committed must still acknowledge success and update live
+bookkeeping; supplementary branch-publication failure is logged, while its
+session-local reference remains available. Downgrading ignores additive branch records and retains
+the original session metadata; no downgrade deletes user selections.
+
+### Acceptance additions
+
+- [ ] Both ordered steps remain visible, including either independently missing.
+- [ ] Same repository/branch sessions share documents, while equal branch names
+  in different repositories and deliberate branch switches remain isolated.
+- [ ] Committed documents appear after missed reports and after restart; inherited
+  base documents are excluded from automatic discovery.
+- [ ] Latest rules cover dirty/untracked files, committed history, branch reuse,
+  reverted/deleted files, incomplete scans and clock-skewed commit timestamps.
+- [ ] Explicit pins survive commit/restart and automatic discoveries; Use latest
+  restores automatic choice for that slot only.
+- [ ] Legacy metadata/requests remain supported without false cross-branch
+  migration; unavailable bound roots and malformed storage fail honestly.
+- [ ] Authenticated reads and fixed review requests support either kind, reject
+  invalid kinds/paths, and fence stale session/workspace/document responses.
+- [ ] No approval/completion state, Git mutation, workflow gate or work-item
+  hierarchy is introduced.

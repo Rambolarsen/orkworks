@@ -126,6 +126,24 @@ export interface SessionInfo {
   resumeOptions?: ResumeOption[];
   resumedFrom?: string;
   hasOpenablePlan?: boolean;
+  planDocuments?: BranchDocuments;
+}
+
+export type PlanDocumentKind = "design" | "implementation";
+export interface BranchDocumentStep {
+  kind: PlanDocumentKind;
+  available: boolean;
+  title?: string | null;
+  fileName?: string | null;
+  source?: string | null;
+  pinned: boolean;
+  selectionId?: string | null;
+}
+export interface BranchDocuments {
+  branch?: string | null;
+  sharedSessions: number;
+  steps: BranchDocumentStep[];
+  notice?: string | null;
 }
 
 export async function createSession(

@@ -1,0 +1,197 @@
+---
+type: Implementation Plan
+title: Shared branch design and implementation documents
+description: Deliver durable Git-assisted discovery and two ordered document steps for sessions sharing a task branch.
+tags: [orkworks, plans, git, desktop]
+status: stable
+workflow_status: complete
+---
+
+# Shared branch design and implementation documents
+
+## Outcome and authority
+
+Sessions on the same repository branch display the latest design/specification
+and implementation plan as two ordered steps. Commit and restart do not lose
+the documents. Explicit user selections stay pinned. OrkWorks displays these
+documents; approval, completion and gating remain the coding workflow's concern.
+
+Issue: [#1230](https://github.com/Rambolarsen/orkworks/issues/1230).
+Contract: [Session plan review](../../../specs/session-plan-review.md#branch-document-extension).
+Decision: [Branch document association](../../adr/0102-branch-document-association.md).
+
+The owner approved the behavior, interactive UI and concrete additive
+storage/protocol design on 2026-11-01, then authorized implementation. Execute
+inline in the owned `branch-plan-documents` worktree.
+
+## Decisions and boundaries
+
+- Rust owns branch identity, discovery, selection persistence and path validation.
+  Add focused `branch_documents.rs` and `branch_documents_store.rs` modules rather
+  than putting discovery into the large session application module.
+- Use the canonical Git common directory plus full local branch ref as the shared
+  key within the current workspace. Resolve the validated explicit task-worktree
+  binding first; unavailable bindings never fall back to another root.
+- Keep a versioned additive branch record with independent design/implementation
+  selections, provenance, observation time and explicit-selection pin state.
+  Preserve existing `plan_path` metadata and bodyless legacy endpoints.
+- Discover branch-specific documents from Git objects and bounded uncommitted
+  files; no fetch, shell, Git mutation, external filters or repo-wide inbox.
+- Electron owns the desktop credential; renderer requests contain only session
+  ID, the closed `design | implementation` discriminator and an optional opaque
+  selection ID to reject actions for stale displayed content.
+- Reuse the single central Review surface and existing return navigation.
+  Keep document-slot selection in transient renderer state; reopening after
+  restoration may default to the implementation slot, then design.
+
+## Delivery
+
+### Shared identity, selection and discovery
+
+Files: new Rust branch-document modules; `session_location.rs`, `git_changes.rs`,
+`plan_handoff.rs`, `metadata.rs` and focused module tests where necessary.
+
+- [x] Add failing repository fixtures for committed design and plan discovery,
+  dirty/untracked documents, inherited documents, multiple work items, two
+  sessions sharing a branch, distinct repositories with equal branch names,
+  branch switches and detached/unborn/unavailable repositories.
+- [x] Implement the scoped ranking, classification and validation rules in the
+  contract. Share the existing default-base selection policy with Changes.
+  Bound scans; incomplete discovery never replaces an established selection.
+- [x] Add atomic, versioned branch selection persistence using the existing
+  workspace single-writer boundary. Test restart, pin precedence, corrupt
+  records, missing documents and rollback with legacy session metadata intact.
+- [x] Route accepted hook, metadata, terminal and explicit selections into the
+  appropriate slot without changing attention or native identity. An existing
+  legacy association remains session-local unless fresh evidence establishes
+  branch ownership; never copy a historical reference to today's checkout.
+
+### Authenticated projection and document access
+
+Files: `session_application.rs`, `session_projection.rs`, `session_types.rs`,
+`http/session_handlers.rs`, `main.rs`; Electron `planOpener.ts`, `main.ts`,
+`preload.ts`; independent renderer contract types.
+
+- [x] Add failing route/projection tests for both slots, shared associations,
+  unavailable bound roots, deleted/symlinked documents, missing desktop token,
+  legacy requests, slot validation and workspace-generation races.
+- [x] Project two sanitized document summaries plus branch sharing context.
+  Retain `hasOpenablePlan` as the compatibility aggregate. Discover outside
+  runtime/workspace mutexes and reuse bounded per-worktree results for polling.
+- [x] Add optional closed document-kind selection to content and fixed-review
+  endpoints and the narrow preload bridge. Bodyless calls preserve legacy
+  behavior. A read or handoff revalidates branch and path before use.
+- [x] Ensure document changes refresh session rows/update-stream snapshots;
+  no polling, projection or discovery operation types into a terminal.
+
+### Two ordered document steps
+
+Files: renderer `api.ts`, `orkworksWindow.d.ts`, `useSessionReview.ts`,
+`components/SessionDetailPanel.tsx`, `components/ReviewPanel.tsx`,
+`components/ApplicationShell.tsx`, `App.tsx`, `App.css`; existing shell fixtures.
+
+- [x] Add failing UI tests for two available steps, either missing slot,
+  opening each document, shared-branch sessions, switching branches, unavailable
+  refresh and stale reads crossing document/session/workspace boundaries.
+- [x] Replace the single plan card with Design/specification then Implementation
+  plan, filenames/titles, available/missing state and expandable provenance.
+  Add the slot-specific Use latest action for explicitly pinned selections.
+  Selecting a step opens it in the central reader; retain return-to-Terminal and
+  Workflow behavior. No approval, completed-step checkmarks or gates.
+- [x] Preserve explicit independent review for the displayed document and a live
+  session. Ensure exactly one handoff and no arbitrary path/text input.
+- [x] Visually verify desktop/narrow layouts and shared-session behavior in an
+  isolated app fixture matching the approved concept.
+
+## Verification and handoff
+
+- [x] Run focused Rust and desktop regression tests, then required Rust build,
+  full tests and fmt check; desktop type checks and relevant app-flow tests.
+- [x] Run `bash scripts/verify-repo.sh`, `bash scripts/doc-check.sh`,
+  `pnpm --dir docs docs:check`, docs build and the worktree hook as applicable.
+- [x] Complete current-code-diff review, record findings/dispositions and open the
+  PR. The repository's bounded PR lifecycle owns integration and cleanup.
+
+## Risk and recovery review
+
+### Execution checkpoint, 2026-11-01
+
+Implementation is in [PR #1233](https://github.com/Rambolarsen/orkworks/pull/1233).
+The owner approved up to two additional substantive review cycles after the
+initial three; the lifecycle limit is five. Cycle 4 validated discovery recovery
+and ownership fixes; manual review identified a typed sibling-selection gap.
+Its end-to-end read/review regression observed failure before the correction.
+Cycle 5/5 completed at `00669cf7`: full local verification and CI passed,
+manual review approved, and Codex/custom reviews found no confirmed bugs.
+Native Copilot identified four additional actionable cases: final effective
+session location, terminal paths after location changes, shallow history and
+committed file-mode changes.
+
+The owner approved one bounded completion pass for those four cases, with full
+verification and at most two targeted manual checks (initial plus one recheck).
+No further automated review requests are authorized for this pass. Five new
+regressions observed failure before correction; the focused document suite now
+passes 46 tests. Final return/admission checks use the current effective session
+location, terminal reports/selections capture and revalidate it, shallow history
+cannot supply committed winners, and history comparisons include entry modes.
+Final code head `eaf1344c22e81fd7535984f376f5d35c36321ea0` reconciles main's
+private, inactive SQLite adapter without activating it. Both authorized manual
+checks approved; the final current-diff review used medium effort because of
+the size and coupled protocol/storage/runtime/desktop changes. All four findings
+are addressed and resolved inline. Full verification and CI passed: 2,455 Rust
+unit tests (16 ignored), all integrations, 1,659 desktop tests (two skipped),
+776 docs validation checks, builds and close-out hooks. An earlier full run had
+two desktop failures; the observed Electron launch timeout passed in isolation,
+and the final full run had no failures. No additional automated review was
+requested during the approved manual completion pass.
+
+Cycle 4's native review added pin-reset ownership, legacy reader boundaries,
+literal symlink reads, shared-slot read races and stale legacy-pin precedence.
+The final corrective pass routes legacy and typed reads through shared safe
+Markdown access, revalidates slot/owner at return, retains the owner through
+reset, and consults the current target branch's pin for fresh agent reports.
+All five regression cases failed before correction; the combined document
+regression suite passes 41 tests, including sibling selection and binding cases.
+The Electron terminal-link fixture also verifies that session-branch polling
+retains a clicked sibling document's kind, opaque ID and source branch. Both
+TypeScript configurations and transport/presentation regressions pass.
+
+The local corrective pass adds safe original-path legacy reads, effective
+worktree hook reports, surviving bindings when launch worktrees disappear,
+independent agent slot reports, document inspection outside the input fence,
+typed terminal selections that survive their own publication, readable-slot
+fallback for untyped callers and explicit-binding containment for terminal paths.
+The full repository verification passed on corrective commit `c916f823`, including
+2,402 Rust unit tests, 1,652 desktop tests and 776 docs validation tests.
+
+The next corrective pass addresses the four full-body findings: saved pins after
+scan errors, literal symlink checkout modes, nested repositories/Gitlinks and
+stronger reporting provenance. It also separates scan preparation from publication
+and checks the captured workspace/session owner before saving. The corresponding
+regressions observed failure before the fixes. Refresh main and resolve conflicts,
+then verify and review the final diff; earlier reviews do not approve later code.
+
+Dependencies 3: sidecar discovery/storage and duplicated Electron/renderer
+contracts ship together. Blast radius 3: shared document projection and content
+routes, without lifecycle changes. State changes 3: additive versioned branch
+records, preserving session metadata. Reversibility 1: older code ignores new
+records; legacy associations remain available. Uncertainty 3: bounded discovery,
+ranking and races require the fixture coverage above. Total: 13/25.
+
+Disposition: **Implemented and verified; integration tracked in PR #1233**. Checked
+coverage against #1230 and the proposed spec extension. The main risks are stale
+cross-branch associations, inherited documents, incomplete scans choosing a
+false latest document, unsafe worktree access and stale renderer requests; each
+has an owning delivery step and regression check. No independent orchestration,
+agent-workflow gating, native-hook research or automatic Git control is included.
+
+Investigation evidence: `report_plan_path` normalizes against the workspace
+root while terminal fallback resolves against launch CWD; neither currently
+uses task-worktree/branch identity for a shared pair. `read_plan_content` reads
+one persisted reference, and projection has only the `hasOpenablePlan` flag.
+`session_location::WorktreeBinding::validate` already establishes canonical
+common-directory identity. `git_changes::bases` provides the exact local-base
+policy. These existing seams support the proposal without another repository
+registry. The docs drift warning for root README needs no edit: this proposed
+contract introduced no shipped behavior or changed onboarding claim. The
+implementation updates the public sessions guide with source-only behavior.

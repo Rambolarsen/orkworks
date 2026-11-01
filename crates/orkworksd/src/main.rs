@@ -13,6 +13,8 @@ use std::sync::{Arc, Mutex, RwLock as StdRwLock};
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+mod branch_documents;
+mod branch_documents_store;
 mod capacity_analysis;
 mod capacity_state;
 mod codex_session_store;
@@ -61,11 +63,10 @@ use crate::http::provider_handlers::{
 };
 use crate::http::retention_handlers::set_retention;
 use crate::http::session_handlers::{
-    apply_debug_attention, create_session, delete_session, forget_session,
-    get_session_plan_content, list_sessions, report_attention_route,
-    report_harness_session_envelope_with_headers, report_session_plan_path,
-    request_session_plan_review, resume_session, select_terminal_plan, session_action,
-    set_active_harnesses, set_active_session, set_workspace,
+    apply_debug_attention, create_session, delete_session, forget_session, list_sessions,
+    report_attention_route, report_harness_session_envelope_with_headers, report_session_plan_path,
+    resume_session, select_terminal_plan, session_action, set_active_harnesses, set_active_session,
+    set_workspace,
 };
 use crate::http::taskmaster_handlers::{
     accept_recommendation, analyze_taskmaster, assess_workflow, complete_recommendation,
@@ -444,10 +445,17 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
             "/sessions/:id/git-changes/:snapshot/files/:file",
             get(http::git_changes_handlers::get_file),
         )
-        .route("/sessions/:id/plan-content", get(get_session_plan_content))
+        .route(
+            "/sessions/:id/plan-content",
+            get(crate::http::branch_documents_handlers::content),
+        )
+        .route(
+            "/sessions/:id/plan-document-latest",
+            post(crate::http::branch_documents_handlers::use_latest),
+        )
         .route(
             "/sessions/:id/request-plan-review",
-            post(request_session_plan_review),
+            post(crate::http::branch_documents_handlers::review),
         )
         .route("/settings/retention", post(set_retention))
         .route("/taskmaster/analyze", post(analyze_taskmaster))
@@ -833,6 +841,7 @@ pub(crate) mod test_support {
             resume_options: vec![],
             resumed_from: None,
             has_openable_plan: None,
+            plan_documents: None,
         }
     }
 

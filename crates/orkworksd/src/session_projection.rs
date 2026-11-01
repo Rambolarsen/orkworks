@@ -379,7 +379,46 @@ impl SessionProjection {
         }
         let mut infos = self.project_capacity(self.snapshot()?, &prepared)?;
         self.project_organization(&mut infos);
-        Ok(self.enrich_workspace(infos))
+        let documents = self
+            .state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|ws| ws.metadata.branch_documents.clone());
+        drop(_fence);
+        let document_context = |id: &str| {
+            crate::session_location::subject(&self.state, id)
+                .ok()
+                .map(|(root, _)| {
+                    let branch = crate::branch_documents::identity(&root).ok();
+                    (root, branch)
+                })
+        };
+        let contexts: Vec<_> = infos
+            .iter()
+            .map(|info| (info.id.clone(), document_context(&info.id)))
+            .collect();
+        let infos = self.enrich_workspace_with_documents(infos, documents, true);
+        let _fence = self.state.projection_lock.lock().unwrap();
+        let matches = {
+            let current = self.state.workspace.lock().unwrap();
+            match (&workspace, current.as_ref()) {
+                (None, None) => true,
+                (Some(expected), Some(current)) => expected.matches(current),
+                _ => false,
+            }
+        };
+        if !matches
+            || contexts
+                .iter()
+                .any(|(id, context)| document_context(id) != *context)
+        {
+            return Err(io::Error::other(
+                "workspace or session location changed during document inspection",
+            ));
+        }
+        Ok(infos)
     }
 
     fn capture_capacity(&self) -> io::Result<(Option<CapacityWorkspace>, Vec<CapacityInput>)> {
@@ -492,7 +531,24 @@ impl SessionProjection {
         }
     }
 
-    pub(crate) fn enrich_workspace(&self, mut infos: Vec<SessionInfo>) -> Vec<SessionInfo> {
+    #[cfg(test)]
+    pub(crate) fn enrich_workspace(&self, infos: Vec<SessionInfo>) -> Vec<SessionInfo> {
+        let documents = self
+            .state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|ws| ws.metadata.branch_documents.clone());
+        self.enrich_workspace_with_documents(infos, documents, false)
+    }
+
+    fn enrich_workspace_with_documents(
+        &self,
+        mut infos: Vec<SessionInfo>,
+        documents: Option<Arc<crate::branch_documents_store::Store>>,
+        validate_sessions: bool,
+    ) -> Vec<SessionInfo> {
         let session_pids = self.state.session_pids.lock().unwrap().clone();
         let reported_cwds = self.state.peon.reported_cwd.read().unwrap().clone();
         let locations = crate::session_view::resolve_effective_locations(
@@ -520,6 +576,94 @@ impl SessionProjection {
         }
 
         let conflict_warnings = detect_conflicts(&infos, &effective_cwds);
+        // Release workspace locking before Git/document inspection. The shared
+        // store cache coalesces session listings against the same worktree.
+        if let Some(store) = documents {
+            for info in &mut infos {
+                let root = if let Some(binding) = &info.worktree_binding {
+                    binding.validate().ok()
+                } else {
+                    effective_cwds
+                        .get(&info.id)
+                        .and_then(|cwd| crate::git::worktree_root(Path::new(cwd)))
+                        .and_then(|root| root.canonicalize().ok())
+                };
+                let projection = root
+                    .as_deref()
+                    .filter(|root| {
+                        info.worktree_binding.is_some()
+                            || root.to_str().is_some_and(|root| {
+                                crate::session_location::WorktreeBinding::resolve(&info.cwd, root)
+                                    .is_ok()
+                            })
+                    })
+                    .and_then(|root| {
+                        let scan = store.scan(root, false);
+                        let _fence = self.state.projection_lock.lock().unwrap();
+                        if validate_sessions
+                            && crate::session_location::subject(&self.state, &info.id)
+                                .ok()
+                                .map(|(root, _)| root)
+                                .as_deref()
+                                != Some(root)
+                        {
+                            return None;
+                        }
+                        let workspace = self.state.workspace.lock().unwrap();
+                        if !workspace
+                            .as_ref()
+                            .is_some_and(|ws| Arc::ptr_eq(&store, &ws.metadata.branch_documents))
+                        {
+                            return None;
+                        }
+                        Some(crate::branch_documents::projection_from_scan(
+                            &store, root, scan,
+                        ))
+                    });
+                if let Some(projection) = projection {
+                    if projection.steps.iter().any(|step| step.available) {
+                        info.has_openable_plan = Some(true);
+                    }
+                    info.plan_documents = Some(projection);
+                } else if info.worktree_binding.is_some() {
+                    info.has_openable_plan = Some(false);
+                    info.plan_documents = Some(crate::branch_documents::Projection {
+                        branch: None,
+                        shared_sessions: 1,
+                        steps: crate::branch_documents::DocumentKind::ALL
+                            .into_iter()
+                            .map(|kind| crate::branch_documents::Step {
+                                kind,
+                                available: false,
+                                title: None,
+                                file_name: None,
+                                source: None,
+                                pinned: false,
+                                selection_id: None,
+                            })
+                            .collect(),
+                        notice: Some("Reported task worktree unavailable.".into()),
+                    });
+                }
+            }
+            let keys: HashMap<_, _> = infos
+                .iter()
+                .filter_map(|info| {
+                    info.plan_documents.as_ref()?.branch.as_ref()?;
+                    let root = effective_cwds.get(&info.id)?;
+                    let key = crate::branch_documents::identity(Path::new(root)).ok()?;
+                    Some((info.id.clone(), key))
+                })
+                .collect();
+            for info in &mut infos {
+                if let (Some(projection), Some(key)) =
+                    (&mut info.plan_documents, keys.get(&info.id))
+                {
+                    projection.shared_sessions =
+                        keys.values().filter(|other| *other == key).count();
+                }
+            }
+        }
         for info in &mut infos {
             info.conflict_warning = conflict_warnings
                 .iter()
@@ -1301,6 +1445,86 @@ mod tests {
                 .control_revision()
                 .unwrap()
                 > 0
+        );
+    }
+
+    #[tokio::test]
+    async fn branch_document_discovery_does_not_hold_the_terminal_input_fence() {
+        let (dir, state, _receiver) = input_fixture();
+        git2::Repository::init(dir.path()).unwrap();
+        let store = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .branch_documents
+            .clone();
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        *store.before_scan.lock().unwrap() = Some(Box::new(move || {
+            let _ = entered_tx.send(());
+            release_rx
+                .recv_timeout(std::time::Duration::from_secs(10))
+                .unwrap();
+        }));
+        let projection_state = state.clone();
+        let projection =
+            std::thread::spawn(move || SessionProjection::new(projection_state).list());
+        tokio::time::timeout(std::time::Duration::from_secs(5), entered_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        let input_can_enter = state.projection_lock.try_lock().is_ok();
+        release_tx.send(()).unwrap();
+        projection.join().unwrap().unwrap();
+        assert!(
+            input_can_enter,
+            "document inspection must not block terminal input"
+        );
+    }
+
+    #[tokio::test]
+    async fn branch_document_discovery_does_not_publish_after_workspace_replacement() {
+        let (dir, state, _receiver) = input_fixture();
+        git2::Repository::init(dir.path()).unwrap();
+        std::fs::create_dir(dir.path().join("specs")).unwrap();
+        std::fs::write(dir.path().join("specs/current.md"), "# Design\n").unwrap();
+        let store = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .branch_documents
+            .clone();
+        let identity = crate::branch_documents::identity(dir.path()).unwrap();
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        *store.before_scan.lock().unwrap() = Some(Box::new(move || {
+            let _ = entered_tx.send(());
+            release_rx
+                .recv_timeout(std::time::Duration::from_secs(10))
+                .unwrap();
+        }));
+        let projection_state = state.clone();
+        let projection =
+            std::thread::spawn(move || SessionProjection::new(projection_state).list());
+        tokio::time::timeout(std::time::Duration::from_secs(5), entered_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        let replacement_root = tempfile::tempdir().unwrap();
+        let replacement =
+            crate::test_support::test_app_state_with_workspace(replacement_root.path());
+        *state.workspace.lock().unwrap() = replacement.workspace.lock().unwrap().take();
+        release_tx.send(()).unwrap();
+        assert!(projection.join().unwrap().is_err());
+        assert!(
+            store.load(&identity).unwrap().is_empty(),
+            "revoked workspace must not receive scan publication"
         );
     }
 

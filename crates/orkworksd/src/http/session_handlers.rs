@@ -551,7 +551,7 @@ pub(crate) async fn select_terminal_plan(
             },
         )
         .await
-        .map(|_| axum::http::StatusCode::NO_CONTENT.into_response())
+        .map(|selection| axum::Json(selection).into_response())
         .unwrap_or_else(application_error_response)
 }
 

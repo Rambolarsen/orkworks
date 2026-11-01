@@ -13,6 +13,8 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 
 ## Index
 
+- [0102: Shared branch design and implementation documents](0102-branch-document-association.md) — Accepted on 2026-11-01; shared selections, Git discovery and two ordered steps.
+
 | ADR | Title | Status |
 |-----|-------|--------|
 | [0001](./0001-record-architecture-decisions.md) | Record architecture decisions | accepted |
@@ -51,7 +53,7 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0034](./0034-user-approved-session-review-prompt.md) | User-approved session review prompt | accepted |
 | [0035](./0035-codex-session-start-hook-not-attention-signal.md) | Codex `SessionStart` hook captures session ID, not attention | superseded by [0051](./0051-codex-deterministic-attention-hooks.md) |
 | [0036](./0036-codex-hooks-portable-reporter-path.md) | Codex hook installation uses a portable, home-relative reporter path | superseded by [0043](./0043-local-harness-hook-configuration.md) |
-| [0037](./0037-hook-reported-plan-paths.md) | Hook-reported plan paths | accepted |
+| [0037](./0037-hook-reported-plan-paths.md) | Hook-reported plan paths | accepted transport/validation; association superseded by [0102](0102-branch-document-association.md) |
 | [0038](./0038-claude-plan-path-post-tool-use-hook.md) | Claude `PostToolUse` plan-path transport | accepted |
 | [0039](./0039-terminal-plan-link-selection.md) | Terminal plan link selection | accepted |
 | [0040](./0040-harness-declared-session-label-resets.md) | Harness-declared session-label reset commands | accepted |

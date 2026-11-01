@@ -7,7 +7,7 @@ tags: ["orkworks", "architecture"]
 
 # Hook-reported plan paths
 
-- Status: accepted
+- Status: accepted transport and validation; association policy superseded by [ADR 0102](0102-branch-document-association.md)
 - Deciders: OrkWorks maintainers
 - Date: 2026-08-04
 
@@ -31,6 +31,13 @@ Codex remains on the terminal fallback. Its documented `PostToolUse`
 parsing it would recreate the unreliable inference this decision removes.
 
 ## Consequences
+
+The accepted 2026-11-01 [branch document extension](../../specs/session-plan-review.md#branch-document-extension)
+replaces the single-session/empty-association policy with latest design and
+implementation slots shared by branch. Explicit branch pins remain authoritative;
+hook reports are discovery evidence rather than permanent automatic selections.
+The dedicated path-only transport, canonicalization and unchanged attention
+semantics in this record remain in force.
 
 Claude plan associations become deterministic without widening the renderer or
 terminal-input authority. POSIX and PowerShell reporters remain thin transport;

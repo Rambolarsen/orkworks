@@ -287,9 +287,23 @@ page, `Ctrl+Alt+Y` / `Ctrl+Alt+E` line by line, and `Ctrl+Alt+U` /
 
 ## Read a plan
 
+In current source builds, Details shows **Design & plan** as two ordered steps:
+**Design / specification**, then **Implementation plan**. Select either available
+document to read it in the main work area. Sessions using the same repository
+and branch share the pair. OrkWorks can recover documents from local branch
+history and uncommitted changes when an agent report was missed; unchanged
+documents inherited from the base branch are not automatically attached.
+
+Each step defaults to its latest document. Selecting a terminal document link
+pins that step; **Use latest** restores automatic discovery. A missing step or
+unavailable pinned file remains visible. The source disclosure explains how the
+document was found. These steps display documents only: the coding workflow
+owns approval, completion and execution gates. Older documents remain accessible
+through Changes. Published installers may predate this source behavior.
+
 In current source builds, select a session with an associated readable plan or
 specification, then choose **Review** in the content header or View menu, or
-**Plan** in Details. The document replaces the terminal in the main work
+the matching document step in Details (**Plan** for a legacy association). The document replaces the terminal in the main work
 area. **Back to Terminal** returns to the same session's terminal or saved
 history, including in narrow windows. Escape also returns when focus is in the
 Review document or its navigation controls. Focus returns to the opening

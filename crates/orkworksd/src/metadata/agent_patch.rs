@@ -284,6 +284,7 @@ impl AgentPatch {
         &self,
         meta: &SessionMetadata,
         check_source: bool,
+        branch_store: Option<&crate::branch_documents_store::Store>,
     ) -> io::Result<Option<PlanReference>> {
         if check_source && self.attention_state.is_some() {
             let source = meta
@@ -328,14 +329,64 @@ impl AgentPatch {
             .plan_path
             .as_ref()
             .is_some_and(|plan| plan.source == PlanSource::UserSelected)
+            && matches!(agent.plan_path, FieldUpdate::Clear)
         {
             return Err(semantic_error(PatchSemanticError::Conflict));
         }
         let FieldUpdate::Set(path) = &agent.plan_path else {
             return Ok(None);
         };
-        let (root, relative_path) = resolve_printed_plan_path(Path::new(&meta.cwd), path)
+        let binding = match &agent.worktree_path {
+            FieldUpdate::Set(root) => Some(
+                crate::session_location::WorktreeBinding::resolve(&meta.cwd, root)
+                    .map_err(|_| semantic_error(PatchSemanticError::BadRequest))?,
+            ),
+            FieldUpdate::Clear => None,
+            FieldUpdate::Omitted => meta.worktree_binding.clone(),
+        };
+        let launch = binding
+            .as_ref()
+            .map(|b| b.validate())
+            .transpose()
+            .map_err(|_| semantic_error(PatchSemanticError::BadRequest))?
+            .unwrap_or_else(|| Path::new(&meta.cwd).to_owned());
+        let (root, relative_path) = resolve_printed_plan_path(&launch, path)
             .map_err(|_| semantic_error(PatchSemanticError::BadRequest))?;
+        if binding.is_some() && root != launch {
+            return Err(semantic_error(PatchSemanticError::BadRequest));
+        }
+        if let Some(pin) = meta
+            .plan_path
+            .as_ref()
+            .filter(|plan| plan.source == PlanSource::UserSelected)
+        {
+            let independent = crate::branch_documents::kind_for_path(&pin.relative_path)
+                .zip(crate::branch_documents::kind_for_path(&relative_path))
+                .is_some_and(|(pinned, reported)| pinned != reported);
+            let shared_pin = if pin.worktree_root.is_some()
+                && crate::branch_documents::kind_for_path(&pin.relative_path).is_some()
+            {
+                match (
+                    branch_store,
+                    crate::branch_documents::identity(&root).ok(),
+                    crate::branch_documents::kind_for_path(&relative_path),
+                ) {
+                    (Some(store), Some(identity), Some(kind)) => Some(
+                        store
+                            .load(&identity)
+                            .map_err(io::Error::other)?
+                            .iter()
+                            .any(|doc| doc.kind == kind && doc.pinned),
+                    ),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            if shared_pin.unwrap_or(!independent) {
+                return Err(semantic_error(PatchSemanticError::Conflict));
+            }
+        }
         Ok(Some(PlanReference {
             worktree_root: Some(root.to_string_lossy().into_owned()),
             relative_path,
@@ -344,13 +395,19 @@ impl AgentPatch {
     }
 
     pub(crate) fn apply_checked(&self, meta: &mut SessionMetadata) -> Result<(), AgentPatchError> {
-        self.apply(meta)
+        // The private SQLite adapter has no branch-document store yet.
+        self.apply(meta, None)
+            .map(|_| ())
             .map_err(|error| map_error(SessionTransactionError::Io(error)))
     }
 
-    fn apply(&self, meta: &mut SessionMetadata) -> io::Result<()> {
+    fn apply(
+        &self,
+        meta: &mut SessionMetadata,
+        branch_store: Option<&crate::branch_documents_store::Store>,
+    ) -> io::Result<Option<PlanReference>> {
         require_live(meta)?;
-        let plan = self.validate_current(meta, true)?;
+        let plan = self.validate_current(meta, true, branch_store)?;
         let binding = match self.agent_metadata.as_ref().map(|a| &a.worktree_path) {
             Some(FieldUpdate::Set(path)) => Some(
                 crate::session_location::WorktreeBinding::resolve(&meta.cwd, path)
@@ -402,11 +459,19 @@ impl AgentPatch {
             match &agent.plan_path {
                 FieldUpdate::Omitted => {}
                 FieldUpdate::Clear => meta.plan_path = None,
-                FieldUpdate::Set(_) => meta.plan_path = plan,
+                FieldUpdate::Set(_) => {
+                    if !meta
+                        .plan_path
+                        .as_ref()
+                        .is_some_and(|reference| reference.source == PlanSource::UserSelected)
+                    {
+                        meta.plan_path = plan.clone();
+                    }
+                }
             }
         }
         meta.last_activity = iso_now();
-        Ok(())
+        Ok(plan)
     }
 }
 
@@ -456,7 +521,7 @@ impl MetadataStore {
             require_live(&record.metadata)
                 .map_err(|error| map_error(SessionTransactionError::Io(error)))?;
             patch
-                .validate_current(&record.metadata, false)
+                .validate_current(&record.metadata, false, Some(&self.branch_documents))
                 .map_err(|error| map_error(SessionTransactionError::Io(error)))?;
             Ok(record.revision)
         })
@@ -468,8 +533,30 @@ impl MetadataStore {
         expected: &MetadataRevision,
         patch: &AgentPatch,
     ) -> Result<RevisionedSession, AgentPatchError> {
-        self.try_update_session_scoped(id, expected, patch.scope(), |meta| patch.apply(meta))
-            .map_err(map_error)
+        let mut reported = None;
+        let updated = self
+            .try_update_session_scoped(id, expected, patch.scope(), |meta| {
+                reported = patch.apply(meta, Some(&self.branch_documents))?;
+                Ok(())
+            })
+            .map_err(map_error)?;
+        if patch
+            .agent_metadata
+            .as_ref()
+            .is_some_and(|agent| matches!(agent.plan_path, FieldUpdate::Set(_)))
+        {
+            if let Some(reference) = &reported {
+                if let Err(error) =
+                    crate::branch_documents::publish(&self.branch_documents, reference)
+                {
+                    // The revisioned patch has committed. Its acknowledgement
+                    // must reach runtime bookkeeping even if supplementary
+                    // branch publication is unavailable; discovery can retry it.
+                    tracing::warn!(session_id = id, %error, "Accepted metadata patch could not publish its branch document");
+                }
+            }
+        }
+        Ok(updated)
     }
 }
 
@@ -850,7 +937,7 @@ mod tests {
                 .patch;
         assert_eq!(patch.scope().attention, false);
         assert_eq!(patch.scope().work, false);
-        patch.apply(&mut meta).unwrap();
+        patch.apply(&mut meta, None).unwrap();
         assert_eq!(meta.summary.as_deref(), Some("Done"));
         assert_eq!(meta.provenance.summary_source.as_deref(), Some("agent"));
         assert_eq!(meta.metadata_source, "user");
@@ -868,7 +955,7 @@ mod tests {
             parse(json!({"metadataRevision":"0","patch":{"agentMetadata":{"summary":null}}}))
                 .unwrap()
                 .patch;
-        patch.apply(&mut meta).unwrap();
+        patch.apply(&mut meta, None).unwrap();
         assert_eq!(meta.summary, None);
         assert_eq!(meta.provenance.summary_source, None);
         assert_eq!(meta.provenance.summary_confidence, None);
@@ -1055,5 +1142,151 @@ mod tests {
             plan.worktree_root.as_deref(),
             dir.path().canonicalize().unwrap().to_str()
         );
+    }
+
+    #[test]
+    fn branch_document_publication_failure_does_not_reject_an_already_committed_patch() {
+        let dir = tempfile::tempdir().unwrap();
+        git2::Repository::init(dir.path()).unwrap();
+        std::fs::create_dir(dir.path().join("specs")).unwrap();
+        std::fs::write(dir.path().join("specs/plan.md"), "# Plan\n").unwrap();
+        let store = MetadataStore::new(&dir.path().join("metadata"));
+        let id = "publication-failure";
+        store.write_session(&live_meta(id, dir.path().to_str().unwrap()));
+        let doc = crate::branch_documents::document(
+            dir.path(),
+            "specs/plan.md",
+            PlanSource::AgentReported,
+            false,
+        )
+        .unwrap();
+        store
+            .branch_documents
+            .report(&crate::branch_documents::identity(dir.path()).unwrap(), doc)
+            .unwrap();
+        let record = std::fs::read_dir(store.root_path().join("branch-documents"))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        std::fs::write(&record, "{").unwrap();
+        let before = store.try_read_revisioned_session(id).unwrap().unwrap();
+        let patch = parse(json!({"metadataRevision":"0","patch":{
+            "agentMetadata":{"planPath":"specs/plan.md"},
+            "attentionState":{"observedStatus":"working","needsUserInput":false,"detectedQuestion":null,"suggestedOptions":[]}
+        }})).unwrap().patch;
+        let accepted = store
+            .apply_agent_patch(id, &before.revision, &patch)
+            .expect("committed patch must be acknowledged so live bookkeeping proceeds");
+        assert_ne!(accepted.revision, before.revision);
+        assert_eq!(
+            accepted.metadata.observed_status.as_deref(),
+            Some("working")
+        );
+        assert!(accepted.metadata.plan_path.is_some());
+        assert_eq!(std::fs::read_to_string(record).unwrap(), "{");
+    }
+
+    #[test]
+    fn branch_document_report_for_other_slot_preserves_a_legacy_user_pin() {
+        let dir = tempfile::tempdir().unwrap();
+        git2::Repository::init(dir.path()).unwrap();
+        std::fs::create_dir_all(dir.path().join("specs")).unwrap();
+        std::fs::create_dir_all(dir.path().join("docs/superpowers/plans")).unwrap();
+        std::fs::write(dir.path().join("specs/design.md"), "# Design\n").unwrap();
+        std::fs::write(
+            dir.path().join("docs/superpowers/plans/implementation.md"),
+            "# Implementation\n",
+        )
+        .unwrap();
+        let store = MetadataStore::new(&dir.path().join("metadata"));
+        let mut meta = live_meta("independent-slot", dir.path().to_str().unwrap());
+        let pin = crate::branch_documents::document(
+            dir.path(),
+            "specs/design.md",
+            PlanSource::UserSelected,
+            true,
+        )
+        .unwrap();
+        meta.plan_path = Some(pin.reference.clone());
+        store.write_session(&meta);
+        let identity = crate::branch_documents::identity(dir.path()).unwrap();
+        store.branch_documents.report(&identity, pin).unwrap();
+        let before = store
+            .try_read_revisioned_session(&meta.id)
+            .unwrap()
+            .unwrap();
+        let patch = parse(json!({"metadataRevision":"0","patch":{"agentMetadata":{"planPath":"docs/superpowers/plans/implementation.md"}}})).unwrap().patch;
+        let after = store
+            .apply_agent_patch(&meta.id, &before.revision, &patch)
+            .unwrap();
+        assert_eq!(after.metadata.plan_path, meta.plan_path);
+        let documents = store.branch_documents.load(&identity).unwrap();
+        assert_eq!(documents.len(), 2);
+        assert!(documents
+            .iter()
+            .any(|doc| doc.kind == crate::branch_documents::DocumentKind::Implementation));
+    }
+
+    #[test]
+    fn branch_document_reports_follow_current_pins_after_reset_or_branch_switch() {
+        for switch_branch in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let repo = git2::Repository::init(dir.path()).unwrap();
+            std::fs::create_dir(dir.path().join("specs")).unwrap();
+            std::fs::write(dir.path().join("specs/design.md"), "# Old pin\n").unwrap();
+            std::fs::write(dir.path().join("specs/new.md"), "# Current report\n").unwrap();
+            let store = MetadataStore::new(&dir.path().join("metadata"));
+            let mut meta = live_meta("current-pin", dir.path().to_str().unwrap());
+            let pin = crate::branch_documents::document(
+                dir.path(),
+                "specs/design.md",
+                PlanSource::UserSelected,
+                true,
+            )
+            .unwrap();
+            meta.plan_path = Some(pin.reference.clone());
+            store.write_session(&meta);
+            let identity = crate::branch_documents::identity(dir.path()).unwrap();
+            store.branch_documents.report(&identity, pin).unwrap();
+            if switch_branch {
+                repo.set_head("refs/heads/next").unwrap();
+            } else {
+                store
+                    .branch_documents
+                    .use_latest(
+                        &identity,
+                        crate::branch_documents::DocumentKind::Design,
+                        None,
+                    )
+                    .unwrap();
+            }
+            let before = store
+                .try_read_revisioned_session(&meta.id)
+                .unwrap()
+                .unwrap();
+            let patch = parse(json!({"metadataRevision":"0","patch":{
+                "agentMetadata":{"planPath":"specs/new.md"},
+                "attentionState":{"observedStatus":"working","needsUserInput":false,"detectedQuestion":null,"suggestedOptions":[]}
+            }})).unwrap().patch;
+            let accepted = store
+                .apply_agent_patch(&meta.id, &before.revision, &patch)
+                .unwrap();
+            assert_eq!(
+                accepted.metadata.observed_status.as_deref(),
+                Some("working")
+            );
+            assert_eq!(
+                accepted.metadata.plan_path, meta.plan_path,
+                "legacy compatibility selection stays session-local"
+            );
+            let documents = store
+                .branch_documents
+                .load(&crate::branch_documents::identity(dir.path()).unwrap())
+                .unwrap();
+            assert_eq!(documents[0].reference.relative_path, "specs/new.md");
+            assert!(!documents[0].pinned);
+        }
     }
 }

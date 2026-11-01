@@ -4,6 +4,8 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 ## Documents
 
+- [Shared branch design and implementation documents](2026-11-01-branch-plan-documents.md) — Approved delivery and checks for shared two-step document discovery.
+
 - [M4: Session Metadata Protocol — Implementation Plan](2026-06-16-m4-session-metadata-protocol.md) — Implementation plan: M4: Session Metadata Protocol — Implementation Plan.
 - [M5: Git Context Detection — Implementation Plan](2026-06-16-m5-git-context-detection.md) — Implementation plan: M5: Git Context Detection — Implementation Plan.
 - [M6: Peon — Observer Inference Implementation Plan](2026-06-16-m6-peon.md) — Implementation plan: M6: Peon — Observer Inference Implementation Plan.
