@@ -183,7 +183,14 @@ The application briefly rechecks its captured workspace/store instance, runtime
 identity, input/output boundaries, committed input sequence, attention/prompt
 ownership (issued authority instance, native identity and reset epoch) and Peon
 attempt under the
-existing projection/workspace/sessions ordering. It sends the one-use grant while
+projection/transition/workspace/sessions ordering. The transition mutex is
+try-locked: contention conservatively rejects the view without waiting under
+projection. It remains held through the validation callback, serializing native
+identity/reset transitions with the execution claim and live publication. The
+registry mutex also remains held from snapshot comparison through the bounded
+in-memory callback, covering authority cleanup paths that remove entries without
+the transition mutex. These callbacks do not re-enter the registry, wait or do I/O.
+It sends the one-use grant while
 those guards are held, atomically claiming queued-to-executing and checking the
 absolute deadline before granting. This successful claim is the operation's
 execution/admission cutoff; cancellation can win only before that same CAS.
@@ -199,7 +206,10 @@ store result, including caller cancellation after the grant claims execution. Be
 claim, queued caller cancellation can win the same state transition and guarantee
 no write.
 Capture, cutoff validation and publication run on the blocking pool so
-contended synchronous guards do not block the async executor. Publication
+contended synchronous guards do not block the async executor. Execution validation
+and definitive worker completion are polled concurrently; queued expiry releases
+the lane/lease/budget even while a blocking validation job still waits for a guard.
+That late validation cannot claim the already expired ticket. Publication
 rechecks the same context under short guards; its blocking job retains the
 lane/lease/budget even if its async waiter is dropped. No-ops retain the Peon
 permanent-hold decision. A committed write with
@@ -213,7 +223,8 @@ close-before-enqueue and lane/lease retention even when a result owner drops.
 Real application-state tests cover changed input, workspace/attempt/attention
 authority, runtime replacement after commit, caller cancellation before/after
 execution, permanent user holds, current-only publication, contended-guard
-executor responsiveness and post-commit publication failure. A controlled runtime-command consumer
+executor responsiveness, expiry during blocked execution validation, transition
+exclusion at execution/publication and post-commit publication failure. A controlled runtime-command consumer
 writes to an actual PTY while this application SQL boundary is stalled. This
 proves guard/input-delivery independence at this boundary, not a qualified
 SQL-backed producer profile, complete terminal workload or #1247 latency result.

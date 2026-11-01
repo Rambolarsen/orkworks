@@ -563,3 +563,107 @@ async fn replaced_prompt_authority_with_unchanged_flags_rejects_queued_write() {
         store.close().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn prompt_transition_excludes_execution_and_live_publication() {
+    for after_claim in [false, true] {
+        let _lease_guard = diagnostic_test_guard();
+        let (_dir, _state, store, writes, context, capture, _, _commands) = fixture().await;
+        let paused = (!after_claim).then(|| test_worker::pause(&store));
+        let mut claimed = after_claim.then(|| test_worker::hold_next_internal(&store, ID));
+        let writer =
+            tokio::spawn(async move { writes.peon(context.view(), capture, intent()).await });
+        if let Some(claimed) = claimed.as_mut() {
+            tokio::time::timeout(Duration::from_secs(2), claimed.entered())
+                .await
+                .unwrap();
+        } else {
+            test_worker::wait_for_internal(&store, ID).await;
+        }
+        let transition = crate::runtime::prompt_authority::transition_lock()
+            .lock()
+            .unwrap();
+        drop(paused);
+        drop(claimed);
+        let result = tokio::time::timeout(Duration::from_millis(500), writer).await;
+        drop(transition);
+        if after_claim {
+            assert_eq!(
+                result.unwrap().unwrap().unwrap(),
+                Outcome::CommittedDetached
+            );
+        } else {
+            assert!(matches!(
+                result.unwrap().unwrap(),
+                Err(StoreError::Conflict)
+            ));
+        }
+        store.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn queued_expiry_releases_resources_while_execution_validation_is_blocked() {
+    let _lease_guard = diagnostic_test_guard();
+    let (_dir, state, store, writes, context, capture, _, _commands) = fixture().await;
+    let lease = Arc::downgrade(
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .lease
+            .as_ref()
+            .unwrap(),
+    );
+    let paused = test_worker::pause(&store);
+    let mut writer =
+        tokio::spawn(async move { writes.peon(context.view(), capture, intent()).await });
+    test_worker::wait_for_internal(&store, ID).await;
+    let (entered, ready) = std::sync::mpsc::channel();
+    let (release, released) = std::sync::mpsc::channel();
+    let held_state = state.clone();
+    let blocker = std::thread::spawn(move || {
+        let _held = held_state.projection_lock.lock().unwrap();
+        entered.send(()).unwrap();
+        let _ = released.recv_timeout(Duration::from_secs(5));
+    });
+    ready.recv_timeout(Duration::from_secs(2)).unwrap();
+    *state.workspace.lock().unwrap() = None;
+    drop(paused);
+    let result = tokio::time::timeout(Duration::from_millis(2500), &mut writer).await;
+    // Ticket expiry and worker retirement share the deadline but may be
+    // scheduled in either order. Require cleanup while the guard is held.
+    let lease_released = tokio::time::timeout(Duration::from_millis(300), async {
+        while lease.upgrade().is_some() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .is_ok();
+    let prepared = store
+        .prepare_internal(ID.into(), CREATED.into(), intent())
+        .unwrap();
+    let lane_available = prepared.lane().unwrap().try_lock_owned().is_ok();
+    drop(prepared);
+    let _ = release.send(());
+    blocker.join().unwrap();
+    if result.is_err() {
+        let _ = writer.await;
+    }
+    assert!(matches!(result, Ok(Ok(Err(StoreError::Expired)))));
+    assert!(
+        lease_released,
+        "expired result retained workspace lease behind the guard"
+    );
+    assert!(
+        lane_available,
+        "expired result retained its session lane behind the guard"
+    );
+    assert_eq!(
+        store.get(ID.into()).await.unwrap().unwrap()["metadataRevision"],
+        "1"
+    );
+    store.close().await.unwrap();
+}

@@ -63,12 +63,21 @@ impl SessionWrites {
         attempt: &AttemptContextView,
         output: &PeonOutputCaptureIdentity,
         captured: Option<&Capture>,
-        apply: impl FnOnce(&WorkspaceState, &mut crate::SessionHandle) -> T,
+        apply: impl FnOnce(
+            &WorkspaceState,
+            &mut crate::SessionHandle,
+            Option<crate::runtime::prompt_authority::AuthoritySnapshot>,
+        ) -> T,
     ) -> Option<T> {
         if !Arc::ptr_eq(attempt.state(), &self.state) {
             return None;
         }
         let _projection = self.state.projection_lock.lock().unwrap();
+        // Native identity/reset writers share this transition mutex. Never
+        // wait for it while holding projection: contention rejects this view.
+        let _transition = crate::runtime::prompt_authority::transition_lock()
+            .try_lock()
+            .ok()?;
         let workspace = self.state.workspace.lock().unwrap();
         let ws = workspace.as_ref()?;
         if !self.workspace.matches(ws) {
@@ -94,14 +103,20 @@ impl SessionWrites {
                     || handle.runtime.codex_terminal_status_active != c.terminal_status_active
                     || handle.runtime.active_prompt_kind != c.prompt_kind
                     || protected_permission(handle) != c.protected_permission
-                    || crate::runtime::prompt_authority::registry().snapshot(attempt.session_id())
-                        != c.prompt_authority
                     || !handle.runtime.control_tx.same_channel(&c.control)
             })
         {
             return None;
         }
-        Some(apply(ws, handle))
+        crate::runtime::prompt_authority::registry().with_snapshot(
+            attempt.session_id(),
+            |authority| {
+                if captured.is_some_and(|c| authority != c.prompt_authority) {
+                    return None;
+                }
+                Some(apply(ws, handle, authority))
+            },
+        )
     }
     async fn current_async<T: Send + 'static>(
         self: &Arc<Self>,
@@ -109,7 +124,13 @@ impl SessionWrites {
         output: &PeonOutputCaptureIdentity,
         captured: Option<Arc<Capture>>,
         completion: Option<crate::session_store::InternalCompletion>,
-        apply: impl FnOnce(&WorkspaceState, &mut crate::SessionHandle) -> T + Send + 'static,
+        apply: impl FnOnce(
+                &WorkspaceState,
+                &mut crate::SessionHandle,
+                Option<crate::runtime::prompt_authority::AuthoritySnapshot>,
+            ) -> T
+            + Send
+            + 'static,
     ) -> Result<Option<T>, StoreError> {
         let owner = self.clone();
         let attempt = attempt.clone();
@@ -135,9 +156,8 @@ impl SessionWrites {
                 "only Peon metadata is supported by this boundary".into(),
             ));
         }
-        let session_id = attempt.session_id().to_owned();
         let (capture, lease) = self
-            .current_async(&attempt, &output, None, None, move |ws, h| {
+            .current_async(&attempt, &output, None, None, move |ws, h, authority| {
                 h.runtime.attention_owner.snapshot().map(|attention| {
                     (
                         Capture {
@@ -151,8 +171,7 @@ impl SessionWrites {
                             terminal_status_active: h.runtime.codex_terminal_status_active,
                             prompt_kind: h.runtime.active_prompt_kind,
                             protected_permission: protected_permission(h),
-                            prompt_authority: crate::runtime::prompt_authority::registry()
-                                .snapshot(&session_id),
+                            prompt_authority: authority,
                             control: h.runtime.control_tx.clone(),
                         },
                         ws.lease.clone(),
@@ -191,15 +210,27 @@ impl SessionWrites {
                     _ = result.closed() => return Err(StoreError::Expired),
                     ready = ready => ready.ok(),
                 };
+                let mut finished = Box::pin(ticket.finish());
+                let mut delivered = None;
                 if let Some(request) = request {
-                    let claimed =
-                        owner.current_async(&attempt, &output, Some(capture.clone()), None, move |_, _| request.grant()).await?;
-                    // current() has returned and released every shared guard.
-                    if let Some(Ok(grant)) = claimed {
-                        let _ = grant.execute();
+                    // A blocking validation may outlive queued expiry. Always
+                    // consume the definitive worker result concurrently so an
+                    // expired delivery releases its lane/lease/budget promptly.
+                    tokio::select! {
+                        biased;
+                        completion = &mut finished => delivered = Some(completion),
+                        claimed = owner.current_async(&attempt, &output, Some(capture.clone()), None, move |_, _, _| request.grant()) => {
+                            // current() has released every shared guard.
+                            if let Some(Ok(grant)) = claimed? {
+                                let _ = grant.execute();
+                            }
+                        }
                     }
                 }
-                let completion = ticket.finish().await?;
+                let completion = match delivered {
+                    Some(completion) => completion?,
+                    None => finished.await?,
+                };
                 let Some(document) = completion.outcome.document.as_ref() else {
                     return Ok(Outcome::Noop {
                         permanent_hold: matches!(
@@ -219,7 +250,7 @@ impl SessionWrites {
                 };
                 let scope = completion.outcome.decision.scope;
                 let published = owner
-                    .current_async(&attempt, &output, Some(capture.clone()), Some(completion), move |_, h| {
+                    .current_async(&attempt, &output, Some(capture.clone()), Some(completion), move |_, h, _| {
                         if scope.is_some_and(|scope| scope.attention) {
                             h.runtime.attention_owner.accepted_write();
                         }
