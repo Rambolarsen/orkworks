@@ -33,13 +33,15 @@ impl SessionApplication {
             return Err(SessionError::BadRequest("Invalid session ID."));
         }
         let title = match (&action, title) {
-            (TitleAction::Set, Some(title))
-                if !title.chars().any(char::is_control)
-                    && !title.trim().is_empty()
-                    && title.trim().chars().count() <= 100 =>
-            {
-                Some(title.trim().to_owned())
-            }
+            (TitleAction::Set, Some(title)) => Some(
+                crate::metadata::internal_mutations::normalize_user_title(&title).map_err(
+                    |_| {
+                        SessionError::BadRequest(
+                            "Title must contain 1–100 characters without control characters.",
+                        )
+                    },
+                )?,
+            ),
             (TitleAction::Read | TitleAction::Automatic, None) => None,
             _ => {
                 return Err(SessionError::BadRequest(
@@ -75,32 +77,10 @@ impl SessionApplication {
         let saved = ws
             .metadata
             .mutate_session_optional(id, WriteScope::NONE, |meta| {
-                let (label, source) = if let Some(title) = &title {
-                    (title.clone(), LabelSource::User)
-                } else {
-                    meta.last_user_input
-                        .as_deref()
-                        .filter(|input| peon::is_descriptive_input(input))
-                        .map(|input| {
-                            (
-                                input.chars().take(100).collect(),
-                                LabelSource::TerminalInput,
-                            )
-                        })
-                        .unwrap_or_else(|| {
-                            (
-                                crate::session_types::placeholder_label(id),
-                                LabelSource::Placeholder,
-                            )
-                        })
-                };
-                meta.label = label.clone();
-                meta.label_source = source;
-                meta.label_from_initial_prompt = false;
-                meta.label_context_refined = false;
+                crate::metadata::internal_mutations::apply_user_title(meta, title.as_deref())?;
                 selected = Some(SessionTitle {
-                    title: label,
-                    automatic: source != LabelSource::User,
+                    title: meta.label.clone(),
+                    automatic: meta.label_source != LabelSource::User,
                 });
                 Ok(true)
             })

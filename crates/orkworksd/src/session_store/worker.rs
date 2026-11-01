@@ -1,5 +1,9 @@
+use super::internal_mutations::InternalMutationResult;
 use super::queries::{HistoryQuery, Page, Summary};
 use super::*;
+use crate::metadata::{
+    internal_mutations::InternalMutation, session_transactions::MetadataRevision,
+};
 use serde::Serialize;
 use std::{
     collections::VecDeque,
@@ -15,6 +19,12 @@ use tokio::sync::{oneshot, watch};
 #[derive(Serialize)]
 enum Command {
     Create(serde_json::Value),
+    Internal {
+        id: String,
+        created: String,
+        expected: Option<MetadataRevision>,
+        intent: Box<InternalMutation>,
+    },
     Get(String),
     History(HistoryQuery),
     Live(Vec<String>),
@@ -96,6 +106,7 @@ impl Command {
     fn result_bound(&self) -> usize {
         match self {
             Self::Get(_) | Self::Patch { .. } => MAX_RECORD,
+            Self::Internal { .. } => MAX_RECORD + 1024,
             Self::History(_) => 256 * 1024,
             Self::Live(ids) => ids.len().saturating_mul(8192).saturating_add(16384),
             Self::Exists(ids) => ids.iter().map(|id| id.len() + 4).sum(),
@@ -106,6 +117,17 @@ impl Command {
     }
     fn run(self, db: &mut Database) -> Result<Reply> {
         match self {
+            Self::Internal {
+                id,
+                created,
+                expected,
+                intent,
+            } => Ok(Reply::Internal(db.mutate_internal(
+                &id,
+                &created,
+                expected.as_ref(),
+                &intent,
+            )?)),
             Self::Create(value) => {
                 db.create_session(value)?;
                 Ok(Reply::Unit)
@@ -171,6 +193,7 @@ impl Command {
 #[derive(Debug)]
 enum Reply {
     Unit,
+    Internal(InternalMutationResult),
     Detail(Option<serde_json::Value>),
     Page(Page),
     Rows(Vec<Summary>),
@@ -368,6 +391,26 @@ impl SessionStore {
     }
     async fn request(&self, command: Command) -> Result<Reply> {
         receive(self.submit(command)?).await
+    }
+    pub(crate) async fn mutate_internal(
+        &self,
+        id: String,
+        created: String,
+        expected: Option<MetadataRevision>,
+        intent: InternalMutation,
+    ) -> Result<InternalMutationResult> {
+        match self
+            .request(Command::Internal {
+                id,
+                created,
+                expected,
+                intent: Box::new(intent),
+            })
+            .await?
+        {
+            Reply::Internal(value) => Ok(value),
+            _ => Err(StoreError::Unavailable),
+        }
     }
     pub(crate) async fn create(&self, value: serde_json::Value) -> Result<()> {
         match self.request(Command::Create(value)).await? {

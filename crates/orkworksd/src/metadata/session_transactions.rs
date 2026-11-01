@@ -47,7 +47,7 @@ pub(crate) struct RevisionedSession {
     pub(crate) revision: MetadataRevision,
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 pub(crate) struct WriteScope {
     pub(crate) attention: bool,
     pub(crate) work: bool,
