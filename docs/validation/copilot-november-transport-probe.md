@@ -85,3 +85,9 @@ The summary records the unretained event-file hash/size and boolean session,
 turn and interaction matches against the chat span. These observer checks bind
 the persistence observation to this turn without publishing native identifiers;
 they do not make the unretained event bytes independently inspectable.
+
+The packet preserves bytes with local `* -text` attributes. Configuration
+records all explicit environment values with disposable paths normalized; only
+HOME, PATH and TMPDIR were inherited in the successful launch. Their values
+were not recorded at launch, so exact host-environment replay remains limited.
+No proxy or token environment variables were present in that launch.
