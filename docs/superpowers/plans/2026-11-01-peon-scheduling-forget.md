@@ -4,7 +4,7 @@ title: Fence Peon scheduling against forgetting
 description: Proposed implementation and verification of the Peon scheduling deletion boundary.
 tags: [peon, sessions, concurrency, testing]
 status: draft
-workflow_status: awaiting-owner-approval
+workflow_status: approved
 ---
 
 # Fence Peon scheduling against forgetting
@@ -12,7 +12,8 @@ workflow_status: awaiting-owner-approval
 Prevent earlier scheduler selections from recreating tracking after forgetting,
 while preserving ordinary end, replacement runtimes and independent provider
 execution. Implement the [proposed design](../specs/2026-11-01-peon-scheduling-forget-design.md)
-for [#403](https://github.com/Rambolarsen/orkworks/issues/403), after owner approval.
+for [#403](https://github.com/Rambolarsen/orkworks/issues/403). The owner approved
+the concrete design with “go ahead” on 2026-11-01.
 Continue inline in this owned task; no implementation fan-out is needed.
 
 ## One coupled deliverable
@@ -66,6 +67,5 @@ the scheduler, deletion owners, idle transitions and affected lock edges; it
 found no material unanswered questions. Inline plan review found scope,
 requirement coverage and recovery checks sufficient. This is readiness for the
 approval gate, not authorization to implement or evidence that future code
-passes its checks. Owner approval is outstanding; no production synchronization
-changes have been made. Reuse review of unchanged artifacts and revise only
+passes its checks. Owner approval was supplied on 2026-11-01; implementation is in progress. Reuse review of unchanged artifacts and revise only
 material findings.

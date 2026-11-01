@@ -4,15 +4,15 @@ title: Peon scheduling across session deletion
 description: Proposed serialization of Peon scheduling writes with session deletion without extending provider lock scope.
 tags: [peon, concurrency, sessions, cleanup]
 status: draft
-workflow_status: awaiting-owner-approval
+workflow_status: approved
 ---
 
 # Peon scheduling across session deletion
 
 After a session is forgotten, work selected earlier must not recreate its Peon
 tracking. Delivery is tracked in [#403](https://github.com/Rambolarsen/orkworks/issues/403).
-This is a proposed concurrency change, not current behavior. Implementation
-requires owner approval under #403 and the
+The owner approved this concrete concurrency design with “go ahead” on
+2026-11-01. Delivery follows #403 and the
 [repository preparation policy](../../agents/development-workflow.md#plan-complexity-and-quality).
 
 ## Evidence and scope
