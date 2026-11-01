@@ -12,7 +12,7 @@ interface Props {
   sessionId: string;
   documents: BranchDocuments;
   onOpen: (kind: PlanDocumentKind) => void;
-  onUseLatest: (kind: PlanDocumentKind) => Promise<void>;
+  onUseLatest: (kind: PlanDocumentKind, selectionId?: string) => Promise<void>;
 }
 
 export default function BranchDocumentSteps({ documents, onOpen, onUseLatest }: Props) {
@@ -42,7 +42,7 @@ export default function BranchDocumentSteps({ documents, onOpen, onUseLatest }: 
               onClick={() => {
                 if (pending !== null) return;
                 setPending(kind); setError(null);
-                void onUseLatest(kind).catch(() => setError("Couldn’t restore the latest document. Try again."))
+                void onUseLatest(kind, step.selectionId ?? undefined).catch(() => setError("Couldn’t restore the latest document. Try again."))
                   .finally(() => setPending(null));
               }}>{pending === kind ? "Updating…" : "Use latest"}</button>}
           </div>

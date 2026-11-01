@@ -9,9 +9,22 @@ use axum::{
 use serde::Deserialize;
 use std::sync::Arc;
 #[derive(Default, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct DocumentQuery {
     pub kind: Option<DocumentKind>,
+    pub selection_id: Option<String>,
+}
+
+impl DocumentQuery {
+    fn valid(&self) -> bool {
+        self.selection_id.as_ref().is_none_or(|id| {
+            self.kind.is_some()
+                && id.len() == 64
+                && id
+                    .bytes()
+                    .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+        })
+    }
 }
 fn failure(message: String) -> Response {
     (
@@ -34,8 +47,15 @@ pub(crate) async fn content(
         Ok(q) => q,
         Err(_) => return StatusCode::BAD_REQUEST.into_response(),
     };
+    if !query.valid() {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
     tokio::task::spawn_blocking(move || {
-        match SessionApplication::new(state).read_document_content(&id, query.kind) {
+        match SessionApplication::new(state).read_document_content(
+            &id,
+            query.kind,
+            query.selection_id.as_deref(),
+        ) {
             Ok(content) => Json(serde_json::json!({"content":content})).into_response(),
             Err(e) => failure(e),
         }
@@ -56,8 +76,11 @@ pub(crate) async fn review(
         Ok(q) => q,
         Err(_) => return StatusCode::BAD_REQUEST.into_response(),
     };
+    if !query.valid() {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
     match SessionApplication::new(state)
-        .request_document_review(&id, query.kind)
+        .request_document_review(&id, query.kind, query.selection_id.as_deref())
         .await
     {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
@@ -73,12 +96,19 @@ pub(crate) async fn use_latest(
     if let Err(status) = super::session_handlers::authorize_plan_request(&headers) {
         return status.into_response();
     }
-    let kind = match query {
-        Ok(Query(DocumentQuery { kind: Some(kind) })) => kind,
+    let query = match query {
+        Ok(Query(query)) if query.valid() && query.kind.is_some() => query,
         _ => return StatusCode::BAD_REQUEST.into_response(),
     };
+    let Some(kind) = query.kind else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
     tokio::task::spawn_blocking(move || {
-        match SessionApplication::new(state).reset_document_pin(&id, kind) {
+        match SessionApplication::new(state).reset_document_pin(
+            &id,
+            kind,
+            query.selection_id.as_deref(),
+        ) {
             Ok(()) => StatusCode::NO_CONTENT.into_response(),
             Err(e) => failure(e),
         }
@@ -163,6 +193,44 @@ mod tests {
                 .unwrap()
                 .status(),
             reqwest::StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            client
+                .get(format!("{url}?kind=design&selectionId={}", "0".repeat(64)))
+                .header("x-orkworks-open-plan-token", "document-reader-token")
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            reqwest::StatusCode::CONFLICT
+        );
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let store = &workspace.as_ref().unwrap().metadata;
+            store
+                .mutate_session(
+                    "document-subject",
+                    crate::metadata::session_transactions::WriteScope::NONE,
+                    |meta| {
+                        meta.plan_path = Some("specs/design.md".into());
+                        meta.worktree_binding = Some(crate::session_location::WorktreeBinding {
+                            root: dir.path().join("missing").to_string_lossy().into_owned(),
+                            common_dir: repo.commondir().to_string_lossy().into_owned(),
+                        });
+                        Ok(())
+                    },
+                )
+                .unwrap();
+        }
+        assert_eq!(
+            client
+                .get(&url)
+                .header("x-orkworks-open-plan-token", "document-reader-token")
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            reqwest::StatusCode::CONFLICT
         );
         server.abort();
     }

@@ -341,15 +341,15 @@ function App() {
     }
   };
 
-  const requestIndependentReview = useCallback((sessionId: string, kind?: import("./api").PlanDocumentKind) => {
+  const requestIndependentReview = useCallback((sessionId: string, kind?: import("./api").PlanDocumentKind, selectionId?: string) => {
     const target = sessions.find(session => session.id === sessionId);
     if (!workspaceSessionController.isAdmissionEnabled() || !isSessionAlive(target)) {
       return Promise.reject(new Error("Independent review requires an active session."));
     }
-    const key = `${workspaceLifecycleRef.current.generation}:${sessionId}:${kind ?? "legacy"}`;
+    const key = `${workspaceLifecycleRef.current.generation}:${sessionId}:${kind ?? "legacy"}:${selectionId ?? ""}`;
     const pending = reviewRequests.current.get(key);
     if (pending) return pending;
-    const request = kind === undefined ? window.orkworks.requestPlanReview(sessionId) : window.orkworks.requestPlanReview(sessionId, kind);
+    const request = kind === undefined ? window.orkworks.requestPlanReview(sessionId) : window.orkworks.requestPlanReview(sessionId, kind, selectionId);
     reviewRequests.current.set(key, request);
     const settled = () => { reviewRequests.current.delete(key); };
     void request.then(settled, settled);
@@ -360,11 +360,14 @@ function App() {
     workspaceLifecycleRef.current.generation === generation
       && (!(persist || shellNavigationRef.current.centralSurface.kind !== "review")
         || navigationIntent.current === reviewLoadIntent.current);
-  const reviewScope = JSON.stringify([activeSession?.repoRoot ?? activeSession?.cwd, activeSession?.planDocuments?.branch ?? activeSession?.branch]);
+  const lastReviewKind = useRef<import("./api").PlanDocumentKind | undefined>(undefined);
+  const reviewScope = JSON.stringify([activeSession?.repoRoot ?? activeSession?.cwd, activeSession?.planDocuments?.branch ?? activeSession?.branch,
+    activeSession?.planDocuments?.steps.map(step => [step.kind, step.selectionId])]);
   const review = useSessionReview(activeSessionId, shellNavigation.workspaceGeneration,
     // A picker attempt can be cancelled without changing the workspace generation.
     backendStatus === "connected" && !!activeSession,
     (document, persist) => {
+      lastReviewKind.current = document.kind;
       if (!acceptReviewResult(document.generation, persist)) return false;
       // A clicked artifact may be selected before polling reports availability.
       // The successful validated read is current evidence for this exact session.
@@ -388,17 +391,18 @@ function App() {
     priorReviewScope.current = reviewScope;
     if (!changed || shellNavigationRef.current.centralSurface.kind !== "review" || !activeSession?.hasOpenablePlan) return;
     const steps = activeSession.planDocuments?.steps;
-    const kind = steps?.find(step => step.kind === "implementation" && step.available)?.kind
+    const kind = steps?.find(step => step.kind === lastReviewKind.current && step.available)?.kind
+      ?? steps?.find(step => step.kind === "implementation" && step.available)?.kind
       ?? steps?.find(step => step.kind === "design" && step.available)?.kind;
     reviewLoadIntent.current = ++navigationIntent.current;
-    void review.load(false, false, undefined, kind);
+    void review.load(false, false, undefined, kind, steps?.find(step => step.kind === kind)?.selectionId ?? undefined);
   }, [reviewScope, activeSession?.hasOpenablePlan, activeSession?.planDocuments, review.load]);
   const openReview = useCallback((kind?: import("./api").PlanDocumentKind) => {
     reviewLoadIntent.current = ++navigationIntent.current;
     const steps = activeSession?.planDocuments?.steps;
     const selected = kind ?? steps?.find(step => step.kind === "implementation" && step.available)?.kind
       ?? steps?.find(step => step.kind === "design" && step.available)?.kind;
-    void review.load(true, false, undefined, selected);
+    void review.load(true, false, undefined, selected, steps?.find(step => step.kind === selected)?.selectionId ?? undefined);
   }, [review.load, activeSession?.planDocuments]);
   const selectTerminalPlan = useCallback((sessionId: string, path: string) => {
     if (!workspaceSessionController.isAdmissionEnabled() || sessionId !== activeSessionId) {
@@ -441,7 +445,13 @@ function App() {
       if (saved.diagnostic || !activeSession || intent !== restorationIntent.current
         || navigationIntent.current !== intent || shellNavigationRef.current.activeSessionId !== sessionId) return;
       if (saved.lastCentralSurface === "review") {
-        if (activeSession.hasOpenablePlan) { reviewLoadIntent.current = intent; void review.load(false, true); }
+        if (activeSession.hasOpenablePlan) {
+          const steps = activeSession.planDocuments?.steps;
+          const kind = steps?.find(step => step.kind === "implementation" && step.available)?.kind
+            ?? steps?.find(step => step.kind === "design" && step.available)?.kind;
+          reviewLoadIntent.current = intent;
+          void review.load(false, true, undefined, kind, steps?.find(step => step.kind === kind)?.selectionId ?? undefined);
+        }
         else dispatchShellNavigation({ type: "preferences-restored", surface: "review", artifactId: null, generation });
       }
     }).catch(() => {
@@ -946,7 +956,7 @@ function App() {
         reviewContent={activeSessionId ? <ReviewPanel key={`${shellNavigation.workspaceGeneration}-${activeSessionId}-${review.document?.kind ?? "legacy"}`}
           sessionId={activeSessionId} content={review.document?.content ?? null} loading={review.loading || isSwitchingWorkspace}
           error={review.error} changed={review.changed} canRequest={sessionAdmissionEnabled && isSessionAlive(activeSession)}
-          onRefresh={refreshReview} onRequest={id => requestIndependentReview(id, review.document?.kind)} /> : null}
+          onRefresh={refreshReview} onRequest={id => requestIndependentReview(id, review.document?.kind, review.document?.selectionId)} /> : null}
         workspaceGeneration={shellNavigation.workspaceGeneration}
         visibleSubjectId={shellNavigation.inspectedSubject && "sessionId" in shellNavigation.inspectedSubject
           ? shellNavigation.inspectedSubject.sessionId

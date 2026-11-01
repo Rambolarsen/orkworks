@@ -5,6 +5,10 @@ use crate::{
     AppState,
 };
 use std::{path::PathBuf, sync::Arc};
+
+#[cfg(test)]
+#[path = "branch_documents_application_tests.rs"]
+mod tests;
 pub(crate) struct Subject {
     pub root: PathBuf,
     pub store: Arc<crate::branch_documents_store::Store>,
@@ -118,13 +122,14 @@ impl SessionApplication {
         &self,
         id: &str,
         kind: Option<DocumentKind>,
+        selection_id: Option<&str>,
     ) -> Result<String, String> {
         if kind.is_none() {
             if let Ok(content) = self.read_plan_content(id) {
                 return Ok(content);
             }
         }
-        let (context, doc) = selected(&self.state, id, kind)?;
+        let (context, mut doc) = selected(&self.state, id, kind)?;
         let root = PathBuf::from(
             doc.reference
                 .worktree_root
@@ -132,33 +137,48 @@ impl SessionApplication {
                 .ok_or("Document anchor unavailable.")?,
         );
         let content = branch_documents::read_document(&root, &doc.reference.relative_path)?;
+        doc.content_hash = branch_documents::content_hash(&content);
+        if selection_id.is_some_and(|expected| expected != doc.selection_id()) {
+            return Err("Document selection changed; refresh.".into());
+        }
         if !current(&self.state, id, &context) {
             return Err("Session workspace changed; refresh.".into());
         }
         Ok(content)
     }
-    pub(crate) fn reset_document_pin(&self, id: &str, kind: DocumentKind) -> Result<(), String> {
+    pub(crate) fn reset_document_pin(
+        &self,
+        id: &str,
+        kind: DocumentKind,
+        selection_id: Option<&str>,
+    ) -> Result<(), String> {
         let context = subject(&self.state, id)?;
         let key = branch_documents::identity(&context.root)?;
         if !current(&self.state, id, &context) {
             return Err("Session workspace changed; refresh.".into());
         }
-        context.store.use_latest(&key, kind)
+        context.store.use_latest(&key, kind, selection_id)
     }
     pub(crate) async fn request_document_review(
         &self,
         id: &str,
         kind: Option<DocumentKind>,
+        selection_id: Option<&str>,
     ) -> Result<(), String> {
+        let (identity, control_tx) = {
+            let sessions = self.state.sessions.lock().unwrap();
+            let handle = sessions.get(id).ok_or("Session runtime unavailable.")?;
+            (handle.runtime.identity(), handle.runtime.control_tx.clone())
+        };
         if kind.is_none() && self.read_plan_content(id).is_ok() {
             return self
-                .request_plan_review(id)
+                .request_plan_review_to_runtime(id, &identity, &control_tx)
                 .await
                 .map_err(|_| "Could not request plan review.".into());
         }
         let captured = self.state.clone();
         let target = id.to_owned();
-        let (context, doc) =
+        let (context, mut doc) =
             tokio::task::spawn_blocking(move || selected(&captured, &target, kind))
                 .await
                 .map_err(|_| "Document inspection failed.")??;
@@ -171,18 +191,57 @@ impl SessionApplication {
         if !live || !current(&self.state, id, &context) {
             return Err("Session workspace changed; refresh.".into());
         }
-        let path = PathBuf::from(
+        let root = PathBuf::from(
             doc.reference
                 .worktree_root
                 .as_deref()
                 .ok_or("Document anchor unavailable.")?,
-        )
-        .join(&doc.reference.relative_path);
+        );
+        let path = root.join(&doc.reference.relative_path);
+        let content = branch_documents::read_document(&root, &doc.reference.relative_path)?;
+        doc.content_hash = branch_documents::content_hash(&content);
+        if selection_id.is_some_and(|expected| expected != doc.selection_id()) {
+            return Err("Document selection changed; refresh.".into());
+        }
         let prompt=format!("Please review the plan or specification at {}. Delegate this review to a subagent if you can; otherwise review it yourself. Check for missing requirements, risky assumptions, and unclear steps, then report the findings.\r",path.display());
-        crate::runtime::terminal_runtime::submit_approved_input(&self.state, id, prompt)
-            .await
-            .map_err(|_| "Could not deliver review request.")?;
+        let checked_state = self.state.clone();
+        let target = id.to_owned();
+        let audit_store = context.store.clone();
+        crate::runtime::terminal_runtime::submit_approved_input_to_runtime_with_admission(
+            &self.state,
+            id,
+            &identity,
+            &control_tx,
+            prompt,
+            move |send| {
+                if !current(&checked_state, &target, &context) {
+                    return Err(());
+                }
+                let workspace = checked_state.workspace.lock().map_err(|_| ())?;
+                let ws = workspace.as_ref().ok_or(())?;
+                if !Arc::ptr_eq(&context.store, &ws.metadata.branch_documents) {
+                    return Err(());
+                }
+                let meta = ws.metadata.read_session(&target).ok_or(())?;
+                if meta.lifecycle != "alive" || meta.cwd != context.launch.to_string_lossy() {
+                    return Err(());
+                }
+                if let Some(binding) = &meta.worktree_binding {
+                    if binding.validate().map_err(|_| ())? != context.root {
+                        return Err(());
+                    }
+                }
+                context
+                    .store
+                    .with_current_document(context.branch.as_ref().ok_or(())?, &doc, send)
+            },
+        )
+        .await
+        .map_err(|_| "Could not deliver review request.")?;
         if let Some(ws) = self.state.workspace.lock().unwrap().as_ref() {
+            if !Arc::ptr_eq(&audit_store, &ws.metadata.branch_documents) {
+                return Ok(());
+            }
             ws.metadata.append_event(
                 id,
                 &crate::metadata::Event {

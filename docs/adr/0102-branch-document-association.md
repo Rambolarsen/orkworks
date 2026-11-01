@@ -35,7 +35,9 @@ The complete identity, ranking, bounds, protocol and recovery contract is the
 
 Keep Rust as the sole resolver and validator, Electron as the authenticated
 desktop boundary, and one reusable central Review surface. Add only a closed
-document-kind selector to reads/review handoffs and a slot-specific pin reset.
+document-kind selector, opaque content-bound selection ID and slot-specific pin
+reset. Reject stale displayed selections and capture the target runtime before
+inspection, revalidating it and the document at input admission.
 Neither discovery nor display changes attention, approves work, types terminal
 input, performs Git mutations or starts another session. Existing explicit
 independent-review requests retain their fixed prompt and user-click authority.

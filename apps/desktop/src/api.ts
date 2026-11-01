@@ -137,6 +137,7 @@ export interface BranchDocumentStep {
   fileName?: string | null;
   source?: string | null;
   pinned: boolean;
+  selectionId?: string | null;
 }
 export interface BranchDocuments {
   branch?: string | null;

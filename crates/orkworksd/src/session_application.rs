@@ -4477,10 +4477,9 @@ impl SessionApplication {
             workspace
                 .metadata
                 .mutate_session_optional(session_id, WriteScope::NONE, |metadata| {
-                    if metadata.plan_path.is_some()
-                        || workspace
-                            .metadata
-                            .plan_path_is_explicitly_cleared(session_id)
+                    if workspace
+                        .metadata
+                        .plan_path_is_explicitly_cleared(session_id)
                     {
                         return Ok(false);
                     }
@@ -4498,18 +4497,20 @@ impl SessionApplication {
                     else {
                         return Ok(false);
                     };
-                    metadata.plan_path = Some(metadata::PlanReference {
+                    let reference = metadata::PlanReference {
                         worktree_root: Some(worktree_root.to_string_lossy().into_owned()),
                         relative_path,
                         source: metadata::PlanSource::TerminalFallback,
-                    });
-                    if let Some(reference) = &metadata.plan_path {
-                        crate::branch_documents::publish(
-                            &workspace.metadata.branch_documents,
-                            reference,
-                        )
-                        .map_err(std::io::Error::other)?;
+                    };
+                    crate::branch_documents::publish(
+                        &workspace.metadata.branch_documents,
+                        &reference,
+                    )
+                    .map_err(std::io::Error::other)?;
+                    if metadata.plan_path.is_some() {
+                        return Ok(false);
                     }
+                    metadata.plan_path = Some(reference);
                     Ok(true)
                 }),
             Ok(Some(_))
@@ -4685,6 +4686,9 @@ impl SessionApplication {
             .metadata
             .read_session(id)
             .ok_or(SessionError::NotFound)?;
+        if let Some(binding) = &metadata.worktree_binding {
+            binding.validate().map_err(|_| SessionError::Conflict)?;
+        }
         let plan_path = metadata.plan_path.ok_or(SessionError::Conflict)?;
         let path = resolve_openable_plan_reference(&workspace.path, &plan_path)
             .map_err(|_| SessionError::Conflict)?;
@@ -4704,13 +4708,31 @@ impl SessionApplication {
     }
 
     pub(crate) async fn request_plan_review(&self, id: &str) -> Result<(), SessionError> {
-        let plan_path = {
+        let (identity, control_tx) = {
+            let sessions = self.state.sessions.lock().unwrap();
+            let runtime = &sessions.get(id).ok_or(SessionError::Conflict)?.runtime;
+            (runtime.identity(), runtime.control_tx.clone())
+        };
+        self.request_plan_review_to_runtime(id, &identity, &control_tx)
+            .await
+    }
+
+    pub(crate) async fn request_plan_review_to_runtime(
+        &self,
+        id: &str,
+        identity: &crate::runtime::session_runtime::RuntimeIdentity,
+        control_tx: &tokio::sync::mpsc::Sender<crate::runtime::session_runtime::RuntimeCommand>,
+    ) -> Result<(), SessionError> {
+        let (plan_path, reference, store) = {
             let workspace_guard = self.state.workspace.lock().unwrap();
             let workspace = workspace_guard.as_ref().ok_or(SessionError::Conflict)?;
             let metadata = workspace
                 .metadata
                 .read_session(id)
                 .ok_or(SessionError::NotFound)?;
+            if let Some(binding) = &metadata.worktree_binding {
+                binding.validate().map_err(|_| SessionError::Conflict)?;
+            }
             if metadata.lifecycle != "alive" {
                 return Err(SessionError::Conflict);
             }
@@ -4722,19 +4744,64 @@ impl SessionApplication {
                 .worktree_root
                 .as_deref()
                 .and_then(|root| std::path::Path::new(root).canonicalize().ok());
-            if selected_root.is_some() && selected_root != launch_root {
+            let prompt_path = if selected_root.is_some() && selected_root != launch_root {
                 resolved.to_string_lossy().into_owned()
             } else {
-                path.relative_path
-            }
+                path.relative_path.clone()
+            };
+            (
+                prompt_path,
+                path,
+                workspace.metadata.branch_documents.clone(),
+            )
         };
         let prompt = format!(
             "Please review the plan or specification at {plan_path}. Delegate this review to a subagent if you can; otherwise review it yourself. Check for missing requirements, risky assumptions, and unclear steps, then report the findings.\r"
         );
-        crate::runtime::terminal_runtime::submit_approved_input(&self.state, id, prompt)
-            .await
-            .map_err(|_| SessionError::Conflict)?;
+        let state = self.state.clone();
+        let target = id.to_owned();
+        let captured_store = store.clone();
+        crate::runtime::terminal_runtime::submit_approved_input_to_runtime_with_admission(
+            &self.state,
+            id,
+            identity,
+            control_tx,
+            prompt,
+            move |send| {
+                let workspace = state.workspace.lock().map_err(|_| ())?;
+                let ws = workspace.as_ref().ok_or(())?;
+                if !Arc::ptr_eq(&captured_store, &ws.metadata.branch_documents) {
+                    return Err(());
+                }
+                let meta = ws.metadata.read_session(&target).ok_or(())?;
+                if meta.lifecycle != "alive" || meta.plan_path.as_ref() != Some(&reference) {
+                    return Err(());
+                }
+                if let Some(binding) = &meta.worktree_binding {
+                    binding.validate().map_err(|_| ())?;
+                }
+                let path = resolve_openable_plan_reference(&ws.path, &reference).map_err(|_| ())?;
+                let root = reference
+                    .worktree_root
+                    .as_deref()
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| ws.path.clone())
+                    .canonicalize()
+                    .map_err(|_| ())?;
+                crate::git_changes_fs::read_regular(
+                    &root,
+                    path.strip_prefix(&root).map_err(|_| ())?,
+                )
+                .map_err(|_| ())?;
+                send()
+            },
+        )
+        .await
+        .map_err(|_| SessionError::Conflict)?;
         if let Some(workspace) = self.state.workspace.lock().unwrap().as_ref() {
+            if !Arc::ptr_eq(&store, &workspace.metadata.branch_documents) {
+                return Ok(());
+            }
             workspace.metadata.append_event(
                 id,
                 &metadata::Event {

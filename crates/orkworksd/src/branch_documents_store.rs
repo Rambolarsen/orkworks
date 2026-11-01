@@ -12,6 +12,9 @@ pub(crate) struct Store {
     root: PathBuf,
     locks: Mutex<HashMap<String, Weak<Mutex<()>>>>,
     scans: Mutex<HashMap<PathBuf, (std::time::Instant, Identity, Option<git2::Oid>, Scan)>>,
+    generation: std::sync::atomic::AtomicU64,
+    #[cfg(test)]
+    pub(crate) before_scan: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -26,10 +29,24 @@ impl Store {
             root: root.join("branch-documents"),
             locks: Mutex::new(HashMap::new()),
             scans: Mutex::new(HashMap::new()),
+            generation: std::sync::atomic::AtomicU64::new(0),
+            #[cfg(test)]
+            before_scan: Mutex::new(None),
         }
     }
     pub(crate) fn scan(&self, root: &Path, fresh: bool) -> Result<Scan, String> {
-        let root = root.canonicalize().map_err(|_| "Worktree unavailable.")?;
+        let generation = self.generation.load(std::sync::atomic::Ordering::Acquire);
+        #[cfg(test)]
+        {
+            let hook = self.before_scan.lock().unwrap().take();
+            if let Some(hook) = hook {
+                hook();
+            }
+        }
+        let root = crate::git::worktree_root(root)
+            .ok_or("Worktree unavailable.")?
+            .canonicalize()
+            .map_err(|_| "Worktree unavailable.")?;
         let id = crate::branch_documents::identity(&root)?;
         let repo = git2::Repository::open(&root).map_err(|_| "Worktree unavailable.")?;
         let head = repo.head().ok().and_then(|h| h.target());
@@ -44,13 +61,14 @@ impl Store {
             });
             if !fresh {
                 if let Some((_, key, oid, scan)) = scans.get(&root) {
-                    if *key == id && *oid == head {
+                    if *key == id && *oid == head && scan.generation == Some(generation) {
                         return Ok(scan.clone());
                     }
                 }
             }
         }
-        let result = crate::branch_documents::discover(&root)?;
+        let mut result = crate::branch_documents::discover(&root)?;
+        result.generation = Some(generation);
         let mut scans = self
             .scans
             .lock()
@@ -58,7 +76,9 @@ impl Store {
         if scans.len() >= 128 {
             scans.clear();
         }
-        scans.insert(root, (now, id, head, result.clone()));
+        if generation == self.generation.load(std::sync::atomic::Ordering::Acquire) {
+            scans.insert(root, (now, id, head, result.clone()));
+        }
         Ok(result)
     }
     fn key(id: &Identity) -> String {
@@ -106,6 +126,15 @@ impl Store {
         Ok(record.documents)
     }
     fn save(&self, id: &Identity, documents: Vec<Document>) -> Result<(), String> {
+        // Invalidates every in-flight scan before publication, including scans
+        // which have already left the cache but have not reconciled yet.
+        self.generation
+            .fetch_update(
+                std::sync::atomic::Ordering::AcqRel,
+                std::sync::atomic::Ordering::Acquire,
+                |n| n.checked_add(1),
+            )
+            .map_err(|_| "Document generation exhausted; restart the sidecar.")?;
         std::fs::create_dir_all(&self.root)
             .map_err(|_| "Could not create branch document storage.")?;
         let text = serde_json::to_string(&Record {
@@ -139,6 +168,11 @@ impl Store {
         let lock = self.lock(&scan.identity);
         let _guard = lock.lock().map_err(|_| "Branch selection unavailable.")?;
         let mut current = self.load(&scan.identity)?;
+        if scan.generation.is_some_and(|generation| {
+            generation != self.generation.load(std::sync::atomic::Ordering::Acquire)
+        }) {
+            return Ok(current);
+        }
         let before = current.clone();
         for candidate in &scan.documents {
             if current.iter().any(|d| d.kind == candidate.kind && d.pinned) {
@@ -182,7 +216,12 @@ impl Store {
         }
         Ok(current)
     }
-    pub(crate) fn use_latest(&self, id: &Identity, kind: DocumentKind) -> Result<(), String> {
+    pub(crate) fn use_latest(
+        &self,
+        id: &Identity,
+        kind: DocumentKind,
+        selection_id: Option<&str>,
+    ) -> Result<(), String> {
         self.scans
             .lock()
             .map_err(|_| "Document cache unavailable.")?
@@ -190,8 +229,46 @@ impl Store {
         let lock = self.lock(id);
         let _guard = lock.lock().map_err(|_| "Branch selection unavailable.")?;
         let mut current = self.load(id)?;
+        if let Some(expected) = selection_id {
+            if !current
+                .iter()
+                .any(|doc| doc.kind == kind && doc.current_selection_id() == expected)
+            {
+                return Err("Document selection changed; refresh.".into());
+            }
+        }
         current.retain(|d| d.kind != kind);
         self.save(id, current)
+    }
+
+    pub(crate) fn with_current_document(
+        &self,
+        id: &Identity,
+        expected: &Document,
+        send: &mut dyn FnMut() -> Result<(), ()>,
+    ) -> Result<(), ()> {
+        let lock = self.lock(id);
+        let _guard = lock.lock().map_err(|_| ())?;
+        let documents = self.load(id).map_err(|_| ())?;
+        let current = documents
+            .iter()
+            .find(|d| d.kind == expected.kind)
+            .ok_or(())?;
+        if current.reference.worktree_root != expected.reference.worktree_root
+            || current.reference.relative_path != expected.reference.relative_path
+        {
+            return Err(());
+        }
+        crate::branch_documents::validate_document(id, current).map_err(|_| ())?;
+        let content = crate::branch_documents::read_document(
+            Path::new(current.reference.worktree_root.as_deref().ok_or(())?),
+            &current.reference.relative_path,
+        )
+        .map_err(|_| ())?;
+        if crate::branch_documents::content_hash(&content) != expected.content_hash {
+            return Err(());
+        }
+        send()
     }
 }
 
@@ -222,6 +299,7 @@ mod tests {
             establishing_head: None,
             pinned,
             observed_at: "2026-11-01T06:00:00Z".into(),
+            content_hash: String::new(),
         }
     }
 
@@ -236,6 +314,7 @@ mod tests {
         let other_session = Store::new(dir.path());
         let result = other_session
             .reconcile(&Scan {
+                generation: None,
                 identity: id.clone(),
                 documents: vec![doc("docs/superpowers/plans/latest.md", false)],
                 notice: None,
@@ -244,10 +323,11 @@ mod tests {
         assert!(result[0].pinned);
         assert!(result[0].reference.relative_path.ends_with("pinned.md"));
         other_session
-            .use_latest(&id, DocumentKind::Implementation)
+            .use_latest(&id, DocumentKind::Implementation, None)
             .unwrap();
         let result = store
             .reconcile(&Scan {
+                generation: None,
                 identity: id,
                 documents: vec![doc("docs/superpowers/plans/latest.md", false)],
                 notice: None,
@@ -285,6 +365,7 @@ mod tests {
             .unwrap();
         let result = store
             .reconcile(&Scan {
+                generation: None,
                 identity: id,
                 documents: vec![],
                 notice: Some("Limit".into()),

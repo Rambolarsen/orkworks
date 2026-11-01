@@ -2,6 +2,7 @@
 use crate::metadata::{PlanReference, PlanSource};
 use git2::{Oid, Repository};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, HashMap},
     path::Path,
@@ -39,6 +40,36 @@ pub(crate) struct Document {
     pub establishing_head: Option<String>,
     pub pinned: bool,
     pub observed_at: String,
+    #[serde(default)]
+    pub content_hash: String,
+}
+
+impl Document {
+    pub(crate) fn selection_id(&self) -> String {
+        let encoded = serde_json::to_vec(&(
+            &self.reference.worktree_root,
+            &self.reference.relative_path,
+            &self.content_hash,
+        ))
+        .unwrap_or_default();
+        hex::encode(Sha256::digest(encoded))
+    }
+    pub(crate) fn current_selection_id(&self) -> String {
+        let mut current = self.clone();
+        if let Some(content) = self
+            .reference
+            .worktree_root
+            .as_deref()
+            .and_then(|root| read_document(Path::new(root), &self.reference.relative_path).ok())
+        {
+            current.content_hash = content_hash(&content);
+        }
+        current.selection_id()
+    }
+}
+
+pub(crate) fn content_hash(content: &str) -> String {
+    hex::encode(Sha256::digest(content.replace("\r\n", "\n").as_bytes()))
 }
 
 #[derive(Clone, Debug)]
@@ -46,6 +77,7 @@ pub(crate) struct Scan {
     pub identity: Identity,
     pub documents: Vec<Document>,
     pub notice: Option<String>,
+    pub generation: Option<u64>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -57,6 +89,7 @@ pub(crate) struct Step {
     pub file_name: Option<String>,
     pub source: Option<PlanSource>,
     pub pinned: bool,
+    pub selection_id: Option<String>,
 }
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -90,7 +123,11 @@ pub(crate) fn validate_document(id: &Identity, doc: &Document) -> Result<(), Str
             }
         }
     }
-    read_document(Path::new(root), &doc.reference.relative_path).map(|_| ())
+    let content = read_document(Path::new(root), &doc.reference.relative_path)?;
+    if !doc.pinned && !doc.content_hash.is_empty() && doc.content_hash != content_hash(&content) {
+        return Err("Document content no longer matches its establishing evidence.".into());
+    }
+    Ok(())
 }
 
 pub(crate) fn resolve(
@@ -99,7 +136,11 @@ pub(crate) fn resolve(
     fresh: bool,
 ) -> Result<(Identity, Vec<Document>, Option<String>), String> {
     let scan = store.scan(root, fresh)?;
-    let documents = store.reconcile(&scan)?;
+    let documents = store
+        .reconcile(&scan)?
+        .into_iter()
+        .filter(|doc| doc.pinned || validate_document(&scan.identity, doc).is_ok())
+        .collect();
     Ok((scan.identity, documents, scan.notice))
 }
 
@@ -128,6 +169,7 @@ pub(crate) fn projection(store: &crate::branch_documents_store::Store, root: &Pa
                 }),
                 source: selected.map(|d| d.reference.source),
                 pinned: selected.is_some_and(|d| d.pinned),
+                selection_id: selected.map(|d| d.current_selection_id()),
             }
         })
         .collect();
@@ -309,6 +351,7 @@ fn from_content(
         establishing_head: head.map(|id| id.to_string()),
         pinned,
         observed_at: chrono::Utc::now().to_rfc3339(),
+        content_hash: content_hash(content),
     }
 }
 
@@ -640,6 +683,7 @@ pub(crate) fn discover(cwd: &Path) -> Result<Scan, String> {
             identity,
             documents: Vec::new(),
             notice: Some(error),
+            generation: None,
         });
     }
     dirty.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
@@ -669,6 +713,7 @@ pub(crate) fn discover(cwd: &Path) -> Result<Scan, String> {
         identity,
         documents,
         notice,
+        generation: None,
     })
 }
 
@@ -791,6 +836,102 @@ mod tests {
         assert_eq!(a, identity(&dir.path().join("child")).unwrap());
         let (other, _) = fixture();
         assert_ne!(a, identity(other.path()).unwrap());
+    }
+
+    #[test]
+    fn cached_discovery_accepts_a_harness_cwd_below_the_worktree_root() {
+        let (dir, _) = fixture();
+        write(dir.path(), "specs/current.md", "# Current design\n");
+        std::fs::create_dir_all(dir.path().join("crates/child")).unwrap();
+        let storage = tempfile::tempdir().unwrap();
+        let store = crate::branch_documents_store::Store::new(storage.path());
+        let scan = store.scan(&dir.path().join("crates/child"), false).unwrap();
+        assert_eq!(scan.documents[0].title, "Current design");
+    }
+
+    #[test]
+    fn reverting_a_branch_spec_change_does_not_keep_its_automatic_association() {
+        let (dir, repo) = fixture();
+        write(dir.path(), "specs/inherited.md", "# Task changes\n");
+        commit(&repo);
+        let storage = tempfile::tempdir().unwrap();
+        let store = crate::branch_documents_store::Store::new(storage.path());
+        assert_eq!(
+            resolve(&store, dir.path(), true).unwrap().1[0].title,
+            "Task changes"
+        );
+        write(dir.path(), "specs/inherited.md", "# Inherited\n");
+        commit(&repo);
+        assert!(resolve(&store, dir.path(), true).unwrap().1.is_empty());
+    }
+
+    #[test]
+    fn second_terminal_signal_publishes_an_independent_slot_without_replacing_legacy_reference() {
+        let (dir, _) = fixture();
+        write(dir.path(), "specs/current.md", "# Design\n");
+        write(dir.path(), "docs/superpowers/plans/current.md", "# Plan\n");
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let mut meta = crate::test_support::test_session_metadata(
+            "terminal-docs",
+            "Docs",
+            dir.path().to_str().unwrap(),
+            "running",
+            "now",
+            "now",
+        );
+        meta.cwd = dir.path().to_string_lossy().into_owned();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
+        let app = crate::session_application::SessionApplication::new(state.clone());
+        assert!(app.persist_printed_plan_fallback("terminal-docs", "specs/current.md"));
+        let _ =
+            app.persist_printed_plan_fallback("terminal-docs", "docs/superpowers/plans/current.md");
+        let ws = state.workspace.lock().unwrap();
+        let store = &ws.as_ref().unwrap().metadata;
+        let documents = store
+            .branch_documents
+            .load(&identity(dir.path()).unwrap())
+            .unwrap();
+        assert_eq!(documents.len(), 2);
+        assert_eq!(
+            store
+                .read_session("terminal-docs")
+                .unwrap()
+                .plan_path
+                .unwrap()
+                .relative_path,
+            "specs/current.md"
+        );
+    }
+
+    #[test]
+    fn a_scan_captured_before_a_new_report_cannot_restore_the_older_document() {
+        let (dir, _) = fixture();
+        write(dir.path(), "specs/old.md", "# Old design\n");
+        let storage = tempfile::tempdir().unwrap();
+        let store = crate::branch_documents_store::Store::new(storage.path());
+        let stale = store.scan(dir.path(), true).unwrap();
+        write(dir.path(), "specs/new.md", "# New design\n");
+        store
+            .report(
+                &identity(dir.path()).unwrap(),
+                document(
+                    &dir.path().canonicalize().unwrap(),
+                    "specs/new.md",
+                    PlanSource::AgentReported,
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let documents = store.reconcile(&stale).unwrap();
+        assert_eq!(documents[0].title, "New design");
     }
 
     #[test]

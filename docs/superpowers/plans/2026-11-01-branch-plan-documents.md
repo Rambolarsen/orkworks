@@ -38,7 +38,8 @@ inline in the owned `branch-plan-documents` worktree.
 - Discover branch-specific documents from Git objects and bounded uncommitted
   files; no fetch, shell, Git mutation, external filters or repo-wide inbox.
 - Electron owns the desktop credential; renderer requests contain only session
-  ID and the closed `design | implementation` discriminator.
+  ID, the closed `design | implementation` discriminator and an optional opaque
+  selection ID to reject actions for stale displayed content.
 - Reuse the single central Review surface and existing return navigation.
   Keep document-slot selection in transient renderer state; reopening after
   restoration may default to the implementation slot, then design.

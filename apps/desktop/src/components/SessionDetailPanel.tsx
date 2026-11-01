@@ -212,7 +212,7 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSes
       )}
       {!showingActivity && active.planDocuments && onReviewPlan && <BranchDocumentSteps key={active.id}
         sessionId={active.id} documents={active.planDocuments} onOpen={kind => onReviewPlan(kind)}
-        onUseLatest={async kind => { await window.orkworks.useLatestPlanDocument(active.id, kind); onTitleUpdated?.(); }} />}
+        onUseLatest={async (kind, selectionId) => { await window.orkworks.useLatestPlanDocument(active.id, kind, selectionId); onTitleUpdated?.(); }} />}
       {!showingActivity && actionZone.kind === "resume" && (
         <div className="detail-actions">
           <ResumeChooser key={active.id} pending={resumingSessionIds?.has(active.id)} options={actionZone.options} onSelect={option => onResumeSession(active.id, option.strategy)} />

@@ -8,6 +8,7 @@ export interface ReviewDocument {
   content: string;
   kind?: PlanDocumentKind;
   scopeKey?: string;
+  selectionId?: string;
 }
 
 // The sidecar validates the associated path on every read. Keep only the returned
@@ -23,6 +24,7 @@ export function useSessionReview(sessionId: string | null, generation: number, e
   const [error, setError] = useState(false);
   const request = useRef(0);
   const selectedKind = useRef<PlanDocumentKind | undefined>(undefined);
+  const selectedId = useRef<string | undefined>(undefined);
   const scope = useRef({ sessionId, generation, enabled, scopeKey });
   if (scope.current.sessionId !== sessionId || scope.current.generation !== generation || scope.current.enabled !== enabled || scope.current.scopeKey !== scopeKey) {
     scope.current = { sessionId, generation, enabled, scopeKey };
@@ -36,17 +38,20 @@ export function useSessionReview(sessionId: string | null, generation: number, e
     ++request.current;
     setDocument(null);
     selectedKind.current = undefined;
+    selectedId.current = undefined;
     previousDigest.current = null;
     setChanged(false);
     setLoading(false);
     setError(false);
   }, []);
   useEffect(() => { close(); return () => { ++request.current; }; }, [sessionId, generation, enabled, scopeKey, close]);
-  const load = useCallback(async (persist = true, restoring = false, printedPath?: string, kind?: PlanDocumentKind) => {
+  const load = useCallback(async (persist = true, restoring = false, printedPath?: string, kind?: PlanDocumentKind, selectionId?: string) => {
     if (!sessionId || !enabled) return;
     const token = ++request.current;
     const requestedKind = printedPath !== undefined ? undefined : kind ?? selectedKind.current;
+    const requestedId = printedPath !== undefined ? undefined : selectionId ?? (kind === undefined || kind === selectedKind.current ? selectedId.current : undefined);
     selectedKind.current = requestedKind;
+    selectedId.current = requestedId;
     setLoading(true);
     // Never retain old document bytes across a refresh that may fail validation.
     setDocument(null);
@@ -55,11 +60,11 @@ export function useSessionReview(sessionId: string | null, generation: number, e
         await window.orkworks.selectTerminalPlan(sessionId, printedPath);
         if (request.current !== token) return;
       }
-      const content = requestedKind === undefined ? await window.orkworks.getPlanContent(sessionId) : await window.orkworks.getPlanContent(sessionId, requestedKind);
+      const content = requestedKind === undefined ? await window.orkworks.getPlanContent(sessionId) : await window.orkworks.getPlanContent(sessionId, requestedKind, requestedId);
       const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${requestedKind ?? "legacy"}\0${content}`));
       if (request.current !== token) return;
       const artifactId = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
-      const next = { sessionId, generation, artifactId, content, kind: requestedKind, scopeKey };
+      const next = { sessionId, generation, artifactId, content, kind: requestedKind, scopeKey, selectionId: requestedId };
       if (!onLoadedRef.current(next, persist)) return;
       setChanged(previousDigest.current !== null && previousDigest.current !== artifactId);
       previousDigest.current = artifactId;

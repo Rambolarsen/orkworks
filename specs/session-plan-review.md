@@ -138,7 +138,10 @@ per document read and 4 MiB aggregate document reads per scan. Report limits or
 unavailable inspection explicitly; an incomplete scan cannot claim a latest
 winner or overwrite an established association. Cache results for at most five
 seconds per worktree/branch/HEAD and invalidate on accepted reports/selections,
-root/branch changes and workspace adoption. Never hold runtime/workspace locks
+root/branch changes and workspace adoption. A scan captured before a newer
+publication cannot overwrite it. Automatic associations retain normalized
+content-hash evidence as well as ancestry, so reverting a branch change cannot
+keep an inherited document attached. Never hold runtime/workspace locks
 through discovery. Reuse bounded Git-object and no-follow regular-file access;
 never read symlinks, FIFOs, devices, source Git control files through ordinary
 libgit2 filesystem readers, or execute external filters/drivers.
@@ -152,12 +155,18 @@ Keep `hasOpenablePlan` as the aggregate of readable slots for older consumers.
 
 Extend authenticated content/review access with an optional closed
 `design | implementation` kind. Electron validates it and retains the desktop
-credential and workspace-generation fence; renderer supplies only session ID
-and kind. Existing bodyless content/review requests preserve their legacy
+credential and workspace-generation fence; renderer supplies session ID, kind
+and an optional opaque selection ID from the projected slot. This ID identifies
+the displayed document and content without exposing paths or granting authority.
+Content, review and pin-reset requests reject a changed selection rather than
+silently acting on a newer document. Existing bodyless requests preserve their legacy
 selection, otherwise default to implementation then design. Pin reset accepts
-only session ID and kind through the same authenticated desktop boundary.
+only session ID, kind and optional selection ID through that desktop boundary.
 Revalidate workspace, effective root, branch, anchored repository containment,
 regular Markdown type and read bounds for each read and review handoff.
+Capture the runtime before document inspection; at input admission revalidate
+that runtime, workspace and selected document. A resumed runtime cannot receive
+a click made for its predecessor. Audit only acknowledged delivery.
 
 Keep legacy string/anchored `planPath` records readable. A legacy reference
 without recorded branch identity remains session-local until fresh explicit or

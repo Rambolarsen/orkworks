@@ -4,9 +4,15 @@ export function validatePlanDocumentKind(kind: unknown): asserts kind is PlanDoc
   if (kind !== undefined && kind !== "design" && kind !== "implementation") throw new Error("Invalid document kind.");
 }
 
-function kindQuery(kind?: PlanDocumentKind): string {
+export function validatePlanSelectionId(value: unknown): asserts value is string | undefined {
+  if (value !== undefined && (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value))) throw new Error("Invalid document selection.");
+}
+
+function kindQuery(kind?: PlanDocumentKind, selectionId?: string): string {
   validatePlanDocumentKind(kind);
-  return kind === undefined ? "" : `?kind=${kind}`;
+  validatePlanSelectionId(selectionId);
+  if (selectionId !== undefined && kind === undefined) throw new Error("A document kind is required.");
+  return kind === undefined ? "" : `?kind=${kind}${selectionId === undefined ? "" : `&selectionId=${selectionId}`}`;
 }
 
 export async function getSessionPlanContent(
@@ -16,8 +22,9 @@ export async function getSessionPlanContent(
   fetchImpl: typeof fetch,
   signal: AbortSignal,
   kind?: PlanDocumentKind,
+  selectionId?: string,
 ): Promise<string> {
-  const response = await fetchImpl(`${baseUrl}/sessions/${encodeURIComponent(sessionId)}/plan-content${kindQuery(kind)}`, {
+  const response = await fetchImpl(`${baseUrl}/sessions/${encodeURIComponent(sessionId)}/plan-content${kindQuery(kind, selectionId)}`, {
     headers: { "x-orkworks-open-plan-token": token },
     signal,
   });
@@ -27,13 +34,13 @@ export async function getSessionPlanContent(
   return body.content;
 }
 
-export async function requestSessionPlanReview(baseUrl: string, sessionId: string, token: string, fetchImpl: typeof fetch, signal: AbortSignal, kind?: PlanDocumentKind): Promise<void> {
-  const response = await fetchImpl(`${baseUrl}/sessions/${encodeURIComponent(sessionId)}/request-plan-review${kindQuery(kind)}`, { method: "POST", headers: { "x-orkworks-open-plan-token": token }, signal });
+export async function requestSessionPlanReview(baseUrl: string, sessionId: string, token: string, fetchImpl: typeof fetch, signal: AbortSignal, kind?: PlanDocumentKind, selectionId?: string): Promise<void> {
+  const response = await fetchImpl(`${baseUrl}/sessions/${encodeURIComponent(sessionId)}/request-plan-review${kindQuery(kind, selectionId)}`, { method: "POST", headers: { "x-orkworks-open-plan-token": token }, signal });
   if (!response.ok) throw new Error("Couldn’t ask this agent to review the plan.");
 }
 
-export async function useLatestPlanDocument(baseUrl: string, sessionId: string, kind: PlanDocumentKind, token: string, fetchImpl: typeof fetch, signal: AbortSignal): Promise<void> {
-  const response = await fetchImpl(`${baseUrl}/sessions/${encodeURIComponent(sessionId)}/plan-document-latest${kindQuery(kind)}`, {
+export async function useLatestPlanDocument(baseUrl: string, sessionId: string, kind: PlanDocumentKind, token: string, fetchImpl: typeof fetch, signal: AbortSignal, selectionId?: string): Promise<void> {
+  const response = await fetchImpl(`${baseUrl}/sessions/${encodeURIComponent(sessionId)}/plan-document-latest${kindQuery(kind, selectionId)}`, {
     method: "POST", headers: { "x-orkworks-open-plan-token": token }, signal,
   });
   if (!response.ok) throw new Error("Couldn’t restore the latest document.");

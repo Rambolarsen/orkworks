@@ -54,6 +54,13 @@ if (process.versions.electron) {
         await waitFor('fixture.documentKinds.length===5 && document.querySelector(".review-plan-content")?.textContent.includes("Implementation document")');
         await evaluate('fixture.oldBranchRead("# Stale prior branch design")');
         assert.equal(await evaluate('document.body.textContent.includes("Stale prior branch design")'),false);
+        await evaluate('fixture.currentImplementation="# Newer implementation";fixture.sessionList[0]={...fixture.sessionList[0],planDocuments:{...fixture.sessionList[0].planDocuments,steps:fixture.sessionList[0].planDocuments.steps.map(step=>step.kind==="implementation"?{...step,title:"Newer implementation",selectionId:"b".repeat(64)}:step)}}');
+        await waitFor('fixture.documentKinds.length===6 && document.querySelector(".review-plan-content")?.textContent.includes("Newer implementation")');
+        assert.equal(await evaluate('fixture.documentSelectionIds.at(-1)'), 'b'.repeat(64));
+        await evaluate('document.querySelector("[data-review-request]").click()');
+        await waitFor('fixture.prompts===2');
+        assert.equal(await evaluate('fixture.promptSelectionId'), 'b'.repeat(64));
+        await evaluate('fixture.finishPrompt()');
         if (process.env.ORKWORKS_CAPTURE_BRANCH_DOCUMENTS) {
           const {writeFileSync}=await import('node:fs');
           if (!await evaluate('!!document.querySelector("[data-document-kind=design]")')) await click('details');
@@ -1859,11 +1866,11 @@ if (process.versions.electron) {
           });
           if ((${JSON.stringify(scenario)}.startsWith('app-'))) {
             fixture.posts=0;fixture.navigation=[];fixture.navigationRebuilds=0;fixture.cancelNavigationRebuild=true;fixture.navigationDiagnostic=${JSON.stringify(scenario)}.includes('navigation-recovery')?'corrupt_record':null;fixture.activeWrites=0;fixture.reads=[];fixture.navigationReads=0;
-            fixture.plan='# Current plan';fixture.planSelections=[];fixture.documentKinds=[];
+            fixture.plan='# Current plan';fixture.planSelections=[];fixture.documentKinds=[];fixture.documentSelectionIds=[];
             if(${JSON.stringify(scenario)}==='app-review-terminal-links')fixture.plan='# Clicked document';fixture.savedSurface=${JSON.stringify(scenario)}.includes('restore')||${JSON.stringify(scenario)}==='app-review-opening-navigation'?'review':'terminal';
             const reviewSession=id=>({id,label:id,harness:'generic-shell',harnessId:'generic-shell',lifecycle:'alive',status:'running',cwd:'/tmp/test',created_at:'2026-10-13T10:00:00Z',memoryState:'live',resumeStrategy:'none',hasOpenablePlan:true,repoRoot:'/tmp/test',branch:'feature'});
             fixture.sessionList=${JSON.stringify(scenario)}.startsWith('app-review')||${JSON.stringify(scenario)}==='app-startup-composer'?[reviewSession('created'),reviewSession('other')]:[];
-            if(${JSON.stringify(scenario)}==='app-review-branch-documents')for(const session of fixture.sessionList)session.planDocuments={branch:'feature',sharedSessions:2,steps:[{kind:'design',title:'Design document',available:true,pinned:false,source:'git_history'},{kind:'implementation',title:'Implementation document',available:true,pinned:false,source:'agent_reported'}]};
+            if(${scenario === 'app-review-branch-documents'})for(const session of fixture.sessionList)session.planDocuments={branch:'feature',sharedSessions:2,steps:[{kind:'design',title:'Design document',available:true,pinned:false,source:'git_history',selectionId:'d'.repeat(64)},{kind:'implementation',title:'Implementation document',available:true,pinned:false,source:'agent_reported',selectionId:'a'.repeat(64)}]};
             if(${JSON.stringify(scenario)}==='app-review-terminal-links'){fixture.sessionList[0].hasOpenablePlan=false;fixture.sessionList[1].lifecycle='dead';fixture.sessionList[1].status='ended';}
             if(${JSON.stringify(scenario)}==='app-review-empty-navigation-recovery')fixture.sessionList=[];
             if(${JSON.stringify(scenario)}==='app-review-stale-read-restore')fixture.deferRead=true;
@@ -1883,8 +1890,8 @@ if (process.versions.electron) {
               completeWorkspaceNavigation:async surface=>{if(["corrupt_record","unsupported_version"].includes(fixture.navigationDiagnostic))return {ok:false,diagnostic:fixture.navigationDiagnostic};fixture.navigation.push(surface);if(${JSON.stringify(scenario)}==='app-review-create-persistence')fixture.savedSurface=surface;return {ok:true}},
               rebuildWorkspaceNavigation:async()=>{fixture.navigationRebuilds++;if(fixture.deferNavigationRebuild)await new Promise(resolve=>fixture.finishNavigationRebuild=resolve);if(fixture.cancelNavigationRebuild)return {ok:false,diagnostic:'user_cancelled'};fixture.navigationDiagnostic=null;return {ok:true}},
               selectTerminalPlan:async (id,path)=>{fixture.planSelections.push([id,path]);if(fixture.selectionFailure)throw new Error('Document is unavailable');if(fixture.deferSelection)await new Promise(resolve=>fixture.finishSelection=resolve)},
-              getPlanContent:async (id,kind)=>{fixture.reads.push(id);if(kind)fixture.documentKinds.push(kind);if(fixture.deferRead)return new Promise((resolve,reject)=>{fixture.resolveRead=resolve;fixture.rejectRead=reject});if(fixture.unreadable)throw new Error('Missing plan');if(${JSON.stringify(scenario)}==='app-review-branch-documents')return kind==='design'?'# Design document':'# Implementation document';return id==='other'?'# Other session plan':fixture.plan},
-              requestPlanReview:async (id,kind)=>{fixture.prompts++;fixture.promptSession=id;fixture.promptKind=kind;await new Promise((resolve,reject)=>{fixture.finishPrompt=resolve;fixture.rejectPrompt=reject})},
+              getPlanContent:async (id,kind,selectionId)=>{fixture.reads.push(id);if(kind){fixture.documentKinds.push(kind);fixture.documentSelectionIds.push(selectionId)}if(fixture.deferRead)return new Promise((resolve,reject)=>{fixture.resolveRead=resolve;fixture.rejectRead=reject});if(fixture.unreadable)throw new Error('Missing plan');if(${scenario === 'app-review-branch-documents'})return kind==='design'?'# Design document':fixture.currentImplementation||'# Implementation document';return id==='other'?'# Other session plan':fixture.plan},
+              requestPlanReview:async (id,kind,selectionId)=>{fixture.prompts++;fixture.promptSession=id;fixture.promptKind=kind;fixture.promptSelectionId=selectionId;await new Promise((resolve,reject)=>{fixture.finishPrompt=resolve;fixture.rejectPrompt=reject})},
             });
             window.fetch=async (url,options={})=>{
               const path=new URL(url).pathname;

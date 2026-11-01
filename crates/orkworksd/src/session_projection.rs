@@ -438,6 +438,7 @@ impl SessionProjection {
                                 file_name: None,
                                 source: None,
                                 pinned: false,
+                                selection_id: None,
                             })
                             .collect(),
                         notice: Some("Reported task worktree unavailable.".into()),
