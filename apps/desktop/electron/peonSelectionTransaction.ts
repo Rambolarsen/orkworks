@@ -42,7 +42,8 @@ export interface PeonSelectionTransport {
   getApplied(signal?: AbortSignal): Promise<PeonAppliedState>;
 }
 
-export type PeonSelectionSaveResult =
+// Persistence outcome only; the IPC owner supplies the settings projection.
+export type PeonSelectionPersistResult =
   | { ok: true }
   | { ok: false; error: string };
 
@@ -207,7 +208,7 @@ export function createPeonSelectionTransaction(transport: PeonSelectionTransport
   async function save(
     selection: PeonSelection,
     persist: () => void | Promise<void>,
-  ): Promise<PeonSelectionSaveResult> {
+  ): Promise<PeonSelectionPersistResult> {
     return enqueueMutation(async () => {
       const candidate = verified;
       const localApplied = applied;

@@ -55,7 +55,7 @@ export interface PeonAppliedState {
 }
 
 export type PeonSelectionSaveResult =
-  | { ok: true; settings: unknown }
+  | { ok: true; settings: import("./settingsMemory").RendererSettings }
   | { ok: false; error: string };
 
 export function peonSelectionMatchesAppliedState(
