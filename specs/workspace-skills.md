@@ -25,16 +25,27 @@ and #740 capability gates remain unchanged.
 Skills appears directly below Recommendations in the left sidebar and opens in
 the main view at every width, including through the collapsed rail and compact
 Workspace menu. It replaces the former Skills section in Settings and contains
-one row per exact skill name across scopes, a search field, coding-tool and
+a Plugins section grouping skills by recorded plugin, a Local skills section
+for sources without recorded plugin ownership, a search field, coding-tool and
 scope filters, Refresh, and Add skill. Each row expands to its sources, each
 clearly labeled Workspace or Personal. Back, its toggle, or Escape within the page
 returns to the previous central content; selecting a session opens its Terminal.
 Skills is transient and is not restored after restart.
 Personal discovery works without an open workspace; Workspace then explains
 that opening a workspace is required.
-Plugin registration names appear on source entries and remain searchable.
-A name groups all matching source entries; it does not establish that their
-instructions are identical, enabled or effective. Read skill opens instructions
+Plugin registration names head their groups, appear on source entries, and remain
+searchable. Each group contains one expandable row per exact skill name across
+scopes. A source associated with multiple plugins appears in each relevant group;
+global counts still count each source once. Unknown plugin registrations are
+labeled explicitly. Local skills includes local and APM sources without recorded
+plugin ownership; it does not establish manual installation.
+An exact name with separate unowned local and plugin sources shows a visible,
+text-labeled Local + plugin cue in both groups. Compute this cue from the full
+inventory so filtering cannot conceal overlap; explain that other sources may
+be filtered out and that local ownership is unrecorded. APM-only sources and
+aliases of one canonical source do not establish local/plugin duplication.
+A name groups matching source entries within its installation group; it does not
+establish that their instructions are identical, enabled or effective. Read skill opens instructions
 from the selected source ID, without choosing a winning source.
 
 Workspace names the exact open directory, including when it is a linked
@@ -53,7 +64,8 @@ Skills installed without APM remain visible and read-only. Invalid metadata and
 unreadable roots produce specific diagnostics; partial discovery is not an empty
 successful inventory. APM being missing disables Add but not local discovery.
 
-The same name in two scopes shares one name row with separate scoped sources.
+The same name in two scopes shares one name row within each installation group
+with separate scoped sources.
 Counts describe distinct exact names and a separate matching source-entry total,
 not a coding tool’s loaded or enabled skill total. Search and coding-tool/scope
 filters apply to source entries before grouping; counts and expanded lists show

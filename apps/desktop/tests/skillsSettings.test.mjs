@@ -32,11 +32,16 @@ if (process.env.ORKWORKS_SKILLS_FIXTURE) {
         evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
       const search = (value) => evaluate(`(()=>{const el=document.querySelector('input[type="search"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set.call(el,${JSON.stringify(value)});el.dispatchEvent(new Event("input",{bubbles:true}))})()`);
       const filter = (label, value) => evaluate(`(()=>{const el=document.querySelector('select[aria-label="'+${JSON.stringify(label)}+'"]');el.value=${JSON.stringify(value)};el.dispatchEvent(new Event("change",{bubbles:true}))})()`);
-      await wait('document.querySelectorAll("[data-skill-row]").length===2');
+      await wait('document.querySelectorAll("[data-skill-source]").length===4');
       assert.match(await evaluate('document.querySelector("[data-skill-counts]").innerText'), /2 skills.*4 sources/s);
       assert.equal(await evaluate('document.querySelectorAll("[data-skill-source]").length'), 4);
-      assert.equal(await evaluate(`document.querySelectorAll('[data-skill-row="review"] [data-skill-source]').length`), 3);
-      assert.equal(await evaluate('document.querySelectorAll("[data-skill-row] details:not([open])").length'), 2);
+      assert.equal(await evaluate('document.querySelectorAll("[data-skill-plugin]").length'), 2);
+      assert.equal(await evaluate(`document.querySelector('[data-skill-plugin="alpha@local"] [data-skill-row]').dataset.skillRow`), "review");
+      assert.equal(await evaluate(`document.querySelector('[data-skill-plugin="beta@local"] [data-skill-row]').dataset.skillRow`), "build");
+      assert.equal(await evaluate('document.querySelectorAll("[data-local-skills] [data-skill-source]").length'), 2);
+      assert.equal(await evaluate('document.querySelectorAll("[data-skill-overlap]").length'), 2);
+      assert.equal(await evaluate(`document.querySelector('[data-skill-row="build"] [data-skill-overlap]')`), null);
+      assert.equal(await evaluate('document.querySelectorAll("[data-skill-row] details:not([open])").length'), 3);
       assert.equal(await evaluate(`document.querySelector('[data-skill-row="review"]').innerText.includes("/repo/.agents")`), false);
       assert.equal(await evaluate('!!document.querySelector("img[data-injected]")'), false);
       if (process.env.ORKWORKS_SKILLS_CAPTURE) {
@@ -45,7 +50,8 @@ if (process.env.ORKWORKS_SKILLS_FIXTURE) {
       }
       await evaluate(`document.querySelector('[data-skill-row="review"] summary').focus()`);
       assert.equal(await evaluate('document.activeElement.matches("[data-skill-row] summary")'), true);
-      await click('[data-skill-row="review"] summary');
+      await click('[data-local-skills] [data-skill-row="review"] summary');
+      await click('[data-skill-plugin="alpha@local"] [data-skill-row="review"] summary');
       await wait(`document.querySelector('[data-skill-row="review"] details[open]')`);
       assert.match(await evaluate(`document.querySelector('[data-skill-source="workspace-review"]').innerText`), /Workspace/);
       assert.match(await evaluate(`document.querySelector('[data-skill-source="personal-review"]').innerText`), /Personal/);
@@ -69,10 +75,11 @@ if (process.env.ORKWORKS_SKILLS_FIXTURE) {
         assert.ok(await evaluate("document.documentElement.scrollWidth<=innerWidth+1"), `grouped sources have no overflow at ${width}`);
       }
       win.setContentSize(1000, 850);
-      await click('[data-skill-row="review"] summary');
+      await click('[data-skill-plugin="alpha@local"] [data-skill-row="review"] summary');
       assert.equal(await evaluate(`document.querySelector('[data-skill-row="review"]').innerText.includes("Read-only instructions")`), false);
       await search("alpha@local");
       await wait('document.querySelectorAll("[data-skill-source]").length===1');
+      assert.equal(await evaluate('document.querySelectorAll("[data-skill-overlap]").length'), 1, 'overlap remains discoverable when the local source is filtered out');
       assert.equal(await evaluate('document.querySelector("[data-skill-row] strong").innerText'), "review");
       assert.match(await evaluate('document.querySelector("[data-skill-counts]").innerText'), /1 skill.*1 source/s);
       await search("");
@@ -86,7 +93,7 @@ if (process.env.ORKWORKS_SKILLS_FIXTURE) {
       await wait('document.querySelector("[data-skill-source]").dataset.skillSource === "personal-review"');
       await filter("Coding tool", "");
       await wait('document.querySelectorAll("[data-skill-source]").length===3');
-      assert.equal(await evaluate('document.querySelectorAll("[data-skill-row]").length'), 2);
+      assert.equal(await evaluate('document.querySelectorAll("[data-skill-row]").length'), 3);
       await filter("Scope", "");
       await wait('document.querySelectorAll("[data-skill-source]").length===4');
       await search("missing");
@@ -110,7 +117,7 @@ if (process.env.ORKWORKS_SKILLS_FIXTURE) {
       await evaluate('window.finishSkillInstall();new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
       await wait('document.querySelector("[role=status]").innerText !== "Working…"');
       assert.equal(await evaluate('document.querySelector("[role=status]").innerText.includes("Old workspace")'), false, 'old completion cannot label the new workspace');
-      assert.equal(await evaluate('document.querySelectorAll("[data-skill-row]").length'), 2);
+      assert.equal(await evaluate('document.querySelectorAll("[data-skill-row]").length'), 3);
       await click("[data-skill-row] summary");
       for (const width of [1000, 700, 360]) {
         win.setContentSize(width, 850);
@@ -129,6 +136,14 @@ if (process.env.ORKWORKS_SKILLS_FIXTURE) {
           (await win.webContents.capturePage()).toPNG(),
         );
       }
+      await click('[data-provenance]');
+      await click('.skills-actions button');
+      await wait('document.querySelectorAll("[data-skill-plugin]").length===3');
+      assert.match(await evaluate('document.querySelector("[data-skill-counts]").innerText'), /5 skills.*7 sources/s);
+      assert.equal(await evaluate('document.querySelectorAll("[data-skill-overlap]").length'), 0, 'APM ownership and aliases, including aliases across scopes, do not establish manual/plugin duplication');
+      assert.equal(await evaluate('document.querySelectorAll("[data-skill-source=multi]").length'), 2, 'a source can belong to two plugins without inflating global counts');
+      assert.equal(await evaluate(`document.querySelectorAll('[data-skill-plugin="Plugin (name unknown)"] [data-skill-source]').length`), 1);
+      assert.equal(await evaluate('document.querySelector("[data-local-skills] [data-skill-source]").dataset.skillSource'), 'apm-local');
       app.exit(0);
     } catch (error) {
       console.error(error);
@@ -142,7 +157,7 @@ if (process.env.ORKWORKS_SKILLS_FIXTURE) {
   const { tmpdir } = await import("node:os");
   const { spawnSync } = await import("node:child_process");
   const { createRequire } = await import("node:module");
-  test("skills group names across scopes, retain matching sources, read source-specific details and add with review", async () => {
+  test("skills group by plugin, flag local overlap, filter sources and read source-specific details", async () => {
     const temp = mkdtempSync(join(tmpdir(), "orkworks-skills-ui-"));
     const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
     const require = createRequire(import.meta.url);
