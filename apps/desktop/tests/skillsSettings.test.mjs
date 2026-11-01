@@ -45,6 +45,20 @@ if (process.env.ORKWORKS_SKILLS_FIXTURE) {
       assert.equal(await evaluate('document.querySelectorAll("[data-skill-plugin]").length'), 2);
       assert.equal(await evaluate(`document.querySelector('[data-skill-plugin="alpha@local"] [data-skill-row]').dataset.skillRow`), "review");
       assert.equal(await evaluate(`document.querySelector('[data-skill-plugin="beta@local"] [data-skill-row]').dataset.skillRow`), "build");
+      const alpha = '[data-skill-plugin="alpha@local"]';
+      const beta = '[data-skill-plugin="beta@local"]';
+      assert.equal(await evaluate(`document.querySelector('${alpha}').open`), true, 'plugin groups start expanded');
+      await click(`${alpha} > summary`);
+      assert.equal(await evaluate(`document.querySelector('${alpha}').open`), false);
+      assert.equal(await evaluate(`document.querySelector('${beta}').open`), true, 'other plugins remain expanded');
+      assert.equal(await evaluate(`document.querySelector('${alpha} [data-skill-row]').checkVisibility()`), false);
+      assert.match(await evaluate(`document.querySelector('${alpha} > summary').innerText`), /alpha@local.*1 skill/s);
+      await evaluate(`document.querySelector('${alpha} > summary').focus()`);
+      assert.equal(await evaluate(`document.activeElement.matches('${alpha} > summary')`), true);
+      win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Space" });
+      win.webContents.sendInputEvent({ type: "keyUp", keyCode: "Space" });
+      await wait(`document.querySelector('${alpha}').open`);
+      assert.equal(await evaluate(`document.querySelector('${alpha} [data-skill-row]').checkVisibility()`), true, 'keyboard reopens the plugin');
       assert.equal(await evaluate('document.querySelectorAll("[data-local-skills] [data-skill-source]").length'), 2);
       assert.equal(await evaluate('document.querySelectorAll("[data-skill-overlap]").length'), 2);
       assert.equal(await evaluate(`document.querySelector('[data-skill-row="build"] [data-skill-overlap]')`), null);
@@ -72,6 +86,11 @@ if (process.env.ORKWORKS_SKILLS_FIXTURE) {
       await wait('document.querySelector("[data-skill-content]").innerText.includes("plugin-one")');
       assert.equal(await evaluate(`!!document.querySelector('[data-skill-source="workspace-review"] [data-skill-content]')`), false);
       assert.equal(await evaluate(`!!document.querySelector('[data-skill-source="plugin-one"] [data-skill-content]')`), true);
+      await click(`${alpha} > summary`);
+      assert.equal(await evaluate('document.querySelector("[data-skill-content]").checkVisibility()'), false);
+      await click(`${alpha} > summary`);
+      assert.equal(await evaluate('document.querySelector("[data-skill-content]").checkVisibility()'), true, 'plugin collapse preserves the expanded skill and loaded instructions');
+
       if (process.env.ORKWORKS_SKILLS_CAPTURE) {
         const { writeFileSync } = await import("node:fs");
         writeFileSync(process.env.ORKWORKS_SKILLS_CAPTURE + ".expanded.png", (await win.webContents.capturePage()).toPNG());
