@@ -167,6 +167,14 @@ locks or attention ownership. Internal sidecar writers use scoped mutations of
 the latest record; attention writes invalidate native ownership even when their
 values are identical, while descriptive work, summary, and plan writes preserve it.
 
+The isolated SQLite adapter reuses the same attention-owner identity/counter
+rules for conditional hook writes. Its opaque proof binds the worker, session and
+creation identity, survives descriptive writes and is revoked by accepted
+attention writes. It is published only after commit and is never restored from
+database fields after reopen. Shared lifecycle and hook reducers cover durable
+metadata decisions; live runtime/source reservations and qualification remain
+application-owned. Production continues using the JSON transaction lane.
+
 Attention has separate `attentionSource`, `attentionConfidence`, `attentionOrigin`,
 and `attentionUpdatedAt` fields. `metadataSource` and `metadataConfidence` describe
 work metadata, whose freshness uses `workMetadataUpdatedAt`. Legacy reads hydrate

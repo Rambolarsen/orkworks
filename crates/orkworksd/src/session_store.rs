@@ -1,6 +1,9 @@
 //! Private ordinary-session persistence. Production selection belongs to #1244.
 #![allow(dead_code)] // Isolated adapter until recoverable format-2 activation.
+mod conditional_attention;
 mod internal_mutations;
+#[allow(unused_imports)]
+pub(crate) use conditional_attention::AttentionProof;
 #[allow(unused_imports)] // Internal API becomes a production path only at qualified cutover.
 pub(crate) use internal_mutations::InternalMutationResult;
 mod queries;
@@ -64,6 +67,8 @@ const MAX_RECORD: usize = 1024 * 1024;
 
 struct Database {
     conn: Connection,
+    attention_owners:
+        std::collections::HashMap<String, crate::runtime::observed_status::AttentionOwner>,
 }
 impl Database {
     // Only explicit staging creation may create a file. Open never recreates it.
@@ -83,7 +88,10 @@ impl Database {
         tx.pragma_update(None, "application_id", APP_ID)?;
         tx.pragma_update(None, "user_version", 1)?;
         tx.commit()?;
-        Ok(Self { conn })
+        Ok(Self {
+            conn,
+            attention_owners: Default::default(),
+        })
     }
     fn open(path: &Path, workspace: &str) -> Result<Self> {
         let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
@@ -114,7 +122,10 @@ impl Database {
         Self::configure(&conn)?;
         // Preparing an actual FTS5 query verifies the bundled capability/schema.
         conn.prepare("SELECT id FROM metadata_search WHERE metadata_search MATCH ?1 LIMIT 1")?;
-        Ok(Self { conn })
+        Ok(Self {
+            conn,
+            attention_owners: Default::default(),
+        })
     }
     fn create_session(&mut self, mut document: serde_json::Value) -> Result<()> {
         document
@@ -142,6 +153,7 @@ impl Database {
         persist(&tx, &document, &record)?;
         bump_generation(&tx)?;
         tx.commit()?;
+        self.accepted_attention(&record.metadata);
         Ok(())
     }
     fn get(&self, id: &str) -> Result<Option<serde_json::Value>> {
@@ -192,6 +204,9 @@ impl Database {
             bump_generation(&tx)?;
         }
         tx.commit()?;
+        if scope.attention {
+            self.accepted_attention(&record.metadata);
+        }
         Ok(document)
     }
     fn organize(
@@ -451,7 +466,12 @@ fn recorded_state(meta: &crate::metadata::SessionMetadata) -> &'static str {
         && meta.lifecycle_phase == "ended"
     {
         "closed"
-    } else if meta.lifecycle == "alive" {
+    } else if meta.lifecycle == "alive"
+        || matches!(
+            (meta.lifecycle.as_str(), meta.lifecycle_phase.as_str()),
+            ("creating", "creating") | ("stopping", "ending")
+        )
+    {
         "active"
     } else {
         "unknown"
@@ -490,6 +510,7 @@ fn persist(
             |r| r.get(0),
         )
         .optional()?
+        .filter(|choice: &String| choice == "archived")
         .unwrap_or_else(|| recorded_state(m).into());
     let native = document
         .pointer("/resume/harnessSessionId")

@@ -103,8 +103,9 @@ impl Application {
                 self.invalidate();
                 return Ok(Outcome::Unchanged);
             };
-            let clean =
-                tuple_matches(&meta, event.root, "working") && live_matches(handle, "working");
+            let clean = crate::metadata::internal_mutations::hook_tuple_matches(
+                &meta, event.root, "working",
+            ) && live_matches(handle, "working");
             self.tracker.event(event, clean);
             if self.tracker.has_baseline() {
                 self.ownership = handle
@@ -148,16 +149,12 @@ impl Application {
             return Ok(Outcome::Unchanged);
         };
         let updated = store.mutate_owned_attention(&handle.info.id, token, |latest| {
-            if !tuple_matches(latest, &root, previous) {
-                return Ok(false);
-            }
-            latest.observed_status = Some(next.into());
-            latest.attention = crate::metadata::canonical_attention(Some(next));
-            latest.needs_user_input = None;
-            latest.detected_question = None;
-            latest.suggested_options = None;
-            latest.last_activity = crate::workspace_runtime::iso_now();
-            Ok(true)
+            Ok(crate::metadata::internal_mutations::apply_hook_completion(
+                latest,
+                &root,
+                previous == "working",
+                &crate::workspace_runtime::iso_now(),
+            ))
         })?;
         let Some((meta, token)) = updated else {
             self.invalidate();
@@ -196,26 +193,6 @@ impl Application {
         }
         Ok(outcome)
     }
-}
-
-fn tuple_matches(meta: &crate::metadata::SessionMetadata, root: &str, status: &str) -> bool {
-    meta.lifecycle == "alive"
-        && meta.lifecycle_phase == "active"
-        && meta.status == "running"
-        && meta.harness == "codex"
-        && meta
-            .resume
-            .as_ref()
-            .and_then(|r| r.harness_session_id.as_deref())
-            == Some(root)
-        && meta.observed_status.as_deref() == Some(status)
-        && meta.attention == crate::metadata::canonical_attention(Some(status))
-        && meta.attention_source() == "agent"
-        && meta.attention_origin() == "harness_hook"
-        && meta.attention_confidence() == 1.0
-        && meta.needs_user_input.is_none()
-        && meta.detected_question.is_none()
-        && meta.suggested_options.is_none()
 }
 
 fn live_matches(handle: &SessionHandle, status: &str) -> bool {
