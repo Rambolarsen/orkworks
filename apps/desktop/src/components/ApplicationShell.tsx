@@ -73,8 +73,6 @@ interface Props {
   onCancelNewSession?: () => void;
   onCreateSession: () => void;
   onSessionAction?: (id: string, action: SessionAction, token: string) => Promise<void>;
-  onKillSession: (id: string) => void;
-  onForgetSession: (id: string) => void;
   onResumeSession: (id: string, strategy?: import("../api").ResumeStrategy) => void;
   onRowResumeSession?: (id: string) => void;
   onApplyDebugAttention: (id: string, attention: SessionAttention, message?: string) => void;

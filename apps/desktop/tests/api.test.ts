@@ -9,7 +9,6 @@ import {
   deleteHarness,
   dismissTaskmasterRecommendation,
   duplicateHarness,
-  forgetSession,
   sessionAction,
   resumeSession,
   getSessionWorkflowObservations,
@@ -216,23 +215,16 @@ test("WorkspaceInfo type has expected shape", () => {
   assert.equal(ws.lastActiveSessionId, "session-1");
 });
 
-test("forgetSession throws on non-ok response", async () => {
+test("the delete action sends the captured token and resolves on 200", async () => {
   const origFetch = globalThis.fetch;
-  globalThis.fetch = (_url: string | URL | Request, _init?: RequestInit) =>
-    Promise.resolve(new Response(null, { status: 409 }));
+  globalThis.fetch = async (url, init) => {
+    assert.equal(url, "http://backend/sessions/one/state");
+    assert.equal(init?.method, "POST");
+    assert.deepEqual(JSON.parse(init?.body as string), { action: "delete", token: "captured-token" });
+    return new Response(null, { status: 200 });
+  };
   try {
-    await assert.rejects(() => forgetSession("http://localhost:0", "test-id"), /forget session failed: 409/);
-  } finally {
-    globalThis.fetch = origFetch;
-  }
-});
-
-test("forgetSession resolves on 200", async () => {
-  const origFetch = globalThis.fetch;
-  globalThis.fetch = (_url: string | URL | Request, _init?: RequestInit) =>
-    Promise.resolve(new Response(null, { status: 200 }));
-  try {
-    await assert.doesNotReject(() => forgetSession("http://localhost:0", "test-id"));
+    await assert.doesNotReject(() => sessionAction("http://backend", "one", "delete", "captured-token"));
   } finally {
     globalThis.fetch = origFetch;
   }

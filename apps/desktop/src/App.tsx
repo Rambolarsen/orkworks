@@ -662,28 +662,6 @@ function App() {
     [workspaceSessionController],
   );
 
-  const handleKillSession = useCallback(
-    async (id: string) => {
-      try {
-        await workspaceSessionController.deleteSession(id, false);
-      } catch {
-        pushToast("error", "Couldn't end session.");
-      }
-    },
-    [workspaceSessionController],
-  );
-
-  const handleForgetSession = useCallback(
-    async (id: string) => {
-      try {
-        await workspaceSessionController.deleteSession(id, true);
-      } catch {
-        pushToast("error", "Couldn't delete session.");
-      }
-    },
-    [workspaceSessionController],
-  );
-
   const handleFocusTerminal = useCallback(() => {
     if (!activeSessionId) return;
     getTerminal(activeSessionId)?.terminal.focus();
@@ -958,8 +936,6 @@ function App() {
         onCancelNewSession={cancelNewSession}
         onCreateSession={handleCreateSession}
         onSessionAction={handleSessionAction}
-        onKillSession={handleKillSession}
-        onForgetSession={handleForgetSession}
         onResumeSession={handleResumeSession}
         onRowResumeSession={handleRowResumeSession}
         onApplyDebugAttention={handleApplyDebugAttention}

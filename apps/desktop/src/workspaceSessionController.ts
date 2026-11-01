@@ -5,8 +5,6 @@ import {
   sessionAction as apiSessionAction,
   type SessionAction,
   createSession as apiCreateSession,
-  deleteSession as apiDeleteSession,
-  forgetSession as apiForgetSession,
   listSessions as apiListSessions,
   resumeSession as apiResumeSession,
   setActiveWorkspaceSession as apiSetActiveWorkspaceSession,
@@ -27,8 +25,6 @@ export interface WorkspaceSessionControllerDeps {
   listSessions: typeof apiListSessions;
   createSession: typeof apiCreateSession;
   resumeSession: typeof apiResumeSession;
-  deleteSession: typeof apiDeleteSession;
-  forgetSession: typeof apiForgetSession;
   sessionAction: typeof apiSessionAction;
   setActiveWorkspaceSession: typeof apiSetActiveWorkspaceSession;
   pruneTerminals: (keepLiveSessionIds: ReadonlySet<string>) => void;
@@ -66,7 +62,6 @@ export interface WorkspaceSessionController {
   resumeSession(id: string, strategy?: ResumeStrategy): Promise<void>;
   submitActiveSession(id: string, admissionToken?: number | null): Promise<boolean>;
   selectSession(id: string): boolean;
-  deleteSession(id: string, forget: boolean): Promise<void>;
   sessionAction(id: string, action: SessionAction, token: string): Promise<void>;
   dispose(): void;
 }
@@ -77,8 +72,6 @@ const defaultDeps: WorkspaceSessionControllerDeps = {
   listSessions: apiListSessions,
   createSession: apiCreateSession,
   resumeSession: apiResumeSession,
-  deleteSession: apiDeleteSession,
-  forgetSession: apiForgetSession,
   sessionAction: apiSessionAction,
   setActiveWorkspaceSession: apiSetActiveWorkspaceSession,
   pruneTerminals: () => {},
@@ -372,26 +365,6 @@ export function createWorkspaceSessionController(
     return true;
   }
 
-  async function deleteSession(id: string, forget: boolean): Promise<void> {
-    const admissionToken = requireAdmission();
-    pendingSnapshotActions.delete(`${workspaceGeneration}:${id}`);
-    const token = ++foregroundGeneration;
-    try {
-      const baseUrl = await deps.getBackendUrl();
-      if (forget) await deps.forgetSession(baseUrl, id);
-      else await deps.deleteSession(baseUrl, id);
-      if (!isCurrent(token) || !isCurrentAdmission(admissionToken)) return;
-      deps.disposeTerminal(id);
-      if (activeSessionId === id) {
-        activeSessionId = null;
-        options.onActiveSession?.(null, { deliberate: true });
-      }
-      await refreshSessions();
-    } catch {
-      if (isCurrent(token)) publishError(forget ? "forget" : "delete", forget ? "Couldn't delete session." : "Couldn't end session.");
-    }
-  }
-
   async function sessionAction(id: string, action: SessionAction, actionToken: string): Promise<void> {
     const admissionToken = requireAdmission();
     const workspaceToken = workspaceGeneration;
@@ -469,7 +442,6 @@ export function createWorkspaceSessionController(
     resumeSession,
     submitActiveSession,
     selectSession,
-    deleteSession,
     sessionAction,
     dispose,
   };
