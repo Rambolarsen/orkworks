@@ -286,6 +286,7 @@ if (process.versions.electron) {
           await win.setContentSize(width,700);
           await waitFor(`document.querySelector(".shell-layout").dataset.mode==="${width>=1180?'wide':width>=860?'medium':'compact'}"`);
           await waitFor('document.querySelector(".git-changes")');
+          assert.equal(await evaluate('!!document.querySelector(".shell-toolbar [data-shell-command=terminal]")'),true,'Changes exposes Terminal in the shared header');
           assert.equal(await evaluate('(()=>{const p=document.querySelector(".git-changes");return p.scrollWidth<=p.clientWidth+1})()'),true,'Changes fits the content width');
           assert.equal(await evaluate('(()=>{const p=document.querySelector(".git-changes-file-content");return p.getBoundingClientRect().height>80})()'),true,'diff retains reading space');
           await evaluate('fixture.output("changes panel output\\r\\n")');
@@ -331,7 +332,7 @@ if (process.versions.electron) {
           const {writeFileSync} = await import('node:fs');
           writeFileSync(process.env.ORKWORKS_CAPTURE_CHANGES,(await win.webContents.capturePage()).toPNG());
         }
-        await evaluate('document.querySelector("[data-git-back]").click()');
+        await evaluate('document.querySelector(".shell-toolbar [data-shell-command=terminal]").click()');
         await waitFor('fixture.runtime()?.terminal.element?.isConnected');
         await waitFor('document.activeElement?.classList.contains("xterm-helper-textarea") || document.activeElement?.hasAttribute("data-shell-terminal-focus")');
         await click('changes');

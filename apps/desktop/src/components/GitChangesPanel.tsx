@@ -2,13 +2,13 @@ import { gitLocationLabel } from "../gitLocationLabel";
 import { useEffect, useRef, useState } from "react";
 import type { SessionInfo } from "../api";
 import type { GitChangeBases, GitChangesCapture, GitComparison, GitFilePatch } from "../gitChangesTypes";
-import { ArrowLeft, RefreshCw, GitBranch, Search } from "lucide-react";
+import { RefreshCw, GitBranch, Search } from "lucide-react";
 import GitDiff from "./GitDiff";
 
 const message = (e: unknown) => e instanceof Error ? e.message : "Changes unavailable; retry.";
 const short = (oid: string | null) => oid?.slice(0, 8) ?? "empty tree";
 
-export default function GitChangesPanel({ session, onBack }: { session: SessionInfo | null; onBack: () => void }) {
+export default function GitChangesPanel({ session }: { session: SessionInfo | null }) {
   // The shell keys this component by workspace generation and selected-session ID.
   const [comparison, setComparison] = useState<GitComparison>("uncommitted");
   const [bases, setBases] = useState<GitChangeBases | null>(null);
@@ -87,7 +87,7 @@ export default function GitChangesPanel({ session, onBack }: { session: SessionI
   return <section className="git-changes" aria-label="Git changes">
     <header className="git-changes-header"><div><h2 ref={heading} data-shell-page-heading tabIndex={-1}>Changes</h2>
       <p className="git-changes-branch"><GitBranch size={14} aria-hidden="true" />{capture?.branch ?? session?.branch ?? "No branch"}</p></div>
-      <button type="button" data-git-back onClick={onBack}><ArrowLeft size={14} aria-hidden="true" />Back to terminal</button></header>
+    </header>
     <div className="git-changes-toolbar">
     <label>Comparison<select data-git-comparison value={comparison} onChange={e => choose(e.target.value as GitComparison)}>
       <option value="uncommitted">Uncommitted changes</option><option value="branch">Branch changes</option>
