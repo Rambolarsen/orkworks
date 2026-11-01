@@ -361,10 +361,13 @@ if (process.versions.electron) {
         await evaluate('fixture.emptyChanges=false;document.querySelector("[data-git-refresh]").click()');
         await waitFor('document.querySelector(".git-changes-patch")');
         assert.deepEqual(await evaluate('(()=>{const p=document.querySelector(".git-changes-file-content");return [p.scrollTop,p.scrollLeft]})()'),[0,0],'an empty comparison clears the old reading position');
-        for (const selector of ['[data-git-comparison]','.git-changes-toolbar label:nth-child(2) select']) {
+        for (const selectComparison of [
+          '(()=>{const s=document.querySelector("[data-git-comparison]");s.value="branch";s.dispatchEvent(new Event("change",{bubbles:true}))})()',
+          '(()=>{const s=document.querySelector(".git-changes-toolbar label:nth-child(2) select");s.value="refs/heads/release";s.dispatchEvent(new Event("change",{bubbles:true}))})()',
+        ]) {
           await evaluate('(()=>{const p=document.querySelector(".git-changes-file-content");p.scrollTop=1000;p.scrollLeft=100})()');
           await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
-          await evaluate(`(()=>{const s=document.querySelector(${JSON.stringify(selector)});s.value=${JSON.stringify(selector==='[data-git-comparison]'?'branch':'refs/heads/release')};s.dispatchEvent(new Event("change",{bubbles:true}))})()`);
+          await evaluate(selectComparison);
           await waitFor('document.querySelector(".git-changes-patch") && !document.querySelector("[data-git-refresh]").disabled');
           assert.deepEqual(await evaluate('(()=>{const p=document.querySelector(".git-changes-file-content");return [p.scrollTop,p.scrollLeft]})()'),[0,0],'comparison and base switches reset the reading position');
         }
