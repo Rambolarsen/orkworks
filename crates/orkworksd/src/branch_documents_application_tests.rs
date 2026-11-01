@@ -166,6 +166,122 @@ fn branch_document_content_rejects_a_slot_replaced_after_its_read() {
         .is_err());
 }
 
+#[test]
+fn branch_document_content_rejects_an_effective_worktree_switch_after_read() {
+    let (root, state, store, _rx) = fixture();
+    let repo = git2::Repository::open(root.path()).unwrap();
+    let tree = repo
+        .find_tree(repo.index().unwrap().write_tree().unwrap())
+        .unwrap();
+    let sig = git2::Signature::now("Test", "test@example.com").unwrap();
+    repo.commit(Some("HEAD"), &sig, &sig, "base", &tree, &[])
+        .unwrap();
+    let siblings = tempfile::tempdir().unwrap();
+    let other = siblings.path().join("other");
+    repo.worktree("other", &other, None).unwrap();
+    let moving = state.clone();
+    *store.before_content_return.lock().unwrap() = Some(Box::new(move || {
+        moving.peon.reported_cwd.write().unwrap().insert(
+            "runtime-review".into(),
+            other.to_string_lossy().into_owned(),
+        );
+    }));
+    assert!(SessionApplication::new(state)
+        .read_document_content("runtime-review", Some(DocumentKind::Design), None)
+        .is_err());
+}
+
+#[tokio::test]
+async fn branch_document_sibling_read_rejects_a_session_branch_switch_after_read() {
+    let (root, state, store, _rx) = fixture();
+    let repo = git2::Repository::open(root.path()).unwrap();
+    let tree = repo
+        .find_tree(repo.index().unwrap().write_tree().unwrap())
+        .unwrap();
+    let sig = git2::Signature::now("Test", "test@example.com").unwrap();
+    repo.commit(Some("HEAD"), &sig, &sig, "base", &tree, &[])
+        .unwrap();
+    let siblings = tempfile::tempdir().unwrap();
+    let other = siblings.path().join("other");
+    repo.worktree("other", &other, None).unwrap();
+    std::fs::create_dir(other.join("specs")).unwrap();
+    let path = other.join("specs/current.md");
+    std::fs::write(&path, "# Sibling\n").unwrap();
+    let app = SessionApplication::new(state.clone());
+    let selected = app
+        .select_plan(
+            "runtime-review",
+            crate::session_application::PlanSelection {
+                printed_path: path.to_string_lossy().into_owned(),
+            },
+        )
+        .await
+        .unwrap();
+    let switching_root = root.path().to_owned();
+    *store.before_content_return.lock().unwrap() = Some(Box::new(move || {
+        git2::Repository::open(switching_root)
+            .unwrap()
+            .set_head("refs/heads/new-task")
+            .unwrap();
+    }));
+    assert!(app
+        .read_document_content(
+            "runtime-review",
+            selected.kind,
+            selected.selection_id.as_deref()
+        )
+        .is_err());
+}
+
+#[tokio::test]
+async fn branch_document_terminal_paths_follow_the_effective_sibling_worktree() {
+    // Both checkouts contain the path: launch-first resolution picks the wrong one.
+    for explicit in [false, true] {
+        let (root, state, _store, _rx) = fixture();
+        let repo = git2::Repository::open(root.path()).unwrap();
+        let tree = repo
+            .find_tree(repo.index().unwrap().write_tree().unwrap())
+            .unwrap();
+        let sig = git2::Signature::now("Test", "test@example.com").unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "base", &tree, &[])
+            .unwrap();
+        let siblings = tempfile::tempdir().unwrap();
+        let other = siblings.path().join("other");
+        repo.worktree("other", &other, None).unwrap();
+        std::fs::create_dir(other.join("specs")).unwrap();
+        std::fs::write(other.join("specs/current.md"), "# Effective design\n").unwrap();
+        state.peon.reported_cwd.write().unwrap().insert(
+            "runtime-review".into(),
+            other.to_string_lossy().into_owned(),
+        );
+        let app = SessionApplication::new(state.clone());
+        if explicit {
+            app.select_plan(
+                "runtime-review",
+                crate::session_application::PlanSelection {
+                    printed_path: "specs/current.md".into(),
+                },
+            )
+            .await
+            .unwrap();
+        } else {
+            assert!(app.persist_printed_plan_fallback("runtime-review", "specs/current.md"));
+        }
+        let ws = state.workspace.lock().unwrap();
+        let meta = ws
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session("runtime-review")
+            .unwrap();
+        assert_eq!(
+            PathBuf::from(meta.plan_path.unwrap().worktree_root.unwrap()),
+            other.canonicalize().unwrap(),
+            "explicit={explicit}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn legacy_branch_document_access_rejects_a_new_nested_repository() {
     let (root, state, _store, mut receiver) = fixture();

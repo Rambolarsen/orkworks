@@ -46,6 +46,42 @@ fn metadata_transaction_error(error: SessionTransactionError) -> SessionError {
     }
 }
 
+#[derive(PartialEq)]
+struct PlanLocation {
+    directory: PathBuf,
+    branch: Option<crate::branch_documents::Identity>,
+    head: Option<git2::Oid>,
+}
+
+impl PlanLocation {
+    fn capture(state: &AppState, meta: &metadata::SessionMetadata) -> Result<Self, String> {
+        let (directory, _) = crate::session_location::effective_directory(
+            state,
+            &SessionInfo::baseline_from_metadata(meta),
+        )?;
+        if meta.worktree_binding.is_none() && git::worktree_root(Path::new(&meta.cwd)).is_some() {
+            crate::session_location::WorktreeBinding::resolve(
+                &meta.cwd,
+                directory.to_str().ok_or("Unsupported directory.")?,
+            )
+            .map_err(str::to_owned)?;
+        }
+        let branch = crate::branch_documents::identity(&directory).ok();
+        let head = git2::Repository::discover(&directory)
+            .ok()
+            .and_then(|repo| repo.head().ok().and_then(|h| h.target()));
+        Ok(Self {
+            directory,
+            branch,
+            head,
+        })
+    }
+
+    fn matches(&self, state: &AppState, meta: &metadata::SessionMetadata) -> bool {
+        Self::capture(state, meta).is_ok_and(|now| now == *self)
+    }
+}
+
 static PENDING_RECOMMENDATION_DELIVERIES: OnceLock<Mutex<HashSet<(PathBuf, String)>>> =
     OnceLock::new();
 
@@ -4502,10 +4538,26 @@ impl SessionApplication {
         printed_path: &str,
         home_dir: Option<&Path>,
     ) -> bool {
+        let (expected_store, expected_meta) = {
+            let workspace = self.state.workspace.lock().unwrap();
+            let Some(workspace) = workspace.as_ref() else {
+                return false;
+            };
+            let Some(meta) = workspace.metadata.read_session(session_id) else {
+                return false;
+            };
+            (workspace.metadata.branch_documents.clone(), meta)
+        };
+        let Ok(location) = PlanLocation::capture(&self.state, &expected_meta) else {
+            return false;
+        };
         let workspace_guard = self.state.workspace.lock().unwrap();
         let Some(workspace) = workspace_guard.as_ref() else {
             return false;
         };
+        if !Arc::ptr_eq(&expected_store, &workspace.metadata.branch_documents) {
+            return false;
+        }
         matches!(
             workspace
                 .metadata
@@ -4516,21 +4568,22 @@ impl SessionApplication {
                     {
                         return Ok(false);
                     }
-                    let root = match metadata
-                        .worktree_binding
-                        .as_ref()
-                        .map(|b| b.validate())
-                        .transpose()
+                    if metadata.cwd != expected_meta.cwd
+                        || metadata.worktree_binding != expected_meta.worktree_binding
+                        || !location.matches(&self.state, metadata)
                     {
-                        Ok(root) => root.unwrap_or_else(|| PathBuf::from(&metadata.cwd)),
-                        Err(_) => return Ok(false),
-                    };
+                        return Ok(false);
+                    }
+                    let root = &location.directory;
                     let Ok((worktree_root, relative_path)) =
-                        resolve_printed_plan_path_with_home(&root, printed_path, home_dir)
+                        resolve_printed_plan_path_with_home(root, printed_path, home_dir)
                     else {
                         return Ok(false);
                     };
-                    if metadata.worktree_binding.is_some() && worktree_root != root {
+                    if metadata.worktree_binding.is_some() && &worktree_root != root {
+                        return Ok(false);
+                    }
+                    if !location.matches(&self.state, metadata) {
                         return Ok(false);
                     }
                     let reference = metadata::PlanReference {
@@ -5347,29 +5400,54 @@ impl SessionApplication {
         let state = self.state.clone();
         let id = id.to_string();
         tokio::task::spawn_blocking(move || {
+            let (expected_store, expected_meta) = {
+                let workspace = state.workspace.lock().unwrap();
+                let workspace = workspace.as_ref().ok_or(SessionError::Conflict)?;
+                (
+                    workspace.metadata.branch_documents.clone(),
+                    workspace
+                        .metadata
+                        .read_session(&id)
+                        .ok_or(SessionError::NotFound)?,
+                )
+            };
+            let location = PlanLocation::capture(&state, &expected_meta)
+                .map_err(|_| SessionError::Conflict)?;
             let workspace = state.workspace.lock().unwrap();
             let workspace = workspace.as_ref().ok_or(SessionError::Conflict)?;
+            if !Arc::ptr_eq(&expected_store, &workspace.metadata.branch_documents) {
+                return Err(SessionError::Conflict);
+            }
             let record = workspace
                 .metadata
                 .mutate_session(&id, WriteScope::NONE, |meta| {
-                    let root = meta
-                        .worktree_binding
-                        .as_ref()
-                        .map(|b| b.validate())
-                        .transpose()
-                        .map_err(std::io::Error::other)?
-                        .unwrap_or_else(|| PathBuf::from(&meta.cwd));
+                    if meta.cwd != expected_meta.cwd
+                        || meta.worktree_binding != expected_meta.worktree_binding
+                        || !location.matches(&state, meta)
+                    {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::PermissionDenied,
+                            "session location changed",
+                        ));
+                    }
+                    let root = &location.directory;
                     let (worktree_root, relative_path) =
-                        resolve_printed_plan_path(&root, &printed_path).map_err(|_| {
+                        resolve_printed_plan_path(root, &printed_path).map_err(|_| {
                             std::io::Error::new(
                                 std::io::ErrorKind::PermissionDenied,
                                 "plan path resolution failed",
                             )
                         })?;
-                    if meta.worktree_binding.is_some() && worktree_root != root {
+                    if meta.worktree_binding.is_some() && &worktree_root != root {
                         return Err(std::io::Error::new(
                             std::io::ErrorKind::PermissionDenied,
                             "document is outside the bound worktree",
+                        ));
+                    }
+                    if !location.matches(&state, meta) {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::PermissionDenied,
+                            "session location changed",
                         ));
                     }
                     meta.plan_path = Some(metadata::PlanReference {

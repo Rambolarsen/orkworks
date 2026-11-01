@@ -121,7 +121,20 @@ The owner approved up to two additional substantive review cycles after the
 initial three; the lifecycle limit is five. Cycle 4 validated discovery recovery
 and ownership fixes; manual review identified a typed sibling-selection gap.
 Its end-to-end read/review regression observed failure before the correction.
-The next fresh review is cycle 5/5.
+Cycle 5/5 completed at `00669cf7`: full local verification and CI passed,
+manual review approved, and Codex/custom reviews found no confirmed bugs.
+Native Copilot identified four additional actionable cases: final effective
+session location, terminal paths after location changes, shallow history and
+committed file-mode changes.
+
+The owner approved one bounded completion pass for those four cases, with full
+verification and at most two targeted manual checks (initial plus one recheck).
+No further automated review requests are authorized for this pass. Five new
+regressions observed failure before correction; the focused document suite now
+passes 46 tests. Final return/admission checks use the current effective session
+location, terminal reports/selections capture and revalidate it, shallow history
+cannot supply committed winners, and history comparisons include entry modes.
+Full verification and the current-diff manual gate remain pending for this pass.
 
 Cycle 4's native review added pin-reset ownership, legacy reader boundaries,
 literal symlink reads, shared-slot read races and stale legacy-pin precedence.

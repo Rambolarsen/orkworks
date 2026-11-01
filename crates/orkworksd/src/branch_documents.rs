@@ -550,6 +550,11 @@ pub(crate) fn discover(cwd: &Path) -> Result<Scan, String> {
     let mut committed = Vec::new();
     if let Some(head) = head {
         let history = (|| -> Result<Vec<String>, String> {
+            if repo.is_shallow() {
+                return Err(
+                    "Shallow branch history; committed document discovery unavailable.".into(),
+                );
+            }
             let bases = crate::git_changes::bases(&root)?;
             if bases.limited {
                 return Err("Base branch inspection was incomplete.".into());
@@ -575,11 +580,12 @@ pub(crate) fn discover(cwd: &Path) -> Result<Scan, String> {
                 .map_err(|e| e.to_string())?;
             let mut remaining = tracked
                 .iter()
-                .filter(|(path, id)| {
-                    base_tree
-                        .get_path(Path::new(path.as_str()))
-                        .map(|e| e.id() != **id)
-                        .unwrap_or(true)
+                .filter(|(path, _)| {
+                    let path = Path::new(path.as_str());
+                    let entry = |tree: &git2::Tree<'_>| {
+                        tree.get_path(path).ok().map(|e| (e.id(), e.filemode()))
+                    };
+                    entry(&base_tree) != head_tree.as_ref().and_then(entry)
                 })
                 .map(|(path, _)| path.clone())
                 .collect::<std::collections::BTreeSet<_>>();
@@ -597,11 +603,11 @@ pub(crate) fn discover(cwd: &Path) -> Result<Scan, String> {
                         current
                             .get_path(Path::new(path.as_str()))
                             .ok()
-                            .map(|e| e.id())
+                            .map(|e| (e.id(), e.filemode()))
                             != previous
                                 .get_path(Path::new(path.as_str()))
                                 .ok()
-                                .map(|e| e.id())
+                                .map(|e| (e.id(), e.filemode()))
                     })
                     .cloned()
                     .collect();
@@ -874,6 +880,68 @@ mod tests {
         .unwrap();
         repo.set_head("refs/heads/task").unwrap();
         (dir, repo)
+    }
+
+    #[test]
+    fn branch_document_shallow_history_keeps_only_dirty_discovery() {
+        let (dir, repo) = fixture();
+        let base = repo.head().unwrap().target().unwrap();
+        write(dir.path(), "specs/task.md", "# Committed\n");
+        commit(&repo);
+        fs::write(repo.path().join("shallow"), format!("{base}\n")).unwrap();
+        assert!(repo.is_shallow());
+        let scan = discover(dir.path()).unwrap();
+        assert!(scan.documents.is_empty(), "{:?}", scan.documents);
+        assert!(scan.notice.is_some());
+        write(dir.path(), "specs/task.md", "# Dirty\n");
+        let scan = discover(dir.path()).unwrap();
+        assert_eq!(scan.documents.len(), 1);
+        assert_eq!(scan.documents[0].title, "Dirty");
+        assert_eq!(scan.documents[0].reference.source, PlanSource::GitWorktree);
+    }
+
+    #[test]
+    fn branch_document_committed_mode_conversion_is_a_history_candidate() {
+        let (dir, repo) = fixture();
+        repo.config()
+            .unwrap()
+            .set_bool("core.symlinks", false)
+            .unwrap();
+        write(dir.path(), "specs/converted.md", "# Converted\n");
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new("specs/converted.md")).unwrap();
+        let mut entry = index.get_path(Path::new("specs/converted.md"), 0).unwrap();
+        let blob = entry.id;
+        let sig = git2::Signature::now("test", "test@example.com").unwrap();
+        for mode in [0o120000, 0o100644] {
+            entry.mode = mode;
+            index.add(&entry).unwrap();
+            index.write().unwrap();
+            let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+            let parent = repo.head().unwrap().peel_to_commit().unwrap();
+            let oid = repo
+                .commit(Some("HEAD"), &sig, &sig, "mode", &tree, &[&parent])
+                .unwrap();
+            if mode == 0o120000 {
+                repo.reference("refs/heads/main", oid, true, "base symlink")
+                    .unwrap();
+            }
+        }
+        assert_eq!(
+            repo.head()
+                .unwrap()
+                .peel_to_tree()
+                .unwrap()
+                .get_path(Path::new("specs/converted.md"))
+                .unwrap()
+                .id(),
+            blob
+        );
+        let scan = discover(dir.path()).unwrap();
+        assert!(scan.notice.is_none(), "{:?}", scan.notice);
+        assert_eq!(scan.documents.len(), 1);
+        assert_eq!(scan.documents[0].title, "Converted");
+        assert_eq!(scan.documents[0].reference.source, PlanSource::GitHistory);
     }
 
     #[test]

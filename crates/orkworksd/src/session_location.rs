@@ -102,6 +102,15 @@ pub(crate) fn subject(
             })
             .ok_or("Session unavailable.")?
     };
+    let (cwd, source) = effective_directory(state, &info)?;
+    git_changes_root(&cwd).map(|root| (root, source))
+}
+
+/// Resolve without acquiring workspace/session locks, including at final admission.
+pub(crate) fn effective_directory(
+    state: &crate::AppState,
+    info: &crate::session_types::SessionInfo,
+) -> Result<(PathBuf, GitLocationSource), String> {
     if let Some(binding) = &info.worktree_binding {
         return binding
             .validate()
@@ -109,13 +118,24 @@ pub(crate) fn subject(
             .map_err(str::to_owned);
     }
     let cwds = crate::session_view::resolve_effective_locations(
-        &[info],
+        std::slice::from_ref(info),
         &state.peon.reported_cwd.read().unwrap(),
         &state.session_pids.lock().unwrap(),
         crate::procfs::live_cwds,
     );
-    let (cwd, source) = cwds.get(id).ok_or("Session directory unavailable.")?;
-    git_changes_root(std::path::Path::new(cwd)).map(|root| (root, *source))
+    let (cwd, source) = cwds.get(&info.id).ok_or("Session directory unavailable.")?;
+    Ok((PathBuf::from(cwd), *source))
+}
+
+pub(crate) fn subject_from_metadata(
+    state: &crate::AppState,
+    meta: &crate::metadata::SessionMetadata,
+) -> Result<PathBuf, String> {
+    let (cwd, _) = effective_directory(
+        state,
+        &crate::session_types::SessionInfo::baseline_from_metadata(meta),
+    )?;
+    git_changes_root(&cwd)
 }
 fn git_changes_root(cwd: &std::path::Path) -> Result<PathBuf, String> {
     crate::git::worktree_root(cwd)

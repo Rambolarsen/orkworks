@@ -61,6 +61,23 @@ fn current(state: &AppState, id: &str, old: &Subject) -> bool {
             && Arc::ptr_eq(&now.store, &old.store)
     })
 }
+fn current_metadata(
+    state: &AppState,
+    meta: &crate::metadata::SessionMetadata,
+    old: &Subject,
+) -> bool {
+    if meta.cwd != old.launch.to_string_lossy() || meta.worktree_binding.is_some() != old.bound {
+        return false;
+    }
+    crate::session_location::subject_from_metadata(state, meta).is_ok_and(|root| {
+        root == old.root
+            && branch_documents::identity(&root).ok() == old.branch
+            && git2::Repository::open(&root)
+                .ok()
+                .and_then(|repo| repo.head().ok().and_then(|h| h.target()))
+                == old.head
+    })
+}
 pub(crate) fn selected(
     state: &AppState,
     id: &str,
@@ -226,19 +243,17 @@ impl SessionApplication {
             return Err("Session workspace changed; refresh.".into());
         }
         let meta = ws.metadata.read_session(id).ok_or("Session unavailable.")?;
-        if meta.cwd != context.launch.to_string_lossy()
-            || meta.worktree_binding.is_some() != context.bound
-            || meta
-                .worktree_binding
-                .as_ref()
-                .is_some_and(|binding| binding.validate().ok().as_ref() != Some(&context.root))
-        {
+        if !current_metadata(&self.state, &meta, &context) {
             return Err("Session workspace changed; refresh.".into());
         }
         if let Some(branch) = &document_branch {
             context
                 .store
-                .with_current_document(branch, &doc, &mut || Ok(()))
+                .with_current_document(branch, &doc, &mut || {
+                    current_metadata(&self.state, &meta, &context)
+                        .then_some(())
+                        .ok_or(())
+                })
                 .map_err(|_| "Document selection changed; refresh.")?;
         } else if meta.plan_path != context.legacy {
             return Err("Document selection changed; refresh.".into());
@@ -276,13 +291,7 @@ impl SessionApplication {
             .as_ref()
             .and_then(|ws| ws.metadata.read_session(id))
             .ok_or("Session unavailable.")?;
-        if meta.cwd != context.launch.to_string_lossy()
-            || meta.worktree_binding.is_some() != context.bound
-            || meta
-                .worktree_binding
-                .as_ref()
-                .is_some_and(|binding| binding.validate().ok().as_ref() != Some(&context.root))
-        {
+        if !current_metadata(&self.state, &meta, &context) {
             return Err("Session workspace changed; refresh.".into());
         }
         context.store.use_latest(&key, kind, selection_id)
@@ -356,7 +365,7 @@ impl SessionApplication {
                     return Err(());
                 }
                 let meta = ws.metadata.read_session(&target).ok_or(())?;
-                if meta.lifecycle != "alive" || meta.cwd != context.launch.to_string_lossy() {
+                if meta.lifecycle != "alive" || !current_metadata(&checked_state, &meta, &context) {
                     return Err(());
                 }
                 if let Some(binding) = &meta.worktree_binding {
@@ -365,7 +374,12 @@ impl SessionApplication {
                     }
                 }
                 if let Some(branch) = &document_branch {
-                    context.store.with_current_document(branch, &doc, send)
+                    context.store.with_current_document(branch, &doc, &mut || {
+                        if !current_metadata(&checked_state, &meta, &context) {
+                            return Err(());
+                        }
+                        send()
+                    })
                 } else {
                     // Detached/non-Git documents remain session-local. They have
                     // no shared record, but retain the same stale-content fence.
