@@ -1,3 +1,4 @@
+use crate::capacity_analysis::{CapacityAnalysisCache, CapacityInput, PreparedCapacity};
 use crate::git;
 use crate::metadata;
 #[cfg(test)]
@@ -24,6 +25,7 @@ const MAX_GIT_CONTEXT_ENTRIES: usize = 512;
 pub(crate) struct SessionDirectoryState {
     directory: Option<PathBuf>,
     established: bool,
+    analysis: Arc<std::sync::Mutex<CapacityAnalysisCache>>,
 }
 
 impl SessionDirectoryState {
@@ -142,14 +144,47 @@ pub(crate) struct SessionProjection {
 struct WorkspaceSnapshot {
     metadata_root: PathBuf,
     workspace_path: PathBuf,
-    // Retained for the projection commit validation introduced in Task 5.
-    identity: PathBuf,
 }
 
 struct ProjectionSnapshot {
     infos: Vec<SessionInfo>,
-    workspace_identity: Option<PathBuf>,
-    metadata_root: Option<PathBuf>,
+}
+
+// A path alone cannot distinguish replacement ownership at the same workspace.
+struct CapacityWorkspace {
+    path: PathBuf,
+    lease: Option<std::sync::Weak<crate::workspace_runtime::WorkspaceLease>>,
+    instance: u64,
+}
+
+impl CapacityWorkspace {
+    fn capture(workspace: &crate::WorkspaceState) -> Self {
+        Self {
+            path: workspace.path.clone(),
+            lease: workspace.lease.as_ref().map(Arc::downgrade),
+            instance: workspace.workflow_observations.instance_id(),
+        }
+    }
+
+    fn matches(&self, workspace: &crate::WorkspaceState) -> bool {
+        self.path == workspace.path
+            && match (&self.lease, &workspace.lease) {
+                (Some(expected), Some(current)) => expected
+                    .upgrade()
+                    .is_some_and(|expected| Arc::ptr_eq(&expected, current)),
+                (None, None) => self.instance == workspace.workflow_observations.instance_id(),
+                _ => false,
+            }
+    }
+}
+
+fn capacity_fingerprint(
+    harness: Option<&crate::harness::registry::ResolvedHarness>,
+) -> Option<Vec<u8>> {
+    harness.map(|harness| {
+        serde_json::to_vec(&(&harness.definition, &harness.effective_capabilities))
+            .expect("resolved harness serializes")
+    })
 }
 
 impl SessionProjection {
@@ -185,7 +220,6 @@ impl SessionProjection {
         let workspace = self.state.workspace.lock().unwrap().as_ref().map(|ws| {
             let metadata_root = ws.metadata.root_path();
             WorkspaceSnapshot {
-                identity: metadata_root.clone(),
                 metadata_root,
                 workspace_path: ws.path.clone(),
             }
@@ -294,23 +328,115 @@ impl SessionProjection {
             ));
         }
 
-        Ok(ProjectionSnapshot {
-            infos,
-            workspace_identity: workspace.as_ref().map(|snapshot| snapshot.identity.clone()),
-            metadata_root: workspace
-                .as_ref()
-                .map(|snapshot| snapshot.metadata_root.clone()),
-        })
+        Ok(ProjectionSnapshot { infos })
     }
 
     pub(crate) fn list(&self) -> io::Result<Vec<SessionInfo>> {
-        let lock_state = self.state.clone();
-        let _projection_lock = lock_state.projection_lock.lock().unwrap();
-        let infos = self.project_capacity(self.snapshot()?)?;
-        let mut infos = infos;
+        self.list_with_capacity_analysis(|cache, inputs| cache.analyze(inputs))
+    }
+
+    // The compute dependency is private and used by the real projection path;
+    // tests can stall it without adding a runtime race-injection switch.
+    fn list_with_capacity_analysis(
+        &self,
+        analyze: impl FnOnce(
+            &mut CapacityAnalysisCache,
+            Vec<CapacityInput>,
+        ) -> HashMap<String, PreparedCapacity>,
+    ) -> io::Result<Vec<SessionInfo>> {
+        let analysis = self
+            .state
+            .session_directory_state
+            .lock()
+            .unwrap()
+            .analysis
+            .clone();
+        let mut cache = analysis.try_lock().map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "capacity analysis already active",
+            )
+        })?;
+        let (workspace, inputs) = {
+            let _fence = self.state.projection_lock.lock().unwrap();
+            self.capture_capacity()?
+        };
+        let prepared = analyze(&mut cache, inputs);
+        drop(cache);
+        let _fence = self.state.projection_lock.lock().unwrap();
+        {
+            let current = self.state.workspace.lock().unwrap();
+            let matches = match (&workspace, current.as_ref()) {
+                (None, None) => true,
+                (Some(expected), Some(current)) => expected.matches(current),
+                _ => false,
+            };
+            if !matches {
+                return Err(io::Error::other(
+                    "workspace changed during capacity analysis",
+                ));
+            }
+        }
+        let mut infos = self.project_capacity(self.snapshot()?, &prepared)?;
         self.project_organization(&mut infos);
-        let infos = self.enrich_workspace(infos);
-        Ok(infos)
+        Ok(self.enrich_workspace(infos))
+    }
+
+    fn capture_capacity(&self) -> io::Result<(Option<CapacityWorkspace>, Vec<CapacityInput>)> {
+        let registry = self.state.harness_catalog.read().unwrap().clone();
+        let (workspace, metadata) = {
+            let workspace = self.state.workspace.lock().unwrap();
+            (
+                workspace.as_ref().map(CapacityWorkspace::capture),
+                workspace
+                    .as_ref()
+                    .map(|w| metadata::MetadataStore::new(&w.metadata.root_path())),
+            )
+        };
+        let mut inputs: Vec<_> = self
+            .state
+            .sessions
+            .lock()
+            .unwrap()
+            .values()
+            .map(|handle| {
+                (
+                    handle.info.harness_id.clone(),
+                    CapacityInput {
+                        id: handle.info.id.clone(),
+                        identity: handle.runtime.identity(),
+                        sender: handle.runtime.control_tx.clone(),
+                        fingerprint: None,
+                        patterns: None,
+                        state: handle.capacity.clone(),
+                        lines: handle.output_buffer.shared_snapshot(),
+                        raw: handle.scan_buf.clone(),
+                        output_at: handle.info.last_output_at.clone(),
+                    },
+                )
+            })
+            .collect();
+        for (live_harness, input) in &mut inputs {
+            let persisted = metadata
+                .as_ref()
+                .map(|store| store.try_read_revisioned_session(&input.id))
+                .transpose()?
+                .flatten();
+            let harness_id = persisted
+                .as_ref()
+                .and_then(|record| {
+                    (!record.metadata.harness.is_empty())
+                        .then_some(record.metadata.harness.as_str())
+                })
+                .or(live_harness.as_deref());
+            let resolved = resolve_harness_or_generic_shell(&registry, harness_id);
+            input.fingerprint = capacity_fingerprint(resolved);
+            input.patterns = resolved.map(|harness| harness.capacity_patterns().to_vec());
+        }
+        Ok((
+            workspace,
+            inputs.into_iter().map(|(_, input)| input).collect(),
+        ))
     }
 
     pub(crate) fn project_organization(&self, infos: &mut [SessionInfo]) {
@@ -403,38 +529,51 @@ impl SessionProjection {
         infos
     }
 
-    fn project_capacity(&self, snapshot: ProjectionSnapshot) -> io::Result<Vec<SessionInfo>> {
+    fn project_capacity(
+        &self,
+        snapshot: ProjectionSnapshot,
+        prepared: &HashMap<String, PreparedCapacity>,
+    ) -> io::Result<Vec<SessionInfo>> {
         let registry = self
             .state
             .harness_catalog
             .read()
             .expect("harness catalog lock poisoned")
             .clone();
-        let workspace_identity = snapshot.workspace_identity;
-        let _metadata_root = snapshot.metadata_root;
         let projected_infos = snapshot.infos;
-        let live_sessions: Vec<_> = {
-            let sessions = self.state.sessions.lock().unwrap();
-            sessions
-                .values()
-                .map(|h| {
-                    (
-                        h.info.clone(),
-                        h.runtime.run_generation(),
-                        h.output_buffer.snapshot(),
-                        h.scan_buf.clone(),
-                        h.capacity.clone(),
-                    )
-                })
-                .collect()
-        };
-        let capacity_snapshots: HashMap<String, (u64, crate::capacity_state::CapacityState)> =
-            live_sessions
+        // Only immutable references were retained for compute. No text is
+        // normalized or copied here, and the input gate is never awaited.
+        let mut sessions = self.state.sessions.lock().unwrap();
+        let mut input_guards = HashMap::new();
+        for (id, handle) in sessions.iter() {
+            let Some(candidate) = prepared.get(id) else {
+                continue;
+            };
+            let harness_id = projected_infos
                 .iter()
-                .map(|(info, generation, _, _, capacity)| {
-                    (info.id.clone(), (*generation, capacity.clone()))
-                })
-                .collect();
+                .find(|info| &info.id == id)
+                .and_then(|info| info.harness_id.as_deref())
+                .or(handle.info.harness_id.as_deref());
+            let fingerprint =
+                capacity_fingerprint(resolve_harness_or_generic_shell(&registry, harness_id));
+            if handle.runtime.matches_identity(&candidate.input.identity)
+                && handle
+                    .runtime
+                    .control_tx
+                    .same_channel(&candidate.input.sender)
+                && handle.capacity.control_revision().is_some()
+                && handle.capacity.control_revision() == candidate.input.state.control_revision()
+                && fingerprint == candidate.input.fingerprint
+            {
+                if let Ok(guard) = handle.runtime.input_gate.clone().try_lock_owned() {
+                    input_guards.insert(id.clone(), guard);
+                }
+            }
+        }
+        let live_sessions: Vec<_> = sessions
+            .values()
+            .map(|handle| (handle.info.clone(), handle.capacity.clone()))
+            .collect();
         let durable_harnesses: HashMap<String, String> = projected_infos
             .iter()
             .filter_map(|info| {
@@ -455,7 +594,7 @@ impl SessionProjection {
         let mut pending_transitions: Vec<(String, bool)> = Vec::new();
         let capacity_infos: Vec<SessionInfo> = live_sessions
             .into_iter()
-            .map(|(info, _, snapshot, scan_buf, capacity)| {
+            .map(|(info, capacity)| {
                 let id = info.id.clone();
                 let live_harness_id = info.harness_id.clone();
                 let mut merged = projected_infos
@@ -469,9 +608,18 @@ impl SessionProjection {
                     .or(live_harness_id.as_deref());
                 let resolved_harness = resolve_harness_or_generic_shell(&registry, harness_id);
 
-                let observation = resolved_harness.map(|harness| {
-                    capacity.observe(harness.capacity_patterns(), &snapshot, &scan_buf)
-                });
+                let observation = if input_guards.contains_key(&id) {
+                    prepared
+                        .get(&id)
+                        .and_then(|candidate| candidate.observation.clone())
+                } else {
+                    resolved_harness.map(|_| crate::capacity_state::CapacityObservation {
+                        at_usage_limit: capacity.at_usage_limit_latched,
+                        reset_hint: merged.usage_limit_reset_hint.clone(),
+                        origin_update: None,
+                        clear_latch: false,
+                    })
+                };
                 merged.at_usage_limit = observation.as_ref().map(|o| o.at_usage_limit);
                 if merged.lifecycle == "alive" && merged.at_usage_limit == Some(true) {
                     merged.attention = Some("capped".into());
@@ -485,9 +633,13 @@ impl SessionProjection {
                 }
                 merged.capacity_check_pending = capacity.rendered_check_pending();
 
-                let has_fresh_resume_output = capacity.capacity_check_pending
-                    && !capacity.pending_capacity_visible_once
-                    && capacity.fresh_output_since_origin();
+                let scanned = prepared
+                    .get(&id)
+                    .map(|candidate| &candidate.input.state)
+                    .unwrap_or(&capacity);
+                let has_fresh_resume_output = scanned.capacity_check_pending
+                    && !scanned.pending_capacity_visible_once
+                    && scanned.fresh_output_since_origin();
                 pending_transitions.push((id.clone(), has_fresh_resume_output));
                 if let Some(observation) = observation {
                     observations.insert(id, observation);
@@ -548,26 +700,10 @@ impl SessionProjection {
                 }
             }
         }
-        let current_workspace_identity = self
-            .state
-            .workspace
-            .lock()
-            .unwrap()
-            .as_ref()
-            .map(|workspace| workspace.metadata.root_path());
-        if current_workspace_identity != workspace_identity {
-            return Ok(Vec::new());
-        }
-        let mut sessions = self.state.sessions.lock().unwrap();
         let mut write_back_snapshot_ids = HashSet::new();
         for info in &infos {
             if let Some(handle) = sessions.get_mut(&info.id) {
-                let Some((generation, capacity_snapshot)) = capacity_snapshots.get(&info.id) else {
-                    continue;
-                };
-                if handle.runtime.run_generation() != *generation
-                    || handle.capacity != *capacity_snapshot
-                {
+                if !input_guards.contains_key(&info.id) {
                     continue;
                 }
                 write_back_snapshot_ids.insert(info.id.clone());
@@ -579,10 +715,11 @@ impl SessionProjection {
                     clear_latch: scoped_observation.is_some_and(|o| o.clear_latch),
                 };
                 let newly_latched = handle.capacity.apply_observation(&final_observation);
+                handle.info.usage_limit_reset_hint = info.usage_limit_reset_hint.clone();
                 if newly_latched {
-                    handle.runtime.usage_limit_latched_at = handle
-                        .info
-                        .last_output_at
+                    handle.runtime.usage_limit_latched_at = prepared
+                        .get(&info.id)
+                        .and_then(|candidate| candidate.input.output_at.as_ref())
                         .as_deref()
                         .and_then(|raw| chrono::DateTime::parse_from_rfc3339(raw).ok())
                         .map(|timestamp| timestamp.with_timezone(&chrono::Utc));
@@ -593,9 +730,6 @@ impl SessionProjection {
         harness_reset_hint.clear();
         provider_checking.clear();
         for info in &infos {
-            if !write_back_snapshot_ids.contains(&info.id) {
-                continue;
-            }
             if let (Some(hid), Some(capped)) = (&info.harness_id, info.at_usage_limit) {
                 *harness_capped.entry(hid.clone()).or_insert(false) |= capped;
             }
@@ -805,6 +939,370 @@ mod tests {
     use crate::test_support::test_session_metadata;
     use crate::AppState;
     use std::sync::Arc;
+
+    fn input_fixture() -> (
+        tempfile::TempDir,
+        Arc<AppState>,
+        tokio::sync::mpsc::Receiver<crate::runtime::session_runtime::RuntimeCommand>,
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let (runtime, receiver) = crate::runtime::session_runtime::SessionRuntime::live(24, 80);
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        let mut info = crate::test_support::test_session_info(
+            "lag-test",
+            "Known",
+            dir.path().display().to_string(),
+            "running",
+            "now",
+        );
+        info.harness_id = Some("codex".into());
+        info.harness = Some("codex".into());
+        state.sessions.lock().unwrap().insert(
+            "lag-test".into(),
+            crate::SessionHandle {
+                info,
+                runtime,
+                kill_tx,
+                active_work_hook: false,
+                output_buffer: crate::peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                terminal_attached: false,
+                resume_in_progress: false,
+                capacity: Default::default(),
+            },
+        );
+        (dir, state, receiver)
+    }
+
+    #[test]
+    fn acknowledged_input_excludes_capacity_commit_until_bookkeeping_finishes() {
+        use std::time::Duration;
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .max_blocking_threads(1)
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let (_dir, state, mut receiver) = input_fixture();
+            {
+                let mut sessions = state.sessions.lock().unwrap();
+                let handle = sessions.get_mut("lag-test").unwrap();
+                handle.info.harness_id = Some("opencode".into());
+                handle.info.harness = Some("opencode".into());
+                handle.output_buffer.push("usage limit reached".into());
+            }
+            let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+            let (release_tx, release_rx) = std::sync::mpsc::channel();
+            let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+            let projection_state = state.clone();
+            let projection = std::thread::spawn(move || {
+                let result = SessionProjection::new(projection_state).list_with_capacity_analysis(
+                    |cache, inputs| {
+                        let prepared = cache.analyze(inputs);
+                        let _ = entered_tx.send(());
+                        release_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+                        prepared
+                    },
+                );
+                let _ = done_tx.send(result);
+            });
+            entered_rx.await.unwrap();
+            let (identity, sender) = {
+                let sessions = state.sessions.lock().unwrap();
+                (
+                    sessions["lag-test"].runtime.identity(),
+                    sessions["lag-test"].runtime.control_tx.clone(),
+                )
+            };
+            let input_state = state.clone();
+            let owner = tokio::spawn(async move {
+                crate::runtime::terminal_runtime::submit_approved_input_to_runtime(
+                    &input_state,
+                    "lag-test",
+                    &identity,
+                    &sender,
+                    "x".into(),
+                )
+                .await
+            });
+            let command = tokio::time::timeout(Duration::from_secs(3), receiver.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            let crate::runtime::session_runtime::RuntimeCommand::Input {
+                accepted: Some(ack),
+                ..
+            } = command
+            else {
+                panic!("expected input");
+            };
+            // One blocking worker: preparation has completed before this barrier,
+            // and acknowledged-input bookkeeping cannot run until we release it.
+            let (blocked_tx, blocked_rx) = tokio::sync::oneshot::channel();
+            let (unblock_tx, unblock_rx) = std::sync::mpsc::channel();
+            let blocker = tokio::task::spawn_blocking(move || {
+                let _ = blocked_tx.send(());
+                unblock_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+            });
+            blocked_rx.await.unwrap();
+            ack.send(Ok(())).unwrap();
+            release_tx.send(()).unwrap();
+            let result = tokio::time::timeout(Duration::from_secs(3), done_rx).await;
+            let before = state.sessions.lock().unwrap()["lag-test"].capacity.clone();
+            unblock_tx.send(()).unwrap();
+            blocker.await.unwrap();
+            let delivered = owner.await.unwrap();
+            projection.join().unwrap();
+            assert!(delivered.is_ok());
+            assert_eq!(
+                result.unwrap().unwrap().unwrap()[0].at_usage_limit,
+                Some(false)
+            );
+            assert!(!before.at_usage_limit_latched);
+            assert_eq!(
+                before.control_revision(),
+                Some(0),
+                "bookkeeping was held after delivery"
+            );
+            assert!(
+                state.sessions.lock().unwrap()["lag-test"]
+                    .capacity
+                    .control_revision()
+                    .unwrap()
+                    > 0
+            );
+        });
+    }
+
+    #[test]
+    fn recovered_capacity_restores_authoritative_attention_in_the_same_list() {
+        for hook_clear in [false, true] {
+            let (_dir, state, _receiver) = input_fixture();
+            {
+                let mut sessions = state.sessions.lock().unwrap();
+                let handle = sessions.get_mut("lag-test").unwrap();
+                handle.info.harness_id = Some("opencode".into());
+                handle.info.harness = Some("opencode".into());
+                handle.info.attention = Some("working".into());
+                handle.output_buffer.push("usage limit reached".into());
+                handle.capacity.record_output(1, 20);
+            }
+            let mut meta = test_session_metadata(
+                "lag-test",
+                "Known",
+                _dir.path().display().to_string(),
+                "running",
+                "2026-11-01T00:00:00Z",
+                "2026-11-01T00:00:00Z",
+            );
+            meta.lifecycle = "alive".into();
+            meta.lifecycle_phase = "alive".into();
+            meta.harness = "opencode".into();
+            meta.attention = Some("working".into());
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .write_session(&meta);
+            let projection = SessionProjection::new(state.clone());
+            let capped = projection.list().unwrap();
+            assert_eq!(capped[0].attention.as_deref(), Some("capped"));
+            {
+                let mut sessions = state.sessions.lock().unwrap();
+                let handle = sessions.get_mut("lag-test").unwrap();
+                if hook_clear {
+                    handle.capacity.clear_latch_and_rearm();
+                } else {
+                    handle.capacity.accepted_input();
+                }
+                handle.output_buffer.push("ordinary fresh output".into());
+                handle.capacity.record_output(1, 20);
+            }
+            let recovered = projection.list().unwrap();
+            assert_eq!(recovered[0].at_usage_limit, Some(false));
+            assert_eq!(
+                recovered[0].attention.as_deref(),
+                Some("working"),
+                "hook_clear={hook_clear}"
+            );
+        }
+    }
+
+    #[test]
+    fn output_churn_commits_the_scanned_prefix_without_rewinding_newer_counters() {
+        let (_dir, state, _receiver) = input_fixture();
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut("lag-test").unwrap();
+            handle.info.harness_id = Some("opencode".into());
+            handle.info.harness = Some("opencode".into());
+            handle.output_buffer.push("usage limit reached".into());
+            handle.capacity.record_output(1, 20);
+            handle.capacity.resume_scan_origin = Some((0, 0));
+            handle.info.last_output_at = Some("2026-10-31T20:00:00Z".into());
+        }
+        let mutation = state.clone();
+        let infos = SessionProjection::new(state.clone())
+            .list_with_capacity_analysis(|cache, inputs| {
+                let prepared = cache.analyze(inputs);
+                let mut sessions = mutation.sessions.lock().unwrap();
+                let handle = sessions.get_mut("lag-test").unwrap();
+                handle.capacity.record_output(2, 100);
+                handle.output_buffer.push("newer unrelated output".into());
+                handle.info.last_output_at = Some("2026-10-31T20:01:00Z".into());
+                prepared
+            })
+            .unwrap();
+        assert_eq!(infos.len(), 1);
+        assert_eq!(infos[0].at_usage_limit, Some(true));
+        let sessions = state.sessions.lock().unwrap();
+        let handle = &sessions["lag-test"];
+        assert_eq!(
+            (
+                handle.capacity.output_lines_seen,
+                handle.capacity.scan_bytes_seen
+            ),
+            (3, 120)
+        );
+        assert_eq!(handle.capacity.resume_scan_origin, Some((1, 20)));
+        assert!(handle.capacity.at_usage_limit_latched);
+        assert_eq!(
+            handle.runtime.usage_limit_latched_at.unwrap().to_rfc3339(),
+            "2026-10-31T20:00:00+00:00"
+        );
+    }
+
+    #[test]
+    fn control_runtime_and_workspace_changes_reject_old_capacity_evidence() {
+        for change in ["input", "clear", "runtime", "workspace"] {
+            let (dir, state, _receiver) = input_fixture();
+            {
+                let mut sessions = state.sessions.lock().unwrap();
+                let handle = sessions.get_mut("lag-test").unwrap();
+                handle.info.harness_id = Some("opencode".into());
+                handle.info.harness = Some("opencode".into());
+                handle.output_buffer.push("usage limit reached".into());
+            }
+            let mutation = state.clone();
+            let result =
+                SessionProjection::new(state.clone()).list_with_capacity_analysis(
+                    |cache, inputs| {
+                        let prepared = cache.analyze(inputs);
+                        match change {
+                            "workspace" => {
+                                *mutation.workspace.lock().unwrap() = Some(crate::WorkspaceState {
+                                path: dir.path().to_owned(),
+                                metadata: crate::metadata::MetadataStore::new(
+                                    &dir.path().join(".orkworks"),
+                                ),
+                                workflow_observations:
+                                    crate::workflow_observations::WorkflowObservationStore::open(
+                                        dir.path().join(".replacement"),
+                                    )
+                                    .unwrap(),
+                                recommendation_store:
+                                    crate::taskmaster::store::RecommendationStore::open(
+                                        dir.path().join(".replacement"),
+                                    )
+                                    .unwrap(),
+                                lease: None,
+                            });
+                            }
+                            _ => {
+                                let mut sessions = mutation.sessions.lock().unwrap();
+                                let handle = sessions.get_mut("lag-test").unwrap();
+                                match change {
+                                    "input" => handle.capacity.accepted_input(),
+                                    "clear" => handle.capacity.clear_latch_and_rearm(),
+                                    "runtime" => handle.runtime =
+                                        crate::runtime::session_runtime::SessionRuntime::detached(
+                                            24, 80,
+                                        ),
+                                    _ => unreachable!(),
+                                }
+                            }
+                        }
+                        prepared
+                    },
+                );
+            if change == "workspace" {
+                assert!(result.is_err());
+            } else {
+                assert_eq!(result.unwrap()[0].at_usage_limit, Some(false), "{change}");
+            }
+            assert!(
+                !state.sessions.lock().unwrap()["lag-test"]
+                    .capacity
+                    .at_usage_limit_latched,
+                "{change}"
+            );
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn stalled_capacity_scan_does_not_block_real_input_delivery_or_bookkeeping() {
+        use std::time::Duration;
+        let (_dir, state, mut receiver) = input_fixture();
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let projection_state = state.clone();
+        let projection = std::thread::spawn(move || {
+            SessionProjection::new(projection_state).list_with_capacity_analysis(|cache, inputs| {
+                let _ = entered_tx.send(());
+                release_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+                cache.analyze(inputs)
+            })
+        });
+        entered_rx.await.unwrap();
+        let (identity, sender) = {
+            let sessions = state.sessions.lock().unwrap();
+            let runtime = &sessions["lag-test"].runtime;
+            (runtime.identity(), runtime.control_tx.clone())
+        };
+        let input_state = state.clone();
+        let owner = tokio::spawn(async move {
+            crate::runtime::terminal_runtime::submit_approved_input_to_runtime(
+                &input_state,
+                "lag-test",
+                &identity,
+                &sender,
+                "x".into(),
+            )
+            .await
+        });
+        let command = tokio::time::timeout(Duration::from_secs(2), receiver.recv()).await;
+        if let Ok(Some(crate::runtime::session_runtime::RuntimeCommand::Input {
+            accepted: Some(ack),
+            ..
+        })) = command
+        {
+            ack.send(Ok(())).unwrap();
+        } else {
+            let _ = release_tx.send(());
+            projection.join().unwrap().unwrap();
+            panic!("input could not pass while pure capacity analysis was paused");
+        }
+        let result = tokio::time::timeout(Duration::from_secs(2), owner).await;
+        release_tx.send(()).unwrap();
+        projection.join().unwrap().unwrap();
+        assert!(
+            result.unwrap().unwrap().is_ok(),
+            "bookkeeping must also finish before analysis resumes"
+        );
+        assert!(
+            state.sessions.lock().unwrap()["lag-test"]
+                .capacity
+                .control_revision()
+                .unwrap()
+                > 0
+        );
+    }
 
     #[test]
     #[ignore = "manual shared-state plan projection benchmark"]

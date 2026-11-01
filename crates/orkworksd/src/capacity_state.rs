@@ -27,6 +27,8 @@ pub(crate) struct CapacityState {
     /// Sticky: once a usage limit is detected it stays true until the
     /// session is killed/resumed or explicitly cleared.
     pub(crate) at_usage_limit_latched: bool,
+    pub(crate) analysis_revision: u64,
+    pub(crate) analysis_exhausted: bool,
     pub(crate) capacity_check_pending: bool,
     pub(crate) output_lines_seen: u64,
     pub(crate) scan_bytes_seen: u64,
@@ -52,6 +54,22 @@ pub(crate) struct CapacityObservation {
 }
 
 impl CapacityState {
+    pub(crate) fn control_revision(&self) -> Option<u64> {
+        (!self.analysis_exhausted).then_some(self.analysis_revision)
+    }
+
+    fn invalidate_analysis(&mut self) {
+        match self.analysis_revision.checked_add(1) {
+            Some(revision) => self.analysis_revision = revision,
+            None => self.analysis_exhausted = true,
+        }
+    }
+
+    pub(crate) fn accepted_input(&mut self) {
+        self.invalidate_analysis();
+        self.arm_recheck();
+    }
+
     /// Constructor for session creation, mirroring the pre-refactor inline
     /// literal: a freshly created session starts unlatched, with the given
     /// pending-capacity-check flag, and an armed origin at `(0, 0)` only when
@@ -84,6 +102,7 @@ impl CapacityState {
             return false;
         }
         self.resume_scan_origin = Some((self.output_lines_seen, self.scan_bytes_seen));
+        self.invalidate_analysis();
         true
     }
 
@@ -93,6 +112,7 @@ impl CapacityState {
     /// use as a stronger-than-terminal-scan signal that a usage limit no
     /// longer applies.
     pub(crate) fn clear_latch_and_rearm(&mut self) {
+        self.invalidate_analysis();
         self.at_usage_limit_latched = false;
         self.resume_scan_origin = Some((self.output_lines_seen, self.scan_bytes_seen));
     }
@@ -107,90 +127,66 @@ impl CapacityState {
             .unwrap_or(false)
     }
 
-    /// The fresh-output window since `origin`, sliced out of `snapshot`
-    /// (persisted output lines) and `scan_buf` (raw scan text). Ported
-    /// unchanged from the four copies previously inlined at
-    /// `session_projection.rs:292-316,317-339,348-366,367-386` (pre-refactor
-    /// line numbers).
-    fn fresh_window<'a>(
+    /// Evaluate one immutable output prefix. The scanner is pure evidence,
+    /// allowing projection to reuse per-line analysis without caching effects.
+    pub(crate) fn observe_with(
         &self,
-        origin: (u64, u64),
-        snapshot: &'a [String],
-        scan_buf: &'a str,
-    ) -> (&'a [String], &'a str) {
-        let (line_count, scan_len) = origin;
-        let line_window_start = self.output_lines_seen.saturating_sub(snapshot.len() as u64);
-        let scan_window_start = self.scan_bytes_seen.saturating_sub(scan_buf.len() as u64);
-        let fresh_line_start = line_count.saturating_sub(line_window_start) as usize;
-        let fresh_scan_start = scan_len.saturating_sub(scan_window_start) as usize;
-        let fresh_lines = snapshot
-            .get(fresh_line_start.min(snapshot.len())..)
-            .unwrap_or(&[]);
-        let fresh_scan = scan_buf
-            .get(fresh_scan_start.min(scan_buf.len())..)
-            .unwrap_or("");
-        (fresh_lines, fresh_scan)
+        line_count: usize,
+        scan_buf: &str,
+        mut scan: impl FnMut(std::ops::Range<usize>, &str) -> (bool, Option<String>),
+    ) -> CapacityObservation {
+        let stale_recheck = self.at_usage_limit_latched
+            && !self.capacity_check_pending
+            && self.resume_scan_origin.is_some()
+            && self.fresh_output_since_origin();
+        let baseline = !self.at_usage_limit_latched
+            && !self.capacity_check_pending
+            && self.resume_scan_origin.is_some();
+        let (range, raw) = if stale_recheck || baseline {
+            let (lines, bytes) = self.resume_scan_origin.unwrap();
+            let line_start = lines
+                .saturating_sub(self.output_lines_seen.saturating_sub(line_count as u64))
+                as usize;
+            let byte_start = bytes
+                .saturating_sub(self.scan_bytes_seen.saturating_sub(scan_buf.len() as u64))
+                as usize;
+            (
+                line_start.min(line_count)..line_count,
+                scan_buf.get(byte_start.min(scan_buf.len())..).unwrap_or(""),
+            )
+        } else {
+            (0..line_count, scan_buf)
+        };
+        let (detected, reset_hint) = scan(range, raw);
+        CapacityObservation {
+            at_usage_limit: if stale_recheck || baseline {
+                detected
+            } else {
+                self.at_usage_limit_latched || detected
+            },
+            reset_hint,
+            origin_update: (stale_recheck || (baseline && detected))
+                .then_some((self.output_lines_seen, self.scan_bytes_seen)),
+            clear_latch: stale_recheck && !detected,
+        }
     }
 
-    /// Consults the transition rules against a live scan, without mutating
-    /// `self`. Safe to call against a point-in-time snapshot; the result is
-    /// applied later (if the snapshot is still current) via
-    /// `apply_observation`.
+    #[cfg(test)]
     pub(crate) fn observe(
         &self,
-        limit_patterns: &[String],
+        patterns: &[String],
         snapshot: &[String],
         scan_buf: &str,
     ) -> CapacityObservation {
-        let fresh_output_since_origin = self.fresh_output_since_origin();
-        let stale_cap_recheck = self.at_usage_limit_latched
-            && !self.capacity_check_pending
-            && self.resume_scan_origin.is_some();
-        let baseline_scoped_detection = !self.at_usage_limit_latched
-            && !self.capacity_check_pending
-            && self.resume_scan_origin.is_some();
-
-        let detected_full = crate::peon::detect_usage_limit(limit_patterns, snapshot)
-            || crate::peon::detect_usage_limit_raw(limit_patterns, scan_buf);
-
-        if stale_cap_recheck && fresh_output_since_origin {
-            let origin = self.resume_scan_origin.unwrap();
-            let (fresh_lines, fresh_scan) = self.fresh_window(origin, snapshot, scan_buf);
-            let detected_scoped = crate::peon::detect_usage_limit(limit_patterns, fresh_lines)
-                || crate::peon::detect_usage_limit_raw(limit_patterns, fresh_scan);
-            let reset_hint = crate::peon::detect_usage_limit_hint(limit_patterns, fresh_lines)
-                .or_else(|| crate::peon::detect_usage_limit_hint_raw(limit_patterns, fresh_scan));
-            let origin_now = (self.output_lines_seen, self.scan_bytes_seen);
-            CapacityObservation {
-                at_usage_limit: detected_scoped,
-                reset_hint,
-                origin_update: Some(origin_now),
-                clear_latch: !detected_scoped,
-            }
-        } else if baseline_scoped_detection {
-            let origin = self.resume_scan_origin.unwrap();
-            let (fresh_lines, fresh_scan) = self.fresh_window(origin, snapshot, scan_buf);
-            let detected_scoped = crate::peon::detect_usage_limit(limit_patterns, fresh_lines)
-                || crate::peon::detect_usage_limit_raw(limit_patterns, fresh_scan);
-            let reset_hint = crate::peon::detect_usage_limit_hint(limit_patterns, fresh_lines)
-                .or_else(|| crate::peon::detect_usage_limit_hint_raw(limit_patterns, fresh_scan));
-            CapacityObservation {
-                at_usage_limit: detected_scoped,
-                reset_hint,
-                origin_update: detected_scoped
-                    .then_some((self.output_lines_seen, self.scan_bytes_seen)),
-                clear_latch: false,
-            }
-        } else {
-            let reset_hint = crate::peon::detect_usage_limit_hint(limit_patterns, snapshot)
-                .or_else(|| crate::peon::detect_usage_limit_hint_raw(limit_patterns, scan_buf));
-            CapacityObservation {
-                at_usage_limit: self.at_usage_limit_latched || detected_full,
-                reset_hint,
-                origin_update: None,
-                clear_latch: false,
-            }
-        }
+        self.observe_with(snapshot.len(), scan_buf, |range, raw| {
+            let lines = &snapshot[range];
+            (
+                crate::peon::detect_usage_limit(patterns, lines)
+                    || crate::peon::detect_usage_limit_raw(patterns, raw),
+                crate::peon::detect_usage_limit_hint(patterns, lines)
+                    .or_else(|| crate::peon::detect_usage_limit_hint_raw(patterns, raw)),
+            )
+        })
     }
 
     /// Applies a previously-computed observation, mirroring the single
@@ -199,6 +195,7 @@ impl CapacityState {
     /// (the caller stamps `usage_limit_latched_at` from `SessionRuntime` in
     /// that case, since the timestamp source lives outside this state).
     pub(crate) fn apply_observation(&mut self, observation: &CapacityObservation) -> bool {
+        let previous = (self.at_usage_limit_latched, self.resume_scan_origin);
         let newly_latched = observation.at_usage_limit && !self.at_usage_limit_latched;
         if observation.at_usage_limit {
             self.at_usage_limit_latched = true;
@@ -208,6 +205,9 @@ impl CapacityState {
             if observation.clear_latch {
                 self.at_usage_limit_latched = false;
             }
+        }
+        if previous != (self.at_usage_limit_latched, self.resume_scan_origin) {
+            self.invalidate_analysis();
         }
         newly_latched
     }
@@ -225,11 +225,13 @@ impl CapacityState {
             return None;
         }
         if self.pending_capacity_visible_once {
+            self.invalidate_analysis();
             self.capacity_check_pending = false;
             self.resume_scan_origin = None;
             self.pending_capacity_visible_once = false;
             Some(None)
         } else if has_fresh_resume_output {
+            self.invalidate_analysis();
             self.pending_capacity_visible_once = true;
             self.resume_scan_origin = None;
             Some(Some(true))
@@ -251,6 +253,30 @@ mod tests {
 
     fn patterns() -> Vec<String> {
         vec!["usage limit".to_string()]
+    }
+
+    #[test]
+    fn output_does_not_invalidate_control_but_input_and_aba_transitions_do() {
+        let mut state = CapacityState::default();
+        let initial = state.control_revision();
+        state.record_output(1, 20);
+        assert_eq!(state.control_revision(), initial);
+        state.accepted_input();
+        assert_ne!(
+            state.control_revision(),
+            initial,
+            "even an unlatched recheck must invalidate"
+        );
+        let before_clear = state.control_revision();
+        state.clear_latch_and_rearm();
+        let changed = state.control_revision();
+        state.clear_latch_and_rearm();
+        assert_ne!(changed, before_clear);
+        assert_ne!(
+            state.control_revision(),
+            changed,
+            "identical resulting fields cannot reuse an old epoch"
+        );
     }
 
     #[test]

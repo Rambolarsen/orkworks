@@ -2159,7 +2159,7 @@ impl SessionApplication {
         let Some(handle) = sessions.get_mut(id) else {
             return;
         };
-        handle.capacity.arm_recheck();
+        handle.capacity.accepted_input();
     }
 
     /// Records accepted, non-sensitive user input and seeds the session topic

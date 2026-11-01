@@ -8374,6 +8374,7 @@ mod tests {
                     scan_bytes_seen: 0,
                     resume_scan_origin: Some((0, 0)),
                     pending_capacity_visible_once: false,
+                    ..Default::default()
                 },
                 active_work_hook: false,
             },
@@ -8482,6 +8483,7 @@ mod tests {
                     scan_bytes_seen: 0,
                     resume_scan_origin: Some((0, 0)),
                     pending_capacity_visible_once: false,
+                    ..Default::default()
                 },
                 active_work_hook: false,
             },
@@ -8564,6 +8566,7 @@ mod tests {
                     scan_bytes_seen: 0,
                     resume_scan_origin: Some((0, 0)),
                     pending_capacity_visible_once: false,
+                    ..Default::default()
                 },
                 active_work_hook: false,
             },
@@ -8690,6 +8693,7 @@ mod tests {
                     scan_bytes_seen: 0,
                     resume_scan_origin: None,
                     pending_capacity_visible_once: false,
+                    ..Default::default()
                 },
                 active_work_hook: false,
             },
@@ -8793,6 +8797,7 @@ mod tests {
                     scan_bytes_seen: 0,
                     resume_scan_origin: Some((1, 0)),
                     pending_capacity_visible_once: false,
+                    ..Default::default()
                 },
                 active_work_hook: false,
             },
@@ -8898,6 +8903,7 @@ mod tests {
                     scan_bytes_seen: 0,
                     resume_scan_origin: Some((1, 0)),
                     pending_capacity_visible_once: false,
+                    ..Default::default()
                 },
                 active_work_hook: false,
             },
@@ -8985,6 +8991,7 @@ mod tests {
                     scan_bytes_seen: 0,
                     resume_scan_origin: Some((1, 0)),
                     pending_capacity_visible_once: false,
+                    ..Default::default()
                 },
                 active_work_hook: false,
             },
@@ -9106,6 +9113,7 @@ mod tests {
                     scan_bytes_seen: 0,
                     resume_scan_origin: Some((1, 0)),
                     pending_capacity_visible_once: false,
+                    ..Default::default()
                 },
                 active_work_hook: false,
             },

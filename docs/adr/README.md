@@ -134,3 +134,5 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 - [0101: Main-window Git changes](0101-main-window-git-changes.md) — Supersedes the inspector-only presentation of ADR 0091; retrieval remains accepted.
 
 - [Readiness evidence before candidates](0099-readiness-evidence-before-candidates.md) — Approved #1175 evidence-first investigation after two independently failed fixed sets; live qualification remains separate.
+
+- [ADR 0102 — Slow terminal projections compute outside the input fence](0102-terminal-projection-input-fence.md) — Accepted; scoped implementation approved.

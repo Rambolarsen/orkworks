@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
@@ -42,9 +43,10 @@ fn env_number<T: std::str::FromStr + Copy + std::fmt::Display>(name: &str, defau
 
 #[derive(Clone, Debug)]
 pub struct RingBuffer {
-    lines: VecDeque<(u64, String)>,
+    lines: VecDeque<(u64, Arc<str>)>,
     capacity: usize,
     next_revision: u64,
+    sensitivity: Option<(u64, bool)>,
 }
 
 impl RingBuffer {
@@ -53,25 +55,61 @@ impl RingBuffer {
             lines: VecDeque::new(),
             capacity,
             next_revision: 1,
+            sensitivity: None,
         }
     }
 
     pub fn push(&mut self, line: String) -> u64 {
         let revision = self.next_revision;
         self.next_revision += 1;
-        self.lines.push_back((revision, line));
+        self.lines.push_back((revision, Arc::from(line)));
+        self.sensitivity = None;
         while self.lines.len() > self.capacity {
             self.lines.pop_front();
         }
         revision
     }
 
+    pub(crate) fn revision(&self) -> u64 {
+        self.next_revision - 1
+    }
+
+    pub(crate) fn shared_snapshot(&self) -> Vec<(u64, Arc<str>)> {
+        self.lines.iter().cloned().collect()
+    }
+
+    pub(crate) fn sensitivity_snapshot(&self) -> SensitivitySnapshot {
+        SensitivitySnapshot {
+            revision: self.revision(),
+            lines: self
+                .lines
+                .iter()
+                .rev()
+                .take(5)
+                .map(|(_, text)| text.clone())
+                .collect(),
+            cached: self
+                .sensitivity
+                .filter(|(revision, _)| *revision == self.revision())
+                .map(|(_, value)| value),
+        }
+    }
+
+    pub(crate) fn cache_sensitivity(&mut self, revision: u64, value: bool) {
+        if revision == self.revision() {
+            self.sensitivity = Some((revision, value));
+        }
+    }
+
     pub fn snapshot(&self) -> Vec<String> {
-        self.lines.iter().map(|(_, line)| line.clone()).collect()
+        self.lines
+            .iter()
+            .map(|(_, line)| line.to_string())
+            .collect()
     }
 
     pub fn snapshot_after_with_revisions(&self, revision: u64) -> Option<RingSnapshot> {
-        let lines: Vec<(u64, String)> = self
+        let lines: Vec<(u64, Arc<str>)> = self
             .lines
             .iter()
             .filter(|(line_revision, _)| *line_revision > revision)
@@ -82,7 +120,10 @@ impl RingBuffer {
         Some(RingSnapshot {
             first_revision,
             last_revision,
-            lines: lines.into_iter().map(|(_, line)| line).collect(),
+            lines: lines
+                .into_iter()
+                .map(|(_, line)| line.to_string())
+                .collect(),
         })
     }
 
@@ -97,8 +138,35 @@ impl RingBuffer {
             .iter()
             .rev()
             .take(n)
-            .map(|(_, line)| line.clone())
+            .map(|(_, line)| line.to_string())
             .collect()
+    }
+}
+
+/// References are newest-first; classification never holds an application lock.
+pub(crate) struct SensitivitySnapshot {
+    pub(crate) revision: u64,
+    lines: Vec<Arc<str>>,
+    pub(crate) cached: Option<bool>,
+}
+
+impl SensitivitySnapshot {
+    pub(crate) fn classify(&self) -> bool {
+        if let Some(value) = self.cached {
+            return value;
+        }
+        if self
+            .lines
+            .iter()
+            .fold(0usize, |sum, line| sum.saturating_add(line.len()))
+            > 64 * 1024
+        {
+            return true;
+        }
+        // The former newest-first last_n(5) was reversed by the detector.
+        // Cover all selected lines so trailing background output cannot hide
+        // a previously protected prompt, while also covering the newest ones.
+        self.lines.iter().any(|line| password_prompt_line(line))
     }
 }
 
@@ -239,6 +307,25 @@ fn strip_ansi_escape<I: Iterator<Item = char>>(
     }
 }
 
+/// Normalize a retained line once, preserving first-row matching and hint order.
+pub(crate) fn capacity_line_evidence(patterns: &[String], text: &str) -> (bool, Option<String>) {
+    if patterns.is_empty() || text.is_empty() {
+        return (false, None);
+    }
+    let plain = strip_ansi_for_usage_limit(text);
+    let detected = plain.split(['\r', '\n']).any(|segment| {
+        patterns
+            .iter()
+            .any(|p| bounded_limit_match(segment, &p.to_ascii_lowercase()))
+    });
+    let hint = plain.split(['\r', '\n']).find_map(|segment| {
+        patterns
+            .iter()
+            .find_map(|p| colocated_banner_hint(segment, &p.to_ascii_lowercase()))
+    });
+    (detected, hint)
+}
+
 pub fn detect_usage_limit<S: AsRef<str>>(patterns: &[S], lines: &[String]) -> bool {
     if patterns.is_empty() {
         return false;
@@ -256,16 +343,19 @@ pub fn detect_usage_limit<S: AsRef<str>>(patterns: &[S], lines: &[String]) -> bo
 /// Returns true if recent terminal output looks like it prompted for a password or passphrase.
 /// Used to suppress raw input from being stored as the session label.
 pub fn looks_like_password_prompt(recent_lines: &[String]) -> bool {
-    let patterns = ["password", "passphrase", "pin:"];
-    recent_lines.iter().rev().take(3).any(|line| {
-        let lower = strip_ansi(line).to_lowercase();
-        // Also check with whitespace collapsed: cursor-positioning moves insert
-        // spaces, which can split "passphrase" → "pass phrase".
-        let compact = lower.split_whitespace().collect::<String>();
-        patterns
-            .iter()
-            .any(|p| lower.contains(p) || compact.contains(p))
-    })
+    recent_lines
+        .iter()
+        .rev()
+        .take(3)
+        .any(|line| password_prompt_line(line))
+}
+
+fn password_prompt_line(line: &str) -> bool {
+    let lower = strip_ansi(line).to_lowercase();
+    let compact = lower.split_whitespace().collect::<String>();
+    ["password", "passphrase", "pin:"]
+        .iter()
+        .any(|pattern| lower.contains(pattern) || compact.contains(pattern))
 }
 
 /// Returns true if a completed user input line is descriptive enough to become
@@ -1343,6 +1433,42 @@ pub fn build_prompt(output: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn sensitivity_is_cached_and_oversized_observations_fail_closed() {
+        let mut buffer = RingBuffer::new(200);
+        buffer.push("Password: ".into());
+        let captured = buffer.sensitivity_snapshot();
+        assert!(captured.classify());
+        buffer.cache_sensitivity(captured.revision, true);
+        assert_eq!(buffer.sensitivity_snapshot().cached, Some(true));
+        buffer.push("ordinary output".repeat(6000));
+        assert_eq!(buffer.sensitivity_snapshot().cached, None);
+        assert!(
+            buffer.sensitivity_snapshot().classify(),
+            "oversized text must protect metadata without parsing"
+        );
+        let revision = buffer.revision();
+        buffer.cache_sensitivity(captured.revision, false);
+        assert_eq!(buffer.revision(), revision);
+        assert_eq!(
+            buffer.sensitivity_snapshot().cached,
+            None,
+            "stale sensitivity cannot replace current evidence"
+        );
+    }
+
+    #[test]
+    fn shared_output_preserves_revisions_and_owned_snapshot_contract() {
+        let mut buffer = RingBuffer::new(2);
+        buffer.push("first".into());
+        let old = buffer.shared_snapshot();
+        buffer.push("second".into());
+        buffer.push("third".into());
+        assert_eq!(&*old[0].1, "first");
+        assert_eq!(buffer.snapshot(), vec!["second", "third"]);
+        assert_eq!(buffer.shared_snapshot()[0].0, 2);
+    }
+
     #[test]
     fn title_context_accepts_investigation_prose_but_skips_repeated_spinner_text() {
         assert!(has_title_context(&[
