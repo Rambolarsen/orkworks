@@ -264,6 +264,9 @@ session made an edit. Limits and unavailable/binary content are labeled, and an
 incomplete comparison is not reported as clean. Reading changes never stages,
 discards, edits, commits, approves or submits work to a coding tool.
 
+Refreshing the same file preserves your scroll position and any extra diff rows
+you have revealed. Switching files or comparisons starts at the beginning.
+
 The terminal session keeps running while you review. **Terminal** in the main
 header or Escape within Changes returns to it without sending input. Selecting a session
 leaves Changes for that session's terminal. The existing Sessions sidebar remains
