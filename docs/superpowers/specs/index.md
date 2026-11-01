@@ -4,6 +4,7 @@ Dated design records; these do not establish current product behavior.
 
 ## Documents
 
+- [Peon scheduling across session deletion](2026-11-01-peon-scheduling-forget-design.md) — Proposed scheduling fence and stale-work cleanup contract for #403.
 - [M4: Session Metadata Protocol — Design](2026-06-16-m4-session-metadata-protocol-design.md) — Design history: M4: Session Metadata Protocol — Design.
 - [M5: Git Context Detection — Design](2026-06-16-m5-git-context-detection-design.md) — Design history: M5: Git Context Detection — Design.
 - [M6: Peon — Observer Inference Design](2026-06-16-m6-peon-design.md) — Design history: M6: Peon — Observer Inference Design.
