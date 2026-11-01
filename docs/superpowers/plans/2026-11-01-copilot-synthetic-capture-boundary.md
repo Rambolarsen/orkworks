@@ -4,7 +4,7 @@ title: Copilot disposable synthetic-history boundary
 description: Proposed narrow native-history exception and exact settings-only transport comparison for issue 740.
 tags: [copilot, plans, validation, role-profiles]
 status: draft
-workflow_status: proposed
+workflow_status: completed
 ---
 
 # Copilot disposable synthetic-history boundary
@@ -24,23 +24,27 @@ and [preparation](../specs/2026-10-04-orchestrator-preparation-design.md) remain
 
 The owner requested that work proceed after the
 [settings/persistence findings](../../validation/copilot-settings-and-persistence.md).
-This authorizes preparing this concrete amendment for review. **Exact boundary
-and live-batch approval remain pending.** Writing, reviewing or merging a draft
-proposal is not approval to run it. Record the approved configuration file hash,
-owner response and review disposition before inference; do not infer approval
-from the proposal's presence or the older hosted-turn authorization.
+The owner subsequently replied “go ahead” to the explicit question “Approve the
+two-call batch in #1276?” This approved the reviewed exact configuration,
+native-history exception, authentication, declared canary risks and finite
+budget. The [historical authorization](../../validation/fixtures/copilot-1.0.90-capture-comparison/authorization.json)
+binds that response to the configuration hash below. Writing or merging a
+proposal was not the source of authority. That receipt is audit evidence, not
+a reusable launch capability; further calls require new authority.
 
-No new model request has run under this proposal. This proposes a maximum of two additional observed calls after the earlier
+The [comparison report](../../validation/copilot-settings-only-capture-comparison.md)
+records two completed live attempts and two observed chat spans under this
+approval. This exhausted the approved batch. It used two observed calls after the earlier
 successful turn; failed CLI attempts and their unknown billing remain separately
 recorded. Owner approval must explicitly cover this two-attempt/two-observed-call
 budget. It is not an assertion of remaining provider quota.
 
-## Proposed exception and unchanged limits
+## Approved one-batch exception and unchanged limits
 
 The original plan requires exclusion of responses/reasoning across every
 persistence/export path. That universal condition remains unverified and remains
 a gate to any claim of complete transport safety. For this exact synthetic
-comparison only, approval would permit ordinary native session files and SQLite
+comparison only, the owner-approved exception permitted ordinary native session files and SQLite
 state inside newly created private disposable homes. Native persistence may
 contain assistant content and reasoning-related values. The observer must not
 extract those values, publish them, or send them into agent context.
@@ -140,30 +144,30 @@ The owning session alone creates the disposable roots, runs the approved native
 CLI and writes the research artifact. The review context is read-only.
 No production code or SDK integration is in scope.
 
-- [ ] **Review and bind:** Complete written review of this amendment and its
+- [x] **Review and bind:** Complete written review of this amendment and its
   exact configuration. Record the owner's explicit approval of the native-history
   exception, authentication, known remote-enforcement limit and two-call budget.
   Missing approval leaves this proposal ready for approval only, not execution.
-- [ ] **Prepare:** Verify executable and selected cache hashes against embedded
+- [x] **Prepare:** Verify executable and selected cache hashes against embedded
   bytes, record allowed inherited nonsecret bindings with path normalization,
   ensure unlisted variables are absent, and retain exact synthetic inputs plus
   before-settings bytes. Never read full environment or real configuration files.
-- [ ] **Measure:** Execute the two cases in order with the stated stops. Bind
+- [x] **Measure:** Execute the two cases in order with the stated stops. Bind
   model/request and observed session/turn/interaction identifiers internally;
   retain correlation booleans and counts, not raw identifiers. A failed first
   case omits the second explicitly; no refusal is a permission-denial pass.
-- [ ] **Reduce:** Parse only known OTel shapes using an allowlisted measurement
+- [x] **Reduce:** Parse only known OTel shapes using an allowlisted measurement
   projection: record attribute names, approved model/token counts, tool names,
   exact-rule inclusion booleans and hashes/sizes of unretained raw artifacts.
   Retain no vendor prompt, model response/reasoning text, identity value, token,
   raw argument, process log or native session body. Native-history inspection is
   limited to filenames, file sizes and event-type/field-presence booleans; never
   inspect reasoning values or import a live addon to query them.
-- [ ] **Clean and classify:** Remove the owned disposable roots and confirm the
+- [x] **Clean and classify:** Remove the owned disposable roots and confirm the
   foreground processes are accounted for. Do not equate deletion with prior
   exclusion. Retain per-case outcomes, drift/settings changes and an explicit
   list of untested boundaries. Unknown cleanup/process status stops further work.
-- [ ] **Review handoff:** Hash/size-check retained/staged/CRLF bytes, build docs,
+- [x] **Review handoff:** Hash/size-check retained/staged/CRLF bytes, build docs,
   inspect the contrast against the case criteria and obtain a fresh written
   evidence review. Update #740/#741–#743 with scoped observations only.
 
@@ -174,16 +178,18 @@ separate evidence. No later batch or runtime launch is authorized by this one.
 
 ## Review assessment
 
-Disposition: **Ready for owner approval**, not ready for inference.
+Disposition: **Executed and independently reviewed.** The owner approved this
+exact batch and it is now exhausted. No further inference is authorized.
 
 Written review (2026-11-01, fresh read-only Luna context) initially required
 explicit observed-tool names, ambient-source preflight and exact per-case
 settings. Those material findings were resolved. Targeted re-review confirmed
 ready-for-owner-approval at configuration SHA-256
 `c9d27f1752467e12baf9ac26e19ea9e46645e2171c9af8464a6b8423def09777`.
-The review grants no live authorization or eligibility.
-Missing authority is exact owner approval; missing runtime facts are precisely
-what this bounded comparison measures, plus the explicitly untested boundaries.
+The written review itself granted no authority; the later explicit owner
+response authorized only the recorded batch. No eligibility was granted.
+The exact owner authority and execution are recorded above. The comparison
+measures only the stated contrast; explicitly untested boundaries remain open.
 
 | Dimension | Rating | Reason |
 | --- | --- | --- |
@@ -194,7 +200,13 @@ what this bounded comparison measures, plus the explicitly untested boundaries.
 | Uncertainty | 4 | Known successful hosted candidate, but settings-only contrast and all storage paths are unqualified |
 
 Assessment total is incomplete because reversibility is Unknown. This is not a
-score-based approval; the owner must accept the declared boundary or retain the
-original gate. Review focuses on hidden scope widening, contradictory stops,
+score-based approval; the owner accepted the declared boundary only for the recorded, exhausted
+batch. All broader and later-batch gates remain unchanged. Review focuses on hidden scope widening, contradictory stops,
 reasoning/credential exposure through reduction, and whether the remaining
 unknowns could be mistaken for role eligibility.
+
+Final evidence review (2026-11-01, fresh read-only Luna context) checked the
+report against configuration, historical authorization, observer source and
+sanitized measurements without running a probe. No findings; all ten retained
+manifest hashes/sizes matched. This completes this exhausted research batch
+only, not the broader #740 eligibility work.

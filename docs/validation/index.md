@@ -68,3 +68,5 @@ Capability research, validation results, and evidence fixtures.
 - [Copilot November transport probe](copilot-november-transport-probe.md) — Hosted-turn observations and unchanged role eligibility gates.
 
 - [Copilot settings and persistence](copilot-settings-and-persistence.md) — Version-bound migration and separate storage qualification gates.
+
+- [Copilot settings-only capture comparison](copilot-settings-only-capture-comparison.md) — Approved hosted contrast and unchanged broader eligibility gates.

@@ -252,4 +252,4 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [SQLite session storage and history delivery](2026-11-01-sqlite-session-storage.md) — Reviewed task sequence for the approved ordinary-session storage contract, with compatibility/recovery and rollout gates.
 - [Fence Peon scheduling against forgetting](2026-11-01-peon-scheduling-forget.md) — Proposed concurrency fix and deterministic deletion-boundary checks for #403.
 
-- [Copilot disposable synthetic-history boundary](2026-11-01-copilot-synthetic-capture-boundary.md) — Proposed exception and exact settings-only comparison; approval pending.
+- [Copilot disposable synthetic-history boundary](2026-11-01-copilot-synthetic-capture-boundary.md) — Approved one-batch exception and exhausted settings-only comparison.
