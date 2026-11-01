@@ -136,6 +136,17 @@ APM-owned sources show **APM** and their recorded package. Sources without an
 ownership record say **Local file · ownership unknown**. An APM record does not
 verify that the file is unchanged since installation.
 
+For APM sources, the page separately compares **SKILL.md** with its recorded
+SHA-256 hash. **File differs** marks a collapsed row containing a changed source;
+expand it for the source result: matches, differs, or comparison unavailable.
+Unavailable includes missing/unsupported hashes, conflicting records, read
+failures, and comparison limits (1 MiB per file, 16 MiB per inventory).
+Turn on **Changed only** to show sources confirmed to differ. It combines with
+search, scope and coding-tool filters; matching, unavailable and unowned sources
+are excluded. Clear it to restore the otherwise matching sources.
+**Refresh** repeats the check. Results describe the instruction file at check
+time; companion resources and package authenticity are outside this comparison.
+
 Counts show distinct names and a separate source total, even when one source
 belongs to multiple plugins. Search and the coding-tool
 and scope filters narrow the sources before names are grouped. Search also

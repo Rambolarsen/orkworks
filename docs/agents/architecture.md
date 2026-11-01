@@ -792,7 +792,14 @@ copying their summary into live state. Codex keeps its exact-ID read-only adapte
 and five-second report-driven refresh cooldown, including after a native name
 was already accepted; identical native title/source values do not rewrite metadata.
 
-The source-owned `session-metadata.py` producer prepares API-only agent reporting
+The independent ordinary-storage producer mode accepts
+`ORKWORKS_SESSION_STORAGE_PROTOCOL=sidecar-v1` and shares the authenticated
+revisioned API bootstrap. No production launch emits it; installed and actual
+agent-context qualification remains tracked in the
+[producer matrix](../validation/session-storage-producers.md). It does not grant
+native eligibility or change current JSON authority.
+
+The source-owned `session-metadata.py` producer also prepares API-only agent reporting
 for #789. With `ORKWORKS_SESSION_METADATA_API_VERSION=1`, it requires authenticated
 GET, validation-only PATCH, and follow-up GET with the same revision before a
 revisioned mutation, preserves the caller's revision, and fails without direct-file fallback. Codex integration reconciliation

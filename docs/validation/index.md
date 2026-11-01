@@ -60,3 +60,5 @@ Capability research, validation results, and evidence fixtures.
 - [Evaluation-artifact source and authority closure audit](evaluation-artifact-source-closure.md) — Scoped acceptance and bounded child-producer/read-work cutoff evidence, with concrete Gate 2 prerequisites.
 
 - [Artifact read-work reservation authority](artifact-read-work-authority.md) — Pinned owner trace, physical-commit gap, proposed debit-only exception and conditional/native handoff oracles.
+
+- [Ordinary session metadata producer compatibility](session-storage-producers.md) — Source helper/reporting preparation, measured route evidence and explicit unqualified installed/platform profiles.

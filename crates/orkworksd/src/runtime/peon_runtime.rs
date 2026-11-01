@@ -1270,6 +1270,104 @@ mod tests {
     use std::sync::atomic::{AtomicU16, AtomicUsize, Ordering};
     use std::sync::{Arc, Barrier, Mutex, RwLock};
 
+    #[tokio::test]
+    async fn retention_forgets_residual_peon_state_after_age_and_count_deletion() {
+        let _guard = diagnostic_test_guard();
+        for (max_age_days, max_sessions) in [(1, 0), (0, 1)] {
+            for fail_recommendation_cleanup in [false, true] {
+                let dir = tempfile::tempdir().unwrap();
+                let state = test_app_state_with_workspace(dir.path());
+                let id = "expired-peon-state";
+                let keep = "retained-peon-state";
+                {
+                    let workspace = state.workspace.lock().unwrap();
+                    let ws = workspace.as_ref().unwrap();
+                    for (session_id, time) in
+                        [(id, "2024-01-01T00:00:00Z"), (keep, "2024-02-01T00:00:00Z")]
+                    {
+                        ws.metadata.write_session(&test_session_metadata(
+                            session_id,
+                            session_id,
+                            "/tmp/peon-retention",
+                            "ended",
+                            time,
+                            time,
+                        ));
+                    }
+                    if fail_recommendation_cleanup {
+                        // Recommendations are removed after session metadata. A
+                        // failure here must still forget the deleted session.
+                        let path = ws.metadata.root_path().join("recommendations");
+                        std::fs::remove_dir_all(&path).unwrap();
+                        std::fs::write(path, "unavailable recommendation store").unwrap();
+                    }
+                }
+                let application =
+                    crate::session_application::SessionApplication::new(state.clone());
+                application.clear_ended_session_tracking(id);
+                // A captured scheduler candidate can settle idle after end
+                // cleanup. Forget must not rely on end having run last.
+                state.peon.mark_idle(id, "no_new_silent_output");
+                state.peon.mark_idle(keep, "no_new_silent_output");
+                state
+                    .peon
+                    .input_buf
+                    .write()
+                    .unwrap()
+                    .insert(id.into(), "partial input".into());
+                state
+                    .peon
+                    .reported_cwd
+                    .write()
+                    .unwrap()
+                    .insert(id.into(), "/tmp/old-cwd".into());
+                state.peon.label_pending.write().unwrap().insert(id.into());
+                {
+                    let mut config = state.retention_config.write().await;
+                    config.max_age_days = max_age_days;
+                    config.max_sessions = max_sessions;
+                }
+                let now = chrono::DateTime::parse_from_rfc3339("2024-02-01T00:00:00Z")
+                    .unwrap()
+                    .with_timezone(&chrono::Utc);
+                for _ in 0..2 {
+                    crate::runtime::retention::retention_cleanup_once(&state, now).await;
+                    let workspace = state.workspace.lock().unwrap();
+                    let ws = workspace.as_ref().unwrap();
+                    assert!(!ws.metadata.session_file_exists(id));
+                    assert!(ws.metadata.session_file_exists(keep));
+                    assert!(!state.peon.diagnostics.read().unwrap().contains_key(id),
+                        "deleted session retained its diagnostic: age={max_age_days}, recommendation failure={fail_recommendation_cleanup}");
+                    assert!(state.peon.diagnostics.read().unwrap().contains_key(keep));
+                    assert!(!state.peon.input_buf.read().unwrap().contains_key(id));
+                    assert!(!state.peon.reported_cwd.read().unwrap().contains_key(id));
+                    assert!(!state.peon.label_pending.read().unwrap().contains(id));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn forgotten_session_cleanup_invalidates_attempt_and_is_repeatable() {
+        let _guard = diagnostic_test_guard();
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let id = "forgotten-attempt";
+        let identity = crate::runtime::session_runtime::SessionRuntime::detached(24, 80).identity();
+        state.peon.in_flight.write().unwrap().insert(id.into());
+        let attempt = state.peon.begin_attempt(id, identity).unwrap();
+        let application = crate::session_application::SessionApplication::new(state.clone());
+        for _ in 0..2 {
+            application.clear_forgotten_session_tracking(id);
+            assert!(!state.peon.diagnostic_attempt_is_current(id, &attempt));
+            assert!(!state.peon.in_flight.read().unwrap().contains(id));
+            assert!(!state.peon.diagnostics.read().unwrap().contains_key(id));
+            assert!(!diagnostic_leases().lock().unwrap().contains_key(id));
+        }
+        state.peon.finish_attempt(id, &attempt);
+        assert!(!state.peon.diagnostics.read().unwrap().contains_key(id));
+    }
+
     #[test]
     fn output_inference_generation_is_stale_after_accepted_input() {
         assert!(!output_inference_is_current(4, 12, 5, 12));

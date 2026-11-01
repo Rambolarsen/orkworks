@@ -180,7 +180,10 @@ Repo skills may instruct agents to:
 - update `.orkworks/sessions/<session-id>.json` when the session has not
   advertised a mediated metadata protocol; when
   `ORKWORKS_SESSION_METADATA_API_VERSION=1` is present, read and patch metadata
-  through the sidecar API and never write the JSON file directly
+  through the sidecar API and never write the JSON file directly. The independent
+  ordinary-storage marker `ORKWORKS_SESSION_STORAGE_PROTOCOL=sidecar-v1` requires
+  the same API-only behavior when advertised by a qualified format-2 launch;
+  source helper preparation does not itself enable such a launch
 - append events to `.orkworks/events/<session-id>.ndjson`
 - summarize current work
 - report blockers

@@ -3466,13 +3466,11 @@ impl SessionApplication {
         })
     }
 
-    /// Clears label work that cannot be consumed after a session is forgotten.
-    /// The side tables are independent of workspace and session lifecycle
-    /// locks, so this deliberately acquires only their existing write guards
-    /// in order.
+    /// Clears runtime and conversation tracking after a session is deleted.
+    /// Call after releasing session/workspace guards, just as for end cleanup.
+    /// Unlike ordinary end, forget also discards queued label work and epochs.
     pub(crate) fn clear_forgotten_session_tracking(&self, id: &str) {
-        crate::codex_session_store::clear_label_refresh_generation(id);
-        crate::codex_session_store::clear_native_label_refresh_block(id);
+        self.clear_ended_session_tracking(id);
         self.state.peon.label_epochs.write().unwrap().remove(id);
         self.state.peon.label_hint.write().unwrap().remove(id);
         self.state.peon.label_pending.write().unwrap().remove(id);
@@ -5653,7 +5651,6 @@ impl SessionApplication {
             if !workspace.metadata.session_file_exists(id) {
                 drop(workspace_guard);
                 self.state.sessions.lock().unwrap().remove(id);
-                self.clear_ended_session_tracking(id);
                 self.clear_forgotten_session_tracking(id);
             }
             return Err(SessionError::Internal("application operation failed"));
@@ -5661,7 +5658,6 @@ impl SessionApplication {
         drop(workspace_guard);
 
         self.state.sessions.lock().unwrap().remove(id);
-        self.clear_ended_session_tracking(id);
         self.clear_forgotten_session_tracking(id);
         Ok(())
     }

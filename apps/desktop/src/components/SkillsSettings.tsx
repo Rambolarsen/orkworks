@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronRight, Copy, Package, Plus, RefreshCw } from "lucide-react";
+import { ChevronRight, Copy, FileWarning, Package, Plus, RefreshCw } from "lucide-react";
 import type {
   SkillEntry,
   SkillInventory,
@@ -34,6 +34,7 @@ export default function SkillsSettings({
   const [query, setQuery] = useState("");
   const [tool, setTool] = useState("");
   const [filterScope, setFilterScope] = useState("");
+  const [changedOnly, setChangedOnly] = useState(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
@@ -109,6 +110,7 @@ export default function SkillsSettings({
   const filtered = (inventory?.skills || []).filter(
     (skill) =>
       (!filterScope || skill.scope === filterScope) &&
+      (!changedOnly || skill.apmIntegrity?.status === "differs") &&
       (!tool || skill.tools.includes(tool as SkillTool)) &&
       [skill.name, skill.description, skill.packageSource || "", ...(skill.plugins || []), ...skill.paths]
         .join(" ")
@@ -152,6 +154,11 @@ export default function SkillsSettings({
             <span className="skills-badge">
               {sources.length} {sources.length === 1 ? "source" : "sources"}
             </span>
+            {sources.some(source => source.apmIntegrity?.status === "differs") && (
+              <span data-skill-modified className="skills-badge skills-badge--modified" title="A listed source’s SKILL.md differs from its recorded APM hash.">
+                <FileWarning size={12} aria-hidden="true" /> File differs
+              </span>
+            )}
             {overlappingNames.has(name) && (
               <span data-skill-overlap className="skills-badge skills-badge--overlap" title="This name has separate local and plugin sources. Local means ownership is unrecorded; it does not prove manual installation. Other sources may be hidden by filters.">
                 <Copy size={12} aria-hidden="true" /> Local + plugin
@@ -167,6 +174,15 @@ export default function SkillsSettings({
                   {skill.plugins?.length && skill.management === "apm" ? <span className="skills-badge">APM · {skill.packageSource || "package unknown"}</span> : null}
                 </h4>
                 <p>{skill.description}</p>
+                {skill.apmIntegrity && (
+                  <p data-apm-integrity={skill.apmIntegrity.status} className={`skills-integrity skills-integrity--${skill.apmIntegrity.status}`}>
+                    {skill.apmIntegrity.status === "differs"
+                      ? "SKILL.md differs from APM record."
+                      : skill.apmIntegrity.status === "matches"
+                        ? "SKILL.md matches APM record."
+                        : `SKILL.md comparison unavailable: ${skill.apmIntegrity.reason || "No comparison result."}`}
+                  </p>
+                )}
                 <p className="skills-tool-coverage">
                   Found ·{" "}
                   {skill.tools.length
@@ -296,12 +312,23 @@ export default function SkillsSettings({
             <option value="personal">Personal</option>
           </select>
         </label>
+        <label className="skills-changed-filter">
+          <input
+            type="checkbox"
+            aria-label="Changed only"
+            checked={changedOnly}
+            onChange={(event) => setChangedOnly(event.target.checked)}
+          />
+          Changed only
+        </label>
       </div>
       <p className="skills-group-caption">
         Skills are grouped by recorded plugin, with other files under Local skills.
         Expand a skill to inspect its sources. Local + plugin marks a name found in
         both, even if another source is hidden by filters. Matching names may have
         different instructions. Found does not mean loaded or enabled.
+        APM comparisons check SKILL.md only, at refresh time; companion resources and
+        package authenticity are outside this comparison.
       </p>
       <p className="skills-group-caption">
         {currentWorkspacePath
@@ -432,7 +459,9 @@ export default function SkillsSettings({
           <span>· {filtered.length} {filtered.length === 1 ? "source" : "sources"}</span>
         </h3>
         {!grouped.length && (
-          <p>{inventory ? "No matching skills found in the inspected roots." : "Loading skills…"}</p>
+          <p>{inventory
+            ? changedOnly ? "No changed skills match the current filters." : "No matching skills found in the inspected roots."
+            : "Loading skills…"}</p>
         )}
         {!!pluginGroups.length && (
           <section className="skills-installation-group" aria-label="Plugins">

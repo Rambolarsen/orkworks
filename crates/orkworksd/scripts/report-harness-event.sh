@@ -568,7 +568,7 @@ fi
 # Worktree-only reporting is independent of the qualified general metadata gate.
 if [ "$session_source" = "codex_hook" ] && [ "$event" = "SessionStart" ]; then
   metadata_helper="$(dirname -- "${BASH_SOURCE[0]}")/session-metadata.py"
-  if [ "${ORKWORKS_SESSION_METADATA_API_VERSION:-}" = "1" ]; then
+  if [ "${ORKWORKS_SESSION_METADATA_API_VERSION:-}" = "1" ] || [ "${ORKWORKS_SESSION_STORAGE_PROTOCOL+x}" = "x" ]; then
     python3 "$metadata_helper" instructions
   else
     python3 "$metadata_helper" worktree-instructions

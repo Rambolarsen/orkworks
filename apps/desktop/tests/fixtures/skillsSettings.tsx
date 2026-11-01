@@ -29,10 +29,10 @@ const inventory = {
   apm: { available: true, message: "APM found" },
 };
 const edgeSkills = [
-  { ...skill, id: "apm-local", name: "apm-skill", scope: "personal", management: "apm", packageSource: "owner/package" },
-  { ...skill, id: "apm-plugin", name: "apm-skill", scope: "personal", management: "plugin", plugins: ["alpha@local"], resolvedPath: "/plugin/apm-skill", paths: ["/plugin/apm-skill"] },
+  { ...skill, id: "apm-local", name: "apm-skill", scope: "personal", management: "apm", packageSource: "owner/package", apmIntegrity: { status: "differs" } },
+  { ...skill, id: "apm-plugin", name: "apm-skill", scope: "personal", management: "apm", apmIntegrity: { status: "unavailable", reason: "No recorded SHA-256 hash." }, plugins: ["alpha@local"], resolvedPath: "/plugin/apm-skill", paths: ["/plugin/apm-skill"] },
   { ...skill, id: "alias", name: "alias-skill", scope: "personal", management: "plugin", plugins: ["alpha@local"], paths: ["/local/alias", "/plugin/alias"] },
-  { ...skill, id: "multi", name: "multi-skill", scope: "personal", management: "apm", plugins: ["alpha@local", "beta@local"], packageSource: "/sources/" + "very-long-package-name/".repeat(20) },
+  { ...skill, id: "multi", name: "multi-skill", scope: "personal", management: "apm", apmIntegrity: { status: "matches" }, plugins: ["alpha@local", "beta@local"], packageSource: "/sources/" + "very-long-package-name/".repeat(20) },
   { ...skill, id: "unknown", name: "unknown-skill", scope: "personal", management: "plugin" },
 ];
 edgeSkills.push(

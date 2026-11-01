@@ -27,7 +27,7 @@ the main view at every width, including through the collapsed rail and compact
 Workspace menu. It replaces the former Skills section in Settings and contains
 a Plugins section grouping skills by recorded plugin, a Local skills section
 for sources without recorded plugin ownership, a search field, coding-tool and
-scope filters, Refresh, and Add skill. Each row expands to its sources, each
+scope filters, Changed only, Refresh, and Add skill. Each row expands to its sources, each
 clearly labeled Workspace or Personal. Back, its toggle, or Escape within the page
 returns to the previous central content; selecting a session opens its Terminal.
 Skills is transient and is not restored after restart.
@@ -61,7 +61,21 @@ personal `.apm/apm.lock.yaml`, with a separate 2 MiB lock-file bound. Match
 recorded SKILL.md paths to discovered canonical or logical source paths within
 the same scope; retain plugin registrations and scoped source identities.
 Show and search the recorded APM package in source headings. APM records describe
-recorded ownership, not a verification of current file integrity or manual edits.
+recorded ownership; ownership alone does not verify current file integrity or
+manual edits.
+Discovery and Refresh also compare each APM-owned SKILL.md with its supported
+recorded SHA-256 baseline. Source details show matches, differs, or unavailable;
+a collapsed name row shows File differs when a currently listed source differs.
+Compare the complete instruction file, with a 1 MiB per-file limit and a shared
+16 MiB read budget per inventory. Reuse physical-file digests across aliases and
+scopes without sharing ownership records or merging source identities.
+A missing/unsupported hash in any matching record, conflicting supported baselines,
+unavailable files,
+files changing while read, and exhausted limits produce unavailable with a
+reason, never a confirmed difference. Only discovered canonical instruction
+paths are read; do not traverse arbitrary paths from the hash map or execute
+content. This point-in-time comparison covers SKILL.md only; it does not check
+companion resources, prove manual edits, or establish package authenticity.
 Unreadable, malformed or oversized locks leave ownership unknown with diagnostics.
 Missing provenance is Unknown, never an inferred package URL. A detail view can
 show SKILL.md as text and its source; skill instructions are untrusted content,
@@ -76,7 +90,12 @@ with separate scoped sources.
 Counts describe distinct exact names and a separate matching source-entry total,
 not a coding tool’s loaded or enabled skill total. Search and coding-tool/scope
 filters apply to source entries before grouping; counts and expanded lists show
-only matching sources. Codex discovery includes its explicit system
+only matching sources. Changed only is off by default and includes only sources
+whose APM instruction comparison is differs. Matching, unavailable, and unowned
+sources are excluded from that view. Combine it with search, coding-tool and
+scope filters before grouping, keeping matching source counts and source details.
+When empty, say no changed skills match the current filters; clearing the control
+restores the otherwise matching sources. Codex discovery includes its explicit system
 skill directory and bounded cached plugin packages with portable or compatibility
 manifests. Cached versions remain separate sources when they resolve to different
 directories; no active/latest version is inferred from cache presence.
