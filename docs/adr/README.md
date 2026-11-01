@@ -136,3 +136,5 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 - [Readiness evidence before candidates](0099-readiness-evidence-before-candidates.md) — Approved #1175 evidence-first investigation after two independently failed fixed sets; live qualification remains separate.
 
 - [ADR 0102 — Slow terminal projections compute outside the input fence](0102-terminal-projection-input-fence.md) — Accepted; scoped implementation approved.
+
+- [ADR 0103: Ordinary sessions use SQLite with bounded history reads](0103-sqlite-session-storage.md) — Proposed session storage/migration decision; owner approval pending.

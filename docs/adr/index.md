@@ -129,3 +129,5 @@ Decision records and their original rationale and consequences.
 - [Readiness evidence before candidates](0099-readiness-evidence-before-candidates.md) — Approved #1175 evidence-first investigation after two independently failed fixed sets; live qualification remains separate.
 
 - [Slow terminal projections compute outside the input fence](0102-terminal-projection-input-fence.md) — Accepted capacity/input fence separation with stale-result rejection.
+
+- [Ordinary sessions use SQLite with bounded history reads](0103-sqlite-session-storage.md) — Proposed ordinary-session database, bounded history and maintenance-only migration.
