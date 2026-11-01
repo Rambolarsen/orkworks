@@ -372,3 +372,11 @@ packaging through synthetic AGENTS.md, not native skill discovery/loading,
 invocation or adherence. It tests no additional resources or permissions.
 The approved attempt is exhausted; all six roles remain unverified/no-go
 and #740 stays open.
+
+## View read-scope stopped probe — 2026-11-01
+
+The [bounded read-scope attempt](copilot-view-read-scope.md) stopped at an
+exporter attribute-presence guard after two observed chat spans. No usable view
+receipt was collected; the triggering attribute was not retained. No permission
+denial, escape or content leak is established. The attempt is exhausted and raw
+roots were removed. All six profiles remain unverified/no-go; #740 stays open.

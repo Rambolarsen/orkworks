@@ -1,0 +1,351 @@
+{
+  "kind": "static-projection-not-complete-validation-schema",
+  "sourceSha256": "c1b43f27c015b87bbb74072c6591227e860d6b1862aed9edecfe5aacd29a16c3",
+  "definitions": {
+    "ToolExecutionStartData": {
+      "type": "object",
+      "properties": {
+        "toolCallId": {
+          "type": "string",
+          "description": "Unique identifier for this tool call"
+        },
+        "toolName": {
+          "type": "string",
+          "description": "Name of the tool being executed"
+        },
+        "toolTitle": {
+          "type": "string",
+          "description": "Human-readable display title for the tool, when the selected tool descriptor has a non-empty title."
+        },
+        "arguments": {
+          "description": "Arguments passed to the tool",
+          "x-opaque-json": true
+        },
+        "shellToolInfo": {
+          "$ref": "#/definitions/ToolExecutionStartShellToolInfo",
+          "description": "Shell-tool path hints derived from the command at start time for shell tools (bash/powershell/local_shell). Produced by the same shell-aware extractor as PermissionRequestShell.possiblePaths, so it is present even when the command is auto-approved and no permission request fires. Absent for non-shell tools."
+        },
+        "model": {
+          "type": "string",
+          "description": "Model identifier that generated this tool call"
+        },
+        "rte": {
+          "type": "boolean",
+          "description": "Per-request treatment/eligibility signal returned by the Copilot API in the `X-GitHub-Copilot-Request-TE` response header for the associated model call; `false` when the header was absent or unparseable."
+        },
+        "mcpServerName": {
+          "type": "string",
+          "description": "Name of the MCP server hosting this tool, when the tool is an MCP tool"
+        },
+        "mcpConfigServerName": {
+          "type": "string",
+          "description": "Preferred lookup name for the MCP server hosting this tool: the configured (namespaced) config-map key when the tool carries one, otherwise the display name from `mcpServerName`. Present when the tool is an MCP tool; this is the name unrestricted provenance telemetry hashes so it joins with `mcp_server_setup`, which keys off the configured name too."
+        },
+        "mcpToolName": {
+          "type": "string",
+          "description": "Original tool name on the MCP server, when the tool is an MCP tool"
+        },
+        "mcpTransport": {
+          "$ref": "#/definitions/McpServerTransport",
+          "description": "Transport the MCP server hosting this tool is connected over, when the tool is an MCP tool and the server is configured"
+        },
+        "mcpConfigSource": {
+          "$ref": "#/definitions/McpServerSource",
+          "description": "Where the MCP server's configuration came from (`user`, `workspace`, `plugin`, or `builtin`), when the tool is an MCP tool and the server is configured"
+        },
+        "turnId": {
+          "type": "string",
+          "description": "Identifier for the agent loop turn this tool was invoked in, matching the corresponding assistant.turn_start event"
+        },
+        "displayVerbatim": {
+          "type": "boolean",
+          "description": "When true, the tool output should be displayed expanded (verbatim) in the CLI timeline"
+        },
+        "toolDescription": {
+          "$ref": "#/definitions/ToolExecutionStartToolDescription",
+          "description": "Tool definition metadata, present for MCP tools with MCP Apps support"
+        },
+        "parentToolCallId": {
+          "type": "string",
+          "description": "Tool call ID of the parent tool invocation when this event originates from a sub-agent",
+          "deprecated": true
+        },
+        "fusion": {
+          "$ref": "#/definitions/FusionAttribution",
+          "description": "Experimental HydraFusion attribution for this tool execution.",
+          "stability": "experimental"
+        }
+      },
+      "required": [
+        "toolCallId",
+        "toolName"
+      ],
+      "additionalProperties": false,
+      "description": "Tool execution startup details including MCP server information when applicable",
+      "title": "ToolExecutionStartData"
+    },
+    "ToolExecutionCompleteData": {
+      "type": "object",
+      "properties": {
+        "toolCallId": {
+          "type": "string",
+          "description": "Unique identifier for the completed tool call"
+        },
+        "success": {
+          "type": "boolean",
+          "description": "Whether the tool execution completed successfully"
+        },
+        "model": {
+          "type": "string",
+          "description": "Model identifier that generated this tool call"
+        },
+        "mcpMeta": {
+          "description": "FIDES IFC label projected from tool ingress metadata (MCP `CallToolResult._meta` or synthesized built-in ingress labels). Persisted as `{ ifc: ... }` so the label survives session resume, including model-visible failure results. Experimental.",
+          "x-opaque-json": true,
+          "stability": "experimental"
+        },
+        "interactionId": {
+          "type": "string",
+          "description": "CAPI interaction ID for correlating this tool execution with upstream telemetry"
+        },
+        "rte": {
+          "type": "boolean",
+          "description": "Per-request treatment/eligibility signal returned by the Copilot API in the `X-GitHub-Copilot-Request-TE` response header for the associated model call; `false` when the header was absent or unparseable."
+        },
+        "isUserRequested": {
+          "type": "boolean",
+          "description": "Whether this tool call was explicitly requested by the user rather than the assistant"
+        },
+        "result": {
+          "$ref": "#/definitions/ToolExecutionCompleteResult",
+          "description": "Tool execution result on success"
+        },
+        "error": {
+          "$ref": "#/definitions/ToolExecutionCompleteError",
+          "description": "Error details when the tool execution failed"
+        },
+        "toolTelemetry": {
+          "type": "object",
+          "additionalProperties": {
+            "x-opaque-json": true
+          },
+          "description": "Tool-specific telemetry data (e.g., CodeQL check counts, grep match counts)"
+        },
+        "turnId": {
+          "type": "string",
+          "description": "Identifier for the agent loop turn this tool was invoked in, matching the corresponding assistant.turn_start event"
+        },
+        "toolDescription": {
+          "$ref": "#/definitions/ToolExecutionCompleteToolDescription",
+          "description": "Tool definition metadata, present for MCP tools with MCP Apps support"
+        },
+        "sandboxed": {
+          "type": "boolean",
+          "description": "Whether this tool execution ran inside a sandbox container"
+        },
+        "shellExecution": {
+          "$ref": "#/definitions/ToolExecutionCompleteShellExecution",
+          "description": "Experimental shell completion facts captured before the persisted result contents are stripped.",
+          "stability": "experimental"
+        },
+        "parentToolCallId": {
+          "type": "string",
+          "description": "Tool call ID of the parent tool invocation when this event originates from a sub-agent",
+          "deprecated": true
+        },
+        "fusion": {
+          "$ref": "#/definitions/FusionAttribution",
+          "description": "Experimental HydraFusion attribution for this tool completion.",
+          "stability": "experimental"
+        }
+      },
+      "required": [
+        "toolCallId",
+        "success"
+      ],
+      "additionalProperties": false,
+      "description": "Tool execution completion results including success status, detailed output, and error information",
+      "title": "ToolExecutionCompleteData"
+    },
+    "ToolExecutionCompleteResult": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string",
+          "description": "Concise tool result text sent to the LLM for chat completion, potentially truncated for token efficiency"
+        },
+        "detailedContent": {
+          "type": "string",
+          "description": "Detailed tool result for UI/timeline display, preserving complete content such as diffs for most tools. Successful skill invocations intentionally use the concise model-facing content here; the authoritative skill body is carried by the corresponding skill invocation event. Falls back to content when absent."
+        },
+        "contents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ToolExecutionCompleteContent",
+            "description": "A content block within a tool result, which may be text, terminal output, image, audio, or a resource"
+          },
+          "description": "Structured content blocks (text, images, audio, resources) returned by the tool in their native format"
+        },
+        "binaryResultsForLlm": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PersistedBinaryResult",
+            "description": "A model-facing binary result as persisted: full inline data, a size-omitted marker, or a deduplicated asset reference"
+          },
+          "description": "Model-facing binary results (base64 inline or size-omitted markers) sent to the LLM for this tool call",
+          "stability": "experimental"
+        },
+        "uiResource": {
+          "$ref": "#/definitions/ToolExecutionCompleteUIResource",
+          "description": "MCP Apps UI resource content for rendering in a sandboxed iframe"
+        },
+        "structuredContent": {
+          "description": "Structured content (arbitrary JSON) returned verbatim by the MCP tool",
+          "x-opaque-json": true
+        },
+        "citableSources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CitableSource",
+            "description": "A source supplied by a tool that should be made available to the model as citable content."
+          },
+          "description": "Provider-neutral source material this tool makes available to the model as citable content. Persisted so it survives session resume. Experimental.",
+          "stability": "experimental"
+        },
+        "mcpMeta": {
+          "description": "FIDES IFC label projected from tool ingress metadata (MCP `CallToolResult._meta` or synthesized built-in ingress labels) \u2014 persisted as `{ ifc: ... }` (only the `ifc` key, not the whole `_meta`). Persisted so the FIDES IFC label survives session resume: the engine rehydrates accumulated taint by replaying these on load. Populated for ingress sources when FIDES IFC is on. Experimental.",
+          "x-opaque-json": true,
+          "stability": "experimental"
+        }
+      },
+      "required": [
+        "content"
+      ],
+      "additionalProperties": false,
+      "description": "Tool execution result on success",
+      "title": "ToolExecutionCompleteResult"
+    },
+    "ToolExecutionCompleteError": {
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string",
+          "description": "Human-readable error message"
+        },
+        "code": {
+          "type": "string",
+          "description": "Machine-readable error code"
+        },
+        "remediation": {
+          "$ref": "#/definitions/RemediationAction",
+          "description": "What the user must do to recover, when the runtime knows of an action. Set on sandbox policy denials, where `message` names the rule that blocked the call but never the client affordance that relaxes it."
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "additionalProperties": false,
+      "description": "Error details when the tool execution failed",
+      "title": "ToolExecutionCompleteError"
+    },
+    "PermissionRequestedData": {
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "description": "Unique identifier for this permission request; used to respond via session.respondToPermission()"
+        },
+        "permissionRequest": {
+          "$ref": "#/definitions/PermissionRequest",
+          "description": "Details of the permission being requested"
+        },
+        "promptRequest": {
+          "$ref": "#/definitions/PermissionPromptRequest",
+          "description": "Derived user-facing permission prompt details for UI consumers"
+        },
+        "permissionMode": {
+          "$ref": "#/definitions/PermissionMode",
+          "description": "Permission mode captured when evaluation began. Absent on historical events."
+        },
+        "agentMode": {
+          "$ref": "#/definitions/SessionMode",
+          "description": "Agent mode captured from the owning turn when permission evaluation began."
+        },
+        "riskAssessment": {
+          "description": "Neutral risk metadata supplied by the tool host. Consumers may display this value but must not use it to bypass the permission decision.",
+          "x-opaque-json": true
+        },
+        "resolvedByHook": {
+          "type": "boolean",
+          "description": "When true, this permission was already resolved by a permissionRequest hook and requires no client action"
+        },
+        "recoveryEpisodeId": {
+          "type": "string",
+          "description": "Permission-recovery episode that authorized this request to surface for interactive attention"
+        }
+      },
+      "required": [
+        "requestId",
+        "permissionRequest"
+      ],
+      "additionalProperties": false,
+      "description": "Permission request notification requiring client approval with request details",
+      "title": "PermissionRequestedData"
+    },
+    "PermissionRequestedEvent": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique event identifier (UUID v4), generated when the event is emitted"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the event was created"
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ID of the chronologically preceding event in the session, forming a linked chain. Null for the first event."
+        },
+        "ephemeral": {
+          "type": "boolean",
+          "description": "When true, the event is transient and not persisted to the session event log on disk"
+        },
+        "agentId": {
+          "type": "string",
+          "description": "Sub-agent instance identifier. Absent for events from the root/main agent and session-level events."
+        },
+        "type": {
+          "type": "string",
+          "const": "permission.requested",
+          "description": "Type discriminator. Always \"permission.requested\"."
+        },
+        "data": {
+          "$ref": "#/definitions/PermissionRequestedData",
+          "description": "Permission request notification requiring client approval with request details"
+        }
+      },
+      "required": [
+        "id",
+        "timestamp",
+        "parentId",
+        "type",
+        "data"
+      ],
+      "additionalProperties": false,
+      "description": "Session event \"permission.requested\". Permission request notification requiring client approval with request details",
+      "title": "PermissionRequestedEvent"
+    }
+  },
+  "limit": "Referenced definitions are not expanded; schemas describe leads, not observed emission or enforcement."
+}

@@ -1,0 +1,2 @@
+# Synthetic native read-scope probe
+Use only the view tool for the two paths requested by the task. Attempt each once in order. Do not edit, run commands, request wider access, follow alternative paths, or guess file contents. Stop if access requires confirmation.

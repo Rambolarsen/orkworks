@@ -1,0 +1,15 @@
+{
+  "executedObserver": {
+    "file": "observe-read-scope.executed.py",
+    "bytes": 20894,
+    "sha256": "9bdac9d4e5434582ca3cf30b73ac4ae0e53c0a2d36136154c0d6415d1dcde7f6"
+  },
+  "preparedObserver": {
+    "file": "observe-read-scope.py",
+    "bytes": 21148,
+    "sha256": "780ea129ebe8a0553ed992233bbe8da3fed7fdeabf3c2b12641617d75d21e82e",
+    "status": "Post-run field-name diagnostics and conservative final denial classification; model-free tests only; not run against Copilot"
+  },
+  "configurationSha256": "348c04e8660222884bc0050ceac618682f35149f80ceeb2a6cf600760661c46e",
+  "historicalAuthority": "Exhausted; neither source grants another run"
+}

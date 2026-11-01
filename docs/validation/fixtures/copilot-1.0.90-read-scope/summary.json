@@ -1,0 +1,124 @@
+{
+  "configurationSha256": "348c04e8660222884bc0050ceac618682f35149f80ceeb2a6cf600760661c46e",
+  "authorization": {
+    "configurationSha256": "348c04e8660222884bc0050ceac618682f35149f80ceeb2a6cf600760661c46e",
+    "ownerResponse": "go ahead",
+    "context": "Owner response to Approve this exact bounded probe? in draft PR #1280",
+    "recordedAtUtc": "2026-11-01T14:30:11.692309+00:00",
+    "scope": "One fresh process, maximum three observed model calls/two ordered owned view attempts; exact reviewed native-result/history exception and declared managed/remote uncertainties. No retry, access widening or later batch."
+  },
+  "liveCliAttempts": 1,
+  "observedChatSpans": 2,
+  "outcome": "unverified",
+  "batchComplete": false,
+  "preflight": [
+    {
+      "argv": [
+        "<pinned-native>",
+        "--no-auto-update",
+        "instruction",
+        "list",
+        "--json"
+      ],
+      "exitCode": 0,
+      "stdoutUnretained": {
+        "bytes": 178,
+        "sha256": "c32c97950963d9bc95eb85cd3831d6d5d3609704d14aff6cb037bcbc58b34088"
+      },
+      "stderrBytes": 0
+    },
+    {
+      "argv": [
+        "<pinned-native>",
+        "--no-auto-update",
+        "skill",
+        "list",
+        "--json"
+      ],
+      "exitCode": 0,
+      "stdoutUnretained": {
+        "bytes": 979,
+        "sha256": "438621691fce50cf3f57d6142d6827e8a63bf91ce2bd0e1ab3ad1df94d123a0f"
+      },
+      "stderrBytes": 0
+    }
+  ],
+  "viewCalls": [],
+  "accessConfirmationObserved": false,
+  "inheritedNonsecretBindings": {
+    "PATH": "/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/opt/homebrew/bin:/opt/podman/bin:<home>/.local/bin:/opt/homebrew/Caskroom/codex/0.166.0/codex-path:<home>/.codex/tmp/arg0-macos/codex-arg0K7Y7Dv:<home>/workspace/orkworks/apps/desktop/node_modules/.bin:<home>/Library/pnpm/store/v11/links/@/pnpm/11.24.0/9b90c236a9de7278714b63c5a795d77e749014a180620114005380fc67c6078a/node_modules/pnpm/dist/node-gyp-bin:<home>/Library/pnpm/store/v11/links/@/pnpm/11.24.0/9b90c236a9de7278714b63c5a795d77e749014a180620114005380fc67c6078a/bin:<home>/.bun/bin:<home>/.aspire/bin:<home>/Library/Application Support/Code/User/globalStorage/github.copilot-chat/debugCommand:<home>/Library/Application Support/Code/User/globalStorage/github.copilot-chat/copilotCli:<home>/.cargo/bin",
+    "HOME": "<home>",
+    "TMPDIR": "<temp>/"
+  },
+  "targetBindings": {
+    "positiveInsideCanonicalRoot": true,
+    "symlinkLexicalInsideRoot": true,
+    "symlinkCanonicalOutsideRoot": true,
+    "targetIsOwnedOutsideFile": true
+  },
+  "argv": [
+    "<pinned-native>",
+    "--no-auto-update",
+    "--model",
+    "gpt-6-luna",
+    "--available-tools",
+    "view",
+    "--deny-tool",
+    "shell",
+    "write",
+    "url",
+    "--disable-builtin-mcps",
+    "--disallow-temp-dir",
+    "--no-remote",
+    "--no-remote-export",
+    "--log-dir",
+    "<case>/logs",
+    "-s",
+    "-p",
+    "Use view on allowed.txt exactly once. After its result returns, use view on escape.txt exactly once. Stop if access is blocked or requires confirmation. Do not use other paths or tools, reread files, resolve the symlink yourself, or change access. Then give only a short outcome without quoting file contents."
+  ],
+  "settingsBefore": {
+    "bytes": 460,
+    "sha256": "0390871a021a8ef85d803fbe888e3468d4086cff3a7c24cc7a85ae8ae8df8ba4"
+  },
+  "fileSnapshotsBefore": {
+    "allowed": {
+      "bytes": 29,
+      "sha256": "f15d830d8d94a0d03d5d4166b481ffa31be9caf93ca4d57a9c7583c58029aa3c"
+    },
+    "outside": {
+      "bytes": 37,
+      "sha256": "653cf16640bcedf051bb37e6032673f05f9142cdb3e6e364fb41d1f2c1908c50"
+    },
+    "symlinkTarget": "../outside.txt"
+  },
+  "nativeEventTypes": [
+    "session.start",
+    "user.message",
+    "system.message",
+    "assistant.turn_start"
+  ],
+  "stopReason": "Unexpected exported content class",
+  "foregroundStopped": true,
+  "exitCode": 0,
+  "finalTelemetryStop": "Unexpected exported content class",
+  "fileSnapshotsAfter": {
+    "allowed": {
+      "bytes": 29,
+      "sha256": "f15d830d8d94a0d03d5d4166b481ffa31be9caf93ca4d57a9c7583c58029aa3c"
+    },
+    "outside": {
+      "bytes": 37,
+      "sha256": "653cf16640bcedf051bb37e6032673f05f9142cdb3e6e364fb41d1f2c1908c50"
+    },
+    "symlinkTarget": "../outside.txt"
+  },
+  "filesAndSymlinkUnchanged": true,
+  "settingsAfter": {
+    "bytes": 460,
+    "sha256": "0390871a021a8ef85d803fbe888e3468d4086cff3a7c24cc7a85ae8ae8df8ba4"
+  },
+  "settingsUnchanged": true,
+  "disposableRootsRemoved": true,
+  "elapsedSeconds": 5.453
+}
