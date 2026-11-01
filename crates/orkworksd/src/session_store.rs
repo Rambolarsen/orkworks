@@ -12,8 +12,13 @@ mod worker;
 pub(crate) use queries::{Cursor, HistoryQuery, Page, Summary};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 use std::{path::Path, time::Duration};
+#[cfg(test)]
+pub(crate) use worker::testing as test_worker;
 #[allow(unused_imports)] // Format selection is intentionally not enabled here.
-pub(crate) use worker::SessionStore;
+pub(crate) use worker::{
+    ExecutionRequest, InternalCompletion, InternalMutationTicket, PreparedInternalMutation,
+    RuntimeWriteResources, SessionStore,
+};
 
 #[derive(Debug)]
 pub(crate) enum StoreError {

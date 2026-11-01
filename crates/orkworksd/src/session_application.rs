@@ -486,6 +486,7 @@ fn refresh_rollup_parent_projection(
 // stale snapshot.
 static TERMINAL_SIZE_WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+pub(crate) mod sql_writes;
 mod titles;
 pub(crate) use titles::TitleAction;
 

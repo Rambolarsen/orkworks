@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BindResult {
@@ -56,8 +56,28 @@ pub(crate) struct ResetCommit {
     pub(crate) reset_submission_input_sequence: Option<u64>,
 }
 
+#[derive(Clone, Default, Debug)]
+struct AuthorityInstance(Arc<()>);
+impl PartialEq for AuthorityInstance {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+impl Eq for AuthorityInstance {}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct AuthoritySnapshot {
+    instance: AuthorityInstance,
+    epoch: u64,
+    native_session_id: Option<String>,
+    revoked: bool,
+    active: bool,
+    reset_pending: bool,
+}
+
 #[derive(Default)]
 struct SessionAuthority {
+    instance: AuthorityInstance,
     harness_id: String,
     generation: String,
     native_session_id: Option<String>,
@@ -553,6 +573,28 @@ impl PromptAuthorityRegistry {
         true
     }
 
+    /// Runs a bounded in-memory callback with the issued identity/reset snapshot
+    /// held current against every registry mutation, including raw removals.
+    /// The callback must not re-enter this registry or perform I/O or waits.
+    pub(crate) fn with_snapshot<T>(
+        &self,
+        session_id: &str,
+        apply: impl FnOnce(Option<AuthoritySnapshot>) -> T,
+    ) -> T {
+        let sessions = self.sessions.lock().unwrap();
+        let snapshot = sessions.get(session_id).map(|entry| AuthoritySnapshot {
+            instance: entry.instance.clone(),
+            epoch: entry.epoch,
+            native_session_id: entry.native_session_id.clone(),
+            revoked: entry.revoked,
+            active: entry.active,
+            reset_pending: entry.reset.is_some(),
+        });
+        let result = apply(snapshot);
+        drop(sessions);
+        result
+    }
+
     pub(crate) fn is_active(&self, session_id: &str) -> bool {
         self.sessions
             .lock()
@@ -927,5 +969,43 @@ mod tests {
         assert!(queued.superseded_by_committed_input(5, None));
         assert!(!queued.superseded_by_committed_input(5, Some(5)));
         assert!(queued.superseded_by_committed_input(6, Some(5)));
+    }
+}
+
+#[cfg(test)]
+mod snapshot_tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn raw_authority_removal_cannot_cross_a_snapshot_callback() {
+        let registry = Arc::new(PromptAuthorityRegistry::default());
+        registry.issue("session", "claude-code", "generation");
+        let (entered, ready) = std::sync::mpsc::channel();
+        let (release, released) = std::sync::mpsc::channel();
+        let reader = registry.clone();
+        let reader = std::thread::spawn(move || {
+            reader.with_snapshot("session", |snapshot| {
+                assert!(snapshot.is_some());
+                entered.send(()).unwrap();
+                released.recv_timeout(Duration::from_secs(2)).unwrap();
+            });
+        });
+        ready.recv_timeout(Duration::from_secs(2)).unwrap();
+        let (started, beginning) = std::sync::mpsc::channel();
+        let (removed, done) = std::sync::mpsc::channel();
+        let writer = registry.clone();
+        let writer = std::thread::spawn(move || {
+            started.send(()).unwrap();
+            writer.remove("session");
+            removed.send(()).unwrap();
+        });
+        beginning.recv_timeout(Duration::from_secs(2)).unwrap();
+        let crossed = done.recv_timeout(Duration::from_millis(50)).is_ok();
+        release.send(()).unwrap();
+        reader.join().unwrap();
+        writer.join().unwrap();
+        assert!(!crossed, "raw removal crossed the snapshot callback");
+        registry.with_snapshot("session", |snapshot| assert!(snapshot.is_none()));
     }
 }

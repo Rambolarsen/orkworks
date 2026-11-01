@@ -217,6 +217,49 @@ impl AttemptContextView {
                 .diagnostic_attempt_is_current(&self.session_id, &self.attempt)
     }
 
+    /// Runs only bounded in-memory work while this attempt remains owned.
+    /// Do not re-enter Peon state or perform I/O/waits in the callback. Try-locks
+    /// avoid waiting for diagnostic/in-flight owners while sessions are held.
+    pub(crate) fn with_current_session<T>(
+        &self,
+        handle: &mut crate::SessionHandle,
+        apply: impl FnOnce(&mut crate::SessionHandle) -> T,
+    ) -> Option<T> {
+        let leases = diagnostic_leases().try_lock().ok()?;
+        let diagnostics = self.state.peon.diagnostics.try_read().ok()?;
+        if !handle
+            .runtime
+            .matches_identity(&self.attempt.runtime_identity)
+            || handle.info.lifecycle_phase != "active"
+            || leases.get(&self.session_id)
+                != Some(&(
+                    self.attempt.generation,
+                    self.attempt.runtime_identity.clone(),
+                ))
+            || !diagnostics.get(&self.session_id).is_some_and(|entry| {
+                entry.attempt_generation == self.attempt.generation
+                    && matches!(
+                        entry.snapshot.scheduler_state,
+                        crate::session_types::PeonSchedulerState::InFlight
+                            | crate::session_types::PeonSchedulerState::Completed
+                            | crate::session_types::PeonSchedulerState::Failed
+                    )
+            })
+        {
+            return None;
+        }
+        // This atomic load is callback admission relative to shutdown's
+        // immediate store. Already admitted bounded callbacks may finish;
+        // each later callback (including publication) must validate again.
+        if self.cancellation.load(Ordering::SeqCst) {
+            return None;
+        }
+        let result = apply(handle);
+        drop(diagnostics);
+        drop(leases);
+        Some(result)
+    }
+
     fn complete(&self, result: &providers::ProviderRunResult) -> bool {
         self.is_current()
             && self
@@ -6390,3 +6433,6 @@ mod tests {
         stop_test_peon_loop(task, shutdown).await;
     }
 }
+
+#[cfg(test)]
+mod sql_reservation_tests;

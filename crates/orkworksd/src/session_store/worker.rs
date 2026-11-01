@@ -220,12 +220,16 @@ struct Job {
     admitted: Instant,
     state: Arc<AtomicU8>,
     reply: oneshot::Sender<Delivered>,
+    execution: Option<oneshot::Sender<ExecutionRequest>>,
+    resources: Option<RuntimeWriteResources>,
 }
 struct Delivered {
     result: Result<Reply>,
     _permit: Reservation,
+    resources: Option<RuntimeWriteResources>,
 }
 struct Ticket {
+    shared: std::sync::Weak<Shared>,
     receiver: oneshot::Receiver<Delivered>,
     state: Arc<AtomicU8>,
     deadline: Instant,
@@ -237,40 +241,196 @@ impl Drop for Ticket {
         let _ = self
             .state
             .compare_exchange(0, 2, Ordering::AcqRel, Ordering::Acquire);
+        if self.state.load(Ordering::Acquire) == 2 {
+            if let Some(shared) = self.shared.upgrade() {
+                shared.retire_cancelled(&self.state);
+            }
+        }
+    }
+}
+struct PreparedJob {
+    shared: Arc<Shared>,
+    job: Job,
+    ticket: Ticket,
+}
+pub(crate) struct MutationCancellation {
+    state: Arc<AtomicU8>,
+}
+impl Drop for MutationCancellation {
+    fn drop(&mut self) {
+        let _ = self
+            .state
+            .compare_exchange(0, 2, Ordering::AcqRel, Ordering::Acquire);
+    }
+}
+pub(crate) struct ExecutionGrant {
+    decision: Option<std::sync::mpsc::Sender<ExecutionDecision>>,
+}
+impl ExecutionGrant {
+    /// Only call after releasing the application currentness guards.
+    pub(crate) fn execute(mut self) -> Result<()> {
+        self.decision
+            .take()
+            .ok_or(StoreError::Unavailable)?
+            .send(ExecutionDecision::Run)
+            .map_err(|_| StoreError::Unavailable)
+    }
+}
+impl Drop for ExecutionGrant {
+    fn drop(&mut self) {
+        if let Some(decision) = self.decision.take() {
+            let _ = decision.send(ExecutionDecision::Reject);
+        }
+    }
+}
+pub(crate) struct ExecutionRequest {
+    decision: Option<std::sync::mpsc::Sender<ExecutionDecision>>,
+    state: Arc<AtomicU8>,
+    deadline: Instant,
+}
+enum ExecutionDecision {
+    Run,
+    Reject,
+    Expired,
+}
+impl ExecutionRequest {
+    /// The application calls this under its short currentness guards. This
+    /// competes with Ticket cancellation at the same execution cutoff.
+    pub(crate) fn grant(mut self) -> Result<ExecutionGrant> {
+        if self
+            .state
+            .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+            || Instant::now() >= self.deadline
+        {
+            if let Some(decision) = self.decision.take() {
+                let _ = decision.send(ExecutionDecision::Expired);
+            }
+            return Err(StoreError::Expired);
+        }
+        Ok(ExecutionGrant {
+            decision: Some(self.decision.take().ok_or(StoreError::Unavailable)?),
+        })
+    }
+}
+impl Drop for ExecutionRequest {
+    fn drop(&mut self) {
+        if let Some(decision) = self.decision.take() {
+            let _ = decision.send(ExecutionDecision::Reject);
+        }
+    }
+}
+impl PreparedJob {
+    fn enqueue(self, gate: Option<oneshot::Sender<ExecutionRequest>>) -> Result<Ticket> {
+        let Self {
+            shared,
+            mut job,
+            ticket,
+        } = self;
+        let mut queue = shared.queue.lock().map_err(|_| StoreError::Unavailable)?;
+        if queue.closed {
+            return Err(StoreError::Unavailable);
+        }
+        if Instant::now() >= ticket.deadline {
+            return Err(StoreError::Expired);
+        }
+        job.execution = gate;
+        if job.command.is_read() {
+            queue.reads.push_back(job);
+        } else {
+            queue.mutations.push_back(job);
+        }
+        shared.ready.notify_one();
+        Ok(ticket)
     }
 }
 struct Reservation {
     shared: Arc<Shared>,
     bytes: usize,
+    read: bool,
+    pending: bool,
+}
+impl Reservation {
+    fn executing(&mut self) {
+        if self.pending {
+            if let Ok(mut q) = self.shared.queue.lock() {
+                if self.read {
+                    q.pending_reads -= 1;
+                } else {
+                    q.pending_mutations -= 1;
+                }
+                self.pending = false;
+            }
+        }
+    }
 }
 impl Drop for Reservation {
     fn drop(&mut self) {
         if let Ok(mut q) = self.shared.queue.lock() {
             q.bytes -= self.bytes;
+            if self.pending {
+                if self.read {
+                    q.pending_reads -= 1;
+                } else {
+                    q.pending_mutations -= 1;
+                }
+            }
         }
     }
 }
-async fn receive(mut ticket: Ticket) -> Result<Reply> {
+async fn receive_delivery(mut ticket: Ticket) -> Result<Delivered> {
     tokio::select! {
-        delivered=&mut ticket.receiver=>delivered.map_err(|_|StoreError::Unavailable)?.result,
+        delivered=&mut ticket.receiver=>delivered.map_err(|_|StoreError::Unavailable),
         _=tokio::time::sleep_until(ticket.deadline.into())=>{
             if ticket.state.compare_exchange(0,2,Ordering::AcqRel,Ordering::Acquire).is_ok(){return Err(StoreError::Expired);}
             // Execution has begun: retain the definitive result internally.
-            // A transport timeout cannot be represented as a proven rollback.
-            (&mut ticket.receiver).await.map_err(|_|StoreError::Unavailable)?.result
+            (&mut ticket.receiver).await.map_err(|_|StoreError::Unavailable)
         }
     }
+}
+async fn receive(ticket: Ticket) -> Result<Reply> {
+    receive_delivery(ticket).await?.result
 }
 #[derive(Default)]
 struct Queue {
     mutations: VecDeque<Job>,
     reads: VecDeque<Job>,
     bytes: usize,
+    pending_mutations: usize,
+    pending_reads: usize,
     closed: bool,
 }
 struct Shared {
     queue: Mutex<Queue>,
     ready: Condvar,
+    lanes: Mutex<std::collections::HashMap<String, std::sync::Weak<tokio::sync::Mutex<()>>>>,
+    #[cfg(test)]
+    after_claim: Mutex<Option<(String, oneshot::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
+}
+impl Shared {
+    fn retire_cancelled(&self, state: &Arc<AtomicU8>) {
+        // The queued-to-executing CAS has already rejected execution. Remove
+        // only this exact ticket; a dequeued/executing owner keeps its resources.
+        let retired = self.queue.lock().ok().and_then(|mut queue| {
+            if let Some(index) = queue
+                .mutations
+                .iter()
+                .position(|job| Arc::ptr_eq(&job.state, state))
+            {
+                queue.mutations.remove(index)
+            } else if let Some(index) = queue
+                .reads
+                .iter()
+                .position(|job| Arc::ptr_eq(&job.state, state))
+            {
+                queue.reads.remove(index)
+            } else {
+                None
+            }
+        });
+        // Reservation::drop reacquires queue; never drop a job under its mutex.
+        drop(retired);
+    }
 }
 struct Startup {
     shared: Arc<Shared>,
@@ -288,9 +448,90 @@ impl Drop for Startup {
         }
     }
 }
+pub(crate) struct PreparedInternalMutation {
+    prepared: PreparedJob,
+    id: String,
+}
+pub(crate) struct InternalMutationTicket {
+    ticket: Ticket,
+}
+pub(crate) struct RuntimeWriteResources {
+    _lane: tokio::sync::OwnedMutexGuard<()>,
+    _lease: Option<Arc<crate::workspace_runtime::WorkspaceLease>>,
+}
+impl RuntimeWriteResources {
+    pub(crate) fn new(
+        lane: tokio::sync::OwnedMutexGuard<()>,
+        lease: Option<Arc<crate::workspace_runtime::WorkspaceLease>>,
+    ) -> Self {
+        Self {
+            _lane: lane,
+            _lease: lease,
+        }
+    }
+}
+pub(crate) struct InternalCompletion {
+    pub(crate) outcome: InternalMutationResult,
+    _resources: Option<RuntimeWriteResources>,
+    _permit: Reservation,
+}
+impl PreparedInternalMutation {
+    pub(crate) fn cancellation(&self) -> MutationCancellation {
+        MutationCancellation {
+            state: self.prepared.ticket.state.clone(),
+        }
+    }
+
+    pub(crate) fn lane(&self) -> Result<Arc<tokio::sync::Mutex<()>>> {
+        let mut lanes = self
+            .prepared
+            .shared
+            .lanes
+            .lock()
+            .map_err(|_| StoreError::Unavailable)?;
+        lanes.retain(|_, lane| lane.strong_count() > 0);
+        if let Some(lane) = lanes.get(&self.id).and_then(std::sync::Weak::upgrade) {
+            return Ok(lane);
+        }
+        let lane = Arc::new(tokio::sync::Mutex::new(()));
+        lanes.insert(self.id.clone(), Arc::downgrade(&lane));
+        Ok(lane)
+    }
+    pub(crate) fn deadline(&self) -> Instant {
+        self.prepared.ticket.deadline
+    }
+    pub(crate) fn enqueue(
+        mut self,
+        resources: RuntimeWriteResources,
+    ) -> Result<(InternalMutationTicket, oneshot::Receiver<ExecutionRequest>)> {
+        let (ready, request) = oneshot::channel();
+        self.prepared.job.resources = Some(resources);
+        let ticket = self.prepared.enqueue(Some(ready))?;
+        Ok((InternalMutationTicket { ticket }, request))
+    }
+}
+impl InternalMutationTicket {
+    pub(crate) async fn finish(self) -> Result<InternalCompletion> {
+        let Delivered {
+            result,
+            _permit,
+            resources,
+        } = receive_delivery(self.ticket).await?;
+        match result? {
+            Reply::Internal(outcome) => Ok(InternalCompletion {
+                outcome,
+                _resources: resources,
+                _permit,
+            }),
+            _ => Err(StoreError::Unavailable),
+        }
+    }
+}
 pub(crate) struct SessionStore {
     shared: Arc<Shared>,
     finished: watch::Receiver<bool>,
+    root: PathBuf,
+    workspace: String,
 }
 impl SessionStore {
     pub(crate) async fn initialize(root: PathBuf, workspace: String) -> Result<Self> {
@@ -300,7 +541,7 @@ impl SessionStore {
         Self::start(root, workspace, false).await
     }
     async fn start(root: PathBuf, workspace: String, create: bool) -> Result<Self> {
-        let mut startup = Self::launch(root, workspace, create)?;
+        let mut startup = Self::launch(root.clone(), workspace.clone(), create)?;
         (&mut startup.ready)
             .await
             .map_err(|_| StoreError::Unavailable)??;
@@ -308,12 +549,17 @@ impl SessionStore {
         Ok(Self {
             shared: startup.shared.clone(),
             finished: startup.finished.clone(),
+            root,
+            workspace,
         })
     }
     fn launch(root: PathBuf, workspace: String, create: bool) -> Result<Startup> {
         let shared = Arc::new(Shared {
             queue: Mutex::new(Queue::default()),
             ready: Condvar::new(),
+            lanes: Mutex::new(Default::default()),
+            #[cfg(test)]
+            after_claim: Mutex::new(None),
         });
         let (ready_tx, ready_rx) = oneshot::channel();
         let (finished_tx, finished) = watch::channel(false);
@@ -349,7 +595,7 @@ impl SessionStore {
             owns_worker: true,
         })
     }
-    fn submit(&self, command: Command) -> Result<Ticket> {
+    fn prepare(&self, command: Command) -> Result<PreparedJob> {
         let intent = command.size()?;
         if intent > MAX_RECORD {
             return Err(StoreError::TooLarge);
@@ -370,16 +616,24 @@ impl SessionStore {
         if queue.closed {
             return Err(StoreError::Unavailable);
         }
-        if (read && queue.reads.len() >= 8)
-            || (!read && queue.mutations.len() >= 32)
+        if (read && queue.pending_reads >= 8)
+            || (!read && queue.pending_mutations >= 32)
             || queue.bytes + bytes > 32 * 1024 * 1024
         {
             return Err(StoreError::QueueFull);
         }
         queue.bytes += bytes;
+        if read {
+            queue.pending_reads += 1;
+        } else {
+            queue.pending_mutations += 1;
+        }
+        drop(queue);
         let permit = Reservation {
             shared: self.shared.clone(),
             bytes,
+            read,
+            pending: true,
         };
         let admitted = Instant::now();
         let state = Arc::new(AtomicU8::new(0));
@@ -389,21 +643,53 @@ impl SessionStore {
             admitted,
             state: state.clone(),
             reply,
+            execution: None,
+            resources: None,
         };
-        if read {
-            queue.reads.push_back(job);
-        } else {
-            queue.mutations.push_back(job);
-        }
-        self.shared.ready.notify_one();
-        Ok(Ticket {
-            receiver,
-            state,
-            deadline: admitted + Duration::from_secs(2),
+        Ok(PreparedJob {
+            shared: self.shared.clone(),
+            job,
+            ticket: Ticket {
+                shared: Arc::downgrade(&self.shared),
+                receiver,
+                state,
+                deadline: admitted + Duration::from_secs(2),
+            },
         })
+    }
+    fn submit(&self, command: Command) -> Result<Ticket> {
+        self.prepare(command)?.enqueue(None)
     }
     async fn request(&self, command: Command) -> Result<Reply> {
         receive(self.submit(command)?).await
+    }
+    pub(crate) fn location(&self) -> (&std::path::Path, &str) {
+        (&self.root, &self.workspace)
+    }
+    pub(crate) fn prepare_internal(
+        &self,
+        id: String,
+        created: String,
+        intent: InternalMutation,
+    ) -> Result<PreparedInternalMutation> {
+        if id.is_empty()
+            || id.len() > 256
+            || created.is_empty()
+            || created.len() > 256
+            || !id
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || b"-_".contains(&c))
+        {
+            return Err(StoreError::Invalid("invalid creation identity".into()));
+        }
+        let prepared = self.prepare(Command::Internal {
+            id: id.clone(),
+            created,
+            expected: None,
+            proof: None,
+            intent: Box::new(intent),
+        })?;
+        Ok(PreparedInternalMutation { prepared, id })
     }
     pub(crate) async fn mutate_internal(
         &self,
@@ -598,6 +884,90 @@ impl Drop for SessionStore {
         }
     }
 }
+fn execute_command(_shared: &Shared, command: Command, db: &mut Database) -> Result<Reply> {
+    #[cfg(test)]
+    {
+        let gate = {
+            let mut gate = _shared.after_claim.lock().unwrap();
+            if matches!(&command, Command::Internal { id, .. } if gate.as_ref().is_some_and(|(expected, ..)| expected == id))
+            {
+                gate.take()
+            } else {
+                None
+            }
+        };
+        if let Some((_, entered, release)) = gate {
+            let _ = entered.send(());
+            let _ = release.recv();
+        }
+    }
+    command.run(db)
+}
+#[cfg(test)]
+pub(crate) mod testing {
+    use super::*;
+    pub(crate) struct Pause {
+        release: Option<std::sync::mpsc::Sender<()>>,
+        _ticket: Ticket,
+    }
+    impl Drop for Pause {
+        fn drop(&mut self) {
+            if let Some(release) = self.release.take() {
+                let _ = release.send(());
+            }
+        }
+    }
+    pub(crate) fn pause(store: &SessionStore) -> Pause {
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let ticket = store
+            .submit(Command::Pause(entered_tx, release_rx))
+            .unwrap();
+        entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        Pause {
+            release: Some(release_tx),
+            _ticket: ticket,
+        }
+    }
+    pub(crate) async fn wait_for_internal(store: &SessionStore, id: &str) {
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let queued = store.shared.queue.lock().unwrap().mutations.iter()
+                    .any(|job| matches!(&job.command, Command::Internal { id: queued, .. } if queued == id));
+                if queued { return; }
+                tokio::task::yield_now().await;
+            }
+        }).await.expect("application mutation did not enter the worker queue");
+    }
+    pub(crate) struct ClaimPause {
+        entered: Option<oneshot::Receiver<()>>,
+        release: Option<std::sync::mpsc::Sender<()>>,
+    }
+    impl ClaimPause {
+        pub(crate) fn started(&mut self) -> bool {
+            matches!(self.entered.as_mut().unwrap().try_recv(), Ok(()))
+        }
+        pub(crate) async fn entered(&mut self) {
+            self.entered.take().unwrap().await.unwrap();
+        }
+    }
+    impl Drop for ClaimPause {
+        fn drop(&mut self) {
+            if let Some(release) = self.release.take() {
+                let _ = release.send(());
+            }
+        }
+    }
+    pub(crate) fn hold_next_internal(store: &SessionStore, id: &str) -> ClaimPause {
+        let (entered_tx, entered_rx) = oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        *store.shared.after_claim.lock().unwrap() = Some((id.into(), entered_tx, release_rx));
+        ClaimPause {
+            entered: Some(entered_rx),
+            release: Some(release_tx),
+        }
+    }
+}
 fn run_worker(shared: &Shared, db: &mut Database) {
     let mut burst = 0;
     loop {
@@ -628,10 +998,12 @@ fn run_worker(shared: &Shared, db: &mut Database) {
         };
         let Job {
             command,
-            permit,
+            mut permit,
             admitted,
             state,
             reply,
+            execution,
+            resources,
         } = job;
         // Hold the reservation through execution and unread result delivery.
         // A dropped receiver before execution proves that this job made no change.
@@ -643,7 +1015,41 @@ fn run_worker(shared: &Shared, db: &mut Database) {
             }
             // Claim before the deadline check so a scheduler pause cannot
             // turn a stale age observation into a late execution admission.
-            let result = if state
+            let granted = execution.map(|ready| {
+                let deadline = admitted + Duration::from_secs(2);
+                let remaining = deadline
+                    .checked_duration_since(Instant::now())
+                    .ok_or(StoreError::Expired)?;
+                let (decision, received) = std::sync::mpsc::channel();
+                let request = ExecutionRequest {
+                    decision: Some(decision),
+                    state: state.clone(),
+                    deadline,
+                };
+                ready.send(request).map_err(|_| StoreError::Expired)?;
+                let decision = match received.recv_timeout(remaining) {
+                    Ok(decision) => decision,
+                    // A successful grant claimed execution under application
+                    // guards; a descheduled sender is no longer queued work.
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+                        if state.load(Ordering::Acquire) == 1 =>
+                    {
+                        received.recv().map_err(|_| StoreError::Unavailable)?
+                    }
+                    Err(_) => return Err(StoreError::Expired),
+                };
+                match decision {
+                    ExecutionDecision::Run if state.load(Ordering::Acquire) == 1 => Ok(()),
+                    ExecutionDecision::Reject => Err(StoreError::Conflict),
+                    _ => Err(StoreError::Expired),
+                }
+            });
+            let result = if let Some(granted) = granted {
+                granted.and_then(|()| {
+                    permit.executing();
+                    execute_command(shared, command, db)
+                })
+            } else if state
                 .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
                 .is_err()
                 || {
@@ -653,14 +1059,18 @@ fn run_worker(shared: &Shared, db: &mut Database) {
                         let _ = release.recv();
                     }
                     admitted.elapsed() >= Duration::from_secs(2)
-                } {
+                }
+            {
                 Err(StoreError::Expired)
             } else {
-                command.run(db)
+                permit.executing();
+                execute_command(shared, command, db)
             };
+            permit.executing(); // rejected/expired jobs also leave the pending set
             let _ = reply.send(Delivered {
                 result,
                 _permit: permit,
+                resources,
             });
         }
     }
@@ -677,6 +1087,384 @@ mod tests {
             .unwrap();
         entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         (receiver, release_tx)
+    }
+    #[tokio::test]
+    async fn application_claim_does_not_start_sql_before_guards_are_released() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::initialize(dir.path().into(), "/workspace".into())
+            .await
+            .unwrap();
+        store.create(document("after-release")).await.unwrap();
+        let prepared = store
+            .prepare_internal(
+                "after-release".into(),
+                "2026-01-01T00:00:00Z".into(),
+                InternalMutation::UserTitle {
+                    title: Some("after release".into()),
+                },
+            )
+            .unwrap();
+        let lane = prepared.lane().unwrap().lock_owned().await;
+        let (ticket, ready) = prepared
+            .enqueue(RuntimeWriteResources::new(lane, None))
+            .unwrap();
+        let mut started = testing::hold_next_internal(&store, "after-release");
+        let claim = ready.await.unwrap().grant().unwrap();
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        assert!(
+            !started.started(),
+            "SQL started before the application released its guards"
+        );
+        claim.execute().unwrap();
+        tokio::time::timeout(Duration::from_secs(2), started.entered())
+            .await
+            .unwrap();
+        drop(started);
+        assert!(ticket.finish().await.unwrap().outcome.document.is_some());
+        store.close().await.unwrap();
+    }
+    #[tokio::test]
+    async fn caller_cancellation_competes_with_grant_while_ticket_remains_owned() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::initialize(dir.path().into(), "/workspace".into())
+            .await
+            .unwrap();
+        let prepared = store
+            .prepare(Command::Create(document("caller-cancel")))
+            .unwrap();
+        let cancellation = MutationCancellation {
+            state: prepared.ticket.state.clone(),
+        };
+        let (ready, request) = oneshot::channel();
+        let ticket = prepared.enqueue(Some(ready)).unwrap();
+        let request = request.await.unwrap();
+        drop(cancellation);
+        assert!(request.grant().is_err());
+        assert!(matches!(receive(ticket).await, Err(StoreError::Expired)));
+        assert!(store.get("caller-cancel".into()).await.unwrap().is_none());
+        store.close().await.unwrap();
+    }
+    #[tokio::test]
+    async fn a_job_awaiting_grant_still_consumes_its_pending_slot() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::initialize(dir.path().into(), "/workspace".into())
+            .await
+            .unwrap();
+        let (ready, request) = oneshot::channel();
+        let ticket = store
+            .prepare(Command::Create(document("waiting-grant")))
+            .unwrap()
+            .enqueue(Some(ready))
+            .unwrap();
+        let request = request.await.unwrap();
+        let mut prepared = Vec::new();
+        for i in 0..31 {
+            prepared.push(
+                store
+                    .prepare(Command::Create(document(&format!("reserved-{i}"))))
+                    .unwrap(),
+            );
+        }
+        assert!(matches!(
+            store.prepare(Command::Create(document("one-too-many"))),
+            Err(StoreError::QueueFull)
+        ));
+        drop(prepared);
+        request.grant().unwrap().execute().unwrap();
+        receive(ticket).await.unwrap();
+        store.close().await.unwrap();
+    }
+    #[tokio::test]
+    async fn prepared_writes_share_one_lane_per_session_for_the_same_worker() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::initialize(dir.path().into(), "/workspace".into())
+            .await
+            .unwrap();
+        let first = store
+            .prepare_internal(
+                "same".into(),
+                "created".into(),
+                InternalMutation::UserTitle {
+                    title: Some("one".into()),
+                },
+            )
+            .unwrap();
+        let second = store
+            .prepare_internal(
+                "same".into(),
+                "created".into(),
+                InternalMutation::UserTitle {
+                    title: Some("two".into()),
+                },
+            )
+            .unwrap();
+        let other = store
+            .prepare_internal(
+                "other".into(),
+                "created".into(),
+                InternalMutation::UserTitle {
+                    title: Some("other".into()),
+                },
+            )
+            .unwrap();
+        let held = first.lane().unwrap().lock_owned().await;
+        assert!(second.lane().unwrap().try_lock_owned().is_err());
+        assert!(other.lane().unwrap().try_lock_owned().is_ok());
+        drop(held);
+        assert!(second.lane().unwrap().try_lock_owned().is_ok());
+        drop((first, second, other));
+        store.close().await.unwrap();
+    }
+    #[tokio::test]
+    async fn queued_cancellation_frees_admission_before_a_stalled_worker_resumes() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::initialize(dir.path().into(), "/workspace".into())
+            .await
+            .unwrap();
+        let paused = testing::pause(&store);
+        let mut tickets = Vec::new();
+        for i in 0..32 {
+            tickets.push(
+                store
+                    .submit(Command::Create(document(&format!("queued-{i}"))))
+                    .unwrap(),
+            );
+        }
+        assert!(matches!(
+            store.submit(Command::Create(document("over-capacity"))),
+            Err(StoreError::QueueFull)
+        ));
+        drop(tickets.pop());
+        let replacement = store.submit(Command::Create(document("replacement")));
+        let admitted = replacement.is_ok();
+        drop(replacement);
+        drop(tickets);
+        drop(paused);
+        assert!(
+            admitted,
+            "cancelled queued work retained admission behind the stalled worker"
+        );
+        assert!(store.get("queued-31".into()).await.unwrap().is_none());
+        store.close().await.unwrap();
+    }
+    #[tokio::test]
+    async fn prepared_jobs_reserve_queue_slots_and_release_them_when_dropped() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::initialize(dir.path().into(), "/workspace".into())
+            .await
+            .unwrap();
+        let mut prepared = Vec::new();
+        for i in 0..32 {
+            prepared.push(
+                store
+                    .prepare(Command::Create(document(&format!("prepared-{i}"))))
+                    .unwrap(),
+            );
+        }
+        assert!(matches!(
+            store.submit(Command::Create(document("over-capacity"))),
+            Err(StoreError::QueueFull)
+        ));
+        assert!(store.get("prepared-0".into()).await.unwrap().is_none());
+        drop(prepared);
+        store.create(document("after-drop")).await.unwrap();
+        store.close().await.unwrap();
+    }
+    #[tokio::test]
+    async fn prepared_internal_results_consume_the_existing_total_byte_budget() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::initialize(dir.path().into(), "/workspace".into())
+            .await
+            .unwrap();
+        let mut prepared = Vec::new();
+        loop {
+            let command = Command::Internal {
+                id: "budget".into(),
+                created: "created".into(),
+                expected: None,
+                proof: None,
+                intent: Box::new(InternalMutation::UserTitle {
+                    title: Some("title".into()),
+                }),
+            };
+            match store.prepare(command) {
+                Ok(job) => prepared.push(job),
+                Err(StoreError::QueueFull) => break,
+                Err(error) => panic!("{error:?}"),
+            }
+        }
+        assert!(
+            prepared.len() < 32,
+            "result reservations must exhaust bytes before slots"
+        );
+        assert!(!prepared.is_empty());
+        drop(prepared);
+        store.create(document("budget-released")).await.unwrap();
+        store.close().await.unwrap();
+    }
+    #[tokio::test]
+    async fn prepared_deadline_includes_time_before_enqueue() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::initialize(dir.path().into(), "/workspace".into())
+            .await
+            .unwrap();
+        let prepared = store
+            .prepare(Command::Create(document("expired-before-queue")))
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(2050)).await;
+        assert!(matches!(prepared.enqueue(None), Err(StoreError::Expired)));
+        assert!(store
+            .get("expired-before-queue".into())
+            .await
+            .unwrap()
+            .is_none());
+        store.close().await.unwrap();
+    }
+    #[tokio::test]
+    async fn denied_execution_grant_never_changes_the_record() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::initialize(dir.path().into(), "/workspace".into())
+            .await
+            .unwrap();
+        let prepared = store.prepare(Command::Create(document("denied"))).unwrap();
+        let (ready, request) = oneshot::channel();
+        let ticket = prepared.enqueue(Some(ready)).unwrap();
+        drop(request.await.unwrap());
+        assert!(matches!(receive(ticket).await, Err(StoreError::Conflict)));
+        assert!(store.get("denied".into()).await.unwrap().is_none());
+        store.close().await.unwrap();
+    }
+    #[tokio::test]
+    async fn cancellation_can_win_the_same_claim_as_execution_grant() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::initialize(dir.path().into(), "/workspace".into())
+            .await
+            .unwrap();
+        let prepared = store
+            .prepare(Command::Create(document("cancel-before-grant")))
+            .unwrap();
+        let (ready, request) = oneshot::channel();
+        let ticket = prepared.enqueue(Some(ready)).unwrap();
+        let request = request.await.unwrap();
+        drop(ticket);
+        assert!(request.grant().is_err());
+        assert!(store
+            .get("cancel-before-grant".into())
+            .await
+            .unwrap()
+            .is_none());
+        store.close().await.unwrap();
+    }
+    #[tokio::test]
+    async fn granted_execution_is_not_reported_as_queued_expiry() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::initialize(dir.path().into(), "/workspace".into())
+            .await
+            .unwrap();
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let prepared = store
+            .prepare(Command::CreatePaused(
+                document("granted"),
+                entered_tx,
+                release_rx,
+            ))
+            .unwrap();
+        let (ready, request) = oneshot::channel();
+        let ticket = prepared.enqueue(Some(ready)).unwrap();
+        request.await.unwrap().grant().unwrap().execute().unwrap();
+        entered_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let receipt = tokio::spawn(receive(ticket));
+        tokio::time::sleep(Duration::from_millis(2050)).await;
+        assert!(
+            !receipt.is_finished(),
+            "an executing grant must retain the real result"
+        );
+        release_tx.send(()).unwrap();
+        assert!(matches!(receipt.await.unwrap(), Ok(Reply::Unit)));
+        assert!(store.get("granted".into()).await.unwrap().is_some());
+        store.close().await.unwrap();
+    }
+    #[tokio::test]
+    async fn late_application_grant_cannot_execute_an_expired_preparation() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::initialize(dir.path().into(), "/workspace".into())
+            .await
+            .unwrap();
+        let prepared = store
+            .prepare(Command::Create(document("late-grant")))
+            .unwrap();
+        let (ready, request) = oneshot::channel();
+        let ticket = prepared.enqueue(Some(ready)).unwrap();
+        let request = request.await.unwrap();
+        tokio::time::sleep(Duration::from_millis(2050)).await;
+        assert!(request.grant().is_err());
+        assert!(matches!(receive(ticket).await, Err(StoreError::Expired)));
+        assert!(store.get("late-grant".into()).await.unwrap().is_none());
+        store.close().await.unwrap();
+    }
+    #[tokio::test]
+    async fn close_rejects_unqueued_preparations_without_late_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::initialize(dir.path().into(), "/workspace".into())
+            .await
+            .unwrap();
+        let prepared = store
+            .prepare(Command::Create(document("closed-before-enqueue")))
+            .unwrap();
+        store.close().await.unwrap();
+        assert!(matches!(
+            prepared.enqueue(None),
+            Err(StoreError::Unavailable)
+        ));
+        let reopened = SessionStore::open(dir.path().into(), "/workspace".into())
+            .await
+            .unwrap();
+        assert!(reopened
+            .get("closed-before-enqueue".into())
+            .await
+            .unwrap()
+            .is_none());
+        reopened.close().await.unwrap();
+    }
+    #[tokio::test]
+    async fn executing_worker_retains_lane_and_lease_after_its_result_owner_is_dropped() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::initialize(dir.path().into(), "/workspace".into())
+            .await
+            .unwrap();
+        store.create(document("retained")).await.unwrap();
+        let prepared = store
+            .prepare_internal(
+                "retained".into(),
+                "2026-01-01T00:00:00Z".into(),
+                InternalMutation::UserTitle {
+                    title: Some("retained title".into()),
+                },
+            )
+            .unwrap();
+        let lane = prepared.lane().unwrap();
+        let held = lane.clone().lock_owned().await;
+        let lease =
+            Arc::new(crate::workspace_runtime::WorkspaceLease::acquire(dir.path()).unwrap());
+        let resources = RuntimeWriteResources::new(held, Some(lease));
+        let mut claimed = testing::hold_next_internal(&store, "retained");
+        let (ticket, ready) = prepared.enqueue(resources).unwrap();
+        ready.await.unwrap().grant().unwrap().execute().unwrap();
+        tokio::time::timeout(Duration::from_secs(2), claimed.entered())
+            .await
+            .unwrap();
+        drop(ticket);
+        assert!(lane.clone().try_lock_owned().is_err());
+        assert!(crate::workspace_runtime::WorkspaceLease::acquire(dir.path()).is_err());
+        drop(claimed);
+        assert_eq!(
+            store.get("retained".into()).await.unwrap().unwrap()["label"],
+            "retained title"
+        );
+        assert!(lane.try_lock_owned().is_ok());
+        assert!(crate::workspace_runtime::WorkspaceLease::acquire(dir.path()).is_ok());
+        store.close().await.unwrap();
     }
     #[tokio::test]
     async fn admission_rejects_overload_without_waiting_for_stalled_storage() {
