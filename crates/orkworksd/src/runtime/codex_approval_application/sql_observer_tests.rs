@@ -604,3 +604,74 @@ async fn sql_observer_conflicting_tick_preserves_existing_wait_and_resumes_rpc()
     drop(sessions);
     store.close().await.unwrap();
 }
+
+#[tokio::test]
+async fn sql_observer_effect_read_cannot_adopt_a_replacement_controller() {
+    let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
+    for clear in [false, true] {
+        let (_dir, state, store, writes, _effect, _commands) = fixture_with_root("root").await;
+        let generation = state.sessions.lock().unwrap()[ID].runtime.run_generation();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let snapshot = if clear {
+            writes
+                .begin_native_observation(ID.into(), generation, cancelled.clone())
+                .await
+                .unwrap();
+            Some(
+                writes
+                    .begin_native_observation(ID.into(), generation, cancelled.clone())
+                    .await
+                    .unwrap()
+                    .unwrap(),
+            )
+        } else {
+            None
+        };
+        let mut held = crate::session_store::test_worker::hold_nth_get(&store, ID, 2);
+        let owner = writes.clone();
+        let pending = tokio::spawn(async move {
+            if let Some(snapshot) = snapshot {
+                owner
+                    .finish_native_observation_coordinated_for_test(snapshot, result())
+                    .await
+                    .map(|_| None)
+            } else {
+                owner
+                    .begin_native_observation(ID.into(), generation, cancelled)
+                    .await
+            }
+        });
+        held.entered().await;
+        let (replacement, _replacement_commands) = tokio::sync::mpsc::channel(1);
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .get_mut(ID)
+            .unwrap()
+            .runtime
+            .control_tx = replacement;
+        drop(held);
+        let outcome = pending.await.unwrap();
+        if clear {
+            assert!(matches!(outcome, Err(StoreError::Conflict)));
+        } else {
+            let snapshot = outcome
+                .unwrap()
+                .expect("obsolete tick must not publish under the replacement controller");
+            assert!(matches!(
+                writes
+                    .finish_native_observation_coordinated_for_test(snapshot, result())
+                    .await,
+                Err(StoreError::Conflict)
+            ));
+        }
+        let record = store.get(ID.into()).await.unwrap().unwrap();
+        assert_eq!(record["metadataRevision"], if clear { "2" } else { "1" });
+        assert_eq!(
+            state.sessions.lock().unwrap()[ID].info.attention.as_deref(),
+            if clear { Some("needs_you") } else { None }
+        );
+        store.close().await.unwrap();
+    }
+}

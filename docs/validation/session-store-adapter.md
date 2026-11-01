@@ -327,7 +327,9 @@ If a tick is a no-op, detaches from live publication, or conflicts, the owner
 continues to RPC using that original snapshot. Rejected effects cannot starve
 observation. The reducer candidate and prior proof remain available for safe
 retry; detached durable state grants no new proof or permission to clear it.
-Other storage failures still propagate.
+Other storage failures still propagate. Tick and RPC effects carry this original
+context through the effect application's own SQL read and recheck it at admission,
+so an obsolete effect cannot adopt a replacement controller or prompt authority.
 
 After RPC, a second unlocked SQL read hydrates the latest canonical metadata.
 The owner rechecks the original snapshot before feeding the result into the

@@ -6,7 +6,7 @@ use crate::runtime::codex_native::{NativeError, NativeObservation};
 pub(crate) struct SqlObservationSnapshot {
     owner: std::sync::Weak<SessionWrites>,
     id: String,
-    context: ObservationContext,
+    context: Arc<ObservationContext>,
 }
 impl SqlObservationSnapshot {
     pub(crate) fn root(&self) -> &str {
@@ -40,10 +40,17 @@ impl SessionWrites {
             .flatten()
             .ok_or(StoreError::Conflict)?;
         let (context, effects) = captured;
+        let context = Arc::new(context);
         let mut published = false;
         for effect in effects {
             match self
-                .native(id.clone(), effect, context.cancellation())
+                .native_inner(
+                    id.clone(),
+                    effect,
+                    context.cancellation(),
+                    COORDINATED_METADATA_WRITERS,
+                    Some(context.clone()),
+                )
                 .await
             {
                 Ok(Outcome::Committed) => published = true,
@@ -110,7 +117,7 @@ impl SessionWrites {
             return Err(StoreError::Conflict);
         }
         let id = snapshot.id;
-        let context = Arc::new(snapshot.context);
+        let context = snapshot.context;
         let checking = context.clone();
         let current = self
             .native_current(id.clone(), None, None, move |_, h, authority| {
@@ -137,7 +144,13 @@ impl SessionWrites {
             .ok_or(StoreError::Conflict)?;
         for effect in effects {
             match self
-                .native_inner(id.clone(), effect, context.cancellation(), coordinated)
+                .native_inner(
+                    id.clone(),
+                    effect,
+                    context.cancellation(),
+                    coordinated,
+                    Some(context.clone()),
+                )
                 .await?
             {
                 Outcome::Committed => {}
