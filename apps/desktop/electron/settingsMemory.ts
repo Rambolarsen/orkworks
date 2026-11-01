@@ -22,6 +22,11 @@ export interface AppSettings {
   providers: ProviderSettings;
 }
 
+// IPC projection includes main-owned defaults in addition to persisted settings.
+export interface RendererSettings extends AppSettings {
+  defaultHotkeys: HotkeySettings;
+}
+
 export interface HotkeySettings {
   newSession: string;
   toggleSessionsPanel: string;

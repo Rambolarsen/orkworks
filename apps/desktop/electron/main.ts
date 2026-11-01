@@ -24,10 +24,10 @@ import { readLayoutMemory, writeLayoutMemory } from "./layoutMemory";
 import { createShellLayoutMemory } from "./shellLayoutMemory";
 import { confirmShellMemoryRebuild } from "./shellMemoryRebuild";
 import { createWorkspaceNavigationMemory, forgetRememberedWorkspaceWithNavigation, type LastCentralSurface } from "./workspaceNavigationMemory";
-import type { AppSettings } from "./settingsMemory";
+import type { AppSettings, RendererSettings } from "./settingsMemory";
 import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, loadSettingsForStartup, normalizeDebugSettings, normalizeProviderSettings, normalizeRetention, readSettings, settingsWithHotkeys, settingsWithPeonSelection, validateHotkeys, writeSettings } from "./settingsMemory";
 import { providerSettingsSyncError, pushProviderSettings } from "./providerSettingsSync";
-import type { PeonAppliedState, PeonProviderVerificationResponse, ProviderApplyStatus, ProviderDefinition, ProviderId, ProviderModelOption } from "./providerTypes";
+import type { PeonAppliedState, PeonProviderVerificationResponse, PeonSelectionSaveResult, ProviderApplyStatus, ProviderDefinition, ProviderId, ProviderModelOption } from "./providerTypes";
 import { createPeonSelectionTransaction, normalizePeonSelectionInput, type PeonSelectionTransaction } from "./peonSelectionTransaction";
 import { buildMenuTemplate } from "./menuTemplate";
 import { getSessionPlanContent, requestSessionPlanReview, selectTerminalPlan } from "./planOpener";
@@ -398,7 +398,7 @@ function registerUpdateIpc(service: UpdateService): void {
   });
 }
 
-function rendererSettings(settings: AppSettings): AppSettings & { defaultHotkeys: typeof DEFAULT_HOTKEYS } {
+function rendererSettings(settings: AppSettings): RendererSettings {
   return {
     ...settings,
     defaultHotkeys: { ...DEFAULT_HOTKEYS },
@@ -1657,7 +1657,7 @@ app.whenReady().then(async () => {
     return appliedPeonState;
   });
 
-  ipcMain.handle("save-peon-selection", async (_event, value: unknown) => {
+  ipcMain.handle("save-peon-selection", async (_event, value: unknown): Promise<PeonSelectionSaveResult> => {
     const selection = normalizePeonSelectionInput(value, persistedOllamaBaseUrl());
     const result = await peonTransaction.save(selection, async () => {
       await enqueueSettingsWrite(() => {

@@ -196,7 +196,7 @@ declare global {
       verifyPeonProvider: (provider: string, ollamaBaseUrl?: string) => Promise<PeonProviderVerificationResponse>;
       testAndApplyPeonProvider: (selection: PeonSelection) => Promise<PeonAppliedState>;
       getAppliedPeonProvider: () => Promise<PeonAppliedState>;
-      savePeonSelection: (selection: PeonSelection) => Promise<PeonSelectionSaveResult | { ok: false; error: string }>;
+      savePeonSelection: (selection: PeonSelection) => Promise<PeonSelectionSaveResult>;
       saveHotkeys: (hotkeys: HotkeySettings) => Promise<SaveHotkeysResult>;
       saveRetention: (retention: RetentionSettings) => Promise<{ ok: boolean; retentionApplyStatus?: RetentionApplyStatus }>;
       saveDebugSettings: (debug: DebugSettings) => Promise<{ ok: true; settings: AppSettings }>;
