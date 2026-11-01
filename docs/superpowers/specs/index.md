@@ -223,4 +223,4 @@ Dated design records; these do not establish current product behavior.
 
 - [Artifact read-work debit representation](2026-10-31-artifact-read-debit-proof-design.md) — Accepted exact debit command/recovery representation; source, consumer and native qualification remain gated.
 
-- [Responsive terminal input during session projection](2026-10-31-terminal-input-lag-design.md) — Proposed fenced projection and conservative sensitivity repair; owner approval required.
+- [Responsive terminal input during session projection](2026-10-31-terminal-input-lag-design.md) — Approved fenced capacity analysis and conservative sensitivity repair.

@@ -1,19 +1,18 @@
 ---
 type: Design
 title: Responsive terminal input during session projection
-description: Proposed snapshot-compute-commit projection and cached terminal analysis without weakening input ownership.
+description: Approved capacity-analysis separation and cached terminal observations without weakening input ownership.
 tags: [terminal, performance, concurrency, sessions]
 status: draft
-workflow_status: proposed
+workflow_status: approved
 ---
 
 # Responsive terminal input during session projection
 
 Restore responsive typing and alternate-screen interaction in long coding sessions.
 Track delivery in [#1222](https://github.com/Rambolarsen/orkworks/issues/1222).
-This proposal requires owner approval before runtime implementation. The user's
-request authorizes the repair; the new concurrency and sensitivity policy below
-is the concrete design presented for that approval.
+The owner approved this concrete concurrency/sensitivity design and inline
+implementation on 2026-11-01 ("go ahead, implement", then "keep going").
 
 ## Evidence and existing contracts
 
@@ -216,11 +215,11 @@ pre-enqueue normalization work.
 
 ## Approval and review
 
-Proposed; no runtime implementation is authorized by this document alone.
+Approved for the scoped inline implementation on 2026-11-01.
 The one required owner decision covers the changed lock scope, captured-prefix
 capacity commit rule and conservative sensitivity policy together. The implementation
 plan is [terminal input lag](../plans/2026-10-31-terminal-input-lag.md).
 
 Independent builder/plan review completed on 2026-10-31: Ready for owner approval.
 The plan records the output-liveness, writer-coverage and delivery/bookkeeping
-findings and their resolutions. Owner acceptance remains pending.
+findings and their resolutions. Owner acceptance was subsequently given on 2026-11-01.

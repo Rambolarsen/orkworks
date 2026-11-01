@@ -1,10 +1,10 @@
 ---
 type: Implementation Plan
 title: Restore terminal responsiveness during session projection
-description: Proposed fenced projection and bounded sensitivity implementation with deterministic concurrency regressions.
+description: Approved capacity-scan separation and bounded sensitivity implementation with deterministic concurrency regressions.
 tags: [terminal, performance, concurrency, testing]
 status: draft
-workflow_status: awaiting-owner-approval
+workflow_status: active
 ---
 
 # Restore terminal responsiveness during session projection
@@ -13,9 +13,8 @@ Outcome: ordinary input reaches its current PTY while a slow list computation
 is paused, without stale writes or protected-input disclosure. Track
 [#1222](https://github.com/Rambolarsen/orkworks/issues/1222). Read the
 [design](../specs/2026-10-31-terminal-input-lag-design.md) and
-[proposed ADR 0102](../../adr/0102-terminal-projection-input-fence.md) first.
-This plan is not executable until their new concurrency/security choices receive
-owner approval. Implement inline; use one independent current-diff review before
+[ADR 0102](../../adr/0102-terminal-projection-input-fence.md) first.
+The owner approved this concrete design and implementation on 2026-11-01. Implement inline; use one independent current-diff review before
 PR handoff. No parallel writers or new coding harnesses.
 
 ## Deliverables and sequence
@@ -91,8 +90,8 @@ produce an empty authoritative list: use unavailable.
 
 ## Review disposition
 
-**Ready for owner approval**, independently reviewed by the available Luna tier
-(`gpt-6-luna`, medium effort), 2026-10-31. No runtime implementation yet.
+**Design review completed before owner approval**, independently reviewed by the available Luna tier
+(`gpt-6-luna`, medium effort), 2026-10-31. Runtime implementation followed owner approval on 2026-11-01.
 
 Resolved material findings:
 
@@ -108,5 +107,52 @@ Resolved material findings:
   input revision advances before owner release. A deterministic paused-after-ack
   regression covers the formerly ambiguous interval.
 
-The reviewer confirmed these changes resolve the material blockers. This means
-ready for the new concurrency/security design approval, not authority to execute.
+The reviewer confirmed these changes resolve the material blockers. The owner
+subsequently approved the concurrency/security design on 2026-11-01.
+
+## Execution record
+
+- 2026-11-01: owner approved implementation; existing owned worktree and PR #1223 retained.
+- Initial control-revision/shared-output/sensitivity tests failed against missing behavior.
+- The real oversized-input test then failed at the pre-dispatch sensitivity assertion.
+- Capacity scanning now has a private production computation dependency for deterministic
+  blocked-scan tests; no runtime test-only race-injection flag was introduced.
+- Ruling: keep scan admission/cache in the existing process-local session projection
+  state, rather than adding a field to every AppState fixture. This stays independent
+  of the projection/input fence and avoids a second registry.
+
+- Focused checks passed: 24 projection tests (one manual probe ignored), 103 input
+  tests (one ignored), 112 Peon tests (one ignored), 19 capacity-state tests and
+  the retained-line cache regression. The old-fence mutation made the real
+  input-during-scan regression fail as intended; repaired source was restored.
+- Initial full unit run: 2,336 passed, 28 failed, 16 ignored. One four-second
+  assessment-provider timeout poisoned the shared fake-PATH test mutex, causing
+  the downstream failures. The originating test passed in isolation; full
+  verification must rerun without overlapping compilation before completion.
+
+- Independent `/code-review medium` found one admission-scope issue: release the
+  analysis cache guard immediately after compute instead of after the entire list.
+  The correction was verified by the reviewer; no remaining critical or required
+  findings. Reviewed Rust diff SHA-256:
+  `7622b41faaa4839c16097fba9333f7584148710f25e548c26c8c1784c3ff017a`.
+- Build warnings retain the existing owned-output and detector interfaces for
+  compatibility and reference tests; they now lack production callers after the
+  shared immutable analysis path was introduced. Existing HTTP test response/drop
+  warnings are unrelated to this diff. No warning indicates a failed check.
+
+- Supported Node 22 full repository verification passed, including 2,369 Rust
+  unit tests, integration tests, reporter tests, desktop checks/build and docs
+  checks/build. A final-source rerun follows the one-line admission release.
+- Documentation-currency warnings were inspected: public onboarding, installer
+  claims and README product scope do not change. The source-only responsiveness
+  repair is documented in the architecture/runtime concepts and ADR amendment;
+  the installed/running sidecar has not been replaced or live-qualified.
+
+- Final reviewed source passed `bash scripts/verify-repo.sh` under Node 22,
+  including the admission-guard correction. Rust: 2,369 unit tests passed,
+  zero failed, 16 ignored; all integration, reporter, desktop and documentation
+  checks passed. The repeated verifier required restoring `fs-ext` to the host
+  Node ABI after the earlier Electron check, without a dependency change.
+- Implementation/review is complete; required PR CI and owner-controlled live
+  long-session validation remain separate gates. Taskmaster returned no active
+  recommendations to tie off.

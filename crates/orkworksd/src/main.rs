@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex, RwLock as StdRwLock};
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+mod capacity_analysis;
 mod capacity_state;
 mod codex_session_store;
 mod git;

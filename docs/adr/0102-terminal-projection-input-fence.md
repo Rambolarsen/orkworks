@@ -1,16 +1,16 @@
 ---
 type: Architecture Decision
 title: Slow terminal projections compute outside the input fence
-description: Proposed capture-compute-commit projection that preserves input ownership and rejects stale writes.
+description: Accepted capacity-analysis separation that preserves input ownership and rejects stale writes.
 tags: [orkworks, architecture, terminal, concurrency]
 status: draft
 ---
 
 # Slow terminal projections compute outside the input fence
 
-- Status: proposed
-- Deciders: repository owner, pending
-- Date: 2026-10-31
+- Status: accepted
+- Deciders: Rambolarsen
+- Date: 2026-11-01
 
 ## Context
 
@@ -21,7 +21,7 @@ request took 2.157 seconds, and the user reports burst/freeze typing.
 
 ## Decision
 
-Propose the [responsive input design](../superpowers/specs/2026-10-31-terminal-input-lag-design.md).
+Implement the owner-approved [responsive input design](../superpowers/specs/2026-10-31-terminal-input-lag-design.md).
 Keep ADR 0075's input preparation/enqueue and bookkeeping fence. Bound pure capacity analysis independently, capture immutable inputs under a
 short fence, scan outside it, then validate runtime/control/capability identity
 and a capacity control revision before applying results within the existing
@@ -34,9 +34,8 @@ oversized/racing password observations before input admission.
 
 This narrows the session projection locking implementation documented in the
 architecture reference; it does not supersede ADR 0075, ADR 0041 or ADR 0092.
-ADR 0065's observation-window policy remains unchanged. If accepted, synchronize
-the canonical architecture/runtime instructions with the implementation; until
-then their current contract remains authoritative.
+ADR 0065's observation-window policy remains unchanged. Synchronize
+the canonical architecture/runtime instructions with the implementation; the implementation retains their input/lifecycle authority.
 
 ## Consequences
 
@@ -49,3 +48,5 @@ bytes. Capacity-control revision advancement must cover each state-machine mutat
 and accepted input, including no-op rechecks and ABA state changes.
 No schema migration, terminal restart, automatic retry or attention-authority
 expansion is introduced. Rollback is a code revert and owner-controlled restart.
+
+Owner acceptance: 2026-11-01, “go ahead, implement”, followed by “keep going”.

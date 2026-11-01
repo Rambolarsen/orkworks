@@ -128,4 +128,4 @@ Decision records and their original rationale and consequences.
 
 - [Readiness evidence before candidates](0099-readiness-evidence-before-candidates.md) — Approved #1175 evidence-first investigation after two independently failed fixed sets; live qualification remains separate.
 
-- [Slow terminal projections compute outside the input fence](0102-terminal-projection-input-fence.md) — Proposed projection/input fence separation with stale-result rejection.
+- [Slow terminal projections compute outside the input fence](0102-terminal-projection-input-fence.md) — Accepted capacity/input fence separation with stale-result rejection.
