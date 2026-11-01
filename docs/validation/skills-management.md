@@ -50,8 +50,8 @@ were unchanged. These are discovered directory entries, not distinct effective
 skill names or native session totals. The inventory also now reads a bounded
 64 KB prefix rather than rejecting an entire skill whose instruction body
 exceeds that limit. Oversized frontmatter is still rejected and detail reads
-retain their separate existing limit. The existing APM provenance read gap
-remains diagnosed. No native session was launched.
+retain their separate existing limit. At that point, the APM provenance read gap
+remained diagnosed. No native session was launched.
 
 Uncovered: native activation/disabled state and precedence; Codex active cached
 version selection; the Copilot plugin registry; OpenCode JSONC/global custom paths; session-specific added directories,
@@ -71,6 +71,23 @@ sources with differing descriptions, source-ID-specific detail reads, search,
 combined coding-tool/scope filters, empty results, workspace closure, and layout
 at 360/700/1000px. Alias coalescing and discovery remain Electron-owned and are
 unchanged by this presentation adjustment.
+
+## APM ownership read correction
+
+Follow-up, 2026-11-01: the selected workspace lock was 379,199 bytes, exceeding
+the generic 64 KiB text limit and leaving its sources without APM attribution.
+The inventory now reads lock files with a dedicated 2 MiB limit and matches
+recorded SKILL.md paths against discovered canonical and logical aliases within
+one scope. It does not inspect arbitrary paths from a lock, infer plugin
+registration, validate deployed-file hashes, or prove current content integrity.
+
+Temporary fixtures cover realistic deployment-hash volume, separate unowned
+copies, personal aliases, scope isolation, malformed/oversized locks, and sources
+with both APM ownership and coding-tool plugin registration. The Electron UI
+fixture checks package labels and package-name search. A read-only check of the
+same primary workspace found 43 APM-attributed entries, including both
+`context-engineering` copies owned by `addyosmani/agent-skills`, with no APM read
+diagnostic. No APM operation or personal configuration mutation was performed.
 
 ## Initial APM profile
 

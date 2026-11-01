@@ -409,6 +409,8 @@ export async function discoverSkills(options: {
               base,
               scope === "personal" ? ".apm/apm.lock.yaml" : "apm.lock.yaml",
             ),
+            // Deployment hashes make ordinary lock files much larger than skill metadata.
+            2 * 1024 * 1024,
           ),
         ),
       );
@@ -424,7 +426,8 @@ export async function discoverSkills(options: {
           const match = [...entries.values()].find(
             (skill) =>
               skill.scope === scope &&
-              join(skill.resolvedPath, "SKILL.md") === path,
+              (join(skill.resolvedPath, "SKILL.md") === path ||
+                skill.paths.some(alias => join(alias, "SKILL.md") === path)),
           );
           if (match) {
             match.management = "apm";
