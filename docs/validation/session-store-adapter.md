@@ -315,8 +315,44 @@ actual PTY while native SQL is stalled after its execution claim. This proves
 input independence at this boundary, not complete terminal-load or #1247 latency
 qualification.
 
-Observer begin/finish and hook/relay scheduling still use their unchanged JSON
-owners. Routing those producers, lifecycle/input bookkeeping, external events,
-producer coordination and version-specific eligibility remain prerequisites for
-SQL selection. The production native startup/clear gates stay closed; this
-source-only application boundary does not select SQL or migrate a workspace.
+The optional source-only SQL observer backend now captures its runtime/tracker,
+creation/control, input/sequence, hook/fence, live identity/attention and prompt
+authority before a metadata read, releases all shared guards for that read, and
+rechecks before constructing the RPC snapshot. The snapshot also binds its exact
+application owner. Metadata supplies only the already accepted native root;
+it must agree with the live native reference, and loaded threads never discover
+or rebind identity. A due tick effect uses the existing reservation boundary.
+Successful live publication skips RPC so a later poll captures the new attention owner.
+If a tick is a no-op, detaches from live publication, or conflicts, the owner
+continues to RPC using that original snapshot. Rejected effects cannot starve
+observation. The reducer candidate and prior proof remain available for safe
+retry; detached durable state grants no new proof or permission to clear it.
+Other storage failures still propagate. Tick and RPC effects carry this original
+context through the effect application's own SQL read and recheck it at admission,
+so an obsolete effect cannot adopt a replacement controller or prompt authority.
+
+After RPC, a second unlocked SQL read hydrates the latest canonical metadata.
+The owner rechecks the original snapshot before feeding the result into the
+reducer and mints effects in that same guarded call. Identity changes discovered
+by synchronization discard the old result; unrelated descriptive writes remain
+preserved. A response requested before its snapshot is rejected. The original
+first-request monotonic timestamp stays attached through read, scheduling and
+commit freshness checks; metadata latency cannot refresh old evidence.
+
+NativeObserverControl has an optional SQL path using these methods and the same
+owned, bounded RPC client and cancellation/shutdown ordering. Its production
+constructor still selects JSON. SQL failures retain their typed error in a
+separate bounded observer watch, including returned read/write command deadline
+failures. Stale-context conflicts and reducer-discarded native evidence remain
+ordinary rejections. These failures neither masquerade as empty metadata nor
+signal the native failure channel that terminates a PTY. Storage presentation
+still belongs to #1246 before production selection. Source regressions exercise
+real SQL reads without JSON session files, owned native RPC, stale context and
+root changes, preserved newer work, stalled-read guard release, cancellation,
+shutdown while SQL is stalled, and storage failure without runtime termination.
+
+Hook relay activation/boundary/fallback writes still use their unchanged JSON
+owner and need typed SQL orchestration. That routing, lifecycle/input bookkeeping,
+external events, producer coordination and version-specific eligibility remain
+prerequisites for SQL selection. The production native startup/clear gates stay
+closed; this optional backend does not select SQL or migrate a workspace.

@@ -1,7 +1,7 @@
 //! Dormant native effect application using the same worker/session lane as Peon.
 use super::*;
 use crate::runtime::codex_approval_application::{
-    sql_context::{IssuedEffect, NativeCapture},
+    sql_context::{IssuedEffect, NativeCapture, ObservationContext},
     COORDINATED_METADATA_WRITERS,
 };
 use std::sync::atomic::AtomicBool;
@@ -61,7 +61,7 @@ impl SessionWrites {
         effect: IssuedEffect,
         cancelled: Arc<AtomicBool>,
     ) -> Result<Outcome, StoreError> {
-        self.native_inner(id, effect, cancelled, COORDINATED_METADATA_WRITERS)
+        self.native_inner(id, effect, cancelled, COORDINATED_METADATA_WRITERS, None)
             .await
     }
     #[cfg(test)]
@@ -71,7 +71,7 @@ impl SessionWrites {
         effect: IssuedEffect,
         cancelled: Arc<AtomicBool>,
     ) -> Result<Outcome, StoreError> {
-        self.native_inner(id, effect, cancelled, true).await
+        self.native_inner(id, effect, cancelled, true, None).await
     }
     async fn native_inner(
         self: &Arc<Self>,
@@ -79,6 +79,7 @@ impl SessionWrites {
         effect: IssuedEffect,
         cancelled: Arc<AtomicBool>,
         coordinated: bool,
+        origin: Option<Arc<ObservationContext>>,
     ) -> Result<Outcome, StoreError> {
         // Read without runtime guards. An exact revision precondition prevents
         // native identity/provenance changing between this read and SQL commit.
@@ -92,6 +93,14 @@ impl SessionWrites {
         let revision = record.revision;
         let (view, lease) = self
             .native_current(id.clone(), None, None, move |ws, h, authority| {
+                // An observer effect keeps the owner captured before this read;
+                // admission must not adopt a replacement controller or authority.
+                if origin
+                    .as_ref()
+                    .is_some_and(|origin| !origin.matches(h, &authority))
+                {
+                    return None;
+                }
                 NativeCapture::capture(h, &record.metadata, effect, cancelled, coordinated)
                     .map(|capture| (NativeView { capture, authority }, ws.lease.clone()))
             })
@@ -156,3 +165,5 @@ impl SessionWrites {
         received.await.map_err(|_| StoreError::Unavailable)?
     }
 }
+
+pub(super) mod observer;

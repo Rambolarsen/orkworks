@@ -1370,7 +1370,24 @@ enum NativeObserverFailure {
     RuntimeUnavailable,
 }
 
+enum NativeObserverSnapshot {
+    Json(super::codex_approval_application::ObservationSnapshot),
+    Sql(
+        Arc<crate::session_application::sql_writes::SessionWrites>,
+        crate::session_application::sql_writes::SqlObservationSnapshot,
+    ),
+}
+impl NativeObserverSnapshot {
+    fn root(&self) -> &str {
+        match self {
+            Self::Json(snapshot) => &snapshot.root,
+            Self::Sql(_, snapshot) => snapshot.root(),
+        }
+    }
+}
+
 struct NativeObserverControl {
+    storage_error: tokio::sync::watch::Receiver<Option<Arc<crate::session_store::StoreError>>>,
     stop: tokio::sync::watch::Sender<bool>,
     failed: tokio::sync::watch::Receiver<Option<NativeObserverFailure>>,
     task: Option<tokio::task::JoinHandle<()>>,
@@ -1378,14 +1395,43 @@ struct NativeObserverControl {
 }
 
 impl NativeObserverControl {
+    /// Source-only SQL scheduling. Production startup still calls start().
+    fn start_sql(
+        state: Arc<AppState>,
+        id: String,
+        generation: u64,
+        native: super::codex_native::OwnedNativeRuntime,
+        writes: Arc<crate::session_application::sql_writes::SessionWrites>,
+    ) -> Result<Self, crate::session_store::StoreError> {
+        if !writes.native_matches_state(&state) {
+            return Err(crate::session_store::StoreError::Conflict);
+        }
+        Ok(Self::start_inner(
+            state,
+            id,
+            generation,
+            native,
+            Some(writes),
+        ))
+    }
     fn start(
         state: Arc<AppState>,
         id: String,
         generation: u64,
+        native: super::codex_native::OwnedNativeRuntime,
+    ) -> Self {
+        Self::start_inner(state, id, generation, native, None)
+    }
+    fn start_inner(
+        state: Arc<AppState>,
+        id: String,
+        generation: u64,
         mut native: super::codex_native::OwnedNativeRuntime,
+        sql: Option<Arc<crate::session_application::sql_writes::SessionWrites>>,
     ) -> Self {
         let (stop, mut stop_rx) = tokio::sync::watch::channel(false);
         let (failed_tx, failed) = tokio::sync::watch::channel(None);
+        let (storage_errors, storage_error) = tokio::sync::watch::channel(None);
         let cancelled = Arc::new(AtomicBool::new(false));
         let cancellation = cancelled.clone();
         #[cfg(test)]
@@ -1436,13 +1482,29 @@ impl NativeObserverControl {
                 let capture_cancelled = cancellation.clone();
                 let snapshot = tokio::select! { biased;
                     _ = stop_rx.changed() => break,
-                    snapshot = tokio::task::spawn_blocking(move || {
-                        if capture_state.workspace.lock().unwrap().is_none()
-                            || startup_generation_is_ending(&capture_state, &capture_id, generation) {
-                            return Err(());
+                    snapshot = async {
+                        if let Some(sql) = &sql {
+                            let available = tokio::task::spawn_blocking(move || {
+                                capture_state.workspace.lock().unwrap().is_some()
+                                    && !startup_generation_is_ending(&capture_state, &capture_id, generation)
+                            }).await.map_err(|_| ())?;
+                            if !available { return Err(()); }
+                            match sql.begin_native_observation(id.clone(), generation, capture_cancelled).await {
+                                Ok(Some(snapshot)) => {
+                                    storage_errors.send_if_modified(|error| error.take().is_some());
+                                    Ok(Some(NativeObserverSnapshot::Sql(sql.clone(), snapshot)))
+                                }
+                                Ok(None) | Err(crate::session_store::StoreError::Conflict) => Ok(None),
+                                Err(error) => { let _ = storage_errors.send(Some(Arc::new(error))); Ok(None) }
+                            }
+                        } else {
+                            tokio::task::spawn_blocking(move || {
+                                if capture_state.workspace.lock().unwrap().is_none()
+                                    || startup_generation_is_ending(&capture_state, &capture_id, generation) { return Err(()); }
+                                Ok(super::codex_approval_application::begin_observation(&capture_state, &capture_id, generation, &capture_cancelled).map(NativeObserverSnapshot::Json))
+                            }).await.unwrap_or(Err(()))
                         }
-                        Ok(super::codex_approval_application::begin_observation(&capture_state, &capture_id, generation, &capture_cancelled))
-                    }) => snapshot.unwrap_or(Err(())),
+                    } => snapshot,
                 };
                 let snapshot = match snapshot {
                     Ok(Some(snapshot)) => snapshot,
@@ -1460,7 +1522,7 @@ impl NativeObserverControl {
                 // the first awaited RPC; PTY input/output never awaits it.
                 let result = tokio::select! { biased;
                     _ = stop_rx.changed() => break,
-                    result = native.observe(&snapshot.root) => result,
+                    result = native.observe(snapshot.root()) => result,
                 };
                 if *stop_rx.borrow() {
                     break;
@@ -1470,7 +1532,20 @@ impl NativeObserverControl {
                 let apply_cancelled = cancellation.clone();
                 let _ = tokio::select! { biased;
                     _ = stop_rx.changed() => break,
-                    result = tokio::task::spawn_blocking(move || super::codex_approval_application::finish_observation(&apply_state, &apply_id, snapshot, result, &apply_cancelled)) => result,
+                    result = async {
+                        match snapshot {
+                            NativeObserverSnapshot::Json(snapshot) => {
+                                let _ = tokio::task::spawn_blocking(move || super::codex_approval_application::finish_observation(&apply_state, &apply_id, snapshot, result, &apply_cancelled)).await;
+                            }
+                            NativeObserverSnapshot::Sql(sql, snapshot) => {
+                                match sql.finish_native_observation(snapshot, result).await {
+                                    Ok(_) => { storage_errors.send_if_modified(|error| error.take().is_some()); }
+                                    Err(crate::session_store::StoreError::Conflict) => {}
+                                    Err(error) => { let _ = storage_errors.send(Some(Arc::new(error))); }
+                                }
+                            }
+                        }
+                    } => result,
                 };
             }
             // TUI and app-server exits can race. Observe liveness after the
@@ -1482,6 +1557,7 @@ impl NativeObserverControl {
             native.shutdown().await;
         });
         Self {
+            storage_error,
             stop,
             failed,
             task: Some(task),
@@ -8068,3 +8144,6 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
 #[cfg(all(test, unix))]
 #[path = "codex_native_diagnostic.rs"]
 mod native_diagnostic;
+
+#[cfg(test)]
+mod sql_observer_driver_tests;

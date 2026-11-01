@@ -2544,6 +2544,9 @@ mod tests {
 }
 
 #[cfg(test)]
-mod sql_tests;
+pub(crate) mod sql_tests;
 
 pub(crate) mod sql_context;
+
+#[cfg(test)]
+mod sql_observer_tests;

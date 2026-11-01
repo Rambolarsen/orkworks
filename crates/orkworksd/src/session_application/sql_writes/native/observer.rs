@@ -1,0 +1,162 @@
+//! Source-only SQL observer read/RPC boundary; never selects a production store.
+use super::*;
+use crate::runtime::codex_approval_application::sql_context::{self, ObservationContext};
+use crate::runtime::codex_native::{NativeError, NativeObservation};
+
+pub(crate) struct SqlObservationSnapshot {
+    owner: std::sync::Weak<SessionWrites>,
+    id: String,
+    context: Arc<ObservationContext>,
+}
+impl SqlObservationSnapshot {
+    pub(crate) fn root(&self) -> &str {
+        self.context.root().expect("validated native root")
+    }
+}
+impl SessionWrites {
+    pub(crate) fn native_matches_state(&self, state: &Arc<AppState>) -> bool {
+        Arc::ptr_eq(&self.state, state)
+    }
+    pub(crate) async fn begin_native_observation(
+        self: &Arc<Self>,
+        id: String,
+        generation: u64,
+        cancelled: Arc<AtomicBool>,
+    ) -> Result<Option<SqlObservationSnapshot>, StoreError> {
+        let context = self
+            .native_current(id.clone(), None, None, move |_, h, authority| {
+                ObservationContext::capture(h, generation, cancelled, authority)
+            })
+            .await?
+            .flatten()
+            .ok_or(StoreError::Conflict)?;
+        let context = Arc::new(context);
+        let record = self.native_observer_record(&id).await?;
+        let captured = self
+            .native_current(id.clone(), None, None, move |_, h, authority| {
+                sql_context::begin_sql_observation(h, &record.metadata, &context, authority)
+            })
+            .await?
+            .flatten()
+            .ok_or(StoreError::Conflict)?;
+        let (context, effects) = captured;
+        let context = Arc::new(context);
+        let mut published = false;
+        for effect in effects {
+            match self
+                .native_inner(
+                    id.clone(),
+                    effect,
+                    context.cancellation(),
+                    COORDINATED_METADATA_WRITERS,
+                    Some(context.clone()),
+                )
+                .await
+            {
+                Ok(Outcome::Committed) => published = true,
+                // Rejected ticks must not starve RPCs or revoke prior ownership.
+                // Finish revalidates this original context and rereads SQL.
+                Ok(Outcome::Noop { .. } | Outcome::CommittedDetached)
+                | Err(StoreError::Conflict) => {}
+                Err(error) => return Err(error),
+            }
+        }
+        if published {
+            // Live publication changed attention ownership. Capture a fresh
+            // origin next loop rather than adopting the post-write token here.
+            return Ok(None);
+        }
+        if context.root().is_none() {
+            return Ok(None);
+        }
+        Ok(Some(SqlObservationSnapshot {
+            owner: Arc::downgrade(self),
+            id,
+            context,
+        }))
+    }
+    async fn native_observer_record(
+        &self,
+        id: &str,
+    ) -> Result<metadata::session_transactions::RevisionedSession, StoreError> {
+        let document = self
+            .store
+            .get(id.into())
+            .await?
+            .ok_or(StoreError::Missing)?;
+        Ok(serde_json::from_value(document)?)
+    }
+    pub(crate) async fn finish_native_observation(
+        self: &Arc<Self>,
+        snapshot: SqlObservationSnapshot,
+        result: Result<NativeObservation, NativeError>,
+    ) -> Result<bool, StoreError> {
+        self.finish_native_observation_inner(snapshot, result, COORDINATED_METADATA_WRITERS)
+            .await
+    }
+    #[cfg(test)]
+    pub(crate) async fn finish_native_observation_coordinated_for_test(
+        self: &Arc<Self>,
+        snapshot: SqlObservationSnapshot,
+        result: Result<NativeObservation, NativeError>,
+    ) -> Result<bool, StoreError> {
+        self.finish_native_observation_inner(snapshot, result, true)
+            .await
+    }
+    async fn finish_native_observation_inner(
+        self: &Arc<Self>,
+        snapshot: SqlObservationSnapshot,
+        result: Result<NativeObservation, NativeError>,
+        coordinated: bool,
+    ) -> Result<bool, StoreError> {
+        if !snapshot
+            .owner
+            .upgrade()
+            .is_some_and(|owner| Arc::ptr_eq(&owner, self))
+        {
+            return Err(StoreError::Conflict);
+        }
+        let id = snapshot.id;
+        let context = snapshot.context;
+        let checking = context.clone();
+        let current = self
+            .native_current(id.clone(), None, None, move |_, h, authority| {
+                checking.matches(h, &authority)
+            })
+            .await?;
+        if current != Some(true) {
+            return Err(StoreError::Conflict);
+        }
+        let record = self.native_observer_record(&id).await?;
+        let finishing = context.clone();
+        let effects = self
+            .native_current(id.clone(), None, None, move |_, h, authority| {
+                sql_context::finish_sql_observation(
+                    h,
+                    &record.metadata,
+                    &finishing,
+                    authority,
+                    result,
+                )
+            })
+            .await?
+            .flatten()
+            .ok_or(StoreError::Conflict)?;
+        for effect in effects {
+            match self
+                .native_inner(
+                    id.clone(),
+                    effect,
+                    context.cancellation(),
+                    coordinated,
+                    Some(context.clone()),
+                )
+                .await?
+            {
+                Outcome::Committed => {}
+                Outcome::Noop { .. } | Outcome::CommittedDetached => return Ok(false),
+            }
+        }
+        Ok(true)
+    }
+}

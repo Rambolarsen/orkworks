@@ -406,6 +406,15 @@ struct Shared {
     lanes: Mutex<std::collections::HashMap<String, std::sync::Weak<tokio::sync::Mutex<()>>>>,
     #[cfg(test)]
     after_claim: Mutex<Option<(String, oneshot::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
+    #[cfg(test)]
+    before_get: Mutex<
+        Option<(
+            String,
+            usize,
+            oneshot::Sender<()>,
+            std::sync::mpsc::Receiver<()>,
+        )>,
+    >,
 }
 impl Shared {
     fn retire_cancelled(&self, state: &Arc<AtomicU8>) {
@@ -560,6 +569,8 @@ impl SessionStore {
             lanes: Mutex::new(Default::default()),
             #[cfg(test)]
             after_claim: Mutex::new(None),
+            #[cfg(test)]
+            before_get: Mutex::new(None),
         });
         let (ready_tx, ready_rx) = oneshot::channel();
         let (finished_tx, finished) = watch::channel(false);
@@ -897,6 +908,27 @@ impl Drop for SessionStore {
 fn execute_command(_shared: &Shared, command: Command, db: &mut Database) -> Result<Reply> {
     #[cfg(test)]
     {
+        let read = {
+            let mut gate = _shared.before_get.lock().unwrap();
+            if let (Command::Get(id), Some((expected, remaining, ..))) = (&command, gate.as_mut()) {
+                if id == expected {
+                    *remaining -= 1;
+                    if *remaining == 0 {
+                        gate.take()
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        };
+        if let Some((_, _, entered, release)) = read {
+            let _ = entered.send(());
+            let _ = release.recv();
+        }
         let gate = {
             let mut gate = _shared.after_claim.lock().unwrap();
             if matches!(&command, Command::Internal { id, .. } if gate.as_ref().is_some_and(|(expected, ..)| expected == id))
@@ -949,6 +981,26 @@ pub(crate) mod testing {
             }
         }).await.expect("application mutation did not enter the worker queue");
     }
+    pub(crate) async fn wait_for_get(store: &SessionStore, id: &str) {
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let queued = store
+                    .shared
+                    .queue
+                    .lock()
+                    .unwrap()
+                    .reads
+                    .iter()
+                    .any(|job| matches!(&job.command, Command::Get(queued) if queued == id));
+                if queued {
+                    return;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("observer metadata read did not enter the worker queue");
+    }
     pub(crate) struct ClaimPause {
         entered: Option<oneshot::Receiver<()>>,
         release: Option<std::sync::mpsc::Sender<()>>,
@@ -966,6 +1018,16 @@ pub(crate) mod testing {
             if let Some(release) = self.release.take() {
                 let _ = release.send(());
             }
+        }
+    }
+    pub(crate) fn hold_nth_get(store: &SessionStore, id: &str, nth: usize) -> ClaimPause {
+        assert!(nth > 0);
+        let (entered_tx, entered_rx) = oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        *store.shared.before_get.lock().unwrap() = Some((id.into(), nth, entered_tx, release_rx));
+        ClaimPause {
+            entered: Some(entered_rx),
+            release: Some(release_tx),
         }
     }
     pub(crate) fn hold_next_internal(store: &SessionStore, id: &str) -> ClaimPause {
