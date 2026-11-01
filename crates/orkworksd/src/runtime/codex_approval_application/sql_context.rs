@@ -345,32 +345,6 @@ impl ObservationContext {
     }
 }
 
-/// Retire only the still-current rejected tick; detached SQL proof grants no authority.
-pub(crate) fn reject_sql_observation_effect(
-    h: &mut SessionHandle,
-    origin: &ObservationContext,
-    issued: &IssuedEffect,
-    authority: &Option<super::super::prompt_authority::AuthoritySnapshot>,
-) -> bool {
-    if !origin.matches(h, authority) {
-        return false;
-    }
-    let tracker = h
-        .runtime
-        .native_approval
-        .as_mut()
-        .expect("validated tracker");
-    if !Arc::ptr_eq(&issued.instance, &tracker.instance)
-        || tracker.hook_revision != Some(issued.hook_revision)
-        || !h.runtime.attention_owner.owns(&issued.attention)
-        || !tracker.reducer.accepts(&issued.effect)
-    {
-        return false;
-    }
-    reject(tracker);
-    true
-}
-
 pub(crate) fn begin_sql_observation(
     h: &mut SessionHandle,
     meta: &crate::metadata::SessionMetadata,

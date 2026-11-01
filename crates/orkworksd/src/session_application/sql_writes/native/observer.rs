@@ -40,27 +40,23 @@ impl SessionWrites {
             .flatten()
             .ok_or(StoreError::Conflict)?;
         let (context, effects) = captured;
-        if !effects.is_empty() {
-            // A tick's durable publication changes attention ownership. The
-            // next loop captures a new origin rather than adopting a token here.
-            let context = Arc::new(context);
-            for effect in effects {
-                match self
-                    .native(id.clone(), effect.clone(), context.cancellation())
-                    .await?
-                {
-                    Outcome::Committed => {}
-                    Outcome::Noop { .. } | Outcome::CommittedDetached => {
-                        let origin = context.clone();
-                        self.native_current(id.clone(), None, None, move |_, h, authority| {
-                            sql_context::reject_sql_observation_effect(
-                                h, &origin, &effect, &authority,
-                            )
-                        })
-                        .await?;
-                    }
-                }
+        let mut published = false;
+        for effect in effects {
+            match self
+                .native(id.clone(), effect, context.cancellation())
+                .await
+            {
+                Ok(Outcome::Committed) => published = true,
+                // Rejected ticks must not starve RPCs or revoke prior ownership.
+                // Finish revalidates this original context and rereads SQL.
+                Ok(Outcome::Noop { .. } | Outcome::CommittedDetached)
+                | Err(StoreError::Conflict) => {}
+                Err(error) => return Err(error),
             }
+        }
+        if published {
+            // Live publication changed attention ownership. Capture a fresh
+            // origin next loop rather than adopting the post-write token here.
             return Ok(None);
         }
         if context.root().is_none() {
