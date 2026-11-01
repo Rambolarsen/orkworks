@@ -159,7 +159,10 @@ never cached or replayed as effects.
 
 Capture immutable references to the same five logical lines currently selected
 by `snapshot_input_context`, plus their output revision. Normalize and classify
-the same three lines outside the sessions mutex and projection fence. Cache the
+all five selected lines outside the sessions mutex and projection fence. This
+conservative coverage preserves prompts previously checked after the old
+newest-first snapshot was reversed, including prompts followed by ordinary
+output, and also covers the newest selected lines. Cache the
 boolean by runtime identity and exact selected-line revision. Revalidate both
 before enqueue while retaining ADR 0075's preparation/enqueue transaction.
 Never move the sensitivity observation to after delivery or inspect echoed input.

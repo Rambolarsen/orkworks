@@ -2383,6 +2383,47 @@ mod tests {
     }
 
     #[test]
+    fn trailing_output_after_password_prompt_cannot_record_a_secret() {
+        for trailing in [3, 4] {
+            let (state, _dir) = prompted_session_state("trailing-sensitive");
+            {
+                let mut sessions = state.sessions.lock().unwrap();
+                let handle = sessions.get_mut("trailing-sensitive").unwrap();
+                handle.output_buffer.push("Password:".into());
+                for _ in 0..trailing {
+                    handle
+                        .output_buffer
+                        .push("ordinary background output".into());
+                }
+            }
+            let context = snapshot_input_context(&state, "trailing-sensitive");
+            assert!(context.0, "prompt followed by {trailing} lines");
+            let read = || {
+                state
+                    .workspace
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .metadata
+                    .read_session("trailing-sensitive")
+                    .unwrap()
+            };
+            let original = read();
+            record_peon_input_side_effects(
+                &state,
+                "trailing-sensitive",
+                "my protected response\r",
+                context.0,
+                context.1,
+            );
+            let after = read();
+            assert_eq!(after.last_user_input, original.last_user_input);
+            assert_eq!(after.label, original.label);
+        }
+    }
+
+    #[test]
     fn oversized_observation_is_sensitive_before_input_and_cannot_record_a_topic() {
         let (state, _dir) = prompted_session_state("oversized-sensitive");
         state

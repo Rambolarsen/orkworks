@@ -156,3 +156,26 @@ subsequently approved the concurrency/security design on 2026-11-01.
 - Implementation/review is complete; required PR CI and owner-controlled live
   long-session validation remain separate gates. Taskmaster returned no active
   recommendations to tie off.
+
+- External Codex and Copilot review of `62e49b39` found two valid regressions.
+  Both were reproduced before correction: the newest-first sensitivity snapshot
+  omitted previously protected prompt lines after three/four trailing ordinary
+  rows, and mirroring derived capacity into the live metadata baseline kept
+  attention capped during the clearing response. Sensitivity now checks all
+  five selected, already-budgeted rows; capacity stays in `CapacityState`.
+  New regressions exercise protected metadata and repeated-list recovery after
+  accepted input or hook clear, including authoritative alive-session metadata.
+- One strengthened recovery fixture initially inherited dead/ended lifecycle
+  defaults from the metadata helper. It was corrected to alive before the final
+  verifier rerun; both targeted regressions now pass. No product lifecycle
+  behavior changed.
+- Fresh independent `/code-review medium` found no remaining critical or
+  required findings after those corrections. Current Rust diff SHA-256:
+  `190283e0a0157fe8275cc56382255cdf530e544d351fdb8a1db3149a2e25c8f3`.
+
+- Review-fix source passed the full `scripts/verify-repo.sh` run: 2,371 Rust
+  unit tests passed, zero failed, 16 ignored; all integration, desktop, docs,
+  build and close-out checks passed. The public-onboarding warning was reviewed
+  against the same source-only/live-validation boundary described above.
+  Substantial review cycle 1/3 will request fresh Codex and Copilot review on
+  the committed fix head; no additional runtime changes are pending.

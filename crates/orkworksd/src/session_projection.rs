@@ -715,7 +715,6 @@ impl SessionProjection {
                     clear_latch: scoped_observation.is_some_and(|o| o.clear_latch),
                 };
                 let newly_latched = handle.capacity.apply_observation(&final_observation);
-                handle.info.at_usage_limit = info.at_usage_limit;
                 handle.info.usage_limit_reset_hint = info.usage_limit_reset_hint.clone();
                 if newly_latched {
                     handle.runtime.usage_limit_latched_at = prepared
@@ -1076,6 +1075,63 @@ mod tests {
                     > 0
             );
         });
+    }
+
+    #[test]
+    fn recovered_capacity_restores_authoritative_attention_in_the_same_list() {
+        for hook_clear in [false, true] {
+            let (_dir, state, _receiver) = input_fixture();
+            {
+                let mut sessions = state.sessions.lock().unwrap();
+                let handle = sessions.get_mut("lag-test").unwrap();
+                handle.info.harness_id = Some("opencode".into());
+                handle.info.harness = Some("opencode".into());
+                handle.info.attention = Some("working".into());
+                handle.output_buffer.push("usage limit reached".into());
+                handle.capacity.record_output(1, 20);
+            }
+            let mut meta = test_session_metadata(
+                "lag-test",
+                "Known",
+                _dir.path().display().to_string(),
+                "running",
+                "2026-11-01T00:00:00Z",
+                "2026-11-01T00:00:00Z",
+            );
+            meta.lifecycle = "alive".into();
+            meta.lifecycle_phase = "alive".into();
+            meta.harness = "opencode".into();
+            meta.attention = Some("working".into());
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .write_session(&meta);
+            let projection = SessionProjection::new(state.clone());
+            let capped = projection.list().unwrap();
+            assert_eq!(capped[0].attention.as_deref(), Some("capped"));
+            {
+                let mut sessions = state.sessions.lock().unwrap();
+                let handle = sessions.get_mut("lag-test").unwrap();
+                if hook_clear {
+                    handle.capacity.clear_latch_and_rearm();
+                } else {
+                    handle.capacity.accepted_input();
+                }
+                handle.output_buffer.push("ordinary fresh output".into());
+                handle.capacity.record_output(1, 20);
+            }
+            let recovered = projection.list().unwrap();
+            assert_eq!(recovered[0].at_usage_limit, Some(false));
+            assert_eq!(
+                recovered[0].attention.as_deref(),
+                Some("working"),
+                "hook_clear={hook_clear}"
+            );
+        }
     }
 
     #[test]

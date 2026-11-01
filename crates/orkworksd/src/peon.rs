@@ -163,10 +163,10 @@ impl SensitivitySnapshot {
         {
             return true;
         }
-        self.lines
-            .iter()
-            .take(3)
-            .any(|line| password_prompt_line(line))
+        // The former newest-first last_n(5) was reversed by the detector.
+        // Cover all selected lines so trailing background output cannot hide
+        // a previously protected prompt, while also covering the newest ones.
+        self.lines.iter().any(|line| password_prompt_line(line))
     }
 }
 
