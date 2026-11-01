@@ -3219,6 +3219,9 @@ html, body, #root {
 .skills-plugin-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 8px 10px; overflow-wrap: anywhere; }
 .skills-plugin-heading > svg { flex-shrink: 0; color: var(--text-muted); }
 .skills-badge.skills-badge--overlap { display: inline-flex; align-items: center; gap: 5px; color: var(--text-primary); border: 1px solid var(--accent-focus); }
+.skills-badge.skills-badge--modified { display: inline-flex; align-items: center; gap: 5px; color: var(--text-primary); border: 1px solid var(--text-muted); }
+.skills-integrity { font-size: 12px; color: var(--text-muted); }
+.skills-integrity--differs { color: var(--text-primary); font-weight: 600; }
 .skills-row { min-width: 0; border-bottom: 1px solid var(--border-subtle); }
 .skills-row-heading { flex-wrap: wrap; cursor: pointer; padding: 10px 8px; min-height: 22px; border-radius: 6px; list-style: none; }
 .skills-row-heading::-webkit-details-marker { display: none; }

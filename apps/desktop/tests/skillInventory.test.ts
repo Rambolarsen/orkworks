@@ -1,6 +1,7 @@
 import test from "node:test";
+import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
-import {
+import fsPromises, {
   mkdtemp,
   mkdir,
   writeFile,
@@ -9,6 +10,7 @@ import {
   realpath,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { syncBuiltinESMExports } from "node:module";
 import { join } from "node:path";
 import { discoverSkills, readSkillDetail } from "../electron/skillInventory.ts";
 
@@ -334,4 +336,120 @@ test("retains coding-tool plugin registration when the same source has an APM ow
   assert.equal(result.skills[0].management, "apm");
   assert.equal(result.skills[0].packageSource, "owner/package");
   assert.deepEqual(result.skills[0].plugins, ["sample@local"]);
+});
+
+
+test("compares complete APM instruction files and distinguishes missing or unsupported hashes", async (t) => {
+  const f = await fixture(t);
+  const original = "---\nname: recorded\ndescription: Has an APM baseline.\n---\n" + "body\n".repeat(20000);
+  const expected = "sha256:" + createHash("sha256").update(original).digest("hex");
+  const files = ["same", "changed", "missing-hash", "unsupported-hash"];
+  for (const name of files) await f.put(f.workspace, `.agents/skills/${name}`, original + (name === "changed" ? "Local edit.\n" : ""));
+  await writeFile(join(f.workspace, "apm.lock.yaml"), JSON.stringify({ dependencies: [{
+    repo_url: "owner/package", deployed_files: files.map(name => `.agents/skills/${name}/SKILL.md`),
+    deployed_file_hashes: {
+      ".agents/skills/same/SKILL.md": expected,
+      ".agents/skills/changed/SKILL.md": expected,
+      ".agents/skills/unsupported-hash/SKILL.md": "sha512:unsupported",
+    },
+  }] }));
+  const result = await discoverSkills({ workspace: f.workspace, home: f.home, env: {} });
+  const status = (name: string) => result.skills.find(skill => skill.paths[0].endsWith("/" + name))?.apmIntegrity?.status;
+  assert.equal(status("same"), "matches");
+  assert.equal(status("changed"), "differs");
+  assert.equal(status("missing-hash"), "unavailable");
+  assert.equal(status("unsupported-hash"), "unavailable");
+  assert.ok(result.skills.every(skill => skill.management === "apm"));
+  await writeFile(join(f.workspace, ".agents/skills/same/SKILL.md"), original + "Later edit.\n");
+  const refreshed = await discoverSkills({ workspace: f.workspace, home: f.home, env: {} });
+  assert.equal(refreshed.skills.find(skill => skill.paths[0].endsWith("/same"))?.apmIntegrity?.status, "differs");
+});
+
+test("does not choose a winning baseline when APM alias records have conflicting hashes", async (t) => {
+  const f = await fixture(t);
+  const text = "---\nname: alias\ndescription: Aliased instructions.\n---\nOriginal.\n";
+  const original = await f.put(f.workspace, ".agents/skills/example", text);
+  await mkdir(join(f.workspace, ".claude/skills"), { recursive: true });
+  await symlink(original, join(f.workspace, ".claude/skills/example"), "dir");
+  await writeFile(join(f.workspace, "apm.lock.yaml"), JSON.stringify({ dependencies: [{
+    repo_url: "owner/package", deployed_files: [".agents/skills/example/SKILL.md", ".claude/skills/example/SKILL.md"],
+    deployed_file_hashes: {
+      ".agents/skills/example/SKILL.md": "sha256:" + createHash("sha256").update(text).digest("hex"),
+      ".claude/skills/example/SKILL.md": "sha256:" + "0".repeat(64),
+    },
+  }] }));
+  const result = await discoverSkills({ workspace: f.workspace, home: f.home, env: {} });
+  assert.equal(result.skills.length, 1);
+  assert.equal(result.skills[0].apmIntegrity?.status, "unavailable");
+  assert.match(result.skills[0].apmIntegrity?.reason || "", /conflicting/i);
+  for (const incomplete of [undefined, "sha512:unsupported"]) {
+    await writeFile(join(f.workspace, "apm.lock.yaml"), JSON.stringify({ dependencies: [{
+      repo_url: "owner/package", deployed_files: [".agents/skills/example/SKILL.md", ".claude/skills/example/SKILL.md"],
+      deployed_file_hashes: {
+        ".agents/skills/example/SKILL.md": "sha256:" + createHash("sha256").update(text).digest("hex"),
+        ".claude/skills/example/SKILL.md": incomplete,
+      },
+    }] }));
+    const unknown = await discoverSkills({ workspace: f.workspace, home: f.home, env: {} });
+    assert.equal(unknown.skills[0].apmIntegrity?.status, "unavailable");
+    assert.match(unknown.skills[0].apmIntegrity?.reason || "", /missing|unsupported/i);
+  }
+});
+
+test("bounds APM file comparisons per file and per inventory without reporting limits as edits", async (t) => {
+  const f = await fixture(t);
+  const header = "---\nname: bounded\ndescription: Bounded hash comparison.\n---\n";
+  const text = header + "x".repeat(1024 * 1024 - 1 - header.length);
+  const hash = "sha256:" + createHash("sha256").update(text).digest("hex");
+  const files = Array.from({ length: 17 }, (_, n) => `.agents/skills/bounded-${String(n).padStart(2, "0")}/SKILL.md`);
+  for (const file of files) await f.put(f.workspace, file.slice(0, -9), text);
+  await f.put(f.workspace, ".agents/skills/too-large", text + "extra");
+  files.unshift(".agents/skills/too-large/SKILL.md");
+  await writeFile(join(f.workspace, "apm.lock.yaml"), JSON.stringify({ dependencies: [{
+    repo_url: "owner/package", deployed_files: files,
+    deployed_file_hashes: Object.fromEntries(files.map(file => [file, hash])),
+  }] }));
+  const result = await discoverSkills({ workspace: f.workspace, home: f.home, env: {} });
+  assert.equal(result.skills.filter(skill => skill.apmIntegrity?.status === "matches").length, 16);
+  assert.equal(result.skills.filter(skill => skill.apmIntegrity?.status === "unavailable").length, 2);
+  assert.equal(result.skills.filter(skill => skill.apmIntegrity?.status === "differs").length, 0);
+});
+
+
+test("reports unavailable when SKILL.md changes during a hash read", async (t) => {
+  const f = await fixture(t);
+  const text = "---\nname: unstable\ndescription: File changes during comparison.\n---\n" + "body\n".repeat(20000);
+  const directory = await f.put(f.workspace, ".agents/skills/unstable", text);
+  const target = join(await realpath(directory), "SKILL.md");
+  await writeFile(join(f.workspace, "apm.lock.yaml"), JSON.stringify({ dependencies: [{
+    repo_url: "owner/package", deployed_files: [".agents/skills/unstable/SKILL.md"],
+    deployed_file_hashes: { ".agents/skills/unstable/SKILL.md": "sha256:" + createHash("sha256").update(text).digest("hex") },
+  }] }));
+  const originalOpen = fsPromises.open;
+  let changed = false;
+  // Keep real handles/reads; mutate the real file after the first sequential hash read.
+  fsPromises.open = async (...args) => {
+    const handle = await originalOpen(...args);
+    if (String(args[0]) === target) {
+      const read = handle.read.bind(handle);
+      handle.read = async (...readArgs) => {
+        const result = await read(...readArgs);
+        if (readArgs[3] === null && result.bytesRead > 0 && !changed) {
+          changed = true;
+          await writeFile(target, text + "Concurrent edit.\n");
+        }
+        return result;
+      };
+    }
+    return handle;
+  };
+  syncBuiltinESMExports();
+  try {
+    const result = await discoverSkills({ workspace: f.workspace, home: f.home, env: {} });
+    assert.equal(result.skills[0].apmIntegrity?.status, "unavailable");
+    assert.match(result.skills[0].apmIntegrity?.reason || "", /changed while reading/i);
+  } finally {
+    fsPromises.open = originalOpen;
+    syncBuiltinESMExports();
+  }
 });

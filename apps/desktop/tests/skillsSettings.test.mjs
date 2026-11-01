@@ -144,7 +144,11 @@ if (process.env.ORKWORKS_SKILLS_FIXTURE) {
       assert.equal(await evaluate('document.querySelectorAll("[data-skill-source=multi]").length'), 2, 'a source can belong to two plugins without inflating global counts');
       assert.equal(await evaluate(`document.querySelectorAll('[data-skill-plugin="Plugin (name unknown)"] [data-skill-source]').length`), 1);
       assert.equal(await evaluate('document.querySelector("[data-local-skills] [data-skill-source]").dataset.skillSource'), 'apm-local');
+      assert.equal(await evaluate('document.querySelectorAll("[data-skill-modified]").length'), 1, 'only the row containing a changed source gets a cue');
+      await click('[data-skill-plugin="alpha@local"] [data-skill-row="apm-skill"] summary');
+      assert.match(await evaluate('document.querySelector("[data-skill-source=apm-plugin] [data-apm-integrity]").innerText'), /unavailable.*No recorded SHA-256/s);
       await click('[data-skill-plugin="alpha@local"] [data-skill-row="multi-skill"] summary');
+      assert.match(await evaluate('document.querySelector("[data-skill-source=multi] [data-apm-integrity]").innerText'), /matches APM record/);
       assert.match(await evaluate('document.querySelector("[data-skill-source=multi] h4").innerText'), /APM.*sources\/very-long-package-name/);
       for (const width of [1000, 700, 360]) {
         win.setContentSize(width, 850);
@@ -159,9 +163,15 @@ if (process.env.ORKWORKS_SKILLS_FIXTURE) {
       win.setContentSize(1000, 850);
       await click('[data-local-skills] [data-skill-row] summary');
       assert.match(await evaluate('document.querySelector("[data-skill-source=apm-local] h4").innerText'), /APM.*owner\/package/);
+      assert.match(await evaluate('document.querySelector("[data-skill-source=apm-local] [data-apm-integrity]").innerText'), /differs from APM record/);
       await search('owner/package');
       await wait('document.querySelectorAll("[data-skill-source]").length===1');
       assert.equal(await evaluate('document.querySelector("[data-skill-source]").dataset.skillSource'), 'apm-local');
+      if (process.env.ORKWORKS_SKILLS_CAPTURE) {
+        const { writeFileSync } = await import("node:fs");
+        await evaluate(`document.querySelector('[data-skill-source="apm-local"]').scrollIntoView({block:"center"});new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))`);
+        writeFileSync(process.env.ORKWORKS_SKILLS_CAPTURE + ".hash.png", (await win.webContents.capturePage()).toPNG());
+      }
       app.exit(0);
     } catch (error) {
       console.error(error);

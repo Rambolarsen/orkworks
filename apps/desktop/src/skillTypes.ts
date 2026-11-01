@@ -12,6 +12,7 @@ export interface SkillEntry {
   management: "local" | "apm" | "plugin";
   plugins?: string[];
   packageSource?: string;
+  apmIntegrity?: { status: "matches" | "differs" | "unavailable"; reason?: string };
   version?: string;
 }
 export interface SkillInventory {
