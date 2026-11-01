@@ -334,6 +334,7 @@ if (process.versions.electron) {
           await win.setContentSize(width,700);
           await waitFor(`document.querySelector(".shell-layout").dataset.mode==="${width>=1180?'wide':width>=860?'medium':'compact'}"`);
           await waitFor('document.querySelector(".git-changes")');
+          assert.equal(await evaluate('!!document.querySelector(".shell-toolbar [data-shell-command=terminal]")'),true,'Changes exposes Terminal in the shared header');
           assert.equal(await evaluate('(()=>{const p=document.querySelector(".git-changes");return p.scrollWidth<=p.clientWidth+1})()'),true,'Changes fits the content width');
           assert.equal(await evaluate('(()=>{const p=document.querySelector(".git-changes-file-content");return p.getBoundingClientRect().height>80})()'),true,'diff retains reading space');
           await evaluate('fixture.output("changes panel output\\r\\n")');
@@ -363,23 +364,68 @@ if (process.versions.electron) {
         await evaluate('document.querySelector("[data-diff-more]").click()');
         await waitFor('document.querySelector(".git-changes-patch").textContent.includes("row1099")');
         assert.equal(await evaluate('!!document.querySelector("[data-diff-more]")'),false,'the last batch is reachable');
+        // Refresh a surviving file while reading beyond the initial display batch.
+        await evaluate('fixture.changePatch = fixture.changePatch.replaceAll(";", "; "+"x".repeat(400));document.querySelector("[data-git-refresh]").click()');
+        await waitFor('document.querySelector(".git-changes-patch")?.textContent.includes("xxxx")');
+        if (await evaluate('!!document.querySelector("[data-diff-more]")')) await evaluate('document.querySelector("[data-diff-more]").click()');
+        await evaluate('(()=>{const p=document.querySelector(".git-changes-file-content");p.scrollTop=26000;p.scrollLeft=200})()');
+        await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        const readingPosition=await evaluate('(()=>{const p=document.querySelector(".git-changes-file-content");return [p.scrollTop,p.scrollLeft]})()');
+        assert.ok(readingPosition[0]>25000 && readingPosition[1]>0,'fixture must scroll vertically beyond row 1000 and horizontally');
+        await evaluate('document.querySelector("[data-git-refresh]").click()');
+        await waitFor('!document.querySelector("[data-git-refresh]").disabled && document.querySelector(".git-changes-patch")?.textContent.includes("xxxx")');
+        assert.deepEqual(await evaluate('(()=>{const p=document.querySelector(".git-changes-file-content");return [p.scrollTop,p.scrollLeft]})()'),readingPosition,'same-file Refresh preserves both reading axes and expanded rows');
+        await evaluate('fixture.changeFailure=true;document.querySelector("[data-git-refresh]").click()');
+        await waitFor('document.querySelector(".git-changes [role=alert]")?.textContent.includes("fixture refresh failed")');
+        assert.deepEqual(await evaluate('(()=>{const p=document.querySelector(".git-changes-file-content");return [p.scrollTop,p.scrollLeft]})()'),readingPosition,'failed Refresh retains the old reading position');
+        await evaluate('fixture.changeFailure=false');
+        await evaluate('fixture.deferPatch=true;fixture.finishPatch=null;document.querySelector("[data-git-refresh]").click()');
+        await waitFor('!!fixture.finishPatch && !document.querySelector(".git-changes-patch")');
+        await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        await evaluate('fixture.deferPatch=false;fixture.finishPatch()');
+        await waitFor('document.querySelector(".git-changes-patch")?.textContent.includes("row1099")');
+        assert.deepEqual(await evaluate('(()=>{const p=document.querySelector(".git-changes-file-content");return [p.scrollTop,p.scrollLeft]})()'),readingPosition,'delayed replacement patch restores the reading position');
         await evaluate('document.querySelector(".git-changes-filter input").focus();document.querySelector(".git-changes-filter input").select()');
         await win.webContents.insertText('.ts');
         await waitFor('document.querySelectorAll(".git-changes-files button").length===2');
         await evaluate('Array.from(document.querySelectorAll(".git-changes-files button")).find(b=>b.textContent.includes("other.ts")).click()');
         await waitFor('document.querySelector("[data-diff-more]") && document.querySelector(".git-changes-file-header h3").textContent==="other.ts"');
         assert.equal(await evaluate('document.querySelectorAll(".git-diff-line").length'),999,'switching files resets the initial display batch');
+        assert.deepEqual(await evaluate('(()=>{const p=document.querySelector(".git-changes-file-content");return [p.scrollTop,p.scrollLeft]})()'),[0,0],'switching files resets the reading position');
         assert.doesNotMatch(await evaluate('document.querySelector(".git-changes-patch").textContent'),/row1099/);
         await evaluate('fixture.partialChanges=true;document.querySelector("[data-git-refresh]").click()');
         await waitFor('document.querySelector(".git-changes-count")?.textContent.includes("Totals unavailable")');
         assert.match(await evaluate('document.querySelector(".git-changes-status").textContent'),/Partial comparison/);
+        await evaluate('(()=>{const p=document.querySelector(".git-changes-file-content");p.scrollTop=1000;p.scrollLeft=100})()');
+        await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        await evaluate('fixture.omitOtherFile=true;document.querySelector("[data-git-refresh]").click()');
+        await waitFor('document.querySelector(".git-changes-file-header h3")?.textContent==="change.ts" && document.querySelector(".git-changes-patch")');
+        assert.equal(await evaluate('document.activeElement===document.querySelector(".git-changes-file-list h3")'),true,'missing selected file focuses the file-list heading');
+        assert.deepEqual(await evaluate('(()=>{const p=document.querySelector(".git-changes-file-content");return [p.scrollTop,p.scrollLeft]})()'),[0,0],'fallback file starts at the beginning');
+        await evaluate('(()=>{const p=document.querySelector(".git-changes-file-content");p.scrollTop=1000;p.scrollLeft=100})()');
+        await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        await evaluate('fixture.emptyChanges=true;document.querySelector("[data-git-refresh]").click()');
+        await waitFor('!document.querySelector(".git-changes-file-content") && !document.querySelector("[data-git-refresh]").disabled');
+        await evaluate('fixture.emptyChanges=false;document.querySelector("[data-git-refresh]").click()');
+        await waitFor('document.querySelector(".git-changes-patch")');
+        assert.deepEqual(await evaluate('(()=>{const p=document.querySelector(".git-changes-file-content");return [p.scrollTop,p.scrollLeft]})()'),[0,0],'an empty comparison clears the old reading position');
+        for (const selectComparison of [
+          '(()=>{const s=document.querySelector("[data-git-comparison]");s.value="branch";s.dispatchEvent(new Event("change",{bubbles:true}))})()',
+          '(()=>{const s=document.querySelector(".git-changes-toolbar label:nth-child(2) select");s.value="refs/heads/release";s.dispatchEvent(new Event("change",{bubbles:true}))})()',
+        ]) {
+          await evaluate('(()=>{const p=document.querySelector(".git-changes-file-content");p.scrollTop=1000;p.scrollLeft=100})()');
+          await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+          await evaluate(selectComparison);
+          await waitFor('document.querySelector(".git-changes-patch") && !document.querySelector("[data-git-refresh]").disabled');
+          assert.deepEqual(await evaluate('(()=>{const p=document.querySelector(".git-changes-file-content");return [p.scrollTop,p.scrollLeft]})()'),[0,0],'comparison and base switches reset the reading position');
+        }
         if (process.env.ORKWORKS_CAPTURE_CHANGES) {
           await win.setContentSize(1440,900);
           await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
           const {writeFileSync} = await import('node:fs');
           writeFileSync(process.env.ORKWORKS_CAPTURE_CHANGES,(await win.webContents.capturePage()).toPNG());
         }
-        await evaluate('document.querySelector("[data-git-back]").click()');
+        await evaluate('document.querySelector(".shell-toolbar [data-shell-command=terminal]").click()');
         await waitFor('fixture.runtime()?.terminal.element?.isConnected');
         await waitFor('document.activeElement?.classList.contains("xterm-helper-textarea") || document.activeElement?.hasAttribute("data-shell-terminal-focus")');
         await click('changes');
@@ -1846,12 +1892,14 @@ if (process.versions.electron) {
           window.orkworks.sessionTitle=async request=>{fixture.titleRequests.push(request);if(fixture.deferTitle)await new Promise(resolve=>fixture.finishTitle=resolve);return {title:request.action==='automatic'?'Automatic login topic':request.title,automatic:request.action!=='set'}};
           window.orkworks.pinWorkspacePath=async()=>{fixture.pins++;return {pinned:[],recent:['/tmp/test','/tmp/other'],diagnostic:null}};
           window.orkworks.readGitChanges=async request=>{
-            if(request.kind==='bases'){if(fixture.deferBases)await new Promise(resolve=>fixture.finishBases=resolve);return {refs:['refs/heads/main'],defaultRef:'refs/heads/main',limited:false,unavailableReason:null};}
-            if(request.kind==='file')return {snapshotId:request.snapshotId,fileId:request.fileId,patch:fixture.changePatch||(request.snapshotId.includes('branch')?'+committed edit':'+working edit'),notice:null};
+            if(request.kind==='bases'){if(fixture.deferBases)await new Promise(resolve=>fixture.finishBases=resolve);return {refs:['refs/heads/main','refs/heads/release'],defaultRef:'refs/heads/main',limited:false,unavailableReason:null};}
+            if(request.kind==='file'){const result={snapshotId:request.snapshotId,fileId:request.fileId,patch:fixture.changePatch||(request.snapshotId.includes('branch')?'+committed edit':'+working edit'),notice:null};if(fixture.deferPatch)await new Promise(resolve=>fixture.finishPatch=resolve);return result;}
             fixture.captureCount=(fixture.captureCount||0)+1;
             if(fixture.changeFailure)throw new Error('fixture refresh failed');
             const result={snapshotId:request.comparison+'-'+request.sessionId+'-'+fixture.captureCount,sessionId:request.sessionId,worktree:fixture.worktree||'/tmp/test',gitContextSource:fixture.worktree?'agent':'launch',branch:'feature',comparison:request.comparison,baseRef:request.baseRef||null,baseOid:'bbbbbbbb',baselineOid:'aaaaaaaa',headOid:'cccccccc',capturedAt:'2026-10-24T10:00:00Z',partial:!!fixture.partialChanges,notice:null,files:[{id:'file',path:'src/change.ts',oldPath:null,status:'Modified',additions:1,deletions:0,notice:null}]};
             if(${JSON.stringify(scenario)}==='app-review-changes')result.files.push({id:'other-file',path:'src/other.ts',oldPath:null,status:'Modified',additions:1,deletions:0,notice:null});
+            if(fixture.omitOtherFile)result.files=result.files.filter(f=>f.id!=='other-file');
+            if(fixture.emptyChanges)result.files=[];
             if(fixture.deferChanges)await new Promise(resolve=>fixture.finishChanges=resolve);
             return result;
           };

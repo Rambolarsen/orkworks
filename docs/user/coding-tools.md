@@ -119,18 +119,27 @@ failures appear in that tool's status, so check the message before retrying.
 
 ## Workspace and personal skills
 
-In current source builds, open **Skills** in the left sidebar, below Recommendations to browse separate
-**Workspace** and **Personal** groups. Workspace names the exact open directory
-or worktree. Personal shows skills found in your user configuration, which may
-be available across projects. Source paths and coding-tool filters help you
-identify each copy; duplicate names remain visible in both scopes.
+In current source builds, open **Skills** in the left sidebar, below
+Recommendations. Each skill name appears once; expand it to list its discovered
+sources. Sources keep their **Workspace** or **Personal** scope, plugin name,
+version, description, paths and coding-tool coverage. The workspace caption names
+the exact open directory or worktree. Personal sources may be available across
+projects, and remain browsable without an open workspace.
 
-Rows start collapsed to keep the inventory compact. Expand a row to see its
-description, source paths and coding-tool coverage, then use **Read skill** to
-inspect instructions as text inside that row. **Discovery coverage and source
+Counts show distinct names and a separate source total. Search and the coding-tool
+and scope filters narrow the sources before names are grouped. Search also
+matches plugin names, descriptions and paths. Same-named sources can contain
+different instructions; **Read skill** opens the text for the source you choose.
+Found does not establish loaded or enabled. Codex includes cached plugin and
+system skills; multiple cached versions remain separate source entries.
+
+Rows start collapsed to keep the inventory compact. Source instructions open
+as text inside the selected source entry. **Discovery coverage and source
 roots** lists inspected locations and gaps. Found on disk does not prove
 that a coding tool loaded or used the skill, and native precedence remains
 unknown. Skills installed outside APM are visible without being modified.
+A long instruction body does not hide a skill with valid bounded metadata;
+reading its full text still has a separate size limit.
 
 To add a skill, install APM separately, choose **Add skill**, select Workspace or
 Personal, choose a local standalone skill folder, and review the addition. The

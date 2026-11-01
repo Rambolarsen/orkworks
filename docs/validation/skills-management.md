@@ -32,10 +32,45 @@ Primary references inspected:
 - [OpenCode skills](https://opencode.ai/docs/skills): project/user compatible
   roots; project configuration paths are additionally read from root JSON.
 
-Uncovered: native activation/disabled state and precedence; Codex/Copilot plugin
-registries; OpenCode JSONC/global custom paths; session-specific added directories,
+Follow-up discovery correction, 2026-11-01: inspect Codex’s explicit
+`skills/.system` root and its documented `plugins/cache/<marketplace>/<plugin>/<version>`
+packages under `CODEX_HOME` (default `~/.codex`). Portable `plugin.json` uses
+`skills/`; compatibility `.codex-plugin/plugin.json` uses its declared relative
+skills directory. Reject escaped roots, malformed manifests and unsupported
+forms with diagnostics; do not execute plugin content. Traversal has a shared
+256-directory budget, in addition to the existing root and skill budgets.
+
+[OpenAI plugin packaging](https://developers.openai.com/plugins/build/plugins)
+was checked for cache layout, portable paths and compatibility manifests.
+Temporary fixtures cover these layouts, system-only hidden traversal,
+`CODEX_HOME`, distinct cached versions, malformed/escaped paths and limits.
+A read-only inventory comparison against the same local primary workspace
+changed Codex found entries from 24 to 101; Claude 82, Copilot 54 and OpenCode 75
+were unchanged. These are discovered directory entries, not distinct effective
+skill names or native session totals. The inventory also now reads a bounded
+64 KB prefix rather than rejecting an entire skill whose instruction body
+exceeds that limit. Oversized frontmatter is still rejected and detail reads
+retain their separate existing limit. The existing APM provenance read gap
+remains diagnosed. No native session was launched.
+
+Uncovered: native activation/disabled state and precedence; Codex active cached
+version selection; the Copilot plugin registry; OpenCode JSONC/global custom paths; session-specific added directories,
 enterprise/remote skills and configuration overrides not inherited by the desktop.
 Legacy `.codex/skills` files remain visible with unknown coding-tool discovery.
+
+## Name grouping and source lists
+
+Owner requested grouping by skill name with an inspectable source list on
+2026-11-01. One row per exact name groups sources across Workspace and Personal;
+each source retains its inventory identity, scope, paths, plugin/version and
+separate instruction text. Counts distinguish names from source entries. Filters
+apply to sources before grouping, without selecting an effective winner.
+
+The Electron fixture covers one name across workspace, personal local and plugin
+sources with differing descriptions, source-ID-specific detail reads, search,
+combined coding-tool/scope filters, empty results, workspace closure, and layout
+at 360/700/1000px. Alias coalescing and discovery remain Electron-owned and are
+unchanged by this presentation adjustment.
 
 ## Initial APM profile
 

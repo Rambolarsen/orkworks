@@ -21,6 +21,8 @@ const inventory = {
       scope: "personal",
       paths: ["/home/.agents/skills/review"],
     },
+    { ...skill, id: "plugin-one", name: "review", description: "Plugin-specific review instructions.", scope: "personal", management: "plugin", plugins: ["alpha@local"], version: "1.0", paths: ["/cache/alpha/1/skills/review"], resolvedPath: "/cache/alpha/1/skills/review", tools: ["claude"] },
+    { ...skill, id: "plugin-two", name: "build", scope: "personal", management: "plugin", plugins: ["beta@local"], tools: ["claude"] },
   ],
   roots: [],
   diagnostics: ["Coverage is limited; native loading is unknown."],
@@ -31,8 +33,8 @@ let installs = 0;
 Object.assign(window, {
   orkworks: {
     getSkillInventory: async () => ({...inventory, workspace: workspaceOpen ? "/repo" : null, skills: inventory.skills.filter(skill => workspaceOpen || skill.scope === "personal")}),
-    readSkillDetail: async () =>
-      "---\nname: review\n---\nRead-only instructions.",
+    readSkillDetail: async (id: string) =>
+      `Read-only instructions for ${id}.`,
     pickSkillSource: async () => "/source/review",
     previewSkillAdd: async (request: any) => ({
       id: "preview",

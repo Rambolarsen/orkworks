@@ -403,17 +403,71 @@ fn spawn_command_future(
 /// completes — by the time an async send resolves, the child may already
 /// have echoed enough new output to scroll the prompt out of the detection
 /// window, which would misclassify a submitted secret as safe to persist.
-fn snapshot_input_context(state: &Arc<AppState>, id: &str) -> (bool, u64) {
+struct InputSensitivity {
+    generation: u64,
+    revision: u64,
+    sensitive: bool,
+}
+
+fn prepare_input_sensitivity(state: &Arc<AppState>, id: &str) -> InputSensitivity {
+    let captured = {
+        let sessions = state.sessions.lock().unwrap();
+        sessions.get(id).map(|handle| {
+            (
+                handle.runtime.run_generation(),
+                handle.output_buffer.sensitivity_snapshot(),
+            )
+        })
+    };
+    let Some((generation, snapshot)) = captured else {
+        return InputSensitivity {
+            generation: 0,
+            revision: 0,
+            sensitive: true,
+        };
+    };
+    // Shared text references and a strict byte budget bound first-key work.
+    // Neither normalization nor classification runs under application locks.
+    let sensitive = snapshot.classify();
+    {
+        let mut sessions = state.sessions.lock().unwrap();
+        if let Some(handle) = sessions.get_mut(id) {
+            if handle.runtime.run_generation() == generation {
+                handle
+                    .output_buffer
+                    .cache_sensitivity(snapshot.revision, sensitive);
+            }
+        }
+    }
+    InputSensitivity {
+        generation,
+        revision: snapshot.revision,
+        sensitive,
+    }
+}
+
+fn validate_input_sensitivity(
+    state: &Arc<AppState>,
+    id: &str,
+    captured: &InputSensitivity,
+) -> (bool, u64) {
     let sessions = state.sessions.lock().unwrap();
     sessions
         .get(id)
-        .map(|h| {
+        .map(|handle| {
             (
-                peon::looks_like_password_prompt(&h.output_buffer.last_n(5)),
-                h.runtime.peon_output_revision,
+                captured.sensitive
+                    || captured.generation != handle.runtime.run_generation()
+                    || captured.revision != handle.output_buffer.revision(),
+                handle.runtime.peon_output_revision,
             )
         })
-        .unwrap_or((false, 0))
+        .unwrap_or((true, 0))
+}
+
+fn snapshot_input_context(state: &Arc<AppState>, id: &str) -> (bool, u64) {
+    let captured = prepare_input_sensitivity(state, id);
+    validate_input_sensitivity(state, id, &captured)
 }
 
 /// The PTY control channel is the delivery authority. Only advance metadata
@@ -444,8 +498,9 @@ fn capture_pending_terminal_input(
     state: &Arc<AppState>,
     id: &str,
     data: String,
+    context: &InputSensitivity,
 ) -> (String, bool, u64, bool) {
-    let (is_sensitive, output_boundary) = snapshot_input_context(state, id);
+    let (is_sensitive, output_boundary) = validate_input_sensitivity(state, id, context);
     // A reset can only be recognized when this frame completes a line. Avoid
     // copying and reparsing the accumulated buffer on ordinary keystrokes.
     let identity_reset_prepared = if is_sensitive || !data.contains(['\r', '\n']) {
@@ -699,8 +754,9 @@ async fn submit_input_with_admission(
         let worker_id = id.clone();
         let worker_identity = identity.clone();
         let preparation = tokio::task::spawn_blocking(move || {
+            let context = prepare_input_sensitivity(&worker_state, &worker_id);
             with_current_runtime_input(&worker_state, &worker_id, &worker_identity, || {
-                let pending = capture_pending_terminal_input(&worker_state, &worker_id, data.clone());
+                let pending = capture_pending_terminal_input(&worker_state, &worker_id, data.clone(), &context);
                 let mut effect = Some((permit, crate::runtime::session_runtime::RuntimeCommand::Input {
                     data, accepted: Some(accepted_tx),
                 }));
@@ -1729,7 +1785,12 @@ mod tests {
                 if offloaded {
                     submit_approved_input(&state, id, "a".into()).await.unwrap();
                 } else {
-                    capture_pending_terminal_input(&state, id, "a".into());
+                    capture_pending_terminal_input(
+                        &state,
+                        id,
+                        "a".into(),
+                        &prepare_input_sensitivity(&state, id),
+                    );
                     record_peon_input_side_effects(&state, id, "a", false, 0);
                 }
             }
@@ -2054,12 +2115,22 @@ mod tests {
             .unwrap()
             .insert(id.into(), "/clea".into());
 
-        let typing = capture_pending_terminal_input(&state, id, "r".into());
+        let typing = capture_pending_terminal_input(
+            &state,
+            id,
+            "r".into(),
+            &prepare_input_sensitivity(&state, id),
+        );
         assert!(!typing.3);
         assert_eq!(state.peon.input_buf.read().unwrap()[id], "/clea");
 
         // Preflight parses a copy; only accepted delivery changes the real buffer.
-        let submitted = capture_pending_terminal_input(&state, id, "r\r".into());
+        let submitted = capture_pending_terminal_input(
+            &state,
+            id,
+            "r\r".into(),
+            &prepare_input_sensitivity(&state, id),
+        );
         assert!(submitted.3);
         assert_eq!(state.peon.input_buf.read().unwrap()[id], "/clea");
         record_input_after_delivery(&state, id, Some(&submitted), &Err(()));
@@ -2284,6 +2355,112 @@ mod tests {
         );
         assert_eq!(effect_identity, identity);
         assert!(with_current_runtime_input(&state, id, &identity, || ()).is_none());
+    }
+
+    #[test]
+    fn changing_output_or_runtime_invalidates_prepared_sensitivity_without_rescanning() {
+        let (state, _dir) = prompted_session_state("sensitivity-race");
+        let prepared = prepare_input_sensitivity(&state, "sensitivity-race");
+        assert!(!prepared.sensitive);
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .get_mut("sensitivity-race")
+            .unwrap()
+            .output_buffer
+            .push("Password:".into());
+        assert!(validate_input_sensitivity(&state, "sensitivity-race", &prepared).0);
+        let prepared = prepare_input_sensitivity(&state, "sensitivity-race");
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .get_mut("sensitivity-race")
+            .unwrap()
+            .runtime = crate::runtime::session_runtime::SessionRuntime::detached(24, 80);
+        assert!(validate_input_sensitivity(&state, "sensitivity-race", &prepared).0);
+    }
+
+    #[test]
+    fn trailing_output_after_password_prompt_cannot_record_a_secret() {
+        for trailing in [3, 4] {
+            let (state, _dir) = prompted_session_state("trailing-sensitive");
+            {
+                let mut sessions = state.sessions.lock().unwrap();
+                let handle = sessions.get_mut("trailing-sensitive").unwrap();
+                handle.output_buffer.push("Password:".into());
+                for _ in 0..trailing {
+                    handle
+                        .output_buffer
+                        .push("ordinary background output".into());
+                }
+            }
+            let context = snapshot_input_context(&state, "trailing-sensitive");
+            assert!(context.0, "prompt followed by {trailing} lines");
+            let read = || {
+                state
+                    .workspace
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .metadata
+                    .read_session("trailing-sensitive")
+                    .unwrap()
+            };
+            let original = read();
+            record_peon_input_side_effects(
+                &state,
+                "trailing-sensitive",
+                "my protected response\r",
+                context.0,
+                context.1,
+            );
+            let after = read();
+            assert_eq!(after.last_user_input, original.last_user_input);
+            assert_eq!(after.label, original.label);
+        }
+    }
+
+    #[test]
+    fn oversized_observation_is_sensitive_before_input_and_cannot_record_a_topic() {
+        let (state, _dir) = prompted_session_state("oversized-sensitive");
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .get_mut("oversized-sensitive")
+            .unwrap()
+            .output_buffer
+            .push("ordinary terminal redraw ".repeat(4000));
+        let context = snapshot_input_context(&state, "oversized-sensitive");
+        assert!(
+            context.0,
+            "oversized observations must fail closed before dispatch"
+        );
+        let read = || {
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session("oversized-sensitive")
+                .unwrap()
+        };
+        let original = read();
+        record_peon_input_side_effects(
+            &state,
+            "oversized-sensitive",
+            "my protected response\r",
+            context.0,
+            context.1,
+        );
+        let after = read();
+        assert_eq!(after.last_user_input, original.last_user_input);
+        assert_eq!(after.label, original.label);
     }
 
     fn prompted_session_state(session_id: &str) -> (Arc<crate::AppState>, tempfile::TempDir) {
@@ -3382,7 +3559,12 @@ mod tests {
             store.write_session(&metadata);
         }
 
-        let pending = capture_pending_terminal_input(&state, id, "/clear\r".into());
+        let pending = capture_pending_terminal_input(
+            &state,
+            id,
+            "/clear\r".into(),
+            &prepare_input_sensitivity(&state, id),
+        );
         assert!(pending.3);
         assert!(
             crate::codex_session_store::native_identity_reset_is_authorized(
@@ -4160,6 +4342,7 @@ mod tests {
                     scan_bytes_seen: 3,
                     resume_scan_origin: None,
                     pending_capacity_visible_once: false,
+                    ..Default::default()
                 },
                 active_work_hook: false,
             },

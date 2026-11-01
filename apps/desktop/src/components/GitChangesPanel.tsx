@@ -1,14 +1,14 @@
 import { gitLocationLabel } from "../gitLocationLabel";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { SessionInfo } from "../api";
 import type { GitChangeBases, GitChangesCapture, GitComparison, GitFilePatch } from "../gitChangesTypes";
-import { ArrowLeft, RefreshCw, GitBranch, Search } from "lucide-react";
+import { RefreshCw, GitBranch, Search } from "lucide-react";
 import GitDiff from "./GitDiff";
 
 const message = (e: unknown) => e instanceof Error ? e.message : "Changes unavailable; retry.";
 const short = (oid: string | null) => oid?.slice(0, 8) ?? "empty tree";
 
-export default function GitChangesPanel({ session, onBack }: { session: SessionInfo | null; onBack: () => void }) {
+export default function GitChangesPanel({ session }: { session: SessionInfo | null }) {
   // The shell keys this component by workspace generation and selected-session ID.
   const [comparison, setComparison] = useState<GitComparison>("uncommitted");
   const [bases, setBases] = useState<GitChangeBases | null>(null);
@@ -20,6 +20,8 @@ export default function GitChangesPanel({ session, onBack }: { session: SessionI
   const [state, setState] = useState<{ key: string; capture: GitChangesCapture | null; error: string | null; loading: boolean } | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [patch, setPatch] = useState<{ key: string; result?: GitFilePatch; error?: string } | null>(null);
+  const patchScroller = useRef<HTMLDivElement>(null);
+  const readingPosition = useRef<{ key: string; top: number; left: number } | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const fileHeading = useRef<HTMLHeadingElement>(null);
   const comparisonBase = comparison === "branch" ? baseRef : "";
@@ -79,15 +81,26 @@ export default function GitChangesPanel({ session, onBack }: { session: SessionI
     return () => { active = false; };
   }, [session?.id, patchKey]);
 
-  const choose = (value: GitComparison) => { setComparison(value); setSelected(null); };
+  const viewKey = `${key}:${file?.path ?? ""}`;
   const text = patch?.key === patchKey ? patch : null;
+  useLayoutEffect(() => {
+    const scroller = patchScroller.current;
+    if (readingPosition.current?.key !== viewKey) readingPosition.current = null;
+    if (!scroller || !text?.result) return;
+    const position = readingPosition.current;
+    scroller.scrollTop = position?.key === viewKey ? position.top : 0;
+    scroller.scrollLeft = position?.key === viewKey ? position.left : 0;
+    readingPosition.current = { key: viewKey, top: scroller.scrollTop, left: scroller.scrollLeft };
+  }, [text, viewKey]);
+
+  const choose = (value: GitComparison) => { setComparison(value); setSelected(null); };
   const name = (path: string) => path.split("/").at(-1) || path;
   const folder = (path: string) => path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "Repository root";
   const totals = (added: number, removed: number) => <span className="git-changes-totals"><span className="git-added">+{added}</span> <span className="git-removed">−{removed}</span></span>;
   return <section className="git-changes" aria-label="Git changes">
     <header className="git-changes-header"><div><h2 ref={heading} data-shell-page-heading tabIndex={-1}>Changes</h2>
       <p className="git-changes-branch"><GitBranch size={14} aria-hidden="true" />{capture?.branch ?? session?.branch ?? "No branch"}</p></div>
-      <button type="button" data-git-back onClick={onBack}><ArrowLeft size={14} aria-hidden="true" />Back to terminal</button></header>
+    </header>
     <div className="git-changes-toolbar">
     <label>Comparison<select data-git-comparison value={comparison} onChange={e => choose(e.target.value as GitComparison)}>
       <option value="uncommitted">Uncommitted changes</option><option value="branch">Branch changes</option>
@@ -137,10 +150,16 @@ export default function GitChangesPanel({ session, onBack }: { session: SessionI
           {file.additions !== null && totals(file.additions,file.deletions ?? 0)}
           <div className="git-changes-mode" role="group" aria-label="Diff layout">{(["unified","split"] as const).map(mode => <button key={mode} type="button" data-diff-mode={mode} aria-pressed={diffMode === mode} onClick={() => setDiffMode(mode)}>{mode === "unified" ? "Unified" : "Split"}</button>)}</div>
         </header>
-        <div className="git-changes-file-content">
+        <div className="git-changes-file-content" ref={patchScroller} onScroll={event => {
+          // Loading removes the patch and can emit a browser-generated scroll reset.
+          if (!text?.result?.patch) return;
+          const scroller = event.currentTarget;
+          readingPosition.current = { key: viewKey, top: scroller.scrollTop, left: scroller.scrollLeft };
+        }}>
         {!text && <p role="status">Loading patch…</p>}{text?.error && <p role="alert">{text.error}</p>}
         {text?.result?.notice && <p>{text.result.notice}</p>}
-        {text?.result?.patch && <GitDiff patch={text.result.patch} path={file.path} mode={diffMode} />}
+        {/* Keep the same file's revealed row count while its replacement patch loads. */}
+        <GitDiff key={viewKey} patch={text?.result?.patch ?? ""} path={file.path} mode={diffMode} />
         {text?.result && !text.result.patch && !text.result.notice && <p>No text patch for this change.</p>}
         </div>
       </> : <p>Select a changed file to inspect its diff.</p>}</section>

@@ -33,7 +33,8 @@ persisted navigation fields. Selecting a session explicitly leaves Changes for
 that session's Terminal. Opening Changes leaves document Review; Review remains
 independently reachable through its existing entry.
 
-The header identifies the selected session and provides **Back to terminal**.
+The shared content header identifies the selected session and provides **Terminal**
+to return from Changes; Changes has no separate terminal-return button.
 Keep **Review changes** in Details and add a central toolbar Changes entry.
 Closing or focus-scoped Escape returns focus to the selected Terminal without
 changing attention or sending input. Opening focuses the Changes heading. A
@@ -57,7 +58,8 @@ Unsupported/binary/conflict notices remain explicit.
 Illustrative wide-window content (the terminal runtime remains alive):
 
 ```text
-Changes · selected session                   Back to terminal
+Shared header · selected session            Terminal
+Changes
 feature
 
 Comparison: [Uncommitted changes v]
@@ -220,7 +222,8 @@ implementation gate. [ADR 0091](../docs/adr/0091-read-only-session-git-changes.m
 records the accepted read boundary.
 The 2026-10-31 owner-approved redesign under #1207 changes presentation and
 navigation only; it preserves those retrieval and security acceptance criteria.
-Same-file refresh scroll restoration remains tracked separately in
+Current source builds preserve both scroll axes and revealed diff rows when
+Refresh retains the selected file, as tracked in
 [#1143](https://github.com/Rambolarsen/orkworks/issues/1143).
 
 ## Explicit task-worktree binding

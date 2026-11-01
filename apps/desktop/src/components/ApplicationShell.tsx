@@ -335,8 +335,7 @@ export default function ApplicationShell(props: Props) {
   const renderUtility = () => {
     if (skillsPage) return <SkillsSettings currentWorkspacePath={props.isSwitchingWorkspace ? null : props.workspace?.workspaceIdentity ?? props.workspace?.path ?? null} />;
     if (props.inspector === "changes") return <GitChangesPanel key={`${props.workspaceGeneration}:${props.activeSessionId}:${session?.repoRoot ?? ""}:${session?.worktreeBinding?.root ?? ""}:${session?.worktreeBinding?.commonDir ?? ""}`}
-      session={props.sessions.find(s => s.id === props.activeSessionId) ?? null}
-      onBack={() => runCommand("terminal")} />;
+      session={props.sessions.find(s => s.id === props.activeSessionId) ?? null} />;
     if (props.inspector === "details") return <SessionDetailPanel key={props.workspaceGeneration} sessions={props.sessions}
       workspaceIdentity={props.isSwitchingWorkspace ? undefined : props.workspace?.workspaceIdentity} onTitleUpdated={props.onTitleUpdated}
       visibleSessionId={props.visibleSubjectId} harnesses={props.harnesses}
@@ -483,7 +482,7 @@ export default function ApplicationShell(props: Props) {
             onClick={() => runCommand("review")}>{props.reviewLoading ? "Opening Review…" : "Review"}</button>}
           {!showComposer && session && <button type="button" data-shell-command="changes" aria-expanded={changesPage}
             disabled={!(session.repoRoot || session.branch)} onClick={() => runCommand("changes")}>Changes</button>}
-          {(!showTerminal || props.reviewLoading) && !changesPage && <button type="button" data-shell-command="terminal" onClick={() => runCommand("terminal")}>Terminal</button>}
+          {(!showTerminal || props.reviewLoading) && <button type="button" data-shell-command="terminal" onClick={() => runCommand("terminal")}>Terminal</button>}
           <div className="shell-actions-controls">
             <button type="button" data-shell-command="actions" aria-expanded={props.inspector === "actions"} onClick={() => runCommand("actions")}>Actions</button>
             <button type="button" data-shell-command="next-action" onClick={() => runCommand("next-action")}>Show next action</button>

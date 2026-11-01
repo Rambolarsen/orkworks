@@ -92,3 +92,15 @@ blocking-pool job waits for PTY delivery, no automatic retry is introduced, and
 a bookkeeping failure after confirmed delivery must not authorize duplicate
 input. Metadata transactions, source priority and native capability gates
 retain their existing semantics.
+
+## Amendment — capacity computation and sensitivity (2026-11-01)
+
+The owner approved [ADR 0102](0102-terminal-projection-input-fence.md). Capacity
+scans run outside the projection fence; the existing input owner still spans
+preparation, delivery acknowledgement and bookkeeping. Capacity commit tries
+the same owner gate without waiting and leaves busy sessions' current state
+intact. Accepted nonempty input invalidates older analysis before owner release.
+Sensitivity is computed from immutable pre-dispatch output outside shared locks,
+then revalidated within the prepare/enqueue fence. Oversized (over 64 KiB) or
+changed observations fail closed for input-derived metadata. No input bypass,
+automatic retry, driver ownership change or live sidecar restart is introduced.

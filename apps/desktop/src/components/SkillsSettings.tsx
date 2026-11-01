@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronRight, Plus, RefreshCw } from "lucide-react";
 import type {
+  SkillEntry,
   SkillInventory,
   SkillPreview,
   SkillScope,
@@ -15,6 +16,15 @@ const toolNames: Record<SkillTool, string> = {
 };
 const message = (error: unknown) =>
   error instanceof Error ? error.message : "Could not complete the request.";
+function skillNameGroups(skills: SkillEntry[]) {
+  const groups = new Map<string, SkillEntry[]>();
+  for (const skill of skills) {
+    const sources = groups.get(skill.name) || [];
+    sources.push(skill);
+    groups.set(skill.name, sources);
+  }
+  return [...groups].sort(([a], [b]) => a.localeCompare(b));
+}
 export default function SkillsSettings({
   currentWorkspacePath,
 }: {
@@ -23,6 +33,7 @@ export default function SkillsSettings({
   const [inventory, setInventory] = useState<SkillInventory | null>(null);
   const [query, setQuery] = useState("");
   const [tool, setTool] = useState("");
+  const [filterScope, setFilterScope] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
@@ -97,12 +108,14 @@ export default function SkillsSettings({
     });
   const filtered = (inventory?.skills || []).filter(
     (skill) =>
+      (!filterScope || skill.scope === filterScope) &&
       (!tool || skill.tools.includes(tool as SkillTool)) &&
-      [skill.name, skill.description, ...skill.paths]
+      [skill.name, skill.description, ...(skill.plugins || []), ...skill.paths]
         .join(" ")
         .toLowerCase()
         .includes(query.toLowerCase()),
   );
+  const grouped = skillNameGroups(filtered);
   return (
     <section className="skills-settings" aria-label="Skills">
       <div className="skills-heading">
@@ -145,7 +158,7 @@ export default function SkillsSettings({
           <input
             className="ui-input"
             aria-label="Search skills"
-            placeholder="Find a skill by name, description, or path…"
+            placeholder="Find a skill by name, plugin, description, or path…"
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
@@ -155,6 +168,7 @@ export default function SkillsSettings({
           Coding tool
           <select
             className="ui-input"
+            aria-label="Coding tool"
             value={tool}
             onChange={(event) => setTool(event.target.value)}
           >
@@ -166,7 +180,29 @@ export default function SkillsSettings({
             ))}
           </select>
         </label>
+        <label>
+          Scope
+          <select
+            className="ui-input"
+            aria-label="Scope"
+            value={filterScope}
+            onChange={(event) => setFilterScope(event.target.value)}
+          >
+            <option value="">All scopes</option>
+            <option value="workspace">Workspace</option>
+            <option value="personal">Personal</option>
+          </select>
+        </label>
       </div>
+      <p className="skills-group-caption">
+        Counts show skill names found. Expand a name to see its sources, which
+        may have different instructions. Found does not mean loaded or enabled.
+      </p>
+      <p className="skills-group-caption">
+        {currentWorkspacePath
+          ? `Workspace: ${currentWorkspacePath}`
+          : "Open a workspace to include its skills."}
+      </p>
       {adding && (
         <section className="skills-add" aria-label="Add skill">
           <h3>Add a skill</h3>
@@ -285,48 +321,32 @@ export default function SkillsSettings({
           )}
         </section>
       )}
-      {(["workspace", "personal"] as const).map((group) => (
-        <section
-          key={group}
-          data-skill-scope={group}
-          className="skills-group"
-          aria-label={`${group === "workspace" ? "Workspace" : "Personal"} skills`}
-        >
-          <h3>
-            {group === "workspace" ? "Workspace" : "Personal"}{" "}
-            <span>
-              {filtered.filter((skill) => skill.scope === group).length}
-            </span>
-          </h3>
-          <p className="skills-group-caption">
-            {group === "workspace"
-              ? currentWorkspacePath || "Open a workspace to see its skills."
-              : "Skills found in your user configuration and registered plugin locations."}
-          </p>
-          {!filtered.some((skill) => skill.scope === group) && (
-            <p>
-              {inventory
-                ? "No matching skills found in the inspected roots."
-                : "Loading skills…"}
-            </p>
-          )}
-          {filtered
-            .filter((skill) => skill.scope === group)
-            .map((skill) => (
-              <article key={skill.id} data-skill-row className="skills-row">
-                <details>
-                  <summary className="skills-row-heading">
-                    <ChevronRight className="skills-chevron" size={15} aria-hidden="true" />
-                    <strong>{skill.name}</strong>
-                    <span className="skills-badge">
-                      {skill.management === "apm"
-                        ? "APM record"
-                        : skill.management === "plugin"
-                          ? "Plugin"
-                          : "Local file"}
-                    </span>
-                  </summary>
-                  <div className="skills-row-body">
+      <section className="skills-group" aria-label="Discovered skills">
+        <h3 data-skill-counts>
+          {grouped.length} {grouped.length === 1 ? "skill" : "skills"}
+          <span>· {filtered.length} {filtered.length === 1 ? "source" : "sources"}</span>
+        </h3>
+        {!grouped.length && (
+          <p>{inventory ? "No matching skills found in the inspected roots." : "Loading skills…"}</p>
+        )}
+        {grouped.map(([name, sources]) => (
+          <article key={name} data-skill-row={name} className="skills-row">
+            <details>
+              <summary className="skills-row-heading">
+                <ChevronRight className="skills-chevron" size={15} aria-hidden="true" />
+                <strong>{name}</strong>
+                <span className="skills-badge">
+                  {sources.length} {sources.length === 1 ? "source" : "sources"}
+                </span>
+              </summary>
+              <div className="skills-row-body">
+                {sources.map((skill) => (
+                  <section key={skill.id} data-skill-source={skill.id} className="skills-source" aria-label={`${name} source: ${skill.paths[0]}`}>
+                    <h4>
+                      <span className="skills-badge">{skill.scope === "workspace" ? "Workspace" : "Personal"}</span>
+                      <span>{skill.plugins?.join(" · ") || (skill.management === "apm" ? "APM record" : skill.management === "plugin" ? "Plugin (name unknown)" : "Local file")}</span>
+                      {skill.plugins?.length && skill.management === "apm" ? <span className="skills-badge">APM record</span> : null}
+                    </h4>
                     <p>{skill.description}</p>
                     <p className="skills-tool-coverage">
                       Found ·{" "}
@@ -374,19 +394,20 @@ export default function SkillsSettings({
                         <pre data-skill-content>{detail.text}</pre>
                       </section>
                     )}
-                  </div>
-                </details>
-              </article>
-            ))}
-        </section>
-      ))}
+                  </section>
+                ))}
+              </div>
+            </details>
+          </article>
+        ))}
+      </section>
       {inventory && (
         <details className="skills-coverage">
           <summary>Discovery coverage and source roots</summary>
           <p>
             Found on disk does not confirm that a coding tool loaded or used a
-            skill. Duplicate names retain both scopes; effective precedence is
-            unknown.
+            skill. Sources retain their scopes, paths and versions; effective
+            precedence is unknown.
           </p>
           <ul>
             {inventory.diagnostics.map((diagnostic, index) => (

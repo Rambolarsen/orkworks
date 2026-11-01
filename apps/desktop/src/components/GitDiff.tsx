@@ -16,6 +16,7 @@ export default function GitDiff({ patch, path, mode }: {patch: string; path: str
     {note && <span className="git-diff-note">{note}</span>}
   </div>;
   const rowCount = mode === "unified" ? lines.length : split.length;
+  if (!patch) return null;
   return <><div className={`git-changes-patch git-diff--${mode}`} tabIndex={0} role="region" aria-label={`${mode === "split" ? "Split" : "Unified"} diff for ${path}`}>
     {mode === "split" && <div className="git-diff-sides"><span>Before</span><span>After</span></div>}
     {mode === "unified" ? lines.slice(0, visibleRows).map((line, i) => line.kind === "metadata" || line.kind === "hunk" ? annotation(line, i) :

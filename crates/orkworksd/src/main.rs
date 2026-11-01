@@ -15,6 +15,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod branch_documents;
 mod branch_documents_store;
+mod capacity_analysis;
 mod capacity_state;
 mod codex_session_store;
 mod git;
