@@ -89,13 +89,14 @@ inputs, configuration/settings, historical authority, runtime identity and the
 [sanitized receipt](fixtures/copilot-1.0.90-read-scope/summary.json).
 The [observer binding](fixtures/copilot-1.0.90-read-scope/observer-binding.json)
 identifies observe-read-scope.executed.py as the exact source used for this run.
-The separate observe-read-scope.py adds only unexpected attribute names to a
-future stop receipt. Its strict stop condition remains unchanged and it has
+The separate observe-read-scope.py adds unexpected attribute names to a
+future stop receipt and defers denial outcomes until final validation and cleanup. Its strict stop condition remains unchanged and it has
 not run against Copilot. This diagnostic revision cannot recover deleted data.
 
-Six model-free boundary cases cover policy denial, user refusal, missing file,
-outside-marker return, confirmation and forbidden-attribute diagnostics. The
-sixth failed before the field-name change and passed afterward; all six passed.
+Eight model-free boundary cases cover policy denial, user refusal, missing file,
+outside-marker return, confirmation, forbidden-attribute diagnostics, missing telemetry and failed
+chat correlation. The
+sixth failed before the field-name change and passed afterward; all eight now pass.
 The diagnostic test retains the attribute name while excluding its synthetic
 private value. These tests establish observer behavior, not vendor enforcement.
 
@@ -122,3 +123,11 @@ maximum. No retry is authorized. A later narrowly reviewed diagnostic attempt
 needs fresh finite authority. Read scopes, native skills, other tools, network,
 MCP, continuation and complete role eligibility remain separate unverified gates.
 No product runtime, adapter or permission profile was changed.
+
+Copilot review identified premature denial classification in the prepared
+observer: missing telemetry or failed chat correlation could leave a denial
+outcome with batchComplete=false. Both new cases failed before the correction
+and passed afterward. A denial is now published only after final validation,
+post-state checks and cleanup succeed; the native denial signature remains
+partial evidence on failure. All eight model-free checks pass. This changes
+only the unexecuted prepared revision, not the preserved live source or result.

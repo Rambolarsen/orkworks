@@ -172,7 +172,7 @@ def main():
                         summary["outcome"]="outside-read-observed"; raise ValueError("Owned outside canary read through symlink; candidate scope failed")
                     else:
                         require(entry["success"] is False and entry["permissionDenialSignature"],"Negative result is not an unambiguous permission denial")
-                        negative=True; summary["outcome"]="denial-observed"
+                        negative=True
             event_count=len(lines)
         def telemetry(final=False):
             file=case/"otel.jsonl"
@@ -233,7 +233,9 @@ def main():
         if proc is not None: summary["exitCode"]=proc.poll()
         if summary["liveCliAttempts"]:
             try: telemetry(False)
-            except Exception as error: summary["finalTelemetryStop"]=str(error) if type(error) is ValueError else type(error).__name__
+            except Exception as error:
+                summary["finalTelemetryStop"]=str(error) if type(error) is ValueError else type(error).__name__
+                summary["batchComplete"]=False
             try:
                 after=post_files()
                 summary["fileSnapshotsAfter"]=after; summary["filesAndSymlinkUnchanged"]=after==snapshots
@@ -243,6 +245,7 @@ def main():
         try: shutil.rmtree(batch); summary["disposableRootsRemoved"]=not batch.exists()
         except Exception: summary["disposableRootsRemoved"]=False
         if not summary["disposableRootsRemoved"] or summary.get("foregroundStopped") is False: summary["batchComplete"]=False
+        if summary["batchComplete"]: summary["outcome"]="denial-observed"
         summary["elapsedSeconds"]=round(time.monotonic()-started,3)
         try: save(args.output/"summary.json",summary)
         except ValueError:

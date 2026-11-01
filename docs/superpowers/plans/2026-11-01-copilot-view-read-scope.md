@@ -177,3 +177,9 @@ still relied on installed identity files. The six-test suite reproduced the
 failure with those reads unavailable (RED), then passed with test-only synthetic
 identity bytes and matching configuration bindings (GREEN). Production identity
 guards, executed snapshot/configuration and actual result are unchanged.
+
+Copilot review disposition: defer denial classification until complete final
+telemetry/correlation, post-state and cleanup checks. Two additional model-free
+cases reproduced premature classification (RED) and now remain unverified
+(GREEN); all eight pass. Preserve the executed observer and partial live result
+unchanged. Only the prepared unexecuted source and its binding are revised.

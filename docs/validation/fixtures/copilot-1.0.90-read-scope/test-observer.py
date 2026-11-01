@@ -79,7 +79,7 @@ class ObserverBoundaryTests(unittest.TestCase):
                     if variant == "outside-read":
                         result = {"success":True,"result":{"content":(repo.parent/"outside.txt").read_text()}}
                     else:
-                        code, message = {"denied":("EACCES","Access denied outside allowed directories"),"missing":("ENOENT","File not found outside workspace"),"user-refusal":("EACCES","Permission denied by user"),"permission-request":("EACCES","Access denied"),"forbidden-content":("EACCES","Access denied outside allowed directories")}[variant]
+                        code, message = {"denied":("EACCES","Access denied outside allowed directories"),"missing":("ENOENT","File not found outside workspace"),"user-refusal":("EACCES","Permission denied by user"),"permission-request":("EACCES","Access denied"),"forbidden-content":("EACCES","Access denied outside allowed directories"),"missing-telemetry":("EACCES","Access denied outside allowed directories"),"bad-correlation":("EACCES","Access denied outside allowed directories")}[variant]
                         result = {"success":False,"error":{"code":code,"message":message}}
                     add("tool.execution_complete", {"toolCallId":ident(31),"turnId":ident(11),"interactionId":ident(21),"model":"gpt-6-luna",**result})
                     (session/"events.jsonl").write_text("".join(json.dumps(e)+"\n" for e in events))
@@ -87,10 +87,13 @@ class ObserverBoundaryTests(unittest.TestCase):
                     spans = []
                     for n in range(3):
                         attributes = {"gen_ai.operation.name":"chat","gen_ai.provider.name":"github","gen_ai.request.model":"gpt-6-luna","gen_ai.response.model":"gpt-6-luna","gen_ai.conversation.id":ident(1),"github.copilot.turn_id":ident(10+n),"github.copilot.interaction_id":ident(20+n),"gen_ai.tool.definitions":json.dumps(definitions)}
+                        if variant == "bad-correlation" and n == 1:
+                            attributes["github.copilot.interaction_id"] = ident(99)
                         if variant == "forbidden-content" and n == 0:
                             attributes["gen_ai.output.messages"] = json.dumps([{"role":"assistant","parts":[{"type":"text","content":PRIVATE}]}])
                         spans.append({"type":"span","name":"chat gpt-6-luna","traceId":"0"*32,"spanId":str(n).zfill(16),"kind":0,"startTime":[0,0],"endTime":[0,1],"attributes":attributes,"status":{"code":0},"events":[],"resource":{"attributes":{}},"instrumentationScope":{"name":"synthetic-test"}})
-                    Path(kwargs["env"]["COPILOT_OTEL_FILE_EXPORTER_PATH"]).write_text("".join(json.dumps(s)+"\n" for s in spans))
+                    if variant != "missing-telemetry":
+                        Path(kwargs["env"]["COPILOT_OTEL_FILE_EXPORTER_PATH"]).write_text("".join(json.dumps(s)+"\n" for s in spans))
                     kwargs["stdout"].write(b"synthetic outcome\n")
                 def poll(self): return 0
             def launch(argv, **kwargs):
@@ -108,6 +111,18 @@ class ObserverBoundaryTests(unittest.TestCase):
         result = self.run_case("denied")
         self.assertEqual(result["outcome"], "denial-observed")
         self.assertTrue(result["batchComplete"])
+
+    def test_missing_telemetry_keeps_denial_unverified(self):
+        result = self.run_case("missing-telemetry")
+        self.assertEqual(result["outcome"], "unverified")
+        self.assertFalse(result["batchComplete"])
+        self.assertTrue(result["viewCalls"][1]["permissionDenialSignature"])
+
+    def test_failed_chat_correlation_keeps_denial_unverified(self):
+        result = self.run_case("bad-correlation")
+        self.assertEqual(result["outcome"], "unverified")
+        self.assertFalse(result["batchComplete"])
+        self.assertTrue(result["viewCalls"][1]["permissionDenialSignature"])
 
     def test_user_refusal_never_counts_as_enforced_denial(self):
         result = self.run_case("user-refusal")
