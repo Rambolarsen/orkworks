@@ -1,0 +1,32 @@
+{
+  "consultedAt": "2026-11-01",
+  "versionBinding": "Current vendor documentation, not pinned to Copilot 1.0.90",
+  "sources": [
+    {
+      "url": "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-config-dir-reference",
+      "observedSections": [
+        "User-editable settings.json versus managed config.json",
+        "remoteExport",
+        "Repository settings",
+        "MDM managed settings"
+      ],
+      "limit": "Current guidance says legacy config settings are ignored; our exact-version disabledSkills fixture observes migration instead."
+    },
+    {
+      "url": "https://docs.github.com/en/copilot/reference/enterprise-administrators/enterprise-managed-settings",
+      "observedSections": [
+        "telemetry",
+        "Capture controls"
+      ],
+      "limit": "Documents granular classes and managed precedence; not a tested 1.0.90 policy contract."
+    },
+    {
+      "url": "https://docs.github.com/en/copilot/concepts/security-governance-and-network-settings/session-data",
+      "observedSections": [
+        "Locally run sessions",
+        "Session syncing"
+      ],
+      "limit": "Describes separate session-state and SQLite storage; does not prove exact runtime behavior or disable all persistence."
+    }
+  ]
+}

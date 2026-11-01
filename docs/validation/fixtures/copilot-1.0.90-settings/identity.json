@@ -1,0 +1,12 @@
+{
+  "native": {
+    "bytes": 158652784,
+    "sha256": "3ae21a3f00fcc216faaa1f062ee98451c7807066ee26f0fe1c85c6ed315e5458"
+  },
+  "app": {
+    "bytes": 7577057,
+    "sha256": "f84061b62eeb1cd78a655555890fe1a776509203fca68144745467e26e443813"
+  },
+  "runtimeSha256": "ad89ad135478cd2b19a5b99bb19064d0be281961cab0506f3767f39234d4c591",
+  "limit": "Three pinned files; separate retained SEA inspector binds selected cache files to embedded runtime. No complete startup dependency attestation."
+}

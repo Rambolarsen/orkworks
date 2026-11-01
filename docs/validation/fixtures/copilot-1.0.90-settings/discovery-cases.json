@@ -1,0 +1,368 @@
+[
+  {
+    "name": "baseline",
+    "argv": [
+      "<pinned-native>",
+      "--no-auto-update",
+      "skill",
+      "list",
+      "--json"
+    ],
+    "cwd": "<disposable>/repo",
+    "environmentOverrides": {
+      "COPILOT_HOME": "<disposable>/baseline",
+      "COPILOT_AUTO_UPDATE": "false",
+      "USE_TGREP": "false",
+      "NO_COLOR": "1"
+    },
+    "inheritedEnvironmentNames": [
+      "HOME",
+      "PATH",
+      "TMPDIR"
+    ],
+    "beforeFiles": {
+      "config.json": null,
+      "settings.json": "{\n  \"disableAllHooks\": true,\n  \"memory\": false,\n  \"ide\": {\n    \"autoConnect\": false\n  },\n  \"remoteExport\": false,\n  \"remoteSessions\": false\n}\n"
+    },
+    "afterFiles": {
+      "config.json": null,
+      "settings.json": "{\n  \"disableAllHooks\": true,\n  \"memory\": false,\n  \"ide\": {\n    \"autoConnect\": false\n  },\n  \"remoteExport\": false,\n  \"remoteSessions\": false\n}\n"
+    },
+    "exitCode": 0,
+    "rawStdoutUnretained": {
+      "bytes": 1295,
+      "sha256": "e00ed4251c653e2b0ece3b7388488a5942989ca705926537edce2cc7938bfd3f"
+    },
+    "stdoutNormalization": "Only disposable and cache path prefixes replaced",
+    "normalizedSkills": [
+      {
+        "name": "ork740-settings-sentinel",
+        "description": "Synthetic settings precedence discovery marker.",
+        "source": "project",
+        "path": "<disposable>/repo/.agents/skills/ork740-settings-sentinel",
+        "enabled": true
+      },
+      {
+        "name": "customize-cloud-agent",
+        "description": "Skill for customizing the Copilot cloud agent (formerly known as Copilot coding agent) environment, including copilot-setup-steps.yml configuration, preinstalling tools and dependencies, runners, and settings. Use when the user mentions copilot-setup-steps, copilot setup steps, or wants to configure the cloud agent environment.",
+        "source": "builtin",
+        "path": "<pinned-cache>/builtin/customize-cloud-agent",
+        "enabled": true
+      },
+      {
+        "name": "github-pr-media",
+        "description": "Upload an image or video to GitHub's user attachments API and embed it in a pull request description or comment. Use when asked to add screenshots, diagrams, recordings, or other media to a PR or GitHub comment.",
+        "source": "builtin",
+        "path": "<pinned-cache>/builtin/github-pr-media",
+        "enabled": true
+      }
+    ],
+    "stderrBytes": 0,
+    "sentinelEnabled": true
+  },
+  {
+    "name": "legacy-only",
+    "argv": [
+      "<pinned-native>",
+      "--no-auto-update",
+      "skill",
+      "list",
+      "--json"
+    ],
+    "cwd": "<disposable>/repo",
+    "environmentOverrides": {
+      "COPILOT_HOME": "<disposable>/legacy-only",
+      "COPILOT_AUTO_UPDATE": "false",
+      "USE_TGREP": "false",
+      "NO_COLOR": "1"
+    },
+    "inheritedEnvironmentNames": [
+      "HOME",
+      "PATH",
+      "TMPDIR"
+    ],
+    "beforeFiles": {
+      "config.json": "{\n  \"disabledSkills\": [\n    \"ork740-settings-sentinel\"\n  ]\n}\n",
+      "settings.json": "{\n  \"disableAllHooks\": true,\n  \"memory\": false,\n  \"ide\": {\n    \"autoConnect\": false\n  },\n  \"remoteExport\": false,\n  \"remoteSessions\": false\n}\n"
+    },
+    "afterFiles": {
+      "config.json": "// User settings belong in settings.json.\n// This file is managed automatically.\n{}\n",
+      "settings.json": "{\n  \"disableAllHooks\": true,\n  \"memory\": false,\n  \"ide\": {\n    \"autoConnect\": false\n  },\n  \"remoteExport\": false,\n  \"remoteSessions\": false,\n  \"disabledSkills\": [\n    \"ork740-settings-sentinel\"\n  ]\n}\n"
+    },
+    "exitCode": 0,
+    "rawStdoutUnretained": {
+      "bytes": 1296,
+      "sha256": "1fb12f136e395dea71501531667a733634a76b52f349109d1e9042933c911fb1"
+    },
+    "stdoutNormalization": "Only disposable and cache path prefixes replaced",
+    "normalizedSkills": [
+      {
+        "name": "ork740-settings-sentinel",
+        "description": "Synthetic settings precedence discovery marker.",
+        "source": "project",
+        "path": "<disposable>/repo/.agents/skills/ork740-settings-sentinel",
+        "enabled": false
+      },
+      {
+        "name": "customize-cloud-agent",
+        "description": "Skill for customizing the Copilot cloud agent (formerly known as Copilot coding agent) environment, including copilot-setup-steps.yml configuration, preinstalling tools and dependencies, runners, and settings. Use when the user mentions copilot-setup-steps, copilot setup steps, or wants to configure the cloud agent environment.",
+        "source": "builtin",
+        "path": "<pinned-cache>/builtin/customize-cloud-agent",
+        "enabled": true
+      },
+      {
+        "name": "github-pr-media",
+        "description": "Upload an image or video to GitHub's user attachments API and embed it in a pull request description or comment. Use when asked to add screenshots, diagrams, recordings, or other media to a PR or GitHub comment.",
+        "source": "builtin",
+        "path": "<pinned-cache>/builtin/github-pr-media",
+        "enabled": true
+      }
+    ],
+    "stderrBytes": 0,
+    "sentinelEnabled": false
+  },
+  {
+    "name": "settings-only",
+    "argv": [
+      "<pinned-native>",
+      "--no-auto-update",
+      "skill",
+      "list",
+      "--json"
+    ],
+    "cwd": "<disposable>/repo",
+    "environmentOverrides": {
+      "COPILOT_HOME": "<disposable>/settings-only",
+      "COPILOT_AUTO_UPDATE": "false",
+      "USE_TGREP": "false",
+      "NO_COLOR": "1"
+    },
+    "inheritedEnvironmentNames": [
+      "HOME",
+      "PATH",
+      "TMPDIR"
+    ],
+    "beforeFiles": {
+      "config.json": null,
+      "settings.json": "{\n  \"disableAllHooks\": true,\n  \"memory\": false,\n  \"ide\": {\n    \"autoConnect\": false\n  },\n  \"remoteExport\": false,\n  \"remoteSessions\": false,\n  \"disabledSkills\": [\n    \"ork740-settings-sentinel\"\n  ]\n}\n"
+    },
+    "afterFiles": {
+      "config.json": null,
+      "settings.json": "{\n  \"disableAllHooks\": true,\n  \"memory\": false,\n  \"ide\": {\n    \"autoConnect\": false\n  },\n  \"remoteExport\": false,\n  \"remoteSessions\": false,\n  \"disabledSkills\": [\n    \"ork740-settings-sentinel\"\n  ]\n}\n"
+    },
+    "exitCode": 0,
+    "rawStdoutUnretained": {
+      "bytes": 1296,
+      "sha256": "1fb12f136e395dea71501531667a733634a76b52f349109d1e9042933c911fb1"
+    },
+    "stdoutNormalization": "Only disposable and cache path prefixes replaced",
+    "normalizedSkills": [
+      {
+        "name": "ork740-settings-sentinel",
+        "description": "Synthetic settings precedence discovery marker.",
+        "source": "project",
+        "path": "<disposable>/repo/.agents/skills/ork740-settings-sentinel",
+        "enabled": false
+      },
+      {
+        "name": "customize-cloud-agent",
+        "description": "Skill for customizing the Copilot cloud agent (formerly known as Copilot coding agent) environment, including copilot-setup-steps.yml configuration, preinstalling tools and dependencies, runners, and settings. Use when the user mentions copilot-setup-steps, copilot setup steps, or wants to configure the cloud agent environment.",
+        "source": "builtin",
+        "path": "<pinned-cache>/builtin/customize-cloud-agent",
+        "enabled": true
+      },
+      {
+        "name": "github-pr-media",
+        "description": "Upload an image or video to GitHub's user attachments API and embed it in a pull request description or comment. Use when asked to add screenshots, diagrams, recordings, or other media to a PR or GitHub comment.",
+        "source": "builtin",
+        "path": "<pinned-cache>/builtin/github-pr-media",
+        "enabled": true
+      }
+    ],
+    "stderrBytes": 0,
+    "sentinelEnabled": false
+  },
+  {
+    "name": "legacy-disabled-settings-enabled",
+    "argv": [
+      "<pinned-native>",
+      "--no-auto-update",
+      "skill",
+      "list",
+      "--json"
+    ],
+    "cwd": "<disposable>/repo",
+    "environmentOverrides": {
+      "COPILOT_HOME": "<disposable>/legacy-disabled-settings-enabled",
+      "COPILOT_AUTO_UPDATE": "false",
+      "USE_TGREP": "false",
+      "NO_COLOR": "1"
+    },
+    "inheritedEnvironmentNames": [
+      "HOME",
+      "PATH",
+      "TMPDIR"
+    ],
+    "beforeFiles": {
+      "config.json": "{\n  \"disabledSkills\": [\n    \"ork740-settings-sentinel\"\n  ]\n}\n",
+      "settings.json": "{\n  \"disableAllHooks\": true,\n  \"memory\": false,\n  \"ide\": {\n    \"autoConnect\": false\n  },\n  \"remoteExport\": false,\n  \"remoteSessions\": false,\n  \"disabledSkills\": []\n}\n"
+    },
+    "afterFiles": {
+      "config.json": "// User settings belong in settings.json.\n// This file is managed automatically.\n{}\n",
+      "settings.json": "{\n  \"disableAllHooks\": true,\n  \"memory\": false,\n  \"ide\": {\n    \"autoConnect\": false\n  },\n  \"remoteExport\": false,\n  \"remoteSessions\": false,\n  \"disabledSkills\": [\n    \"ork740-settings-sentinel\"\n  ]\n}\n"
+    },
+    "exitCode": 0,
+    "rawStdoutUnretained": {
+      "bytes": 1296,
+      "sha256": "1fb12f136e395dea71501531667a733634a76b52f349109d1e9042933c911fb1"
+    },
+    "stdoutNormalization": "Only disposable and cache path prefixes replaced",
+    "normalizedSkills": [
+      {
+        "name": "ork740-settings-sentinel",
+        "description": "Synthetic settings precedence discovery marker.",
+        "source": "project",
+        "path": "<disposable>/repo/.agents/skills/ork740-settings-sentinel",
+        "enabled": false
+      },
+      {
+        "name": "customize-cloud-agent",
+        "description": "Skill for customizing the Copilot cloud agent (formerly known as Copilot coding agent) environment, including copilot-setup-steps.yml configuration, preinstalling tools and dependencies, runners, and settings. Use when the user mentions copilot-setup-steps, copilot setup steps, or wants to configure the cloud agent environment.",
+        "source": "builtin",
+        "path": "<pinned-cache>/builtin/customize-cloud-agent",
+        "enabled": true
+      },
+      {
+        "name": "github-pr-media",
+        "description": "Upload an image or video to GitHub's user attachments API and embed it in a pull request description or comment. Use when asked to add screenshots, diagrams, recordings, or other media to a PR or GitHub comment.",
+        "source": "builtin",
+        "path": "<pinned-cache>/builtin/github-pr-media",
+        "enabled": true
+      }
+    ],
+    "stderrBytes": 0,
+    "sentinelEnabled": false
+  },
+  {
+    "name": "legacy-enabled-settings-disabled",
+    "argv": [
+      "<pinned-native>",
+      "--no-auto-update",
+      "skill",
+      "list",
+      "--json"
+    ],
+    "cwd": "<disposable>/repo",
+    "environmentOverrides": {
+      "COPILOT_HOME": "<disposable>/legacy-enabled-settings-disabled",
+      "COPILOT_AUTO_UPDATE": "false",
+      "USE_TGREP": "false",
+      "NO_COLOR": "1"
+    },
+    "inheritedEnvironmentNames": [
+      "HOME",
+      "PATH",
+      "TMPDIR"
+    ],
+    "beforeFiles": {
+      "config.json": "{\n  \"disabledSkills\": []\n}\n",
+      "settings.json": "{\n  \"disableAllHooks\": true,\n  \"memory\": false,\n  \"ide\": {\n    \"autoConnect\": false\n  },\n  \"remoteExport\": false,\n  \"remoteSessions\": false,\n  \"disabledSkills\": [\n    \"ork740-settings-sentinel\"\n  ]\n}\n"
+    },
+    "afterFiles": {
+      "config.json": "// User settings belong in settings.json.\n// This file is managed automatically.\n{}\n",
+      "settings.json": "{\n  \"disableAllHooks\": true,\n  \"memory\": false,\n  \"ide\": {\n    \"autoConnect\": false\n  },\n  \"remoteExport\": false,\n  \"remoteSessions\": false,\n  \"disabledSkills\": []\n}\n"
+    },
+    "exitCode": 0,
+    "rawStdoutUnretained": {
+      "bytes": 1295,
+      "sha256": "e00ed4251c653e2b0ece3b7388488a5942989ca705926537edce2cc7938bfd3f"
+    },
+    "stdoutNormalization": "Only disposable and cache path prefixes replaced",
+    "normalizedSkills": [
+      {
+        "name": "ork740-settings-sentinel",
+        "description": "Synthetic settings precedence discovery marker.",
+        "source": "project",
+        "path": "<disposable>/repo/.agents/skills/ork740-settings-sentinel",
+        "enabled": true
+      },
+      {
+        "name": "customize-cloud-agent",
+        "description": "Skill for customizing the Copilot cloud agent (formerly known as Copilot coding agent) environment, including copilot-setup-steps.yml configuration, preinstalling tools and dependencies, runners, and settings. Use when the user mentions copilot-setup-steps, copilot setup steps, or wants to configure the cloud agent environment.",
+        "source": "builtin",
+        "path": "<pinned-cache>/builtin/customize-cloud-agent",
+        "enabled": true
+      },
+      {
+        "name": "github-pr-media",
+        "description": "Upload an image or video to GitHub's user attachments API and embed it in a pull request description or comment. Use when asked to add screenshots, diagrams, recordings, or other media to a PR or GitHub comment.",
+        "source": "builtin",
+        "path": "<pinned-cache>/builtin/github-pr-media",
+        "enabled": true
+      }
+    ],
+    "stderrBytes": 0,
+    "sentinelEnabled": true
+  },
+  {
+    "name": "post-migration-settings-edit",
+    "argv": [
+      "<pinned-native>",
+      "--no-auto-update",
+      "skill",
+      "list",
+      "--json"
+    ],
+    "cwd": "<disposable>/repo",
+    "environmentOverrides": {
+      "COPILOT_HOME": "<disposable>/legacy-disabled-settings-enabled",
+      "COPILOT_AUTO_UPDATE": "false",
+      "USE_TGREP": "false",
+      "NO_COLOR": "1"
+    },
+    "inheritedEnvironmentNames": [
+      "HOME",
+      "PATH",
+      "TMPDIR"
+    ],
+    "beforeFiles": {
+      "config.json": "// User settings belong in settings.json.\n// This file is managed automatically.\n{}\n",
+      "settings.json": "{\n  \"disableAllHooks\": true,\n  \"memory\": false,\n  \"ide\": {\n    \"autoConnect\": false\n  },\n  \"remoteExport\": false,\n  \"remoteSessions\": false,\n  \"disabledSkills\": []\n}\n"
+    },
+    "afterFiles": {
+      "config.json": "// User settings belong in settings.json.\n// This file is managed automatically.\n{}\n",
+      "settings.json": "{\n  \"disableAllHooks\": true,\n  \"memory\": false,\n  \"ide\": {\n    \"autoConnect\": false\n  },\n  \"remoteExport\": false,\n  \"remoteSessions\": false,\n  \"disabledSkills\": []\n}\n"
+    },
+    "exitCode": 0,
+    "rawStdoutUnretained": {
+      "bytes": 1295,
+      "sha256": "e00ed4251c653e2b0ece3b7388488a5942989ca705926537edce2cc7938bfd3f"
+    },
+    "stdoutNormalization": "Only disposable and cache path prefixes replaced",
+    "normalizedSkills": [
+      {
+        "name": "ork740-settings-sentinel",
+        "description": "Synthetic settings precedence discovery marker.",
+        "source": "project",
+        "path": "<disposable>/repo/.agents/skills/ork740-settings-sentinel",
+        "enabled": true
+      },
+      {
+        "name": "customize-cloud-agent",
+        "description": "Skill for customizing the Copilot cloud agent (formerly known as Copilot coding agent) environment, including copilot-setup-steps.yml configuration, preinstalling tools and dependencies, runners, and settings. Use when the user mentions copilot-setup-steps, copilot setup steps, or wants to configure the cloud agent environment.",
+        "source": "builtin",
+        "path": "<pinned-cache>/builtin/customize-cloud-agent",
+        "enabled": true
+      },
+      {
+        "name": "github-pr-media",
+        "description": "Upload an image or video to GitHub's user attachments API and embed it in a pull request description or comment. Use when asked to add screenshots, diagrams, recordings, or other media to a PR or GitHub comment.",
+        "source": "builtin",
+        "path": "<pinned-cache>/builtin/github-pr-media",
+        "enabled": true
+      }
+    ],
+    "stderrBytes": 0,
+    "sentinelEnabled": true
+  }
+]
