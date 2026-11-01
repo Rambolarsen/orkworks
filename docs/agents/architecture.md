@@ -741,6 +741,14 @@ prompt-plus-Enter. Other harnesses retain plain input delivery.
 
 ## Metadata protocol
 
+The proposed [branch document extension](../../specs/session-plan-review.md#branch-document-extension)
+replaces single-session display with design/specification and implementation-plan
+slots shared by canonical repository and branch identity. [ADR 0102](../adr/0102-branch-document-association.md)
+records the additive branch-store and authenticated document-kind proposal.
+The owner approved the UX; technical architecture approval and runtime
+implementation remain pending under [#1230](https://github.com/Rambolarsen/orkworks/issues/1230).
+Existing plan metadata/reporting remains the current runtime contract.
+
 Session title operations are separate from attention/work metadata. The renderer
 uses `window.orkworks.sessionTitle` through Electron main's generation-bound
 transport. `POST /sessions/:id/title` requires the desktop token and canonical

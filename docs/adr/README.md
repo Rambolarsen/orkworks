@@ -13,6 +13,8 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 
 ## Index
 
+- [0102: Shared branch design and implementation documents](0102-branch-document-association.md) — Proposed; additive storage/protocol review before runtime implementation.
+
 | ADR | Title | Status |
 |-----|-------|--------|
 | [0001](./0001-record-architecture-decisions.md) | Record architecture decisions | accepted |
