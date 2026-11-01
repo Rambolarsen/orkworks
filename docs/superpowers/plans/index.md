@@ -255,3 +255,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Copilot disposable synthetic-history boundary](2026-11-01-copilot-synthetic-capture-boundary.md) — Approved one-batch exception and exhausted settings-only comparison.
 
 - [Copilot selected skill startup delivery](2026-11-01-copilot-startup-skill-delivery.md) — Approved, exhausted one-call selected-source delivery through startup context.
+
+- [Copilot view read-scope control](2026-11-01-copilot-view-read-scope.md) — Proposed owned-file/symlink primitive test with a fresh three-call maximum.
