@@ -755,8 +755,9 @@ The owner-approved [ordinary-session SQLite contract](../../specs/session-storag
 and [ADR 0103](../adr/0103-sqlite-session-storage.md) replace session/organization
 file authority and complete-history projection after qualified format-2 cutover.
 The [delivery plan](../superpowers/plans/2026-11-01-sqlite-session-storage.md)
-retains producer, backup, recovery and performance gates. Implementation is
-pending; the paths and source behavior below still describe format 1.
+retains producer, backup, recovery and performance gates. The [private adapter foundation](../validation/session-store-adapter.md) is source-only;
+writer integration and activation remain pending. The paths and source behavior
+below still describe format 1.
 
 Session title operations are separate from attention/work metadata. The renderer
 uses `window.orkworks.sessionTitle` through Electron main's generation-bound

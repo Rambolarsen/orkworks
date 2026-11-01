@@ -62,3 +62,5 @@ Capability research, validation results, and evidence fixtures.
 - [Artifact read-work reservation authority](artifact-read-work-authority.md) — Pinned owner trace, physical-commit gap, proposed debit-only exception and conditional/native handoff oracles.
 
 - [Ordinary session metadata producer compatibility](session-storage-producers.md) — Source helper/reporting preparation, measured route evidence and explicit unqualified installed/platform profiles.
+
+- [Private ordinary-session SQLite adapter](session-store-adapter.md) — Source-only worker/query foundation, regression evidence and remaining writer/activation gates.
