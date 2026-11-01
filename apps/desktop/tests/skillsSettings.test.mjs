@@ -144,6 +144,24 @@ if (process.env.ORKWORKS_SKILLS_FIXTURE) {
       assert.equal(await evaluate('document.querySelectorAll("[data-skill-source=multi]").length'), 2, 'a source can belong to two plugins without inflating global counts');
       assert.equal(await evaluate(`document.querySelectorAll('[data-skill-plugin="Plugin (name unknown)"] [data-skill-source]').length`), 1);
       assert.equal(await evaluate('document.querySelector("[data-local-skills] [data-skill-source]").dataset.skillSource'), 'apm-local');
+      await click('[data-skill-plugin="alpha@local"] [data-skill-row="multi-skill"] summary');
+      assert.match(await evaluate('document.querySelector("[data-skill-source=multi] h4").innerText'), /APM.*sources\/very-long-package-name/);
+      for (const width of [1000, 700, 360]) {
+        win.setContentSize(width, 850);
+        await evaluate("new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))");
+        assert.ok(await evaluate("document.querySelector('.settings-content').scrollWidth <= document.querySelector('.settings-content').clientWidth + 1"), `long APM package heading has no horizontal scrolling at ${width}`);
+      }
+      if (process.env.ORKWORKS_SKILLS_CAPTURE) {
+        const { writeFileSync } = await import("node:fs");
+        await evaluate(`document.querySelector('[data-skill-source="multi"]').scrollIntoView({block:"center"});new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))`);
+        writeFileSync(process.env.ORKWORKS_SKILLS_CAPTURE + ".apm.png", (await win.webContents.capturePage()).toPNG());
+      }
+      win.setContentSize(1000, 850);
+      await click('[data-local-skills] [data-skill-row] summary');
+      assert.match(await evaluate('document.querySelector("[data-skill-source=apm-local] h4").innerText'), /APM.*owner\/package/);
+      await search('owner/package');
+      await wait('document.querySelectorAll("[data-skill-source]").length===1');
+      assert.equal(await evaluate('document.querySelector("[data-skill-source]").dataset.skillSource'), 'apm-local');
       app.exit(0);
     } catch (error) {
       console.error(error);

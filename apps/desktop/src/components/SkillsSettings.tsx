@@ -110,7 +110,7 @@ export default function SkillsSettings({
     (skill) =>
       (!filterScope || skill.scope === filterScope) &&
       (!tool || skill.tools.includes(tool as SkillTool)) &&
-      [skill.name, skill.description, ...(skill.plugins || []), ...skill.paths]
+      [skill.name, skill.description, skill.packageSource || "", ...(skill.plugins || []), ...skill.paths]
         .join(" ")
         .toLowerCase()
         .includes(query.toLowerCase()),
@@ -163,8 +163,8 @@ export default function SkillsSettings({
               <section key={skill.id} data-skill-source={skill.id} className="skills-source" aria-label={`${name} source: ${skill.paths[0]}`}>
                 <h4>
                   <span className="skills-badge">{skill.scope === "workspace" ? "Workspace" : "Personal"}</span>
-                  <span>{skill.plugins?.join(" · ") || (skill.management === "apm" ? "APM record" : skill.management === "plugin" ? "Plugin (name unknown)" : "Local file")}</span>
-                  {skill.plugins?.length && skill.management === "apm" ? <span className="skills-badge">APM record</span> : null}
+                  <span>{skill.plugins?.join(" · ") || (skill.management === "apm" ? `APM · ${skill.packageSource || "package unknown"}` : skill.management === "plugin" ? "Plugin (name unknown)" : "Local file · ownership unknown")}</span>
+                  {skill.plugins?.length && skill.management === "apm" ? <span className="skills-badge">APM · {skill.packageSource || "package unknown"}</span> : null}
                 </h4>
                 <p>{skill.description}</p>
                 <p className="skills-tool-coverage">
@@ -261,7 +261,7 @@ export default function SkillsSettings({
           <input
             className="ui-input"
             aria-label="Search skills"
-            placeholder="Find a skill by name, plugin, description, or path…"
+            placeholder="Find a skill by name, plugin, package, description, or path…"
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}

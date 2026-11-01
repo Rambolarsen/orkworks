@@ -253,3 +253,85 @@ test("counts valid bounded skill metadata even when its instruction body exceeds
   // Inventory metadata does not grant an unbounded detail read.
   await assert.rejects(readSkillDetail(inventory, inventory.skills[0].id), /bounded|limit/);
 });
+
+
+test("reads realistic APM deployment locks and attributes only recorded workspace sources", async (t) => {
+  const f = await fixture(t);
+  await f.put(f.workspace, ".agents/skills/generated");
+  await f.put(f.workspace, ".claude/skills/generated");
+  await f.put(f.workspace, ".agents/skills/unowned");
+  const hashes = Object.fromEntries(Array.from({ length: 3000 }, (_, n) =>
+    [`.agents/skills/generated/resources/file-${n}.md`, "sha256:" + "a".repeat(64)]));
+  const text = JSON.stringify({ lockfile_version: "1", dependencies: [{
+    repo_url: "owner/skill-package", version: "1.2.3",
+    deployed_files: [".agents/skills/generated/SKILL.md", ".claude/skills/generated/SKILL.md"],
+    deployed_file_hashes: hashes,
+  }] });
+  assert.ok(Buffer.byteLength(text) > 300000);
+  await writeFile(join(f.workspace, "apm.lock.yaml"), text);
+  const result = await discoverSkills({ workspace: f.workspace, home: f.home, env: {} });
+  const owned = result.skills.filter(skill => skill.management === "apm");
+  assert.equal(owned.length, 2);
+  assert.ok(owned.every(skill => skill.packageSource === "owner/skill-package" && skill.version === "1.2.3"));
+  assert.equal(result.skills.find(skill => skill.paths[0].endsWith("/unowned"))?.management, "local");
+  assert.ok(!result.diagnostics.some(line => /APM lock/.test(line)));
+});
+
+test("matches personal APM ownership through discovered logical aliases without borrowing workspace ownership", async (t) => {
+  const f = await fixture(t);
+  const original = await f.put(f.root, "package/skills/example");
+  await mkdir(join(f.home, ".agents/skills"), { recursive: true });
+  await symlink(original, join(f.home, ".agents/skills/example"), "dir");
+  await f.put(f.workspace, ".agents/skills/example");
+  await mkdir(join(f.home, ".apm"));
+  await writeFile(join(f.home, ".apm/apm.lock.yaml"), JSON.stringify({ dependencies: [{
+    local_path: "/sources/example", version: "local",
+    deployed_files: [".agents/skills/example/SKILL.md"],
+  }] }));
+  const result = await discoverSkills({ workspace: f.workspace, home: f.home, env: {} });
+  const personal = result.skills.find(skill => skill.scope === "personal");
+  assert.equal(personal?.management, "apm");
+  assert.equal(personal?.packageSource, "/sources/example");
+  assert.equal(personal?.resolvedPath, await realpath(original));
+  assert.equal(result.skills.find(skill => skill.scope === "workspace")?.management, "local");
+  await writeFile(join(f.home, ".apm/apm.lock.yaml"), JSON.stringify({ dependencies: [{
+    local_path: "/sources/example", deployed_files: [join(await realpath(original), "SKILL.md")],
+  }] }));
+  const canonical = await discoverSkills({ workspace: f.workspace, home: f.home, env: {} });
+  assert.equal(canonical.skills.find(skill => skill.scope === "personal")?.management, "apm");
+  assert.equal(canonical.skills.find(skill => skill.scope === "workspace")?.management, "local");
+});
+
+test("keeps APM provenance unknown with diagnostics for oversized or malformed locks", async (t) => {
+  const f = await fixture(t);
+  await f.put(f.workspace, ".agents/skills/example");
+  for (const text of ["x".repeat(2 * 1024 * 1024 + 1), "dependencies: [invalid"]) {
+    await writeFile(join(f.workspace, "apm.lock.yaml"), text);
+    const result = await discoverSkills({ workspace: f.workspace, home: f.home, env: {} });
+    assert.equal(result.skills[0].management, "local");
+    assert.equal(result.skills[0].packageSource, undefined);
+    assert.ok(result.diagnostics.some(line => /workspace: APM lock provenance could not be read/.test(line)));
+  }
+});
+
+
+test("retains coding-tool plugin registration when the same source has an APM ownership record", async (t) => {
+  const f = await fixture(t);
+  const original = await f.put(f.home, ".agents/skills/example");
+  const plugin = join(f.home, "plugins/shared");
+  await mkdir(join(plugin, "skills"), { recursive: true });
+  await symlink(original, join(plugin, "skills/example"), "dir");
+  await mkdir(join(f.home, ".claude/plugins"), { recursive: true });
+  await writeFile(join(f.home, ".claude/plugins/installed_plugins.json"), JSON.stringify({
+    plugins: { "sample@local": [{ scope: "user", installPath: plugin }] },
+  }));
+  await mkdir(join(f.home, ".apm"));
+  await writeFile(join(f.home, ".apm/apm.lock.yaml"), JSON.stringify({ dependencies: [{
+    repo_url: "owner/package", deployed_files: [".agents/skills/example/SKILL.md"],
+  }] }));
+  const result = await discoverSkills({ workspace: null, home: f.home, env: {} });
+  assert.equal(result.skills.length, 1);
+  assert.equal(result.skills[0].management, "apm");
+  assert.equal(result.skills[0].packageSource, "owner/package");
+  assert.deepEqual(result.skills[0].plugins, ["sample@local"]);
+});

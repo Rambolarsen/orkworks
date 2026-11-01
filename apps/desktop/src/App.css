@@ -3265,4 +3265,5 @@ html, body, #root {
 
 .skills-source { display: grid; gap: 10px; min-width: 0; padding: 12px; border: 1px solid var(--border-subtle); border-radius: 8px; }
 .skills-source h4 { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; margin: 0; font-size: 12px; overflow-wrap: anywhere; }
+.skills-source h4 > .skills-badge { max-width: 100%; box-sizing: border-box; overflow-wrap: anywhere; }
 .skills-source h4 > span:not(.skills-badge) { min-width: 0; overflow-wrap: anywhere; }

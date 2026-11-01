@@ -132,11 +132,14 @@ A **Local + plugin** badge marks a skill name with separate local and plugin
 sources. It remains visible when filters hide the other source. Local means
 ownership is unrecorded; it does not prove a manual install or identical
 instructions. Aliases of one source and APM-only ownership do not trigger it.
+APM-owned sources show **APM** and their recorded package. Sources without an
+ownership record say **Local file · ownership unknown**. An APM record does not
+verify that the file is unchanged since installation.
 
 Counts show distinct names and a separate source total, even when one source
 belongs to multiple plugins. Search and the coding-tool
 and scope filters narrow the sources before names are grouped. Search also
-matches plugin names, descriptions and paths. Same-named sources can contain
+matches plugin names, recorded APM packages, descriptions and paths. Same-named sources can contain
 different instructions; **Read skill** opens the text for the source you choose.
 Found does not establish loaded or enabled. Codex includes cached plugin and
 system skills; multiple cached versions remain separate source entries.

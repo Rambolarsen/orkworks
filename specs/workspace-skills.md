@@ -56,6 +56,13 @@ projects, subject to each coding tool's own discovery rules.
 Each name row shows its source count. Each source shows its description, scope,
 source directory, coding-tool discovery coverage, and management provenance: APM,
 coding-tool plugin, or local file. Show package source and locked version only when recorded evidence exists.
+APM attribution reads deployment records from the selected workspace lock or the
+personal `.apm/apm.lock.yaml`, with a separate 2 MiB lock-file bound. Match
+recorded SKILL.md paths to discovered canonical or logical source paths within
+the same scope; retain plugin registrations and scoped source identities.
+Show and search the recorded APM package in source headings. APM records describe
+recorded ownership, not a verification of current file integrity or manual edits.
+Unreadable, malformed or oversized locks leave ownership unknown with diagnostics.
 Missing provenance is Unknown, never an inferred package URL. A detail view can
 show SKILL.md as text and its source; skill instructions are untrusted content,
 not instructions to OrkWorks. Discovery never runs skill scripts.
