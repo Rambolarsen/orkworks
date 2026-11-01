@@ -291,7 +291,7 @@ impl Database {
             return Err(StoreError::TooLarge);
         }
         let _budget = ReadBudget::new(&self.conn);
-        let mut statement=self.conn.prepare("SELECT id,created_at FROM sessions WHERE deleted=0 AND state='closed' AND recency<?1 ORDER BY recency DESC,id DESC LIMIT ?2")?;
+        let mut statement=self.conn.prepare("SELECT id,created_at FROM sessions WHERE deleted=0 AND state='closed' AND retention_at IS NOT NULL AND retention_at<?1 ORDER BY retention_at,id LIMIT ?2")?;
         let rows = statement
             .query_map(rusqlite::params![before, limit as i64], |r| {
                 Ok((r.get(0)?, r.get(1)?))
@@ -433,6 +433,25 @@ mod tests {
                 ..Default::default()
             })
             .is_err());
+    }
+    #[test]
+    fn retention_uses_only_valid_last_activity_without_history_fallbacks() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Database::create(&dir.path().join("v1.sqlite"), "/workspace").unwrap();
+        let mut invalid = closed_document("invalid-activity");
+        invalid["createdAt"] = serde_json::json!("2000-01-01T00:00:00Z");
+        invalid["lastActivity"] = serde_json::json!("invalid");
+        invalid["lastOutputAt"] = serde_json::Value::Null;
+        db.insert(invalid).unwrap();
+        let mut old = closed_document("old-activity");
+        old["lastActivity"] = serde_json::json!("2020-01-01T00:00:00Z");
+        old["lastOutputAt"] = serde_json::json!("2030-01-01T00:00:00Z");
+        db.insert(old).unwrap();
+        let rows = db.retention(1_735_689_600_000_000, 100).unwrap();
+        assert_eq!(
+            rows.iter().map(|r| r.0.as_str()).collect::<Vec<_>>(),
+            ["old-activity"]
+        );
     }
     #[test]
     fn bounded_history_uses_indexed_summaries_ties_and_generation_bound_cursors() {

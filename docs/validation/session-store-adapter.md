@@ -23,13 +23,17 @@ an explicit indexed session key as the FTS rowid, avoiding text-identity scans. 
 one connection. Staging initialization and existing-store open are distinct;
 open never creates a missing database. Unknown versions, workspace mismatches,
 corruption and persistence failures return errors instead of an empty store.
+Age-retention eligibility has its own indexed nullable timestamp derived only
+from valid `lastActivity`, preserving the existing policy independently of history
+sorting. Invalid activity times remain age-protected. Retention result reservations
+cover worst-case JSON escaping of exact identities.
 No activation marker, JSON mirror, replay deletion or native capability is added.
 The future selector must retain the selected workspace lease around this owner.
 
 Current typed commands cover create, revisioned agent patch, exact detail,
-live-ID summaries, bounded history/search, batched existence, retention candidates,
+live-ID summaries, bounded history/search, batched existence, age-retention candidates,
 organization changes and deletion progress. Agent mutations reuse the current
-field/source/plan validators. Canonical records preserve unknown root members,
+field/source/plan validators. Canonical records preserve unknown object members (including nested objects and unchanged typed lists),
 revision strings and immutable creation identity. Import-specific provenance,
 manifest and organization loading remain migration work.
 
@@ -65,7 +69,7 @@ Real temporary SQLite fixtures exercise:
 - Initialization, FTS5 availability, effective durability configuration and strict
   reopen/version/workspace checks without JSON creation or corrupt-file replacement.
 - Durable agent patches, stale revisions, source conflict, u64 exhaustion, unknown
-  extension preservation, oversized rejection and complete-record round trips.
+  root/nested extension preservation, oversized rejection and complete-record round trips.
 - Checked organization identity/revisions, close-first actions, archived retention
   protection, non-displayable tombstones, monotonic progress and ID reuse rejection.
 - Transaction rollback across canonical rows, search and history generation;

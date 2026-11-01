@@ -90,7 +90,7 @@ impl Command {
             Self::History(_) => 256 * 1024,
             Self::Live(ids) => ids.len().saturating_mul(8192).saturating_add(16384),
             Self::Exists(ids) => ids.iter().map(|id| id.len() + 4).sum(),
-            Self::Retention(..) => 64 * 1024,
+            Self::Retention(..) => 256 * 1024,
             Self::Organization { .. } => 32,
             _ => 0,
         }
@@ -847,6 +847,24 @@ mod tests {
             .await
             .unwrap()
             .is_none());
+    }
+    #[test]
+    fn retention_reservation_covers_exact_json_escaped_identity_results() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Database::create(&dir.path().join("v1.sqlite"), "/workspace").unwrap();
+        for i in 0..100 {
+            let mut value =
+                super::super::tests::closed_document(&format!("{}-{i:03}", "x".repeat(252)));
+            value["createdAt"] = serde_json::json!("\u{1}".repeat(256));
+            db.insert(value).unwrap();
+        }
+        let rows = db.retention(i64::MAX, 100).unwrap();
+        assert_eq!(rows.len(), 100);
+        let encoded = serde_json::to_vec(&rows).unwrap().len();
+        assert!(
+            Command::Retention(i64::MAX, 100).result_bound() >= encoded,
+            "reservation undercounts {encoded} encoded result bytes"
+        );
     }
     #[tokio::test]
     async fn worker_commits_before_acknowledgement_and_reopens_without_json_mirror() {

@@ -371,21 +371,51 @@ fn canonical(
     Ok((document, record))
 }
 fn merge_known(
-    mut original: serde_json::Value,
+    original: serde_json::Value,
     old: &serde_json::Value,
     new: serde_json::Value,
 ) -> Result<serde_json::Value> {
-    let map = original
-        .as_object_mut()
-        .ok_or_else(|| StoreError::Invalid("metadata must be an object".into()))?;
-    for key in old.as_object().ok_or(StoreError::Corrupt)?.keys() {
-        map.remove(key);
+    if !original.is_object() || !old.is_object() || !new.is_object() {
+        return Err(StoreError::Invalid("metadata must be an object".into()));
     }
+    let mut merged = merge_member(original, old, new);
+    let map = merged.as_object_mut().ok_or(StoreError::Corrupt)?;
     for alias in ["harness", "model", "phase", "providerId", "providerLabel"] {
         map.remove(alias);
     }
-    map.extend(new.as_object().ok_or(StoreError::Corrupt)?.clone());
-    Ok(original)
+    Ok(merged)
+}
+fn merge_member(
+    original: serde_json::Value,
+    old: &serde_json::Value,
+    new: serde_json::Value,
+) -> serde_json::Value {
+    use serde_json::Value;
+    match (original, old, new) {
+        (Value::Object(mut original), Value::Object(old), Value::Object(mut new)) => {
+            // Update/remove only known members, retaining unknown siblings at
+            // every object depth rather than replacing a complete typed object.
+            for (key, old_value) in old {
+                if let Some(new_value) = new.remove(key) {
+                    let original_value = original.remove(key).unwrap_or(Value::Null);
+                    original.insert(
+                        key.clone(),
+                        merge_member(original_value, old_value, new_value),
+                    );
+                } else {
+                    original.remove(key);
+                }
+            }
+            original.extend(new);
+            Value::Object(original)
+        }
+        // Unrelated patches retain extension members in typed list entries.
+        // Explicit list replacement owns that complete scope.
+        (original @ Value::Array(_), Value::Array(old), Value::Array(new)) if old == &new => {
+            original
+        }
+        (_, _, new) => new,
+    }
 }
 fn read_document(conn: &Connection, id: &str, deleted: bool) -> Result<Option<serde_json::Value>> {
     let row: Option<(String, String, String)> = conn
@@ -483,9 +513,14 @@ fn persist(
                 .ok_or_else(|| StoreError::Invalid("search identity exhausted".into()))?
         }
     };
-    conn.execute("INSERT INTO sessions(id,created_at,revision,metadata,state,harness,model,repository,branch,native_id,outcome,recency,title,summary,search_rowid) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)
-        ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,metadata=excluded.metadata,state=excluded.state,harness=excluded.harness,model=excluded.model,repository=excluded.repository,branch=excluded.branch,native_id=excluded.native_id,outcome=excluded.outcome,recency=excluded.recency,title=excluded.title,summary=excluded.summary",
-        rusqlite::params![m.id,m.created_at,String::from(record.revision.clone()),serde_json::to_string(document)?,state,m.harness,m.model,m.repo_root,m.branch,native,m.terminal_outcome,recency(m),m.label,m.summary,search_rowid])?;
+    // Retention keeps the existing lastActivity-only eligibility policy.
+    // History recency has separate output/creation fallbacks and cannot own it.
+    let retention_at = chrono::DateTime::parse_from_rfc3339(&m.last_activity)
+        .ok()
+        .map(|t| t.timestamp_micros());
+    conn.execute("INSERT INTO sessions(id,created_at,revision,metadata,state,harness,model,repository,branch,native_id,outcome,recency,title,summary,search_rowid,retention_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)
+        ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,metadata=excluded.metadata,state=excluded.state,harness=excluded.harness,model=excluded.model,repository=excluded.repository,branch=excluded.branch,native_id=excluded.native_id,outcome=excluded.outcome,recency=excluded.recency,title=excluded.title,summary=excluded.summary,retention_at=excluded.retention_at",
+        rusqlite::params![m.id,m.created_at,String::from(record.revision.clone()),serde_json::to_string(document)?,state,m.harness,m.model,m.repo_root,m.branch,native,m.terminal_outcome,recency(m),m.label,m.summary,search_rowid,retention_at])?;
     conn.execute("DELETE FROM metadata_search WHERE rowid=?1", [search_rowid])?;
     conn.execute("INSERT INTO metadata_search(rowid,id,title,summary,repository,branch,native_id) VALUES(?1,?2,?3,?4,?5,?6,?7)",
         rusqlite::params![search_rowid,m.id,m.label,m.summary,m.repo_root,m.branch,native])?;
@@ -509,7 +544,7 @@ CREATE TABLE store_header (
 ) STRICT;
 CREATE TABLE sessions (
  id TEXT PRIMARY KEY, created_at TEXT NOT NULL, revision TEXT NOT NULL,
- search_rowid INTEGER NOT NULL UNIQUE CHECK(search_rowid>0),
+ search_rowid INTEGER NOT NULL UNIQUE CHECK(search_rowid>0), retention_at INTEGER,
  metadata TEXT NOT NULL CHECK(length(CAST(metadata AS BLOB))<=1048576 AND json_valid(metadata)),
  state TEXT NOT NULL, harness TEXT NOT NULL, model TEXT NOT NULL,
  repository TEXT, branch TEXT, native_id TEXT, outcome TEXT,
@@ -520,6 +555,7 @@ CREATE INDEX history_state ON sessions(deleted,state,recency DESC,id DESC);
 CREATE INDEX history_all ON sessions(deleted,recency DESC,id DESC);
 CREATE INDEX history_harness ON sessions(deleted,state,harness,recency DESC,id DESC);
 CREATE INDEX session_native ON sessions(harness,native_id);
+CREATE INDEX retention_candidates ON sessions(deleted,state,retention_at,id);
 CREATE TABLE organization (
  id TEXT PRIMARY KEY, created_at TEXT NOT NULL, choice TEXT NOT NULL CHECK(choice IN ('closed','archived')),
  revision TEXT NOT NULL, changed_at TEXT NOT NULL,
@@ -812,6 +848,32 @@ mod tests {
         assert!(
             measurements[1] < measurements[0] * 3,
             "search maintenance grew with history: {measurements:?}"
+        );
+    }
+    #[test]
+    fn nested_unknown_metadata_survives_normalization_and_unrelated_patch() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Database::create(&dir.path().join("v1.sqlite"), "/workspace").unwrap();
+        let mut value = document("nested");
+        value["resume"] = serde_json::json!({"state":"available","preferredStrategy":"exact","harnessSessionId":"native-one","latestFallback":false,"futureNative":{"version":2,"keep":[1,2,3]}});
+        value["resumeOptions"] = serde_json::json!([{"strategy":"exact","label":"Exact","available":true,"preferred":true,"futureOption":{"keep":true}}]);
+        db.insert(value).unwrap();
+        assert_eq!(
+            db.get("nested").unwrap().unwrap()["resumeOptions"][0]["futureOption"],
+            serde_json::json!({"keep":true})
+        );
+        assert_eq!(
+            db.get("nested").unwrap().unwrap()["resume"]["futureNative"],
+            serde_json::json!({"version":2,"keep":[1,2,3]})
+        );
+        let changed=db.patch("nested",serde_json::json!({"metadataRevision":"0","patch":{"agentMetadata":{"summary":"new summary"}}})).unwrap();
+        assert_eq!(
+            changed["resumeOptions"][0]["futureOption"],
+            serde_json::json!({"keep":true})
+        );
+        assert_eq!(
+            changed["resume"]["futureNative"],
+            serde_json::json!({"version":2,"keep":[1,2,3]})
         );
     }
     #[test]
