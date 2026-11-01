@@ -30,7 +30,7 @@ const inventory = {
 };
 const edgeSkills = [
   { ...skill, id: "apm-local", name: "apm-skill", scope: "personal", management: "apm", packageSource: "owner/package" },
-  { ...skill, id: "apm-plugin", name: "apm-skill", scope: "personal", management: "plugin", plugins: ["alpha@local"] },
+  { ...skill, id: "apm-plugin", name: "apm-skill", scope: "personal", management: "plugin", plugins: ["alpha@local"], resolvedPath: "/plugin/apm-skill", paths: ["/plugin/apm-skill"] },
   { ...skill, id: "alias", name: "alias-skill", scope: "personal", management: "plugin", plugins: ["alpha@local"], paths: ["/local/alias", "/plugin/alias"] },
   { ...skill, id: "multi", name: "multi-skill", scope: "personal", management: "plugin", plugins: ["alpha@local", "beta@local"] },
   { ...skill, id: "unknown", name: "unknown-skill", scope: "personal", management: "plugin" },
