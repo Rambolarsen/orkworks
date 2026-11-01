@@ -36,6 +36,7 @@ PR CI runs `cargo fmt --check` as a blocking gate, so format before committing.
 ## Module layout
 
 - `metadata.rs` — `SessionMetadata` and the on-disk metadata store, the source of truth for session state.
+- `session_store.rs` and `session_store/` — private, source-only ordinary SQLite adapter; no production selection before the qualified migration gates.
 - `session_types.rs`, `session_view.rs` — session-facing types and pure view helpers; `session_projection.rs` owns the stateful session-listing projection and its write-back policy.
 - `harness.rs` and its `definition`, `registry`, and `store` submodules — versioned harness definitions, sparse overrides, resolved immutable capability snapshots, and persistence.
 - `providers.rs` — model provider registry, fallback, and capacity state.

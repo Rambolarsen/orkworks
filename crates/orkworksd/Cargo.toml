@@ -34,7 +34,7 @@ getrandom = "0.3"
 libc = "0.2"
 sysinfo = "0.39"
 fs2 = "0.4"
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.32", features = ["bundled", "hooks"] }
 
 tempfile = "3"
 

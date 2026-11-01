@@ -626,7 +626,7 @@ pub struct CodexHookObservation {
     pub observed_at: String,
 }
 
-fn normalize_session_metadata(mut meta: SessionMetadata) -> SessionMetadata {
+pub(crate) fn normalize_session_metadata(mut meta: SessionMetadata) -> SessionMetadata {
     meta.work_phase = normalize_work_phase(&meta.work_phase);
 
     if meta.lifecycle_phase.is_empty() {

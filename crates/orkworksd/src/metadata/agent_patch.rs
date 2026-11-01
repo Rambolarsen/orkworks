@@ -394,6 +394,13 @@ impl AgentPatch {
         }))
     }
 
+    pub(crate) fn apply_checked(&self, meta: &mut SessionMetadata) -> Result<(), AgentPatchError> {
+        // The private SQLite adapter has no branch-document store yet.
+        self.apply(meta, None)
+            .map(|_| ())
+            .map_err(|error| map_error(SessionTransactionError::Io(error)))
+    }
+
     fn apply(
         &self,
         meta: &mut SessionMetadata,

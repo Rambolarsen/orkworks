@@ -32,7 +32,7 @@ impl From<MetadataRevision> for String {
 }
 
 impl MetadataRevision {
-    pub(super) fn next(&self) -> io::Result<Self> {
+    pub(crate) fn next(&self) -> io::Result<Self> {
         self.0.checked_add(1).map(Self).ok_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidData, "metadata revision exhausted")
         })
