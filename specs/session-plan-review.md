@@ -180,6 +180,11 @@ For an unbound session's permitted sibling-worktree selection, resolve the exact
 validated explicit selection by its opaque ID and use the document's branch for
 admission while preserving the session's own location/runtime fences. Explicit
 task-worktree bindings remain authoritative and reject sibling selections.
+Historical bodyless paths use the same repository-boundary, literal-symlink and
+no-follow Markdown validation without being limited to auto-discovery roots.
+Recheck the shared slot under its lock before returning bytes. Pin reset retains
+the validated workspace owner through mutation; stale legacy user-selected
+references cannot block fresh reports into an unpinned current-branch slot.
 Capture the runtime before document inspection; at input admission revalidate
 that runtime, workspace and selected document. A resumed runtime cannot receive
 a click made for its predecessor. Audit only acknowledged delivery.

@@ -318,6 +318,19 @@ fn index_matches(root: &Path, path: &Path, index: &git2::Index, head: Option<Oid
 
 pub(crate) fn read_document(root: &Path, relative: &str) -> Result<String, String> {
     kind_for_path(relative).ok_or("Unsupported document path.")?;
+    read_markdown(root, relative)
+}
+
+/// Shared safe access for branch documents and historical session-local paths.
+pub(crate) fn read_markdown(root: &Path, relative: &str) -> Result<String, String> {
+    crate::git_changes::safe_path(Path::new(relative)).map_err(|_| "Invalid document path.")?;
+    if relative.chars().any(char::is_control)
+        || !Path::new(relative)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+    {
+        return Err("Unsupported Markdown path.".into());
+    }
     if nested_or_unsafe_directory(
         root,
         Path::new(relative)
@@ -326,21 +339,47 @@ pub(crate) fn read_document(root: &Path, relative: &str) -> Result<String, Strin
     ) {
         return Err("Document crosses a repository boundary.".into());
     }
-    if let Some(index) = Repository::open(root)
-        .ok()
-        .and_then(|repo| repo.index().ok())
-    {
-        if Path::new(relative)
-            .ancestors()
-            .skip(1)
-            .filter(|path| !path.as_os_str().is_empty())
-            .any(|path| {
-                index
-                    .get_path(path, 0)
-                    .is_some_and(|entry| entry.mode == 0o160000)
-            })
-        {
-            return Err("Document crosses a submodule boundary.".into());
+    if let Ok(repo) = Repository::discover(root) {
+        let index_path = repo.workdir().and_then(|workdir| {
+            let workdir = workdir.canonicalize().ok()?;
+            root.canonicalize()
+                .ok()?
+                .join(relative)
+                .strip_prefix(workdir)
+                .ok()
+                .map(Path::to_path_buf)
+        });
+        if let Some(index_path) = index_path {
+            let index = repo
+                .index()
+                .map_err(|_| "Git document index unavailable.")?;
+            let config = repo
+                .config()
+                .map_err(|_| "Git document configuration unavailable.")?;
+            let symlinks = match config.get_bool("core.symlinks") {
+                Ok(value) => value,
+                Err(error) if error.code() == git2::ErrorCode::NotFound => true,
+                Err(_) => return Err("Git symlink policy unavailable.".into()),
+            };
+            if !symlinks
+                && index
+                    .get_path(&index_path, 0)
+                    .is_some_and(|entry| entry.mode == 0o120000)
+            {
+                return Err("Document is a Git symlink.".into());
+            }
+            if index_path
+                .ancestors()
+                .skip(1)
+                .filter(|path| !path.as_os_str().is_empty())
+                .any(|path| {
+                    index
+                        .get_path(path, 0)
+                        .is_some_and(|entry| entry.mode == 0o160000)
+                })
+            {
+                return Err("Document crosses a submodule boundary.".into());
+            }
         }
     }
     let bytes = crate::git_changes_fs::read_regular(root, Path::new(relative))
@@ -916,6 +955,7 @@ mod tests {
             .set_bool("core.symlinks", false)
             .unwrap();
         assert!(discover(dir.path()).unwrap().documents.is_empty());
+        assert!(document(dir.path(), "specs/link.md", PlanSource::UserSelected, true).is_err());
         entry.mode = 0o100644;
         index.add(&entry).unwrap();
         index.write().unwrap();
@@ -924,6 +964,7 @@ mod tests {
             1,
             "staged regular-file conversions remain eligible"
         );
+        assert!(document(dir.path(), "specs/link.md", PlanSource::UserSelected, true).is_ok());
     }
 
     #[test]

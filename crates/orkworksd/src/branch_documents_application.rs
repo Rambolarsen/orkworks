@@ -126,6 +126,11 @@ pub(crate) fn selected(
                     .as_deref()
                     .map(PathBuf::from)
                     .unwrap_or(context.launch.clone());
+                if context.bound
+                    && root.canonicalize().map_err(|_| "Document unavailable.")? != context.root
+                {
+                    return Err("Document is outside the bound worktree.".into());
+                }
                 // Legacy session-local fallback is readable, never a shared write.
                 if path.starts_with(&root.canonicalize().map_err(|_| "Document unavailable.")?) {
                     result = Some(branch_documents::document(
@@ -207,6 +212,37 @@ impl SessionApplication {
         if !current(&self.state, id, &context) {
             return Err("Session workspace changed; refresh.".into());
         }
+        #[cfg(test)]
+        if let Some(hook) = context.store.before_content_return.lock().unwrap().take() {
+            hook();
+        }
+        let workspace = self
+            .state
+            .workspace
+            .lock()
+            .map_err(|_| "Workspace unavailable.")?;
+        let ws = workspace.as_ref().ok_or("Workspace unavailable.")?;
+        if !Arc::ptr_eq(&context.store, &ws.metadata.branch_documents) {
+            return Err("Session workspace changed; refresh.".into());
+        }
+        let meta = ws.metadata.read_session(id).ok_or("Session unavailable.")?;
+        if meta.cwd != context.launch.to_string_lossy()
+            || meta.worktree_binding.is_some() != context.bound
+            || meta
+                .worktree_binding
+                .as_ref()
+                .is_some_and(|binding| binding.validate().ok().as_ref() != Some(&context.root))
+        {
+            return Err("Session workspace changed; refresh.".into());
+        }
+        if let Some(branch) = &document_branch {
+            context
+                .store
+                .with_current_document(branch, &doc, &mut || Ok(()))
+                .map_err(|_| "Document selection changed; refresh.")?;
+        } else if meta.plan_path != context.legacy {
+            return Err("Document selection changed; refresh.".into());
+        }
         Ok(content)
     }
     pub(crate) fn reset_document_pin(
@@ -217,7 +253,36 @@ impl SessionApplication {
     ) -> Result<(), String> {
         let context = subject(&self.state, id)?;
         let key = branch_documents::identity(&context.root)?;
+        let _fence = self
+            .state
+            .projection_lock
+            .lock()
+            .map_err(|_| "Workspace unavailable.")?;
         if !current(&self.state, id, &context) {
+            return Err("Session workspace changed; refresh.".into());
+        }
+        let workspace = self
+            .state
+            .workspace
+            .lock()
+            .map_err(|_| "Workspace unavailable.")?;
+        if !workspace
+            .as_ref()
+            .is_some_and(|ws| Arc::ptr_eq(&context.store, &ws.metadata.branch_documents))
+        {
+            return Err("Session workspace changed; refresh.".into());
+        }
+        let meta = workspace
+            .as_ref()
+            .and_then(|ws| ws.metadata.read_session(id))
+            .ok_or("Session unavailable.")?;
+        if meta.cwd != context.launch.to_string_lossy()
+            || meta.worktree_binding.is_some() != context.bound
+            || meta
+                .worktree_binding
+                .as_ref()
+                .is_some_and(|binding| binding.validate().ok().as_ref() != Some(&context.root))
+        {
             return Err("Session workspace changed; refresh.".into());
         }
         context.store.use_latest(&key, kind, selection_id)

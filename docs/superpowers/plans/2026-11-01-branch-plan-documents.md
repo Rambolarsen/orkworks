@@ -123,6 +123,14 @@ and ownership fixes; manual review identified a typed sibling-selection gap.
 Its end-to-end read/review regression observed failure before the correction.
 The next fresh review is cycle 5/5.
 
+Cycle 4's native review added pin-reset ownership, legacy reader boundaries,
+literal symlink reads, shared-slot read races and stale legacy-pin precedence.
+The final corrective pass routes legacy and typed reads through shared safe
+Markdown access, revalidates slot/owner at return, retains the owner through
+reset, and consults the current target branch's pin for fresh agent reports.
+All five regression cases failed before correction; the combined document
+regression suite passes 41 tests, including sibling selection and binding cases.
+
 The local corrective pass adds safe original-path legacy reads, effective
 worktree hook reports, surviving bindings when launch worktrees disappear,
 independent agent slot reports, document inspection outside the input fence,

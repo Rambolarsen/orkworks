@@ -4723,9 +4723,12 @@ impl SessionApplication {
             .metadata
             .read_session(id)
             .ok_or(SessionError::NotFound)?;
-        if let Some(binding) = &metadata.worktree_binding {
-            binding.validate().map_err(|_| SessionError::Conflict)?;
-        }
+        let bound_root = metadata
+            .worktree_binding
+            .as_ref()
+            .map(|binding| binding.validate())
+            .transpose()
+            .map_err(|_| SessionError::Conflict)?;
         let plan_path = metadata.plan_path.ok_or(SessionError::Conflict)?;
         resolve_openable_plan_reference(&workspace.path, &plan_path)
             .map_err(|_| SessionError::Conflict)?;
@@ -4736,9 +4739,11 @@ impl SessionApplication {
             .unwrap_or_else(|| workspace.path.clone())
             .canonicalize()
             .map_err(|_| SessionError::Conflict)?;
-        let bytes = crate::git_changes_fs::read_regular(&root, Path::new(&plan_path.relative_path))
-            .map_err(|_| SessionError::Conflict)?;
-        String::from_utf8(bytes).map_err(|_| SessionError::Conflict)
+        if bound_root.is_some_and(|bound| bound != root) {
+            return Err(SessionError::Conflict);
+        }
+        crate::branch_documents::read_markdown(&root, &plan_path.relative_path)
+            .map_err(|_| SessionError::Conflict)
     }
 
     pub(crate) async fn request_plan_review(&self, id: &str) -> Result<(), SessionError> {
@@ -4764,9 +4769,12 @@ impl SessionApplication {
                 .metadata
                 .read_session(id)
                 .ok_or(SessionError::NotFound)?;
-            if let Some(binding) = &metadata.worktree_binding {
-                binding.validate().map_err(|_| SessionError::Conflict)?;
-            }
+            let bound_root = metadata
+                .worktree_binding
+                .as_ref()
+                .map(|binding| binding.validate())
+                .transpose()
+                .map_err(|_| SessionError::Conflict)?;
             if metadata.lifecycle != "alive" {
                 return Err(SessionError::Conflict);
             }
@@ -4778,6 +4786,13 @@ impl SessionApplication {
                 .worktree_root
                 .as_deref()
                 .and_then(|root| std::path::Path::new(root).canonicalize().ok());
+            let document_root = selected_root
+                .clone()
+                .or_else(|| workspace.path.canonicalize().ok())
+                .ok_or(SessionError::Conflict)?;
+            if bound_root.is_some_and(|bound| bound != document_root) {
+                return Err(SessionError::Conflict);
+            }
             let prompt_path = if selected_root.is_some() && selected_root != launch_root {
                 resolved.to_string_lossy().into_owned()
             } else {
@@ -4811,9 +4826,12 @@ impl SessionApplication {
                 if meta.lifecycle != "alive" || meta.plan_path.as_ref() != Some(&reference) {
                     return Err(());
                 }
-                if let Some(binding) = &meta.worktree_binding {
-                    binding.validate().map_err(|_| ())?;
-                }
+                let bound_root = meta
+                    .worktree_binding
+                    .as_ref()
+                    .map(|binding| binding.validate())
+                    .transpose()
+                    .map_err(|_| ())?;
                 resolve_openable_plan_reference(&ws.path, &reference).map_err(|_| ())?;
                 let root = reference
                     .worktree_root
@@ -4822,7 +4840,10 @@ impl SessionApplication {
                     .unwrap_or_else(|| ws.path.clone())
                     .canonicalize()
                     .map_err(|_| ())?;
-                crate::git_changes_fs::read_regular(&root, Path::new(&reference.relative_path))
+                if bound_root.is_some_and(|bound| bound != root) {
+                    return Err(());
+                }
+                crate::branch_documents::read_markdown(&root, &reference.relative_path)
                     .map_err(|_| ())?;
                 send()
             },

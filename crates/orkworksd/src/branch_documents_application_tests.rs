@@ -90,6 +90,121 @@ fn fixture() -> (
 }
 
 #[tokio::test]
+async fn branch_document_pin_reset_retains_workspace_ownership_through_the_write() {
+    let (root, state, store, _rx) = fixture();
+    let identity = branch_documents::identity(root.path()).unwrap();
+    store
+        .report(
+            &identity,
+            branch_documents::document(
+                root.path(),
+                "specs/current.md",
+                crate::metadata::PlanSource::UserSelected,
+                true,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    *store.before_pin_reset.lock().unwrap() = Some(Box::new(move || {
+        let _ = entered_tx.send(());
+        release_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+    }));
+    let reset_state = state.clone();
+    let reset = std::thread::spawn(move || {
+        SessionApplication::new(reset_state).reset_document_pin(
+            "runtime-review",
+            DocumentKind::Design,
+            None,
+        )
+    });
+    entered_rx.await.unwrap();
+    let adoption_fenced = state.projection_lock.try_lock().is_err();
+    let owner_retained = state.workspace.try_lock().is_err();
+    release_tx.send(()).unwrap();
+    reset.join().unwrap().unwrap();
+    assert!(
+        adoption_fenced && owner_retained,
+        "pin mutation must retain adoption fence and workspace owner"
+    );
+}
+
+#[test]
+fn branch_document_content_rejects_a_slot_replaced_after_its_read() {
+    let (root, state, store, _rx) = fixture();
+    std::fs::write(root.path().join("specs/new.md"), "# New pin\n").unwrap();
+    let identity = branch_documents::identity(root.path()).unwrap();
+    let old = branch_documents::document(
+        root.path(),
+        "specs/current.md",
+        crate::metadata::PlanSource::UserSelected,
+        true,
+    )
+    .unwrap();
+    let expected = old.selection_id(Some(&identity));
+    store.report(&identity, old).unwrap();
+    let newer = branch_documents::document(
+        root.path(),
+        "specs/new.md",
+        crate::metadata::PlanSource::UserSelected,
+        true,
+    )
+    .unwrap();
+    let reporting = store.clone();
+    *store.before_content_return.lock().unwrap() = Some(Box::new(move || {
+        reporting.report(&identity, newer).unwrap()
+    }));
+    assert!(SessionApplication::new(state)
+        .read_document_content(
+            "runtime-review",
+            Some(DocumentKind::Design),
+            Some(&expected)
+        )
+        .is_err());
+}
+
+#[tokio::test]
+async fn legacy_branch_document_access_rejects_a_new_nested_repository() {
+    let (root, state, _store, mut receiver) = fixture();
+    let reference = branch_documents::document(
+        root.path(),
+        "specs/current.md",
+        crate::metadata::PlanSource::UserSelected,
+        true,
+    )
+    .unwrap()
+    .reference;
+    state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .metadata
+        .mutate_session(
+            "runtime-review",
+            crate::session_application::WriteScope::NONE,
+            |meta| {
+                meta.plan_path = Some(reference);
+                Ok(())
+            },
+        )
+        .unwrap();
+    git2::Repository::init(root.path().join("specs")).unwrap();
+    let app = SessionApplication::new(state);
+    assert!(app.read_plan_content("runtime-review").is_err());
+    let request = app.request_plan_review("runtime-review");
+    tokio::pin!(request);
+    tokio::select! {
+        result = &mut request => assert!(result.is_err()),
+        _ = receiver.recv() => panic!("legacy review crossed repository boundary"),
+    }
+}
+
+#[tokio::test]
 async fn unbound_branch_document_selection_reads_and_reviews_the_sibling() {
     let (root, state, _store, mut receiver) = fixture();
     let repo = git2::Repository::open(root.path()).unwrap();
@@ -224,7 +339,7 @@ async fn branch_document_explicit_binding_rejects_terminal_paths_in_a_sibling() 
             },
         )
         .unwrap();
-    let app = SessionApplication::new(state);
+    let app = SessionApplication::new(state.clone());
     assert!(app
         .select_plan(
             "runtime-review",
@@ -235,6 +350,40 @@ async fn branch_document_explicit_binding_rejects_terminal_paths_in_a_sibling() 
         .await
         .is_err());
     assert!(!app.persist_printed_plan_fallback("runtime-review", path.to_str().unwrap()));
+    let reference = branch_documents::document(
+        &other,
+        "specs/other.md",
+        crate::metadata::PlanSource::UserSelected,
+        true,
+    )
+    .unwrap()
+    .reference;
+    state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .metadata
+        .mutate_session(
+            "runtime-review",
+            crate::session_application::WriteScope::NONE,
+            |meta| {
+                meta.plan_path = Some(reference);
+                Ok(())
+            },
+        )
+        .unwrap();
+    assert!(
+        app.read_plan_content("runtime-review").is_err(),
+        "legacy reads must also respect the explicit binding"
+    );
+    assert_ne!(
+        app.read_document_content("runtime-review", None, None)
+            .ok()
+            .as_deref(),
+        Some("# Other\n")
+    );
 }
 
 #[test]

@@ -15,6 +15,10 @@ pub(crate) struct Store {
     generation: std::sync::atomic::AtomicU64,
     #[cfg(test)]
     pub(crate) before_scan: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    #[cfg(test)]
+    pub(crate) before_pin_reset: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    #[cfg(test)]
+    pub(crate) before_content_return: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -32,6 +36,10 @@ impl Store {
             generation: std::sync::atomic::AtomicU64::new(0),
             #[cfg(test)]
             before_scan: Mutex::new(None),
+            #[cfg(test)]
+            before_pin_reset: Mutex::new(None),
+            #[cfg(test)]
+            before_content_return: Mutex::new(None),
         }
     }
     pub(crate) fn scan(&self, root: &Path, fresh: bool) -> Result<Scan, String> {
@@ -237,6 +245,10 @@ impl Store {
         kind: DocumentKind,
         selection_id: Option<&str>,
     ) -> Result<(), String> {
+        #[cfg(test)]
+        if let Some(hook) = self.before_pin_reset.lock().unwrap().take() {
+            hook();
+        }
         self.scans
             .lock()
             .map_err(|_| "Document cache unavailable.")?

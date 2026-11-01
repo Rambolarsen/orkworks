@@ -284,6 +284,7 @@ impl AgentPatch {
         &self,
         meta: &SessionMetadata,
         check_source: bool,
+        branch_store: Option<&crate::branch_documents_store::Store>,
     ) -> io::Result<Option<PlanReference>> {
         if check_source && self.attention_state.is_some() {
             let source = meta
@@ -362,7 +363,27 @@ impl AgentPatch {
             let independent = crate::branch_documents::kind_for_path(&pin.relative_path)
                 .zip(crate::branch_documents::kind_for_path(&relative_path))
                 .is_some_and(|(pinned, reported)| pinned != reported);
-            if !independent {
+            let shared_pin = if pin.worktree_root.is_some()
+                && crate::branch_documents::kind_for_path(&pin.relative_path).is_some()
+            {
+                match (
+                    branch_store,
+                    crate::branch_documents::identity(&root).ok(),
+                    crate::branch_documents::kind_for_path(&relative_path),
+                ) {
+                    (Some(store), Some(identity), Some(kind)) => Some(
+                        store
+                            .load(&identity)
+                            .map_err(io::Error::other)?
+                            .iter()
+                            .any(|doc| doc.kind == kind && doc.pinned),
+                    ),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            if shared_pin.unwrap_or(!independent) {
                 return Err(semantic_error(PatchSemanticError::Conflict));
             }
         }
@@ -373,9 +394,13 @@ impl AgentPatch {
         }))
     }
 
-    fn apply(&self, meta: &mut SessionMetadata) -> io::Result<Option<PlanReference>> {
+    fn apply(
+        &self,
+        meta: &mut SessionMetadata,
+        branch_store: Option<&crate::branch_documents_store::Store>,
+    ) -> io::Result<Option<PlanReference>> {
         require_live(meta)?;
-        let plan = self.validate_current(meta, true)?;
+        let plan = self.validate_current(meta, true, branch_store)?;
         let binding = match self.agent_metadata.as_ref().map(|a| &a.worktree_path) {
             Some(FieldUpdate::Set(path)) => Some(
                 crate::session_location::WorktreeBinding::resolve(&meta.cwd, path)
@@ -489,7 +514,7 @@ impl MetadataStore {
             require_live(&record.metadata)
                 .map_err(|error| map_error(SessionTransactionError::Io(error)))?;
             patch
-                .validate_current(&record.metadata, false)
+                .validate_current(&record.metadata, false, Some(&self.branch_documents))
                 .map_err(|error| map_error(SessionTransactionError::Io(error)))?;
             Ok(record.revision)
         })
@@ -504,7 +529,7 @@ impl MetadataStore {
         let mut reported = None;
         let updated = self
             .try_update_session_scoped(id, expected, patch.scope(), |meta| {
-                reported = patch.apply(meta)?;
+                reported = patch.apply(meta, Some(&self.branch_documents))?;
                 Ok(())
             })
             .map_err(map_error)?;
@@ -905,7 +930,7 @@ mod tests {
                 .patch;
         assert_eq!(patch.scope().attention, false);
         assert_eq!(patch.scope().work, false);
-        patch.apply(&mut meta).unwrap();
+        patch.apply(&mut meta, None).unwrap();
         assert_eq!(meta.summary.as_deref(), Some("Done"));
         assert_eq!(meta.provenance.summary_source.as_deref(), Some("agent"));
         assert_eq!(meta.metadata_source, "user");
@@ -923,7 +948,7 @@ mod tests {
             parse(json!({"metadataRevision":"0","patch":{"agentMetadata":{"summary":null}}}))
                 .unwrap()
                 .patch;
-        patch.apply(&mut meta).unwrap();
+        patch.apply(&mut meta, None).unwrap();
         assert_eq!(meta.summary, None);
         assert_eq!(meta.provenance.summary_source, None);
         assert_eq!(meta.provenance.summary_confidence, None);
@@ -1195,5 +1220,66 @@ mod tests {
         assert!(documents
             .iter()
             .any(|doc| doc.kind == crate::branch_documents::DocumentKind::Implementation));
+    }
+
+    #[test]
+    fn branch_document_reports_follow_current_pins_after_reset_or_branch_switch() {
+        for switch_branch in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let repo = git2::Repository::init(dir.path()).unwrap();
+            std::fs::create_dir(dir.path().join("specs")).unwrap();
+            std::fs::write(dir.path().join("specs/design.md"), "# Old pin\n").unwrap();
+            std::fs::write(dir.path().join("specs/new.md"), "# Current report\n").unwrap();
+            let store = MetadataStore::new(&dir.path().join("metadata"));
+            let mut meta = live_meta("current-pin", dir.path().to_str().unwrap());
+            let pin = crate::branch_documents::document(
+                dir.path(),
+                "specs/design.md",
+                PlanSource::UserSelected,
+                true,
+            )
+            .unwrap();
+            meta.plan_path = Some(pin.reference.clone());
+            store.write_session(&meta);
+            let identity = crate::branch_documents::identity(dir.path()).unwrap();
+            store.branch_documents.report(&identity, pin).unwrap();
+            if switch_branch {
+                repo.set_head("refs/heads/next").unwrap();
+            } else {
+                store
+                    .branch_documents
+                    .use_latest(
+                        &identity,
+                        crate::branch_documents::DocumentKind::Design,
+                        None,
+                    )
+                    .unwrap();
+            }
+            let before = store
+                .try_read_revisioned_session(&meta.id)
+                .unwrap()
+                .unwrap();
+            let patch = parse(json!({"metadataRevision":"0","patch":{
+                "agentMetadata":{"planPath":"specs/new.md"},
+                "attentionState":{"observedStatus":"working","needsUserInput":false,"detectedQuestion":null,"suggestedOptions":[]}
+            }})).unwrap().patch;
+            let accepted = store
+                .apply_agent_patch(&meta.id, &before.revision, &patch)
+                .unwrap();
+            assert_eq!(
+                accepted.metadata.observed_status.as_deref(),
+                Some("working")
+            );
+            assert_eq!(
+                accepted.metadata.plan_path, meta.plan_path,
+                "legacy compatibility selection stays session-local"
+            );
+            let documents = store
+                .branch_documents
+                .load(&crate::branch_documents::identity(dir.path()).unwrap())
+                .unwrap();
+            assert_eq!(documents[0].reference.relative_path, "specs/new.md");
+            assert!(!documents[0].pinned);
+        }
     }
 }
