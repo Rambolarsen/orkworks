@@ -31,6 +31,7 @@ export default function SkillsSettings({
   currentWorkspacePath: string | null;
 }) {
   const [inventory, setInventory] = useState<SkillInventory | null>(null);
+  const [apmPath, setApmPath] = useState("");
   const [query, setQuery] = useState("");
   const [tool, setTool] = useState("");
   const [filterScope, setFilterScope] = useState("");
@@ -54,7 +55,10 @@ export default function SkillsSettings({
     setError("");
     try {
       const result = await window.orkworks.getSkillInventory();
-      if (generation.current === request) setInventory(result);
+      if (generation.current === request) {
+        setInventory(result);
+        setApmPath(result.apm?.executableOverride || "");
+      }
     } catch (error) {
       if (generation.current === request) setError(message(error));
     } finally {
@@ -84,6 +88,11 @@ export default function SkillsSettings({
       if (request === generation.current) setBusy(false);
     }
   };
+  const saveApm = () => perform(async () => {
+    await window.orkworks.saveApmExecutable(apmPath);
+    setPreview(null);
+    await load();
+  });
   const review = () =>
     perform(async () => {
       const request = generation.current;
@@ -256,7 +265,7 @@ export default function SkillsSettings({
           <button
             data-add-skill
             className="ui-button ui-button--md ui-button--primary"
-            disabled={busy || !inventory?.apm?.available}
+            disabled={busy || !inventory?.apm?.compatible}
             aria-expanded={adding}
             onClick={() => setAdding(!adding)}
           >
@@ -264,9 +273,26 @@ export default function SkillsSettings({
           </button>
         </div>
       </div>
-      {inventory?.apm && !inventory.apm.available && (
-        <p>{inventory.apm.message}</p>
-      )}
+      <section data-apm-settings className="skills-apm" aria-label="APM configuration">
+        <div className="skills-heading">
+          <h3>APM</h3>
+          <button data-check-apm className="ui-button ui-button--md ui-button--secondary" disabled={busy} onClick={() => void load()}>
+            <RefreshCw size={14} aria-hidden="true" /> Check again
+          </button>
+        </div>
+        <p>{inventory?.apm?.message || "Checking APM availability…"}</p>
+        {inventory?.apm?.path && <p className="skills-path">Executable: {inventory.apm.path}</p>}
+        {inventory?.apm?.version && <p>Version: {inventory.apm.version}</p>}
+        <label>
+          APM executable path
+          <input aria-label="APM executable path" className="ui-input" value={apmPath} disabled={busy}
+            placeholder="Automatic detection from desktop PATH"
+            onChange={event => setApmPath(event.target.value)} />
+        </label>
+        <p className="skills-group-caption">Optional absolute path. Leave empty to use desktop PATH. Saving checks the selected executable, which runs as your user.</p>
+        <button data-save-apm className="ui-button ui-button--md ui-button--secondary" disabled={busy || !inventory || apmPath === (inventory.apm?.executableOverride || "")} onClick={() => void saveApm()}>Save path and check</button>
+        <p className="skills-group-caption">Reviewed installs support local standalone skills for Codex through APM 0.33.0. Install or update APM separately. Skill browsing works without APM.</p>
+      </section>
       <div role="status" aria-live="polite">
         {busy ? "Working…" : status}
       </div>

@@ -206,6 +206,32 @@ if (process.env.ORKWORKS_SKILLS_FIXTURE) {
         await evaluate(`document.querySelector('[data-skill-source="apm-local"]').scrollIntoView({block:"center"});new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))`);
         writeFileSync(process.env.ORKWORKS_SKILLS_CAPTURE + ".hash.png", (await win.webContents.capturePage()).toPNG());
       }
+      await evaluate('document.querySelector(".settings-content").scrollTop = 0');
+      await wait('document.querySelector("[data-apm-settings]")');
+      assert.match(await evaluate('document.querySelector("[data-apm-settings]").innerText'), /0.33.0/);
+      assert.match(await evaluate('document.querySelector("[data-apm-settings]").innerText'), /\/usr\/local\/bin\/apm/);
+      const apmPath = value => evaluate(`(()=>{const el=document.querySelector('input[aria-label="APM executable path"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set.call(el,${JSON.stringify(value)});el.dispatchEvent(new Event("input",{bubbles:true}))})()`);
+      await apmPath('/custom/unsupported-apm');
+      await click('[data-save-apm]');
+      await wait('document.querySelector("[data-apm-settings]").innerText.includes("0.34.0")');
+      assert.equal(await evaluate('document.querySelector("[data-add-skill]").disabled'), true);
+      assert.equal(await evaluate('document.querySelector("[data-install-skill]")'), null);
+      await apmPath('');
+      await click('[data-save-apm]');
+      await wait('document.querySelector("[data-apm-settings]").innerText.includes("0.33.0")');
+      assert.equal(await evaluate('document.querySelector("[data-add-skill]").disabled'), false);
+      await click('[data-check-apm]');
+      await wait('!document.querySelector("[data-check-apm]").disabled');
+      for (const width of [1000, 700, 360]) {
+        win.setContentSize(width, 850);
+        await evaluate("new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))");
+        assert.ok(await evaluate("document.querySelector('.settings-content').scrollWidth <= document.querySelector('.settings-content').clientWidth + 1"), `APM settings do not overflow at ${width}`);
+      }
+      if (process.env.ORKWORKS_SKILLS_CAPTURE) {
+        const { writeFileSync } = await import("node:fs");
+        await evaluate('document.querySelector("[data-apm-settings]").scrollIntoView({block:"start"});new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
+        writeFileSync(process.env.ORKWORKS_SKILLS_CAPTURE + ".settings.png", (await win.webContents.capturePage()).toPNG());
+      }
       app.exit(0);
     } catch (error) {
       console.error(error);

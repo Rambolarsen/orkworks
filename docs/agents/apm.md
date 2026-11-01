@@ -35,6 +35,15 @@ See [qualification evidence](../validation/skills-management.md) for the initial
 local-only profile and discovery gaps. The rest of this guide describes this
 repository's development setup, not a universal installer configuration.
 
+The desktop Skills page includes APM status and configuration: resolved executable,
+CLI version, compatibility, Check again, and an optional absolute executable-path
+override stored in desktop settings. Clearing the path restores desktop PATH
+discovery; an unavailable override never falls back silently. Saving checks the
+selected executable as the current user. Changing selection invalidates pending
+installation reviews, including during native confirmation. Local discovery is
+available without APM. Reviewed installation remains limited to local standalone
+skills targeting Codex through APM 0.33.0; OrkWorks does not install or upgrade APM.
+
 ## Superpowers
 
 [obra/superpowers](https://github.com/obra/superpowers) — agentic skills framework & software development methodology. Installed per-harness. OpenCode loads its skills through the repo-root `opencode.json` `skills.paths` entry `.agents/skills` — the plugin file itself is **not wired into OpenCode 2**:

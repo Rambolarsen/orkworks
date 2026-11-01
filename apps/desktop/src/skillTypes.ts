@@ -15,11 +15,19 @@ export interface SkillEntry {
   apmIntegrity?: { status: "matches" | "differs" | "unavailable"; reason?: string };
   version?: string;
 }
+export interface ApmStatus {
+  available: boolean;
+  compatible: boolean;
+  path: string | null;
+  version: string | null;
+  executableOverride: string | null;
+  message: string;
+}
 export interface SkillInventory {
   workspace: string | null;
   skills: SkillEntry[];
   diagnostics: string[];
-  apm?: { available: boolean; message: string };
+  apm?: ApmStatus;
   roots: Array<{ path: string; scope: SkillScope; tools: SkillTool[] }>;
 }
 export interface SkillAddRequest {

@@ -335,6 +335,10 @@ remote or broader packages show an explained terminal fallback. See the
 [qualification limits](docs/validation/skills-management.md). This does not claim
 that published installers already include the feature.
 
+The Skills page also shows APM's resolved executable, version and installation
+compatibility. An optional executable-path override handles desktop PATH differences;
+clearing it restores automatic detection. APM is installed and upgraded separately.
+
 ## Repo skills
 
 The `skills/` directory contains repo-level agent skills that are committed with the project. These follow the [Agent Skills standard](https://agentskills.io/specification) — each skill is a directory with a `SKILL.md` file (YAML frontmatter + markdown body).

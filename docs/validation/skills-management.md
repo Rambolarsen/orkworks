@@ -170,3 +170,21 @@ The installer is not atomic or a confinement boundary. It runs as the user;
 external edits/processes can race filesystem checks. Failures may leave partial
 changes and require local inspection. OrkWorks serializes its own operations per
 destination and does not claim to lock external editors.
+
+## Desktop APM configuration
+
+Owner approved a Skills-page APM section on 2026-11-01, tracked in
+[#1266](https://github.com/Rambolarsen/orkworks/issues/1266). Desktop settings
+retain an optional absolute executable path; empty uses the desktop PATH.
+The section displays the resolved path, detected version and qualification
+status, with explicit save/check and recheck actions. No automatic APM install
+or upgrade occurs. The selected executable runs as the user with existing
+OrkWorks capability stripping and bounded output/time; version compatibility
+is not an authenticity claim.
+
+Temporary executable fixtures cover override priority, missing paths without
+fallback, directories/relative-path rejection, version compatibility and
+settings persistence. Installer fixtures check that selection changes invalidate
+reviews. The Electron UI fixture exercises status, saving/resetting an override,
+incompatible-version Add disabling and 360/700/1000px layout. This is source and
+fixture evidence, not published-installer availability.

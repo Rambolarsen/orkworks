@@ -133,6 +133,22 @@ exposed to the renderer. Implementation chooses finite file/depth/byte limits
 and tests limit diagnostics. Only bounded skill metadata is read on inventory;
 load bounded content when opening a detail view.
 
+## APM configuration
+
+Owner approved an APM section within Skills on 2026-11-01. Show the resolved
+executable path, detected CLI version, installation compatibility and Check again.
+Persist an optional absolute executable path in installation-wide desktop settings;
+empty restores desktop PATH discovery. An invalid explicit override never falls
+back to PATH. Saving a path authorizes a bounded version probe of that executable,
+using the existing APM child environment and no shell. Explain that the selected
+executable runs as the user. Do not install or upgrade APM automatically.
+
+Use the same selection for previews and installations. Selection changes invalidate
+pending reviews, including changes during native confirmation. Keep browsing
+available when missing or incompatible; existing profile/version checks remain
+binding. Compatibility describes CLI version support, not authenticity or whether
+a particular source/destination qualifies. No enable/disable toggle is needed.
+
 ## Adding a skill
 
 1. Choose Workspace or Personal. Default to Workspace when one is open; otherwise

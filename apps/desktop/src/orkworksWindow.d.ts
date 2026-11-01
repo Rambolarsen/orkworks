@@ -172,6 +172,7 @@ declare global {
       completeWorkspaceNavigation: (surface: LastCentralSurface) => Promise<ShellMemoryResult>;
       deleteWorkspaceNavigation: () => Promise<ShellMemoryResult>;
       rebuildWorkspaceNavigation: () => Promise<ShellMemoryRebuildResult>;
+      saveApmExecutable: (path: string) => Promise<void>;
       getSkillInventory: () => Promise<import("./skillTypes").SkillInventory>;
     readSkillDetail: (id: string) => Promise<string>;
     pickSkillSource: () => Promise<string | null>;

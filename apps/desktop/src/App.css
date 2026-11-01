@@ -3272,3 +3272,16 @@ html, body, #root {
 .skills-source h4 { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; margin: 0; font-size: 12px; overflow-wrap: anywhere; }
 .skills-source h4 > .skills-badge { max-width: 100%; box-sizing: border-box; overflow-wrap: anywhere; }
 .skills-source h4 > span:not(.skills-badge) { min-width: 0; overflow-wrap: anywhere; }
+
+.skills-apm {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+}
+.skills-apm label { display: grid; gap: 6px; min-width: 0; }
+.skills-apm .ui-input { width: 100%; min-width: 0; box-sizing: border-box; }
+.skills-apm > button { justify-self: start; }
+.skills-apm p { margin: 0; overflow-wrap: anywhere; }

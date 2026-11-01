@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { discoverSkills, readSkillDetail } from "./skillInventory";
 import type { SkillInventory } from "./skillTypes";
-import { SkillInstaller, findApm } from "./skillInstall";
+import { SkillInstaller, findApm, inspectApm, apmExecutablePath } from "./skillInstall";
 import { realpath } from "node:fs/promises";
 import { readGitChanges, validateGitChangesRequest } from "./gitChanges";
 import { requestSessionTitle, validateSessionTitleRequest } from "./sessionTitle";
@@ -1418,9 +1418,13 @@ app.whenReady().then(async () => {
   let skillInventory: SkillInventory | null = null;
   let inventoryGeneration = "";
   const selectedSkillSources = new Set<string>();
+  let apmSettingsRevision = 0;
+  const apmOverride = () => readSettings(app.getPath("userData")).apmExecutablePath ?? null;
   const skillInstaller = new SkillInstaller({
     home: homedir(), env: process.env, workspace: () => workspacePath,
     workspaceRevision: () => `${workspacePath}/${backendGeneration}`,
+    executable: () => findApm(process.env, apmOverride()),
+    configurationRevision: () => `${apmSettingsRevision}/${apmOverride()}`,
     confirm: async preview => {
       const response = await dialog.showMessageBox(mainWindow!, {
         type: "question", title: "Install skill", buttons: ["Cancel", "Install skill"], defaultId: 0, cancelId: 0,
@@ -1434,11 +1438,20 @@ app.whenReady().then(async () => {
     const generation = `${workspacePath}/${backendGeneration}`;
     const inventory = await discoverSkills({ workspace: workspacePath, home: homedir(), env: process.env });
     if (generation !== `${workspacePath}/${backendGeneration}`) throw new Error("Workspace changed. Refresh skills.");
-    try { await findApm(process.env); inventory.apm = { available: true, message: "APM found. Installation profiles are checked during preview." }; }
-    catch { inventory.apm = { available: false, message: "APM was not found on the desktop PATH. Install it separately to add skills." }; }
+    const revision = apmSettingsRevision;
+    inventory.apm = await inspectApm(process.env, apmOverride());
+    if (revision !== apmSettingsRevision || generation !== `${workspacePath}/${backendGeneration}`) throw new Error("Configuration changed. Refresh skills.");
     skillInventory = inventory; inventoryGeneration = generation;
     return inventory;
   });
+  ipcMain.handle("save-apm-executable", (_event, value: unknown) => enqueueSettingsWrite(() => {
+    const override = apmExecutablePath(value);
+    const base = readSettings(app.getPath("userData"));
+    const next = { ...base, apmExecutablePath: override };
+    writeSettings(app.getPath("userData"), next);
+    currentSettings = next;
+    apmSettingsRevision++;
+  }));
   ipcMain.handle("read-skill-detail", async (_event, id: unknown) => {
     if (!skillInventory || inventoryGeneration !== `${workspacePath}/${backendGeneration}`) throw new Error("Refresh skills before opening details.");
     return readSkillDetail(skillInventory, id);

@@ -22,6 +22,7 @@ export interface HotkeySettings {
 export interface AppSettings {
   [key: string]: unknown;
   version: 1;
+  apmExecutablePath?: string | null;
   hotkeys: HotkeySettings;
   defaultHotkeys: HotkeySettings;
   retention: RetentionSettings;

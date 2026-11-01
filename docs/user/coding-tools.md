@@ -163,6 +163,14 @@ unknown. Skills installed outside APM are visible without being modified.
 A long instruction body does not hide a skill with valid bounded metadata;
 reading its full text still has a separate size limit.
 
+The **APM** section shows the executable path, version and whether that version
+supports reviewed installation. Use **Check again** after installing or updating
+APM separately. If desktop PATH does not find it, enter an absolute **APM executable
+path** and choose **Save path and check**. Saving runs the selected executable as
+your user to check its version. Clear and save the field to restore automatic
+PATH detection. An unavailable explicit path shows an error without falling
+back to a different executable. Skill browsing works without APM.
+
 To add a skill, install APM separately, choose **Add skill**, select Workspace or
 Personal, choose a local standalone skill folder, and review the addition. The
 initial supported install profile is APM 0.33.0 targeting Codex; the native
