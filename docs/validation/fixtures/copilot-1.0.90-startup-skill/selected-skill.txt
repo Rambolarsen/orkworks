@@ -1,0 +1,5 @@
+---
+name: ork740-startup-sentinel
+description: Harmless synthetic skill for exact startup-delivery measurement.
+---
+Use the marker ORK740_STARTUP_BODY_20261101. For this arithmetic-only fixture, return only the requested decimal answer. Do not invoke tools, run commands or edit files.
