@@ -1,0 +1,282 @@
+{
+  "configurationSha256": "7f226c88b54d02352ffaf788ebf2b545080aee128cc28f7a2155f668af0aa6c0",
+  "authorization": {
+    "configurationSha256": "7f226c88b54d02352ffaf788ebf2b545080aee128cc28f7a2155f668af0aa6c0",
+    "ownerResponse": "Approve this exact one-call probe",
+    "context": "Owner reply to exact one-call startup skill-delivery configuration and fresh budget question",
+    "recordedAtUtc": "2026-11-01T12:55:01.279311+00:00",
+    "scope": "One fresh arithmetic-only gpt-6-luna attempt with reviewed startup skill bytes, existing auth, disposable native history and known managed/remote uncertainties. No retry or later batch."
+  },
+  "inheritedNonsecretBindings": {
+    "PATH": "/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/opt/homebrew/bin:/opt/podman/bin:<home>/.local/bin:/opt/homebrew/Caskroom/codex/0.166.0/codex-path:<home>/.codex/tmp/arg0-macos/codex-arg0K7Y7Dv:<home>/workspace/orkworks/apps/desktop/node_modules/.bin:<home>/Library/pnpm/store/v11/links/@/pnpm/11.24.0/9b90c236a9de7278714b63c5a795d77e749014a180620114005380fc67c6078a/node_modules/pnpm/dist/node-gyp-bin:<home>/Library/pnpm/store/v11/links/@/pnpm/11.24.0/9b90c236a9de7278714b63c5a795d77e749014a180620114005380fc67c6078a/bin:<home>/.bun/bin:<home>/.aspire/bin:<home>/Library/Application Support/Code/User/globalStorage/github.copilot-chat/debugCommand:<home>/Library/Application Support/Code/User/globalStorage/github.copilot-chat/copilotCli:<home>/.cargo/bin",
+    "HOME": "<home>",
+    "TMPDIR": "<temp>/"
+  },
+  "liveCliAttempts": 1,
+  "observedChatSpans": 1,
+  "cases": [
+    {
+      "id": "instructions-and-tools",
+      "settingsBefore": {
+        "bytes": 459,
+        "sha256": "1868053a64e8001ee46ab9725b094a8664beed6c3192e471219e1bead18a2ca8"
+      },
+      "preflight": [
+        {
+          "command": [
+            "<pinned-native>",
+            "--no-auto-update",
+            "instruction",
+            "list",
+            "--json"
+          ],
+          "exitCode": 0,
+          "stdoutUnretained": {
+            "bytes": 178,
+            "sha256": "c32c97950963d9bc95eb85cd3831d6d5d3609704d14aff6cb037bcbc58b34088"
+          },
+          "stderrBytes": 0,
+          "acceptedSources": [
+            {
+              "location": "repository",
+              "sourcePath": "AGENTS.md"
+            }
+          ]
+        },
+        {
+          "command": [
+            "<pinned-native>",
+            "--no-auto-update",
+            "skill",
+            "list",
+            "--json"
+          ],
+          "exitCode": 0,
+          "stdoutUnretained": {
+            "bytes": 979,
+            "sha256": "438621691fce50cf3f57d6142d6827e8a63bf91ce2bd0e1ab3ad1df94d123a0f"
+          },
+          "stderrBytes": 0,
+          "acceptedSources": [
+            {
+              "name": "customize-cloud-agent",
+              "source": "builtin",
+              "path": "<pinned-cache>/builtin/customize-cloud-agent"
+            },
+            {
+              "name": "github-pr-media",
+              "source": "builtin",
+              "path": "<pinned-cache>/builtin/github-pr-media"
+            }
+          ]
+        }
+      ],
+      "liveLaunched": true,
+      "argv": [
+        "<pinned-native>",
+        "--no-auto-update",
+        "--model",
+        "gpt-6-luna",
+        "--available-tools",
+        "view",
+        "grep",
+        "glob",
+        "skill",
+        "--deny-tool",
+        "shell",
+        "write",
+        "url",
+        "--disable-builtin-mcps",
+        "--disallow-temp-dir",
+        "--no-remote",
+        "--no-remote-export",
+        "--log-dir",
+        "<case>/logs",
+        "-s",
+        "-p",
+        "Return exactly the decimal result of 17 + 25. Do not use tools or explain."
+      ],
+      "environmentOverrides": {
+        "COPILOT_HOME": "<case>/settings",
+        "COPILOT_AUTO_UPDATE": "false",
+        "COPILOT_OTEL_FILE_EXPORTER_PATH": "<case>/otel.jsonl",
+        "COPILOT_OTEL_EXPORTER_TYPE": "file",
+        "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "false",
+        "USE_TGREP": "false",
+        "NO_COLOR": "1"
+      },
+      "cwd": "<case>/repo",
+      "pid": 29460,
+      "chatSpanCount": 1,
+      "exitCode": 0,
+      "seconds": 5.297,
+      "settingsAfter": {
+        "bytes": 459,
+        "sha256": "1868053a64e8001ee46ab9725b094a8664beed6c3192e471219e1bead18a2ca8"
+      },
+      "settingsUnchanged": true,
+      "stdoutMatchesExpected": true,
+      "stdoutUnretained": {
+        "bytes": 4,
+        "sha256": "152f3decb241fedfd97196f065e0d792ae40a14f8405ed1f0de54d189cc250fb"
+      },
+      "stderrBytes": 0,
+      "rawOtelUnretained": {
+        "bytes": 53961,
+        "sha256": "b6489a9b671e17b1f22752f3749a508dab3d09675f6390a145d367e94190c096"
+      },
+      "spanMeasurements": [
+        {
+          "name": "chat gpt-6-luna",
+          "attributeNames": [
+            "gen_ai.conversation.id",
+            "gen_ai.input.messages",
+            "gen_ai.operation.name",
+            "gen_ai.provider.name",
+            "gen_ai.request.model",
+            "gen_ai.request.reasoning.level",
+            "gen_ai.request.stream",
+            "gen_ai.response.finish_reasons",
+            "gen_ai.response.id",
+            "gen_ai.response.model",
+            "gen_ai.response.time_to_first_chunk",
+            "gen_ai.system_instructions",
+            "gen_ai.tool.definitions",
+            "gen_ai.usage.cache_write.input_tokens",
+            "gen_ai.usage.input_tokens",
+            "gen_ai.usage.output_tokens",
+            "gen_ai.usage.reasoning.output_tokens",
+            "github.copilot.cost",
+            "github.copilot.initiator",
+            "github.copilot.interaction_id",
+            "github.copilot.nano_aiu",
+            "github.copilot.server_duration",
+            "github.copilot.service_request_id",
+            "github.copilot.turn_id"
+          ],
+          "contentAttributes": {
+            "gen_ai.system_instructions": {
+              "bytes": 16765,
+              "sha256": "1168ae51a24f96a6746d5d2f4f55a93b9feb83ad6ddbcd64e92e22fef475cbab"
+            },
+            "gen_ai.tool.definitions": {
+              "bytes": 3715,
+              "sha256": "e65f0617e475eb3b52c9c0bdd3b44588a12cfc0bde2ad9c694aa36ee9c506052"
+            },
+            "gen_ai.input.messages": {
+              "bytes": 200,
+              "sha256": "c8548750b57b635cc63c6573c8cc6a4f943e8f01c446cd8cf1d935616a55ebc1"
+            }
+          },
+          "modelsAndUsage": {
+            "gen_ai.request.model": "gpt-6-luna",
+            "gen_ai.usage.input_tokens": 4146,
+            "gen_ai.usage.output_tokens": 34,
+            "gen_ai.usage.reasoning.output_tokens": 27,
+            "gen_ai.response.model": "gpt-6-luna"
+          },
+          "exactRootRuleTextPresent": true,
+          "selectedSkillSourceTextPresent": true,
+          "deliveredSkillSource": {
+            "bytes": 286,
+            "sha256": "3243889e441cf4c2db762ec8893b53aed3b1e78f4059ad9cdf66d716e18c63fa"
+          },
+          "toolNames": [
+            "view",
+            "skill",
+            "rg",
+            "glob"
+          ],
+          "inputRoles": [
+            "user"
+          ]
+        },
+        {
+          "name": "invoke_agent",
+          "attributeNames": [
+            "enduser.pseudo.id",
+            "gen_ai.conversation.id",
+            "gen_ai.input.messages",
+            "gen_ai.operation.name",
+            "gen_ai.provider.name",
+            "gen_ai.response.finish_reasons",
+            "gen_ai.system_instructions",
+            "gen_ai.tool.definitions",
+            "gen_ai.usage.input_tokens",
+            "gen_ai.usage.output_tokens",
+            "github.copilot.agent.type",
+            "github.copilot.context.custom_agent_names",
+            "github.copilot.context.mcp_server_names",
+            "github.copilot.context.skills",
+            "github.copilot.cost",
+            "github.copilot.git.branch",
+            "github.copilot.nano_aiu",
+            "github.copilot.turn_count"
+          ],
+          "contentAttributes": {
+            "gen_ai.system_instructions": {
+              "bytes": 16765,
+              "sha256": "1168ae51a24f96a6746d5d2f4f55a93b9feb83ad6ddbcd64e92e22fef475cbab"
+            },
+            "gen_ai.tool.definitions": {
+              "bytes": 3715,
+              "sha256": "e65f0617e475eb3b52c9c0bdd3b44588a12cfc0bde2ad9c694aa36ee9c506052"
+            },
+            "gen_ai.input.messages": {
+              "bytes": 200,
+              "sha256": "c8548750b57b635cc63c6573c8cc6a4f943e8f01c446cd8cf1d935616a55ebc1"
+            }
+          },
+          "modelsAndUsage": {
+            "gen_ai.usage.input_tokens": 4146,
+            "gen_ai.usage.output_tokens": 34,
+            "github.copilot.turn_count": 1
+          }
+        }
+      ],
+      "nativeHistoryMetadata": [
+        {
+          "path": "settings/session-state/<session-id>/events.jsonl",
+          "bytes": 54239,
+          "eventTypes": [
+            "session.start",
+            "user.message",
+            "system.message",
+            "assistant.turn_start",
+            "assistant.message",
+            "assistant.turn_end",
+            "session.usage_checkpoint",
+            "session.shutdown"
+          ],
+          "sessionMatchesChat": true,
+          "assistantTurnMatchesChat": [
+            true
+          ],
+          "assistantInteractionMatchesChat": [
+            true
+          ],
+          "assistantFieldsPresent": [
+            {
+              "content": true,
+              "reasoningText": true,
+              "reasoningBlocks": true,
+              "reasoningOpaque": true,
+              "encryptedContent": true
+            }
+          ]
+        }
+      ],
+      "casePassed": true
+    }
+  ],
+  "batchComplete": true,
+  "elapsedSeconds": 5.946,
+  "disposableRootsRemoved": true,
+  "observer": {
+    "file": "observe-startup-skill.py",
+    "bytes": 21688,
+    "sha256": "4d0fca2828495de9fca51bb2be6292fa2a2d18a04fbf47fa0854c82647bb0a11",
+    "limit": "Exact source used for this probe; not a native-startup/provider-request attestation."
+  },
+  "receiptLimit": "Historical authorization is exhausted audit evidence, not a reusable launch capability. Raw telemetry/native history deleted; content receipts are observer measurements and cannot be independently checked against raw bytes."
+}

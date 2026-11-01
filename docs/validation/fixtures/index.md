@@ -26,3 +26,5 @@ Captured fixture context for reproducible validation.
 - [Copilot settings discovery packet](copilot-1.0.90-settings/index.md) — Six model-free discovery cases and pinned source selections.
 
 - [Copilot capture comparison](copilot-1.0.90-capture-comparison/index.md) — Approved, exhausted two-call comparison with sanitized measurements.
+
+- [Startup skill-delivery packet](copilot-1.0.90-startup-skill/index.md) — Exact supplied source, matched request receipt and exhausted one-call authority.

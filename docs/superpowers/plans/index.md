@@ -253,3 +253,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Fence Peon scheduling against forgetting](2026-11-01-peon-scheduling-forget.md) — Proposed concurrency fix and deterministic deletion-boundary checks for #403.
 
 - [Copilot disposable synthetic-history boundary](2026-11-01-copilot-synthetic-capture-boundary.md) — Approved one-batch exception and exhausted settings-only comparison.
+
+- [Copilot selected skill startup delivery](2026-11-01-copilot-startup-skill-delivery.md) — Approved, exhausted one-call selected-source delivery through startup context.
