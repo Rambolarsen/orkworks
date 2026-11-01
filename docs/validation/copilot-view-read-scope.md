@@ -99,6 +99,14 @@ sixth failed before the field-name change and passed afterward; all six passed.
 The diagnostic test retains the attribute name while excluding its synthetic
 private value. These tests establish observer behavior, not vendor enforcement.
 
+Codex review found that the first retained harness still read the author’s
+installed native/cache identity files. All six tests failed when those files
+were made unavailable in the harness. The corrected tests supply synthetic
+identity bytes and matching configuration hashes, exercise the unchanged
+SHA-256 guards, and simulate every native CLI invocation. All six pass without
+reading the installed binary/cache. The real executed configuration and source
+snapshot remain unchanged.
+
 ## Retention and next boundary
 
 All private native/history/OTel/log roots were removed under the approved

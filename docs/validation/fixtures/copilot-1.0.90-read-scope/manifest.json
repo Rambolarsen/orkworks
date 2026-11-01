@@ -57,8 +57,8 @@
       "sha256": "291f9ce1e6da27223c721dc0ad1d6fbc90adf53359eac19e4c078373400c15c3"
     },
     "test-observer.py": {
-      "bytes": 7811,
-      "sha256": "2cef304ae7e2aed51ca008dde8ec2fd92da0573efb5f8fe46b51d55828faff84"
+      "bytes": 9225,
+      "sha256": "d2b4bf873bba9bf05a53e6597566328207ee51e4db29685a8d3aa3697e684821"
     },
     "tool-event-projection.json": {
       "bytes": 15729,

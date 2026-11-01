@@ -1,6 +1,7 @@
 """Model-free observer regression checks; all native CLI boundaries are simulated."""
 import contextlib
 import io
+import hashlib
 import json
 from pathlib import Path
 import runpy
@@ -23,10 +24,31 @@ class ObserverBoundaryTests(unittest.TestCase):
     def run_case(self, variant):
         with tempfile.TemporaryDirectory(prefix="ork740-read-mock-test-") as directory:
             parent = Path(directory)
+            # Replace only external identity inputs with harmless test bytes. The
+            # observer still checks real SHA-256 bindings; no host install is read.
+            identity_bytes = {
+                Path(CONFIG["nativePath"]): b"synthetic native identity",
+                Path(CONFIG["cachePath"])/"app.js": b"synthetic app identity",
+                Path(CONFIG["cachePath"])/"prebuilds/darwin-arm64/runtime.node": b"synthetic runtime identity",
+            }
+            synthetic_config = dict(CONFIG)
+            for key, data in zip(["nativeSha256", "appSha256", "runtimeSha256"], identity_bytes.values()):
+                synthetic_config[key] = hashlib.sha256(data).hexdigest()
+            config_bytes = json.dumps(synthetic_config).encode()
+            test_binding = hashlib.sha256(config_bytes).hexdigest()
             authority = parent / "mock-authority.json"
-            authority.write_text(json.dumps({"configurationSha256": OBSERVER["APPROVED"], "testOnly": "Synthetic audit input, no real authority"}))
+            authority.write_text(json.dumps({"configurationSha256": test_binding, "testOnly": "Synthetic audit input, no real authority"}))
             output = parent / "result"
             real_run, real_popen = subprocess.run, subprocess.Popen
+            real_read_bytes = Path.read_bytes
+            identity_reads = set()
+            def identity_read(path):
+                if path == HERE/"configuration.json":
+                    return config_bytes
+                if path in identity_bytes:
+                    identity_reads.add(path)
+                    return identity_bytes[path]
+                return real_read_bytes(path)
             def discovery(argv, **kwargs):
                 if argv[0] != CONFIG["nativePath"]:
                     return real_run(argv, **kwargs)
@@ -74,8 +96,9 @@ class ObserverBoundaryTests(unittest.TestCase):
             def launch(argv, **kwargs):
                 return FakeNative(argv, **kwargs) if argv[0] == CONFIG["nativePath"] else real_popen(argv, **kwargs)
             argv = ["observer","--fixtures",str(HERE),"--authorization",str(authority),"--output",str(output)]
-            with patch.object(sys,"argv",argv),patch.object(subprocess,"run",side_effect=discovery),patch.object(subprocess,"Popen",side_effect=launch),contextlib.redirect_stdout(io.StringIO()):
+            with patch.dict(OBSERVER["main"].__globals__, {"APPROVED": test_binding}),patch.object(Path,"read_bytes",identity_read),patch.object(sys,"argv",argv),patch.object(subprocess,"run",side_effect=discovery),patch.object(subprocess,"Popen",side_effect=launch),contextlib.redirect_stdout(io.StringIO()):
                 OBSERVER["main"]()
+            self.assertEqual(identity_reads, set(identity_bytes))
             receipt = json.loads((output/"summary.json").read_text())
             self.assertTrue(receipt["disposableRootsRemoved"])
             self.assertNotIn(PRIVATE, json.dumps(receipt))

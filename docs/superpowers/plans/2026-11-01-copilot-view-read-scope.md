@@ -171,3 +171,9 @@ claims or source binding after checking the actual three-dot PR diff. Model-free
 observer checks passed 6/6; docs metadata/index checks, 776 fixture tests and the
 docs build passed. Existing circular/large-chunk build warnings are unrelated to
 this docs/fixture diff. The generic actual stop remains unrecoverably ambiguous.
+
+Review disposition: Codex identified a test portability defect: the fake CLI
+still relied on installed identity files. The six-test suite reproduced the
+failure with those reads unavailable (RED), then passed with test-only synthetic
+identity bytes and matching configuration bindings (GREEN). Production identity
+guards, executed snapshot/configuration and actual result are unchanged.
