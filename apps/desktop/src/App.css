@@ -3258,6 +3258,6 @@ html, body, #root {
 
 .shell-region--central > .skills-settings { flex: 1; min-height: 0; overflow: auto; padding: 20px; align-content: start; }
 
-.skills-plugin-group { min-width: 0; margin-bottom: 12px; }
-.skills-plugin-group h4 { display: flex; align-items: center; gap: 8px; margin: 10px 0 4px; color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
-.skills-plugin-group h4 span { flex-shrink: 0; font-weight: 400; }
+.skills-source { display: grid; gap: 10px; min-width: 0; padding: 12px; border: 1px solid var(--border-subtle); border-radius: 8px; }
+.skills-source h4 { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; margin: 0; font-size: 12px; overflow-wrap: anywhere; }
+.skills-source h4 > span:not(.skills-badge) { min-width: 0; overflow-wrap: anywhere; }

@@ -25,24 +25,26 @@ and #740 capability gates remain unchanged.
 Skills appears directly below Recommendations in the left sidebar and opens in
 the main view at every width, including through the collapsed rail and compact
 Workspace menu. It replaces the former Skills section in Settings and contains
-clearly labeled Workspace and Personal groups, a search field, a coding-tool
-filter, Refresh, and Add skill. Back, its toggle, or Escape within the page
+one row per exact skill name across scopes, a search field, coding-tool and
+scope filters, Refresh, and Add skill. Each row expands to its sources, each
+clearly labeled Workspace or Personal. Back, its toggle, or Escape within the page
 returns to the previous central content; selecting a session opens its Terminal.
 Skills is transient and is not restored after restart.
 Personal discovery works without an open workspace; Workspace then explains
 that opening a workspace is required.
-Within each scope, group skills by recorded plugin registration name, with other
-skills in a separate group. Search also matches plugin names. A skill exposed by
-several registrations stays in one row under their combined names.
+Plugin registration names appear on source entries and remain searchable.
+A name groups all matching source entries; it does not establish that their
+instructions are identical, enabled or effective. Read skill opens instructions
+from the selected source ID, without choosing a winning source.
 
 Workspace names the exact open directory, including when it is a linked
 worktree. It does not substitute the Git common directory or another session's
 reported worktree. Personal explains that these skills may be available across
 projects, subject to each coding tool's own discovery rules.
 
-Each row shows skill name/description, scope, source directory, coding-tool
-discovery coverage, and management provenance: APM, coding-tool plugin, or local
-file. Show package source and locked version only when recorded evidence exists.
+Each name row shows its source count. Each source shows its description, scope,
+source directory, coding-tool discovery coverage, and management provenance: APM,
+coding-tool plugin, or local file. Show package source and locked version only when recorded evidence exists.
 Missing provenance is Unknown, never an inferred package URL. A detail view can
 show SKILL.md as text and its source; skill instructions are untrusted content,
 not instructions to OrkWorks. Discovery never runs skill scripts.
@@ -51,16 +53,19 @@ Skills installed without APM remain visible and read-only. Invalid metadata and
 unreadable roots produce specific diagnostics; partial discovery is not an empty
 successful inventory. APM being missing disables Add but not local discovery.
 
-The same name in two scopes produces two rows with scope and source preserved.
-Counts describe skills found in the inspected locations, not a coding tool’s
-loaded or enabled skill total. Codex discovery includes its explicit system
+The same name in two scopes shares one name row with separate scoped sources.
+Counts describe distinct exact names and a separate matching source-entry total,
+not a coding tool’s loaded or enabled skill total. Search and coding-tool/scope
+filters apply to source entries before grouping; counts and expanded lists show
+only matching sources. Codex discovery includes its explicit system
 skill directory and bounded cached plugin packages with portable or compatibility
-manifests. Cached versions remain separate when they resolve to different
+manifests. Cached versions remain separate sources when they resolve to different
 directories; no active/latest version is inferred from cache presence.
 
 Aliases of the same directory within a scope can share one row with multiple
-source/discovery labels. Never merge Workspace and Personal merely because
-names or contents match. Show precedence only for a verified coding-tool/version
+source/discovery labels. Never merge source identities across Workspace and
+Personal merely because names or contents match; only their presentation groups
+by name. Show precedence only for a verified coding-tool/version
 rule; otherwise say that precedence is unknown. No universal workspace-wins
 rule. Discovery means Found, not Loaded or In use.
 
@@ -74,9 +79,9 @@ documentation and bounded fixtures. Unsupported roots/configuration forms are
 reported as uncovered, not silently guessed. Custom coding tools have unknown
 coverage until an adapter exists. An APM target is not discovery evidence.
 
-The Workspace group covers skills rooted in the selected workspace or its
+Workspace sources cover skills rooted in the selected workspace or its
 verified inherited project roots; inherited rows name the actual ancestor.
-Personal covers verified user roots and discoverable user-installed plugin
+Personal sources cover verified user roots and discoverable user-installed plugin
 skills. A workspace plugin belongs to Workspace. Environment/configuration
 redirects use the desktop's actual context; a session with different overrides
 is not claimed to have the same inventory. Do not scan the whole home directory,

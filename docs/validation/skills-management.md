@@ -58,6 +58,20 @@ version selection; the Copilot plugin registry; OpenCode JSONC/global custom pat
 enterprise/remote skills and configuration overrides not inherited by the desktop.
 Legacy `.codex/skills` files remain visible with unknown coding-tool discovery.
 
+## Name grouping and source lists
+
+Owner requested grouping by skill name with an inspectable source list on
+2026-11-01. One row per exact name groups sources across Workspace and Personal;
+each source retains its inventory identity, scope, paths, plugin/version and
+separate instruction text. Counts distinguish names from source entries. Filters
+apply to sources before grouping, without selecting an effective winner.
+
+The Electron fixture covers one name across workspace, personal local and plugin
+sources with differing descriptions, source-ID-specific detail reads, search,
+combined coding-tool/scope filters, empty results, workspace closure, and layout
+at 360/700/1000px. Alias coalescing and discovery remain Electron-owned and are
+unchanged by this presentation adjustment.
+
 ## Initial APM profile
 
 Qualified source: APM 0.33.0, upstream commit
