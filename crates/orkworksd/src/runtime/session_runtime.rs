@@ -1494,7 +1494,7 @@ impl NativeObserverControl {
                                     storage_errors.send_if_modified(|error| error.take().is_some());
                                     Ok(Some(NativeObserverSnapshot::Sql(sql.clone(), snapshot)))
                                 }
-                                Ok(None) | Err(crate::session_store::StoreError::Conflict | crate::session_store::StoreError::Expired) => Ok(None),
+                                Ok(None) | Err(crate::session_store::StoreError::Conflict) => Ok(None),
                                 Err(error) => { let _ = storage_errors.send(Some(Arc::new(error))); Ok(None) }
                             }
                         } else {
@@ -1540,7 +1540,7 @@ impl NativeObserverControl {
                             NativeObserverSnapshot::Sql(sql, snapshot) => {
                                 match sql.finish_native_observation(snapshot, result).await {
                                     Ok(_) => { storage_errors.send_if_modified(|error| error.take().is_some()); }
-                                    Err(crate::session_store::StoreError::Conflict | crate::session_store::StoreError::Expired) => {}
+                                    Err(crate::session_store::StoreError::Conflict) => {}
                                     Err(error) => { let _ = storage_errors.send(Some(Arc::new(error))); }
                                 }
                             }

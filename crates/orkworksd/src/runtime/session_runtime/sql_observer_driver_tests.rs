@@ -155,3 +155,49 @@ async fn sql_observer_driver_refuses_a_foreign_application_binding() {
     );
     store.close().await.unwrap();
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn sql_observer_driver_reports_a_queued_metadata_read_deadline_without_pty_failure() {
+    let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
+    let (_dir, state, store, writes, _effect, _commands) = fixture_with_root("root").await;
+    let generation = state.sessions.lock().unwrap()[ID].runtime.run_generation();
+    let native_dir = tempfile::tempdir().unwrap();
+    let (plan, environment) = super::super::codex_native::fixture_plan_and_env(
+        native_dir.path(),
+        &state.integration_probe_cache,
+        false,
+    );
+    let native = plan.start(&environment).await.unwrap();
+    let paused = crate::session_store::test_worker::pause(&store);
+    let mut observer =
+        NativeObserverControl::start_sql(state, ID.into(), generation, native, writes).unwrap();
+    crate::session_store::test_worker::wait_for_get(&store, ID).await;
+    let expired = tokio::time::timeout(std::time::Duration::from_secs(4), async {
+        loop {
+            if observer.storage_error.borrow().is_some() {
+                break;
+            }
+            observer.storage_error.changed().await.unwrap();
+        }
+    })
+    .await;
+    let error = observer.storage_error.borrow().clone();
+    assert!(observer.failed.borrow().is_none());
+    let stopped = observer.shutdown().await;
+    drop(paused);
+    assert!(
+        expired.is_ok(),
+        "metadata-read expiry was silently suppressed"
+    );
+    assert!(matches!(
+        error.as_deref(),
+        Some(crate::session_store::StoreError::Expired)
+    ));
+    assert_eq!(stopped, None);
+    assert_eq!(
+        store.get(ID.into()).await.unwrap().unwrap()["metadataRevision"],
+        "1"
+    );
+    store.close().await.unwrap();
+}

@@ -335,7 +335,9 @@ commit freshness checks; metadata latency cannot refresh old evidence.
 NativeObserverControl has an optional SQL path using these methods and the same
 owned, bounded RPC client and cancellation/shutdown ordering. Its production
 constructor still selects JSON. SQL failures retain their typed error in a
-separate bounded observer watch; they neither masquerade as empty metadata nor
+separate bounded observer watch, including returned read/write command deadline
+failures. Stale-context conflicts and reducer-discarded native evidence remain
+ordinary rejections. These failures neither masquerade as empty metadata nor
 signal the native failure channel that terminates a PTY. Storage presentation
 still belongs to #1246 before production selection. Source regressions exercise
 real SQL reads without JSON session files, owned native RPC, stale context and

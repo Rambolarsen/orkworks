@@ -436,3 +436,43 @@ async fn sql_observer_pipeline_rejects_a_response_requested_before_its_snapshot(
     );
     store.close().await.unwrap();
 }
+
+#[tokio::test]
+async fn sql_observer_pipeline_retains_post_rpc_metadata_read_deadline_errors() {
+    let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
+    let (_dir, state, store, writes, _effect, _commands) = fixture_with_root("root").await;
+    let generation = state.sessions.lock().unwrap()[ID].runtime.run_generation();
+    let cancelled = Arc::new(AtomicBool::new(false));
+    writes
+        .begin_native_observation(ID.into(), generation, cancelled.clone())
+        .await
+        .unwrap();
+    let snapshot = writes
+        .begin_native_observation(ID.into(), generation, cancelled)
+        .await
+        .unwrap()
+        .unwrap();
+    let response = result();
+    let paused = crate::session_store::test_worker::pause(&store);
+    let finish = tokio::spawn(async move {
+        writes
+            .finish_native_observation_coordinated_for_test(snapshot, response)
+            .await
+    });
+    crate::session_store::test_worker::wait_for_get(&store, ID).await;
+    let deadline = tokio::time::timeout(std::time::Duration::from_secs(4), finish).await;
+    drop(paused);
+    assert!(matches!(
+        deadline.unwrap().unwrap(),
+        Err(StoreError::Expired)
+    ));
+    assert_eq!(
+        store.get(ID.into()).await.unwrap().unwrap()["metadataRevision"],
+        "2"
+    );
+    assert_eq!(
+        state.sessions.lock().unwrap()[ID].info.attention.as_deref(),
+        Some("needs_you")
+    );
+    store.close().await.unwrap();
+}
