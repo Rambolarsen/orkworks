@@ -130,6 +130,9 @@ Markdown access, revalidates slot/owner at return, retains the owner through
 reset, and consults the current target branch's pin for fresh agent reports.
 All five regression cases failed before correction; the combined document
 regression suite passes 41 tests, including sibling selection and binding cases.
+The Electron terminal-link fixture also verifies that session-branch polling
+retains a clicked sibling document's kind, opaque ID and source branch. Both
+TypeScript configurations and transport/presentation regressions pass.
 
 The local corrective pass adds safe original-path legacy reads, effective
 worktree hook reports, surviving bindings when launch worktrees disappear,

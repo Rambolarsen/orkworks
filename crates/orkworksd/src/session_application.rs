@@ -346,6 +346,7 @@ pub(crate) struct PlanSelection {
 pub(crate) struct PlanSelectionResult {
     kind: Option<crate::branch_documents::DocumentKind>,
     selection_id: Option<String>,
+    branch: Option<String>,
 }
 
 pub(crate) struct PeonObservationOutputRange {
@@ -5395,7 +5396,11 @@ impl SessionApplication {
                 .ok()
                 .map(|doc| {
                     let branch = crate::branch_documents::identity(root).ok();
-                    (doc.kind, doc.selection_id(branch.as_ref()))
+                    (
+                        doc.kind,
+                        doc.selection_id(branch.as_ref()),
+                        branch.map(|id| id.branch.trim_start_matches("refs/heads/").to_owned()),
+                    )
                 })
             });
             workspace.metadata.append_event(
@@ -5413,6 +5418,7 @@ impl SessionApplication {
             );
             Ok(PlanSelectionResult {
                 kind: document.as_ref().map(|d| d.0),
+                branch: document.as_ref().and_then(|d| d.2.clone()),
                 selection_id: document.map(|d| d.1),
             })
         })

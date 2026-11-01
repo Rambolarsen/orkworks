@@ -51,7 +51,7 @@ import { createBackendRetryGuard } from "./backendRetryGuard";
 import { createWorkspaceSessionController } from "./workspaceSessionController";
 import { createShellNavigationState, reduceShellNavigation, resolveInspectorSubject, type InspectorDestination } from "./shellNavigation";
 
-import { useSessionReview } from "./useSessionReview";
+import { useSessionReview, type ReviewDocument } from "./useSessionReview";
 import ReviewPanel from "./components/ReviewPanel";
 
 function App() {
@@ -361,14 +361,17 @@ function App() {
       && (!(persist || shellNavigationRef.current.centralSurface.kind !== "review")
         || navigationIntent.current === reviewLoadIntent.current);
   const lastReviewKind = useRef<import("./api").PlanDocumentKind | undefined>(undefined);
+  const lastReviewDocument = useRef<ReviewDocument | null>(null);
+  const reviewLocation = JSON.stringify([activeSession?.repoRoot ?? activeSession?.cwd, activeSession?.planDocuments?.branch ?? activeSession?.branch]);
   const reviewScope = JSON.stringify([activeSession?.repoRoot ?? activeSession?.cwd, activeSession?.planDocuments?.branch ?? activeSession?.branch,
     activeSession?.planDocuments?.steps.map(step => [step.kind, step.selectionId, step.available])]);
   const review = useSessionReview(activeSessionId, shellNavigation.workspaceGeneration,
     // A picker attempt can be cancelled without changing the workspace generation.
     backendStatus === "connected" && !!activeSession,
     (document, persist) => {
-      lastReviewKind.current = document.kind;
       if (!acceptReviewResult(document.generation, persist)) return false;
+      lastReviewKind.current = document.kind;
+      lastReviewDocument.current = document;
       // A clicked artifact may be selected before polling reports availability.
       // The successful validated read is current evidence for this exact session.
       setSessions(previous => previous.map(session => session.id === document.sessionId
@@ -384,12 +387,22 @@ function App() {
         return false;
       }
       return true;
-    }, reviewScope, JSON.stringify([activeSession?.repoRoot ?? activeSession?.cwd, activeSession?.planDocuments?.branch ?? activeSession?.branch]));
+    }, reviewScope, reviewLocation);
   const priorReviewScope = useRef(reviewScope);
+  const priorReviewLocation = useRef(reviewLocation);
   useEffect(() => {
     const changed = priorReviewScope.current !== reviewScope;
+    const sameLocation = priorReviewLocation.current === reviewLocation;
     priorReviewScope.current = reviewScope;
+    priorReviewLocation.current = reviewLocation;
     if (!changed || shellNavigationRef.current.centralSurface.kind !== "review") return;
+    const previous = lastReviewDocument.current;
+    if (sameLocation && previous?.sessionId === activeSessionId && previous.generation === shellNavigation.workspaceGeneration
+      && previous.branch !== undefined && previous.branch !== activeSession?.planDocuments?.branch) {
+      reviewLoadIntent.current = ++navigationIntent.current;
+      void review.load(false, false, undefined, previous.kind, previous.selectionId, previous.branch);
+      return;
+    }
     const steps = activeSession?.planDocuments?.steps;
     const priorStep = steps?.find(step => step.kind === lastReviewKind.current);
     if (!activeSession?.hasOpenablePlan || (priorStep && !priorStep.available)) {
@@ -401,7 +414,7 @@ function App() {
       ?? steps?.find(step => step.kind === "design" && step.available)?.kind;
     reviewLoadIntent.current = ++navigationIntent.current;
     void review.load(false, false, undefined, kind, steps?.find(step => step.kind === kind)?.selectionId ?? undefined);
-  }, [reviewScope, activeSession?.hasOpenablePlan, activeSession?.planDocuments, review.load, review.unavailable]);
+  }, [reviewScope, reviewLocation, activeSessionId, shellNavigation.workspaceGeneration, activeSession?.hasOpenablePlan, activeSession?.planDocuments, review.load, review.unavailable]);
   const openReview = useCallback((kind?: import("./api").PlanDocumentKind) => {
     reviewLoadIntent.current = ++navigationIntent.current;
     const steps = activeSession?.planDocuments?.steps;

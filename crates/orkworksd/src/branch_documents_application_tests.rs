@@ -230,6 +230,7 @@ async fn unbound_branch_document_selection_reads_and_reviews_the_sibling() {
         )
         .await
         .unwrap();
+    assert_eq!(selection.branch.as_deref(), Some("other"));
     assert_eq!(
         app.read_document_content(
             "runtime-review",

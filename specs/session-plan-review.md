@@ -172,14 +172,17 @@ selection, otherwise default to implementation then design. Pin reset accepts
 only session ID, kind and optional selection ID through that desktop boundary.
 Revalidate workspace, effective root, branch, anchored repository containment,
 regular Markdown type and read bounds for each read and review handoff.
-Terminal-link selection returns its validated kind and opaque selection ID;
-retain these for the subsequent content/read handoff. Its own same-branch
+Terminal-link selection returns its validated kind, opaque selection ID and
+source branch label; retain these for the subsequent content/read handoff and
+reader refresh scope. Its own same-branch
 publication cannot cancel the explicit open, while session, workspace and branch
 switches still invalidate it. Legacy clients may ignore the additive response.
 For an unbound session's permitted sibling-worktree selection, resolve the exact
 validated explicit selection by its opaque ID and use the document's branch for
 admission while preserving the session's own location/runtime fences. Explicit
 task-worktree bindings remain authoritative and reject sibling selections.
+Polling the session's branch must not replace an explicitly opened sibling
+document; actual session/workspace/location changes still invalidate the reader.
 Historical bodyless paths use the same repository-boundary, literal-symlink and
 no-follow Markdown validation without being limited to auto-discovery roots.
 Recheck the shared slot under its lock before returning bytes. Pin reset retains

@@ -173,7 +173,7 @@ if (process.versions.electron) {
         return;
       } else if (scenario === 'app-review-terminal-links') {
         await waitFor('fixture.runtime()?.terminal.element?.isConnected');
-        await evaluate('fixture.sessionList=fixture.sessionList.map(session=>session.id==="created"?{...session,branch:"feature",repoRoot:"/tmp"}:session);fixture.deferSelection=true;fixture.selectedDocument={kind:"design",selectionId:"d".repeat(64)}');
+        await evaluate('fixture.deferSelection=true;fixture.selectedDocument={kind:"design",selectionId:"d".repeat(64),branch:"sibling"}');
         await waitFor('document.querySelector("[data-shell-command=changes]")?.disabled===false');
         const activatePath = async (historical = false) => {
           const point = await evaluate(`(()=>{
@@ -192,7 +192,7 @@ if (process.versions.electron) {
         await activatePath();
         await waitFor('fixture.planSelections.length===1');
         await waitFor('!!fixture.finishSelection');
-        await evaluate('fixture.sessionList=fixture.sessionList.map(session=>session.id==="created"?{...session,planDocuments:{branch:"feature",sharedSessions:1,steps:[{kind:"design",available:true,pinned:true,selectionId:"d".repeat(64)},{kind:"implementation",available:true,pinned:false,selectionId:"a".repeat(64)}]}}:session)');
+        await evaluate('fixture.sessionList=fixture.sessionList.map(session=>session.id==="created"?{...session,hasOpenablePlan:true,planDocuments:{branch:"feature",sharedSessions:1,steps:[{kind:"design",available:true,pinned:true,selectionId:"d".repeat(64)},{kind:"implementation",available:true,pinned:false,selectionId:"a".repeat(64)}]}}:session)');
         await new Promise(resolve=>setTimeout(resolve,600));
         await evaluate('fixture.finishSelection();fixture.deferSelection=false');
         assert.deepEqual(await evaluate('fixture.planSelections'), [['created','specs/clicked.md']]);
@@ -206,6 +206,9 @@ if (process.versions.electron) {
         assert.equal(await evaluate('fixture.promptKind'), 'design');
         assert.equal(await evaluate('fixture.promptSelectionId'), 'd'.repeat(64));
         await evaluate('fixture.finishPrompt();fixture.selectedDocument=undefined');
+        await evaluate('fixture.sessionList=fixture.sessionList.map(session=>session.id==="created"?{...session,planDocuments:{...session.planDocuments,steps:session.planDocuments.steps.map(step=>step.kind==="design"?{...step,selectionId:"b".repeat(64)}:step)}}:session)');
+        await waitFor('fixture.reads.length===2 && document.querySelector(".review-plan-content")?.textContent.includes("Clicked document")');
+        assert.equal(await evaluate('fixture.documentSelectionIds.at(-1)'), 'd'.repeat(64), 'session-branch polling retains the explicitly opened sibling');
         await evaluate('document.querySelector("[data-review-return]").click()');
         await waitFor('fixture.runtime()?.terminal.element?.isConnected');
         await evaluate('fixture.selectionFailure=true');
@@ -220,7 +223,7 @@ if (process.versions.electron) {
         await evaluate('fixture.finishSelection()');
         await waitFor('document.querySelector(".historical-terminal-size")');
         assert.equal(await evaluate('!!document.querySelector("[data-shell-region=review]")'),false,'late selection cannot open another session');
-        assert.deepEqual(await evaluate('fixture.reads'), ['created']);
+        assert.deepEqual(await evaluate('fixture.reads'), ['created','created']);
         await evaluate('fixture.deferSelection=false');
         await activatePath(true);
         await waitFor('document.querySelector("[data-shell-region=review]")?.textContent.includes("Other session plan")');

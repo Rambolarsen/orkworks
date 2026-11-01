@@ -9,6 +9,7 @@ export interface ReviewDocument {
   kind?: PlanDocumentKind;
   scopeKey?: string;
   selectionId?: string;
+  branch?: string | null;
 }
 
 // The sidecar validates the associated path on every read. Keep only the returned
@@ -25,6 +26,7 @@ export function useSessionReview(sessionId: string | null, generation: number, e
   const request = useRef(0);
   const selectedKind = useRef<PlanDocumentKind | undefined>(undefined);
   const selectedId = useRef<string | undefined>(undefined);
+  const selectedBranch = useRef<string | null | undefined>(undefined);
   const explicitSelection = useRef<number | null>(null);
   const scope = useRef({ sessionId, generation, enabled, scopeKey, locationKey });
   if (scope.current.sessionId !== sessionId || scope.current.generation !== generation || scope.current.enabled !== enabled || scope.current.scopeKey !== scopeKey) {
@@ -41,6 +43,7 @@ export function useSessionReview(sessionId: string | null, generation: number, e
     setDocument(null);
     selectedKind.current = undefined;
     selectedId.current = undefined;
+    selectedBranch.current = undefined;
     previousDigest.current = null;
     setChanged(false);
     setLoading(false);
@@ -57,14 +60,16 @@ export function useSessionReview(sessionId: string | null, generation: number, e
     selectedId.current = selectionId;
     setError(true);
   }, [close]);
-  const load = useCallback(async (persist = true, restoring = false, printedPath?: string, kind?: PlanDocumentKind, selectionId?: string) => {
+  const load = useCallback(async (persist = true, restoring = false, printedPath?: string, kind?: PlanDocumentKind, selectionId?: string, branch?: string | null) => {
     if (!sessionId || !enabled) return;
     const token = ++request.current;
     let requestedKind = printedPath !== undefined ? undefined : kind ?? selectedKind.current;
     let requestedId = printedPath !== undefined ? undefined : selectionId ?? (kind === undefined || kind === selectedKind.current ? selectedId.current : undefined);
+    let requestedBranch = printedPath !== undefined ? undefined : branch !== undefined ? branch : kind === undefined ? selectedBranch.current : undefined;
     if (printedPath !== undefined) explicitSelection.current = token;
     selectedKind.current = requestedKind;
     selectedId.current = requestedId;
+    selectedBranch.current = requestedBranch;
     setLoading(true);
     // Never retain old document bytes across a refresh that may fail validation.
     setDocument(null);
@@ -74,14 +79,16 @@ export function useSessionReview(sessionId: string | null, generation: number, e
         if (request.current !== token) return;
         requestedKind = selection?.kind;
         requestedId = selection?.selectionId;
+        requestedBranch = selection?.branch;
         selectedKind.current = requestedKind;
         selectedId.current = requestedId;
+        selectedBranch.current = requestedBranch;
       }
       const content = requestedKind === undefined ? await window.orkworks.getPlanContent(sessionId) : await window.orkworks.getPlanContent(sessionId, requestedKind, requestedId);
       const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${requestedKind ?? "legacy"}\0${content}`));
       if (request.current !== token) return;
       const artifactId = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
-      const next = { sessionId, generation, artifactId, content, kind: requestedKind, scopeKey: scope.current.scopeKey, selectionId: requestedId };
+      const next = { sessionId, generation, artifactId, content, kind: requestedKind, scopeKey: scope.current.scopeKey, selectionId: requestedId, branch: requestedBranch };
       if (!onLoadedRef.current(next, persist)) return;
       setChanged(previousDigest.current !== null && previousDigest.current !== artifactId);
       previousDigest.current = artifactId;

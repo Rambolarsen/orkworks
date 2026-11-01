@@ -220,7 +220,7 @@ declare global {
       getPlanContent: (sessionId: string, kind?: import("./api").PlanDocumentKind, selectionId?: string) => Promise<string>;
       requestPlanReview: (sessionId: string, kind?: import("./api").PlanDocumentKind, selectionId?: string) => Promise<void>;
       useLatestPlanDocument: (sessionId: string, kind: import("./api").PlanDocumentKind, selectionId?: string) => Promise<void>;
-      selectTerminalPlan: (sessionId: string, printedPath: string) => Promise<{kind: import("./api").PlanDocumentKind; selectionId: string} | undefined>;
+      selectTerminalPlan: (sessionId: string, printedPath: string) => Promise<{kind: import("./api").PlanDocumentKind; selectionId: string; branch?: string | null} | undefined>;
       setHotkeyCaptureActive: (active: boolean) => void;
       onMenuCommand: (callback: (data: { action: string; panelId?: string }) => void) => () => void;
       notifyPanelVisibility: (panelId: string, visible: boolean) => void;

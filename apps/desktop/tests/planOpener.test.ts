@@ -94,7 +94,7 @@ test("selects a terminal plan through the authenticated sidecar endpoint", async
 });
 
 test("retains sidecar-resolved terminal document identity", async () => {
-  const selected = {kind: "design", selectionId: "d".repeat(64)};
+  const selected = {kind: "design", selectionId: "d".repeat(64), branch: "sibling"};
   assert.deepEqual(await selectTerminalPlan("http://127.0.0.1:4444", "session", "specs/plan.md", "token", async () => Response.json(selected), new AbortController().signal), selected);
 });
 
