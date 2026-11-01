@@ -102,8 +102,10 @@ baselines, missing/unsupported hashes, and read failures/limits are unavailable.
 
 Temporary fixtures cover matching and changed instruction bodies beyond the
 metadata prefix, new results after refresh, missing/unsupported hashes,
-conflicting alias baselines, per-file and aggregate limits, and preserved APM
-ownership. Electron fixtures cover collapsed change cues, all three source
+conflicting/incomplete alias baselines, per-file and aggregate limits, and
+preserved APM ownership. A controlled filesystem fixture retains real handles
+and modifies a temporary file after the first hash read, verifying that an
+unstable read is unavailable. Electron fixtures cover collapsed change cues, all three source
 results, package filtering, and narrow layout. Comparisons are point-in-time
 observations of SKILL.md, not companion-resource verification, package
 reputation/authenticity, or proof of a manual edit. No files are repaired or

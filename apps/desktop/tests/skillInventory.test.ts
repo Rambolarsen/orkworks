@@ -1,7 +1,7 @@
 import test from "node:test";
 import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
-import {
+import fsPromises, {
   mkdtemp,
   mkdir,
   writeFile,
@@ -10,6 +10,7 @@ import {
   realpath,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { syncBuiltinESMExports } from "node:module";
 import { join } from "node:path";
 import { discoverSkills, readSkillDetail } from "../electron/skillInventory.ts";
 
@@ -412,4 +413,43 @@ test("bounds APM file comparisons per file and per inventory without reporting l
   assert.equal(result.skills.filter(skill => skill.apmIntegrity?.status === "matches").length, 16);
   assert.equal(result.skills.filter(skill => skill.apmIntegrity?.status === "unavailable").length, 2);
   assert.equal(result.skills.filter(skill => skill.apmIntegrity?.status === "differs").length, 0);
+});
+
+
+test("reports unavailable when SKILL.md changes during a hash read", async (t) => {
+  const f = await fixture(t);
+  const text = "---\nname: unstable\ndescription: File changes during comparison.\n---\n" + "body\n".repeat(20000);
+  const directory = await f.put(f.workspace, ".agents/skills/unstable", text);
+  const target = join(await realpath(directory), "SKILL.md");
+  await writeFile(join(f.workspace, "apm.lock.yaml"), JSON.stringify({ dependencies: [{
+    repo_url: "owner/package", deployed_files: [".agents/skills/unstable/SKILL.md"],
+    deployed_file_hashes: { ".agents/skills/unstable/SKILL.md": "sha256:" + createHash("sha256").update(text).digest("hex") },
+  }] }));
+  const originalOpen = fsPromises.open;
+  let changed = false;
+  // Keep real handles/reads; mutate the real file after the first sequential hash read.
+  fsPromises.open = async (...args) => {
+    const handle = await originalOpen(...args);
+    if (String(args[0]) === target) {
+      const read = handle.read.bind(handle);
+      handle.read = async (...readArgs) => {
+        const result = await read(...readArgs);
+        if (readArgs[3] === null && result.bytesRead > 0 && !changed) {
+          changed = true;
+          await writeFile(target, text + "Concurrent edit.\n");
+        }
+        return result;
+      };
+    }
+    return handle;
+  };
+  syncBuiltinESMExports();
+  try {
+    const result = await discoverSkills({ workspace: f.workspace, home: f.home, env: {} });
+    assert.equal(result.skills[0].apmIntegrity?.status, "unavailable");
+    assert.match(result.skills[0].apmIntegrity?.reason || "", /changed while reading/i);
+  } finally {
+    fsPromises.open = originalOpen;
+    syncBuiltinESMExports();
+  }
 });
