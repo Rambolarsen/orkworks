@@ -250,3 +250,34 @@ This boundary is not producer migration. Events/checkpoints and policy selection
 remain outside it. All conflicting production writers must participate in the
 per-session admission protocol before SQL selection; the unchanged JSON/runtime
 paths must not be mixed with the SQL authority.
+
+
+## Native observer metadata preparation
+
+The source-only native ShowWait/ClearWait metadata predicates are shared pure
+reducers, with typed private SQL intents under the accepted #1243 contract. The JSON observer retains its
+runtime/effect/source checks, final monotonic freshness callback, live projection
+and acknowledgement behavior. SQL uses the latest canonical record and exact
+worker/session/creation attention proof for ClearWait; ShowWait publishes a new
+proof only after commit. No-op or failed writes preserve the prior proof.
+
+A ClearWait intent carries the observation's process-local monotonic start time,
+never persisted or exposed as a durable credential. Both early admission and the
+point immediately before SQL commit check the existing native freshness policy
+(including future/expired observations and its inclusive boundary). SQL receives
+typed data, never an application callback. A private store clock seam allows real
+transaction rollback tests when freshness expires during staged SQL work. The
+freshness check admits the irreversible commit; filesystem/commit completion is
+not hard bounded, matching the JSON check immediately before atomic replacement.
+
+Regressions cover real JSON-observer/SQL metadata parity, protected tuples at
+revision exhaustion, cross-creation/worker proof rejection, work-only preservation,
+consumed-proof rejection, rollback/freshness expiry before commit, paused-worker
+expiry and reopen ownership loss. A real SQLite update hook advances only the test
+clock after the update is staged, proving expired work rolls back and retains its
+proof; the shared native freshness policy includes its 300 ms boundary and rejects
+future observations. Runtime native reservation integration,
+actual effect/fence validation at execution/publication, producer coordination and
+version-specific eligibility remain separate prerequisites. The production native
+startup/clear gates stay closed; this metadata primitive grants no runtime authority
+and does not select SQL or migrate a workspace.

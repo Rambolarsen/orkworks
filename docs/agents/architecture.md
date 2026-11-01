@@ -840,9 +840,12 @@ isolated SQLite worker. Typed SQL commands check creation identity, optional
 revision and scope decisions against the latest record. Production remains
 JSON-backed. Shared lifecycle transition/finalization and conditional Codex hook
 completion reducers also feed isolated SQL commands; process-local attention
-proofs preserve scoped ownership without surviving reopen. Application runtime
-reservations, native-observer freshness and external events still need their
-owned integration before SQL selection.
+proofs preserve scoped ownership without surviving reopen. Native observer wait/
+clear metadata also has shared reducers and isolated SQL intents with exact
+attention proofs and the existing monotonic freshness check at commit admission.
+Remaining runtime/effect reservations, live native publication and external events
+still need their owned integration before SQL selection; native eligibility gates
+remain unchanged.
 
 The source-only Peon SQL application boundary prepares bounded writes before
 waiting for a per-session lane shared by that worker. It retains the workspace

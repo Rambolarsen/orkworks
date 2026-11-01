@@ -17,6 +17,14 @@ pub(crate) enum PeonPolicy {
 #[derive(Clone, Debug, Serialize)]
 pub(crate) enum InternalMutation {
     Lifecycle(super::lifecycle_mutations::LifecycleMutation),
+    NativeShowWait {
+        timestamp: String,
+    },
+    NativeClearWait {
+        timestamp: String,
+        #[serde(skip)]
+        observation_started_at: std::time::Instant,
+    },
     HookCompletion {
         root: String,
         waiting: bool,
@@ -51,6 +59,18 @@ pub(crate) struct Decision {
     pub(crate) disposition: Disposition,
 }
 impl InternalMutation {
+    pub(crate) fn ready_at(&self, now: std::time::Instant) -> bool {
+        match self {
+            Self::NativeClearWait {
+                observation_started_at,
+                ..
+            } => crate::runtime::codex_approval::ApprovalReducer::observation_is_fresh(
+                *observation_started_at,
+                now,
+            ),
+            _ => true,
+        }
+    }
     pub(crate) fn apply(&self, meta: &mut SessionMetadata) -> io::Result<Decision> {
         match self {
             Self::Lifecycle(intent) => {
@@ -65,6 +85,14 @@ impl InternalMutation {
                     disposition: Disposition::Applied,
                 })
             }
+            Self::NativeShowWait { timestamp } => Ok(Decision {
+                scope: apply_native_show_wait(meta, timestamp).then_some(WriteScope::ATTENTION),
+                disposition: Disposition::Applied,
+            }),
+            Self::NativeClearWait { timestamp, .. } => Ok(Decision {
+                scope: apply_native_clear_wait(meta, timestamp).then_some(WriteScope::ATTENTION),
+                disposition: Disposition::Applied,
+            }),
             Self::HookCompletion {
                 root,
                 waiting,
@@ -570,6 +598,46 @@ pub(crate) fn apply_hook_completion(
     meta.needs_user_input = None;
     meta.detected_question = None;
     meta.suggested_options = None;
+    meta.last_activity = timestamp.into();
+    true
+}
+
+/// Metadata-only native wait transition; runtime/effect eligibility stays with its owner.
+pub(crate) fn apply_native_show_wait(meta: &mut SessionMetadata, timestamp: &str) -> bool {
+    if meta.lifecycle != "alive"
+        || meta.attention_source() == "user"
+        || meta.attention.as_deref() == Some("needs_you")
+        || meta.needs_user_input == Some(true)
+        || meta.detected_question.is_some()
+        || meta.suggested_options.is_some()
+    {
+        return false;
+    }
+    meta.observed_status = Some("waiting_for_input".into());
+    meta.attention = Some("needs_you".into());
+    meta.provenance.attention_source = Some("agent".into());
+    meta.provenance.attention_confidence = Some(1.0);
+    meta.provenance.attention_origin = Some("native_codex".into());
+    meta.last_activity = timestamp.into();
+    true
+}
+
+/// Clears only the exact durable tuple previously written by native observation.
+pub(crate) fn apply_native_clear_wait(meta: &mut SessionMetadata, timestamp: &str) -> bool {
+    if meta.lifecycle != "alive"
+        || meta.observed_status.as_deref() != Some("waiting_for_input")
+        || meta.attention.as_deref() != Some("needs_you")
+        || meta.attention_source() != "agent"
+        || meta.attention_origin() != "native_codex"
+        || meta.attention_confidence() != 1.0
+        || meta.needs_user_input.is_some()
+        || meta.detected_question.is_some()
+        || meta.suggested_options.is_some()
+    {
+        return false;
+    }
+    meta.observed_status = Some("working".into());
+    meta.attention = Some("working".into());
     meta.last_activity = timestamp.into();
     true
 }

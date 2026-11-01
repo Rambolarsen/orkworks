@@ -142,7 +142,7 @@ impl ApprovalReducer {
                 if self.wait.is_some()
                     && !self
                         .observation
-                        .is_some_and(|o| Self::fresh(o.started_at, now))
+                        .is_some_and(|o| Self::observation_is_fresh(o.started_at, now))
                 {
                     self.lock();
                 }
@@ -171,7 +171,7 @@ impl ApprovalReducer {
             started_at > last
                 || (started_at == last && self.observation.is_some_and(|o| o.status == status))
         });
-        let fresh = Self::fresh(started_at, now);
+        let fresh = Self::observation_is_fresh(started_at, now);
         if !ordered_now || !ordered_start || !fresh || !complete_singleton_root {
             self.lock();
             self.observation = None;
@@ -240,7 +240,7 @@ impl ApprovalReducer {
         if self.wait.is_some()
             && !self
                 .observation
-                .is_some_and(|o| Self::fresh(o.started_at, now))
+                .is_some_and(|o| Self::observation_is_fresh(o.started_at, now))
         {
             if !self.locked {
                 self.issued = None;
@@ -317,7 +317,7 @@ impl ApprovalReducer {
         !self.locked
             && self
                 .observation
-                .is_some_and(|o| Self::fresh(o.started_at, now))
+                .is_some_and(|o| Self::observation_is_fresh(o.started_at, now))
     }
 
     fn reset(&mut self) {
@@ -353,7 +353,7 @@ impl ApprovalReducer {
         true
     }
 
-    fn fresh(started_at: Instant, now: Instant) -> bool {
+    pub(crate) fn observation_is_fresh(started_at: Instant, now: Instant) -> bool {
         now.checked_duration_since(started_at)
             .is_some_and(|age| age <= FRESHNESS)
     }
@@ -440,9 +440,9 @@ impl ApprovalReducer {
             return;
         }
         let active = self.records.iter().filter(|r| !r.completed).count();
-        let baseline = self
-            .observation
-            .is_some_and(|o| o.status == NativeStatus::Active && Self::fresh(o.started_at, now));
+        let baseline = self.observation.is_some_and(|o| {
+            o.status == NativeStatus::Active && Self::observation_is_fresh(o.started_at, now)
+        });
         let chain =
             index.is_some_and(|i| self.records[i].has_pre && self.records[i].tool_id.is_some());
         if !baseline || !chain || active != 1 || self.wait.is_some() {
@@ -555,7 +555,7 @@ impl ApprovalReducer {
         }
         let active_without_flags = !self.locked
             && self.observation.is_some_and(|o| {
-                o.status == NativeStatus::Active && Self::fresh(o.started_at, now)
+                o.status == NativeStatus::Active && Self::observation_is_fresh(o.started_at, now)
             });
         if active_without_flags {
             return Vec::new();
