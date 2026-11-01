@@ -146,7 +146,7 @@ impl Store {
         crate::metadata::write_atomic(&self.path(id), &text)
             .map_err(|_| "Could not save branch documents.".into())
     }
-    pub(crate) fn report(&self, id: &Identity, document: Document) -> Result<(), String> {
+    pub(crate) fn report(&self, id: &Identity, mut document: Document) -> Result<(), String> {
         self.scans
             .lock()
             .map_err(|_| "Document cache unavailable.")?
@@ -159,6 +159,21 @@ impl Store {
             .any(|d| d.kind == document.kind && d.pinned && !document.pinned)
         {
             return Ok(());
+        }
+        if document.reference.source == crate::metadata::PlanSource::TerminalFallback {
+            if let Some(old) = current.iter().find(|old| {
+                old.kind == document.kind
+                    && old.reference.worktree_root == document.reference.worktree_root
+                    && old.reference.relative_path == document.reference.relative_path
+                    && matches!(
+                        old.reference.source,
+                        crate::metadata::PlanSource::AgentReported
+                            | crate::metadata::PlanSource::HookReported
+                    )
+            }) {
+                document.reference.source = old.reference.source;
+                document.observed_at = old.observed_at.clone();
+            }
         }
         current.retain(|d| d.kind != document.kind);
         current.push(document);

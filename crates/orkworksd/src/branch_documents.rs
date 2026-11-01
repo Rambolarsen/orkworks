@@ -136,17 +136,41 @@ pub(crate) fn resolve(
     root: &Path,
     fresh: bool,
 ) -> Result<(Identity, Vec<Document>, Option<String>), String> {
-    let scan = store.scan(root, fresh)?;
-    let documents = store
-        .reconcile(&scan)?
+    resolve_from_scan(store, root, store.scan(root, fresh))
+}
+
+pub(crate) fn resolve_from_scan(
+    store: &crate::branch_documents_store::Store,
+    root: &Path,
+    scan: Result<Scan, String>,
+) -> Result<(Identity, Vec<Document>, Option<String>), String> {
+    let id = identity(root)?;
+    let (documents, notice) = match scan {
+        Ok(scan) => {
+            if scan.identity != id {
+                return Err("Branch changed during document inspection.".into());
+            }
+            (store.reconcile(&scan)?, scan.notice)
+        }
+        Err(error) => (store.load(&id)?, Some(error)),
+    };
+    let documents = documents
         .into_iter()
-        .filter(|doc| doc.pinned || validate_document(&scan.identity, doc).is_ok())
+        .filter(|doc| doc.pinned || validate_document(&id, doc).is_ok())
         .collect();
-    Ok((scan.identity, documents, scan.notice))
+    Ok((id, documents, notice))
 }
 
 pub(crate) fn projection(store: &crate::branch_documents_store::Store, root: &Path) -> Projection {
-    let resolved = resolve(store, root, false);
+    projection_from_scan(store, root, store.scan(root, false))
+}
+
+pub(crate) fn projection_from_scan(
+    store: &crate::branch_documents_store::Store,
+    root: &Path,
+    scan: Result<Scan, String>,
+) -> Projection {
+    let resolved = resolve_from_scan(store, root, scan);
     let (id, documents, notice) = match resolved {
         Ok(result) => (Some(result.0), result.1, result.2),
         Err(error) => (None, Vec::new(), Some(error)),
@@ -294,9 +318,48 @@ fn index_matches(root: &Path, path: &Path, index: &git2::Index, head: Option<Oid
 
 pub(crate) fn read_document(root: &Path, relative: &str) -> Result<String, String> {
     kind_for_path(relative).ok_or("Unsupported document path.")?;
+    if nested_or_unsafe_directory(
+        root,
+        Path::new(relative)
+            .parent()
+            .ok_or("Invalid document path.")?,
+    ) {
+        return Err("Document crosses a repository boundary.".into());
+    }
+    if let Some(index) = Repository::open(root)
+        .ok()
+        .and_then(|repo| repo.index().ok())
+    {
+        if Path::new(relative)
+            .ancestors()
+            .skip(1)
+            .filter(|path| !path.as_os_str().is_empty())
+            .any(|path| {
+                index
+                    .get_path(path, 0)
+                    .is_some_and(|entry| entry.mode == 0o160000)
+            })
+        {
+            return Err("Document crosses a submodule boundary.".into());
+        }
+    }
     let bytes = crate::git_changes_fs::read_regular(root, Path::new(relative))
         .map_err(|_| "Document is unavailable or exceeds 1 MiB.")?;
     String::from_utf8(bytes).map_err(|_| "Document is not UTF-8.".into())
+}
+
+fn nested_or_unsafe_directory(root: &Path, relative: &Path) -> bool {
+    let mut directory = root.to_path_buf();
+    for component in relative.components() {
+        directory.push(component);
+        if !std::fs::symlink_metadata(&directory)
+            .is_ok_and(|m| m.is_dir() && !m.file_type().is_symlink())
+            || std::fs::symlink_metadata(directory.join(".git")).is_ok()
+        {
+            return true;
+        }
+    }
+    false
 }
 
 pub(crate) fn document(
@@ -571,6 +634,11 @@ pub(crate) fn discover(cwd: &Path) -> Result<Scan, String> {
         std::fs::write(scratch.path().join("info/exclude"), data).map_err(|e| e.to_string())?;
     }
     let index = repo.index().map_err(|e| e.to_string())?;
+    let literal_symlinks = repo
+        .config()
+        .ok()
+        .and_then(|c| c.get_bool("core.symlinks").ok())
+        == Some(false);
     let indexed: std::collections::HashSet<_> = index
         .iter()
         .filter_map(|e| String::from_utf8(e.path).ok())
@@ -634,11 +702,18 @@ pub(crate) fn discover(cwd: &Path) -> Result<Scan, String> {
                 return false;
             }
             if dir {
+                if index.get_path(path, 0).is_some_and(|e| e.mode == 0o160000)
+                    || nested_or_unsafe_directory(&root, path)
+                {
+                    return false;
+                }
                 ROOTS
                     .iter()
                     .any(|r| Path::new(r).starts_with(path) || path.starts_with(r))
             } else {
                 eligible(path)
+                    && !(literal_symlinks
+                        && index.get_path(path, 0).is_some_and(|e| e.mode == 0o120000))
                     && (path
                         .to_str()
                         .is_some_and(|p| committed.iter().any(|candidate| candidate == p))
@@ -760,6 +835,127 @@ mod tests {
         .unwrap();
         repo.set_head("refs/heads/task").unwrap();
         (dir, repo)
+    }
+
+    #[test]
+    fn branch_document_pin_survives_a_failed_discovery_scan() {
+        let (dir, repo) = fixture();
+        for n in 0..=DOCUMENT_LIMIT {
+            write(dir.path(), &format!("specs/doc-{n}.md"), "# Document\n");
+        }
+        commit(&repo);
+        let state = tempfile::tempdir().unwrap();
+        let store = crate::branch_documents_store::Store::new(state.path());
+        store
+            .report(
+                &identity(dir.path()).unwrap(),
+                document(
+                    dir.path(),
+                    "specs/inherited.md",
+                    PlanSource::UserSelected,
+                    true,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let (_, documents, notice) = resolve(&store, dir.path(), true).unwrap();
+        assert!(notice.is_some());
+        assert_eq!(documents.len(), 1);
+        assert!(documents[0].pinned);
+    }
+
+    #[test]
+    fn branch_document_discovery_skips_nested_repositories_and_gitlinks() {
+        let (dir, repo) = fixture();
+        let nested = dir.path().join("specs/vendor");
+        git2::Repository::init(&nested).unwrap();
+        write(&nested, "nested.md", "# Another repository\n");
+        let scan = discover(dir.path()).unwrap();
+        assert!(scan.documents.is_empty());
+        assert!(document(
+            dir.path(),
+            "specs/vendor/nested.md",
+            PlanSource::UserSelected,
+            true
+        )
+        .is_err());
+        std::fs::remove_dir_all(nested.join(".git")).unwrap();
+        let mut index = repo.index().unwrap();
+        let mut entry = index.get_path(Path::new("specs/inherited.md"), 0).unwrap();
+        entry.path = b"specs/vendor".to_vec();
+        entry.mode = 0o160000;
+        entry.id = repo.head().unwrap().target().unwrap();
+        index.add(&entry).unwrap();
+        index.write().unwrap();
+        assert!(discover(dir.path()).unwrap().documents.is_empty());
+        assert!(document(
+            dir.path(),
+            "specs/vendor/nested.md",
+            PlanSource::UserSelected,
+            true
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn branch_document_discovery_preserves_literal_symlink_checkout_semantics() {
+        let (dir, repo) = fixture();
+        write(dir.path(), "specs/link.md", "target.md");
+        let oid = repo.blob(b"target.md").unwrap();
+        let mut index = repo.index().unwrap();
+        index
+            .add_all(["*"], git2::IndexAddOption::DEFAULT, None)
+            .unwrap();
+        let mut entry = index.get_path(Path::new("specs/link.md"), 0).unwrap();
+        entry.mode = 0o120000;
+        entry.id = oid;
+        index.add(&entry).unwrap();
+        index.write().unwrap();
+        repo.config()
+            .unwrap()
+            .set_bool("core.symlinks", false)
+            .unwrap();
+        assert!(discover(dir.path()).unwrap().documents.is_empty());
+        entry.mode = 0o100644;
+        index.add(&entry).unwrap();
+        index.write().unwrap();
+        assert_eq!(
+            discover(dir.path()).unwrap().documents.len(),
+            1,
+            "staged regular-file conversions remain eligible"
+        );
+    }
+
+    #[test]
+    fn branch_document_terminal_output_preserves_stronger_report_provenance() {
+        let (dir, _) = fixture();
+        let state = tempfile::tempdir().unwrap();
+        let store = crate::branch_documents_store::Store::new(state.path());
+        let id = identity(dir.path()).unwrap();
+        let mut reported = document(
+            dir.path(),
+            "specs/inherited.md",
+            PlanSource::AgentReported,
+            false,
+        )
+        .unwrap();
+        reported.observed_at = "strong report".into();
+        store.report(&id, reported).unwrap();
+        store
+            .report(
+                &id,
+                document(
+                    dir.path(),
+                    "specs/inherited.md",
+                    PlanSource::TerminalFallback,
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let selected = store.load(&id).unwrap();
+        assert_eq!(selected[0].reference.source, PlanSource::AgentReported);
+        assert_eq!(selected[0].observed_at, "strong report");
     }
 
     #[test]

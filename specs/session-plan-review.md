@@ -136,11 +136,15 @@ Inspection is read-only and bounded: at most 10,000 visited file/tree/commit
 entries, 500 eligible documents, a five-second cooperative scan budget, 1 MiB
 per document read and 4 MiB aggregate document reads per scan. Report limits or
 unavailable inspection explicitly; an incomplete scan cannot claim a latest
-winner or overwrite an established association. Cache results for at most five
+winner or overwrite an established association. Failed scans still revalidate
+saved selections independently, so a readable pin remains accessible. Exclude
+nested repositories and Gitlinks from discovery and access; preserve Git's
+literal-symlink checkout semantics. Cache results for at most five
 seconds per worktree/branch/HEAD and invalidate on accepted reports/selections,
 root/branch changes and workspace adoption. Discovery runs outside the global
-terminal-input fence; revalidate workspace and session location before returning
-the projection. A scan captured before a newer
+terminal-input fence; revalidate workspace ownership and session location before
+publishing prepared scan results, then revalidate before returning the projection.
+A scan captured before a newer
 publication cannot overwrite it. Automatic associations retain normalized
 content-hash evidence as well as ancestry, so reverting a branch change cannot
 keep an inherited document attached. Never hold runtime/workspace locks

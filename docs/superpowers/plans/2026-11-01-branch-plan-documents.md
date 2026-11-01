@@ -117,23 +117,23 @@ Files: renderer `api.ts`, `orkworksWindow.d.ts`, `useSessionReview.ts`,
 ### Execution checkpoint, 2026-11-01
 
 Implementation is in [PR #1233](https://github.com/Rambolarsen/orkworks/pull/1233).
-The published head is `3330425f`; three substantive review cycles are consumed.
-An explicit extension of at most two cycles has been requested and remains
-pending. No additional review trigger or merge is authorized by elapsed time.
+The owner approved up to two additional substantive review cycles after the
+initial three; the lifecycle limit is five. The next fresh review is cycle 4/5.
 
 The local corrective pass adds safe original-path legacy reads, effective
 worktree hook reports, surviving bindings when launch worktrees disappear,
 independent agent slot reports, document inspection outside the input fence,
 typed terminal selections that survive their own publication, readable-slot
 fallback for untyped callers and explicit-binding containment for terminal paths.
-Thirty-one focused Rust document regressions and the real Electron terminal-link
-flow passed. Full verification of the combined corrective pass is pending.
+The full repository verification passed on corrective commit `c916f823`, including
+2,402 Rust unit tests, 1,652 desktop tests and 776 docs validation tests.
 
-Before another review cycle, vet the four additional findings in Copilot's full
-review body: saved pins when discovery fails, `core.symlinks=false` index modes,
-nested repository boundaries, and preserving stronger reporting provenance.
-Refresh main and resolve any reported merge conflict, then verify and review the
-current diff. Do not treat an earlier passing review as approval of later code.
+The next corrective pass addresses the four full-body findings: saved pins after
+scan errors, literal symlink checkout modes, nested repositories/Gitlinks and
+stronger reporting provenance. It also separates scan preparation from publication
+and checks the captured workspace/session owner before saving. The corresponding
+regressions observed failure before the fixes. Refresh main and resolve conflicts,
+then verify and review the final diff; earlier reviews do not approve later code.
 
 Dependencies 3: sidecar discovery/storage and duplicated Electron/renderer
 contracts ship together. Blast radius 3: shared document projection and content

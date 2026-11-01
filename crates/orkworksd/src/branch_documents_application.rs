@@ -64,7 +64,23 @@ pub(crate) fn selected(
     kind: Option<DocumentKind>,
 ) -> Result<(Subject, Document), String> {
     let context = subject(state, id)?;
-    let resolved = branch_documents::resolve(&context.store, &context.root, true);
+    let scan = context.store.scan(&context.root, true);
+    if !current(state, id, &context) {
+        return Err("Session workspace changed; refresh.".into());
+    }
+    let resolved = {
+        let workspace = state
+            .workspace
+            .lock()
+            .map_err(|_| "Workspace unavailable.")?;
+        if !workspace
+            .as_ref()
+            .is_some_and(|ws| Arc::ptr_eq(&context.store, &ws.metadata.branch_documents))
+        {
+            return Err("Session workspace changed; refresh.".into());
+        }
+        branch_documents::resolve_from_scan(&context.store, &context.root, scan)
+    };
     let mut result = None;
     if let Ok((identity, documents, _)) = &resolved {
         for wanted in kind
