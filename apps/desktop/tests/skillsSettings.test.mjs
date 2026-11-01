@@ -139,8 +139,8 @@ if (process.env.ORKWORKS_SKILLS_FIXTURE) {
       await click('[data-provenance]');
       await click('.skills-actions button');
       await wait('document.querySelectorAll("[data-skill-plugin]").length===3');
-      assert.match(await evaluate('document.querySelector("[data-skill-counts]").innerText'), /4 skills.*5 sources/s);
-      assert.equal(await evaluate('document.querySelectorAll("[data-skill-overlap]").length'), 0, 'APM ownership and aliases do not establish manual/plugin duplication');
+      assert.match(await evaluate('document.querySelector("[data-skill-counts]").innerText'), /5 skills.*7 sources/s);
+      assert.equal(await evaluate('document.querySelectorAll("[data-skill-overlap]").length'), 0, 'APM ownership and aliases, including aliases across scopes, do not establish manual/plugin duplication');
       assert.equal(await evaluate('document.querySelectorAll("[data-skill-source=multi]").length'), 2, 'a source can belong to two plugins without inflating global counts');
       assert.equal(await evaluate(`document.querySelectorAll('[data-skill-plugin="Plugin (name unknown)"] [data-skill-source]').length`), 1);
       assert.equal(await evaluate('document.querySelector("[data-local-skills] [data-skill-source]").dataset.skillSource'), 'apm-local');

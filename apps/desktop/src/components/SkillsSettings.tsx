@@ -134,8 +134,11 @@ export default function SkillsSettings({
   const overlappingNames = new Set(
     skillNameGroups(inventory?.skills || [])
       .filter(([, sources]) =>
-        sources.some((source) => source.management === "local" && !source.plugins?.length)
-        && sources.some((source) => source.management === "plugin" || source.plugins?.length),
+        sources.some((local) => local.management === "local" && !local.plugins?.length
+          && sources.some((plugin) =>
+            (plugin.management === "plugin" || plugin.plugins?.length)
+            && plugin.resolvedPath !== local.resolvedPath,
+          )),
       )
       .map(([name]) => name),
   );

@@ -35,12 +35,16 @@ const edgeSkills = [
   { ...skill, id: "multi", name: "multi-skill", scope: "personal", management: "plugin", plugins: ["alpha@local", "beta@local"] },
   { ...skill, id: "unknown", name: "unknown-skill", scope: "personal", management: "plugin" },
 ];
+edgeSkills.push(
+  { ...skill, id: "cross-local", name: "cross-alias", scope: "workspace", management: "local", paths: ["/repo/.agents/skills/cross-alias"], resolvedPath: "/shared/plugin/cross-alias" },
+  { ...skill, id: "cross-plugin", name: "cross-alias", scope: "personal", management: "plugin", plugins: ["alpha@local"], paths: ["/shared/plugin/cross-alias"], resolvedPath: "/shared/plugin/cross-alias" },
+);
 let useEdgeSkills = false;
 let workspaceOpen = true;
 let installs = 0;
 Object.assign(window, {
   orkworks: {
-    getSkillInventory: async () => ({...inventory, workspace: workspaceOpen ? "/repo" : null, skills: (useEdgeSkills ? edgeSkills : inventory.skills).filter(skill => workspaceOpen || skill.scope === "personal")}),
+    getSkillInventory: async () => ({...inventory, workspace: workspaceOpen ? "/repo" : null, skills: (useEdgeSkills ? edgeSkills : inventory.skills).filter(skill => useEdgeSkills || workspaceOpen || skill.scope === "personal")}),
     readSkillDetail: async (id: string) =>
       `Read-only instructions for ${id}.`,
     pickSkillSource: async () => "/source/review",
