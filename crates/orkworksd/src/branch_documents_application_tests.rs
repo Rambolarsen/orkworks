@@ -82,6 +82,71 @@ async fn typed_review_delivers_the_displayed_document_and_audits_after_acknowled
 }
 
 #[tokio::test]
+async fn typed_detached_review_preserves_the_session_local_legacy_selection() {
+    let (root, state, _store, mut control_rx) = fixture();
+    let repo = git2::Repository::open(root.path()).unwrap();
+    let tree_id = repo.index().unwrap().write_tree().unwrap();
+    let tree = repo.find_tree(tree_id).unwrap();
+    let signature = git2::Signature::now("Test", "test@example.com").unwrap();
+    let commit = repo
+        .commit(Some("HEAD"), &signature, &signature, "initial", &tree, &[])
+        .unwrap();
+    repo.set_head_detached(commit).unwrap();
+    let doc = branch_documents::document(
+        root.path(),
+        "specs/current.md",
+        crate::metadata::PlanSource::UserSelected,
+        true,
+    )
+    .unwrap();
+    {
+        let ws = state.workspace.lock().unwrap();
+        ws.as_ref()
+            .unwrap()
+            .metadata
+            .mutate_session(
+                "runtime-review",
+                crate::session_application::WriteScope::NONE,
+                |meta| {
+                    meta.plan_path = Some(doc.reference.clone());
+                    Ok(())
+                },
+            )
+            .unwrap();
+    }
+    let app = SessionApplication::new(state);
+    let selection_id = doc.selection_id();
+    assert_eq!(
+        app.read_document_content(
+            "runtime-review",
+            Some(DocumentKind::Design),
+            Some(&selection_id)
+        )
+        .unwrap(),
+        "# Design\n"
+    );
+    let mut request = tokio::spawn(async move {
+        app.request_document_review(
+            "runtime-review",
+            Some(DocumentKind::Design),
+            Some(&selection_id),
+        )
+        .await
+    });
+    let command = tokio::select! {
+        command = control_rx.recv() => command.unwrap(),
+        result = &mut request => panic!("detached review failed before enqueue: {:?}", result.unwrap()),
+    };
+    let crate::runtime::session_runtime::RuntimeCommand::Input { data, accepted, .. } = command
+    else {
+        panic!("expected review input");
+    };
+    assert!(data.contains("specs/current.md"));
+    accepted.unwrap().send(Ok(())).unwrap();
+    request.await.unwrap().unwrap();
+}
+
+#[tokio::test]
 async fn review_never_retargets_a_resumed_runtime_after_slow_document_inspection() {
     let (_root, state, store, mut old_rx) = fixture();
     let id = "runtime-review";

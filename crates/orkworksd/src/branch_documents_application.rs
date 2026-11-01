@@ -231,9 +231,22 @@ impl SessionApplication {
                         return Err(());
                     }
                 }
-                context
-                    .store
-                    .with_current_document(context.branch.as_ref().ok_or(())?, &doc, send)
+                if let Some(branch) = &context.branch {
+                    context.store.with_current_document(branch, &doc, send)
+                } else {
+                    // Detached/non-Git documents remain session-local. They have
+                    // no shared record, but retain the same stale-content fence.
+                    if meta.plan_path != context.legacy {
+                        return Err(());
+                    }
+                    let content =
+                        branch_documents::read_document(&root, &doc.reference.relative_path)
+                            .map_err(|_| ())?;
+                    if branch_documents::content_hash(&content) != doc.content_hash {
+                        return Err(());
+                    }
+                    send()
+                }
             },
         )
         .await
