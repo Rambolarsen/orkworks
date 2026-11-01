@@ -22,3 +22,5 @@ Captured fixture context for reproducible validation.
 - [Evidence-first readiness qualification](score-directed-investigation-2026-10-31/index.md) — Separate twenty-call fixed set passed independent usefulness: three positives and both valid no-proposal controls.
 
 - [Copilot November evidence](copilot-1.0.90-november/index.md) — Sanitized hosted-turn measurements and exact configuration.
+
+- [Copilot settings discovery packet](copilot-1.0.90-settings/index.md) — Six model-free discovery cases and pinned source selections.

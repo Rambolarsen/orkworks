@@ -1,0 +1,5 @@
+---
+name: ork740-settings-sentinel
+description: Synthetic settings precedence discovery marker.
+---
+No tools or actions are requested.

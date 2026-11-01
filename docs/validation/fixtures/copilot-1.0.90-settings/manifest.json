@@ -1,0 +1,40 @@
+{
+  "artifacts": {
+    ".gitattributes": {
+      "bytes": 8,
+      "sha256": "705fd4d6451a31d36b3df7de96f83f30ac976c9b4a6d1e51671d8e2f33e2d0da"
+    },
+    "discovery-cases.json": {
+      "bytes": 15841,
+      "sha256": "03f4ed521118d5895a70c7a216c807b11c635d46cfd8ad1f3525ba886ee15270"
+    },
+    "identity.json": {
+      "bytes": 491,
+      "sha256": "424c555ae74a02ddd257cb6b28e66e04245617ab1454d0f7090bd82a3501467b"
+    },
+    "index.md": {
+      "bytes": 461,
+      "sha256": "213ba53e6d38f939943a310b12de552b3893d5115a60cac8e9bfc796386f761b"
+    },
+    "inspect-settings.py": {
+      "bytes": 6758,
+      "sha256": "557a75c17aa52552a2d0bd0a45784ad50f3de8b65e1669c65478fbb19eeb5f8a"
+    },
+    "primary-references.json": {
+      "bytes": 1265,
+      "sha256": "facaa8cf9b003bde7ad15badd0dfc8ba0425af697ee1a1cd9200ddc775455667"
+    },
+    "sentinel-skill.txt": {
+      "bytes": 135,
+      "sha256": "c279a03c61537d6e8855af20fcd4b8b0a4d5c59a0fc1c97ead3b03479ba9f9e2"
+    },
+    "source-excerpts.json": {
+      "bytes": 2084,
+      "sha256": "bfd2301ad20cd6fb647059bba93f1ef1e346581eb6fc332aab6afbf5ba8d4ffb"
+    },
+    "embedded-runtime-identity.json": {
+      "bytes": 1773,
+      "sha256": "712b5f13cd9b2e005ad40cdd066bbb6a37355374377ac4943e71e441d52dd151"
+    }
+  }
+}

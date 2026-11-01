@@ -1,0 +1,29 @@
+{
+  "app": {
+    "bytes": 7577057,
+    "sha256": "f84061b62eeb1cd78a655555890fe1a776509203fca68144745467e26e443813"
+  },
+  "selections": [
+    {
+      "startUtf8Byte": 1553067,
+      "bytes": 484,
+      "text": "function Fwt(e,t){if(t===void 0)return e;let n={};return t.identity!==void 0&&(n.identity=t.identity),t.prompts!==void 0&&(n.prompts=t.prompts),t.responses!==void 0&&(n.responses=t.responses),t.toolArguments!==void 0&&(n.toolArguments=t.toolArguments),t.toolOutput!==void 0&&(n.toolOutput=t.toolOutput),t.policyDetail!==void 0&&(n.policyDetail=t.policyDetail),Object.keys(n).length===0?e:{...e,capture:{...e?.capture,...n}}}var VZn,Lwt,Eue,Uwt=Ze(()=>{\"use strict\";yt();wr();nf();VZn="
+    },
+    {
+      "startUtf8Byte": 1598642,
+      "bytes": 819,
+      "text": "wireSessionStoreTracking(t,n,r,o){if(r?.enableSessionStore===!1){this.unsubscribeSessionStoreTracking(t.sessionId).catch(s=>{w.debug(`Failed to unsubscribe session store tracking: ${k(s)}`)});return}try{let s=this.sessionStoreTracking.get(t.sessionId),a=s?this.beginSessionStoreTrackingTeardown(t.sessionId,s).catch(d=>{w.debug(`Failed to unsubscribe previous session store tracking: ${k(d)}`)}):this.sessionStoreTrackingTeardowns.get(t.sessionId),l=n?Gp(t.sessionId,n):void 0,c=gXn(t,n,{workspacePath:l,waitFor:a?()=>a:void 0,featureFlags:r?.featureFlags,sessionMetadata:{created_at:t.startTime.toISOString(),...o?{cwd:o.cwd,repository:o.repository,host_type:o.hostType,branch:o.branch}:{}}});this.sessionStoreTracking.set(t.sessionId,c)}catch(s){w.debug(`Failed to initialize session store tracking: ${k(s)}`)}}async "
+    },
+    {
+      "startUtf8Byte": 1452804,
+      "bytes": 107,
+      "text": "static resolveSessionFs(t){return t.sessionFs??(t.eventsLogDirectory?new Ry(t.eventsLogDirectory):Ry.defaul"
+    },
+    {
+      "startUtf8Byte": 139454,
+      "bytes": 100,
+      "text": "function WW(e){return[e?.configDir??null,process.env.COPILOT_HOME??null,b.pathOsHomeDir()]}var yA,JS"
+    }
+  ],
+  "limit": "Static selected call sites; not complete native implementations or a persistence audit"
+}

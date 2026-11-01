@@ -66,3 +66,5 @@ Capability research, validation results, and evidence fixtures.
 - [Private ordinary-session SQLite adapter](session-store-adapter.md) — Source-only worker/query foundation, regression evidence and remaining writer/activation gates.
 
 - [Copilot November transport probe](copilot-november-transport-probe.md) — Hosted-turn observations and unchanged role eligibility gates.
+
+- [Copilot settings and persistence](copilot-settings-and-persistence.md) — Version-bound migration and separate storage qualification gates.

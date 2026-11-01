@@ -340,3 +340,13 @@ No response-content attribute appeared in OTel, but separate session persistence
 contains assistant content and nonempty reasoning-related fields. This is not
 complete capture exclusion, skill delivery or permission evidence. All six
 role profiles remain unverified/no-go; #740 remains open.
+
+## Settings and persistence follow-up — 2026-11-01
+
+The [model-free settings fixture](copilot-settings-and-persistence.md) observes
+1.0.90 migrating the tested legacy disabledSkills key into settings.json, with
+the legacy value winning both initial conflict directions. A later settings-only
+edit takes effect. This is discovery-setting evidence, not telemetry precedence,
+skill content delivery or permission enforcement. OTel, local native history and
+remote export remain separate unqualified boundaries. All six roles remain
+unverified/no-go; #740 stays open. No new model call ran.
