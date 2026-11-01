@@ -72,6 +72,7 @@ unreadable. Specs define product scope; issues track progress.
 | Subject | Authoritative spec |
 | --- | --- |
 | Product scope, architecture, milestones, non-goals | [MVP](specs/orkworks-mvp.md) |
+| Ordinary-session storage and history | [Session storage](specs/session-storage.md); accepted contract, implementation/activation pending |
 | Concurrent workspaces | [Multi-workspace](specs/multi-workspace.md); proposed, written-spec review required |
 | Native coding-tool voice | [Voice support](specs/native-harness-voice-support.md) |
 | Packaging and releases | [Release pipeline](specs/release-pipeline.md) |

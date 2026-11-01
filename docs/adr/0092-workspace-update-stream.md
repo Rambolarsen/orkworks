@@ -42,3 +42,14 @@ fields may lag by 30 seconds. No stored-data migration or terminal ownership
 change. Slow clients reconnect; incomplete projections cannot delete rows.
 Existing REST/terminal authorization is unchanged; the new read-only socket rejects
 non-loopback browser origins rather than relying on permissive HTTP CORS.
+
+## Scoped supersession — 2026-11-01
+
+[ADR 0103](0103-sqlite-session-storage.md) supersedes the complete-all-history
+REST projection and initial stream snapshot after qualified format-2 activation.
+Version 2 uses complete live rows plus bounded history pages/invalidation while
+preserving authoritative recovery, incomplete-read protection and read security.
+The accepted [storage contract](../../specs/session-storage.md) and
+[delivery plan](../superpowers/plans/2026-11-01-sqlite-session-storage.md) govern
+the replacement. Current format-1 source behavior remains until implementation
+and activation; this does not claim a shipped SQLite migration.

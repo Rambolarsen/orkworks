@@ -19,7 +19,7 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0002](./0002-electron-react-typescript-desktop.md) | Electron + React + TypeScript desktop shell | superseded by [0078](./0078-fixed-desktop-shell-and-central-navigation.md) |
 | [0003](./0003-rust-backend-axum-localhost.md) | Rust backend sidecar with Axum over localhost HTTP/WS | accepted |
 | [0004](./0004-orkworks-metadata-protocol.md) | `.orkworks/` metadata protocol directory structure | superseded by [0018](./0018-global-metadata-store.md) |
-| [0018](./0018-global-metadata-store.md) | Move metadata store from workspace directory to global config directory | accepted |
+| [0018](./0018-global-metadata-store.md) | Move metadata store from workspace directory to global config directory | accepted; ordinary session authority superseded in part by [0103](0103-sqlite-session-storage.md) |
 | [0005](./0005-metadata-source-priority.md) | Metadata source priority | accepted |
 | [0006](./0006-peon-observer-only-mvp.md) | Peon: observer-only inference in MVP | accepted |
 | [0007](./0007-product-boundary-observe-recommend.md) | Product boundary: observe and recommend before controlling | accepted |
@@ -107,7 +107,7 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 
 | [0087](./0087-native-codex-assessment-response-constraints.md) | Native Codex assessment uses code-owned response constraints | accepted; compatibility and runtime evidence pending |
 
-| [0088](./0088-session-archive-state.md) | Durable session archive state | accepted |
+| [0088](./0088-session-archive-state.md) | Durable session archive state | accepted; format-2 persistence superseded in part by [0103](0103-sqlite-session-storage.md) |
 
 | [0089](./0089-new-session-image-context.md) | New sessions own bounded local image context | accepted; implementation in progress |
 
@@ -136,3 +136,5 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 - [Readiness evidence before candidates](0099-readiness-evidence-before-candidates.md) — Approved #1175 evidence-first investigation after two independently failed fixed sets; live qualification remains separate.
 
 - [ADR 0102 — Slow terminal projections compute outside the input fence](0102-terminal-projection-input-fence.md) — Accepted; scoped implementation approved.
+
+- [ADR 0103: Ordinary sessions use SQLite with bounded history reads](0103-sqlite-session-storage.md) — Accepted session storage/migration decision; implementation and qualification pending.

@@ -373,6 +373,13 @@ response or synthetic argv test alone cannot qualify another delivery route.
 
 ## Explicit metadata helper proxy
 
+The accepted [ordinary-session storage contract](../../specs/session-storage.md)
+requires independently qualified mediated writers before format-2 activation.
+Producer work in #1242 must not reuse #789's gated native eligibility marker as
+ordinary-storage qualification; current native gates remain closed. The
+[delivery plan](../superpowers/plans/2026-11-01-sqlite-session-storage.md) records
+the transition. No installed producer or migration is qualified by this approval.
+
 The source `session-metadata.py` supports an explicit trusted HTTP relay for
 bootstrap/get/patch, for example `python3 <helper> bootstrap --http-proxy
 http://127.0.0.1:<proxy-port>`. The argument follows the command. The proxy is
