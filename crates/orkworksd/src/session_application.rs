@@ -2412,68 +2412,12 @@ impl SessionApplication {
                         };
                     let stored = ws.metadata.mutate_session_optional(
                         &id, if is_terminal { WriteScope::ATTENTION } else { WriteScope::NONE }, |meta| {
-                        if (is_terminal
-                            && already_ending
-                            && matches!(meta.lifecycle_phase.as_str(), "ending" | "ended"))
-                            || (is_terminal
-                                && meta.lifecycle_phase == "ended"
-                                && (handle_decision.is_none()
-                                    || live_handle_phase.as_deref() == Some("ended")
-                                    || (live_handle_phase.as_deref() == Some("ending")
-                                        && matches!(
-                                            meta.status.as_str(),
-                                            "killed" | "ended" | "error"
-                                        ))))
-                            || (!is_terminal
-                                && matches!(live_handle_phase.as_deref(), Some("ending" | "ended")))
-                            || (handle_decision.is_none()
-                                && matches!(meta.lifecycle_phase.as_str(), "ending" | "ended"))
-                        {
-                            return Ok(false);
-                        }
-                        if is_terminal {
-                            meta.status = "running".to_string();
-                            meta.lifecycle_phase = "ending".to_string();
-                            meta.lifecycle = "stopping".to_string();
-                            meta.attention = None;
-                            meta.connectivity = connectivity_for_status("running").to_string();
-                            meta.terminal_outcome = None;
-                            meta.pending_terminal_status = Some(status.clone());
-                            meta.ending_observed_status_snapshot =
-                                Some(metadata::ObservedStatusSnapshotMetadata {
-                                    attention_origin: Some(meta.attention_origin().to_string()),
-                                    value: meta.observed_status.clone(),
-                                    source: meta.attention_source().to_string(),
-                                    confidence: Some(meta.attention_confidence()),
-                                    observed_at: Some(now.clone()),
-                                });
-                        } else {
-                            meta.status = status.clone();
-                            meta.lifecycle_phase = if status == "creating" {
-                                "creating".to_string()
-                            } else {
-                                "active".to_string()
-                            };
-                            meta.lifecycle = if status == "creating" {
-                                "creating"
-                            } else {
-                                "alive"
-                            }
-                            .to_string();
-                            meta.connectivity = connectivity_for_status(&status).to_string();
-                            meta.terminal_outcome = terminal_outcome_for_status(&status);
-                        }
-                        meta.last_activity = now.clone();
-                        if is_terminal {
-                            meta.observed_status = None;
-                        }
-                        if session_resume.0.is_some() {
-                            meta.resume = session_resume.0;
-                        }
-                        if session_resume.1.is_some() {
-                            meta.resumed_from = session_resume.1;
-                        }
-                        Ok(true)
+                        Ok(metadata::lifecycle_mutations::LifecycleMutation::Transition {
+                            status: status.clone(), had_live_handle: handle_decision.is_some(),
+                            already_ending, live_phase: live_handle_phase,
+                            resume: session_resume.0, resumed_from: session_resume.1,
+                            timestamp: now.clone(),
+                        }.apply(meta).is_some())
                     });
                     match stored {
                         Ok(Some(_)) => applied = true,
@@ -3724,25 +3668,13 @@ impl SessionApplication {
                 let result =
                     ws.metadata
                         .mutate_session_optional(id, WriteScope::ATTENTION, |meta| {
-                            if meta.lifecycle_phase == "ended" {
-                                return Ok(false);
+                            Ok(metadata::lifecycle_mutations::LifecycleMutation::Finalize {
+                                snapshot: final_snapshot.clone(),
+                                fallback_status: fallback_terminal_status.into(),
+                                timestamp: now.clone(),
                             }
-                            let pending = meta
-                                .pending_terminal_status
-                                .clone()
-                                .unwrap_or_else(|| fallback_terminal_status.into());
-                            meta.status = pending.clone();
-                            meta.lifecycle_phase = "ended".into();
-                            meta.lifecycle = "dead".into();
-                            meta.attention = None;
-                            meta.connectivity = connectivity_for_status(&pending).to_string();
-                            meta.terminal_outcome = terminal_outcome_for_status(&pending);
-                            meta.pending_terminal_status = None;
-                            meta.ending_observed_status_snapshot = None;
-                            meta.final_observed_status_snapshot = Some(final_snapshot.clone());
-                            meta.observed_status = None;
-                            meta.last_activity = now.clone();
-                            Ok(true)
+                            .apply(meta)
+                            .is_some())
                         });
                 match result {
                     Ok(Some(record)) => {

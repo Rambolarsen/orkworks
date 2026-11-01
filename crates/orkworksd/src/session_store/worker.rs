@@ -23,9 +23,14 @@ enum Command {
         id: String,
         created: String,
         expected: Option<MetadataRevision>,
+        proof: Option<super::AttentionProof>,
         intent: Box<InternalMutation>,
     },
     Get(String),
+    OwnedAttention {
+        id: String,
+        created: String,
+    },
     History(HistoryQuery),
     Live(Vec<String>),
     Exists(Vec<String>),
@@ -81,6 +86,7 @@ impl Command {
     fn is_read(&self) -> bool {
         match self {
             Self::Get(_)
+            | Self::OwnedAttention { .. }
             | Self::History(_)
             | Self::Live(_)
             | Self::Exists(_)
@@ -106,7 +112,8 @@ impl Command {
     fn result_bound(&self) -> usize {
         match self {
             Self::Get(_) | Self::Patch { .. } => MAX_RECORD,
-            Self::Internal { .. } => MAX_RECORD + 1024,
+            // Canonical record plus JSON-escaped creation/session proof and decision.
+            Self::Internal { .. } | Self::OwnedAttention { .. } => MAX_RECORD + 4096,
             Self::History(_) => 256 * 1024,
             Self::Live(ids) => ids.len().saturating_mul(8192).saturating_add(16384),
             Self::Exists(ids) => ids.iter().map(|id| id.len() + 4).sum(),
@@ -121,13 +128,18 @@ impl Command {
                 id,
                 created,
                 expected,
+                proof,
                 intent,
-            } => Ok(Reply::Internal(db.mutate_internal(
+            } => Ok(Reply::Internal(db.mutate_internal_owned(
                 &id,
                 &created,
                 expected.as_ref(),
+                proof.as_ref(),
                 &intent,
             )?)),
+            Self::OwnedAttention { id, created } => Ok(Reply::OwnedAttention(
+                db.read_owned_attention(&id, &created)?,
+            )),
             Self::Create(value) => {
                 db.create_session(value)?;
                 Ok(Reply::Unit)
@@ -194,6 +206,7 @@ impl Command {
 enum Reply {
     Unit,
     Internal(InternalMutationResult),
+    OwnedAttention(Option<(serde_json::Value, super::AttentionProof)>),
     Detail(Option<serde_json::Value>),
     Page(Page),
     Rows(Vec<Summary>),
@@ -404,6 +417,41 @@ impl SessionStore {
                 id,
                 created,
                 expected,
+                proof: None,
+                intent: Box::new(intent),
+            })
+            .await?
+        {
+            Reply::Internal(value) => Ok(value),
+            _ => Err(StoreError::Unavailable),
+        }
+    }
+    pub(crate) async fn read_owned_attention(
+        &self,
+        id: String,
+        created: String,
+    ) -> Result<Option<(serde_json::Value, super::AttentionProof)>> {
+        match self
+            .request(Command::OwnedAttention { id, created })
+            .await?
+        {
+            Reply::OwnedAttention(value) => Ok(value),
+            _ => Err(StoreError::Unavailable),
+        }
+    }
+    pub(crate) async fn mutate_owned_attention(
+        &self,
+        id: String,
+        created: String,
+        proof: super::AttentionProof,
+        intent: InternalMutation,
+    ) -> Result<InternalMutationResult> {
+        match self
+            .request(Command::Internal {
+                id,
+                created,
+                expected: None,
+                proof: Some(proof),
                 intent: Box::new(intent),
             })
             .await?

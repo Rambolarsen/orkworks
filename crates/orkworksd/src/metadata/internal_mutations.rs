@@ -16,6 +16,12 @@ pub(crate) enum PeonPolicy {
 }
 #[derive(Clone, Debug, Serialize)]
 pub(crate) enum InternalMutation {
+    Lifecycle(super::lifecycle_mutations::LifecycleMutation),
+    HookCompletion {
+        root: String,
+        waiting: bool,
+        timestamp: String,
+    },
     Peon {
         inference: crate::peon::PeonInference,
         timestamp: String,
@@ -47,6 +53,27 @@ pub(crate) struct Decision {
 impl InternalMutation {
     pub(crate) fn apply(&self, meta: &mut SessionMetadata) -> io::Result<Decision> {
         match self {
+            Self::Lifecycle(intent) => {
+                if !intent.valid() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "invalid lifecycle intent",
+                    ));
+                }
+                Ok(Decision {
+                    scope: intent.apply(meta),
+                    disposition: Disposition::Applied,
+                })
+            }
+            Self::HookCompletion {
+                root,
+                waiting,
+                timestamp,
+            } => Ok(Decision {
+                scope: apply_hook_completion(meta, root, *waiting, timestamp)
+                    .then_some(WriteScope::ATTENTION),
+                disposition: Disposition::Applied,
+            }),
             Self::Peon {
                 inference,
                 timestamp,
@@ -497,4 +524,52 @@ pub(crate) fn apply_peon(
             Disposition::PeonSkipped { permanent_hold }
         },
     })
+}
+
+pub(crate) fn hook_tuple_matches(
+    meta: &crate::metadata::SessionMetadata,
+    root: &str,
+    status: &str,
+) -> bool {
+    meta.lifecycle == "alive"
+        && meta.lifecycle_phase == "active"
+        && meta.status == "running"
+        && meta.harness == "codex"
+        && meta
+            .resume
+            .as_ref()
+            .and_then(|r| r.harness_session_id.as_deref())
+            == Some(root)
+        && meta.observed_status.as_deref() == Some(status)
+        && meta.attention == crate::metadata::canonical_attention(Some(status))
+        && meta.attention_source() == "agent"
+        && meta.attention_origin() == "harness_hook"
+        && meta.attention_confidence() == 1.0
+        && meta.needs_user_input.is_none()
+        && meta.detected_question.is_none()
+        && meta.suggested_options.is_none()
+}
+
+/// Metadata portion only; stream qualification and live ownership remain caller-owned.
+pub(crate) fn apply_hook_completion(
+    meta: &mut SessionMetadata,
+    root: &str,
+    waiting: bool,
+    timestamp: &str,
+) -> bool {
+    let (previous, next) = if waiting {
+        ("working", "waiting_for_input")
+    } else {
+        ("waiting_for_input", "working")
+    };
+    if !hook_tuple_matches(meta, root, previous) {
+        return false;
+    }
+    meta.observed_status = Some(next.into());
+    meta.attention = super::canonical_attention(Some(next));
+    meta.needs_user_input = None;
+    meta.detected_question = None;
+    meta.suggested_options = None;
+    meta.last_activity = timestamp.into();
+    true
 }

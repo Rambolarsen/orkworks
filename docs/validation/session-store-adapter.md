@@ -48,6 +48,24 @@ and scope clocks, including at counter exhaustion. A same-identity harness
 last-seen update deliberately advances the revision, matching the JSON contract.
 Historical internal writes invalidate history in the same transaction.
 
+Lifecycle transition/finalization commands reuse the same metadata reducers as
+the JSON application. They retain pending terminal outcomes and final observation
+snapshots, evaluate stale/duplicate transition guards against the latest record,
+and invalidate history on entry to or exit from history. Creating and ending
+records remain active in the index; an explicit Closed choice does not hide a
+later active transition, while Archived remains protected.
+
+Conditional Codex hook wait/completion commands require an opaque process-local
+attention proof from this exact worker/session/creation identity and the current
+matching root/source/status tuple. They edit the latest record, preserving newer
+descriptive work. Accepted attention writes revoke old proofs even when values
+are identical; work-only writes preserve them. Proof publication follows commit,
+and failed writes/no-ops retain the old proof. Ending retires it; reopening a
+database never reconstructs process ownership from persisted fields. The existing
+attention-owner identity/counter implementation supplies this proof; it is not a
+durable credential or evidence of runtime control. The bounded worker accounts
+for serialized proof/envelope bytes along with the canonical result.
+
 These commands are metadata primitives. The existing JSON Peon/harness wrappers
 still own events, checkpoints and follow-up identity capture. The SQL worker does
 not append external files or execute arbitrary callbacks. Production SQL routing
@@ -110,6 +128,12 @@ Real temporary SQLite fixtures exercise:
   outcomes are compared across all four attention policies and repeated ended-session
   reports (including activity timestamps); JSON event ownership
   remains observable in the original wrapper.
+- Lifecycle/conditional-attention worker tests cover pending/final snapshots,
+  duplicate finalization, live-transition rejection, active/history membership
+  after finalization/resume, invalid lifecycle status, newer-work preservation,
+  identical attention revocation, exact-root checks, missing/stale proof,
+  rejection of unrelated intents on the conditional-attention API,
+  reopen revocation and a real failed SQL transaction preserving retry ownership.
 - An independent real Unix PTY exchanges input/output while the worker is paused.
   This validates this isolated worker boundary, not the unchanged application's
   complete runtime integration or the #1247 latency budgets.
@@ -125,12 +149,12 @@ current guards. The concrete traces that still need typed integration are:
 
 | Owner | Preserved cutoff and required next work |
 | --- | --- |
-| `metadata/session_transactions.rs` | Ordinary internal metadata cores now have typed decisions/no-ops; remaining lifecycle/conditional-native and append-before-replace partial effects need their domain intents. Never offer arbitrary SQL or execute caller closures on the worker |
+| `metadata/session_transactions.rs` | Ordinary internal metadata cores now have typed decisions/no-ops; transition/finalization and conditional hook completion now have typed metadata cores; other lifecycle/native operations and append-before-replace partial effects still need integration. Never offer arbitrary SQL or execute caller closures on the worker |
 | `metadata.rs` Peon/harness/provider merges and session titles | Shared pure reducers cover canonical metadata and manual titles. Preserve runtime/automatic-title epochs, Peon events/checkpoints and follow-up native identity capture when routing complete producers to SQL |
 | `runtime/terminal_runtime.rs` input-derived attention | Currently reads workspace/session guards through a conditional metadata mutation; capture intent and release input-critical guards before any future database await, then revalidate runtime/input authority before publication |
 | `runtime/codex_approval_application.rs` ShowWait/ClearWait | Preserve latest-record guards, live/durable ownership pair, freshness, coordinated-writer gate and the exact side-effect/publication ordering; SQL success alone cannot authorize clearing |
-| `runtime/codex_completion_application.rs` | Preserve invocation/order correlation and conditional latest-record edits that retain unrelated work; no production stream or eligibility is enabled here |
-| `session_application.rs`, lifecycle, archive/retention owners | Retain per-session reservations, workspace/runtime generations, commit-before-spawn, close-first and external evidence owners while changing admission/await boundaries |
+| `runtime/codex_completion_application.rs` | Shared exact-tuple reducer and SQL attention proof cover metadata only. Preserve stream qualification, invocation/order correlation, live proof and runtime/input fences before routing the application; no production stream or eligibility is enabled here |
+| `session_application.rs`, lifecycle, archive/retention owners | Shared transition/finalization reducers cover metadata only. Retain per-session reservations, workspace/runtime generations, commit-before-spawn, close-first and external evidence owners while changing admission/await boundaries |
 
 [#1244](https://github.com/Rambolarsen/orkworks/issues/1244) must not treat this
 foundation as completion of #1243's writer/authority coverage. Backup, qualified

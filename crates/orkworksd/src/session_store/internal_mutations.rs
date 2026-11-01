@@ -7,6 +7,7 @@ use crate::metadata::{
 pub(crate) struct InternalMutationResult {
     pub(crate) document: Option<serde_json::Value>,
     pub(crate) decision: Decision,
+    pub(crate) attention_proof: Option<super::AttentionProof>,
 }
 impl Database {
     pub(super) fn mutate_internal(
@@ -16,6 +17,21 @@ impl Database {
         expected: Option<&MetadataRevision>,
         intent: &InternalMutation,
     ) -> Result<InternalMutationResult> {
+        self.mutate_internal_owned(id, created, expected, None, intent)
+    }
+    pub(super) fn mutate_internal_owned(
+        &mut self,
+        id: &str,
+        created: &str,
+        expected: Option<&MetadataRevision>,
+        proof: Option<&super::AttentionProof>,
+        intent: &InternalMutation,
+    ) -> Result<InternalMutationResult> {
+        if (matches!(intent, InternalMutation::HookCompletion { .. }) != proof.is_some())
+            || proof.is_some_and(|proof| !self.owns_attention(id, created, proof))
+        {
+            return Err(StoreError::Conflict);
+        }
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -42,6 +58,7 @@ impl Database {
         let Some(scope) = decision.scope else {
             return Ok(InternalMutationResult {
                 document: None,
+                attention_proof: None,
                 decision,
             });
         };
@@ -67,13 +84,24 @@ impl Database {
             |r| r.get(0),
         )?;
         persist(&tx, &document, &record)?;
-        if historical {
+        let new_historical: bool = tx.query_row(
+            "SELECT state!='active' FROM sessions WHERE id=?1",
+            [id],
+            |r| r.get(0),
+        )?;
+        if historical || new_historical {
             bump_generation(&tx)?;
         }
         tx.commit()?;
+        let attention_proof = if scope.attention {
+            self.accepted_attention(&record.metadata)
+        } else {
+            None
+        };
         Ok(InternalMutationResult {
             document: Some(document),
             decision,
+            attention_proof,
         })
     }
 }

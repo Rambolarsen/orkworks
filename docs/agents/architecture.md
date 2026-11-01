@@ -838,8 +838,11 @@ Internal Peon/harness/provider merges and user-title selection share pure
 `metadata/internal_mutations.rs` rules between the current JSON callers and the
 isolated SQLite worker. Typed SQL commands check creation identity, optional
 revision and scope decisions against the latest record. Production remains
-JSON-backed; lifecycle/conditional-native reservations and external events still
-need their owned integration before SQL selection.
+JSON-backed. Shared lifecycle transition/finalization and conditional Codex hook
+completion reducers also feed isolated SQL commands; process-local attention
+proofs preserve scoped ownership without surviving reopen. Application runtime
+reservations, native-observer freshness and external events still need their
+owned integration before SQL selection.
 
 The versioned agent API uses `metadata/session_transactions.rs`: checked, durable
 revisions are stored in the canonical session JSON, and scoped mutations hold the

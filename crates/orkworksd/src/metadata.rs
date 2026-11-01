@@ -1,5 +1,6 @@
 pub(crate) mod agent_patch;
 pub(crate) mod internal_mutations;
+pub(crate) mod lifecycle_mutations;
 pub(crate) mod provenance;
 pub(crate) mod session_transactions;
 pub(crate) use provenance::MetadataProvenance;
