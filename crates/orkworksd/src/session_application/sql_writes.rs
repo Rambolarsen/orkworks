@@ -313,3 +313,5 @@ fn protected_permission(handle: &crate::SessionHandle) -> bool {
             tracker.protects_permission_wait(&handle.runtime.attention_owner, &handle.info)
         })
 }
+
+mod native;

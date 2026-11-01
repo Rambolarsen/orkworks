@@ -843,9 +843,12 @@ completion reducers also feed isolated SQL commands; process-local attention
 proofs preserve scoped ownership without surviving reopen. Native observer wait/
 clear metadata also has shared reducers and isolated SQL intents with exact
 attention proofs and the existing monotonic freshness check at commit admission.
-Remaining runtime/effect reservations, live native publication and external events
-still need their owned integration before SQL selection; native eligibility gates
-remain unchanged.
+The source-only native application boundary now reserves the same worker/session
+lane, rechecks issued effect/runtime/ownership context at execution and publication,
+and acknowledges only current committed effects. Its conservative SQL revision
+precondition rejects concurrent durable changes. Native observer/hook routing,
+lifecycle/input bookkeeping and external events still need their owned integration
+before SQL selection; native eligibility gates remain unchanged.
 
 The source-only Peon SQL application boundary prepares bounded writes before
 waiting for a per-session lane shared by that worker. It retains the workspace
