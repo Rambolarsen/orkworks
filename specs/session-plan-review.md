@@ -176,6 +176,10 @@ Terminal-link selection returns its validated kind and opaque selection ID;
 retain these for the subsequent content/read handoff. Its own same-branch
 publication cannot cancel the explicit open, while session, workspace and branch
 switches still invalidate it. Legacy clients may ignore the additive response.
+For an unbound session's permitted sibling-worktree selection, resolve the exact
+validated explicit selection by its opaque ID and use the document's branch for
+admission while preserving the session's own location/runtime fences. Explicit
+task-worktree bindings remain authoritative and reject sibling selections.
 Capture the runtime before document inspection; at input admission revalidate
 that runtime, workspace and selected document. A resumed runtime cannot receive
 a click made for its predecessor. Audit only acknowledged delivery.

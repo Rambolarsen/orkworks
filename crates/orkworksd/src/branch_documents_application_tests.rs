@@ -89,6 +89,73 @@ fn fixture() -> (
     (root, state, store, old_rx)
 }
 
+#[tokio::test]
+async fn unbound_branch_document_selection_reads_and_reviews_the_sibling() {
+    let (root, state, _store, mut receiver) = fixture();
+    let repo = git2::Repository::open(root.path()).unwrap();
+    let tree = repo
+        .find_tree(repo.index().unwrap().write_tree().unwrap())
+        .unwrap();
+    let sig = git2::Signature::now("Test", "test@example.com").unwrap();
+    repo.commit(Some("HEAD"), &sig, &sig, "base", &tree, &[])
+        .unwrap();
+    let siblings = tempfile::tempdir().unwrap();
+    let other = siblings.path().join("other");
+    repo.worktree("other", &other, None).unwrap();
+    std::fs::create_dir(other.join("specs")).unwrap();
+    let path = other.join("specs/other.md");
+    std::fs::write(&path, "# Sibling design\n").unwrap();
+    let app = SessionApplication::new(state.clone());
+    let selection = app
+        .select_plan(
+            "runtime-review",
+            crate::session_application::PlanSelection {
+                printed_path: path.to_string_lossy().into_owned(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        app.read_document_content(
+            "runtime-review",
+            selection.kind,
+            selection.selection_id.as_deref()
+        )
+        .unwrap(),
+        "# Sibling design\n"
+    );
+    let expected_id = selection.selection_id.clone();
+    let mut request = tokio::spawn(async move {
+        app.request_document_review(
+            "runtime-review",
+            selection.kind,
+            selection.selection_id.as_deref(),
+        )
+        .await
+    });
+    let command = tokio::select! {
+        command = receiver.recv() => command.unwrap(),
+        result = &mut request => panic!("sibling review failed before enqueue: {:?}", result.unwrap()),
+    };
+    let crate::runtime::session_runtime::RuntimeCommand::Input { data, accepted, .. } = command
+    else {
+        panic!("expected review input");
+    };
+    assert!(data.contains(path.to_str().unwrap()));
+    accepted.unwrap().send(Ok(())).unwrap();
+    request.await.unwrap().unwrap();
+    std::fs::write(path, "# Changed sibling\n").unwrap();
+    assert!(SessionApplication::new(state)
+        .request_document_review(
+            "runtime-review",
+            Some(DocumentKind::Design),
+            expected_id.as_deref()
+        )
+        .await
+        .is_err());
+    assert!(receiver.try_recv().is_err());
+}
+
 #[test]
 fn untyped_branch_document_read_skips_an_unavailable_pin_in_another_slot() {
     let (root, state, store, _rx) = fixture();

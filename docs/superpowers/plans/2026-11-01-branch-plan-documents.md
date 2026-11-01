@@ -118,7 +118,10 @@ Files: renderer `api.ts`, `orkworksWindow.d.ts`, `useSessionReview.ts`,
 
 Implementation is in [PR #1233](https://github.com/Rambolarsen/orkworks/pull/1233).
 The owner approved up to two additional substantive review cycles after the
-initial three; the lifecycle limit is five. The next fresh review is cycle 4/5.
+initial three; the lifecycle limit is five. Cycle 4 validated discovery recovery
+and ownership fixes; manual review identified a typed sibling-selection gap.
+Its end-to-end read/review regression observed failure before the correction.
+The next fresh review is cycle 5/5.
 
 The local corrective pass adds safe original-path legacy reads, effective
 worktree hook reports, surviving bindings when launch worktrees disappear,

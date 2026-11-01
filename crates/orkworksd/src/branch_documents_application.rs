@@ -16,6 +16,7 @@ pub(crate) struct Subject {
     pub launch: PathBuf,
     branch: Option<branch_documents::Identity>,
     head: Option<git2::Oid>,
+    bound: bool,
 }
 pub(crate) fn subject(state: &AppState, id: &str) -> Result<Subject, String> {
     let (store, meta) = {
@@ -48,6 +49,7 @@ pub(crate) fn subject(state: &AppState, id: &str) -> Result<Subject, String> {
         launch: meta.cwd.into(),
         branch,
         head,
+        bound: meta.worktree_binding.is_some(),
     })
 }
 fn current(state: &AppState, id: &str, old: &Subject) -> bool {
@@ -55,6 +57,7 @@ fn current(state: &AppState, id: &str, old: &Subject) -> bool {
         now.root == old.root
             && now.branch == old.branch
             && now.head == old.head
+            && now.bound == old.bound
             && Arc::ptr_eq(&now.store, &old.store)
     })
 }
@@ -62,8 +65,17 @@ pub(crate) fn selected(
     state: &AppState,
     id: &str,
     kind: Option<DocumentKind>,
+    selection_id: Option<&str>,
 ) -> Result<(Subject, Document), String> {
     let context = subject(state, id)?;
+    if let (Some(kind), Some(expected)) = (kind, selection_id) {
+        if let Some(doc) = explicit_selection(&context, kind, expected) {
+            if !current(state, id, &context) {
+                return Err("Session workspace changed; refresh.".into());
+            }
+            return Ok((context, doc));
+        }
+    }
     let scan = context.store.scan(&context.root, true);
     if !current(state, id, &context) {
         return Err("Session workspace changed; refresh.".into());
@@ -140,6 +152,31 @@ pub(crate) fn selected(
     ))
 }
 
+fn explicit_selection(context: &Subject, kind: DocumentKind, expected: &str) -> Option<Document> {
+    let reference = context.legacy.as_ref()?;
+    if reference.source != crate::metadata::PlanSource::UserSelected {
+        return None;
+    }
+    let root = PathBuf::from(reference.worktree_root.as_deref()?);
+    if context.bound && root.canonicalize().ok()? != context.root {
+        return None;
+    }
+    crate::plan_handoff::resolve_openable_plan_reference(&context.root, reference).ok()?;
+    let doc =
+        branch_documents::document(&root, &reference.relative_path, reference.source, true).ok()?;
+    let branch = branch_documents::identity(&root).ok();
+    if doc.kind != kind || doc.selection_id(branch.as_ref()) != expected {
+        return None;
+    }
+    if let Some(branch) = &branch {
+        context
+            .store
+            .with_current_document(branch, &doc, &mut || Ok(()))
+            .ok()?;
+    }
+    Some(doc)
+}
+
 impl SessionApplication {
     pub(crate) fn read_document_content(
         &self,
@@ -152,7 +189,7 @@ impl SessionApplication {
                 return Ok(content);
             }
         }
-        let (context, mut doc) = selected(&self.state, id, kind)?;
+        let (context, mut doc) = selected(&self.state, id, kind, selection_id)?;
         let root = PathBuf::from(
             doc.reference
                 .worktree_root
@@ -161,8 +198,9 @@ impl SessionApplication {
         );
         let content = branch_documents::read_document(&root, &doc.reference.relative_path)?;
         doc.content_hash = branch_documents::content_hash(&content);
+        let document_branch = branch_documents::identity(&root).ok();
         if selection_id
-            .is_some_and(|expected| expected != doc.selection_id(context.branch.as_ref()))
+            .is_some_and(|expected| expected != doc.selection_id(document_branch.as_ref()))
         {
             return Err("Document selection changed; refresh.".into());
         }
@@ -203,10 +241,12 @@ impl SessionApplication {
         }
         let captured = self.state.clone();
         let target = id.to_owned();
-        let (context, mut doc) =
-            tokio::task::spawn_blocking(move || selected(&captured, &target, kind))
-                .await
-                .map_err(|_| "Document inspection failed.")??;
+        let expected = selection_id.map(str::to_owned);
+        let (context, mut doc) = tokio::task::spawn_blocking(move || {
+            selected(&captured, &target, kind, expected.as_deref())
+        })
+        .await
+        .map_err(|_| "Document inspection failed.")??;
         let live = {
             let ws = self.state.workspace.lock().unwrap();
             ws.as_ref()
@@ -225,8 +265,9 @@ impl SessionApplication {
         let path = root.join(&doc.reference.relative_path);
         let content = branch_documents::read_document(&root, &doc.reference.relative_path)?;
         doc.content_hash = branch_documents::content_hash(&content);
+        let document_branch = branch_documents::identity(&root).ok();
         if selection_id
-            .is_some_and(|expected| expected != doc.selection_id(context.branch.as_ref()))
+            .is_some_and(|expected| expected != doc.selection_id(document_branch.as_ref()))
         {
             return Err("Document selection changed; refresh.".into());
         }
@@ -258,7 +299,7 @@ impl SessionApplication {
                         return Err(());
                     }
                 }
-                if let Some(branch) = &context.branch {
+                if let Some(branch) = &document_branch {
                     context.store.with_current_document(branch, &doc, send)
                 } else {
                     // Detached/non-Git documents remain session-local. They have
