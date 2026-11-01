@@ -30,64 +30,69 @@ if (process.env.ORKWORKS_SKILLS_FIXTURE) {
       };
       const click = (selector) =>
         evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
-      await wait('document.querySelectorAll("[data-skill-row]").length===4');
-      assert.match(await evaluate('document.querySelector("[data-skill-scope=personal] h3").innerText'), /3 found/);
-      assert.match(await evaluate('document.body.innerText'), /Counts show skills found/);
-      assert.deepEqual(await evaluate(`Array.from(document.querySelectorAll('[data-skill-scope="personal"] [data-skill-plugin]')).map(group => [group.dataset.skillPlugin, group.querySelectorAll('[data-skill-row]').length])`), [["alpha@local", 1], ["beta@local", 1], ["", 1]]);
-      await evaluate(`(()=>{const el=document.querySelector('input[type="search"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set.call(el,"alpha@local");el.dispatchEvent(new Event("input",{bubbles:true}))})()`);
-      await wait('document.querySelectorAll("[data-skill-row]").length===1');
-      assert.equal(await evaluate('document.querySelector("[data-skill-row] strong").innerText'), "plan");
-      await evaluate(`(()=>{const el=document.querySelector('input[type="search"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set.call(el,"");el.dispatchEvent(new Event("input",{bubbles:true}))})()`);
-      await wait('document.querySelectorAll("[data-skill-row]").length===4');
-      await evaluate(`(()=>{const el=document.querySelector('.skills-filters select');el.value="codex";el.dispatchEvent(new Event("change",{bubbles:true}))})()`);
+      const search = (value) => evaluate(`(()=>{const el=document.querySelector('input[type="search"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set.call(el,${JSON.stringify(value)});el.dispatchEvent(new Event("input",{bubbles:true}))})()`);
+      const filter = (label, value) => evaluate(`(()=>{const el=document.querySelector('select[aria-label="'+${JSON.stringify(label)}+'"]');el.value=${JSON.stringify(value)};el.dispatchEvent(new Event("change",{bubbles:true}))})()`);
       await wait('document.querySelectorAll("[data-skill-row]").length===2');
-      assert.equal(await evaluate(`Array.from(document.querySelectorAll('[data-skill-plugin]')).some(group => group.dataset.skillPlugin)`), false);
-      await evaluate(`(()=>{const el=document.querySelector('.skills-filters select');el.value="";el.dispatchEvent(new Event("change",{bubbles:true}))})()`);
-      await wait('document.querySelectorAll("[data-skill-row]").length===4');
-      assert.equal(
-        await evaluate(
-          'document.querySelectorAll("[data-skill-scope]").length',
-        ),
-        2,
-      );
-      assert.equal(
-        await evaluate('!!document.querySelector("img[data-injected]")'),
-        false,
-      );
-      assert.equal(await evaluate('document.querySelectorAll("[data-skill-row] details:not([open])").length'), 4, 'skills start collapsed');
-      assert.equal(await evaluate('document.querySelector("[data-skill-row]").innerText.includes("/repo/.agents")'), false, 'paths do not clutter collapsed rows');
-      assert.equal(await evaluate('document.querySelector("[data-skill-row]").innerText.includes("Review code")'), false, 'descriptions stay inside expanded rows');
+      assert.match(await evaluate('document.querySelector("[data-skill-counts]").innerText'), /2 skills.*4 sources/s);
+      assert.equal(await evaluate('document.querySelectorAll("[data-skill-source]").length'), 4);
+      assert.equal(await evaluate(`document.querySelectorAll('[data-skill-row="review"] [data-skill-source]').length`), 3);
+      assert.equal(await evaluate('document.querySelectorAll("[data-skill-row] details:not([open])").length'), 2);
+      assert.equal(await evaluate(`document.querySelector('[data-skill-row="review"]').innerText.includes("/repo/.agents")`), false);
+      assert.equal(await evaluate('!!document.querySelector("img[data-injected]")'), false);
       if (process.env.ORKWORKS_SKILLS_CAPTURE) {
         const { writeFileSync } = await import("node:fs");
         writeFileSync(process.env.ORKWORKS_SKILLS_CAPTURE + ".collapsed.png", (await win.webContents.capturePage()).toPNG());
       }
-      await evaluate('document.querySelector("[data-skill-row] summary").focus()');
-      assert.equal(await evaluate('document.activeElement.matches("[data-skill-row] summary")'), true, 'row disclosure is focusable');
-      await click("[data-skill-row] summary");
-      await wait('document.querySelector("[data-skill-row] details[open]")');
-      assert.match(await evaluate('document.querySelector("[data-skill-row]").innerText'), /Review code/);
-      await click("[data-skill-detail]");
+      await evaluate(`document.querySelector('[data-skill-row="review"] summary').focus()`);
+      assert.equal(await evaluate('document.activeElement.matches("[data-skill-row] summary")'), true);
+      await click('[data-skill-row="review"] summary');
+      await wait(`document.querySelector('[data-skill-row="review"] details[open]')`);
+      assert.match(await evaluate(`document.querySelector('[data-skill-source="workspace-review"]').innerText`), /Workspace/);
+      assert.match(await evaluate(`document.querySelector('[data-skill-source="personal-review"]').innerText`), /Personal/);
+      assert.match(await evaluate(`document.querySelector('[data-skill-source="plugin-one"]').innerText`), /alpha@local/);
+      assert.match(await evaluate(`document.querySelector('[data-skill-source="plugin-one"]').innerText`), /1.0/);
+      assert.match(await evaluate(`document.querySelector('[data-skill-source="plugin-one"]').innerText`), /Plugin-specific/);
+      await click('[data-skill-source="workspace-review"] [data-skill-detail]');
       await wait('document.querySelector("[data-skill-content]")');
-      assert.match(
-        await evaluate(
-          'document.querySelector("[data-skill-content]").innerText',
-        ),
-        /Read-only instructions/,
-      );
-      assert.equal(await evaluate('!!document.querySelector("[data-skill-row] [data-skill-content]")'), true, 'skill text opens within its row');
+      assert.match(await evaluate('document.querySelector("[data-skill-content]").innerText'), /workspace-review/);
+      await click('[data-skill-source="plugin-one"] [data-skill-detail]');
+      await wait('document.querySelector("[data-skill-content]").innerText.includes("plugin-one")');
+      assert.equal(await evaluate(`!!document.querySelector('[data-skill-source="workspace-review"] [data-skill-content]')`), false);
+      assert.equal(await evaluate(`!!document.querySelector('[data-skill-source="plugin-one"] [data-skill-content]')`), true);
       if (process.env.ORKWORKS_SKILLS_CAPTURE) {
         const { writeFileSync } = await import("node:fs");
         writeFileSync(process.env.ORKWORKS_SKILLS_CAPTURE + ".expanded.png", (await win.webContents.capturePage()).toPNG());
       }
-      await click("[data-skill-row] summary");
-      assert.equal(await evaluate('document.querySelector("[data-skill-row]").innerText.includes("Read-only instructions")'), false, 'collapsing hides inline content');
-      await evaluate(
-        '(()=>{const el=document.querySelector("input[aria-label]");Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set.call(el,"missing");el.dispatchEvent(new Event("input",{bubbles:true}))})()',
-      );
+      for (const width of [1000, 700, 360]) {
+        win.setContentSize(width, 850);
+        await evaluate("new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))");
+        assert.ok(await evaluate("document.documentElement.scrollWidth<=innerWidth+1"), `grouped sources have no overflow at ${width}`);
+      }
+      win.setContentSize(1000, 850);
+      await click('[data-skill-row="review"] summary');
+      assert.equal(await evaluate(`document.querySelector('[data-skill-row="review"]').innerText.includes("Read-only instructions")`), false);
+      await search("alpha@local");
+      await wait('document.querySelectorAll("[data-skill-source]").length===1');
+      assert.equal(await evaluate('document.querySelector("[data-skill-row] strong").innerText'), "review");
+      assert.match(await evaluate('document.querySelector("[data-skill-counts]").innerText'), /1 skill.*1 source/s);
+      await search("");
+      await filter("Coding tool", "codex");
+      await wait('document.querySelectorAll("[data-skill-source]").length===2');
+      assert.equal(await evaluate('document.querySelectorAll("[data-skill-row]").length'), 1);
+      await filter("Scope", "workspace");
+      await wait('document.querySelectorAll("[data-skill-source]").length===1');
+      assert.equal(await evaluate('document.querySelector("[data-skill-source]").dataset.skillSource'), "workspace-review");
+      await filter("Scope", "personal");
+      await wait('document.querySelector("[data-skill-source]").dataset.skillSource === "personal-review"');
+      await filter("Coding tool", "");
+      await wait('document.querySelectorAll("[data-skill-source]").length===3');
+      assert.equal(await evaluate('document.querySelectorAll("[data-skill-row]").length'), 2);
+      await filter("Scope", "");
+      await wait('document.querySelectorAll("[data-skill-source]").length===4');
+      await search("missing");
       await wait('document.querySelectorAll("[data-skill-row]").length===0');
-      await evaluate(
-        '(()=>{const el=document.querySelector("input[aria-label]");Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set.call(el,"");el.dispatchEvent(new Event("input",{bubbles:true}))})()',
-      );
+      assert.match(await evaluate('document.querySelector("[data-skill-counts]").innerText'), /0 skills.*0 sources/s);
+      await search("");
       await click("[data-add-skill]");
       await click("[data-pick-skill]");
       await click("[data-review-skill]");
@@ -105,7 +110,7 @@ if (process.env.ORKWORKS_SKILLS_FIXTURE) {
       await evaluate('window.finishSkillInstall();new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
       await wait('document.querySelector("[role=status]").innerText !== "Working…"');
       assert.equal(await evaluate('document.querySelector("[role=status]").innerText.includes("Old workspace")'), false, 'old completion cannot label the new workspace');
-      assert.equal(await evaluate('document.querySelectorAll("[data-skill-row]").length'), 3);
+      assert.equal(await evaluate('document.querySelectorAll("[data-skill-row]").length'), 2);
       await click("[data-skill-row] summary");
       for (const width of [1000, 700, 360]) {
         win.setContentSize(width, 850);
@@ -137,7 +142,7 @@ if (process.env.ORKWORKS_SKILLS_FIXTURE) {
   const { tmpdir } = await import("node:os");
   const { spawnSync } = await import("node:child_process");
   const { createRequire } = await import("node:module");
-  test("skills settings distinguish scope, search safely, show details and add with review", async () => {
+  test("skills group names across scopes, retain matching sources, read source-specific details and add with review", async () => {
     const temp = mkdtempSync(join(tmpdir(), "orkworks-skills-ui-"));
     const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
     const require = createRequire(import.meta.url);
