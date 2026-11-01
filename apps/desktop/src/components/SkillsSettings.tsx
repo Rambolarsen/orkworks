@@ -181,6 +181,10 @@ export default function SkillsSettings({
           </select>
         </label>
       </div>
+      <p className="skills-group-caption">
+        Counts show skills found in inspected locations, not how many a coding
+        tool loaded. A skill can appear for several tools.
+      </p>
       {adding && (
         <section className="skills-add" aria-label="Add skill">
           <h3>Add a skill</h3>
@@ -309,7 +313,7 @@ export default function SkillsSettings({
           <h3>
             {group === "workspace" ? "Workspace" : "Personal"}{" "}
             <span>
-              {filtered.filter((skill) => skill.scope === group).length}
+              {filtered.filter((skill) => skill.scope === group).length} found
             </span>
           </h3>
           <p className="skills-group-caption">
@@ -326,7 +330,7 @@ export default function SkillsSettings({
           )}
           {pluginGroups(filtered.filter((skill) => skill.scope === group)).map(([plugin, skills]) => (
             <section key={plugin} data-skill-plugin={plugin} className="skills-plugin-group" aria-label={plugin ? `Plugin: ${plugin}` : "Other skills"}>
-              <h4>{plugin || "Other skills"} <span>{skills.length}</span></h4>
+              <h4>{plugin || "Other skills"} <span>{skills.length} found</span></h4>
               {skills.map((skill) => (
                 <article key={skill.id} data-skill-row className="skills-row">
                   <details>

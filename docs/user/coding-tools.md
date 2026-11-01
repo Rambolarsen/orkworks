@@ -126,7 +126,10 @@ be available across projects. Source paths and coding-tool filters help you
 identify each copy; duplicate names remain visible in both scopes. Within each
 scope, skills are grouped by recorded plugin name, with **Other skills** listed
 separately. Search matches plugin names as well as skill names, descriptions and
-paths.
+paths. Counts describe skills **found**, not how many a coding tool has loaded.
+Different tools inspect different locations; one skill can appear for several
+tools. Codex includes cached plugin and system skills. Multiple cached versions
+remain separate, and cache presence does not establish that a plugin is enabled.
 
 Rows start collapsed to keep the inventory compact. Expand a row to see its
 description, source paths and coding-tool coverage, then use **Read skill** to
@@ -134,6 +137,8 @@ inspect instructions as text inside that row. **Discovery coverage and source
 roots** lists inspected locations and gaps. Found on disk does not prove
 that a coding tool loaded or used the skill, and native precedence remains
 unknown. Skills installed outside APM are visible without being modified.
+A long instruction body does not hide a skill with valid bounded metadata;
+reading its full text still has a separate size limit.
 
 To add a skill, install APM separately, choose **Add skill**, select Workspace or
 Personal, choose a local standalone skill folder, and review the addition. The
