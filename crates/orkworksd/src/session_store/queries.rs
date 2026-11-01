@@ -43,11 +43,10 @@ pub(crate) struct Page {
     pub(crate) has_more: bool,
     pub(crate) generation: i64,
 }
+// 960 preview characters * worst-case 6 JSON bytes, plus bounded exact
+// identity/revision fields and envelope, stays below 8 KiB even for controls.
 const SUMMARY_SELECT:&str = "SELECT s.id,s.created_at,s.revision,coalesce(o.revision,'0'),s.state,s.recency,
- substr(s.title,1,256),substr(s.summary,1,512),substr(s.repository,1,256),substr(s.branch,1,128),
- substr(s.harness,1,64),substr(s.model,1,64),substr(s.native_id,1,128),
- (length(s.title)>256 OR length(coalesce(s.summary,''))>512 OR length(coalesce(s.repository,''))>256
- OR length(coalesce(s.branch,''))>128 OR length(s.harness)>64 OR length(s.model)>64 OR length(coalesce(s.native_id,''))>128)
+substr(s.title,1,192),substr(s.summary,1,320),substr(s.repository,1,128),substr(s.branch,1,64),substr(s.harness,1,64),substr(s.model,1,64),substr(s.native_id,1,128),(length(CAST(coalesce(s.title,'') AS BLOB))>length(CAST(coalesce(substr(s.title,1,192),'') AS BLOB)) OR length(CAST(coalesce(s.summary,'') AS BLOB))>length(CAST(coalesce(substr(s.summary,1,320),'') AS BLOB)) OR length(CAST(coalesce(s.repository,'') AS BLOB))>length(CAST(coalesce(substr(s.repository,1,128),'') AS BLOB)) OR length(CAST(coalesce(s.branch,'') AS BLOB))>length(CAST(coalesce(substr(s.branch,1,64),'') AS BLOB)) OR length(CAST(coalesce(s.harness,'') AS BLOB))>length(CAST(coalesce(substr(s.harness,1,64),'') AS BLOB)) OR length(CAST(coalesce(s.model,'') AS BLOB))>length(CAST(coalesce(substr(s.model,1,64),'') AS BLOB)) OR length(CAST(coalesce(s.native_id,'') AS BLOB))>length(CAST(coalesce(substr(s.native_id,1,128),'') AS BLOB)))
  FROM sessions s LEFT JOIN organization o ON o.id=s.id AND o.created_at=s.created_at";
 fn summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<Summary> {
     Ok(Summary {
@@ -67,31 +66,46 @@ fn summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<Summary> {
         preview_truncated: row.get(13)?,
     })
 }
-fn tokens(text: &str) -> Result<Option<String>> {
+fn tokens(conn: &Connection, text: &str) -> Result<Option<String>> {
     if text.len() > 256
+        || text.chars().any(|c| {
+            matches!(c, '"' | '*' | ':' | '(' | ')' | '^' | '{' | '}' | '+')
+                || (c.is_control() && !c.is_whitespace())
+        })
         || text
-            .chars()
-            .any(|c| !c.is_alphanumeric() && !c.is_whitespace())
+            .split_whitespace()
+            .any(|word| matches!(word, "OR" | "AND" | "NOT" | "NEAR") || word.starts_with('-'))
     {
         return Err(StoreError::Invalid("invalid metadata search".into()));
     }
-    let terms: Vec<_> = text.split_whitespace().collect();
-    if terms.len() > 8
-        || terms
-            .iter()
-            .any(|t| matches!(*t, "OR" | "AND" | "NOT" | "NEAR"))
-    {
-        return Err(StoreError::Invalid("invalid metadata search".into()));
-    }
-    if terms.is_empty() {
+    if text.trim().is_empty() {
         return Ok(None);
+    }
+    conn.execute("DELETE FROM temp.query_tokens", [])?;
+    conn.execute(
+        "INSERT INTO temp.query_tokens(rowid,text) VALUES(1,?1)",
+        [text],
+    )?;
+    let mut stmt =
+        conn.prepare("SELECT term FROM temp.query_vocabulary ORDER BY offset LIMIT 9")?;
+    let terms = stmt
+        .query_map([], |r| r.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if terms.is_empty() || terms.len() > 8 {
+        return Err(StoreError::Invalid("invalid metadata search".into()));
     }
     let last = terms.len() - 1;
     Ok(Some(
         terms
             .into_iter()
             .enumerate()
-            .map(|(i, t)| format!("\"{t}\"{}", if i == last { "*" } else { "" }))
+            .map(|(i, term)| {
+                format!(
+                    "\"{}\"{}",
+                    term.replace('"', "\"\""),
+                    if i == last { "*" } else { "" }
+                )
+            })
             .collect::<Vec<_>>()
             .join(" AND "),
     ))
@@ -129,7 +143,8 @@ impl Database {
                 return Err(StoreError::TooLarge);
             }
         }
-        let search = tokens(&query.text)?;
+        let _budget = ReadBudget::new(&self.conn);
+        let search = tokens(&self.conn, &query.text)?;
         let digest = hex::encode(Sha256::digest(serde_json::to_vec(&(
             &query.state,
             &query.harness,
@@ -137,7 +152,6 @@ impl Database {
             &query.branch,
             &query.text,
         ))?));
-        let _budget = ReadBudget::new(&self.conn);
         let tx = self.conn.unchecked_transaction()?;
         let (epoch, workspace, generation): (String, String, i64) = tx.query_row(
             "SELECT epoch,workspace,generation FROM store_header",
@@ -358,6 +372,67 @@ mod tests {
             })
             .unwrap();
         assert_eq!(page.rows[0].id, "archived");
+    }
+    #[test]
+    fn json_escaped_display_values_still_fit_and_make_paging_progress() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Database::create(&dir.path().join("v1.sqlite"), "/workspace").unwrap();
+        let mut value = closed_document("escaped");
+        for field in [
+            "label",
+            "summary",
+            "repoRoot",
+            "branch",
+            "harnessId",
+            "modelId",
+        ] {
+            value[field] = serde_json::json!("\u{1}".repeat(2000));
+        }
+        value["createdAt"] = serde_json::json!("\u{1}".repeat(256));
+        db.insert(value).unwrap();
+        let page = db.history(HistoryQuery::default()).unwrap();
+        assert_eq!(page.rows.len(), 1);
+        assert!(serde_json::to_vec(&page.rows[0]).unwrap().len() <= 8192);
+        assert!(page.rows[0].preview_truncated);
+        assert_eq!(
+            db.get("escaped").unwrap().unwrap()["summary"]
+                .as_str()
+                .unwrap()
+                .len(),
+            2000
+        );
+        assert_eq!(db.live(&["escaped".into()]).unwrap().len(), 1);
+    }
+    #[test]
+    fn literal_search_uses_unicode61_for_native_ids_paths_and_token_limits() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Database::create(&dir.path().join("v1.sqlite"), "/workspace").unwrap();
+        let mut value = closed_document("punctuation");
+        value["repoRoot"] = serde_json::json!("/work/orkworks.git");
+        value["branch"] = serde_json::json!("feature/sqlite");
+        value["label"] = serde_json::json!("Cafe\u{301} durable");
+        value["resume"] = serde_json::json!({"state":"available","preferredStrategy":"exact","harnessSessionId":"019f9abc-2234-474d-9cea-394e5e47aad9","latestFallback":false});
+        db.insert(value).unwrap();
+        for text in [
+            "feature/sqlite",
+            "orkworks.git",
+            "019f9abc-2234-474d-9cea-394e5e47aad9",
+            "Cafe\u{301}",
+        ] {
+            let page = db
+                .history(HistoryQuery {
+                    text: text.into(),
+                    ..Default::default()
+                })
+                .unwrap();
+            assert_eq!(page.rows.len(), 1, "{text}");
+        }
+        assert!(db
+            .history(HistoryQuery {
+                text: "a-b-c-d-e-f-g-h-i".into(),
+                ..Default::default()
+            })
+            .is_err());
     }
     #[test]
     fn bounded_history_uses_indexed_summaries_ties_and_generation_bound_cursors() {

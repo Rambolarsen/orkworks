@@ -18,7 +18,8 @@ integration are ready; this adapter alone cannot authorize activation.
 ## Implemented boundary
 
 The private `session_store` module owns canonical JSON and derived SQL columns,
-FTS5, organization and identity-bound deletion tombstones. Its worker alone owns
+FTS5, organization and identity-bound deletion tombstones. Search maintenance uses
+an explicit indexed session key as the FTS rowid, avoiding text-identity scans. Its worker alone owns
 one connection. Staging initialization and existing-store open are distinct;
 open never creates a missing database. Unknown versions, workspace mismatches,
 corruption and persistence failures return errors instead of an empty store.
@@ -35,8 +36,9 @@ manifest and organization loading remain migration work.
 The worker admits at most 32 queued mutations and eight reads, reserves serialized
 intent plus possible result bytes against 32 MiB, and rejects intents over 1 MiB.
 Reservations survive execution and unread result delivery. Eight FIFO mutations
-are followed by one waiting read. Queued expiry uses a two-second execution
-cutoff; cancellation after that cutoff never asserts rollback. Close drains admitted
+are followed by one waiting read. Startup ownership is guarded before the readiness await; dropping a queued
+ticket competes atomically with the worker execution claim. Queued expiry uses
+a two-second execution cutoff; cancellation after that cutoff never asserts rollback. Close drains admitted
 work and closes the connection; Drop requests closure without joining a stalled
 worker on the caller's thread. No connection or database mutex is exposed.
 
@@ -46,6 +48,15 @@ its separate canonical bound. Preview flags preserve the distinction between
 shortened display fields and full records. SQL progress hooks limit read
 computation; they do not bound filesystem stalls. This is an internal query
 contract, not a new HTTP protocol or a measured end-to-end performance result.
+
+Query normalization uses SQLite's own `unicode61` tokenizer through tiny
+connection-local temporary FTS/vocabulary tables; see the
+[SQLite FTS5 vocabulary documentation](https://www.sqlite.org/fts5.html#the_fts5vocab_virtual_table_module).
+Punctuation separators in native IDs and repository/branch names become safely
+quoted literal tokens, with the last token a prefix. The actual tokenizer output
+obeys the eight-token limit. Temporary query rows never enter the workspace file.
+Preview caps account for worst-case JSON escaping as well as exact identity bytes;
+truncation flags compare original and preview byte lengths.
 
 ## Regression evidence
 
@@ -61,8 +72,12 @@ Real temporary SQLite fixtures exercise:
   actual SQLite busy and disk-full errors without false durable acknowledgement.
 - Query ordering/ties, stale cursors, literal bounded search, bounded previews,
   selective existence, protected retention and index-backed closed-history ordering.
+  A deterministic VM-step regression compares live search-index maintenance at
+  100/1,000 records; this is not the #1247 end-to-end performance qualification.
 - Queue count/byte rejection, fairness, before/after-execution cancellation,
   timely queued rejection while storage is stalled and cooperative SQL interruption.
+  Deterministic gates cover startup cancellation after readiness and ticket drop
+  between the worker's liveness check and its atomic execution claim.
 - An independent real Unix PTY exchanges input/output while the worker is paused.
   This validates this isolated worker boundary, not the unchanged application's
   complete runtime integration or the #1247 latency budgets.

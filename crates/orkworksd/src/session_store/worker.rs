@@ -47,6 +47,13 @@ enum Command {
     Pause(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>),
     #[cfg(test)]
     #[serde(skip)]
+    CreateAtCutoff(
+        serde_json::Value,
+        std::sync::mpsc::Sender<()>,
+        std::sync::mpsc::Receiver<()>,
+    ),
+    #[cfg(test)]
+    #[serde(skip)]
     CreatePaused(
         serde_json::Value,
         std::sync::mpsc::Sender<()>,
@@ -70,7 +77,9 @@ impl Command {
         #[cfg(test)]
         match self {
             Self::Pause(..) => return Ok(0),
-            Self::CreatePaused(value, ..) => return Ok(serde_json::to_vec(value)?.len()),
+            Self::CreatePaused(value, ..) | Self::CreateAtCutoff(value, ..) => {
+                return Ok(serde_json::to_vec(value)?.len())
+            }
             _ => {}
         }
         Ok(serde_json::to_vec(self)?.len())
@@ -131,6 +140,11 @@ impl Command {
                 Ok(Reply::Unit)
             }
             #[cfg(test)]
+            Self::CreateAtCutoff(value, ..) => {
+                db.create_session(value)?;
+                Ok(Reply::Unit)
+            }
+            #[cfg(test)]
             Self::CreatePaused(value, entered, release) => {
                 let _ = entered.send(());
                 release.recv().map_err(|_| StoreError::Cancelled)?;
@@ -166,6 +180,15 @@ struct Ticket {
     state: Arc<AtomicU8>,
     deadline: Instant,
 }
+impl Drop for Ticket {
+    fn drop(&mut self) {
+        // Compete with the worker's exact queued-to-executing cutoff.
+        // Once executing, disconnection never asserts rollback.
+        let _ = self
+            .state
+            .compare_exchange(0, 2, Ordering::AcqRel, Ordering::Acquire);
+    }
+}
 struct Reservation {
     shared: Arc<Shared>,
     bytes: usize,
@@ -184,7 +207,7 @@ async fn receive(mut ticket: Ticket) -> Result<Reply> {
             if ticket.state.compare_exchange(0,2,Ordering::AcqRel,Ordering::Acquire).is_ok(){return Err(StoreError::Expired);}
             // Execution has begun: retain the definitive result internally.
             // A transport timeout cannot be represented as a proven rollback.
-            ticket.receiver.await.map_err(|_|StoreError::Unavailable)?.result
+            (&mut ticket.receiver).await.map_err(|_|StoreError::Unavailable)?.result
         }
     }
 }
@@ -199,6 +222,22 @@ struct Shared {
     queue: Mutex<Queue>,
     ready: Condvar,
 }
+struct Startup {
+    shared: Arc<Shared>,
+    finished: watch::Receiver<bool>,
+    ready: oneshot::Receiver<Result<()>>,
+    owns_worker: bool,
+}
+impl Drop for Startup {
+    fn drop(&mut self) {
+        if self.owns_worker {
+            if let Ok(mut queue) = self.shared.queue.lock() {
+                queue.closed = true;
+                self.shared.ready.notify_one();
+            }
+        }
+    }
+}
 pub(crate) struct SessionStore {
     shared: Arc<Shared>,
     finished: watch::Receiver<bool>,
@@ -211,6 +250,17 @@ impl SessionStore {
         Self::start(root, workspace, false).await
     }
     async fn start(root: PathBuf, workspace: String, create: bool) -> Result<Self> {
+        let mut startup = Self::launch(root, workspace, create)?;
+        (&mut startup.ready)
+            .await
+            .map_err(|_| StoreError::Unavailable)??;
+        startup.owns_worker = false;
+        Ok(Self {
+            shared: startup.shared.clone(),
+            finished: startup.finished.clone(),
+        })
+    }
+    fn launch(root: PathBuf, workspace: String, create: bool) -> Result<Startup> {
         let shared = Arc::new(Shared {
             queue: Mutex::new(Queue::default()),
             ready: Condvar::new(),
@@ -242,8 +292,12 @@ impl SessionStore {
                 // Connection is dropped before maintenance/shutdown can continue.
                 let _ = finished_tx.send(true);
             })?;
-        ready_rx.await.map_err(|_| StoreError::Unavailable)??;
-        Ok(Self { shared, finished })
+        Ok(Startup {
+            shared,
+            finished,
+            ready: ready_rx,
+            owns_worker: true,
+        })
     }
     fn submit(&self, command: Command) -> Result<Ticket> {
         let intent = command.size()?;
@@ -477,6 +531,11 @@ fn run_worker(shared: &Shared, db: &mut Database) {
         // Hold the reservation through execution and unread result delivery.
         // A dropped receiver before execution proves that this job made no change.
         if !reply.is_closed() {
+            #[cfg(test)]
+            if let Command::CreateAtCutoff(_, entered, release) = &command {
+                let _ = entered.send(());
+                let _ = release.recv();
+            }
             let result = if admitted.elapsed() >= Duration::from_secs(2)
                 || state
                     .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
@@ -739,6 +798,55 @@ mod tests {
             .await
             .unwrap()
             .is_some());
+    }
+    #[tokio::test]
+    async fn cancelled_startup_after_ready_closes_the_unowned_worker() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut startup =
+            SessionStore::launch(dir.path().into(), "/workspace".into(), true).unwrap();
+        (&mut startup.ready).await.unwrap().unwrap();
+        let mut finished = startup.finished.clone();
+        // This is the suspension window after the ready send succeeds but before
+        // start transfers ownership into a returned SessionStore.
+        drop(startup);
+        let closed = tokio::time::timeout(Duration::from_secs(1), async {
+            while !*finished.borrow_and_update() {
+                finished.changed().await.unwrap();
+            }
+        })
+        .await;
+        assert!(
+            closed.is_ok(),
+            "cancelled startup left an unowned connection/worker alive"
+        );
+    }
+    #[tokio::test]
+    async fn cancellation_between_liveness_check_and_execution_claim_cannot_commit() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::initialize(dir.path().into(), "/workspace".into())
+            .await
+            .unwrap();
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let ticket = store
+            .submit(Command::CreateAtCutoff(
+                document("cancelled-at-cutoff"),
+                entered_tx,
+                release_rx,
+            ))
+            .unwrap();
+        entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        drop(ticket);
+        release_tx.send(()).unwrap();
+        store.close().await.unwrap();
+        let reopened = SessionStore::open(dir.path().into(), "/workspace".into())
+            .await
+            .unwrap();
+        assert!(reopened
+            .get("cancelled-at-cutoff".into())
+            .await
+            .unwrap()
+            .is_none());
     }
     #[tokio::test]
     async fn worker_commits_before_acknowledgement_and_reopens_without_json_mirror() {

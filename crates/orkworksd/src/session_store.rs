@@ -275,7 +275,7 @@ impl Database {
             rusqlite::params![id, created],
         )?;
         tx.execute("UPDATE sessions SET deleted=1 WHERE id=?1", [id])?;
-        tx.execute("DELETE FROM metadata_search WHERE id=?1", [id])?;
+        tx.execute("DELETE FROM metadata_search WHERE rowid=(SELECT search_rowid FROM sessions WHERE id=?1)", [id])?;
         bump_generation(&tx)?;
         tx.commit()?;
         Ok(())
@@ -328,6 +328,12 @@ impl Database {
         if mode != "delete" || sync != 3 || fk != 1 {
             return Err(StoreError::Unsupported);
         }
+        // Use SQLite's own unicode61 tokenizer for query normalization. These
+        // per-connection temporary rows never enter the workspace database.
+        conn.execute_batch(
+            "CREATE VIRTUAL TABLE temp.query_tokens USING fts5(text,tokenize='unicode61');
+            CREATE VIRTUAL TABLE temp.query_vocabulary USING fts5vocab(query_tokens,instance);",
+        )?;
         Ok(())
     }
 }
@@ -456,12 +462,33 @@ fn persist(
         .pointer("/resume/harnessSessionId")
         .and_then(|s| s.as_str())
         .unwrap_or("");
-    conn.execute("INSERT INTO sessions(id,created_at,revision,metadata,state,harness,model,repository,branch,native_id,outcome,recency,title,summary) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)
+    // An explicit indexed key survives VACUUM and avoids scanning FTS5's
+    // UNINDEXED text identity during every live update.
+    let search_rowid: Option<i64> = conn
+        .query_row(
+            "SELECT search_rowid FROM sessions WHERE id=?1",
+            [&m.id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let search_rowid = match search_rowid {
+        Some(key) => key,
+        None => {
+            let last: i64 = conn.query_row(
+                "SELECT coalesce(max(search_rowid),0) FROM sessions",
+                [],
+                |r| r.get(0),
+            )?;
+            last.checked_add(1)
+                .ok_or_else(|| StoreError::Invalid("search identity exhausted".into()))?
+        }
+    };
+    conn.execute("INSERT INTO sessions(id,created_at,revision,metadata,state,harness,model,repository,branch,native_id,outcome,recency,title,summary,search_rowid) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)
         ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,metadata=excluded.metadata,state=excluded.state,harness=excluded.harness,model=excluded.model,repository=excluded.repository,branch=excluded.branch,native_id=excluded.native_id,outcome=excluded.outcome,recency=excluded.recency,title=excluded.title,summary=excluded.summary",
-        rusqlite::params![m.id,m.created_at,String::from(record.revision.clone()),serde_json::to_string(document)?,state,m.harness,m.model,m.repo_root,m.branch,native,m.terminal_outcome,recency(m),m.label,m.summary])?;
-    conn.execute("DELETE FROM metadata_search WHERE id=?1", [&m.id])?;
-    conn.execute("INSERT INTO metadata_search(id,title,summary,repository,branch,native_id) VALUES(?1,?2,?3,?4,?5,?6)",
-        rusqlite::params![m.id,m.label,m.summary,m.repo_root,m.branch,native])?;
+        rusqlite::params![m.id,m.created_at,String::from(record.revision.clone()),serde_json::to_string(document)?,state,m.harness,m.model,m.repo_root,m.branch,native,m.terminal_outcome,recency(m),m.label,m.summary,search_rowid])?;
+    conn.execute("DELETE FROM metadata_search WHERE rowid=?1", [search_rowid])?;
+    conn.execute("INSERT INTO metadata_search(rowid,id,title,summary,repository,branch,native_id) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+        rusqlite::params![search_rowid,m.id,m.label,m.summary,m.repo_root,m.branch,native])?;
     Ok(())
 }
 fn bump_generation(conn: &Connection) -> Result<()> {
@@ -482,6 +509,7 @@ CREATE TABLE store_header (
 ) STRICT;
 CREATE TABLE sessions (
  id TEXT PRIMARY KEY, created_at TEXT NOT NULL, revision TEXT NOT NULL,
+ search_rowid INTEGER NOT NULL UNIQUE CHECK(search_rowid>0),
  metadata TEXT NOT NULL CHECK(length(CAST(metadata AS BLOB))<=1048576 AND json_valid(metadata)),
  state TEXT NOT NULL, harness TEXT NOT NULL, model TEXT NOT NULL,
  repository TEXT, branch TEXT, native_id TEXT, outcome TEXT,
@@ -752,6 +780,39 @@ mod tests {
             .is_err());
         db.begin_delete("archived", "2026-01-01T00:00:00Z", "0", "1")
             .unwrap();
+    }
+    #[test]
+    fn live_patch_search_maintenance_does_not_scan_historical_rows() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Database::create(&dir.path().join("v1.sqlite"), "/workspace").unwrap();
+        let mut measurements = Vec::new();
+        for (end, revision) in [(100, "0"), (1000, "1")] {
+            let start = if end == 100 { 0 } else { 100 };
+            for i in start..end {
+                db.insert(document(&format!("row-{i}"))).unwrap();
+            }
+            let steps = Arc::new(AtomicUsize::new(0));
+            let counter = steps.clone();
+            db.conn.progress_handler(
+                1,
+                Some(move || {
+                    counter.fetch_add(1, Ordering::Relaxed);
+                    false
+                }),
+            );
+            db.patch("row-0",serde_json::json!({"metadataRevision":revision,"patch":{"agentMetadata":{"summary":"same summary"}}})).unwrap();
+            db.conn.progress_handler(0, None::<fn() -> bool>);
+            measurements.push(steps.load(Ordering::Relaxed));
+        }
+        eprintln!("search maintenance VM steps at 100/1000 records: {measurements:?}");
+        assert!(
+            measurements[1] < measurements[0] * 3,
+            "search maintenance grew with history: {measurements:?}"
+        );
     }
     #[test]
     fn initializes_durable_workspace_store_without_touching_legacy_metadata() {
