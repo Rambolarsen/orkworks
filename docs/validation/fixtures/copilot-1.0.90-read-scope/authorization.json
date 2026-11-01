@@ -1,0 +1,7 @@
+{
+  "configurationSha256": "348c04e8660222884bc0050ceac618682f35149f80ceeb2a6cf600760661c46e",
+  "ownerResponse": "go ahead",
+  "context": "Owner response to Approve this exact bounded probe? in draft PR #1280",
+  "recordedAtUtc": "2026-11-01T14:30:11.692309+00:00",
+  "scope": "One fresh process, maximum three observed model calls/two ordered owned view attempts; exact reviewed native-result/history exception and declared managed/remote uncertainties. No retry, access widening or later batch."
+}

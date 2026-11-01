@@ -185,7 +185,10 @@ def main():
             projections=[]
             for row in spans:
                 a=row.get("attributes",{}); op=a.get("gen_ai.operation.name"); require(op in {"chat","invoke_agent","execute_tool"},"Unknown span operation")
-                require(not set(a)&set(c["captureExpectation"]["forbiddenSpanContentAttributes"]),"Unexpected exported content class")
+                unexpected = sorted(set(a) & set(c["captureExpectation"]["forbiddenSpanContentAttributes"]))
+                if unexpected:
+                    summary["unexpectedContentAttributeNames"] = unexpected
+                    raise ValueError("Unexpected exported content class")
                 projection={"name":row.get("name"),"operation":op,"attributeNames":sorted(a)}
                 if op in {"chat","invoke_agent"}: require(a.get("gen_ai.provider.name")=="github","Provider drift")
                 if op=="chat":

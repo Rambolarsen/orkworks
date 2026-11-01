@@ -3,8 +3,8 @@ type: Research Probe Plan
 title: Copilot view read-scope positive and symlink control
 description: A bounded synthetic read-scope fixture with native result measurement and no prompt/tool-output export.
 tags: [copilot, plans, validation, permissions]
-status: draft
-workflow_status: awaiting-approval
+status: stable
+workflow_status: executed-unverified
 ---
 
 # Copilot view read-scope positive and symlink control
@@ -21,6 +21,12 @@ requires canonical read scopes and no silent widening. This research changes no
 production profile or adapter. All six role combinations remain unavailable.
 
 ## Authority and exact proposal
+
+**Execution:** The owner approved this exact configuration with “go ahead”. One
+native process ran and stopped at the exporter guard after two observed chat
+spans. No usable view receipt was collected. The result is unverified and the
+authority is exhausted; see the [evidence](../../validation/copilot-view-read-scope.md).
+The following proposal records the boundary that applied before inference.
 
 The owner requested this next mandatory read-scope step after the
 [startup-delivery result](../../validation/copilot-startup-skill-delivery.md).
@@ -100,29 +106,29 @@ The owning session alone writes the fixture, runs the approved native CLI,
 projects evidence and removes its private roots. Written review is read-only.
 No product runtime code, SDK integration, broker or OS confinement is in scope.
 
-- [ ] Review the concrete configuration/observer, bind fresh owner approval and
+- [x] Review the concrete configuration/observer, bind fresh owner approval and
   reconfirm pinned native/cache/embedded identities before inference.
-- [ ] Prepare private roots with no copied Git templates, seed settings.json only,
+- [x] Prepare private roots with no copied Git templates, seed settings.json only,
   retain inputs/target bindings and permit only known synthetic/root and vendor
   discovery sources. Extra or ambiguous sources stop before inference.
-- [ ] Run once with the three-call/two-view maximum, monitoring native call
+- [x] Run once with the three-call/two-view maximum, monitoring native call
   order, owned paths, model/provider, settings and capture receipt. Any access
   widening/confirmation, unexpected path/action or ambiguity stops the batch.
-- [ ] Project only the explicitly permitted synthetic tool fields; correlate
+- [x] Project only the explicitly permitted synthetic tool fields; correlate
   session/turn/interaction and tool-call IDs internally. Preserve limited/no-go
   outcomes and missing coverage. Do not expose private identifiers or content.
-- [ ] Remove all native/history/OTel/raw roots on success/failure, record cleanup
+- [x] Remove all native/history/OTel/raw roots on success/failure, record cleanup
   and process uncertainty, enforce 128 KiB per retained artifact and 2 MiB total.
   Deletion never proves pre-storage exclusion.
-- [ ] Review the evidence, hashes/staged/CRLF bytes and docs build; update #740
+- [x] Review the evidence, hashes/staged/CRLF bytes and docs build; update #740
   with a precise candidate result and preserve all unavailable role decisions.
 
 ## Review and untested boundaries
 
-Disposition: **Ready for exact owner approval.** Fresh read-only Luna
+Pre-run disposition: **Ready for exact owner approval.** Fresh read-only Luna
 plan/observer review found no material blockers in path/result correlation,
-conservative denial classification, privacy, limits or cleanup. No live
-probe ran. Remote/provider
+conservative denial classification, privacy, limits or cleanup. At that review no live
+probe had run. Remote/provider
 reversibility remains Unknown; all other scope/history risks reuse the prior
 reviewed boundary, with only owned synthetic view-result inspection added.
 No score overrides authority or an unsupported/missing measurement.
@@ -144,3 +150,24 @@ checks establish observer behavior, not vendor permission enforcement.
 Targeted static re-review confirmed the corrected hash binding and stricter
 user-refusal guard preserve ready-for-owner-approval status. They do not widen
 inspection, paths, capture or budget; the exact configuration hash is unchanged.
+
+## Executed disposition and diagnostic ruling
+
+One approved attempt ran; the exporter presence guard stopped observation before
+usable native view results. The final review/reporting item is completed through
+the associated evidence PR. Checked execution items mean the bounded action or
+conservative stop occurred, not that the requested permission test succeeded.
+
+Ruling: preserve the exact executed observer separately, then add field-name-only
+diagnostics to the prepared observer. The stop condition is unchanged and no
+values are retained. A sixth model-free case failed before this change and all
+six passed after it. The prepared revision has not run against Copilot. This
+avoids attributing its improved diagnostics to the deleted actual raw data;
+misreading that distinction would falsely identify the triggering attribute.
+No retry, scope/capture widening or further inference is authorized.
+
+Final fresh evidence review found no remaining blocker in authority, privacy,
+claims or source binding after checking the actual three-dot PR diff. Model-free
+observer checks passed 6/6; docs metadata/index checks, 776 fixture tests and the
+docs build passed. Existing circular/large-chunk build warnings are unrelated to
+this docs/fixture diff. The generic actual stop remains unrecoverably ambiguous.

@@ -29,4 +29,4 @@ Captured fixture context for reproducible validation.
 
 - [Startup skill-delivery packet](copilot-1.0.90-startup-skill/index.md) — Exact supplied source, matched request receipt and exhausted one-call authority.
 
-- [Proposed view read-scope packet](copilot-1.0.90-read-scope/index.md) — Synthetic files, path bindings, settings and native result projection proposal.
+- [View read-scope stopped-probe packet](copilot-1.0.90-read-scope/index.md) — Approved synthetic case, partial stop receipt and exact observer binding.

@@ -72,3 +72,5 @@ Capability research, validation results, and evidence fixtures.
 - [Copilot settings-only capture comparison](copilot-settings-only-capture-comparison.md) — Approved hosted contrast and unchanged broader eligibility gates.
 
 - [Copilot selected skill startup delivery](copilot-startup-skill-delivery.md) — Exact selected-source receipt through supplied startup context.
+
+- [Copilot view read-scope stopped probe](copilot-view-read-scope.md) — Exporter guard stop with no usable permission result.

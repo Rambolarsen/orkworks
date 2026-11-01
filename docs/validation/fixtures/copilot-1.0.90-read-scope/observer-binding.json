@@ -1,0 +1,15 @@
+{
+  "executedObserver": {
+    "file": "observe-read-scope.executed.py",
+    "bytes": 20894,
+    "sha256": "9bdac9d4e5434582ca3cf30b73ac4ae0e53c0a2d36136154c0d6415d1dcde7f6"
+  },
+  "preparedObserver": {
+    "file": "observe-read-scope.py",
+    "bytes": 21049,
+    "sha256": "9376b44f9e02fc8d0afd27040ff18a9b6cd62dde0a28e3bdceedf3653c3770a6",
+    "status": "Post-run field-name diagnostic revision; model-free tests only; not run against Copilot"
+  },
+  "configurationSha256": "348c04e8660222884bc0050ceac618682f35149f80ceeb2a6cf600760661c46e",
+  "historicalAuthority": "Exhausted; neither source grants another run"
+}

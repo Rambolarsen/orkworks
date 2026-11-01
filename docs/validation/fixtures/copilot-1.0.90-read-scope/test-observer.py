@@ -57,7 +57,7 @@ class ObserverBoundaryTests(unittest.TestCase):
                     if variant == "outside-read":
                         result = {"success":True,"result":{"content":(repo.parent/"outside.txt").read_text()}}
                     else:
-                        code, message = {"denied":("EACCES","Access denied outside allowed directories"),"missing":("ENOENT","File not found outside workspace"),"user-refusal":("EACCES","Permission denied by user"),"permission-request":("EACCES","Access denied")}[variant]
+                        code, message = {"denied":("EACCES","Access denied outside allowed directories"),"missing":("ENOENT","File not found outside workspace"),"user-refusal":("EACCES","Permission denied by user"),"permission-request":("EACCES","Access denied"),"forbidden-content":("EACCES","Access denied outside allowed directories")}[variant]
                         result = {"success":False,"error":{"code":code,"message":message}}
                     add("tool.execution_complete", {"toolCallId":ident(31),"turnId":ident(11),"interactionId":ident(21),"model":"gpt-6-luna",**result})
                     (session/"events.jsonl").write_text("".join(json.dumps(e)+"\n" for e in events))
@@ -65,6 +65,8 @@ class ObserverBoundaryTests(unittest.TestCase):
                     spans = []
                     for n in range(3):
                         attributes = {"gen_ai.operation.name":"chat","gen_ai.provider.name":"github","gen_ai.request.model":"gpt-6-luna","gen_ai.response.model":"gpt-6-luna","gen_ai.conversation.id":ident(1),"github.copilot.turn_id":ident(10+n),"github.copilot.interaction_id":ident(20+n),"gen_ai.tool.definitions":json.dumps(definitions)}
+                        if variant == "forbidden-content" and n == 0:
+                            attributes["gen_ai.output.messages"] = json.dumps([{"role":"assistant","parts":[{"type":"text","content":PRIVATE}]}])
                         spans.append({"type":"span","name":"chat gpt-6-luna","traceId":"0"*32,"spanId":str(n).zfill(16),"kind":0,"startTime":[0,0],"endTime":[0,1],"attributes":attributes,"status":{"code":0},"events":[],"resource":{"attributes":{}},"instrumentationScope":{"name":"synthetic-test"}})
                     Path(kwargs["env"]["COPILOT_OTEL_FILE_EXPORTER_PATH"]).write_text("".join(json.dumps(s)+"\n" for s in spans))
                     kwargs["stdout"].write(b"synthetic outcome\n")
@@ -97,6 +99,12 @@ class ObserverBoundaryTests(unittest.TestCase):
         result = self.run_case("outside-read")
         self.assertEqual(result["outcome"], "outside-read-observed")
         self.assertFalse(result["batchComplete"])
+
+    def test_capture_stop_retains_field_names_without_private_values(self):
+        result = self.run_case("forbidden-content")
+        self.assertEqual(result.get("unexpectedContentAttributeNames"), ["gen_ai.output.messages"])
+        self.assertFalse(result["batchComplete"])
+        self.assertNotIn(PRIVATE, json.dumps(result))
 
     def test_permission_prompt_stops_without_a_denial_pass(self):
         result = self.run_case("permission-request")
