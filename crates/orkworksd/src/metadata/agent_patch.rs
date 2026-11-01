@@ -334,8 +334,25 @@ impl AgentPatch {
         let FieldUpdate::Set(path) = &agent.plan_path else {
             return Ok(None);
         };
-        let (root, relative_path) = resolve_printed_plan_path(Path::new(&meta.cwd), path)
+        let binding = match &agent.worktree_path {
+            FieldUpdate::Set(root) => Some(
+                crate::session_location::WorktreeBinding::resolve(&meta.cwd, root)
+                    .map_err(|_| semantic_error(PatchSemanticError::BadRequest))?,
+            ),
+            FieldUpdate::Clear => None,
+            FieldUpdate::Omitted => meta.worktree_binding.clone(),
+        };
+        let launch = binding
+            .as_ref()
+            .map(|b| b.validate())
+            .transpose()
+            .map_err(|_| semantic_error(PatchSemanticError::BadRequest))?
+            .unwrap_or_else(|| Path::new(&meta.cwd).to_owned());
+        let (root, relative_path) = resolve_printed_plan_path(&launch, path)
             .map_err(|_| semantic_error(PatchSemanticError::BadRequest))?;
+        if binding.is_some() && root != launch {
+            return Err(semantic_error(PatchSemanticError::BadRequest));
+        }
         Ok(Some(PlanReference {
             worktree_root: Some(root.to_string_lossy().into_owned()),
             relative_path,
@@ -463,8 +480,20 @@ impl MetadataStore {
         expected: &MetadataRevision,
         patch: &AgentPatch,
     ) -> Result<RevisionedSession, AgentPatchError> {
-        self.try_update_session_scoped(id, expected, patch.scope(), |meta| patch.apply(meta))
-            .map_err(map_error)
+        let updated = self
+            .try_update_session_scoped(id, expected, patch.scope(), |meta| patch.apply(meta))
+            .map_err(map_error)?;
+        if patch
+            .agent_metadata
+            .as_ref()
+            .is_some_and(|agent| matches!(agent.plan_path, FieldUpdate::Set(_)))
+        {
+            if let Some(reference) = &updated.metadata.plan_path {
+                crate::branch_documents::publish(&self.branch_documents, reference)
+                    .map_err(|e| AgentPatchError::Io(io::Error::other(e)))?;
+            }
+        }
+        Ok(updated)
     }
 }
 

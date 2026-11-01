@@ -235,6 +235,8 @@ pub(crate) enum PlanSource {
     AgentReported,
     HookReported,
     TerminalFallback,
+    GitHistory,
+    GitWorktree,
 }
 
 impl<'de> Deserialize<'de> for PlanReference {
@@ -1152,7 +1154,7 @@ pub enum AttentionMergeResult {
 /// Writes `contents` to `path` via a temp file in the same directory plus an
 /// atomic rename, so readers never observe a partially written file and a
 /// mid-write kill cannot corrupt the previous contents.
-fn write_atomic(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
+pub(crate) fn write_atomic(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
     write_atomic_bytes(path, contents.as_bytes())
 }
 
@@ -1218,6 +1220,7 @@ pub(crate) struct SessionWriteToken {
 }
 
 pub struct MetadataStore {
+    pub(crate) branch_documents: Arc<crate::branch_documents_store::Store>,
     pub(crate) organization: Arc<crate::session_archive::OrganizationStore>,
     root: PathBuf,
     session_writes: Mutex<HashMap<String, crate::runtime::observed_status::AttentionOwner>>,
@@ -1230,6 +1233,7 @@ pub struct MetadataStore {
 impl MetadataStore {
     pub fn new(root: &Path) -> Self {
         Self {
+            branch_documents: Arc::new(crate::branch_documents_store::Store::new(root)),
             root: root.to_path_buf(),
             organization: Arc::new(crate::session_archive::OrganizationStore::new(root)),
             session_writes: Mutex::new(HashMap::new()),

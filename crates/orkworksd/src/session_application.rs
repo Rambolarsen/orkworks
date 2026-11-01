@@ -1,3 +1,6 @@
+#[path = "branch_documents_application.rs"]
+mod branch_documents_application;
+
 #[path = "session_actions.rs"]
 pub(crate) mod session_actions;
 
@@ -4385,14 +4388,42 @@ impl SessionApplication {
                     .as_ref()
                     .is_some_and(|reference| reference.source == metadata::PlanSource::UserSelected)
                 {
+                    // The legacy single reference remains pinned, but a fresh
+                    // report for the other branch slot is independent of it.
+                    let root = metadata
+                        .worktree_binding
+                        .as_ref()
+                        .map(|b| b.validate())
+                        .transpose()
+                        .map_err(std::io::Error::other)?
+                        .unwrap_or_else(|| workspace.path.clone());
+                    if let Ok(relative_path) = normalize_reported_plan_path(&root, reported_path) {
+                        let reference = metadata::PlanReference {
+                            worktree_root: Some(root.to_string_lossy().into_owned()),
+                            relative_path,
+                            source: metadata::PlanSource::HookReported,
+                        };
+                        crate::branch_documents::publish(
+                            &workspace.metadata.branch_documents,
+                            &reference,
+                        )
+                        .map_err(std::io::Error::other)?;
+                    }
                     return Ok(false);
                 }
-                let relative = normalize_reported_plan_path(&workspace.path, reported_path)
-                    .map_err(|_| {
+                let report_root = metadata
+                    .worktree_binding
+                    .as_ref()
+                    .map(|binding| binding.validate())
+                    .transpose()
+                    .map_err(std::io::Error::other)?
+                    .unwrap_or_else(|| workspace.path.clone());
+                let relative =
+                    normalize_reported_plan_path(&report_root, reported_path).map_err(|_| {
                         std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid plan path")
                     })?;
                 metadata.plan_path = Some(metadata::PlanReference {
-                    worktree_root: Some(workspace.path.to_string_lossy().into_owned()),
+                    worktree_root: Some(report_root.to_string_lossy().into_owned()),
                     relative_path: relative,
                     source: metadata::PlanSource::HookReported,
                 });
@@ -4403,6 +4434,10 @@ impl SessionApplication {
             return Ok(());
         };
         let metadata = record.metadata;
+        if let Some(reference) = &metadata.plan_path {
+            crate::branch_documents::publish(&workspace.metadata.branch_documents, reference)
+                .map_err(|_| SessionError::Conflict)?;
+        }
         workspace.metadata.append_event(
             id,
             &metadata::Event {
@@ -4449,11 +4484,18 @@ impl SessionApplication {
                     {
                         return Ok(false);
                     }
-                    let Ok((worktree_root, relative_path)) = resolve_printed_plan_path_with_home(
-                        Path::new(&metadata.cwd),
-                        printed_path,
-                        home_dir,
-                    ) else {
+                    let root = match metadata
+                        .worktree_binding
+                        .as_ref()
+                        .map(|b| b.validate())
+                        .transpose()
+                    {
+                        Ok(root) => root.unwrap_or_else(|| PathBuf::from(&metadata.cwd)),
+                        Err(_) => return Ok(false),
+                    };
+                    let Ok((worktree_root, relative_path)) =
+                        resolve_printed_plan_path_with_home(&root, printed_path, home_dir)
+                    else {
                         return Ok(false);
                     };
                     metadata.plan_path = Some(metadata::PlanReference {
@@ -4461,6 +4503,13 @@ impl SessionApplication {
                         relative_path,
                         source: metadata::PlanSource::TerminalFallback,
                     });
+                    if let Some(reference) = &metadata.plan_path {
+                        crate::branch_documents::publish(
+                            &workspace.metadata.branch_documents,
+                            reference,
+                        )
+                        .map_err(std::io::Error::other)?;
+                    }
                     Ok(true)
                 }),
             Ok(Some(_))
@@ -4639,7 +4688,19 @@ impl SessionApplication {
         let plan_path = metadata.plan_path.ok_or(SessionError::Conflict)?;
         let path = resolve_openable_plan_reference(&workspace.path, &plan_path)
             .map_err(|_| SessionError::Conflict)?;
-        std::fs::read_to_string(path).map_err(|_| SessionError::Conflict)
+        let root = plan_path
+            .worktree_root
+            .as_deref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| workspace.path.clone())
+            .canonicalize()
+            .map_err(|_| SessionError::Conflict)?;
+        let relative = path
+            .strip_prefix(&root)
+            .map_err(|_| SessionError::Conflict)?;
+        let bytes = crate::git_changes_fs::read_regular(&root, relative)
+            .map_err(|_| SessionError::Conflict)?;
+        String::from_utf8(bytes).map_err(|_| SessionError::Conflict)
     }
 
     pub(crate) async fn request_plan_review(&self, id: &str) -> Result<(), SessionError> {
@@ -5173,15 +5234,20 @@ impl SessionApplication {
             let record = workspace
                 .metadata
                 .mutate_session(&id, WriteScope::NONE, |meta| {
+                    let root = meta
+                        .worktree_binding
+                        .as_ref()
+                        .map(|b| b.validate())
+                        .transpose()
+                        .map_err(std::io::Error::other)?
+                        .unwrap_or_else(|| PathBuf::from(&meta.cwd));
                     let (worktree_root, relative_path) =
-                        resolve_printed_plan_path(Path::new(&meta.cwd), &printed_path).map_err(
-                            |_| {
-                                std::io::Error::new(
-                                    std::io::ErrorKind::PermissionDenied,
-                                    "plan path resolution failed",
-                                )
-                            },
-                        )?;
+                        resolve_printed_plan_path(&root, &printed_path).map_err(|_| {
+                            std::io::Error::new(
+                                std::io::ErrorKind::PermissionDenied,
+                                "plan path resolution failed",
+                            )
+                        })?;
                     meta.plan_path = Some(metadata::PlanReference {
                         worktree_root: Some(worktree_root.to_string_lossy().into_owned()),
                         relative_path,
@@ -5191,6 +5257,10 @@ impl SessionApplication {
                 })
                 .map_err(metadata_transaction_error)?;
             let meta = record.metadata;
+            if let Some(reference) = &meta.plan_path {
+                crate::branch_documents::publish(&workspace.metadata.branch_documents, reference)
+                    .map_err(|_| SessionError::Conflict)?;
+            }
             workspace.metadata.append_event(
                 &id,
                 &metadata::Event {
@@ -5916,6 +5986,7 @@ async fn resume_session_workflow(
         ),
         resumed_from: meta.resumed_from.clone(),
         has_openable_plan: None,
+        plan_documents: None,
         provider: meta.provider_label.clone(),
         provider_model: meta.provider_model.clone(),
         provider_state: meta.provider_state.clone(),
@@ -6422,6 +6493,7 @@ async fn create_session_workflow(
         resume_options: vec![],
         resumed_from: None,
         has_openable_plan: None,
+        plan_documents: None,
         provider: resolved_launch.provider_label.clone(),
         provider_model: None,
         provider_state: None,

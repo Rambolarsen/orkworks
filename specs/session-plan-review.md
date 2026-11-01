@@ -40,11 +40,12 @@ The sidecar constructs one fixed prompt using the validated workspace-relative p
 
 ## Branch document extension
 
-Status: proposed technical design, 2026-11-01. The owner approved the shared
-branch behavior and two-step UI concept in the originating conversation;
-additive storage/protocol approval is pending under
-[#1230](https://github.com/Rambolarsen/orkworks/issues/1230). Existing runtime
-behavior above remains authoritative until this extension is accepted.
+Status: accepted, 2026-11-01. The owner approved the shared branch behavior,
+two-step UI, latest ordering and additive storage/protocol design in the
+originating conversation under
+[#1230](https://github.com/Rambolarsen/orkworks/issues/1230). This extension
+supersedes the single-session, single-document association/display rules above;
+the existing reporting transports and user-approved review authority remain.
 
 ### Outcome and display
 

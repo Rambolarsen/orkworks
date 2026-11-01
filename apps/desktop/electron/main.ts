@@ -30,7 +30,7 @@ import { providerSettingsSyncError, pushProviderSettings } from "./providerSetti
 import type { PeonAppliedState, PeonProviderVerificationResponse, ProviderApplyStatus, ProviderDefinition, ProviderId, ProviderModelOption } from "./providerTypes";
 import { createPeonSelectionTransaction, normalizePeonSelectionInput, type PeonSelectionTransaction } from "./peonSelectionTransaction";
 import { buildMenuTemplate } from "./menuTemplate";
-import { getSessionPlanContent, requestSessionPlanReview, selectTerminalPlan } from "./planOpener";
+import { getSessionPlanContent, requestSessionPlanReview, selectTerminalPlan, useLatestPlanDocument, validatePlanDocumentKind } from "./planOpener";
 import { configureExternalLinks, openExternalLink } from "./externalLinks";
 import { createSidecarLifecycle, type SidecarLifecycle, type SidecarProcess, type SidecarState } from "./sidecarLifecycle";
 import { sidecarSend, sidecarUrl, parseErrorBody, parsePeonError, errorFromBody } from "./sidecarClient";
@@ -1701,15 +1701,23 @@ app.whenReady().then(async () => {
     return withReadyBackendGeneration((port, token, signal) =>
       requestSessionTitle(sidecarUrl(port), request, token, fetch, signal));
   });
-  ipcMain.handle("get-plan-content", async (_event, sessionId: unknown) => {
+  ipcMain.handle("get-plan-content", async (_event, sessionId: unknown, kind?: unknown) => {
     if (typeof sessionId !== "string" || !sessionId) throw new Error("Invalid session ID.");
+    validatePlanDocumentKind(kind);
     return withReadyBackendGeneration((port, token, signal) =>
-      getSessionPlanContent(sidecarUrl(port), sessionId, token, fetch, signal));
+      getSessionPlanContent(sidecarUrl(port), sessionId, token, fetch, signal, kind));
   });
-  ipcMain.handle("request-plan-review", async (_event, sessionId: unknown) => {
+  ipcMain.handle("request-plan-review", async (_event, sessionId: unknown, kind?: unknown) => {
     if (typeof sessionId !== "string" || !sessionId) throw new Error("Invalid session ID.");
+    validatePlanDocumentKind(kind);
     await withReadyBackendGeneration((port, token, signal) =>
-      requestSessionPlanReview(sidecarUrl(port), sessionId, token, fetch, signal));
+      requestSessionPlanReview(sidecarUrl(port), sessionId, token, fetch, signal, kind));
+  });
+  ipcMain.handle("use-latest-plan-document", async (_event, sessionId: unknown, kind: unknown) => {
+    if (typeof sessionId !== "string" || !sessionId) throw new Error("Invalid session ID.");
+    validatePlanDocumentKind(kind);
+    if (kind === undefined) throw new Error("A document kind is required.");
+    await withReadyBackendGeneration((port, token, signal) => useLatestPlanDocument(sidecarUrl(port), sessionId, kind, token, fetch, signal));
   });
   ipcMain.handle("select-terminal-plan", async (_event, sessionId: unknown, printedPath: unknown) => {
     if (typeof sessionId !== "string" || !sessionId || typeof printedPath !== "string" || !printedPath) throw new Error("Invalid plan selection.");

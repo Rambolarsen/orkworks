@@ -394,6 +394,74 @@ impl SessionProjection {
         }
 
         let conflict_warnings = detect_conflicts(&infos, &effective_cwds);
+        // Release workspace locking before Git/document inspection. The shared
+        // store cache coalesces session listings against the same worktree.
+        let documents = self
+            .state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|ws| ws.metadata.branch_documents.clone());
+        if let Some(store) = documents {
+            for info in &mut infos {
+                let root = if let Some(binding) = &info.worktree_binding {
+                    binding.validate().ok()
+                } else {
+                    effective_cwds.get(&info.id).map(PathBuf::from)
+                };
+                let projection = root
+                    .as_deref()
+                    .filter(|root| {
+                        root.to_str().is_some_and(|root| {
+                            crate::session_location::WorktreeBinding::resolve(&info.cwd, root)
+                                .is_ok()
+                        })
+                    })
+                    .map(|root| crate::branch_documents::projection(&store, root));
+                if let Some(projection) = projection {
+                    if projection.steps.iter().any(|step| step.available) {
+                        info.has_openable_plan = Some(true);
+                    }
+                    info.plan_documents = Some(projection);
+                } else if info.worktree_binding.is_some() {
+                    info.has_openable_plan = Some(false);
+                    info.plan_documents = Some(crate::branch_documents::Projection {
+                        branch: None,
+                        shared_sessions: 1,
+                        steps: crate::branch_documents::DocumentKind::ALL
+                            .into_iter()
+                            .map(|kind| crate::branch_documents::Step {
+                                kind,
+                                available: false,
+                                title: None,
+                                file_name: None,
+                                source: None,
+                                pinned: false,
+                            })
+                            .collect(),
+                        notice: Some("Reported task worktree unavailable.".into()),
+                    });
+                }
+            }
+            let keys: HashMap<_, _> = infos
+                .iter()
+                .filter_map(|info| {
+                    info.plan_documents.as_ref()?.branch.as_ref()?;
+                    let root = effective_cwds.get(&info.id)?;
+                    let key = crate::branch_documents::identity(Path::new(root)).ok()?;
+                    Some((info.id.clone(), key))
+                })
+                .collect();
+            for info in &mut infos {
+                if let (Some(projection), Some(key)) =
+                    (&mut info.plan_documents, keys.get(&info.id))
+                {
+                    projection.shared_sessions =
+                        keys.values().filter(|other| *other == key).count();
+                }
+            }
+        }
         for info in &mut infos {
             info.conflict_warning = conflict_warnings
                 .iter()

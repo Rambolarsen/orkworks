@@ -3,6 +3,25 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { getSessionPlanContent, requestSessionPlanReview, selectTerminalPlan } from "../electron/planOpener.ts";
 
+test("reads the exact document kind without widening path authority", async () => {
+  const urls: string[] = [];
+  const content = await getSessionPlanContent("http://127.0.0.1:4444", "s", "token", async (url) => {
+    urls.push(url.toString());
+    return new Response(JSON.stringify({ content: "# Design" }));
+  }, new AbortController().signal, "design");
+  assert.equal(content, "# Design");
+  assert.deepEqual(urls, ["http://127.0.0.1:4444/sessions/s/plan-content?kind=design"]);
+});
+
+test("review targets the displayed implementation document", async () => {
+  const urls: string[] = [];
+  await requestSessionPlanReview("http://127.0.0.1:4444", "s", "token", async (url) => {
+    urls.push(url.toString());
+    return new Response(null, { status: 204 });
+  }, new AbortController().signal, "implementation");
+  assert.deepEqual(urls, ["http://127.0.0.1:4444/sessions/s/request-plan-review?kind=implementation"]);
+});
+
 test("reads plan content through the authenticated sidecar endpoint", async () => {
   const requests: Array<{ url: string; init?: RequestInit }> = [];
   const signal = new AbortController().signal;

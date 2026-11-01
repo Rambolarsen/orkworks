@@ -30,6 +30,8 @@ import SourceBadge from "./SourceBadge";
 import StatusIndicator from "./StatusIndicator";
 import ResumeChooser from "./ResumeChooser";
 import SessionTitleEditor from "./SessionTitleEditor";
+import BranchDocumentSteps from "./BranchDocumentSteps";
+import type { PlanDocumentKind } from "../api";
 
 const DEBUG_ATTENTION_OPTIONS: SessionAttention[] = ["working", "idle", "needs_you", "blocked", "failed", "capped"];
 
@@ -41,7 +43,7 @@ interface SessionDetailPanelProps {
   onResumeSession: (id: string, strategy?: import("../api").ResumeStrategy) => void;
   onApplyDebugAttention: (id: string, attention: SessionAttention, message?: string) => void;
   onOpenSettings: () => void;
-  onReviewPlan?: () => void;
+  onReviewPlan?: (kind?: PlanDocumentKind) => void;
   onReviewChanges?: () => void;
   onRequestPlanReview?: (sessionId: string) => Promise<void>;
   onOpenRecommendation?: (id: string) => void;
@@ -180,15 +182,15 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSes
         </button>
       ) : (
         <nav className="session-menu" aria-label="Session navigation">
-          <button type="button" className="session-menu-item" data-session-plan
+          {(!active.planDocuments || (active.hasOpenablePlan && !active.planDocuments.steps.some(step => step.available))) && <button type="button" className="session-menu-item" data-session-plan
             disabled={!active.hasOpenablePlan || !onReviewPlan}
             title={active.hasOpenablePlan ? "Review this session's plan" : "No available plan for this session"}
-            onClick={onReviewPlan}>
+            onClick={() => onReviewPlan?.()}>
             <span className="session-menu-icon"><FileText size={16} aria-hidden="true" /></span>
             <span className="session-menu-text"><span className="session-menu-label">Plan</span>
               <span className="session-menu-description">{active.hasOpenablePlan ? "Available for review" : "No plan available"}</span></span>
             <ChevronRight size={14} aria-hidden="true" />
-          </button>
+          </button>}
           <button type="button" className="session-menu-item" data-review-changes
             disabled={!(active.repoRoot || active.branch) || !onReviewChanges}
             title={active.repoRoot || active.branch ? "Inspect this worktree and committed branch changes" : "No available Git context for this session"}
@@ -208,6 +210,9 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSes
           </button>
         </nav>
       )}
+      {!showingActivity && active.planDocuments && onReviewPlan && <BranchDocumentSteps key={active.id}
+        sessionId={active.id} documents={active.planDocuments} onOpen={kind => onReviewPlan(kind)}
+        onUseLatest={async kind => { await window.orkworks.useLatestPlanDocument(active.id, kind); onTitleUpdated?.(); }} />}
       {!showingActivity && actionZone.kind === "resume" && (
         <div className="detail-actions">
           <ResumeChooser key={active.id} pending={resumingSessionIds?.has(active.id)} options={actionZone.options} onSelect={option => onResumeSession(active.id, option.strategy)} />
@@ -235,7 +240,7 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSes
         </div>
         {active.recommendation && <p className="detail-muted">{active.recommendation}</p>}
         {actionZone.kind === "cue" && <p className="detail-muted">{actionZone.text}</p>}
-        {active.hasOpenablePlan && onReviewPlan && (
+        {active.hasOpenablePlan && onReviewPlan && !active.planDocuments?.steps.some(step => step.available) && (
           <div className="detail-actions">
               {isSessionAlive(active) && (
                 <button

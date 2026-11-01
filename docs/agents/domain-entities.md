@@ -346,6 +346,16 @@ retains uncertain metadata or ownership.
 
 ## Session task-worktree binding
 
+Design/specification and implementation-plan selections are shared by canonical
+Git common-directory identity and full branch ref within the workspace owner.
+Additive `branch-documents/<key>.json` version-1 records retain two anchored
+references, source, observation time, establishing HEAD evidence and explicit
+pin state. Automatic `git_history` and `git_worktree` sources supplement existing
+reports. They do not establish session authorship, attention or workflow approval.
+`SessionInfo.planDocuments` projects ordered sanitized steps and sharing context;
+`hasOpenablePlan` remains the compatibility aggregate. Legacy `planPath` records
+without branch provenance stay session-local. See [ADR 0102](../adr/0102-branch-document-association.md).
+
 `SessionMetadata.worktreeBinding` is an optional sidecar-resolved `{ root, commonDir }`
 record written through revisioned `agentMetadata.worktreePath` reporting. It is
 independent of launch/resume `cwd`, survives end/restart, and is authoritative

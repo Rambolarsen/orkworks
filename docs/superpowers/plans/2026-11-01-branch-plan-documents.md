@@ -3,7 +3,8 @@ type: Implementation Plan
 title: Shared branch design and implementation documents
 description: Deliver durable Git-assisted discovery and two ordered document steps for sessions sharing a task branch.
 tags: [orkworks, plans, git, desktop]
-status: draft
+status: stable
+workflow_status: in_progress
 ---
 
 # Shared branch design and implementation documents
@@ -19,10 +20,9 @@ Issue: [#1230](https://github.com/Rambolarsen/orkworks/issues/1230).
 Contract: [Session plan review](../../../specs/session-plan-review.md#branch-document-extension).
 Decision: [Branch document association](../../adr/0102-branch-document-association.md).
 
-The owner approved the behavior and interactive UI concept in the originating
-session. The additive storage/protocol design below needs the repository's
-architecture approval before dependent runtime implementation. Execute inline
-in the owned `branch-plan-documents` worktree after that approval.
+The owner approved the behavior, interactive UI and concrete additive
+storage/protocol design on 2026-11-01, then authorized implementation. Execute
+inline in the owned `branch-plan-documents` worktree.
 
 ## Decisions and boundaries
 
@@ -120,7 +120,7 @@ records, preserving session metadata. Reversibility 1: older code ignores new
 records; legacy associations remain available. Uncertainty 3: bounded discovery,
 ranking and races require the fixture coverage above. Total: 13/25.
 
-Disposition: **Ready for architecture approval**, then implementation. Checked
+Disposition: **Approved; implementation and verification in progress**. Checked
 coverage against #1230 and the proposed spec extension. The main risks are stale
 cross-branch associations, inherited documents, incomplete scans choosing a
 false latest document, unsafe worktree access and stale renderer requests; each
@@ -135,4 +135,5 @@ one persisted reference, and projection has only the `hasOpenablePlan` flag.
 common-directory identity. `git_changes::bases` provides the exact local-base
 policy. These existing seams support the proposal without another repository
 registry. The docs drift warning for root README needs no edit: this proposed
-contract introduces no shipped behavior or changed onboarding claim.
+contract introduced no shipped behavior or changed onboarding claim. The
+implementation updates the public sessions guide with source-only behavior.

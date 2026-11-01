@@ -10,10 +10,7 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
-use std::{
-    path::PathBuf,
-    sync::{atomic::Ordering, Arc},
-};
+use std::sync::{atomic::Ordering, Arc};
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct CaptureQuery {
@@ -29,52 +26,7 @@ fn failure(status: StatusCode, message: impl Into<String>) -> Response {
     )
         .into_response()
 }
-fn subject(
-    state: &AppState,
-    id: &str,
-) -> Result<(PathBuf, crate::session_location::GitLocationSource), String> {
-    if id.is_empty()
-        || id.len() > 256
-        || !id
-            .bytes()
-            .all(|c| c.is_ascii_alphanumeric() || b"-_".contains(&c))
-    {
-        return Err("Invalid session ID.".into());
-    }
-    let info = {
-        let ws = state.workspace.lock().unwrap();
-        let ws = ws.as_ref().ok_or("Workspace unavailable.")?;
-        let live = state.sessions.lock().unwrap();
-        live.get(id)
-            .map(|h| h.info.clone())
-            .or_else(|| {
-                ws.metadata
-                    .read_session(id)
-                    .map(|m| crate::session_types::SessionInfo::baseline_from_metadata(&m))
-            })
-            .ok_or("Session unavailable.")?
-    };
-    if let Some(binding) = &info.worktree_binding {
-        return binding
-            .validate()
-            .map(|root| (root, crate::session_location::GitLocationSource::Agent))
-            .map_err(str::to_owned);
-    }
-    let cwds = crate::session_view::resolve_effective_locations(
-        &[info],
-        &state.peon.reported_cwd.read().unwrap(),
-        &state.session_pids.lock().unwrap(),
-        crate::procfs::live_cwds,
-    );
-    let (cwd, source) = cwds.get(id).ok_or("Session directory unavailable.")?;
-    git_changes_root(std::path::Path::new(cwd)).map(|root| (root, *source))
-}
-fn git_changes_root(cwd: &std::path::Path) -> Result<PathBuf, String> {
-    crate::git::worktree_root(cwd)
-        .ok_or("No available Git worktree for this session.")?
-        .canonicalize()
-        .map_err(|_| "Worktree unavailable.".into())
-}
+use crate::session_location::subject;
 enum Operation {
     Bases,
     Capture(CaptureQuery),

@@ -13,6 +13,93 @@ pub struct Entry {
     pub content: Result<Option<Vec<u8>>, String>,
 }
 
+/// Read one regular worktree file without following any ancestor or leaf link.
+pub(crate) fn read_regular(root: &Path, relative: &Path) -> io::Result<Vec<u8>> {
+    crate::git_changes::safe_path(relative).map_err(io::Error::other)?;
+    let root = root.canonicalize()?;
+    #[cfg(unix)]
+    let file = {
+        use std::{
+            ffi::CString,
+            os::{
+                fd::{AsRawFd, FromRawFd},
+                unix::{ffi::OsStrExt, fs::OpenOptionsExt},
+            },
+        };
+        let full = root.join(relative);
+        let mut held = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open("/")?;
+        let parts: Vec<_> = full
+            .components()
+            .filter_map(|c| {
+                if let std::path::Component::Normal(n) = c {
+                    Some(n)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for (i, part) in parts.iter().enumerate() {
+            let name = CString::new(part.as_bytes()).map_err(io::Error::other)?;
+            let flags = libc::O_RDONLY
+                | libc::O_NOFOLLOW
+                | libc::O_NONBLOCK
+                | libc::O_CLOEXEC
+                | if i + 1 < parts.len() {
+                    libc::O_DIRECTORY
+                } else {
+                    0
+                };
+            // SAFETY: held owns the directory fd; name is NUL-terminated. The
+            // returned fd is adopted exactly once after checking for failure.
+            let fd = unsafe { libc::openat(held.as_raw_fd(), name.as_ptr(), flags) };
+            if fd < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            held = unsafe { File::from_raw_fd(fd) };
+        }
+        held
+    };
+    #[cfg(windows)]
+    let (file, _ancestors) = {
+        use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+        let mut path = PathBuf::new();
+        let mut ancestors = Vec::new();
+        let full = root.join(relative);
+        let mut last = None;
+        for component in full.components() {
+            path.push(component.as_os_str());
+            if !matches!(component, std::path::Component::Normal(_)) {
+                continue;
+            }
+            let f = std::fs::OpenOptions::new()
+                .read(true)
+                .share_mode(3)
+                .custom_flags(0x00200000 | 0x02000000)
+                .open(&path)?;
+            if f.metadata()?.file_attributes() & 0x400 != 0 {
+                return Err(io::Error::other("Document links are unavailable."));
+            }
+            if let Some(previous) = last.take() {
+                ancestors.push(previous);
+            }
+            last = Some(f);
+        }
+        (
+            last.ok_or_else(|| io::Error::other("Invalid document path."))?,
+            ancestors,
+        )
+    };
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::other("Document is not a regular file."));
+    }
+    bounded(file, None, Eol::Raw, &mut 0, std::time::Instant::now())
+        .map_err(io::Error::other)?
+        .ok_or_else(|| io::Error::other("Document unavailable."))
+}
+
 #[cfg(unix)]
 pub fn walk(
     root: &Path,

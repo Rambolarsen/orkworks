@@ -4,7 +4,7 @@ Decision records and their original rationale and consequences.
 
 ## Documents
 
-- [Shared branch design and implementation documents](0102-branch-document-association.md) — Proposed durable branch selections and Git-assisted two-step discovery.
+- [Shared branch design and implementation documents](0102-branch-document-association.md) — Accepted durable branch selections and Git-assisted two-step discovery.
 
 - [Durable session archive state](0088-session-archive-state.md) — Identity-bound organization and close-first actions.
 

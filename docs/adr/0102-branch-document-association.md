@@ -1,14 +1,14 @@
 ---
 type: Architecture Decision
 title: Shared branch design and implementation documents
-description: Proposed branch-scoped two-slot associations with durable selections and bounded Git discovery.
+description: Branch-scoped two-slot associations with durable selections and bounded Git discovery.
 tags: [orkworks, architecture, plans, git]
-status: draft
+status: stable
 ---
 
 # Shared branch design and implementation documents
 
-- Status: proposed
+- Status: accepted; owner approved design and implementation on 2026-11-01
 - Deciders: OrkWorks maintainer
 - Date: 2026-11-01
 - Issue: [#1230](https://github.com/Rambolarsen/orkworks/issues/1230)
@@ -23,7 +23,7 @@ OrkWorks to infer work-item boundaries or enforce the coding workflow.
 
 ## Decision
 
-Propose two ordered branch-scoped slots, design/specification followed by
+Use two ordered branch-scoped slots, design/specification followed by
 implementation plan, with independent missing states and explicit user pins.
 Use canonical Git common-directory identity plus the full local branch ref
 within the existing workspace owner. Persist additive versioned branch records;
@@ -42,9 +42,10 @@ independent-review requests retain their fixed prompt and user-click authority.
 
 This extends [ADR 0039](0039-terminal-plan-link-selection.md)'s explicit
 selection and [ADR 0037](0037-hook-reported-plan-paths.md)'s reporting pipeline.
-If accepted, its two-slot/latest default supersedes ADR 0037 only for the old
+Its two-slot/latest default supersedes ADR 0037 only for the old
 single-session empty-association rule; hook transport and path validation stay.
-Do not mark earlier records superseded before this technical design is approved.
+ADR 0037 remains the transport/path-validation record, with this scoped
+association replacement noted there.
 
 ## Consequences
 
@@ -58,5 +59,6 @@ Branch records add an atomic persistence seam and cache invalidation work.
 Legacy references without branch provenance cannot safely become shared
 selections; keep them session-local until fresh evidence establishes ownership.
 Independent app instances keep their current isolated workspace writers.
-Implementation is gated on approval of this concrete additive storage/protocol
-design; approved UX alone is not a claim that the new runtime exists.
+The owner approved this concrete additive storage/protocol design after its
+explanation and explicitly authorized implementation. Acceptance alone does not
+establish which published installers contain the runtime.

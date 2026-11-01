@@ -162,6 +162,8 @@ pub(crate) struct SessionInfo {
     pub(crate) resumed_from: Option<String>,
     #[serde(rename = "hasOpenablePlan", skip_serializing_if = "Option::is_none")]
     pub(crate) has_openable_plan: Option<bool>,
+    #[serde(rename = "planDocuments", skip_serializing_if = "Option::is_none")]
+    pub(crate) plan_documents: Option<crate::branch_documents::Projection>,
 }
 
 impl SessionInfo {
@@ -268,6 +270,7 @@ impl SessionInfo {
             resume_options: vec![],
             resumed_from: None,
             has_openable_plan: None,
+            plan_documents: None,
         }
     }
 
@@ -381,6 +384,7 @@ mod tests {
             resume_options: vec![],
             resumed_from: None,
             has_openable_plan: None,
+            plan_documents: None,
         }
     }
 
