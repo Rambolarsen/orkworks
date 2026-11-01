@@ -402,19 +402,9 @@ pub(crate) async fn retention_cleanup_once(
         }
     }
 
-    if !all_deleted.is_empty() {
-        let mut peon_output = state.peon.last_output.write().unwrap();
-        let mut peon_inference = state.peon.last_inference.write().unwrap();
-        for id in &all_deleted {
-            peon_output.remove(id);
-            peon_inference.remove(id);
-        }
-        drop(peon_inference);
-        drop(peon_output);
-        for id in &all_deleted {
-            crate::session_application::SessionApplication::new(state.clone())
-                .clear_forgotten_session_tracking(id);
-        }
+    for id in &all_deleted {
+        crate::session_application::SessionApplication::new(state.clone())
+            .clear_forgotten_session_tracking(id);
     }
 }
 

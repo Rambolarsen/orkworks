@@ -274,7 +274,6 @@ impl SessionApplication {
         drop(sessions);
         drop(workspace);
         if deleted {
-            self.clear_ended_session_tracking(id);
             self.clear_forgotten_session_tracking(id);
         }
         if deletion_failed {
