@@ -313,6 +313,10 @@ impl ApprovalReducer {
         true
     }
 
+    pub(crate) fn clear_observation_start(&self) -> Option<Instant> {
+        self.observation.map(|observation| observation.started_at)
+    }
+
     pub(crate) fn clear_is_fresh(&self, now: Instant) -> bool {
         !self.locked
             && self

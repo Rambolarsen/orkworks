@@ -163,9 +163,9 @@ producers, quiescent migration and controlled rollout retain their separate gate
 ## Runtime reservation boundary
 
 Source-only implementation within the approved storage contract; production routing
-remains JSON-backed. The first async application boundary handles Peon metadata
-only. Native observer clears, input bookkeeping, lifecycle/spawn and external
-events retain their current owners and must join this boundary before activation.
+remains JSON-backed. The async application boundary handles Peon metadata and source-only native
+approval effects. Input bookkeeping, lifecycle/spawn and external events retain
+their current owners and must join this boundary before activation.
 
 Prepared mutations reserve the existing worker's intent/result byte budget and
 pending mutation slot before waiting for a per-session application lane. That
@@ -276,8 +276,40 @@ consumed-proof rejection, rollback/freshness expiry before commit, paused-worker
 expiry and reopen ownership loss. A real SQLite update hook advances only the test
 clock after the update is staged, proving expired work rolls back and retains its
 proof; the shared native freshness policy includes its 300 ms boundary and rejects
-future observations. Runtime native reservation integration,
-actual effect/fence validation at execution/publication, producer coordination and
-version-specific eligibility remain separate prerequisites. The production native
-startup/clear gates stay closed; this metadata primitive grants no runtime authority
-and does not select SQL or migrate a workspace.
+future observations.
+
+The source-only native application owner now uses the worker-shared per-session
+lane and bounded admission/definitive-result protocol. It reads the exact SQL
+record without runtime guards, captures an issued reducer effect under short
+projection/transition/workspace/session/authority guards, and revalidates that
+capture when claiming execution and publishing. Capture binds tracker instance,
+runtime/control, creation, native root, hook/fence, committed input sequence,
+live attention ownership and prompt authority. Cancellation, user/question/options
+attention, ending sessions and superseded effects reject conservatively. Clear
+also requires the live/SQL ownership pair and the exact fresh observation.
+
+The initial SQL revision is checked transactionally. A concurrent durable update
+(including an unrelated work-only update) returns conflict rather than applying
+a stale native identity snapshot; no retry is inferred. Pre-capture descriptive
+updates remain preserved. This conservative application precondition is separate
+from the metadata primitive's ability to merge unrelated work on the latest row.
+The owner releases all shared guards before SQL starts, retains its lane/lease
+through definitive completion and publication, and acknowledges the reducer only
+after commit into the same current context. A changed context after the execution
+cutoff yields committed-but-detached, without acknowledgement into that context.
+SQL no-op/failure/expiry cannot publish or consume the prior live ownership.
+
+Application regressions cover current ShowWait and test-only coordinated
+ClearWait, closed production clearing, queued input/sequence/hook/tracker/root/
+attention/question/options/user/lifecycle/workspace/cancellation changes, caller
+cancellation before/after execution, durable revision conflict, expired clear and
+runtime replacement. A controlled runtime-command consumer delivers bytes to an
+actual PTY while native SQL is stalled after its execution claim. This proves
+input independence at this boundary, not complete terminal-load or #1247 latency
+qualification.
+
+Observer begin/finish and hook/relay scheduling still use their unchanged JSON
+owners. Routing those producers, lifecycle/input bookkeeping, external events,
+producer coordination and version-specific eligibility remain prerequisites for
+SQL selection. The production native startup/clear gates stay closed; this
+source-only application boundary does not select SQL or migrate a workspace.

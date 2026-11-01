@@ -672,6 +672,16 @@ impl SessionStore {
         created: String,
         intent: InternalMutation,
     ) -> Result<PreparedInternalMutation> {
+        self.prepare_internal_owned(id, created, None, None, intent)
+    }
+    pub(crate) fn prepare_internal_owned(
+        &self,
+        id: String,
+        created: String,
+        expected: Option<MetadataRevision>,
+        proof: Option<super::AttentionProof>,
+        intent: InternalMutation,
+    ) -> Result<PreparedInternalMutation> {
         if id.is_empty()
             || id.len() > 256
             || created.is_empty()
@@ -685,8 +695,8 @@ impl SessionStore {
         let prepared = self.prepare(Command::Internal {
             id: id.clone(),
             created,
-            expected: None,
-            proof: None,
+            expected,
+            proof,
             intent: Box::new(intent),
         })?;
         Ok(PreparedInternalMutation { prepared, id })

@@ -8,7 +8,7 @@ use std::time::Instant;
 
 // MVP explicitly supports uncoordinated agent JSON writes. A process-local
 // revision cannot make a file replacement atomic with that producer.
-const COORDINATED_METADATA_WRITERS: bool = false;
+pub(crate) const COORDINATED_METADATA_WRITERS: bool = false;
 
 #[cfg(test)]
 #[derive(Default, Debug)]
@@ -47,6 +47,8 @@ pub(crate) struct NativeApprovalState {
     // boundaries fence queued old events. Never infer this from caller trust.
     fenced_hook_at: Option<chrono::DateTime<chrono::Utc>>,
     ownership: Option<(AttentionWriteToken, SessionWriteToken)>,
+    sql_ownership: Option<(AttentionWriteToken, crate::session_store::AttentionProof)>,
+    instance: Arc<()>,
     validated_permission: Option<AttentionWriteToken>,
     live_revision: Option<AttentionWriteToken>,
     committed_input_sequence: u64,
@@ -74,6 +76,8 @@ impl NativeApprovalState {
             last_private_attention_at: None,
             fenced_hook_at: None,
             ownership: None,
+            sql_ownership: None,
+            instance: Arc::new(()),
             validated_permission: None,
             live_revision: None,
             committed_input_sequence: 0,
@@ -131,6 +135,7 @@ impl NativeApprovalState {
         self.hook_revision = self.hook_revision.and_then(|r| r.checked_add(1));
         self.reducer.invalidate(self.fence);
         self.ownership = None;
+        self.sql_ownership = None;
         self.validated_permission = None;
         self.live_revision = None;
     }
@@ -147,10 +152,15 @@ impl NativeApprovalState {
             return false;
         }
         match info.provenance.attention_origin.as_deref() {
-            Some("native_codex") => self
-                .ownership
-                .as_ref()
-                .is_some_and(|(live, _)| owner.owns(live)),
+            Some("native_codex") => {
+                self.ownership
+                    .as_ref()
+                    .is_some_and(|(live, _)| owner.owns(live))
+                    || self
+                        .sql_ownership
+                        .as_ref()
+                        .is_some_and(|(live, _)| owner.owns(live))
+            }
             Some("harness_hook") => self
                 .validated_permission
                 .as_ref()
@@ -728,6 +738,7 @@ enum ApplyOutcome {
 fn reject(tracker: &mut NativeApprovalState) -> ApplyOutcome {
     tracker.reducer.invalidate(tracker.fence);
     tracker.ownership = None;
+    tracker.sql_ownership = None;
     ApplyOutcome::Rejected
 }
 
@@ -2531,3 +2542,8 @@ mod tests {
         sql.close().await.unwrap();
     }
 }
+
+#[cfg(test)]
+mod sql_tests;
+
+pub(crate) mod sql_context;
