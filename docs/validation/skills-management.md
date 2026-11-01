@@ -78,8 +78,9 @@ Follow-up, 2026-11-01: the selected workspace lock was 379,199 bytes, exceeding
 the generic 64 KiB text limit and leaving its sources without APM attribution.
 The inventory now reads lock files with a dedicated 2 MiB limit and matches
 recorded SKILL.md paths against discovered canonical and logical aliases within
-one scope. It does not inspect arbitrary paths from a lock, infer plugin
-registration, validate deployed-file hashes, or prove current content integrity.
+one scope. That ownership correction did not inspect arbitrary paths from a
+lock, infer plugin registration, validate deployed-file hashes, or prove current
+content integrity.
 
 Temporary fixtures cover realistic deployment-hash volume, separate unowned
 copies, personal aliases, scope isolation, malformed/oversized locks, and sources
@@ -88,6 +89,25 @@ fixture checks package labels and package-name search. A read-only check of the
 same primary workspace found 43 APM-attributed entries, including both
 `context-engineering` copies owned by `addyosmani/agent-skills`, with no APM read
 diagnostic. No APM operation or personal configuration mutation was performed.
+
+## APM instruction hash comparisons
+
+Follow-up, 2026-11-01: inventory now compares supported recorded SHA-256 hashes
+against the full discovered SKILL.md file. Ownership and comparison are separate
+facts. Comparison uses bounded no-follow regular-file reads, observes size and
+timestamps before/after reading, and reports unavailable if a file changes during
+the read. It reserves at most 1 MiB per file plus the EOF probe within a shared
+16 MiB inventory budget, caching one digest per canonical file. Conflicting
+baselines, missing/unsupported hashes, and read failures/limits are unavailable.
+
+Temporary fixtures cover matching and changed instruction bodies beyond the
+metadata prefix, new results after refresh, missing/unsupported hashes,
+conflicting alias baselines, per-file and aggregate limits, and preserved APM
+ownership. Electron fixtures cover collapsed change cues, all three source
+results, package filtering, and narrow layout. Comparisons are point-in-time
+observations of SKILL.md, not companion-resource verification, package
+reputation/authenticity, or proof of a manual edit. No files are repaired or
+installed and no session is restarted.
 
 ## Initial APM profile
 

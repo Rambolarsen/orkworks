@@ -145,6 +145,37 @@ async function codexPluginRoots(codexHome: string, diagnostics: string[]) {
     diagnostics.push("Codex cached plugin skills are found files; enabled state and active version are not verified. Multiple cached versions remain separate.");
   return roots;
 }
+// Hash only discovered instruction files; reserve a finite byte budget before reading.
+async function hashSkillInstructions(path: string, budget: { remaining: number }): Promise<string> {
+  if (await realpath(dirname(path)) !== dirname(path)) throw new Error("Skill directory changed; refresh to retry.");
+  if ((await lstat(path)).isSymbolicLink()) throw new Error("SKILL.md became a symbolic link; refresh to retry.");
+  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const before = await handle.stat({ bigint: true });
+    if (!before.isFile()) throw new Error("Expected a regular SKILL.md file.");
+    if (before.size > 1024n * 1024n) throw new Error("SKILL.md exceeds the 1 MiB comparison limit.");
+    const size = Number(before.size);
+    if (size + 1 > budget.remaining) throw new Error("The 16 MiB inventory comparison budget was reached.");
+    budget.remaining -= size + 1;
+    const hash = createHash("sha256");
+    const buffer = Buffer.alloc(65536);
+    let total = 0;
+    while (true) {
+      const { bytesRead } = await handle.read(buffer, 0, Math.min(buffer.length, size + 1 - total), null);
+      if (!bytesRead) break;
+      total += bytesRead;
+      if (total > size) throw new Error("SKILL.md changed while reading; refresh to retry.");
+      hash.update(buffer.subarray(0, bytesRead));
+    }
+    const after = await handle.stat({ bigint: true });
+    if (total !== size || before.size !== after.size || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs)
+      throw new Error("SKILL.md changed while reading; refresh to retry.");
+    return hash.digest("hex");
+  } finally {
+    await handle.close();
+  }
+}
+
 export async function discoverSkills(options: {
   workspace: string | null;
   home: string;
@@ -398,6 +429,7 @@ export async function discoverSkills(options: {
     };
     await walk(root.path, 0);
   }
+  const apmHashes = new Map<SkillEntry, Set<string>>();
   for (const scope of ["workspace", "personal"] as const) {
     const base = scope === "workspace" ? workspace : home;
     if (!base) continue;
@@ -431,6 +463,11 @@ export async function discoverSkills(options: {
           );
           if (match) {
             match.management = "apm";
+            const hashes = apmHashes.get(match) || new Set<string>();
+            const recorded = record(entry.deployed_file_hashes)[file];
+            hashes.add(typeof recorded === "string" && /^sha256:[0-9a-f]{64}$/i.test(recorded)
+              ? recorded.slice(7).toLowerCase() : "");
+            apmHashes.set(match, hashes);
             if (typeof entry.local_path === "string")
               match.packageSource = entry.local_path;
             else if (typeof entry.repo_url === "string")
@@ -446,6 +483,30 @@ export async function discoverSkills(options: {
           `${scope}: APM lock provenance could not be read.`,
         );
     }
+  }
+  const hashBudget = { remaining: 16 * 1024 * 1024 };
+  const checked = new Map<string, { digest?: string; reason?: string }>();
+  for (const [skill, hashes] of apmHashes) {
+    if (hashes.has("") || hashes.size !== 1) {
+      skill.apmIntegrity = {
+        status: "unavailable",
+        reason: hashes.has("") ? "A recorded SHA-256 baseline is missing or unsupported." : "Conflicting recorded SHA-256 hashes.",
+      };
+      continue;
+    }
+    const path = join(skill.resolvedPath, "SKILL.md");
+    let check = checked.get(path);
+    if (!check) {
+      try {
+        check = { digest: await hashSkillInstructions(path, hashBudget) };
+      } catch (error) {
+        check = { reason: error instanceof Error && !("code" in error) ? error.message : "SKILL.md could not be read; refresh to retry." };
+      }
+      checked.set(path, check);
+    }
+    skill.apmIntegrity = check.digest
+      ? { status: check.digest === [...hashes][0] ? "matches" : "differs" }
+      : { status: "unavailable", reason: check.reason };
   }
   result.skills = [...entries.values()].sort(
     (a, b) => a.name.localeCompare(b.name) || a.scope.localeCompare(b.scope),

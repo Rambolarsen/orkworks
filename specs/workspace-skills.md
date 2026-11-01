@@ -61,7 +61,21 @@ personal `.apm/apm.lock.yaml`, with a separate 2 MiB lock-file bound. Match
 recorded SKILL.md paths to discovered canonical or logical source paths within
 the same scope; retain plugin registrations and scoped source identities.
 Show and search the recorded APM package in source headings. APM records describe
-recorded ownership, not a verification of current file integrity or manual edits.
+recorded ownership; ownership alone does not verify current file integrity or
+manual edits.
+Discovery and Refresh also compare each APM-owned SKILL.md with its supported
+recorded SHA-256 baseline. Source details show matches, differs, or unavailable;
+a collapsed name row shows File differs when a currently listed source differs.
+Compare the complete instruction file, with a 1 MiB per-file limit and a shared
+16 MiB read budget per inventory. Reuse physical-file digests across aliases and
+scopes without sharing ownership records or merging source identities.
+A missing/unsupported hash in any matching record, conflicting supported baselines,
+unavailable files,
+files changing while read, and exhausted limits produce unavailable with a
+reason, never a confirmed difference. Only discovered canonical instruction
+paths are read; do not traverse arbitrary paths from the hash map or execute
+content. This point-in-time comparison covers SKILL.md only; it does not check
+companion resources, prove manual edits, or establish package authenticity.
 Unreadable, malformed or oversized locks leave ownership unknown with diagnostics.
 Missing provenance is Unknown, never an inferred package URL. A detail view can
 show SKILL.md as text and its source; skill instructions are untrusted content,
