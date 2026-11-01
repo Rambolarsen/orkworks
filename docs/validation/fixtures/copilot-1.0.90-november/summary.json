@@ -1,0 +1,183 @@
+{
+  "recordedAt": "2026-11-01T09:53:43.567347+00:00",
+  "version": "1.0.90",
+  "nativeExecutableSha256": "3ae21a3f00fcc216faaa1f062ee98451c7807066ee26f0fe1c85c6ed315e5458",
+  "attempts": [
+    {
+      "attempt": 1,
+      "model": "gpt-5-mini",
+      "outcome": "Sandbox blocked api.business.githubcopilot.com; tool execution interrupted; no exit receipt; PID 1610 absent on subsequent ps check; no stdout or OTel file"
+    },
+    {
+      "attempt": 2,
+      "model": "gpt-5-mini",
+      "outcome": "Model unavailable before inference",
+      "execution": {
+        "exitCode": 1,
+        "timedOut": false,
+        "durationSeconds": 4.115,
+        "stdoutBytes": 0,
+        "stderrBytes": 62,
+        "otelExists": false,
+        "pid": 2184
+      }
+    },
+    {
+      "attempt": 3,
+      "model": "gpt-6-luna",
+      "outcome": "Expected response received",
+      "execution": {
+        "exitCode": 0,
+        "timedOut": false,
+        "durationSeconds": 5.485,
+        "stdoutBytes": 23,
+        "stderrBytes": 0,
+        "otelExists": true,
+        "pid": 3749
+      }
+    }
+  ],
+  "expectedStdoutMatched": true,
+  "rawOtelUnretained": {
+    "bytes": 52854,
+    "sha256": "6ff8101f61539575ef395f263d599a6bbf9e33be2085b11f81ec6ff31fc4789b"
+  },
+  "otelRows": 15,
+  "spans": [
+    {
+      "name": "chat gpt-6-luna",
+      "attributeNames": [
+        "gen_ai.conversation.id",
+        "gen_ai.input.messages",
+        "gen_ai.operation.name",
+        "gen_ai.provider.name",
+        "gen_ai.request.model",
+        "gen_ai.request.reasoning.level",
+        "gen_ai.request.stream",
+        "gen_ai.response.finish_reasons",
+        "gen_ai.response.id",
+        "gen_ai.response.model",
+        "gen_ai.response.time_to_first_chunk",
+        "gen_ai.system_instructions",
+        "gen_ai.tool.definitions",
+        "gen_ai.usage.cache_write.input_tokens",
+        "gen_ai.usage.input_tokens",
+        "gen_ai.usage.output_tokens",
+        "gen_ai.usage.reasoning.output_tokens",
+        "github.copilot.cost",
+        "github.copilot.initiator",
+        "github.copilot.interaction_id",
+        "github.copilot.nano_aiu",
+        "github.copilot.server_duration",
+        "github.copilot.service_request_id",
+        "github.copilot.turn_id"
+      ],
+      "contentAttributes": {
+        "gen_ai.input.messages": {
+          "bytes": 180,
+          "sha256": "7342840f49129c99b8c143bca1b069b6393192956f8aeb26bcb530a5fa7073f7"
+        },
+        "gen_ai.system_instructions": {
+          "bytes": 16260,
+          "sha256": "6c61d836b50c7ff757981afeedcb8e592dc08925a5e715dd183de514bf742a33"
+        },
+        "gen_ai.tool.definitions": {
+          "bytes": 3715,
+          "sha256": "e65f0617e475eb3b52c9c0bdd3b44588a12cfc0bde2ad9c694aa36ee9c506052"
+        }
+      },
+      "tools": [
+        "view",
+        "skill",
+        "rg",
+        "glob"
+      ],
+      "exactRootRuleTextPresent": true,
+      "measurements": {
+        "gen_ai.request.model": "gpt-6-luna",
+        "gen_ai.usage.input_tokens": 4059,
+        "gen_ai.usage.output_tokens": 40,
+        "gen_ai.usage.reasoning.output_tokens": 28,
+        "gen_ai.response.model": "gpt-6-luna"
+      }
+    },
+    {
+      "name": "invoke_agent",
+      "attributeNames": [
+        "enduser.pseudo.id",
+        "gen_ai.conversation.id",
+        "gen_ai.input.messages",
+        "gen_ai.operation.name",
+        "gen_ai.provider.name",
+        "gen_ai.response.finish_reasons",
+        "gen_ai.system_instructions",
+        "gen_ai.tool.definitions",
+        "gen_ai.usage.input_tokens",
+        "gen_ai.usage.output_tokens",
+        "github.copilot.agent.type",
+        "github.copilot.context.custom_agent_names",
+        "github.copilot.context.mcp_server_names",
+        "github.copilot.context.skills",
+        "github.copilot.cost",
+        "github.copilot.git.branch",
+        "github.copilot.nano_aiu",
+        "github.copilot.turn_count"
+      ],
+      "contentAttributes": {
+        "gen_ai.input.messages": {
+          "bytes": 180,
+          "sha256": "7342840f49129c99b8c143bca1b069b6393192956f8aeb26bcb530a5fa7073f7"
+        },
+        "gen_ai.system_instructions": {
+          "bytes": 16260,
+          "sha256": "6c61d836b50c7ff757981afeedcb8e592dc08925a5e715dd183de514bf742a33"
+        },
+        "gen_ai.tool.definitions": {
+          "bytes": 3715,
+          "sha256": "e65f0617e475eb3b52c9c0bdd3b44588a12cfc0bde2ad9c694aa36ee9c506052"
+        }
+      },
+      "tools": [
+        "view",
+        "skill",
+        "rg",
+        "glob"
+      ],
+      "exactRootRuleTextPresent": true,
+      "measurements": {
+        "github.copilot.context.skills": "[\"customize-cloud-agent\",\"github-pr-media\"]",
+        "github.copilot.context.mcp_server_names": "[\"github-mcp-server\",\"githubiq\"]",
+        "gen_ai.usage.input_tokens": 4059,
+        "gen_ai.usage.output_tokens": 40,
+        "github.copilot.turn_count": 1
+      }
+    }
+  ],
+  "assistantEventNonemptyFields": [
+    {
+      "content": true,
+      "reasoningText": false,
+      "reasoningBlocks": true,
+      "reasoningOpaque": true,
+      "encryptedContent": true
+    }
+  ],
+  "limits": "One process at a time; 120 seconds per attempt; no automatic retry. Each later attempt separately owner-approved. Three attempts, one successful model turn. Provider attempts not independently measured.",
+  "decision": "All six role profiles remain unverified/no-go; no permission/skill/continuation fixture completed.",
+  "persistenceProvenance": [
+    {
+      "relativeSource": "settings/session-state/<session-id>/events.jsonl",
+      "unretainedBytes": 52227,
+      "unretainedSha256": "7bf5971e7c46871814453e023e97bb44d1819f71d628a23aed423c4530714d90",
+      "eventCount": 8,
+      "assistantEventCount": 1,
+      "sessionMatchesChatConversation": true,
+      "assistantTurnMatchesChatTurn": [
+        true
+      ],
+      "assistantInteractionMatchesChatInteraction": [
+        true
+      ]
+    }
+  ]
+}

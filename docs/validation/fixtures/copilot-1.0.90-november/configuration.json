@@ -1,0 +1,61 @@
+{
+  "argv": [
+    "copilot",
+    "--no-auto-update",
+    "--model",
+    "gpt-6-luna",
+    "--available-tools",
+    "view",
+    "grep",
+    "glob",
+    "skill",
+    "--deny-tool",
+    "shell",
+    "write",
+    "url",
+    "--disable-builtin-mcps",
+    "--disallow-temp-dir",
+    "--log-dir",
+    "<disposable>/logs",
+    "-s",
+    "-p",
+    "Reply exactly ORK740_RESPONSE_NOV01. Do not use tools."
+  ],
+  "environmentNames": [
+    "COPILOT_AUTO_UPDATE",
+    "COPILOT_HOME",
+    "COPILOT_OTEL_EXPORTER_TYPE",
+    "COPILOT_OTEL_FILE_EXPORTER_PATH",
+    "HOME",
+    "NO_COLOR",
+    "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT",
+    "PATH",
+    "TMPDIR",
+    "USE_TGREP"
+  ],
+  "config": {
+    "telemetry": {
+      "captureContent": false,
+      "capture": {
+        "prompts": true,
+        "toolArguments": true,
+        "responses": false,
+        "toolOutput": false,
+        "policyDetail": false,
+        "identity": false
+      }
+    },
+    "disableAllHooks": true,
+    "memory": false,
+    "ide": {
+      "autoConnect": false
+    },
+    "continueOnAutoMode": false,
+    "customAgents": {
+      "defaultLocalOnly": true
+    }
+  },
+  "cwd": "<disposable>/repo",
+  "authentication": "Existing owner-authorized authentication only; values never recorded. HOME retained for normal credential resolution; token variable names included only if inherited.",
+  "persistence": "Both settings/config.json and settings/settings.json seeded with config. CLI rewrote config.json; settings.json retained capture configuration. Effective precedence not independently qualified."
+}

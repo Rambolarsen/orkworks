@@ -20,3 +20,5 @@ Captured fixture context for reproducible validation.
 - [Score-directed prompt-v4 qualification](score-directed-readiness-v4-2026-10-31/index.md) — Separate sixteen-call fixed set; independent usefulness gate still failed.
 
 - [Evidence-first readiness qualification](score-directed-investigation-2026-10-31/index.md) — Separate twenty-call fixed set passed independent usefulness: three positives and both valid no-proposal controls.
+
+- [Copilot November evidence](copilot-1.0.90-november/index.md) — Sanitized hosted-turn measurements and exact configuration.

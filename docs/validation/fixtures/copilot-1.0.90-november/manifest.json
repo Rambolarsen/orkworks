@@ -1,0 +1,20 @@
+{
+  "artifacts": {
+    "summary.json": {
+      "bytes": 5926,
+      "sha256": "32b71fda97657525f277876ffb8d089a2afe8304dda2d05023c5e4b33d0daff5"
+    },
+    "index.md": {
+      "bytes": 335,
+      "sha256": "9c7643754885f7eb83a8c237637a35c70ad78109aad8e331f72886ccfef4f27c"
+    },
+    "configuration.json": {
+      "bytes": 1575,
+      "sha256": "15e99a32f13fe0b3df3d74d470292339f7e64edc37e6e4fe45388c8be72df134"
+    },
+    "root-rule.txt": {
+      "bytes": 101,
+      "sha256": "15b01ec6f72cfce8b6280788f880c2b96c8de632eb5f8c6efe50a776dd9f5794"
+    }
+  }
+}

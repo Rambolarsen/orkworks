@@ -64,3 +64,5 @@ Capability research, validation results, and evidence fixtures.
 - [Ordinary session metadata producer compatibility](session-storage-producers.md) — Source helper/reporting preparation, measured route evidence and explicit unqualified installed/platform profiles.
 
 - [Private ordinary-session SQLite adapter](session-store-adapter.md) — Source-only worker/query foundation, regression evidence and remaining writer/activation gates.
+
+- [Copilot November transport probe](copilot-november-transport-probe.md) — Hosted-turn observations and unchanged role eligibility gates.
