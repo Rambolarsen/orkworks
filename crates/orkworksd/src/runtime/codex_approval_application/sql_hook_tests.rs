@@ -83,7 +83,7 @@ async fn sql_hook_relay_activates_then_applies_boundaries_without_replaying_an_o
 }
 
 #[tokio::test]
-async fn sql_hook_relay_consumes_real_approval_mailboxes_and_defers_identity_without_json() {
+async fn sql_hook_relay_consumes_real_approval_mailboxes_and_identity_without_json() {
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (dir, state, store, writes, _effect, _commands) = fixture_with_root("root").await;
     let generation = {
@@ -126,15 +126,14 @@ async fn sql_hook_relay_consumes_real_approval_mailboxes_and_defers_identity_wit
             Arc::new(AtomicBool::new(false)),
         )
         .await;
-    assert_eq!(result.activity.reports_accepted, 1);
-    assert_eq!(result.activity.reports_consumed, 1);
-    assert_eq!(result.identities_deferred, 1);
+    assert_eq!(result.activity.reports_accepted, 2);
+    assert_eq!(result.activity.reports_consumed, 2);
     assert!(result.storage_error.is_none());
     assert!(!approval.exists());
-    assert!(identity.exists());
+    assert!(!identity.exists());
     assert_eq!(
         store.get(ID.into()).await.unwrap().unwrap()["metadataRevision"],
-        "2"
+        "3"
     );
     assert!(!dir
         .path()

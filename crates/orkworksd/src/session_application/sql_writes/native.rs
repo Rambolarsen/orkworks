@@ -26,6 +26,12 @@ impl HookOperation {
             || self.0.load(Ordering::Acquire) == 1
     }
 }
+struct HookCancellation(Arc<HookOperation>);
+impl Drop for HookCancellation {
+    fn drop(&mut self) {
+        self.0.cancel_before_claim();
+    }
+}
 struct HookCapability {
     id: String,
     token: String,
@@ -348,3 +354,7 @@ impl SessionWrites {
 pub(super) mod observer;
 
 pub(super) mod hook;
+
+pub(super) mod identity;
+
+mod mutation;

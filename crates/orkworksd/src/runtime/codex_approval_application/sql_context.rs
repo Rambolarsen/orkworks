@@ -470,3 +470,76 @@ pub(crate) fn finish_sql_observation(
     tracker.live_revision = h.runtime.attention_owner.snapshot();
     Some(effects)
 }
+
+/// Identity-only metadata must follow the original runtime and native binding,
+/// while unrelated typing/attention may continue during its SQL read.
+pub(crate) struct NativeIdentityContext {
+    id: String,
+    created: String,
+    runtime: super::super::session_runtime::RuntimeIdentity,
+    control: tokio::sync::mpsc::Sender<super::super::session_runtime::RuntimeCommand>,
+    instance: Arc<()>,
+    epoch: Arc<()>,
+    live_root: Option<String>,
+    authority: Option<super::super::prompt_authority::AuthoritySnapshot>,
+    cancelled: Arc<AtomicBool>,
+}
+impl NativeIdentityContext {
+    pub(crate) fn capture(
+        h: &SessionHandle,
+        generation: u64,
+        cancelled: Arc<AtomicBool>,
+        authority: Option<super::super::prompt_authority::AuthoritySnapshot>,
+    ) -> Option<Self> {
+        let tracker = h.runtime.native_approval.as_ref()?;
+        if h.runtime.run_generation() != generation
+            || tracker.fence.runtime_generation != generation
+            || h.info.lifecycle != "alive"
+            || h.info.lifecycle_phase != "active"
+            || h.info.harness_id.as_deref().or(h.info.harness.as_deref()) != Some("codex")
+            || cancelled.load(Ordering::Acquire)
+        {
+            return None;
+        }
+        Some(Self {
+            id: h.info.id.clone(),
+            created: h.info.created_at.clone(),
+            runtime: h.runtime.identity(),
+            control: h.runtime.control_tx.clone(),
+            instance: tracker.instance.clone(),
+            epoch: tracker.identity_epoch.clone(),
+            live_root: h
+                .info
+                .resume
+                .as_ref()
+                .and_then(|r| r.harness_session_id.clone()),
+            authority,
+            cancelled,
+        })
+    }
+    pub(crate) fn matches(
+        &self,
+        h: &SessionHandle,
+        authority: &Option<super::super::prompt_authority::AuthoritySnapshot>,
+    ) -> bool {
+        let Some(tracker) = h.runtime.native_approval.as_ref() else {
+            return false;
+        };
+        self.id == h.info.id
+            && self.created == h.info.created_at
+            && h.info.lifecycle == "alive"
+            && h.info.lifecycle_phase == "active"
+            && h.info.harness_id.as_deref().or(h.info.harness.as_deref()) == Some("codex")
+            && h.runtime.matches_identity(&self.runtime)
+            && h.runtime.control_tx.same_channel(&self.control)
+            && Arc::ptr_eq(&self.instance, &tracker.instance)
+            && Arc::ptr_eq(&self.epoch, &tracker.identity_epoch)
+            && h.info
+                .resume
+                .as_ref()
+                .and_then(|r| r.harness_session_id.as_ref())
+                == self.live_root.as_ref()
+            && authority == &self.authority
+            && !self.cancelled.load(Ordering::Acquire)
+    }
+}

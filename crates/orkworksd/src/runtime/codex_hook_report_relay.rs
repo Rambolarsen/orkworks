@@ -8,7 +8,9 @@ use crate::http::session_handlers::{
     report_harness_session_from_local_relay, HarnessSessionReportRequest,
 };
 use crate::runtime::terminal_runtime::verify_workflow_report_token;
-use crate::session_application::sql_writes::{SessionWrites, SqlHookOutcome};
+use crate::session_application::sql_writes::{
+    NativeIdentityReport, SessionWrites, SqlHookOutcome, SqlIdentityOutcome,
+};
 use crate::session_store::StoreError;
 use crate::AppState;
 use axum::http::StatusCode;
@@ -73,12 +75,11 @@ pub(crate) struct RelayOutcome {
     pub(crate) reports_accepted: usize,
 }
 
-/// Optional SQL approval drain. Identity reporting remains a separate pending
-/// writer group; its files stay untouched rather than falling back to JSON.
+/// Optional SQL approval/identity drain. External trust/label follow-ups remain
+/// separate owners; this path never falls back to JSON session metadata.
 #[derive(Default)]
 pub(crate) struct SqlRelayOutcome {
     pub(crate) activity: RelayOutcome,
-    pub(crate) identities_deferred: usize,
     pub(crate) committed_detached: usize,
     pub(crate) storage_error: Option<StoreError>,
 }
@@ -109,6 +110,34 @@ impl CodexHookReportRelay {
             .as_ref()
             .expect("Codex mailbox directory remains live")
             .path()
+    }
+
+    fn retain_sql_receipt(
+        &self,
+        name: &OsString,
+        bytes: &[u8],
+        first_receipt: Instant,
+        approval: bool,
+    ) -> bool {
+        let mut book = self.receipts.lock().unwrap();
+        if book.pending.contains_key(name) {
+            return true;
+        }
+        if book.pending.len() >= MAX_PENDING_RECEIPTS {
+            if approval {
+                book.overflow_floor.get_or_insert(first_receipt);
+            }
+            return false;
+        }
+        book.pending.insert(
+            name.clone(),
+            PendingReceipt {
+                bytes: bytes.to_vec(),
+                first_receipt,
+            },
+        );
+        book.retry_order.push_back(name.clone());
+        true
     }
 
     pub(crate) async fn consume_ready(
@@ -251,9 +280,48 @@ impl CodexHookReportRelay {
                 if !changed {
                     match report {
                         CodexHookReportEnvelope::Identity(envelope) => {
-                            if sql.is_some() {
-                                keep = true;
-                                result.identities_deferred += 1;
+                            if let Some((writes, cancelled)) = &sql {
+                                if full
+                                    || !self.retain_sql_receipt(&name, &bytes, first_receipt, false)
+                                {
+                                    keep = true;
+                                } else {
+                                    let request = envelope.report;
+                                    let report = NativeIdentityReport {
+                                        report: crate::metadata::HarnessSessionReport {
+                                            harness_session_id: request.harness_session_id,
+                                            source: request.source,
+                                            confidence: request.confidence,
+                                        },
+                                        session_start_source: request.session_start_source,
+                                        session_start_event: request.session_start_event,
+                                    };
+                                    match writes
+                                        .report_native_identity(
+                                            session_id.into(),
+                                            report_token.into(),
+                                            runtime_generation,
+                                            report,
+                                            cancelled.clone(),
+                                        )
+                                        .await
+                                    {
+                                        Ok(SqlIdentityOutcome::Accepted(_)) => {
+                                            outcome.reports_accepted += 1
+                                        }
+                                        Ok(SqlIdentityOutcome::Rejected) => {}
+                                        Ok(SqlIdentityOutcome::Retry) => keep = true,
+                                        Ok(SqlIdentityOutcome::CommittedDetached) => {
+                                            result.committed_detached += 1
+                                        }
+                                        Err(error) => {
+                                            if result.storage_error.is_none() {
+                                                result.storage_error = Some(error);
+                                            }
+                                            keep = true;
+                                        }
+                                    }
+                                }
                             } else {
                                 let status = report_harness_session_from_local_relay(
                                     state.clone(),
@@ -275,18 +343,10 @@ impl CodexHookReportRelay {
                             } else {
                                 // Retain the immutable packet before the first await. A
                                 // cancelled drain must not renew its permission grace.
-                                if sql.is_some() {
-                                    let mut book = self.receipts.lock().unwrap();
-                                    if !book.pending.contains_key(&name) {
-                                        book.pending.insert(
-                                            name.clone(),
-                                            PendingReceipt {
-                                                bytes: bytes.clone(),
-                                                first_receipt,
-                                            },
-                                        );
-                                        book.retry_order.push_back(name.clone());
-                                    }
+                                if sql.is_some()
+                                    && !self.retain_sql_receipt(&name, &bytes, first_receipt, true)
+                                {
+                                    continue;
                                 }
                                 let callback = if let Some((writes, cancelled)) = &sql {
                                     match writes

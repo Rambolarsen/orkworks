@@ -183,6 +183,14 @@ publication and yields an internal committed-but-detached result, never a
 rollback claim or a new persisted session state. Production SQL routing and
 participation of the remaining conflicting writers are still pending.
 
+The source-only private SQL identity application captures runtime/control,
+creation and the native binding independently of input/attention snapshots.
+Its opaque process-local identity epoch changes on binding/reset transitions,
+so equal native values after counter exhaustion cannot revive an old continuation.
+A committed identity changes live resume metadata only after current capability
+and ownership checks; it does not grant native attention proof. Production relay
+routing and external label/trust follow-up qualification remain separate gates.
+
 Attention has separate `attentionSource`, `attentionConfidence`, `attentionOrigin`,
 and `attentionUpdatedAt` fields. `metadataSource` and `metadataConfidence` describe
 work metadata, whose freshness uses `workMetadataUpdatedAt`. Legacy reads hydrate

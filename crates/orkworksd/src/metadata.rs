@@ -1199,6 +1199,37 @@ pub fn valid_harness_session_report(report: &HarnessSessionReport) -> bool {
         && (0.0..=1.0).contains(&report.confidence)
 }
 
+/// Validate the optional lifecycle pair without granting replacement authority.
+pub(crate) fn valid_harness_session_report_context(
+    report: &HarnessSessionReport,
+    session_start_source: Option<&str>,
+    session_start_event: Option<&str>,
+) -> bool {
+    if !valid_harness_session_report(report)
+        || session_start_source.is_some() != session_start_event.is_some()
+    {
+        return false;
+    }
+    if session_start_source.is_none() {
+        return true;
+    }
+    match report.source.as_str() {
+        "codex_hook" => {
+            session_start_event == Some("SessionStart")
+                && session_start_source.is_some_and(|source| {
+                    matches!(source, "startup" | "resume" | "clear" | "compact")
+                })
+        }
+        "claude_hook" => {
+            session_start_event == Some("SessionStart") && session_start_source == Some("clear")
+        }
+        "copilot_hook" => {
+            session_start_event == Some("sessionStart") && session_start_source == Some("new")
+        }
+        _ => false,
+    }
+}
+
 pub fn valid_hook_fingerprint(fingerprint: &str) -> bool {
     fingerprint.len() == 64 && fingerprint.bytes().all(|byte| byte.is_ascii_hexdigit())
 }

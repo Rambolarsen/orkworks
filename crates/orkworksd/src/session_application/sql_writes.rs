@@ -333,3 +333,5 @@ pub(crate) mod testing {
         received
     }
 }
+
+pub(crate) use native::identity::{NativeIdentityReport, SqlIdentityOutcome};
