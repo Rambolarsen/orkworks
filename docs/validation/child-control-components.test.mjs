@@ -158,7 +158,7 @@ for(const reason of ['stage_cancelled','parent_ended','workspace_changed','sidec
  assert.equal(validateControlRow(r,context),'unverified-control-components-only');assert.equal(resumeComponent(r,[],context),'stage-continue');
 });
 for(const stage of ['allocation','attachment','spawn'])for(const reason of ['native-failure','source-drift','authority-lost','process-replaced','disposition-unknown'])test('interruption tag '+stage+'/'+reason,()=>{
- const r=row('launch-interrupted');r.value.body.interruptedAt=stage;r.value.body.reasonCode=reason;rehash(r);assert.equal(validateControlRow(r,context),'unverified-control-components-only');
+ const r=row('launch-interrupted');r.value.body.interruptedAt=stage;r.value.body.reasonCode=reason;if(stage==='spawn')r.value.body.attachmentId=sources.worker.source.attachmentId;rehash(r);assert.equal(validateControlRow(r,context),'unverified-control-components-only');
 });
 
 for(const count of [32,33])test('conditional retained recovery count '+count,()=>{
@@ -178,3 +178,24 @@ test('task completion cannot point to a retained failed outcome',()=>{
  const r=row('task-reported_complete');r.value.body.coordinationResult.requestDigest=row('coordination-failed').value.requestDigest;rehash(r);
  assert.throws(()=>validateControlRow(r,context),{name:'AssertionError'});
 });
+for(const stage of ['attachment','spawn'])test('interruption at '+stage+' cannot forget its allocation',()=>{
+ const r=row('launch-interrupted');r.value.body.interruptedAt=stage;r.value.body.allocation=null;r.value.body.observedDirectories=[];rehash(r);
+ assert.throws(()=>validateControlRow(r,context),{name:'AssertionError'});
+});
+test('spawn interruption cannot forget its prepared attachment',()=>{
+ const r=row('launch-interrupted');r.value.body.interruptedAt='spawn';rehash(r);
+ assert.throws(()=>validateControlRow(r,context),{name:'AssertionError'});
+});
+test('run capacity ceiling still binds a different retained plan',()=>{
+ assert.deepEqual(capacityComponent([{launch:row('launch-interrupted'),session:null}],context,sources.reviewer.source.plan),{runUsage:1,planUsage:0,canReserve:false});
+});
+test('rehashed different run definition cannot supply an old plan ceiling',()=>{
+ const c=structuredClone(context);c.sources.run.maxParallelChildren=2;const b={...c.sources.run};delete b.runDefinitionDigest;
+ c.sources.run.runDefinitionDigest=domain('orkworks.orchestration-run.v1',b);
+ assert.throws(()=>capacityComponent([],c,c.sources.worker.source.plan),{name:'AssertionError'});
+});
+test('running cannot cite an unretained original spawn generation',()=>{
+ const r=row('launch-running');r.value.body.spawnRuntime.launchGeneration='f'.repeat(64);rehash(r);
+ assert.throws(()=>validateControlRow(r,context),{name:'AssertionError'});
+});
+test('running phase and terminal ordinary snapshot are an inconsistent recount',()=>assert.throws(()=>capacityComponent([{launch:row('launch-running'),session:row('session-terminal')}],context,sources.worker.source.plan),{name:'AssertionError'}));

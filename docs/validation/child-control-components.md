@@ -113,8 +113,31 @@ coverage and claims against the actual packet. One round, at most three active
 agents including root. Unchanged source contracts are reused. No model/native
 probe, writer delegation or session metadata reporting is authorized for reviewers.
 
-The focused 156 checks pass. The full repository verification command was invoked
+The focused 163 checks pass. The full repository verification command was invoked
 but stopped at prerequisites because this docs-only worktree has no desktop
 packages installed; it did not run the runtime suites. Documentation build/CI and
 review dispositions are recorded with the PR rather than implying full runtime
 verification from a synthetic packet.
+
+
+One bounded pair of read-only Luna reviewers inspected head
+`73820fd4aa2042d29d59fa2dde9be2c9c8ac052d`. Correctness review found that an
+interrupted attachment/spawn row could forget its prior allocation/attachment.
+Three regressions failed before the author added stage-dependent retention
+checks and pass after the correction. Positive spawn-interruption tag cases now
+retain the required original attachment. The coverage/claim review found no
+material findings. This is one round with an author-applied fix, not an
+independent second post-edit review. Existing circular/large VitePress chunk
+warnings concern the unchanged site bundling rather than these component bytes.
+
+An additional author check rejects substituting a differently hashed run ceiling
+under an old source plan: a regression failed before binding the complete original
+ParentPlanBinding to the supplied retained run and passes after the fix. A
+cross-plan capacity case also checks the run-wide ceiling when that plan's own
+usage is zero. These are author checks, not another independent review round.
+
+Two final author regressions also reject an unretained original successful spawn
+generation and a running/terminal lifecycle mismatch in the conditional recount.
+They failed before the corresponding retained-history/coherence joins and pass
+after them. Proposed spawn-pending generations still confer no actual runtime
+history or proof. No native evidence is inferred from these logical checks.

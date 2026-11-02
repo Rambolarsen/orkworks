@@ -30,7 +30,9 @@ function owner(t,c){
 }
 function sourcePlan(p,c){
  exact(p,'workspaceId runId planId planRevision planDefinitionDigest');digest(p.planDefinitionDigest);
- const found=[c.sources.worker,c.sources.reviewer].find(o=>canonical(o.source.plan)===canonical(p));assert(found,'retained exact plan');return found;
+ const found=[c.sources.worker,c.sources.reviewer].find(o=>canonical(o.source.plan)===canonical(p));assert(found,'retained exact plan');
+ same(pick(found.plan.parentPlanBinding,'runId parentSessionId runDefinitionDigest bootstrapConfigurationDigest repositoryBindingDigest sourceWorktreeBindingDigest'),pick(c.sources.run,'runId parentSessionId runDefinitionDigest bootstrapConfigurationDigest repositoryBindingDigest sourceWorktreeBindingDigest'),'exact original plan/run definition binding');
+ return found;
 }
 function original(x,o,k){same(x,o.source[k],'original '+k);}
 function runtimeBody(b,c){
@@ -138,13 +140,20 @@ function launchControl(b,c){
  if(b.attachmentId!==null)assert.equal(b.attachmentId,o.source.attachmentId);
  if(b.spawnRuntime!==null){exact(b.spawnRuntime,'sidecarGeneration launchGeneration');digest(b.spawnRuntime.sidecarGeneration);digest(b.spawnRuntime.launchGeneration);}
  directories(b.observedDirectories,o);
- if(b.phase==='interrupted'){tag(b.interruptedAt,['allocation','attachment','spawn']);tag(b.reasonCode,['native-failure','source-drift','authority-lost','process-replaced','disposition-unknown']);}
+ if(b.phase==='interrupted'){tag(b.interruptedAt,['allocation','attachment','spawn']);tag(b.reasonCode,['native-failure','source-drift','authority-lost','process-replaced','disposition-unknown']);
+  if(['attachment','spawn'].includes(b.interruptedAt))assert.notEqual(b.allocation,null,'interruption preserves allocated source');
+  if(b.interruptedAt==='spawn')assert.notEqual(b.attachmentId,null,'spawn interruption preserves prepared attachment');
+ }
  else{assert.equal(b.interruptedAt,null);assert.equal(b.reasonCode,null);}
  if(['reserved','allocating'].includes(b.phase)){assert.equal(b.allocation,null);assert.equal(b.attachmentId,null);assert.equal(b.spawnRuntime,null);}
  if(b.phase==='allocated'){assert.notEqual(b.allocation,null);assert.equal(b.attachmentId,null);assert.equal(b.spawnRuntime,null);}
  if(['prepared','spawn-pending','running','ended'].includes(b.phase)){assert.notEqual(b.allocation,null);assert.notEqual(b.attachmentId,null);}
  if(b.phase==='prepared')assert.equal(b.spawnRuntime,null);
  if(['spawn-pending','running','ended'].includes(b.phase))assert.notEqual(b.spawnRuntime,null);
+ if(['running','ended'].includes(b.phase)){
+  const history=(c.runtimeHistory??[]).filter(r=>r.table==='child_runtime_attachments'&&r.value.body.kind==='child'&&canonical(r.value.body.assignmentIdentity)===canonical(o.source.assignmentIdentity)&&r.value.body.sidecarGeneration===b.spawnRuntime.sidecarGeneration&&r.value.body.launchGeneration===b.spawnRuntime.launchGeneration);
+  assert.equal(history.length,1,'retained original successful spawn generation');validateControlRow(history[0],c);
+ }
  if(b.phase==='settled-no-child'){assert.equal(b.attachmentId,null);assert.equal(b.spawnRuntime,null);}
  if(b.attachmentId!==null)assert.notEqual(b.allocation,null);
  if(b.spawnRuntime!==null)assert.notEqual(b.attachmentId,null);
@@ -232,7 +241,9 @@ export function capacityComponent(attempts,c,p){
  for(const {launch,session}of attempts){validateControlRow(launch,c);assert.equal(launch.table,'child_launch_controls');const b=launch.value.body,k=canonical(b.task);assert(!seen.has(k),'unique original attempts');seen.add(k);
   let held;
   if(b.attachmentId===null){assert.equal(session,null);held=b.phase!=='settled-no-child';}
-  else{assert.notEqual(session,null,'attached disposition required');validateControlRow(session,c);assert.equal(session.table,'child_session_states');same(session.key,b.task);assert.equal(session.value.body.attachmentId,b.attachmentId);held=session.value.body.state!=='terminal';}
+  else{assert.notEqual(session,null,'attached disposition required');validateControlRow(session,c);assert.equal(session.table,'child_session_states');same(session.key,b.task);assert.equal(session.value.body.attachmentId,b.attachmentId);if(b.phase==='running')assert.equal(session.value.body.state,'nonterminal');
+   if(b.phase==='ended')assert.equal(session.value.body.state,'terminal');
+   held=session.value.body.state!=='terminal';}
   if(held){runUsage++;if(canonical(b.task)===canonical(taskOf(o)))planUsage++;}
  }
  integer(c.sources.run.maxParallelChildren,1,16);assert.equal(o.plan.maxParallelChildren,1);
