@@ -94,7 +94,7 @@ function artifacts(context, evidence) {
   list(context.retainedArtifacts, 16);
   const map = new Map();
   for (const a of context.retainedArtifacts) {
-    exact(a, 'content contentDigest'); text(a.content, 1048576); digest(a.contentDigest);
+    exact(a, 'content contentDigest'); assert(typeof a.content === 'string' && a.content.isWellFormed(), 'artifact UTF-8'); assert(Buffer.byteLength(a.content) >= 1 && Buffer.byteLength(a.content) <= 65536, 'artifact 64 KiB'); digest(a.contentDigest);
     assert.equal(hash(a.content), a.contentDigest, 'artifact content digest');
     assert(!map.has(a.contentDigest), 'duplicate artifact'); map.set(a.contentDigest, a.content);
   }
@@ -154,6 +154,7 @@ function utc(x) {
   assert(Number.isFinite(date.valueOf()) && date.toISOString() === x.replace('Z', '.000Z'), 'UTC Gregorian timestamp');
 }
 function evidence(x, b) {
+  assert(Buffer.byteLength(canonical(x)) <= 65536, 'evidence 64 KiB');
   exact(x, 'schemaVersion evidenceId harnessId definitionDigest adapterId adapterVersion executableIdentity toolVersion platform instructionMechanism effectiveSettingsDigest role requestedProfileDigest effectiveProfileDigest decision checks references assessedAt assessorIdentity evidenceDigest');
   assert.equal(x.schemaVersion, 1); assert.equal(x.role, 'orchestrator');
   for (const k of ['evidenceId', 'harnessId', 'adapterId']) id(x[k]);
@@ -186,7 +187,7 @@ function evidence(x, b) {
 }
 function snapshots(b, context) {
   const r = b.roleTemplate;
-  exact(r, 'id version role instructions instructionsDigest contentDigest provenance'); id(r.id); integer(r.version, 1, Number.MAX_SAFE_INTEGER);
+  exact(r, 'id version role instructions instructionsDigest contentDigest provenance'); id(r.id); integer(r.version, 1, 2147483647);
   assert.equal(r.role, 'orchestrator'); text(r.instructions, 262144);
   assert.equal(hash(r.instructions), r.instructionsDigest, 'role instructions digest');
   const roleBody = {...r}; delete roleBody.contentDigest;
@@ -236,7 +237,7 @@ function snapshots(b, context) {
     assert.deepEqual(s.requirementSources, s.requirement === 'mandatory' ? expected : [],
       s.requirement === 'mandatory' ? 'requirement source projection' : 'optional sources');
   }
-  exact(b.rubric, 'id version dimensions evaluatorRole'); id(b.rubric.id); integer(b.rubric.version, 1, Number.MAX_SAFE_INTEGER);
+  exact(b.rubric, 'id version dimensions evaluatorRole'); id(b.rubric.id); integer(b.rubric.version, 1, 2147483647);
   tag(b.rubric.evaluatorRole, roles); list(b.rubric.dimensions, 16, 1);
   for (const d of b.rubric.dimensions) { exact(d, 'id description'); id(d.id); text(d.description, 2048); }
   assert.equal(new Set(b.rubric.dimensions.map(d => d.id)).size, b.rubric.dimensions.length, 'unique dimensions');

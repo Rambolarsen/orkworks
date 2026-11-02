@@ -4,7 +4,7 @@ title: Retained root-bootstrap v2 source validation
 description: A dormant Rust validator for the existing complete unverified root source slice, preserving canonical bytes and explicit version limits.
 tags: [plans, roles, bootstrap, codecs, validation]
 status: draft
-workflow_status: awaiting-owner-review
+workflow_status: implementing
 ---
 
 # Retained root-bootstrap v2 source validation
@@ -14,7 +14,8 @@ root-bootstrap v2 against its run, exact goal and retained artifact bytes.
 Pass condition: independent existing golden bytes and all in-scope rejection
 cases pass; success remains `unverified-source-bytes-only`.
 Tracking: [#1307](https://github.com/Rambolarsen/orkworks/issues/1307), under #738.
-The owner authorized preparing this concrete plan; code awaits its review.
+The owner approved inline implementation of reviewed source
+`c163bbbd3bde45c451f74a77c173e2569063ca38` with “go ahead”.
 
 ## Accepted basis and selected version
 
