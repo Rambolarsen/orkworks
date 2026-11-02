@@ -518,7 +518,8 @@ function capabilityEvidence(x, cfg, ctx) {
   sealed(x, 'evidenceDigest', 'orkworks.capability-evidence.v1', 'evidence digest');
   return artifacts(ctx, x);
 }
-export function childDeliveryOrder(x, role, cfg, artifactMap, expectedInputDigest) {
+export function childDeliveryOrder(x, role, cfg, artifactMap, expectedInputDigest,
+  expectedWireBytes = 0) {
   exact(x, 'schemaVersion kind harnessId adapterId adapterVersion argv nonsecretBindings configurationSources discoveredInstructions deliveryOrder instructionMechanism');
   assert.equal(x.schemaVersion, 1);
   assert.equal(x.kind, 'child-startup-settings', 'child settings artifact kind');
@@ -599,6 +600,16 @@ export function childDeliveryOrder(x, role, cfg, artifactMap, expectedInputDiges
   } else {
     assert.equal(reviewInputs.length, 0, 'worker has no retained review-input delivery');
   }
+  const automaticBytes = x.discoveredInstructions.reduce((n, d) => {
+    const group = d.snapshotKind === 'rule' ? cfg.rules :
+      d.snapshotKind === 'role-template' ? [cfg.roleTemplate] :
+        d.snapshotKind === 'skill' ? cfg.skills : cfg.skillResources;
+    const source = group.find(s => s.id === d.snapshotId);
+    return n + Buffer.byteLength(source.content);
+  }, 0);
+  assert(Buffer.byteLength(cfg.renderedInstructions) + automaticBytes +
+    expectedWireBytes <= 262144,
+  'composed startup ceiling includes every delivered occurrence');
   assert(Buffer.byteLength(canonical(x)) <= 65536, 'settings artifact 64 KiB');
   return x;
 }
@@ -772,6 +783,15 @@ export function validateChildConfiguration(b, ctx) {
   text(policy.adapterVersion, 512);
   tag(policy.mode, ['pinned', 'tool-managed']);
   assert.equal(typeof policy.unknownModelAllowed, 'boolean');
+  list(policy.settings, 32);
+  sorted(policy.settings, b => b.name);
+  for (const s of policy.settings) {
+    exact(s, 'name value');
+    assert(typeof s.name === 'string' &&
+      /^[A-Za-z_][A-Za-z0-9_.-]{0,127}$/.test(s.name), 'policy binding name');
+    text(s.value, 2048, 0);
+    assert(Buffer.byteLength(canonical(s)) <= 16384, 'policy binding 16 KiB');
+  }
   if (policy.mode === 'pinned') { text(policy.modelId, 512); assert.equal(policy.unknownModelAllowed, false); }
   else assert.equal(policy.modelId, null, 'tool-managed policy');
   for (const k of ['policyId', 'mode', 'modelId']) assert.equal(b.model[k], policy[k], 'model binding ' + k);
@@ -826,6 +846,8 @@ export function validateChildReviewInputSnapshot(x, ctx) {
   const resultDigest = validateChildResultDigest(x.result);
   exact(x.target, 'assignmentIdentity resultRevision resultDigest');
   childIdentity(x.target.assignmentIdentity);
+  if (ctx.expectedResult) assert.deepEqual(x.result, ctx.expectedResult,
+    'snapshot retained result join');
   assert.equal(x.target.resultDigest, resultDigest, 'target/result digest join');
   integer(x.target.resultRevision, 1, 32);
   assert.equal(x.result.resultRevision, x.target.resultRevision, 'result revision join');
@@ -869,9 +891,12 @@ export function makeContext(catalog, role, depth = 0) {
 export function verifyChildChain(chain, ctx) {
   validateRun(ctx.run);
   const plan = validateChildPlan(chain.plan, ctx);
+  let retainedWire = null;
+  if (chain.inputSnapshot) retainedWire = retainedReviewInputWire(chain.inputSnapshot);
   const validator = validateChildConfiguration(chain.configuration,
-    chain.inputSnapshot ? {...ctx, expectedInputDigest: chain.inputSnapshot.inputDigest} :
-      ctx);
+    chain.inputSnapshot ?
+      {...ctx, expectedInputDigest: chain.inputSnapshot.inputDigest,
+        expectedWireBytes: Buffer.byteLength(retainedWire)} : ctx);
   const configuration = validator.configuration;
   assert.deepEqual(plan.taskKey,
     {workspaceId: ctx.run.workspaceId, runId: ctx.run.runId,
@@ -880,6 +905,8 @@ export function verifyChildChain(chain, ctx) {
   assert.deepEqual(plan.plan.task.configuration, {
     configurationId: configuration.configurationId,
     configurationDigest: configuration.configurationDigest}, 'plan configuration join');
+  assert.equal(plan.plan.task.initialPrompt, configuration.assignment.description,
+    'plan initial prompt join');
   const selfTask = {workspaceId: ctx.run.workspaceId, runId: ctx.run.runId,
     planId: configuration.planId, planRevision: configuration.planRevision,
     taskId: configuration.taskId};
@@ -932,11 +959,16 @@ export function verifyChildChain(chain, ctx) {
     reservation, attachment, allocationRef});
   assert.deepEqual(assignmentSource.input, plan.plan.task.input,
     'assignment source input join');
+  assert.deepEqual(assignmentSource.approval, {
+    plan: request.plan, approvalId: request.approvalId, approvalDigest: rowDigest},
+  'assignment source approval join');
   let snapshotKeys = null;
   if (configuration.reviewInput !== null) {
     snapshotKeys = validateChildReviewInputSnapshot(chain.inputSnapshot, {
       targetConfiguration: chain.targetConfiguration, reportContexts: ctx.reportContexts,
-      expectedTask: selfTask});
+      expectedTask: selfTask, expectedResult: chain.targetResult});
+    assert.deepEqual(chain.inputSnapshot.target, configuration.reviewInput.target,
+      'snapshot target join');
     assert.deepEqual(chain.inputSnapshot.evidence.map(pair => pair.source),
       configuration.reviewInput.evidenceSources, 'snapshot evidence coverage join');
     assert.deepEqual(snapshotKeys, reviewInputKeys, 'snapshot source-key join');

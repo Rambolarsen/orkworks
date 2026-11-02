@@ -220,6 +220,20 @@ const NEGATIVES = [
     'orkworks.child-source-attachment.v1')}), /attachment identity/],
   ['snapshot unknown field', () => reviewerBase({inputSnapshot:
     {...value('reviewer-input-snapshot'), bearer: 'not-a-grant'}}), /closed fields/],
+  ['assignment source approval drift', () => workerChain({assignmentSource: {
+    ...value('worker-assignment-source'),
+    approval: {...value('worker-assignment-source').approval,
+      approvalDigest: '0'.repeat(64)}}}), /assignment source approval join/],
+  ['plan prompt drift', () => workerChain({plan: reseal(
+    {...value('worker-source-plan'),
+      task: {...value('worker-source-plan').task,
+        initialPrompt: 'Unrelated prompt bytes.'}}, 'planDefinitionDigest',
+    'orkworks.child-source-plan.v1')}), /plan initial prompt join/],
+  ['snapshot result unbound to reviewed target', () => reviewerBase(
+    {inputSnapshot:
+      {...value('reviewer-input-snapshot'),
+        result: {...value('reviewer-input-snapshot').result, resultRevision: 2}}}),
+  /snapshot retained result join/],
   ['snapshot credentials excluded', () => reviewerBase({inputSnapshot:
     {...value('reviewer-input-snapshot'), bearer: 'not-a-grant'}}), /closed fields/],
   ['reservation approval digest drift', () => workerChain({reservation: reseal(
@@ -313,6 +327,73 @@ test('rejects missing retained review-input delivery with consistent bytes', () 
     [{'kind': 'automatic', 'precedence': 0}, {'kind': 'supplied'}]);
   assert.throws(() => verifyChildChain(chain, ctx),
     /one retained review-input delivery/);
+});
+
+function withMutatedArtifact(role, kind, mutateArtifact) {
+  const artifactIndex = catalog.context.artifactSets[role]
+    .findIndex(a => a.content.startsWith('{') && JSON.parse(a.content).kind === kind);
+  assert(artifactIndex >= 0, 'artifact selected');
+  const original = JSON.parse(catalog.context.artifactSets[role][artifactIndex].content);
+  const mutated = mutateArtifact(original);
+  const mutatedCanonical = canonical(mutated);
+  const ctx = makeContext(catalog, role);
+  ctx.retainedArtifacts = catalog.context.artifactSets[role].map((a, i) => i ===
+    artifactIndex ? {content: mutatedCanonical, contentDigest: sha(mutatedCanonical)} : a);
+  return {ctx, original, index: artifactIndex};
+}
+
+test('rejects malformed model-policy settings bindings with consistent bytes', () => {
+  const {ctx, index} = withMutatedArtifact('reviewer', 'child-model-policy',
+    policy => ({...policy, settings: true}));
+  const configuration = structuredClone(value('reviewer-configuration'));
+  configuration.capabilityEvidence = reseal(
+    {...configuration.capabilityEvidence,
+      references: configuration.capabilityEvidence.references.map((r, i) =>
+        i === index ? {...r, contentDigest:
+          ctx.retainedArtifacts[index].contentDigest} : r)},
+    'evidenceDigest', 'orkworks.capability-evidence.v1');
+  configuration.harness = Object.fromEntries(
+    ['harnessId', 'definitionDigest', 'adapterId', 'adapterVersion', 'executableIdentity',
+      'toolVersion', 'platform', 'instructionMechanism', 'effectiveSettingsDigest',
+      'evidenceId', 'evidenceDigest'].map(k => [k, configuration.capabilityEvidence[k]]));
+  configuration.model = {...configuration.model,
+    policyDigest: sha(ctx.retainedArtifacts[index].content)};
+  const chain = reviewerBase({configuration: resealConfiguration(configuration)});
+  assert.throws(() => verifyChildChain(chain, ctx),
+    /policy binding name|closed fields|bounded array/);
+});
+
+test('rejects automatic delivery beyond the composed startup ceiling', () => {
+  const worker = structuredClone(value('worker-configuration'));
+  const rule = structuredClone(worker.rules[0]);
+  rule.content = 'x'.repeat(140000);
+  rule.contentDigest = sha(rule.content);
+  const rules = [rule];
+  const originalSettings = JSON.parse(catalog.context.artifactSets.worker
+    .find(a => JSON.parse(a.content).kind === 'child-startup-settings').content);
+  const mutatedSettings = {...originalSettings,
+    discoveredInstructions: [{snapshotKind: 'rule', snapshotId: rule.id,
+      contentDigest: rule.contentDigest, precedence: 0}]};
+  const {ctx} = withMutatedArtifact('worker', 'child-startup-settings', () => mutatedSettings);
+  worker.rules = rules;
+  worker.requirementManifests = worker.requirementManifests.map(m => m.sourceId ===
+    rule.id ? {...m, sourceDigest: rule.contentDigest} : m);
+  worker.skills = worker.skills.map(s => s.id === 'fixture-skill' ?
+    {...s, requirementSources: s.requirementSources.map(rs => rs.sourceId === rule.id ?
+      {...rs, sourceDigest: rule.contentDigest} : rs)} : s);
+  worker.capabilityEvidence = reseal(
+    {...worker.capabilityEvidence,
+      effectiveSettingsDigest: sha(canonical(mutatedSettings)),
+      references: worker.capabilityEvidence.references.map((r, i) =>
+        i === 0 ? {...r, contentDigest: sha(canonical(mutatedSettings))} : r)},
+    'evidenceDigest', 'orkworks.capability-evidence.v1');
+  worker.harness = Object.fromEntries(
+    ['harnessId', 'definitionDigest', 'adapterId', 'adapterVersion', 'executableIdentity',
+      'toolVersion', 'platform', 'instructionMechanism', 'effectiveSettingsDigest',
+      'evidenceId', 'evidenceDigest'].map(k => [k, worker.capabilityEvidence[k]]));
+  const chain = workerChain({configuration: resealConfiguration(worker)});
+  assert.throws(() => verifyChildChain(chain, ctx),
+    /composed startup ceiling includes every delivered occurrence/);
 });
 
 test('rejects delivery digest drift from the retained input snapshot', () => {
