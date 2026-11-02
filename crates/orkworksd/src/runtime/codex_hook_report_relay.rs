@@ -273,6 +273,21 @@ impl CodexHookReportRelay {
                                 // overflow floor prevents renewed grace later.
                                 keep = true;
                             } else {
+                                // Retain the immutable packet before the first await. A
+                                // cancelled drain must not renew its permission grace.
+                                if sql.is_some() {
+                                    let mut book = self.receipts.lock().unwrap();
+                                    if !book.pending.contains_key(&name) {
+                                        book.pending.insert(
+                                            name.clone(),
+                                            PendingReceipt {
+                                                bytes: bytes.clone(),
+                                                first_receipt,
+                                            },
+                                        );
+                                        book.retry_order.push_back(name.clone());
+                                    }
+                                }
                                 let callback = if let Some((writes, cancelled)) = &sql {
                                     match writes
                                         .report_native_hook(

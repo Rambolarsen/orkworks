@@ -365,7 +365,11 @@ control, input, attention, tracker and prompt authority before metadata I/O.
 Shared validation retains token/fingerprint/root/scalar checks, source timestamps,
 trusted boundary watermarks, turn/correlation rules and the original monotonic
 first receipt. Temporary transition contention returns Retry rather than claiming
-that a valid report was invalid. Missing rows and storage errors remain typed.
+that a valid report was invalid. This remains retryable after an earlier stage
+commits; an obsolete runtime or workspace is distinguished from a busy guard.
+A missing live native root retains a scalar-validated approval for later identity
+binding; a known mismatching root rejects it. Missing rows and storage errors
+remain typed.
 
 A process-local hook application identity binds the staged continuation and all
 issued native effects. Equal report values at exhausted hook counters cannot
@@ -374,10 +378,14 @@ reservations and per-session lanes, validating execution and publication under
 short guards and retaining the workspace lease through the definitive result.
 Caller cancellation synchronously retires an unclaimed operation; once claimed,
 its owner finishes the remaining stages internally even if the caller disappears.
-The same cutoff covers a hook's native effect. Every SQL wait releases the
+The same cutoff covers a hook's native effect. Hook-generated effects also retain
+the original reporting capability and revalidate it at admission, execution claim
+and publication. Observer effects remain independent of hook tokens.
+Every SQL wait releases the
 projection, workspace, session and prompt guards. No-op/error paths do not publish
 an attention write or adopt a persisted proof. A committed write that loses live
-publication returns committed-detached explicitly.
+ownership returns committed-detached explicitly. Temporary guard contention
+retains the immutable packet for fresh application without adopting a stored proof.
 
 A report may contain several scoped writes, matching the existing activation
 then fallback order. Failure after an earlier committed stage does not roll it
@@ -386,7 +394,8 @@ reuses a prepared command or renews the first-receipt grace period.
 
 `CodexHookReportRelay::consume_ready_sql` exercises this path against actual
 private approval mailbox files. It preserves bounded pending/retry quotas and
-immutable cached receipts, exposes the first typed storage failure separately,
+immutable cached receipts before awaiting SQL application, including when a drain
+is cancelled, exposes the first typed storage failure separately,
 and consumes detached commits without acknowledging live application. Identity
 envelopes remain queued and are counted as deferred; there is no JSON identity
 fallback. Their authenticated SQL orchestration remains a separate writer group.
@@ -394,7 +403,9 @@ The production drain still selects its JSON path.
 
 Regressions cover exact SQL tuples/proofs and protected no-ops, actual mailbox
 approval with deferred identity, close/reopen storage retry past the grace period,
-transition contention, an eleven-case stale-read matrix, caller cancellation on
+transition contention before and after commit, token replacement at native claim
+and publication, cancellation without receipt renewal, unknown-root retention,
+an eleven-case stale-read matrix, caller cancellation on
 both sides of the execution cutoff, detached publication, equal-report overlap
 at exhausted counters and earlier native emissions fenced by a pending boundary.
 A controlled command consumer delivers actual PTY input while hook SQL is stalled.

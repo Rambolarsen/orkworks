@@ -488,7 +488,7 @@ async fn sql_hook_relay_caller_cancellation_after_claim_retains_the_definitive_a
     });
     held.entered().await;
     pending.abort();
-    assert!(pending.await.unwrap_err().is_cancelled());
+    assert!(matches!(pending.await, Err(error) if error.is_cancelled()));
     drop(held);
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
         while !state.sessions.lock().unwrap()[ID].active_work_hook {
@@ -564,7 +564,7 @@ async fn sql_hook_relay_caller_cancellation_before_claim_removes_queued_admissio
     .await
     .unwrap();
     pending.abort();
-    assert!(pending.await.unwrap_err().is_cancelled());
+    assert!(matches!(pending.await, Err(error) if error.is_cancelled()));
     drop(lane);
     drop(reservation);
     assert_eq!(
@@ -868,4 +868,343 @@ async fn sql_hook_relay_stalled_execution_leaves_real_pty_input_delivery_availab
     assert!(!state.sessions.lock().unwrap()[ID].active_work_hook);
     super::super::terminal_runtime::clear_workflow_report_token(ID);
     store.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn sql_hook_relay_review_unknown_live_root_retains_valid_approval() {
+    let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
+    let (_dir, state, store, writes, _effect, _commands) = inactive_fixture().await;
+    let generation = {
+        let mut sessions = state.sessions.lock().unwrap();
+        let h = sessions.get_mut(ID).unwrap();
+        h.info.resume.as_mut().unwrap().harness_session_id = None;
+        h.runtime.run_generation()
+    };
+    let relay = super::super::codex_hook_report_relay::CodexHookReportRelay::new().unwrap();
+    let path = queue_permission(&relay);
+    let result = relay
+        .consume_ready_sql(
+            state.clone(),
+            ID,
+            TOKEN,
+            generation,
+            writes.clone(),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .await;
+    assert_eq!(result.activity.reports_consumed, 0);
+    assert!(path.exists());
+    state
+        .sessions
+        .lock()
+        .unwrap()
+        .get_mut(ID)
+        .unwrap()
+        .info
+        .resume
+        .as_mut()
+        .unwrap()
+        .harness_session_id = Some("other".into());
+    let result = relay
+        .consume_ready_sql(
+            state,
+            ID,
+            TOKEN,
+            generation,
+            writes,
+            Arc::new(AtomicBool::new(false)),
+        )
+        .await;
+    assert_eq!(result.activity.reports_consumed, 1);
+    assert!(!path.exists());
+    super::super::terminal_runtime::clear_workflow_report_token(ID);
+    store.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn sql_hook_relay_review_cancelled_drain_preserves_original_receipt() {
+    let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
+    let (_dir, state, store, writes, _effect, _commands) = inactive_fixture().await;
+    let generation = state.sessions.lock().unwrap()[ID].runtime.run_generation();
+    let relay =
+        Arc::new(super::super::codex_hook_report_relay::CodexHookReportRelay::new().unwrap());
+    let path = queue_permission(&relay);
+    let paused = crate::session_store::test_worker::pause(&store);
+    let owner = relay.clone();
+    let application = writes.clone();
+    let runtime = state.clone();
+    let pending = tokio::spawn(async move {
+        owner
+            .consume_ready_sql(
+                runtime,
+                ID,
+                TOKEN,
+                generation,
+                application,
+                Arc::new(AtomicBool::new(false)),
+            )
+            .await
+    });
+    crate::session_store::test_worker::wait_for_get(&store, ID).await;
+    pending.abort();
+    assert!(matches!(pending.await, Err(error) if error.is_cancelled()));
+    drop(paused);
+    tokio::time::sleep(std::time::Duration::from_millis(2100)).await;
+    let result = relay
+        .consume_ready_sql(
+            state,
+            ID,
+            TOKEN,
+            generation,
+            writes,
+            Arc::new(AtomicBool::new(false)),
+        )
+        .await;
+    assert!(result.storage_error.is_none());
+    assert_eq!(result.activity.reports_accepted, 1);
+    assert!(!path.exists());
+    assert_eq!(
+        store.get(ID.into()).await.unwrap().unwrap()["attention"],
+        "needs_you"
+    );
+    super::super::terminal_runtime::clear_workflow_report_token(ID);
+    store.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn sql_hook_relay_review_contention_after_activation_commit_retains_packet() {
+    let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
+    let (_dir, state, store, writes, _effect, _commands) = inactive_fixture().await;
+    let generation = state.sessions.lock().unwrap()[ID].runtime.run_generation();
+    let relay =
+        Arc::new(super::super::codex_hook_report_relay::CodexHookReportRelay::new().unwrap());
+    let path = queue_permission(&relay);
+    let mut held = crate::session_store::test_worker::hold_next_internal(&store, ID);
+    let owner = relay.clone();
+    let application = writes.clone();
+    let runtime = state.clone();
+    let pending = tokio::spawn(async move {
+        owner
+            .consume_ready_sql(
+                runtime,
+                ID,
+                TOKEN,
+                generation,
+                application,
+                Arc::new(AtomicBool::new(false)),
+            )
+            .await
+    });
+    held.entered().await;
+    let transition = super::super::prompt_authority::transition_lock()
+        .lock()
+        .unwrap();
+    drop(held);
+    let result = pending.await.unwrap();
+    drop(transition);
+    assert_eq!(result.activity.reports_consumed, 0);
+    assert_eq!(result.committed_detached, 0);
+    assert!(result.storage_error.is_none());
+    assert!(path.exists());
+    assert_eq!(
+        store.get(ID.into()).await.unwrap().unwrap()["metadataRevision"],
+        "2"
+    );
+    assert!(!state.sessions.lock().unwrap()[ID].active_work_hook);
+    let result = relay
+        .consume_ready_sql(
+            state,
+            ID,
+            TOKEN,
+            generation,
+            writes,
+            Arc::new(AtomicBool::new(false)),
+        )
+        .await;
+    assert_eq!(result.activity.reports_accepted, 1);
+    assert!(!path.exists());
+    super::super::terminal_runtime::clear_workflow_report_token(ID);
+    store.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn sql_hook_relay_review_native_effect_cannot_publish_after_token_replacement() {
+    let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
+    let (_dir, state, store, writes, _effect, _commands) = inactive_fixture().await;
+    let generation = {
+        let mut sessions = state.sessions.lock().unwrap();
+        let h = sessions.get_mut(ID).unwrap();
+        h.active_work_hook = true;
+        h.runtime.run_generation()
+    };
+    let mut held = crate::session_store::test_worker::hold_next_internal(&store, ID);
+    let pending = tokio::spawn(async move {
+        writes
+            .report_native_hook(
+                ID.into(),
+                TOKEN.into(),
+                generation,
+                Instant::now() - std::time::Duration::from_secs(3),
+                report(HookEvent::PermissionRequest, chrono::Utc::now()),
+                Arc::new(AtomicBool::new(false)),
+            )
+            .await
+    });
+    held.entered().await;
+    super::super::terminal_runtime::set_workflow_report_token(ID, "replacement-token".into());
+    drop(held);
+    assert_eq!(
+        pending.await.unwrap().unwrap(),
+        SqlHookOutcome::CommittedDetached
+    );
+    assert_eq!(state.sessions.lock().unwrap()[ID].info.attention, None);
+    assert_eq!(
+        store.get(ID.into()).await.unwrap().unwrap()["attention"],
+        "needs_you"
+    );
+    super::super::terminal_runtime::clear_workflow_report_token(ID);
+    store.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn sql_hook_relay_review_native_claim_revalidates_capability_and_retries_contention() {
+    let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
+    for replacement in [false, true] {
+        let (_dir, state, store, writes, _effect, _commands) = inactive_fixture().await;
+        let generation = {
+            let mut sessions = state.sessions.lock().unwrap();
+            let h = sessions.get_mut(ID).unwrap();
+            h.active_work_hook = true;
+            h.runtime.run_generation()
+        };
+        let reservation = store
+            .prepare_internal(
+                ID.into(),
+                super::sql_tests::CREATED.into(),
+                crate::metadata::internal_mutations::InternalMutation::UserTitle { title: None },
+            )
+            .unwrap();
+        let lane = reservation.lane().unwrap().lock_owned().await;
+        let ready = crate::session_application::sql_writes::testing::before_hook_lane(&writes);
+        let pending = tokio::spawn(async move {
+            writes
+                .report_native_hook(
+                    ID.into(),
+                    TOKEN.into(),
+                    generation,
+                    Instant::now() - std::time::Duration::from_secs(3),
+                    report(HookEvent::PermissionRequest, chrono::Utc::now()),
+                    Arc::new(AtomicBool::new(false)),
+                )
+                .await
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(5), ready)
+            .await
+            .unwrap()
+            .unwrap();
+        let transition = if replacement {
+            super::super::terminal_runtime::set_workflow_report_token(
+                ID,
+                "replacement-token".into(),
+            );
+            None
+        } else {
+            Some(
+                super::super::prompt_authority::transition_lock()
+                    .lock()
+                    .unwrap(),
+            )
+        };
+        drop(lane);
+        drop(reservation);
+        let result = pending.await.unwrap();
+        drop(transition);
+        if replacement {
+            assert!(matches!(
+                result,
+                Err(crate::session_store::StoreError::Conflict)
+            ));
+        } else {
+            assert_eq!(result.unwrap(), SqlHookOutcome::Retry);
+        }
+        assert_eq!(
+            store.get(ID.into()).await.unwrap().unwrap()["metadataRevision"],
+            "1"
+        );
+        assert_eq!(state.sessions.lock().unwrap()[ID].info.attention, None);
+        super::super::terminal_runtime::clear_workflow_report_token(ID);
+        store.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn sql_hook_relay_review_post_commit_contention_retries_native_and_fallback() {
+    let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
+    for fallback in [false, true] {
+        let (_dir, state, store, writes, _effect, _commands) = inactive_fixture().await;
+        let generation = {
+            let mut sessions = state.sessions.lock().unwrap();
+            let h = sessions.get_mut(ID).unwrap();
+            h.active_work_hook = true;
+            if fallback {
+                h.runtime.native_approval.as_mut().unwrap().hook_revision = None;
+            }
+            h.runtime.run_generation()
+        };
+        let original = report(HookEvent::PermissionRequest, chrono::Utc::now());
+        let retry_report = original.clone();
+        let receipt = Instant::now() - std::time::Duration::from_secs(3);
+        let mut held = crate::session_store::test_worker::hold_next_internal(&store, ID);
+        let owner = writes.clone();
+        let pending = tokio::spawn(async move {
+            owner
+                .report_native_hook(
+                    ID.into(),
+                    TOKEN.into(),
+                    generation,
+                    receipt,
+                    original,
+                    Arc::new(AtomicBool::new(false)),
+                )
+                .await
+        });
+        held.entered().await;
+        let transition = super::super::prompt_authority::transition_lock()
+            .lock()
+            .unwrap();
+        drop(held);
+        assert_eq!(pending.await.unwrap().unwrap(), SqlHookOutcome::Retry);
+        drop(transition);
+        assert_eq!(
+            store.get(ID.into()).await.unwrap().unwrap()["attention"],
+            "needs_you"
+        );
+        assert_eq!(state.sessions.lock().unwrap()[ID].info.attention, None);
+        assert_eq!(
+            writes
+                .report_native_hook(
+                    ID.into(),
+                    TOKEN.into(),
+                    generation,
+                    receipt,
+                    retry_report,
+                    Arc::new(AtomicBool::new(false))
+                )
+                .await
+                .unwrap(),
+            SqlHookOutcome::Accepted
+        );
+        assert!(
+            state.sessions.lock().unwrap()[ID]
+                .runtime
+                .native_approval
+                .as_ref()
+                .unwrap()
+                .sql_ownership
+                .is_none(),
+            "a retry must not adopt the durable proof from a skipped publication"
+        );
+        super::super::terminal_runtime::clear_workflow_report_token(ID);
+        store.close().await.unwrap();
+    }
 }

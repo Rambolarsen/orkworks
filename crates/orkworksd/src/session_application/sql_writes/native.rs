@@ -26,22 +26,62 @@ impl HookOperation {
             || self.0.load(Ordering::Acquire) == 1
     }
 }
+struct HookCapability {
+    id: String,
+    token: String,
+}
+impl HookCapability {
+    fn is_current(&self) -> bool {
+        crate::runtime::terminal_runtime::verify_workflow_report_token(&self.id, &self.token)
+    }
+}
+enum NativeAttemptError {
+    Store(StoreError),
+    Retry,
+}
+impl From<StoreError> for NativeAttemptError {
+    fn from(error: StoreError) -> Self {
+        Self::Store(error)
+    }
+}
 struct NativeOrigin {
+    capability: Option<HookCapability>,
     context: Arc<ObservationContext>,
     operation: Option<Arc<HookOperation>>,
 }
 impl From<Arc<ObservationContext>> for NativeOrigin {
     fn from(context: Arc<ObservationContext>) -> Self {
         Self {
+            capability: None,
             context,
             operation: None,
         }
     }
 }
 struct NativeView {
+    capability: Option<HookCapability>,
     capture: NativeCapture,
     operation: Option<Arc<HookOperation>>,
     authority: Option<crate::runtime::prompt_authority::AuthoritySnapshot>,
+}
+impl NativeView {
+    fn is_current(
+        &self,
+        h: &crate::SessionHandle,
+        authority: &Option<crate::runtime::prompt_authority::AuthoritySnapshot>,
+    ) -> bool {
+        authority == &self.authority
+            && self.capture.is_current(h)
+            && self
+                .capability
+                .as_ref()
+                .is_none_or(HookCapability::is_current)
+    }
+}
+enum NativeAccess<T> {
+    Busy,
+    Obsolete,
+    Current(T),
 }
 impl SessionWrites {
     async fn native_current<T: Send + 'static>(
@@ -57,21 +97,46 @@ impl SessionWrites {
             + Send
             + 'static,
     ) -> Result<Option<T>, StoreError> {
+        Ok(
+            match self.native_access(id, view, completion, apply).await? {
+                NativeAccess::Current(value) => Some(value),
+                NativeAccess::Busy | NativeAccess::Obsolete => None,
+            },
+        )
+    }
+    async fn native_access<T: Send + 'static>(
+        self: &Arc<Self>,
+        id: String,
+        view: Option<Arc<NativeView>>,
+        completion: Option<crate::session_store::InternalCompletion>,
+        apply: impl FnOnce(
+                &WorkspaceState,
+                &mut crate::SessionHandle,
+                Option<crate::runtime::prompt_authority::AuthoritySnapshot>,
+            ) -> T
+            + Send
+            + 'static,
+    ) -> Result<NativeAccess<T>, StoreError> {
         let owner = self.clone();
         tokio::task::spawn_blocking(move || {
             // Publication retains lane/lease/budget even if its waiter disappears.
             let _completion = completion;
             let _projection = owner.state.projection_lock.lock().unwrap();
-            let _transition = crate::runtime::prompt_authority::transition_lock()
-                .try_lock()
-                .ok()?;
+            let Ok(_transition) = crate::runtime::prompt_authority::transition_lock().try_lock()
+            else {
+                return NativeAccess::Busy;
+            };
             let workspace = owner.state.workspace.lock().unwrap();
-            let ws = workspace.as_ref()?;
+            let Some(ws) = workspace.as_ref() else {
+                return NativeAccess::Obsolete;
+            };
             if !owner.workspace.matches(ws) {
-                return None;
+                return NativeAccess::Obsolete;
             }
             let mut sessions = owner.state.sessions.lock().unwrap();
-            let h = sessions.get_mut(&id)?;
+            let Some(h) = sessions.get_mut(&id) else {
+                return NativeAccess::Obsolete;
+            };
             #[cfg(test)]
             if let Some(sent) = owner.before_callback.lock().unwrap().take() {
                 let _ = sent.send(());
@@ -79,11 +144,11 @@ impl SessionWrites {
             crate::runtime::prompt_authority::registry().with_snapshot(&id, |authority| {
                 if view
                     .as_ref()
-                    .is_some_and(|view| authority != view.authority || !view.capture.is_current(h))
+                    .is_some_and(|view| !view.is_current(h, &authority))
                 {
-                    return None;
+                    return NativeAccess::Obsolete;
                 }
-                Some(apply(ws, h, authority))
+                NativeAccess::Current(apply(ws, h, authority))
             })
         })
         .await
@@ -115,6 +180,21 @@ impl SessionWrites {
         coordinated: bool,
         origin: Option<NativeOrigin>,
     ) -> Result<Outcome, StoreError> {
+        self.native_attempt(id, effect, cancelled, coordinated, origin)
+            .await
+            .map_err(|error| match error {
+                NativeAttemptError::Store(error) => error,
+                NativeAttemptError::Retry => StoreError::Conflict,
+            })
+    }
+    async fn native_attempt(
+        self: &Arc<Self>,
+        id: String,
+        effect: IssuedEffect,
+        cancelled: Arc<AtomicBool>,
+        coordinated: bool,
+        origin: Option<NativeOrigin>,
+    ) -> Result<Outcome, NativeAttemptError> {
         // Read without runtime guards. An exact revision precondition prevents
         // native identity/provenance changing between this read and SQL commit.
         let document = self
@@ -123,14 +203,18 @@ impl SessionWrites {
             .await?
             .ok_or(StoreError::Missing)?;
         let record: metadata::session_transactions::RevisionedSession =
-            serde_json::from_value(document)?;
+            serde_json::from_value(document).map_err(StoreError::from)?;
         let revision = record.revision;
-        let (view, lease) = self
-            .native_current(id.clone(), None, None, move |ws, h, authority| {
+        let captured = self
+            .native_access(id.clone(), None, None, move |ws, h, authority| {
                 // An observer effect keeps the owner captured before this read;
                 // admission must not adopt a replacement controller or authority.
                 if origin.as_ref().is_some_and(|origin| {
                     !origin.context.matches(h, &authority)
+                        || origin
+                            .capability
+                            .as_ref()
+                            .is_some_and(|capability| !capability.is_current())
                         || origin
                             .operation
                             .as_ref()
@@ -138,11 +222,13 @@ impl SessionWrites {
                 }) {
                     return None;
                 }
-                let operation = origin.and_then(|origin| origin.operation);
+                let (operation, capability) =
+                    origin.map_or((None, None), |origin| (origin.operation, origin.capability));
                 NativeCapture::capture(h, &record.metadata, effect, cancelled, coordinated).map(
                     |capture| {
                         (
                             NativeView {
+                                capability,
                                 capture,
                                 authority,
                                 operation,
@@ -152,9 +238,14 @@ impl SessionWrites {
                     },
                 )
             })
-            .await?
-            .flatten()
-            .ok_or(StoreError::Conflict)?;
+            .await?;
+        let (view, lease) = match captured {
+            NativeAccess::Current(Some(captured)) => captured,
+            NativeAccess::Current(None) | NativeAccess::Obsolete => {
+                return Err(StoreError::Conflict.into())
+            }
+            NativeAccess::Busy => return Err(NativeAttemptError::Retry),
+        };
         let prepared = self.store.prepare_internal_owned(
             id.clone(),
             view.capture.created.clone(),
@@ -165,6 +256,10 @@ impl SessionWrites {
         let view = Arc::new(view);
         let _cancellation = prepared.cancellation();
         let lane = prepared.lane()?;
+        #[cfg(test)]
+        if let Some(sent) = self.before_hook_lane.lock().unwrap().take() {
+            let _ = sent.send(());
+        }
         let owner = self.clone();
         let (mut result, received) = oneshot::channel();
         tokio::spawn(async move {
@@ -173,7 +268,7 @@ impl SessionWrites {
                 _ = result.closed() => return,
                 lane = tokio::time::timeout_at(prepared.deadline().into(), lane.lock_owned()) => match lane {
                     Ok(lane) => lane,
-                    Err(_) => { let _ = result.send(Err(StoreError::Expired)); return; }
+                    Err(_) => { let _ = result.send(Err(StoreError::Expired.into())); return; }
                 }
             };
             let execution = async {
@@ -182,33 +277,50 @@ impl SessionWrites {
                 let mut delivered = None;
                 let request = tokio::select! {
                     biased;
-                    _ = result.closed() => return Err(StoreError::Expired),
+                    _ = result.closed() => return Err(NativeAttemptError::Store(StoreError::Expired)),
                     completion = &mut finished => { delivered = Some(completion); None },
                     ready = ready => ready.ok(),
                 };
+                let mut retry = false;
                 if let Some(request) = request {
-                    let claiming_operation = view.operation.clone();
-                    tokio::select! {
-                        biased;
-                        completion = &mut finished => delivered = Some(completion),
-                        claimed = owner.native_current(id.clone(), Some(view.clone()), None, move |_, _, _| {
-                            let grant = request.grant()?;
-                            if claiming_operation.as_ref().is_some_and(|phase| {
-                                !phase.mark_claimed()
-                            }) { return Err(StoreError::Conflict); }
-                            Ok(grant)
-                        }) => {
-                            // No shared application guards remain when SQL wakes.
-                            if let Some(Ok(grant)) = claimed? { let _ = grant.execute(); }
+                    let claiming = view.clone();
+                    let claimed = owner.native_access(id.clone(), None, None, move |_, h, authority| {
+                        if !claiming.is_current(h, &authority) { return Err(StoreError::Conflict); }
+                        let grant = request.grant()?;
+                        if claiming.operation.as_ref().is_some_and(|phase| !phase.mark_claimed()) {
+                            return Err(StoreError::Conflict);
                         }
+                        Ok(grant)
+                    }).await?;
+                    // The callback can drop its request before its result arrives.
+                    // Await that result before classifying the worker rejection.
+                    match claimed {
+                        NativeAccess::Current(Ok(grant)) => { grant.execute()?; },
+                        NativeAccess::Current(Err(error)) => return Err(error.into()),
+                        NativeAccess::Obsolete => return Err(StoreError::Conflict.into()),
+                        NativeAccess::Busy => retry = true,
                     }
                 }
-                let completion = match delivered { Some(completion) => completion?, None => finished.await? };
+                let completion = match delivered { Some(completion) => completion, None => finished.await };
+                if retry {
+                    match completion {
+                        Err(StoreError::Conflict | StoreError::Expired) => return Err(NativeAttemptError::Retry),
+                        Err(error) => return Err(error.into()),
+                        Ok(_) => return Err(StoreError::Unavailable.into()),
+                    }
+                }
+                let completion = completion?;
                 if completion.outcome.document.is_none() { return Ok(Outcome::Noop { permanent_hold: false }); }
                 let Some(proof) = completion.outcome.attention_proof.clone() else { return Ok(Outcome::CommittedDetached); };
+                let retry_on_busy = view.capability.is_some();
                 let publishing = view.clone();
-                let published = owner.native_current(id.clone(), Some(view), Some(completion), move |_, h, _| publishing.capture.publish(h, proof)).await;
-                if matches!(published, Ok(Some(()))) {
+                let published = owner.native_access(id.clone(), None, Some(completion), move |_, h, authority| {
+                    if !publishing.is_current(h, &authority) { return false; }
+                    publishing.capture.publish(h, proof);
+                    true
+                }).await;
+                if retry_on_busy && matches!(published, Ok(NativeAccess::Busy)) { return Err(NativeAttemptError::Retry); }
+                if matches!(published, Ok(NativeAccess::Current(true))) {
                     owner.state.updates.sessions_changed();
                     Ok(Outcome::Committed)
                 } else {

@@ -128,11 +128,6 @@ impl SessionWrites {
                     || !verify_workflow_report_token(&preparing_id, &preparing_token)
                     || meta.id != h.info.id
                     || meta.created_at != h.info.created_at
-                    || h.info
-                        .resume
-                        .as_ref()
-                        .and_then(|r| r.harness_session_id.as_deref())
-                        != Some(preparing_report.root_id.as_str())
                 {
                     return Err(HookReportOutcome::Rejected);
                 }
@@ -149,6 +144,18 @@ impl SessionWrites {
                 );
                 h.runtime.native_approval = Some(tracker);
                 let state = prepared?;
+                match h
+                    .info
+                    .resume
+                    .as_ref()
+                    .and_then(|r| r.harness_session_id.as_deref())
+                {
+                    None => return Err(HookReportOutcome::Retry),
+                    Some(root) if root != preparing_report.root_id => {
+                        return Err(HookReportOutcome::Rejected)
+                    }
+                    _ => {}
+                }
                 let transition = if (state.activation || state.boundary)
                     && meta.attention_source() != "user"
                     && h.info
@@ -201,11 +208,7 @@ impl SessionWrites {
                 )
                 .await?;
             if stage.retry {
-                return Ok(if committed {
-                    SqlHookOutcome::CommittedDetached
-                } else {
-                    SqlHookOutcome::Retry
-                });
+                return Ok(SqlHookOutcome::Retry);
             }
             committed |= stage.committed;
             record = stage.record;
@@ -220,7 +223,7 @@ impl SessionWrites {
         let advancing_report = report.clone();
         let meta = record.metadata.clone();
         let advanced = self
-            .native_current(id.clone(), None, None, move |_, h, authority| {
+            .native_access(id.clone(), None, None, move |_, h, authority| {
                 if !advancing.matches(h, &authority)
                     || !verify_workflow_report_token(&advancing_id, &advancing_token)
                 {
@@ -239,15 +242,9 @@ impl SessionWrites {
             })
             .await?;
         let (context, effects, fallback) = match advanced {
-            Some(Some(advanced)) => advanced,
-            Some(None) => return Ok(obsolete(committed)),
-            None => {
-                return Ok(if committed {
-                    SqlHookOutcome::CommittedDetached
-                } else {
-                    SqlHookOutcome::Retry
-                })
-            }
+            NativeAccess::Current(Some(advanced)) => advanced,
+            NativeAccess::Current(None) | NativeAccess::Obsolete => return Ok(obsolete(committed)),
+            NativeAccess::Busy => return Ok(SqlHookOutcome::Retry),
         };
         if fallback {
             let stage = self
@@ -261,11 +258,7 @@ impl SessionWrites {
                 )
                 .await?;
             if stage.retry {
-                return Ok(if committed {
-                    SqlHookOutcome::CommittedDetached
-                } else {
-                    SqlHookOutcome::Retry
-                });
+                return Ok(SqlHookOutcome::Retry);
             }
             committed |= stage.committed;
             return Ok(if stage.context.is_some() {
@@ -276,21 +269,27 @@ impl SessionWrites {
         }
         for effect in effects {
             match self
-                .native_inner(
+                .native_attempt(
                     id.clone(),
                     effect,
                     context.cancellation(),
                     COORDINATED_METADATA_WRITERS,
                     Some(NativeOrigin {
+                        capability: Some(HookCapability {
+                            id: id.clone(),
+                            token: token.clone(),
+                        }),
                         context: context.clone(),
                         operation: Some(phase.clone()),
                     }),
                 )
-                .await?
+                .await
             {
-                Outcome::Committed => {}
-                Outcome::CommittedDetached => return Ok(SqlHookOutcome::CommittedDetached),
-                Outcome::Noop { .. } => {}
+                Ok(Outcome::Committed) => {}
+                Ok(Outcome::CommittedDetached) => return Ok(SqlHookOutcome::CommittedDetached),
+                Ok(Outcome::Noop { .. }) => {}
+                Err(NativeAttemptError::Retry) => return Ok(SqlHookOutcome::Retry),
+                Err(NativeAttemptError::Store(error)) => return Err(error),
             }
         }
         Ok(SqlHookOutcome::Accepted)
@@ -321,7 +320,7 @@ impl SessionWrites {
         let lease_id = id.clone();
         let lease_token = token.clone();
         let lease = self
-            .native_current(id.clone(), None, None, move |ws, h, authority| {
+            .native_access(id.clone(), None, None, move |ws, h, authority| {
                 (lease_origin.matches(h, &authority)
                     && verify_workflow_report_token(&lease_id, &lease_token))
                 .then(|| ws.lease.clone())
@@ -329,9 +328,11 @@ impl SessionWrites {
             })
             .await?;
         let lease = match lease {
-            Some(Some(lease)) => lease,
-            Some(None) => return Err(StoreError::Conflict),
-            None => {
+            NativeAccess::Current(Some(lease)) => lease,
+            NativeAccess::Current(None) | NativeAccess::Obsolete => {
+                return Err(StoreError::Conflict)
+            }
+            NativeAccess::Busy => {
                 return Ok(HookStage {
                     record,
                     context: None,
@@ -362,7 +363,7 @@ impl SessionWrites {
             let claim_id = id.clone();
             let claim_token = token.clone();
             let claimed = self
-                .native_current(id.clone(), None, None, move |_, h, authority| {
+                .native_access(id.clone(), None, None, move |_, h, authority| {
                     if !claiming.matches(h, &authority)
                         || !verify_workflow_report_token(&claim_id, &claim_token)
                     {
@@ -376,10 +377,10 @@ impl SessionWrites {
                 })
                 .await?;
             match claimed {
-                Some(Ok(Some(grant))) => grant.execute()?,
-                Some(Ok(None)) => {}
-                Some(Err(error)) => return Err(error),
-                None => retry = true,
+                NativeAccess::Current(Ok(Some(grant))) => grant.execute()?,
+                NativeAccess::Current(Ok(None)) | NativeAccess::Obsolete => {}
+                NativeAccess::Current(Err(error)) => return Err(error),
+                NativeAccess::Busy => retry = true,
             }
         }
         let completion = match delivered {
@@ -412,7 +413,7 @@ impl SessionWrites {
         let publishing_id = id.clone();
         let metadata = record.metadata.clone();
         let context = self
-            .native_current(id, None, Some(completion), move |_, h, authority| {
+            .native_access(id, None, Some(completion), move |_, h, authority| {
                 if !publishing.matches(h, &authority)
                     || !verify_workflow_report_token(&publishing_id, &token)
                 {
@@ -429,16 +430,20 @@ impl SessionWrites {
                 )
                 .map(Arc::new)
             })
-            .await?
-            .flatten();
+            .await?;
         if changed {
             self.state.updates.sessions_changed();
         }
+        let (context, retry) = match context {
+            NativeAccess::Current(context) => (context, false),
+            NativeAccess::Busy => (None, true),
+            NativeAccess::Obsolete => (None, false),
+        };
         Ok(HookStage {
             record,
             context,
             committed: changed,
-            retry: false,
+            retry,
         })
     }
 }
