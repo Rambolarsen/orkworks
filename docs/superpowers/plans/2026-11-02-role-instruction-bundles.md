@@ -3,8 +3,8 @@ type: Implementation Plan
 title: Supplied role instruction validation and rendering
 description: A bounded pure Rust instruction composition unit following the accepted role configuration core.
 tags: [plans, roles, instructions, validation]
-status: draft
-workflow_status: implementing
+status: stable
+workflow_status: implemented
 ---
 
 # Supplied role instruction validation and rendering
@@ -58,6 +58,7 @@ canonicalization framework would add no value.
 | `crates/orkworksd/src/taskmaster/role_instructions_tests.rs` | In-crate unit tests and literal/checked-in golden comparisons. |
 | `crates/orkworksd/tests/fixtures/role-instructions/` | Synthetic input notes and independently computed expected UTF-8 output/digest; no real repository instructions or secrets. |
 | `crates/orkworksd/src/taskmaster/mod.rs` | Declare the dormant module and test module only; no production call site. |
+| `.gitattributes` | Preserve the golden fixture’s intentional mixed LF/CRLF bytes without text conversion. |
 
 Use one public-to-crate entry point:
 `render_instruction_bundle(input: &InstructionBundleInput) -> Result<RenderedInstructionBundle, InstructionBundleError>`.
@@ -235,3 +236,24 @@ Self-review disposition: **Ready for owner review**. Every in-scope invariant ha
 an implementation/check above. No full-configuration or native qualification is
 claimed. The owner subsequently approved this concrete plan for inline implementation;
 that approval retains the stated boundary. No further general research campaign is required.
+
+
+## Implementation result
+
+The owner-approved bounded unit is implemented as a dormant module. Eighteen
+focused tests pass: structural rejection groups, independent golden text/hash,
+set-order invariance, meaningful rule-order/content sensitivity, inclusive
+collection/metadata/blocker bounds, exact 262,144-byte rendered admission and
+checked overflow without large allocation. The initial validator and renderer
+tests were observed failing against their respective scaffolds before the
+corresponding implementation. Boundary tests exercise the completed invariants.
+The golden fixture retains its exact bytes even with `core.autocrlf=true`.
+
+A fresh `/code-review medium` (size escalation for more than 500 changed code/test
+lines) covered code head `3297045d8c27c22fd80326d23dab662d6dac34ae`; it found no
+Critical or Important issues and no declined-to-judge items. One minor remains:
+portable path checks also reject a POSIX relative filename such as `a:notes.md`.
+No production caller, full-configuration codec/digest, permission/native adapter,
+storage or runtime authority is added. Full repository and PR CI results are
+recorded with [#1303](https://github.com/Rambolarsen/orkworks/issues/1303)'s
+implementation PR; the supported production-role set remains empty.
