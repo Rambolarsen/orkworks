@@ -209,8 +209,10 @@ fn owner(state: &AppState) -> Arc<crate::metadata::hook_observation::Store> {
         .metadata
         .hook_observation_owner()
 }
-fn capture(state: &AppState) -> crate::session_application::hook_observation::Capture {
+async fn capture(state: &AppState) -> crate::session_application::hook_observation::Capture {
     crate::session_application::hook_observation::capture_target(state, "observation", true, None)
+        .await
+        .unwrap()
         .1
         .unwrap()
         .unwrap()
@@ -237,7 +239,7 @@ async fn json_observation_rejects_stale_original_context_before_file_claim() {
         } else {
             None
         };
-        let mut captured = capture(&state);
+        let mut captured = capture(&state).await;
         let replacement = tempfile::tempdir().unwrap();
         match change {
             "clear" => file.clear().unwrap(),
@@ -609,6 +611,17 @@ async fn json_observation_cancelled_unlink_retains_receipt_until_definitive_remo
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn json_observation_actual_pty_input_continues_during_stalled_file_write() {
+    actual_pty_input_during_identity_io(false).await;
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn json_identity_actual_pty_input_continues_during_stalled_target_read() {
+    actual_pty_input_during_identity_io(true).await;
+}
+
+#[cfg(unix)]
+async fn actual_pty_input_during_identity_io(initial_read: bool) {
     use crate::runtime::session_runtime::RuntimeCommand;
     use std::io::{Read, Write};
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
@@ -622,16 +635,26 @@ async fn json_observation_actual_pty_input_continues_during_stalled_file_write()
         .unwrap()
         .metadata
         .root_path();
-    let mut pause = crate::metadata::hook_observation::testing::hold_next_write(root);
+    let mut write_pause = (!initial_read)
+        .then(|| crate::metadata::hook_observation::testing::hold_next_write(root.clone()));
+    let mut read_pause = initial_read
+        .then(|| crate::session_application::hook_observation::testing::hold_next(root));
     let app = state.clone();
     let task = tokio::spawn(async move {
         report_harness_session(State(app), Path("observation".into()), Json(request()))
             .await
             .into_response()
     });
-    tokio::time::timeout(Duration::from_secs(5), pause.entered())
-        .await
-        .unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        if let Some(pause) = write_pause.as_mut() {
+            pause.entered().await;
+        }
+        if let Some(pause) = read_pause.as_mut() {
+            pause.entered().await;
+        }
+    })
+    .await
+    .unwrap();
     let pair = portable_pty::native_pty_system()
         .openpty(portable_pty::PtySize {
             rows: 24,
@@ -690,7 +713,10 @@ async fn json_observation_actual_pty_input_continues_during_stalled_file_write()
     drop(pair.master);
     reader.join().unwrap();
     delivery.await.unwrap();
-    pause.finish().await;
+    if let Some(pause) = write_pause {
+        pause.finish().await;
+    }
+    drop(read_pause);
     assert_eq!(task.await.unwrap().status(), axum::http::StatusCode::OK);
     assert_eq!(delivered.unwrap(), Ok(()));
     assert!(echoed
@@ -973,4 +999,450 @@ async fn json_observation_authenticated_request_does_not_downgrade_during_initia
         file.read().is_none(),
         "an authenticated request silently became bearerless after token revocation"
     );
+}
+
+// A stalled first metadata lookup must not retain the workspace guard or
+// prevent the async worker from handling unrelated work.
+#[tokio::test]
+async fn json_identity_target_read_releases_application_guards() {
+    let (_dir, state) = fixture();
+    let root = state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .metadata
+        .root_path();
+    let mut held = crate::session_application::hook_observation::testing::hold_next(root);
+    let checking = state.clone();
+    let (go, started) = tokio::sync::oneshot::channel();
+    let (done, heartbeat) = tokio::sync::oneshot::channel();
+    tokio::spawn(async move {
+        let _ = started.await;
+        let _ = done.send(());
+    });
+    let watchdog = std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let entered = runtime
+            .block_on(async { tokio::time::timeout(Duration::from_secs(10), held.entered()).await })
+            .is_ok();
+        let _ = go.send(());
+        let executor_available = runtime
+            .block_on(async { tokio::time::timeout(Duration::from_secs(1), heartbeat).await })
+            .is_ok();
+        let workspace_available = checking.workspace.try_lock().is_ok();
+        let projection_available = checking.projection_lock.try_lock().is_ok();
+        let sessions_available = checking.sessions.try_lock().is_ok();
+        drop(held);
+        (
+            entered,
+            workspace_available,
+            projection_available,
+            sessions_available,
+            executor_available,
+        )
+    });
+    let response =
+        report_harness_session(State(state), Path("observation".into()), Json(request()))
+            .await
+            .into_response();
+    let (entered, workspace, projection, sessions, executor) = watchdog.join().unwrap();
+    assert!(entered, "initial identity read was not reached");
+    assert!(executor, "identity read blocked the single Tokio worker");
+    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    assert!(workspace, "identity target read retained workspace guard");
+    assert!(
+        projection && sessions,
+        "identity target read retained other application guards"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn json_identity_target_read_rejects_replaced_original_context() {
+    for change in [
+        "workspace",
+        "owner",
+        "lease",
+        "runtime",
+        "control",
+        "creation",
+        "record_creation",
+        "removal",
+        "adoption",
+    ] {
+        let (_dir, state) = fixture();
+        let _commands = (change != "adoption").then(|| add_runtime(&state).1);
+        let file = owner(&state);
+        let root = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .root_path();
+        let mut held = crate::session_application::hook_observation::testing::hold_next(root);
+        let app = state.clone();
+        let pending = tokio::spawn(async move {
+            report_harness_session(State(app), Path("observation".into()), Json(request()))
+                .await
+                .into_response()
+        });
+        tokio::time::timeout(Duration::from_secs(5), held.entered())
+            .await
+            .unwrap();
+        assert!(state.workspace.try_lock().is_ok());
+        let replacement = tempfile::tempdir().unwrap();
+        match change {
+            "workspace" => crate::test_support::swap_workspace(&state, replacement.path()),
+            "owner" => {
+                let mut selected = state.workspace.lock().unwrap();
+                let ws = selected.as_mut().unwrap();
+                ws.metadata = metadata::MetadataStore::new(&ws.metadata.root_path());
+            }
+            "lease" => state.workspace.lock().unwrap().as_mut().unwrap().lease = None,
+            "runtime" => {
+                state
+                    .sessions
+                    .lock()
+                    .unwrap()
+                    .get_mut("observation")
+                    .unwrap()
+                    .runtime = crate::runtime::session_runtime::SessionRuntime::detached(24, 80)
+            }
+            "control" => {
+                state
+                    .sessions
+                    .lock()
+                    .unwrap()
+                    .get_mut("observation")
+                    .unwrap()
+                    .runtime
+                    .control_tx = tokio::sync::mpsc::channel(8).0
+            }
+            "creation" => {
+                state
+                    .sessions
+                    .lock()
+                    .unwrap()
+                    .get_mut("observation")
+                    .unwrap()
+                    .info
+                    .created_at = "replacement-created".into()
+            }
+            "record_creation" => {
+                let selected = state.workspace.lock().unwrap();
+                let metadata = &selected.as_ref().unwrap().metadata;
+                let mut meta = metadata.read_session("observation").unwrap();
+                meta.created_at = "replacement-created".into();
+                metadata.try_write_session(&meta).unwrap();
+            }
+            "removal" => {
+                state.sessions.lock().unwrap().remove("observation");
+            }
+            "adoption" => {
+                let _ = add_runtime(&state);
+            }
+            _ => unreachable!(),
+        }
+        drop(held);
+        let response = tokio::time::timeout(Duration::from_secs(5), pending)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::CONFLICT,
+            "{change}"
+        );
+        assert!(file.read().is_none(), "stale {change} wrote observation");
+        let ws = state.workspace.lock().unwrap();
+        if let Some(meta) = ws.as_ref().unwrap().metadata.read_session("observation") {
+            assert!(
+                meta.resume.and_then(|r| r.harness_session_id).is_none(),
+                "stale {change} merged identity"
+            );
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn json_identity_cancelled_read_retains_lease_and_bounded_admission() {
+    let (_dir, state) = fixture();
+    let (root, reader, lease) = {
+        let selected = state.workspace.lock().unwrap();
+        let ws = selected.as_ref().unwrap();
+        (
+            ws.metadata.root_path(),
+            ws.metadata.session_reader(),
+            Arc::downgrade(ws.lease.as_ref().unwrap()),
+        )
+    };
+    let mut held = crate::session_application::hook_observation::testing::hold_next(root.clone());
+    let app = state.clone();
+    let pending = tokio::spawn(async move {
+        report_harness_session(State(app), Path("observation".into()), Json(request()))
+            .await
+            .into_response()
+    });
+    tokio::time::timeout(Duration::from_secs(5), held.entered())
+        .await
+        .unwrap();
+    pending.abort();
+    assert!(pending.await.unwrap_err().is_cancelled());
+    let permits: Vec<_> = (0..7).map(|_| reader.try_admit().unwrap()).collect();
+    assert!(
+        reader.try_admit().is_none(),
+        "cancelled read released a slot before file completion"
+    );
+    let replacement = tempfile::tempdir().unwrap();
+    crate::test_support::swap_workspace(&state, replacement.path());
+    assert!(
+        lease.upgrade().is_some(),
+        "old read lost its original workspace lease"
+    );
+    assert!(crate::workspace_runtime::WorkspaceLease::acquire(&root).is_err());
+    drop(held);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let Some(permit) = reader.try_admit() {
+                drop(permit);
+                if lease.upgrade().is_none() {
+                    break;
+                }
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(lease.upgrade().is_none());
+    drop(permits);
+}
+
+#[tokio::test]
+async fn json_identity_read_overload_is_retryable_without_identity_or_file_writes() {
+    let (_dir, state) = fixture();
+    let reader = state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .metadata
+        .session_reader();
+    let held: Vec<_> = (0..8).map(|_| reader.try_admit().unwrap()).collect();
+    let response = report_harness_session(
+        State(state.clone()),
+        Path("observation".into()),
+        Json(request()),
+    )
+    .await
+    .into_response();
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert!(owner(&state).read().is_none());
+    let meta = state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .metadata
+        .read_session("observation")
+        .unwrap();
+    assert!(meta.resume.and_then(|r| r.harness_session_id).is_none());
+    drop(held);
+    let response = report_harness_session(
+        State(state.clone()),
+        Path("observation".into()),
+        Json(request()),
+    )
+    .await
+    .into_response();
+    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    assert!(owner(&state).read().is_some());
+}
+
+#[tokio::test]
+async fn json_identity_relay_retains_packet_on_target_read_overload() {
+    let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
+    let (_dir, state) = fixture();
+    let (generation, _commands) = add_runtime(&state);
+    let token = "identity-read-overload-token";
+    crate::runtime::terminal_runtime::set_workflow_report_token("observation", token.into());
+    let relay = crate::runtime::codex_hook_report_relay::CodexHookReportRelay::new().unwrap();
+    let path = relay
+        .mailbox_path()
+        .join(format!("{}.json", uuid::Uuid::new_v4().simple()));
+    std::fs::write(
+        &path,
+        serde_json::to_vec(&serde_json::json!({"report": {
+            "harnessSessionId":"native-observation", "source":"codex_hook", "confidence":0.98,
+            "hookFingerprint":"a".repeat(64)
+        }}))
+        .unwrap(),
+    )
+    .unwrap();
+    let reader = state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .metadata
+        .session_reader();
+    let held: Vec<_> = (0..8).map(|_| reader.try_admit().unwrap()).collect();
+    let outcome = relay
+        .consume_ready(state.clone(), "observation", token, generation)
+        .await;
+    assert_eq!(outcome.reports_accepted, 0);
+    assert!(
+        path.exists(),
+        "retryable read overload discarded identity packet"
+    );
+    owner(&state).clear().unwrap();
+    drop(held);
+    let outcome = relay
+        .consume_ready(state.clone(), "observation", token, generation)
+        .await;
+    assert_eq!(outcome.reports_accepted, 1);
+    assert!(!path.exists());
+    assert!(
+        owner(&state).read().is_none(),
+        "retry renewed the original clear epoch"
+    );
+    crate::runtime::terminal_runtime::clear_workflow_report_token("observation");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn json_identity_corrupt_read_cannot_quarantine_a_valid_replacement() {
+    let (_dir, state) = fixture();
+    let (path, mut valid) = {
+        let selected = state.workspace.lock().unwrap();
+        let metadata = &selected.as_ref().unwrap().metadata;
+        (
+            metadata.sessions_dir().join("observation.json"),
+            metadata.read_session("observation").unwrap(),
+        )
+    };
+    std::fs::write(&path, "{broken").unwrap();
+    let mut held = metadata::session_reader::testing::hold_next_quarantine(path.clone());
+    let app = state.clone();
+    let pending = tokio::spawn(async move {
+        report_harness_session(State(app), Path("observation".into()), Json(request()))
+            .await
+            .into_response()
+    });
+    tokio::time::timeout(Duration::from_secs(5), held.entered())
+        .await
+        .unwrap();
+    assert!(state.workspace.try_lock().is_ok());
+    valid.label = "Valid replacement".into();
+    // A repair replaces the corrupt record through the actual atomic writer.
+    std::fs::remove_file(&path).unwrap();
+    state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .metadata
+        .try_write_session(&valid)
+        .unwrap();
+    drop(held);
+    let response = tokio::time::timeout(Duration::from_secs(5), pending)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        path.exists(),
+        "stale corrupt read quarantined the replacement valid record"
+    );
+    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    assert_eq!(
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session("observation")
+            .unwrap()
+            .label,
+        "Valid replacement"
+    );
+    assert!(!path.with_extension("json.corrupt").exists());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn json_identity_quarantine_and_replacement_share_the_existing_write_lane() {
+    let (_dir, state) = fixture();
+    let (path, mut valid) = {
+        let selected = state.workspace.lock().unwrap();
+        let metadata = &selected.as_ref().unwrap().metadata;
+        (
+            metadata.sessions_dir().join("observation.json"),
+            metadata.read_session("observation").unwrap(),
+        )
+    };
+    std::fs::write(&path, "{broken").unwrap();
+    let mut held = metadata::session_reader::testing::hold_next_rename(&path);
+    let app = state.clone();
+    let pending = tokio::spawn(async move {
+        report_harness_session(State(app), Path("observation".into()), Json(request()))
+            .await
+            .into_response()
+    });
+    tokio::time::timeout(Duration::from_secs(5), held.entered())
+        .await
+        .unwrap();
+    valid.label = "Valid replacement".into();
+    let app = state.clone();
+    let (started, beginning) = tokio::sync::oneshot::channel();
+    let mut writer = tokio::task::spawn_blocking(move || {
+        let selected = app.workspace.lock().unwrap();
+        let metadata = &selected.as_ref().unwrap().metadata;
+        let _ = started.send(());
+        metadata.try_write_session(&valid)
+    });
+    beginning.await.unwrap();
+    let early = tokio::time::timeout(Duration::from_millis(100), &mut writer).await;
+    drop(held);
+    assert!(
+        early.is_err(),
+        "writer did not serialize with the admitted quarantine"
+    );
+    tokio::time::timeout(Duration::from_secs(5), writer)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let response = tokio::time::timeout(Duration::from_secs(5), pending)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    assert_eq!(
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session("observation")
+            .unwrap()
+            .label,
+        "Valid replacement"
+    );
+    assert!(path.exists());
+    assert!(path.with_extension("json.corrupt").exists());
 }

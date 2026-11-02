@@ -7,6 +7,7 @@ use crate::runtime::session_runtime::{RuntimeCommand, RuntimeIdentity};
 struct Runtime {
     identity: RuntimeIdentity,
     control: tokio::sync::mpsc::Sender<RuntimeCommand>,
+    created: String,
 }
 /// Internal receipt authority, never a wire or persisted capability.
 pub(crate) struct Receipt {
@@ -43,27 +44,95 @@ impl Capture {
     }
 }
 
-/// Reuses the route's original metadata lookup; capture the clear epoch before
-/// that lookup, rather than renewing it after identity merge or an await.
-pub(crate) fn capture_target(
+/// Read admission/task failures are distinct from a missing legacy record.
+#[derive(Debug)]
+pub(crate) enum TargetReadError {
+    Busy,
+    Unavailable,
+    Conflict,
+}
+
+/// Capture original authority before the first async boundary. Only owned file
+/// reads escape application guards; identity mutation keeps its existing owner.
+pub(crate) async fn capture_target(
     state: &AppState,
     id: &str,
     requested: bool,
     original: Option<Receipt>,
-) -> (Option<String>, Option<Result<Capture, SessionError>>) {
-    let workspace = state.workspace.lock().unwrap();
-    let Some(ws) = workspace.as_ref() else {
-        return (None, requested.then_some(Err(SessionError::Conflict)));
+) -> Result<(Option<String>, Option<Result<Capture, SessionError>>), TargetReadError> {
+    let (workspace, reader, lease, stamp, runtime) = {
+        let workspace = state.workspace.lock().unwrap();
+        let Some(ws) = workspace.as_ref() else {
+            return Ok((None, requested.then_some(Err(SessionError::Conflict))));
+        };
+        let runtime = state.sessions.lock().unwrap().get(id).map(|h| Runtime {
+            identity: h.runtime.identity(),
+            control: h.runtime.control_tx.clone(),
+            created: h.info.created_at.clone(),
+        });
+        if original.as_ref().is_some_and(|receipt| {
+            runtime
+                .as_ref()
+                .is_none_or(|runtime| runtime.identity.run_generation != receipt.generation)
+        }) {
+            return Err(TargetReadError::Conflict);
+        }
+        let stamp = requested.then(|| {
+            original
+                .map(|r| r.stamp)
+                .unwrap_or_else(|| ws.metadata.hook_observation_stamp())
+        });
+        (
+            RecommendationDeliveryWorkspace::capture(ws),
+            ws.metadata.session_reader(),
+            ws.lease.clone(),
+            stamp,
+            runtime,
+        )
     };
-    let generation = original.as_ref().map(|receipt| receipt.generation);
-    let stamp = requested.then(|| {
-        original
-            .map(|receipt| receipt.stamp)
-            .unwrap_or_else(|| ws.metadata.hook_observation_stamp())
-    });
-    #[cfg(test)]
-    testing::before_read(&ws.metadata.root_path());
-    let session = ws.metadata.read_session(id);
+    let permit = reader.try_admit().ok_or(TargetReadError::Busy)?;
+    let read_owner = reader.clone();
+    let read_id = id.to_owned();
+    let session = tokio::task::spawn_blocking(move || {
+        // Both ownership and bounded admission survive waiter cancellation.
+        let _lease = lease;
+        let _permit = permit;
+        #[cfg(test)]
+        testing::before_read(read_owner.root());
+        read_owner.read(&read_id)
+    })
+    .await
+    .map_err(|_| TargetReadError::Unavailable)?;
+    {
+        let selected = state.workspace.lock().unwrap();
+        let Some(ws) = selected.as_ref() else {
+            return Err(TargetReadError::Conflict);
+        };
+        if !workspace.matches(ws) || !Arc::ptr_eq(&reader, &ws.metadata.session_reader()) {
+            return Err(TargetReadError::Conflict);
+        }
+        let sessions = state.sessions.lock().unwrap();
+        let current = sessions.get(id);
+        let same_runtime = match (&runtime, current) {
+            (Some(old), Some(h)) => {
+                old.identity == h.runtime.identity()
+                    && old.control.same_channel(&h.runtime.control_tx)
+                    && old.created == h.info.created_at
+            }
+            (None, None) => true,
+            _ => false,
+        };
+        if !same_runtime {
+            return Err(TargetReadError::Conflict);
+        }
+    }
+    if runtime
+        .as_ref()
+        .zip(session.as_ref())
+        .is_some_and(|(runtime, meta)| runtime.created != meta.created_at)
+    {
+        return Err(TargetReadError::Conflict);
+    }
     let target = session.as_ref().map(|meta| meta.harness.clone());
     let capture = stamp.map(|stamp| {
         let meta = session.as_ref().ok_or(SessionError::NotFound)?;
@@ -72,29 +141,15 @@ pub(crate) fn capture_target(
                 "hook fingerprint requires a Codex session",
             ));
         }
-        if !stamp.belongs_to(&ws.metadata.hook_observation_owner()) {
-            return Err(SessionError::Conflict);
-        }
-        let runtime = state.sessions.lock().unwrap().get(id).map(|h| Runtime {
-            identity: h.runtime.identity(),
-            control: h.runtime.control_tx.clone(),
-        });
-        if generation.is_some_and(|generation| {
-            runtime
-                .as_ref()
-                .is_none_or(|runtime| runtime.identity.run_generation != generation)
-        }) {
-            return Err(SessionError::Conflict);
-        }
         Ok(Capture {
-            workspace: RecommendationDeliveryWorkspace::capture(ws),
+            workspace,
             stamp,
             created: meta.created_at.clone(),
             runtime,
             token: None,
         })
     });
-    (target, capture)
+    Ok((target, capture))
 }
 impl SessionApplication {
     pub(crate) async fn record_codex_hook_observation(

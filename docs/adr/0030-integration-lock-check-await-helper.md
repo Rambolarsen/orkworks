@@ -102,3 +102,13 @@ application-ownership amendment. Inspection retains its existing scheduling.
 The separate legacy JSON observation follow-up subsequently adopts the external
 file claim/lease boundary; its compatibility and remaining synchronous identity
 validation are recorded in the [adapter validation record](../validation/session-store-adapter.md#legacy-json-identity-observation-follow-up).
+
+
+The first identity-target metadata lookup also uses the existing capture/await/
+revalidate rule through a bounded owned session reader. Its immutable file view
+shares the legacy decoder without constructing a second mutation owner. It retains
+its original read slot and workspace lease through file completion after cancellation,
+and rejects stale workspace/reader/runtime results before continuation. The
+transactional JSON merge and later identity reads remain synchronous; the
+[validation record](../validation/session-store-adapter.md#owned-json-identity-target-lookup)
+bounds this source qualification explicitly.

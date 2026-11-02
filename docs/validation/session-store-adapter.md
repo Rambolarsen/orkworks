@@ -654,3 +654,44 @@ controller/lease/token checks, cancellation during read/write/unlink, immutable-
 replacement, overflow and fresh-relay recovery. Native startup/clear, ordinary
 producer qualification, remaining lifecycle/input/external writers, migration and
 large-history performance gates remain open; production metadata remains JSON.
+
+
+## Owned JSON identity target lookup
+
+The first HTTP harness-session target lookup now captures a typed, immutable
+session-file reader plus original workspace/lease and optional runtime identity,
+control channel and creation before awaiting file I/O. The same legacy decoder,
+normalization, provenance hydration and corrupt-file quarantine are used by owned
+and synchronous reads; no new metadata writer or independent transaction lock is
+created. Corrupt-file quarantine shares the exact existing per-session write-lock
+registry and rechecks the parsed bytes under that lane before rename, so a
+repair committed through that lane cannot be quarantined by an obsolete read.
+Arbitrary direct file writes bypass this arbitration; their producer qualification
+remains open. Ordinary reads do not acquire that write lane. Production remains JSON-backed.
+
+Eight read slots per metadata owner bound admitted blocking tasks, with no waiting
+queue. Overload returns HTTP 503 before identity merging or observation writing;
+worker/task failure returns 500 rather than presenting an empty successful result.
+Legacy missing/unreadable/corrupt record handling is otherwise unchanged. A cancelled
+waiter cannot release its slot or original lease while the actual file operation is
+still running. Workspace/lease/reader and runtime/control/creation currentness are
+checked after the read and before request continuation; stale results return 409.
+Existing bearerless legacy telemetry compatibility and original authenticated
+observation checks remain in place. Prompt-hook registration still uses its existing
+synchronous transition owner after the initial read.
+
+The legacy relay treats target-read overload as retryable and retains its existing
+bounded receipt or conservative overflow floor. Retrying cannot acquire a new clear
+epoch; it does not treat a 503 as a successful identity delivery or discard the
+packet. This does not qualify timing before the first mailbox receipt.
+
+Real HTTP regressions pause the initial file lookup to verify application guards,
+a single Tokio worker and actual PTY input remain available. They also cover stale
+workspace/reader/lease/runtime/control/creation, runtime adoption/removal, cancelled
+read ownership, bounded overload, fresh-report recovery and relay retry after clear.
+Corrupt-file tests preserve a repaired valid record and prove quarantine and
+replacement serialize in the same existing transaction lane.
+The transactional JSON identity merge, its later validation reads, label reservation
+reads and other metadata writers are still synchronous and unqualified. This is
+source scheduling evidence, not complete legacy producer qualification, SQL
+activation, migration, installed-harness/native proof or measured history latency.
