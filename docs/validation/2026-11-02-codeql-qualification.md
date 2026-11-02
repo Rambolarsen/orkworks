@@ -56,6 +56,15 @@ Full-source comparison is in progress at the immutable merged staging commit:
 - Managed main run: [41477525339](https://github.com/Rambolarsen/orkworks/actions/runs/41477525339).
 - Forced-full manual repeat: [41477677099](https://github.com/Rambolarsen/orkworks/actions/runs/41477677099), on the frozen qualification branch at the same commit.
 
+## Hosted unrelated-change routing
+
+The prose-only [PR #1316](https://github.com/Rambolarsen/orkworks/pull/1316)
+triggered owned run
+[41478156533, attempt 1](https://github.com/Rambolarsen/orkworks/actions/runs/41478156533/attempts/1).
+Routing and all four non-Rust jobs passed. No Rust analysis job was created.
+The diff consists only of this report and its Markdown directory index. Managed
+scanning still runs separately during qualification; it has not been disabled.
+
 ## Activation state
 
 Not activated. Default setup remains configured. Main/repeated coverage,
