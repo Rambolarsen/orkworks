@@ -70,6 +70,15 @@ if (process.versions.electron) {
       assert.deepEqual(await evaluate('fixture.submitted.pop().initialImages.map(image=>image.name)'),['preflight.png']);
       assert.equal(await evaluate('!!document.querySelector("[role=alert]")'),false,'successful retry clears the preflight error');
       await evaluate('Array.from(document.querySelectorAll("button[aria-label]")).find(button=>button.getAttribute("aria-label")==="Remove preflight.png").click();fixture.clearPrompt()');
+      // A typed custom model id reaches the launch request, not the stale pre-edit choice.
+      await evaluate('fixture.choose("#nsd-model","__custom__")');
+      await wait('!!document.querySelector("input[aria-label=\\"Custom model id\\"]")');
+      await evaluate('(()=>{const input=document.querySelector("input[aria-label=\\"Custom model id\\"]");Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set.call(input,"  my-custom-model ");input.dispatchEvent(new Event("input",{bubbles:true}))})()');
+      await evaluate('document.querySelector(".new-session-confirm").click()');
+      await wait('fixture.submitted.length===1');
+      assert.equal(await evaluate('fixture.submitted[0].model'),'my-custom-model');
+      assert.equal(await evaluate('localStorage.getItem("orkworks-new-session-model-custom")'),'1');
+      await evaluate('fixture.submitted.pop();localStorage.removeItem("orkworks-new-session-model-custom");fixture.choose("#nsd-model","codex-fast")');
       // Drop, paste (including mixed text), and picker all use real browser File/Blob decoding.
       await evaluate('fixture.drop([fixture.file("drop.png")])');
       await wait('document.querySelectorAll(".new-session-image-list li").length===1');

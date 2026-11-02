@@ -229,7 +229,7 @@ export default function NewSessionDialog({ workspacePath = "", harnesses, provid
     } finally {
       if (generation === confirmationGeneration.current) setConfirmBusy(false);
     }
-  }, [selectedEffort, confirmBusy, detectedHarnessIds, draft.harnessId, selectedModel, imageTools, initialPrompt, onConfirm, selectable, workspacePath]);
+  }, [selectedEffort, confirmBusy, detectedHarnessIds, draft.harnessId, modelChoice.model, modelChoice.custom, imageTools, initialPrompt, onConfirm, selectable, workspacePath]);
 
   function handleKeyDown(e: React.KeyboardEvent) {
     // Buttons own Enter so keyboard attachment/removal/cancellation cannot submit.
