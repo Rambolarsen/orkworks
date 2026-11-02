@@ -4,7 +4,7 @@ title: Retained child review source qualification handoff
 description: Accepted source choices and remaining source/control/consumer evidence gates for the single-task retained-data child source records before artifact transactions.
 tags: [orkworks, child-sources, review, qualification, preparation]
 status: draft
-workflow_status: source-accepted-launch-control-review-required
+workflow_status: source-and-control-accepted-qualification-open
 ---
 
 # Retained child review source qualification handoff
@@ -161,19 +161,19 @@ Gate B's source/control/authority checkboxes remain open. Identify and close tho
 joins independently of the component packet; do not manufacture passing event
 proofs or hold up unverified byte checks waiting for a native adapter.
 
-### Proposed control-schema closure — 2026-11-02
+### Accepted control-schema component handoff — 2026-11-02
 
 The [launch-control/recovery proposal](../specs/2026-11-02-child-launch-control-design.md)
 now supplies exact selected direct-execution input, runtime history, run/plan/task/
 launch/session, original coordination receipt and recovery decision record shapes.
-This is new representation/profile/catalog/accounting work for owner review,
-not acceptance by the earlier child-source package. Gate A remains complete and
+The owner separately accepted this representation/profile/catalog/accounting
+package after #1335; that acceptance is recorded in its scoped handoff. Gate A remains complete and
 its unchanged choices need no repeated approval.
 
-- [ ] Obtain scoped owner acceptance/revisions for the selected control/input/
+- [x] Obtain scoped owner acceptance/revisions for the selected control/input/
   recovery schemas, mandatory fresh-catalog families, row/history caps and separate
   8 MiB/run / 64 MiB/workspace control pool before dependent control fixtures.
-- [ ] After acceptance, independently pin every closed variant and original
+- [ ] Complete component and owner qualification: independently pin every closed variant and original
   source/reference/projection/hash join; exercise pause/continue/resume precedence,
   frozen reservation/one-attempt and exact receipt retry, original native-disposition
   recovery, lifecycle/capacity changes and byte/count/overflow denials.
@@ -194,7 +194,13 @@ header binding and retained direct proofs. Recovery rows use the inherited 2 MiB
 ceiling and charge all frozen copies; smaller control/store limits can deny them.
 These are author-applied corrections from one round, not an independent second
 post-edit review. Risk/decision boundaries are in the proposal. This handoff
-remains gated and contains no runtime implementation or probe authorization.
+contains no runtime implementation or probe authorization. The
+[control component packet](../../validation/child-control-components.md) delivers
+45 independent top-level variants, strict source/key/hash joins and conditional
+capacity, resume, byte retry and inventory checks. It does not supply every
+historical replacement input/plan, actual CAS/authentication, direct proof or
+complete full-state budget case. Keep this broader qualification item open;
+component-byte acceptance must not turn partial fixtures into producer evidence.
 
 ## Gate C — complete fresh preparation/publication witnesses
 

@@ -1,10 +1,10 @@
 ---
 type: Design Proposal
 title: Selected child launch control and recovery records
-description: Proposed closed direct-execution control, lifecycle, coordination and recovery records for the accepted single-task retained-data source slice; no runtime or transaction qualification.
+description: Accepted scoped direct-execution control, lifecycle, coordination and recovery codecs for the accepted single-task retained-data source slice; no runtime or transaction qualification.
 tags: [orkworks, hierarchy, child-sources, launch, recovery, control]
 status: draft
-workflow_status: owner-review-required
+workflow_status: owner-accepted-component-qualification
 ---
 
 # Selected child launch control and recovery records
@@ -16,9 +16,10 @@ Inspected base: `c01844092a65aed327fcdcfd08f45ca795b9d2d0`.
 Contract: [accepted child sources](2026-10-31-child-review-source-preparation-design.md),
 [#742 lifecycle](2026-10-04-orchestrator-preparation-design.md#state-and-transition-table),
 [launch baseline](2026-09-26-taskmaster-orchestrated-child-sessions-design.md).
-**New control/input/catalog/accounting choices for scoped owner review.** No
-acceptance, complete-state fixture, current grant, native event, adapter, database,
-migration or runtime implementation follows from drafting or merging this file.
+**Scoped control/input/catalog/accounting choices accepted on 2026-11-02.**
+Acceptance permits bounded documentation component qualification. No complete-state
+fixture, current grant, native event, adapter, database, migration or runtime
+implementation follows from drafting, merging or accepting this codec package.
 
 ## Decision and selected scope
 
@@ -535,5 +536,26 @@ no dependent fixture or native/model probe is authorized by this proposal.
 Risk: dependencies 4 (ordinary session/native owner plus hierarchy source/storage),
 blast radius 4 (shared control/custody/capacity), state changes 3 (new-store-only
 additions), reversibility Unknown (no implemented recovery/rollback evidence),
-uncertainty 4 (native/current-source bridge unqualified); sum incomplete. Ready
-for bounded written review, not implementation or a source-valid full profile.
+uncertainty 4 (native/current-source bridge unqualified); sum incomplete. Scoped acceptance supports component qualification, not
+implementation or a source-valid full profile.
+
+
+## Scoped owner acceptance and component handoff — 2026-11-02
+
+After [#1335](https://github.com/Rambolarsen/orkworks/pull/1335), reviewed head
+`5092bd9d397e6fbab41f6117007d6e8229007832`, the owner answered “lets keep going”
+to the concrete approval request covering this record/catalog package, state and
+parent/current-run storage routing, original-attempt recovery rules, explicit
+limits and the separate 8 MiB/run / 64 MiB/workspace control pool. This accepts
+those choices for bounded component validation, including the nine mandatory
+fresh families and parent_attachments attached-variant extension. It does not
+reopen or require repeat approval of the already accepted immutable source package.
+
+The [control component packet](../../validation/child-control-components.md)
+pins synthetic bytes and logical component oracles. It is not a complete current
+store, historical origin proof, consumer inventory or actual lifecycle/native
+owner. Prospective prepared-input components do not rewrite the older source
+packet's original revision-one plan bindings. Exact replacements and full
+transaction witnesses remain unavailable until their owning joins are closed.
+Gate C/D, current authority, native identity/publication, complete consumers,
+compatibility/runtime activation and the independent artifact gates remain open.
