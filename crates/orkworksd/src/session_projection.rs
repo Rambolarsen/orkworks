@@ -391,12 +391,11 @@ impl SessionProjection {
             .unwrap()
             .analysis
             .clone();
-        let mut cache = analysis.try_lock().map_err(|_| {
-            io::Error::new(
-                io::ErrorKind::WouldBlock,
-                "capacity analysis already active",
-            )
-        })?;
+        // Overlapping listings serialize analysis without holding the state
+        // locks or the projection fence needed to admit terminal input.
+        let mut cache = analysis
+            .lock()
+            .map_err(|_| io::Error::other("capacity analysis lock poisoned"))?;
         let (workspace, inputs) = {
             let _fence = self.state.projection_lock.lock().unwrap();
             self.capture_capacity()?
@@ -1172,6 +1171,57 @@ mod tests {
             },
         );
         (dir, state, receiver)
+    }
+
+    #[tokio::test]
+    async fn overlapping_session_requests_wait_for_capacity_analysis_without_holding_input_fence() {
+        use axum::response::IntoResponse;
+        use std::time::Duration;
+
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let first_state = state.clone();
+        let first = std::thread::spawn(move || {
+            SessionProjection::new(first_state).list_with_capacity_analysis(|cache, inputs| {
+                entered_tx.send(()).unwrap();
+                release_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+                cache.analyze(inputs)
+            })
+        });
+        entered_rx.await.unwrap();
+
+        let second_state = state.clone();
+        let mut second = tokio::spawn(async move {
+            crate::http::session_handlers::list_sessions(axum::extract::State(second_state))
+                .await
+                .into_response()
+        });
+        let early_response = tokio::time::timeout(Duration::from_millis(100), &mut second).await;
+        let input_fence_available = state.projection_lock.try_lock().is_ok();
+        release_tx.send(()).unwrap();
+        first.join().unwrap().unwrap();
+        let response = match early_response {
+            Ok(response) => response.unwrap(),
+            Err(_) => tokio::time::timeout(Duration::from_secs(5), second)
+                .await
+                .unwrap()
+                .unwrap(),
+        };
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert!(
+            input_fence_available,
+            "waiting must not hold the terminal input fence"
+        );
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+            serde_json::json!([])
+        );
     }
 
     #[test]
