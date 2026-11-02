@@ -404,13 +404,12 @@ reuses a prepared command or renews the first-receipt grace period.
 private approval mailbox files. It preserves bounded pending/retry quotas and
 immutable cached receipts before awaiting SQL application, including when a drain
 is cancelled, exposes the first typed storage failure separately,
-and consumes detached commits without acknowledging live application. Identity
-envelopes remain queued and are counted as deferred; there is no JSON identity
-fallback. Their authenticated SQL orchestration remains a separate writer group.
-The production drain still selects its JSON path.
+and consumes detached commits without acknowledging live application. Private
+identity envelopes now use the authenticated SQL path described below, with no
+JSON session-metadata fallback. The production drain still selects its JSON path.
 
 Regressions cover exact SQL tuples/proofs and protected no-ops, actual mailbox
-approval with deferred identity, close/reopen storage retry past the grace period,
+approval and identity, close/reopen storage retry past the grace period,
 transition contention before and after commit, token replacement at native claim
 and publication, blocked-claim expiry/resource retirement, restoration of live
 attention after a skipped publication, cancellation without receipt renewal,
@@ -422,7 +421,57 @@ A controlled command consumer delivers actual PTY input while hook SQL is stalle
 This is source integration evidence, not a qualified installed SQL producer or a
 larger-history performance result.
 
-Identity routing, lifecycle/input bookkeeping, external events, producer
-coordination and version-specific eligibility remain prerequisites for SQL
-selection. Production native startup/clear gates stay closed; this optional
+Hook-trust observations, native-label enrichment, lifecycle/input bookkeeping,
+external events, producer coordination and version-specific eligibility remain
+prerequisites for SQL selection. Production native startup/clear gates stay closed; this optional
 backend does not select SQL or migrate a workspace.
+
+## Authenticated native identity reports
+
+The optional SQL mailbox drain now sends private Codex identity packets to
+`SessionWrites::report_native_identity`. This source-only entry requires the
+existing live native runtime, exact run generation and reporting capability.
+The JSON owner and SQL entry share scalar/lifecycle-pair validation; the SQL
+worker reuses the typed HarnessReport reducer for confidence, sticky Codex
+identity, unchanged-report freshness and complete extension preservation.
+Creation identity and exact metadata revision are checked transactionally.
+
+A replacement requires an authenticated root SessionStart with source clear and
+an existing recorded reset for the exact previous durable native ID. The shared
+execution owner checks that reset authority again immediately before granting
+SQL execution. Live publication accepts only the originally captured runtime,
+control channel, creation, native binding, tracker instance and identity epoch,
+with current capability and cancellation state. A native identity change or reset
+replaces the process-local identity epoch and invalidates old hook correlation,
+including at checked-counter exhaustion. No persisted field reconstructs authority.
+
+Identity-only writes do not borrow an attention effect's input/attention fences:
+ordinary typing and explicit user attention can continue during the SQL read.
+Publication changes live resume metadata only, preserving the newer attention
+and input state. It never acknowledges native attention proof. Lower-confidence
+or unauthorized identity changes remain ignored according to the shared reducer.
+Hook-trust telemetry and native-label lookup/persistence retain separate owners;
+this entry does not invoke their JSON metadata callbacks or qualify their SQL
+integration. Ordinary HTTP routing and producer qualification are unchanged.
+
+Identity and approval metadata share bounded reservations, a per-session lane,
+lease retention, claim/cancellation cutoff, guard-contention classification and
+expiry drainage. Guards never span SQL I/O. Cancellation before claim prevents
+the write; after claim an owned task retains the definitive result and publishes
+only into the original current owner. Busy publication retains the immutable
+packet for a fresh revision-checked application. A durable commit that loses
+ownership is explicitly detached, and storage errors remain typed.
+
+The actual mailbox tests cover an approval arriving before identity, identity
+binding, and a later retry of the original approval. Identity packets cache
+original bytes before the SQL await, stay bounded by the same receipt quotas,
+and cannot change their root unnoticed after drain cancellation. Storage failure
+retains the packet; reopening retries against current SQL without JSON fallback.
+Sixteen real application tests also cover confidence/no-op scope, invalid scalar
+and lifecycle reports before storage, a ten-case stale-owner read matrix,
+intervening input/user attention, revoked reset authority, concurrent revision
+conflict, cancellation before/after claim, detached commits, retry after busy
+publication, and bounded expiry while projection validation is blocked. A real
+PTY receives input while an identity commit is stalled and the current identity
+can still publish afterward. This is availability evidence, not latency or
+installed-producer qualification.

@@ -2803,7 +2803,7 @@ impl SessionApplication {
             .get_mut(id)
             .and_then(|handle| handle.runtime.native_approval.as_mut())
         {
-            tracker.invalidate();
+            tracker.identity_changed();
         }
         true
     }
@@ -4007,27 +4007,11 @@ impl SessionApplication {
         session_start_event: Option<&str>,
         report_authenticated: bool,
     ) -> Result<metadata::HarnessSessionMergeResult, SessionError> {
-        if !metadata::valid_harness_session_report(&report) {
-            return Ok(metadata::HarnessSessionMergeResult::Invalid);
-        }
-        let lifecycle_pair_valid = match report.source.as_str() {
-            "codex_hook" => {
-                session_start_event == Some("SessionStart")
-                    && session_start_source.is_some_and(|source| {
-                        matches!(source, "startup" | "resume" | "clear" | "compact")
-                    })
-            }
-            "claude_hook" => {
-                session_start_event == Some("SessionStart") && session_start_source == Some("clear")
-            }
-            "copilot_hook" => {
-                session_start_event == Some("sessionStart") && session_start_source == Some("new")
-            }
-            _ => false,
-        };
-        if session_start_source.is_some() != session_start_event.is_some()
-            || (session_start_source.is_some() && !lifecycle_pair_valid)
-        {
+        if !metadata::valid_harness_session_report_context(
+            &report,
+            session_start_source,
+            session_start_event,
+        ) {
             return Ok(metadata::HarnessSessionMergeResult::Invalid);
         }
         let now = iso_now();
@@ -4077,6 +4061,17 @@ impl SessionApplication {
             if let Some(updated_resume) = updated_resume {
                 let mut sessions = self.state.sessions.lock().unwrap();
                 if let Some(handle) = sessions.get_mut(id) {
+                    if handle
+                        .info
+                        .resume
+                        .as_ref()
+                        .and_then(|r| r.harness_session_id.as_ref())
+                        != updated_resume.harness_session_id.as_ref()
+                    {
+                        if let Some(tracker) = handle.runtime.native_approval.as_mut() {
+                            tracker.identity_changed();
+                        }
+                    }
                     handle.info.resume = Some(updated_resume);
                 }
             }

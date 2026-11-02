@@ -50,6 +50,7 @@ pub(crate) struct NativeApprovalState {
     sql_ownership: Option<(AttentionWriteToken, crate::session_store::AttentionProof)>,
     instance: Arc<()>,
     hook_application: Arc<()>,
+    identity_epoch: Arc<()>,
     validated_permission: Option<AttentionWriteToken>,
     live_revision: Option<AttentionWriteToken>,
     committed_input_sequence: u64,
@@ -80,6 +81,7 @@ impl NativeApprovalState {
             sql_ownership: None,
             instance: Arc::new(()),
             hook_application: Arc::new(()),
+            identity_epoch: Arc::new(()),
             validated_permission: None,
             live_revision: None,
             committed_input_sequence: 0,
@@ -142,6 +144,14 @@ impl NativeApprovalState {
         self.live_revision = None;
     }
 
+    pub(crate) fn identity_changed(&mut self) {
+        // Exact identity changes must revoke staged contexts even after checked
+        // correlation counters have exhausted.
+        self.hook_application = Arc::new(());
+        self.identity_epoch = Arc::new(());
+        self.invalidate();
+    }
+
     pub(crate) fn protects_permission_wait(
         &self,
         owner: &super::observed_status::AttentionOwner,
@@ -188,7 +198,7 @@ impl NativeApprovalState {
             }
             self.turn = None;
             self.last_hook_at = None;
-            self.invalidate();
+            self.identity_changed();
         }
         if self.fence.input_revision != handle.runtime.input_generation
             || self.committed_input_sequence != handle.runtime.committed_input_sequence
@@ -2425,3 +2435,6 @@ mod sql_observer_tests;
 mod sql_hook_tests;
 
 pub(crate) mod hook_context;
+
+#[cfg(test)]
+mod sql_identity_tests;

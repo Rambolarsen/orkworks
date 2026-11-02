@@ -853,11 +853,16 @@ production observer still selects JSON. The optional SQL approval-hook path now
 shares validation and pure activation/boundary/fallback rules with the JSON owner,
 retains original receipts and application identity across reserved writes, and
 rechecks execution/publication without shared guards spanning SQL waits. Its
-mailbox drain exposes typed storage failures and detached commits; identity
-reports are deferred rather than written through a JSON fallback. Production
-relay routing remains JSON. Authenticated identity orchestration, lifecycle/input
-bookkeeping and external events still need their owned integration before SQL
-selection; native eligibility gates remain unchanged.
+mailbox drain exposes typed storage failures and detached commits. Its private
+Codex identity packets now use the same bounded SQL execution owner, shared
+scalar/lifecycle validation, exact creation/revision checks and recorded-root
+reset authority. Identity publication updates live resume metadata while leaving
+input and attention independent; an opaque identity epoch fences actual binding
+changes even after counter exhaustion. Identity and approval retries retain their
+original packet bytes before SQL awaits. Production relay routing remains JSON.
+Hook-trust observations, native-label enrichment, lifecycle/input bookkeeping and
+external events still need their owned integration before SQL selection; native
+eligibility gates remain unchanged.
 
 The source-only Peon SQL application boundary prepares bounded writes before
 waiting for a per-session lane shared by that worker. It retains the workspace

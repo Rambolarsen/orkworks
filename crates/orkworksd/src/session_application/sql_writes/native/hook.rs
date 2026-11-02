@@ -14,12 +14,6 @@ pub(crate) enum SqlHookOutcome {
     Retry,
     CommittedDetached,
 }
-struct HookCancellation(Arc<HookOperation>);
-impl Drop for HookCancellation {
-    fn drop(&mut self) {
-        self.0.cancel_before_claim();
-    }
-}
 fn obsolete(committed: bool) -> SqlHookOutcome {
     if committed {
         SqlHookOutcome::CommittedDetached
@@ -369,108 +363,24 @@ impl SessionWrites {
             None,
             intent,
         )?;
-        let _cancellation = prepared.cancellation();
-        let lease_origin = origin.clone();
-        let lease_id = id.clone();
-        let lease_token = token.clone();
-        let lease = self
-            .native_access(id.clone(), None, None, move |ws, h, authority| {
-                (lease_origin.matches(h, &authority)
-                    && verify_workflow_report_token(&lease_id, &lease_token))
-                .then(|| ws.lease.clone())
-                .flatten()
-            })
-            .await?;
-        let lease = match lease {
-            NativeAccess::Current(Some(lease)) => lease,
-            NativeAccess::Current(None) | NativeAccess::Obsolete => {
-                return Err(StoreError::Conflict)
-            }
-            NativeAccess::Busy => {
-                return Ok(HookStage {
-                    record,
-                    context: None,
-                    committed: false,
-                    retry: true,
-                })
-            }
-        };
-        let lane = prepared.lane()?;
-        #[cfg(test)]
-        if let Some(sent) = self.before_hook_lane.lock().unwrap().take() {
-            let _ = sent.send(());
-        }
-        let lane = tokio::time::timeout_at(prepared.deadline().into(), lane.lock_owned())
-            .await
-            .map_err(|_| StoreError::Expired)?;
-        let (ticket, ready) = prepared.enqueue(RuntimeWriteResources::new(lane, Some(lease)))?;
-        let mut finished = Box::pin(ticket.finish());
-        let mut delivered = None;
-        let request = tokio::select! {
-            biased;
-            completion = &mut finished => { delivered = Some(completion); None },
-            ready = ready => ready.ok(),
-        };
-        let mut retry = false;
-        if let Some(request) = request {
-            let claiming = origin.clone();
-            let claim_id = id.clone();
-            let claim_token = token.clone();
-            let mut claiming =
-                Box::pin(
-                    self.native_access(id.clone(), None, None, move |_, h, authority| {
-                        if !claiming.matches(h, &authority)
-                            || !verify_workflow_report_token(&claim_id, &claim_token)
-                        {
-                            return Ok(None);
-                        }
-                        let grant = request.grant()?;
-                        if !phase.mark_claimed() {
-                            return Ok(None);
-                        }
-                        Ok(Some(grant))
-                    }),
-                );
-            let claimed = tokio::select! {
-                biased;
-                completion = &mut finished => {
-                    match completion {
-                        Err(StoreError::Conflict) => delivered = Some(Err(StoreError::Conflict)),
-                        Err(error) => return Err(error),
-                        Ok(_) => return Err(StoreError::Unavailable),
-                    }
-                    claiming.await?
-                }
-                claimed = &mut claiming => claimed?,
-            };
-            match claimed {
-                NativeAccess::Current(Ok(Some(grant))) => grant.execute()?,
-                NativeAccess::Current(Ok(None)) | NativeAccess::Obsolete => {}
-                NativeAccess::Current(Err(error)) => return Err(error),
-                NativeAccess::Busy => retry = true,
-            }
-        }
-        let completion = match delivered {
-            Some(result) => result,
-            None => finished.await,
-        };
-        if retry {
-            // No grant escaped the unavailable guard callback. Drain the worker's
-            // rejection before releasing the operation, without calling that
-            // deliberate refusal a database conflict or queue expiry.
-            match completion {
-                Err(StoreError::Conflict | StoreError::Expired) => {}
-                Err(error) => return Err(error),
-                Ok(_) => return Err(StoreError::Unavailable),
-            }
+        let Some(completion) = self
+            .execute_native_metadata(
+                id.clone(),
+                token.clone(),
+                origin.clone().into(),
+                prepared,
+                phase,
+                None,
+            )
+            .await?
+        else {
             return Ok(HookStage {
                 record,
                 context: None,
                 committed: false,
                 retry: true,
             });
-        }
-        let completion = completion?;
+        };
         let changed = completion.outcome.document.is_some();
         let record = match completion.outcome.document.as_ref() {
             Some(document) => serde_json::from_value(document.clone())?,
