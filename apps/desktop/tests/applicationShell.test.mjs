@@ -7,7 +7,13 @@ if (process.versions.electron) {
   app.whenReady().then(async () => {
     const win = new BrowserWindow({ show: false, width: 1280, height: 700 });
     const evaluate = async (source) => {
-      try { return await win.webContents.executeJavaScript(source); }
+      // Sanitize results so DOM nodes never cross the executeJavaScript
+      // serialization bridge: Electron 45 (Chromium 156) serializes expando
+      // properties of returned nodes, and React-rendered nodes carry
+      // function/cycle expandos that reject with "An object could not be
+      // cloned". Serialized primitives and plain objects pass through.
+      const sanitized = `(() => { const value = eval((${JSON.stringify(source)})); if (value && typeof value === "object" && value.nodeType) return "__NODE__"; if (typeof value === "function") return "__FUNCTION__"; return value; })()`;
+      try { return await win.webContents.executeJavaScript(sanitized); }
       catch (error) { throw new Error(`Renderer evaluation failed: ${source}`, { cause: error }); }
     };
     const waitFor = async (source) => {
