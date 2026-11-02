@@ -439,3 +439,20 @@ The budget is exhausted, with no model retries, replacement samples or settings
 changes. The separate evidence-first combined-usefulness pass remains limited
 to that gate; it does not qualify current scoring accuracy. Historical failures
 and the earlier Sol collector-3/prompt-v2 qualification remain unchanged.
+
+
+## Offline scoring prompt-v5 candidate (#1292)
+
+The [offline calibration packet](fixtures/readiness-calibration-offline-v5/index.md)
+pins three agreed v4 failures and three supported lower-level/unknown examples.
+Scoring prompt v5 evaluates signed conditions before choosing a number, then
+checks that rationale, limits and transition do not contradict it. General
+examples separate static documentation from maintenance and a plan expectation
+from an explicit decomposition workflow. This is an unqualified prompt candidate,
+not evidence that model accuracy improved. No additional provider calls were made.
+
+Collector-4 prompt-v3/v4 history remains readable; new v5 input/comparison
+identities prevent old results being treated as current or comparable. Collector,
+discovery/final schemas, arithmetic, signed guidance, access and call limits
+retain their existing contracts. The existing Luna failure notice and historical
+Sol qualification notices are unchanged. The v4 failure corpus remains immutable.
