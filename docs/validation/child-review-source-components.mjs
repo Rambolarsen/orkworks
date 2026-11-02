@@ -320,6 +320,8 @@ export function validateChildAllocation(x) {
   nativePath(x.group.absolutePath);
   baseCommit(x.group.baseCommit);
   worktree(x.allocatedWorktree, 'linked');
+  assert.deepEqual(x.allocatedWorktree.canonicalRoot, x.group.absolutePath,
+    'allocated root matches the approved planned path');
   sealed(x, 'allocationDigest', 'orkworks.child-source-allocation.v1', 'child allocation digest');
   return x;
 }
@@ -427,7 +429,8 @@ export function validateReviewTargetInput(x, ctx) {
   }
   assert.equal(x.evaluationOutputDeclarationId, ctx.evaluationDeclarationId,
     'evaluation declaration join');
-  assert(Number.isSafeInteger(x.maxReadBytes) && x.maxReadBytes >= 1, 'read budget');
+  assert(Number.isSafeInteger(x.maxReadBytes) && x.maxReadBytes >= 1 &&
+    x.maxReadBytes <= 262144, 'approved read budget within the 256 KiB ceiling');
   return {input: x, sourceKeys: keys};
 }
 function utc(x) {
@@ -515,7 +518,7 @@ function capabilityEvidence(x, cfg, ctx) {
   sealed(x, 'evidenceDigest', 'orkworks.capability-evidence.v1', 'evidence digest');
   return artifacts(ctx, x);
 }
-export function childDeliveryOrder(x, role, cfg, artifactMap) {
+export function childDeliveryOrder(x, role, cfg, artifactMap, expectedInputDigest) {
   exact(x, 'schemaVersion kind harnessId adapterId adapterVersion argv nonsecretBindings configurationSources discoveredInstructions deliveryOrder instructionMechanism');
   assert.equal(x.schemaVersion, 1);
   assert.equal(x.kind, 'child-startup-settings', 'child settings artifact kind');
@@ -583,9 +586,15 @@ export function childDeliveryOrder(x, role, cfg, artifactMap) {
     const suppliedIndex = x.deliveryOrder.findIndex(d => d.kind === 'supplied');
     assert.equal(x.deliveryOrder[suppliedIndex + 1].kind, 'review-input',
       'review-input immediately after supplied payload');
-    for (const [i, d] of x.deliveryOrder.slice(suppliedIndex + 2).entries()) {
+    if (expectedInputDigest) {
+      assert.equal(reviewInputs[0], expectedInputDigest,
+        'review-input delivery digest join');
+    }
+    let expectedPrecedence = suppliedIndex;
+    for (const d of x.deliveryOrder.slice(suppliedIndex + 2)) {
       assert.equal(d.kind, 'automatic', 'later entries stay automatic');
-      assert.equal(d.precedence, suppliedIndex + 1 + i, 'relative automatic order preserved');
+      assert.equal(d.precedence, expectedPrecedence, 'relative automatic order preserved');
+      expectedPrecedence++;
     }
   } else {
     assert.equal(reviewInputs.length, 0, 'worker has no retained review-input delivery');
@@ -746,7 +755,8 @@ export function validateChildConfiguration(b, ctx) {
   for (const k of Object.keys(h)) assert.equal(canonical(h[k]), canonical(e[k]), 'shared harness ' + k);
   validateSourceComponent('executable', h.executableIdentity, ctx);
   const settings = artifactComponent(map, h.effectiveSettingsDigest, e.references);
-  childDeliveryOrder(settings, role, b, map);
+  childDeliveryOrder(settings, role, b, map, ctx.expectedInputDigest === undefined ?
+    null : ctx.expectedInputDigest);
   for (const k of ['harnessId', 'adapterId', 'adapterVersion', 'instructionMechanism']) {
     assert.equal(settings[k], h[k], 'settings binding ' + k);
   }
@@ -773,7 +783,7 @@ export function validateChildConfiguration(b, ctx) {
   assert.equal(b.renderedInstructionsDigest, sha(b.renderedInstructions), 'rendered digest');
   sealed(b, 'configurationDigest', CONFIG_DOMAIN, 'configuration digest');
   assert(bytesOf(b) <= 1048576, 'configuration 1 MiB');
-  return b;
+  return {configuration: b};
 }
 function outputContractFor(b, role) {
   const x = b.outputContract;
@@ -812,6 +822,7 @@ export function validateChildReviewInputSnapshot(x, ctx) {
   exact(x, 'schemaVersion task target result criteria rubric evidence inputDigest');
   assert.equal(x.schemaVersion, 1);
   taskKeyField(x.task);
+  if (ctx.expectedTask) assert.deepEqual(x.task, ctx.expectedTask, 'snapshot task join');
   const resultDigest = validateChildResultDigest(x.result);
   exact(x.target, 'assignmentIdentity resultRevision resultDigest');
   childIdentity(x.target.assignmentIdentity);
@@ -843,19 +854,25 @@ export function validateChildReviewInputSnapshot(x, ctx) {
   assert(bytesOf(x) <= 262144, 'input snapshot 256 KiB');
   return keys;
 }
-export function makeContext(catalog, role) {
+export function makeContext(catalog, role, depth = 0) {
   const ctx = {
     run: catalog.context.run,
     retainedArtifacts: catalog.context.artifactSets[role].map(a => ({...a})),
     reportContexts: new Map(catalog.context.reportContexts.map(c =>
       [c.reportId + ':' + c.reportVersion, c])),
   };
+  if (depth === 0) {
+    ctx.targetCtx = makeContext(catalog, role === 'worker' ? 'reviewer' : 'worker', 1);
+  }
   return ctx;
 }
 export function verifyChildChain(chain, ctx) {
   validateRun(ctx.run);
   const plan = validateChildPlan(chain.plan, ctx);
-  const configuration = validateChildConfiguration(chain.configuration, ctx);
+  const validator = validateChildConfiguration(chain.configuration,
+    chain.inputSnapshot ? {...ctx, expectedInputDigest: chain.inputSnapshot.inputDigest} :
+      ctx);
+  const configuration = validator.configuration;
   assert.deepEqual(plan.taskKey,
     {workspaceId: ctx.run.workspaceId, runId: ctx.run.runId,
       planId: configuration.planId, planRevision: configuration.planRevision,
@@ -893,27 +910,33 @@ export function verifyChildChain(chain, ctx) {
     configurationDigest: reservation.configurationDigest},
   plan.plan.task.configuration, 'reservation configuration join');
   const allocation = validateChildAllocation(chain.allocation);
+  const allocationRef = {reservation: {task: reservation.task,
+    reservationId: reservation.reservationId,
+    reservationDigest: reservation.reservationDigest},
+    allocationId: allocation.allocationId, allocationDigest: allocation.allocationDigest};
   assert.deepEqual(allocation.reservation, {
     task: reservation.task, reservationId: reservation.reservationId,
     reservationDigest: reservation.reservationDigest}, 'allocation reservation join');
   assert.deepEqual(allocation.group, plan.plan.task.group, 'allocation planned group join');
   const attachment = validateChildAttachment(chain.attachment);
+  assert.deepEqual(attachment.allocation, allocationRef,
+    'attachment allocation reference join');
+  assert.equal(attachment.assignmentIdentity.childSessionId,
+    reservation.childSessionId, 'attachment identity child session join');
+  assert.deepEqual(attachment.assignmentIdentity, chain.assignmentSource.assignmentIdentity,
+    'attachment identity/assignment-source join');
   const assignmentSource = validateChildAssignmentSource(chain.assignmentSource, {
     planRef: request.plan, taskKey: selfTask, configuration,
     reservationRef: {task: reservation.task, reservationId: reservation.reservationId,
       reservationDigest: reservation.reservationDigest},
-    reservation, attachment,
-    allocationRef: {reservation: {task: reservation.task,
-      reservationId: reservation.reservationId,
-      reservationDigest: reservation.reservationDigest},
-    allocationId: allocation.allocationId, allocationDigest: allocation.allocationDigest}});
+    reservation, attachment, allocationRef});
   assert.deepEqual(assignmentSource.input, plan.plan.task.input,
     'assignment source input join');
   let snapshotKeys = null;
   if (configuration.reviewInput !== null) {
     snapshotKeys = validateChildReviewInputSnapshot(chain.inputSnapshot, {
-      targetConfiguration: chain.targetConfiguration, reportContexts: ctx.reportContexts});
-    assert.deepEqual(chain.inputSnapshot.task, selfTask, 'snapshot task join');
+      targetConfiguration: chain.targetConfiguration, reportContexts: ctx.reportContexts,
+      expectedTask: selfTask});
     assert.deepEqual(chain.inputSnapshot.evidence.map(pair => pair.source),
       configuration.reviewInput.evidenceSources, 'snapshot evidence coverage join');
     assert.deepEqual(snapshotKeys, reviewInputKeys, 'snapshot source-key join');
@@ -922,6 +945,14 @@ export function verifyChildChain(chain, ctx) {
     assert.deepEqual(plan.plan.task.input, {
       task: selfTask, inputDigest: chain.inputSnapshot.inputDigest},
       'reviewer plan input join');
+    const targetValidated = validateChildConfiguration(chain.targetConfiguration,
+      ctx.targetCtx);
+    assert.equal(targetValidated.configuration.configurationDigest,
+      chain.expectedTarget.assignmentIdentity.configurationDigest,
+      'target configuration digest join');
+    assert.equal(targetValidated.configuration.taskId,
+      chain.expectedTarget.assignmentIdentity.taskId, 'target configuration task join');
+    assertReadBudgetCoverage(configuration.reviewInput, chain.inputSnapshot);
     const wire = retainedReviewInputWire(chain.inputSnapshot);
     assert(Buffer.byteLength(
       configuration.renderedInstructions + wire) <= 262144, 'composed startup ceiling');
@@ -937,3 +968,17 @@ export function verifyChildChain(chain, ctx) {
     snapshotKeys,
   };
 }
+export function assertReadBudgetCoverage(reviewInput, snapshot) {
+  const coverage = Buffer.byteLength(canonical(snapshot.result)) +
+    Buffer.byteLength(canonical(snapshot.criteria)) +
+    Buffer.byteLength(canonical(snapshot.rubric)) +
+    snapshot.evidence.reduce((n, pair) => n + pair.source.sizeBytes, 0);
+  assert(reviewInput.maxReadBytes >= coverage,
+    'approved read budget covers the retained input set');
+  return coverage;
+}
+function assignmentSourceMatches() {
+  // Kept for callers: identity join now compares via deepEqual above.
+  return true;
+}
+void assignmentSourceMatches;

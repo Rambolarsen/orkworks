@@ -87,6 +87,13 @@ ATTACHED_WORKTREE = seal('orkworks.worktree-binding.v1', {
     'canonicalPrivateGitDirectory': path('/fixture/main/worktrees/fixture-child-1/.git'),
     'privateGitDirectoryObject': obj(45),
     'kind': 'linked'}, 'worktreeBindingDigest')
+REVIEWER_WORKTREE = seal('orkworks.worktree-binding.v1', {
+    'repositoryBinding': REPOSITORY,
+    'canonicalRoot': path('/fixture/main/worktrees/fixture-child-2'),
+    'rootObject': obj(46),
+    'canonicalPrivateGitDirectory': path('/fixture/main/worktrees/fixture-child-2/.git'),
+    'privateGitDirectoryObject': obj(47),
+    'kind': 'linked'}, 'worktreeBindingDigest')
 
 PROVENANCE = {'schemaVersion': 1, 'kind': 'nonlocal', 'sourceKind': 'user-approved',
               'sourceIdentity': 'synthetic-catalog', 'sourceRevision': 'fixture-v1'}
@@ -584,7 +591,7 @@ def main():
     reviewer_allocation = seal('orkworks.child-source-allocation.v1', {
         'schemaVersion': 1, 'reservation': reviewer_reservation_ref,
         'allocationId': 'allocation-2', 'group': reviewer_group,
-        'allocatedWorktree': ATTACHED_WORKTREE, 'allocationDigest': None},
+        'allocatedWorktree': REVIEWER_WORKTREE, 'allocationDigest': None},
         'allocationDigest')
     reviewer_attachment = seal('orkworks.child-source-attachment.v1', {
         'schemaVersion': 1, 'attachmentId': 'attachment-2',

@@ -6,8 +6,8 @@ import {test} from 'node:test';
 import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {
-  canonical, domain, makeContext, renderChildInstructions, retainedReviewInputWire,
-  verifyChildChain,
+  assertReadBudgetCoverage, canonical, domain, makeContext, renderChildInstructions,
+  retainedReviewInputWire, validateReviewTargetInput, verifyChildChain,
 } from './child-review-source-components.mjs';
 
 const sha = x => createHash('sha256').update(x).digest('hex');
@@ -119,8 +119,12 @@ function reseal(x, field, name) {
   delete body[field];
   return {...x, [field]: domain(name, body)};
 }
-const resealConfiguration = c => reseal(c, 'configurationDigest',
+const resealConfiguration = c => {
+  const rendered = renderChildInstructions(c);
+  return reseal({...c, renderedInstructions: rendered,
+    renderedInstructionsDigest: sha(rendered)}, 'configurationDigest',
   'orkworks.assignment-configuration.v3');
+};
 const resealSnapshot = s => reseal(s, 'inputDigest', 'orkworks.child-review-input.v1');
 
 // Structural and join rejections. Mutated digest-sealed records reject through
@@ -204,19 +208,28 @@ const NEGATIVES = [
   ['changed approval retry bytes', () => workerChain({approvalSource:
     {...value('worker-approval-source'), requestDigest: '0'.repeat(64)}}),
   /approval request digest join/],
+  ['attachment allocation digest drift', () => workerChain({attachment: reseal(
+    {...value('worker-attachment'),
+      allocation: {...value('worker-attachment').allocation,
+        allocationDigest: '0'.repeat(64)}}, 'attachmentDigest',
+    'orkworks.child-source-attachment.v1')}), /attachment allocation reference join/],
+  ['attachment identity drift', () => workerChain({attachment: reseal(
+    {...value('worker-attachment'),
+      assignmentIdentity: {...value('worker-assignment-source').assignmentIdentity,
+        childSessionId: 'child-9'}}, 'attachmentDigest',
+    'orkworks.child-source-attachment.v1')}), /attachment identity/],
   ['snapshot unknown field', () => reviewerBase({inputSnapshot:
     {...value('reviewer-input-snapshot'), bearer: 'not-a-grant'}}), /closed fields/],
   ['snapshot credentials excluded', () => reviewerBase({inputSnapshot:
-    resealSnapshot({...value('reviewer-input-snapshot'), bearer: 'not-a-grant'})}),
-  /closed fields/],
+    {...value('reviewer-input-snapshot'), bearer: 'not-a-grant'}}), /closed fields/],
   ['reservation approval digest drift', () => workerChain({reservation: reseal(
     {...value('worker-reservation'),
       approval: {...value('worker-reservation').approval, approvalDigest: '0'.repeat(64)}},
     'reservationDigest', 'orkworks.child-source-reservation.v1')}),
   /reservation approval join/],
-  ['snapshot task key drift', () => reviewerBase({inputSnapshot: resealSnapshot(
+  ['snapshot task key drift', () => reviewerBase({inputSnapshot:
     {...value('reviewer-input-snapshot'), task: {...value('reviewer-input-snapshot').task,
-      taskId: 'task-9'}})}), /snapshot task join/],
+      taskId: 'task-9'}}}), /snapshot task join/],
 ];
 for (const [name, build, expected] of NEGATIVES) {
   test(`rejects: ${name}`, () => {
@@ -244,28 +257,70 @@ test('rejects stale plan definition bytes in the retained chain', () => {
     /request plan join/);
 });
 
-test('rejects missing retained review-input delivery with consistent bytes', () => {
+test('rejects a read budget above the 256 KiB ceiling', () => {
+  const rc = value('reviewer-configuration');
+  const snapshot = value('reviewer-input-snapshot');
+  assert.throws(() => validateReviewTargetInput(
+    {...rc.reviewInput, maxReadBytes: 262145},
+    {run: catalog.context.run, expectedTarget: snapshot.target,
+      evaluationDeclarationId: 'evaluation'}), /256 KiB ceiling/);
+});
+
+test('rejects a read budget below the retained input coverage', () => {
+  const rc = value('reviewer-configuration');
+  const snapshot = value('reviewer-input-snapshot');
+  assert.throws(() => assertReadBudgetCoverage(
+    {...rc.reviewInput, maxReadBytes: 1}, snapshot),
+  /approved read budget covers/);
+  assert(assertReadBudgetCoverage(rc.reviewInput, snapshot) > 0,
+    'positive coverage for the supplied snapshot');
+});
+
+test('rejects an unauthenticated target configuration substitution', () => {
+  const chain = reviewerBase({targetConfiguration: value('reviewer-configuration')});
+  assert.throws(() => verifyChildChain(chain, makeContext(catalog, 'reviewer')),
+    /retained artifact unavailable|target configuration digest join/);
+});
+
+function reviewerWithDeliveryOrder(deliveryOrder, settingsMutation) {
   const settingsIndex = catalog.context.artifactSets.reviewer
     .findIndex(a => JSON.parse(a.content).kind === 'child-startup-settings');
-  const originalSettings = JSON.parse(catalog.context.artifactSets.reviewer[settingsIndex].content);
-  const mutatedSettings = {...originalSettings,
-    deliveryOrder: [{'kind': 'automatic', 'precedence': 0}, {'kind': 'supplied'}]};
-  const mutatedArtifacts = catalog.context.artifactSets.reviewer.map((a, i) => i === settingsIndex ?
-    {content: canonical(mutatedSettings), contentDigest: sha(canonical(mutatedSettings))} : a);
+  const originalSettings = JSON.parse(
+    catalog.context.artifactSets.reviewer[settingsIndex].content);
+  const mutatedSettings = settingsMutation ?
+    settingsMutation(originalSettings) :
+    {...originalSettings, deliveryOrder};
+  const mutatedCanonical = canonical(mutatedSettings);
   const ctx = makeContext(catalog, 'reviewer');
-  ctx.retainedArtifacts = mutatedArtifacts;
+  ctx.retainedArtifacts = catalog.context.artifactSets.reviewer.map((a, i) => i ===
+    settingsIndex ? {content: mutatedCanonical, contentDigest: sha(mutatedCanonical)} : a);
   const configuration = structuredClone(value('reviewer-configuration'));
   configuration.capabilityEvidence = reseal(
     {...configuration.capabilityEvidence,
-      effectiveSettingsDigest: sha(canonical(mutatedSettings)),
+      effectiveSettingsDigest: sha(mutatedCanonical),
       references: configuration.capabilityEvidence.references.map((r, i) =>
-        i === 0 ? {...r, contentDigest: sha(canonical(mutatedSettings))} : r)},
+        i === 0 ? {...r, contentDigest: sha(mutatedCanonical)} : r)},
     'evidenceDigest', 'orkworks.capability-evidence.v1');
   configuration.harness = Object.fromEntries(
     ['harnessId', 'definitionDigest', 'adapterId', 'adapterVersion', 'executableIdentity',
       'toolVersion', 'platform', 'instructionMechanism', 'effectiveSettingsDigest',
       'evidenceId', 'evidenceDigest'].map(k => [k, configuration.capabilityEvidence[k]]));
-  const chain = reviewerBase({configuration: resealConfiguration(configuration)});
+  return {ctx, chain: reviewerBase({configuration: resealConfiguration(configuration)})};
+}
+
+test('rejects missing retained review-input delivery with consistent bytes', () => {
+  const {ctx, chain} = reviewerWithDeliveryOrder(
+    [{'kind': 'automatic', 'precedence': 0}, {'kind': 'supplied'}]);
   assert.throws(() => verifyChildChain(chain, ctx),
     /one retained review-input delivery/);
+});
+
+test('rejects delivery digest drift from the retained input snapshot', () => {
+  const {ctx, chain} = reviewerWithDeliveryOrder(undefined, settings => ({
+    ...settings,
+    deliveryOrder: settings.deliveryOrder.map(d =>
+      d.kind === 'review-input' ? {...d, inputDigest: 'f'.repeat(64)} : d),
+  }));
+  assert.throws(() => verifyChildChain(chain, ctx),
+    /review-input delivery digest join/);
 });
