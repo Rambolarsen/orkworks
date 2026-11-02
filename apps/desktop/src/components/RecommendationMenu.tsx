@@ -1,3 +1,4 @@
+import { ChevronDown, MoreHorizontal } from 'lucide-react';
 import { useId, type ReactNode, type SyntheticEvent } from 'react';
 
 /** Native disclosure keeps actions in normal keyboard order without claiming menu-role semantics. */
@@ -21,7 +22,7 @@ export default function RecommendationMenu({ label, children, primary = false }:
       const button = (event.target as HTMLElement).closest('button');
       if (button && !button.disabled) close(event.currentTarget, true);
     }}>
-    <summary aria-label={label} title={label} aria-describedby={descriptionId}>{primary ? '⌄' : '•••'}</summary>
+    <summary aria-label={label} title={label} aria-describedby={descriptionId}>{primary ? <ChevronDown size={16} aria-hidden="true" /> : <MoreHorizontal size={18} aria-hidden="true" />}</summary>
     <div className="recommendation-menu-content">
       <p id={descriptionId} className="recommendation-menu-label">{label}</p>
       {children}

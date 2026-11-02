@@ -202,3 +202,87 @@ test('disabling readiness during a pending request does not leave controls stuck
  assert.doesNotMatch(displayedText(view.render()), /Assessment and suggestion requested/);
  assert.equal(primary().props.disabled, false);
 });
+
+
+test('an already-running response does not remain after a successful idle refresh', async t => {
+ const view = await fixture(t, status([snapshot()]));
+ window.orkworks.requestReadinessSuggestion = async () => ({ outcome: 'already_running' });
+ view.queue.push(Promise.resolve(status([snapshot()])));
+ nodes(view.render()).find(n => n.type === 'button' && n.props.children === 'Find next improvement').props.onClick();
+ await view.settle(); view.render(); await view.settle();
+ assert.doesNotMatch(displayedText(view.render()), /Another Taskmaster analysis is active/);
+});
+
+test('live external activity is separate from a timestamped previous failure and clears when idle', async t => {
+ const props = { analysisActive: true };
+ const initial = status([snapshot()]);
+ initial.run = { id: 'failed', state: 'failed', phase: null, startedAt: '2026-10-26T00:00:00Z', completedAt: '2026-10-26T00:01:00Z', errorCode: 'evidence_evidence_limit' };
+ const view = await fixture(t, initial, props);
+ const live = nodes(view.render()).filter(n => n.props?.role === 'status');
+ assert.ok(live.some(n => /Another Taskmaster analysis is active/.test(displayedText(n))));
+ assert.ok(live.every(n => !/exceeded|failed/.test(displayedText(n))), 'Historical errors must not be announced as current activity');
+ const notice = nodes(view.render()).find(n => n.props?.className === 'readiness-failure');
+ assert.ok(notice, 'A previous failure gets a separate notice');
+ assert.ok(nodes(notice).some(n => n.type === 'time' && n.props.dateTime === initial.run.completedAt));
+ assert.match(displayedText(notice), /saved assessment is retained/i);
+ assert.ok(nodes(notice).some(n => n.type === 'details'), 'Technical failure detail is expandable');
+ assert.doesNotMatch(displayedText(notice), /check taskmaster settings/i);
+ props.analysisActive = false;
+ view.render(); await view.settle();
+ assert.doesNotMatch(displayedText(view.render()), /Another Taskmaster analysis is active/);
+});
+
+test('a request confirmation clears when polling observes its run', async t => {
+ const view = await fixture(t, status());
+ window.orkworks.requestReadinessAssessment = async () => ({ outcome: 'scheduled' });
+ view.queue.push(Promise.resolve(status()));
+ nodes(view.render()).find(n => n.type === 'button' && n.props.children === 'Check agent readiness').props.onClick();
+ await view.settle(); view.render(); await view.settle();
+ assert.match(displayedText(view.render()), /Readiness assessment requested/);
+ const active = status();
+ active.run = { id: 'new', state: 'running', phase: 'reading_evidence', startedAt: '2026-11-02T00:00:00Z', completedAt: null, errorCode: null };
+ view.queue.push(Promise.resolve(active)); view.tick(); await view.settle(); view.render(); await view.settle();
+ assert.doesNotMatch(displayedText(view.render()), /Readiness assessment requested/);
+ assert.match(displayedText(view.render()), /Reading evidence/);
+});
+
+test('a failed combined score shows the linked cause once without generic settings advice', async t => {
+ const initial = status([snapshot()]);
+ initial.run = { id: 'score-failed', state: 'failed', phase: null, startedAt: '2026-10-26T00:00:00Z', completedAt: '2026-10-26T00:01:00Z', errorCode: 'evidence_evidence_limit' };
+ initial.suggestionRun = { id: 'combined-failed', state: 'failed', phase: 'finished', readinessRunId: 'score-failed', assessmentId: null, recommendationId: null, reasonCode: 'scoring_failed' };
+ const view = await fixture(t, initial);
+ assert.equal(nodes(view.render()).filter(n => n.props?.className === 'readiness-failure').length, 1);
+ assert.doesNotMatch(displayedText(view.render()), /check Taskmaster settings/i);
+});
+
+test('saved score provenance is visible for unknown currentness and redacted scores stay hidden', async t => {
+ const initial = status([snapshot()]); initial.freshness = 'unknown';
+ const view = await fixture(t, initial);
+ const text = displayedText(view.render());
+ assert.match(text, /Saved/); assert.match(text, /Currentness unknown/);
+ const badge = nodes(view.render()).find(n => n.props?.className?.includes('readiness-freshness'));
+ assert.ok(badge);
+ const redacted = status([{ ...snapshot(), redacted: true, data: null }]); redacted.freshness = 'redacted';
+ view.queue.push(Promise.resolve(redacted)); view.tick(); await view.settle();
+ assert.ok(!nodes(view.render()).some(n => n.type === 'strong' && n.props.children === 50));
+ assert.doesNotMatch(displayedText(view.render()), /Inputs unchanged/);
+});
+
+
+for (const [errorCode, guidance, irrelevant] of [
+ ['evidence_evidence_limit', /evidence access and exclusions/, /updated app build|model provider/],
+ ['scoring_provider_authentication', /Sign in to the model provider/, /updated app build/],
+ ['scoring_provider_timeout', /provider is available/, /Sign in/],
+ ['publication_metadata_unavailable', /local storage access/, /Taskmaster settings/],
+ ['evidence_evidence_unavailable', /repository access/, /updated app build/],
+ ['scoring_provider_model', /model and coding tool configuration/, /local storage access/],
+ ['scoring_prompt_limit', /context access and exclusions/, /Sign in/],
+]) test(`failure recovery for ${errorCode} addresses the cause`, async t => {
+ const initial = status();
+ initial.run = { id: 'failed', state: 'failed', phase: null, startedAt: '2026-10-26T00:00:00Z', completedAt: '2026-10-26T00:01:00Z', errorCode };
+ const view = await fixture(t, initial);
+ const notice = nodes(view.render()).find(n => n.props?.className === 'readiness-failure');
+ const recovery = nodes(notice).find(n => n.type === 'p' && !n.props.className);
+ assert.match(displayedText(recovery), guidance);
+ assert.doesNotMatch(displayedText(recovery), irrelevant);
+});
