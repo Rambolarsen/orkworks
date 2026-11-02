@@ -69,16 +69,21 @@ everything outside:
 3. **Row validation**: canonical JSON BLOB keys with byte equality (no
    collation), strict child-source `ObjectKey` registry (child source kinds
    only), closed field checks against the owning contracts, u64 `Counter` as
-   checked canonical decimal TEXT in Rust, 16 KiB complete key/value pair
-   wrappers, 2 MiB per-row ceiling, domain digest verification on
-   admission/reload, immutable objects never overwritten with different bytes.
+   checked canonical decimal TEXT in Rust, per-kind body limits (plan ≤64 KiB,
+   configuration ≤1 MiB, input snapshot ≤256 KiB per owning contracts), the
+   16 KiB complete key/value pair wrapper cap for the four `child_*` metadata
+   tables only, 2 MiB per-row ceiling, domain digest verification on
+   admission/reload (row commitment domain `orkworks.hierarchy-storage-row.v4`
+   where the accepted format-4 catalog names one), immutable objects never
+   overwritten with different bytes.
 4. **Commit chain and atomic publication**: one transaction per producer
    command covering every changed row + its `lastCommit` CommitRef, dependency
-   changes, quota deltas and the new `commit_proof` entry; `changeDigest` over
-   `orkworks.hierarchy-storage-change.v1` + LF + canonical metadata (schema,
-   epoch, sequence, predecessor identity, command kind, sorted row
-   identities/digests excluding credentials and itself); monotonic commit
-   sequence; exhaustion fences rather than wraps.
+   changes, quota deltas and the new `commit_proof` entry; manifest identity
+   over [`orkworks.hierarchy-storage-change.v4`](../specs/2026-10-30-evaluation-artifact-producer-design.md#accepted-format-4-row-and-commitment-domains)
+   per the accepted format-4 row/manifest domains (row commitment domain
+   `orkworks.hierarchy-storage-row.v4`) — small payloads do not make the older
+   v1 commitment format interchangeable; monotonic commit sequence; exhaustion
+   fences rather than wraps.
 5. **Reload/recovery semantics**: every open revalidates epoch/workspace, chain
    continuity, all retained proofs and every row's shape/digests; any
    missing/ambiguous/corrupt state fences writes and reports unavailable —
@@ -125,13 +130,16 @@ modules are not modified (mirroring the dormant `root_bootstrap` precedent):
    classes (unknown/extra/duplicate fields, wrong kind root substitution,
    invalid counter TEXT, oversized wrapper/row, digest mismatch, broken join,
    noncanonical stored bytes) rejects before persistence with the merged
-   checker's reasons. Verify with parametrized positive/negative `#[test]`s.
+   checker's reasons. The 16 KiB wrapper cap applies to child metadata rows
+   only — an above-16-KiB valid source object body (e.g. a 32 KiB plan body)
+   is an acceptance case, not a rejection. Verify with parametrized
+   positive/negative `#[test]`s.
 3. **Publication (scope 4)** — publishing the worker chain: objects + edges +
    the four metadata rows + quota deltas + `commit_proof` land in one
    transaction; a second publish of the same object body with different bytes
    conflicts; a mid-command failure (injected via test seam) rolls back every
    row, leaving header/latest unchanged. Verify with round-trip + rollback
-   `#[test]`s and exact `changeDigest` recomputation.
+   `#[test]`s and exact format-4 manifest digest recomputation.
 4. **Reload/recovery (scope 5)** — after every publish, reopen revalidates and
    continues; deleted `commit_proof` row, truncated body or mismatched epoch
    opens unavailable and rejects a subsequent write. Verify with reopen/
@@ -146,7 +154,7 @@ modules are not modified (mirroring the dormant `root_bootstrap` precedent):
 
 Level checks: `rustfmt`/`clippy -D warnings`, `cargo test` (full suite),
 `bash scripts/doc-check.sh`, `pnpm --dir docs docs:check` and `docs:build` for
-the plan/handoff documents, and the canonical `changeDigest` byte fixture test
+the plan/handoff documents, and the format-4 change-manifest byte fixture test
 using the merged storage-contract oracle bytes where present.
 
 ## Dependencies and sequencing
@@ -205,9 +213,9 @@ narrative aligned — update it only after the kernel lands, not before.
 
 Owner decisions requested at review: (a) confirm the driver choice (reuse the
 existing `rusqlite`); (b) confirm reduction of scope to these nine tables;
-(c) confirm that the `changeDigest` metadata envelope may be adapted
-byte-for-byte from the merged contract without a new domain version bump,
-since commands here carry small uniform payloads. Everything else is mechanical.
+(c) confirm that the manifest metadata envelope may be adapted
+byte-for-byte from the accepted format-4 contract for these small,
+uniform payloads (the domain versions stay v4; no new bump is proposed). Everything else is mechanical.
 
 ## Plan review (inline)
 
