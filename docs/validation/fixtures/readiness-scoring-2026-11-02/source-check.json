@@ -1,0 +1,8 @@
+{
+  "baselineToImprovedChangedPaths": [
+    "docs/domain.md"
+  ],
+  "baselineRepeatedIdentical": true,
+  "improvedHealthyAllIdentical": true,
+  "comparisonIdentities": 1
+}

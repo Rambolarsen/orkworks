@@ -1,0 +1,65 @@
+{
+  "issue": 1285,
+  "approvedDate": "2026-11-02",
+  "codeHead": "11ef66fe93c9db1a0212378011e8841982546c2e",
+  "selection": {
+    "provider": "codex",
+    "model": "gpt-6-luna",
+    "reasoningEffort": "medium"
+  },
+  "matrix": {
+    "baseline": 3,
+    "improved": 3,
+    "healthy": 3
+  },
+  "maxLogicalProviderCalls": 18,
+  "maxCallsPerTrial": 2,
+  "retries": 0,
+  "replacements": 0,
+  "modelSubstitution": false,
+  "purpose": "Current scoring accuracy, not combined suggestion usefulness",
+  "review": "All concept rows against exact final inputs; controlled glossary change; unchanged-evidence variability; failed responses remain failures",
+  "sourceSha256": {
+    "crates/orkworksd/src/taskmaster/readiness_quality_tests.rs": "e2ab614e5e83291afa1178430a913c3f6cfcbbd5829b498a4875f80c03b21df5",
+    "crates/orkworksd/src/taskmaster/readiness.rs": "d5aabc8782c3d16cce3c2a40285e9c0c951e01406d2cb054b646d2f5203f79c5",
+    "crates/orkworksd/src/taskmaster/assessment_context.rs": "0cf85d2610ef38652ca1635f0157f217d332354f155d6e4ef9b584aa5e7ec482",
+    "apps/desktop/resources/knowledge/starter.json": "c6a5c7d24ee97934c0be2662b4e0bea42f79f6eb1dc1214b1664d5b8b8d26452"
+  },
+  "adjudicationCriteria": [
+    "Every rated level is supported by the supplied rubric and exact facts",
+    "Every null rating has a justified evidence limit",
+    "No invented execution, reliability, maintenance or habitual usage",
+    "Controlled glossary improvement supported in all three baseline/improved pairs",
+    "Unchanged improved/healthy evidence never described as a repository regression",
+    "Any rejected or incomplete sample prevents a full pass"
+  ],
+  "preflight": {
+    "status": "failed before trial creation or inference",
+    "reason": "selection-only input lacked required settings fields",
+    "logicalProviderCalls": 0,
+    "resolution": "supply full settings shape; isolated runtime uses selected profile only"
+  },
+  "reviewRouting": {
+    "maxSubagents": 3,
+    "maxRounds": 1,
+    "tier": "gpt-6-luna medium, closest available Luna alias to repository policy",
+    "jobs": [
+      {
+        "id": "semantic",
+        "dependsOn": "all nine fixed outcomes",
+        "scope": "all available concept rows against their exact paired inputs; produce one adjudication draft with evidence citations"
+      },
+      {
+        "id": "correctness",
+        "dependsOn": "semantic draft",
+        "scope": "verify verdicts against artifacts, especially disputed levels, unsupported claims and controlled differences"
+      },
+      {
+        "id": "completeness",
+        "dependsOn": "semantic draft",
+        "scope": "independently audit trial/row/call coverage, rejection handling, exact pairing, source identity and qualification limits"
+      }
+    ],
+    "writer": "root owns repository artifacts; reviewers return reports only"
+  }
+}
