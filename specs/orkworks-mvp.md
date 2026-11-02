@@ -314,6 +314,20 @@ operation may attach a sidecar-owned, allowlisted compatibility profile stored
 outside the editable custom definition; the profile derives an existing closed
 binding and cannot contain user-supplied code, paths, or handler selection.
 
+OpenCode adapter repair (#1331): the built-in `opencode` harness and
+`open-code` integration use `opencode --standalone` for interactive launches
+(with the existing model arguments) and `opencode --standalone --session <id>`
+for exact resume. Explicit folder/repository latest choices retain their
+existing `--continue` arguments under private-server mode. The installed
+OpenCode 2.2.5 help advertises `--standalone`; the reporter runs in the server,
+so that server must inherit the owning launch's reporting environment instead
+of a shared service's environment. Identity still comes from plugin events as
+`opencode_hook` at confidence 0.99. This adds no permission grants, typed status
+probe, voice behavior, or reset commands (`/clear` and `/new` remain declared).
+Registry command tests cover model/no-model launch and all resume strategies;
+reporter fixtures retain capture and attention coverage. Existing records without
+a captured native ID cannot gain exact resume by guessing the latest session.
+
 The version-3 user document contains `version`, `overrides`, `custom`, and a
 sidecar-owned `compatibilityProfiles` map. An override is keyed by the
 immutable built-in ID. Arrays replace, nested objects merge, tagged-kind

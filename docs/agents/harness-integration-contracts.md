@@ -35,6 +35,24 @@ fixture and version/feature evidence are added beside the binding.
 | Aider (not installed) | [Notifications](https://aider.chat/docs/usage/notifications.html) | `--notifications-command` runs when the LLM finishes a response and Aider is waiting for the next input. The callback has no native Aider session ID or structured event payload and does not distinguish an ordinary completed response from a response containing a question. OrkWorks correlates its reporter to the launched session through its inherited session environment. Current OrkWorks launch augmentation reports it as `waiting_for_input`. | Limited: the official contract is unversioned and no live fixture is available in this environment. The callback's session correlation does not make completion a prompt signal; it should not write attention state, so Peon remains the attention fallback even when notification integration is enabled. No repository Aider config is edited. |
 | Generic shell | No deterministic extension point | None. | Unsupported; all integration mutation requests are no-ops with a conflict response. |
 
+### OpenCode server isolation
+
+OpenCode 2.2.5's installed `--help` advertises `--standalone` for a private
+server. On 2026-11-02 the shared `serve --service` process had none of
+`ORKWORKS_SESSION_ID`, `ORKWORKS_PORT`, or `ORKWORKS_REPORT_TOKEN`, although
+its log showed the reporter loading. Both of that day's OrkWorks OpenCode
+records had no captured native ID. Plugins run in the server, as described
+in the [server plugin reference](https://opencode.ai/v2/docs/build/plugins/server).
+
+The built-in launch and all resume templates now include `--standalone` so
+the private server inherits the owning launch's reporting environment.
+Existing exact `--session` and explicitly selected latest `--continue`
+arguments remain intact. This is source command/capability evidence, not a
+live end-to-end qualification of every version/platform or a published-installer
+claim. Existing sessions must be relaunched through the updated source;
+records without captured identity cannot be repaired by guessing a native ID.
+Custom or explicitly overridden command arrays retain their chosen arguments.
+
 ### Codex terminal status
 
 The sidecar reads live OSC 7501 frames for Codex sessions (ADR 0093). Once a
