@@ -1,14 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { defaultBaseline, parseReadinessStatus, readinessFailureMessage, readinessSuggestionMessage, type ReadinessSnapshot, type ReadinessStatus } from '../readiness';
 import ReadinessSummary from './ReadinessSummary';
 
 interface Props {
   workspacePath: string;
+  enabled?: boolean;
   disabled: boolean;
   onBusyChange: (busy: boolean) => void;
   requestedSnapshot?: { snapshotId: string };
   onHistory?: (snapshots: ReadinessSnapshot[]) => void;
   onSuggestion?: (recommendationId: string | null) => void;
+  renderActions?: (actions: { findImprovement: ReactNode; checkReadiness: ReactNode }) => ReactNode;
 }
 const phaseLabels = {
   collecting_evidence: 'Collecting evidence',
@@ -22,13 +24,15 @@ function snapshotOptions(snapshots: ReadinessSnapshot[]) {
   </option>);
 }
 
-export default function ReadinessPanel({ workspacePath, disabled, onBusyChange, onSuggestion, onHistory, requestedSnapshot }: Props) {
+export default function ReadinessPanel({ workspacePath, enabled = true, disabled, onBusyChange, onSuggestion, onHistory, requestedSnapshot, renderActions }: Props) {
   const [status, setStatus] = useState<ReadinessStatus | null>(null);
   const [error, setError] = useState<string>();
   const [message, setMessage] = useState<string>();
   const [requesting, setRequesting] = useState(false);
   const [selectedId, setSelectedId] = useState('');
   const [baselineId, setBaselineId] = useState<string | null>(null);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const refreshSequence = useRef(0);
   const epoch = useRef(0);
   const workspace = useRef(workspacePath);
@@ -60,13 +64,17 @@ export default function ReadinessPanel({ workspacePath, disabled, onBusyChange, 
     setBaselineId(null);
     setError(undefined);
     setMessage(undefined);
+    setRequesting(false);
+    setReportOpen(false);
+    setHistoryOpen(false);
+    if (!enabled) return;
     void refresh(generation);
     const timer = window.setInterval(() => { void refresh(generation); }, 5000);
     return () => {
       epoch.current++;
       window.clearInterval(timer);
     };
-  }, [workspacePath]);
+  }, [workspacePath, enabled]);
 
   const openedSource = useRef<Props['requestedSnapshot']>(undefined);
   useEffect(() => {
@@ -74,6 +82,8 @@ export default function ReadinessPanel({ workspacePath, disabled, onBusyChange, 
       openedSource.current = requestedSnapshot;
       setSelectedId(requestedSnapshot.snapshotId);
       setBaselineId(null);
+      setReportOpen(true);
+      setHistoryOpen(true);
       document.getElementById('readiness-history')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   }, [requestedSnapshot, status?.snapshots]);
@@ -94,6 +104,7 @@ export default function ReadinessPanel({ workspacePath, disabled, onBusyChange, 
   }, [running, requesting, onBusyChange]);
 
   const start = async (combined = false) => {
+    if (!enabled || disabled || requesting || running) return;
     const generation = epoch.current;
     setRequesting(true);
     setError(undefined);
@@ -122,24 +133,42 @@ export default function ReadinessPanel({ workspacePath, disabled, onBusyChange, 
   const baseline = baselineId === null
     ? defaultBaseline(selected ? [selected, ...earlier] : [])
     : earlier.find(snapshot => snapshot.id === baselineId);
-  const actionsDisabled = disabled || requesting || running;
+  const actionsDisabled = !enabled || disabled || requesting || running;
+  const actions = {
+    findImprovement: <button className="recommendation-primary" type="button" disabled={actionsDisabled} title="Assess readiness and suggest one concrete improvement. Uses up to four model calls." onClick={() => void start(true)}>{running ? 'Assessing…' : requesting ? 'Requesting…' : 'Find next improvement'}</button>,
+    checkReadiness: <button type="button" disabled={actionsDisabled} onClick={() => void start(false)}>Check agent readiness</button>,
+  };
+  const latest = snapshots[0];
+  const latestData = latest && !latest.redacted ? latest.data : null;
 
-  return <section id="readiness-history" className="readiness-panel" aria-label="Repository agent readiness">
+  return <>
+    {renderActions ? renderActions(actions) : <div className="readiness-actions">{actions.findImprovement}{actions.checkReadiness}</div>}
+    {enabled && <section id="readiness-history" className="readiness-panel" aria-label="Repository agent readiness">
     <div className="readiness-heading">
-      <div><h3>Agent readiness</h3><p>Assess, improve, and see your repository evolve.</p></div>
-      <button type="button" disabled={actionsDisabled} onClick={() => void start(true)}>{running ? 'Assessing…' : requesting ? 'Requesting…' : 'Assess and suggest'}</button>
-      <button type="button" disabled={actionsDisabled} onClick={() => void start(false)}>{running ? 'Assessing readiness…' : requesting ? 'Requesting…' : 'Assess readiness'}</button>
+      <div className={`readiness-overview-score${latestData?.overallScore == null ? ' readiness-overview-score--empty' : ''}`} aria-label="Latest overall agent readiness">
+        {latestData?.overallScore != null ? <><strong>{latestData.overallScore}</strong><span>/ 100</span></> : <span>{latest?.redacted ? 'Redacted' : latestData ? 'Partial' : '—'}</span>}
+      </div>
+      <div className="readiness-overview-copy"><h3>Agent readiness</h3>
+        {latest ? <>
+          <p>Assessed <time dateTime={latest.completedAt}>{new Date(latest.completedAt).toLocaleString()}</time>{latestData && ` · ${latestData.coverage}/14 areas assessed`}</p>
+          <p>{latest.redacted ? 'Assessment evidence and scores were redacted after access changed.' : status?.freshness === 'changed' ? 'Needs reassessment · Repository changed since assessment.' : status?.freshness === 'current' ? 'Saved assessment · Inputs unchanged.' : 'Saved assessment · Currentness could not be verified.'}</p>
+          {latestData && <p className="readiness-estimate">Evidence-limited estimate · View report for confidence and model limits.</p>}
+        </> : <p>Check how well this repository supports coding agents.</p>}
+      </div>
+      {selected && <div className="readiness-overview-actions">
+        <button type="button" aria-expanded={reportOpen} aria-controls="readiness-report" onClick={() => setReportOpen(!reportOpen)}>View report</button>
+        <button type="button" aria-expanded={historyOpen && reportOpen} aria-controls="readiness-report" onClick={() => { setReportOpen(true); setHistoryOpen(!(historyOpen && reportOpen)); }}>History</button>
+      </div>}
     </div>
-    <p>Assess and suggest uses up to four model calls with your Taskmaster model to score readiness and seek one grounded improvement. Assess readiness scores only.</p>
     {suggestion && <p role="status">{readinessSuggestionMessage(suggestion)}</p>}
     {running && !suggestionActive && <p role="status">{status?.run?.phase ? phaseLabels[status.run.phase] : 'Collecting evidence'}…</p>}
     {message && <p role="status">{message}</p>}
     {error && <p className="recommendation-error" role="alert">{error}</p>}
     {(status?.run?.state === 'failed' || status?.run?.state === 'interrupted') && <p>The latest attempt {status.run.state === 'failed' ? 'failed' : 'was interrupted'}. Previous assessments are retained. {readinessFailureMessage(status.run.errorCode)}</p>}
     {status?.reasonCode && <p>Readiness history is unavailable ({status.reasonCode.replaceAll('_', ' ')}).</p>}
-    {!selected && !running && !status?.reasonCode && <p>No readiness assessment yet. Assess this workspace to establish a baseline.</p>}
-    {selected && <>
-      <div className="readiness-history-controls">
+    {!selected && !running && !status?.reasonCode && <p className="readiness-empty">No assessment yet. Find next improvement assesses readiness and seeks one grounded suggestion; Check agent readiness scores only.</p>}
+    {selected && <div id="readiness-report" hidden={!reportOpen}>
+      <div className="readiness-history-controls" hidden={!historyOpen}>
         <label>Assessment <select value={selected.id} onChange={event => {
           setSelectedId(event.target.value);
           setBaselineId(null);
@@ -150,6 +179,7 @@ export default function ReadinessPanel({ workspacePath, disabled, onBusyChange, 
       </div>
       <ReadinessSummary snapshot={selected} baseline={baseline} freshness={selected.id === snapshots[0]?.id ? (status?.freshness ?? 'unknown') : 'unknown'} />
       <p className="readiness-retention">Up to {status?.retentionLimit ?? 100} assessments are retained locally for this workspace.</p>
-    </>}
-  </section>;
+    </div>}
+  </section>}
+  </>;
 }

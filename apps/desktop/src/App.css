@@ -2732,13 +2732,49 @@ html, body, #root {
   accent-color: var(--accent-strong);
 }
 .recommendations-panel {
-  height: 100%; overflow: auto; padding: var(--space-4); background: var(--surface-1);
+  height: 100%; overflow: auto; padding: var(--space-6); background: var(--surface-1);
 }
+.recommendations-panel > * { max-width: 1080px; margin-inline: auto; }
 .recommendations-panel-header, .recommendation-card-header {
   display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap;
 }
-.recommendations-panel-header { margin-bottom: var(--space-4); }
+.recommendations-panel-header { margin-bottom: var(--space-5); align-items: center; }
+.recommendations-panel-header h2 { font-size: var(--text-2xl); }
+.recommendations-panel-header p { margin: var(--space-1) 0 0; font-size: var(--text-sm); }
 .recommendations-panel-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center; }
+.recommendation-assessment-actions { display: flex; align-items: stretch; }
+.recommendations-panel-header .recommendation-primary {
+  padding: var(--space-2) var(--space-3); border-color: var(--accent); border-radius: var(--radius-md) 0 0 var(--radius-md);
+  color: var(--text-on-accent); background: var(--accent-bg); font-weight: var(--weight-semibold); font-size: var(--text-md);
+}
+.recommendations-panel-header .recommendation-primary:hover:not(:disabled) { background: var(--accent-bg-hover); }
+.recommendations-panel-header button:disabled { opacity: .5; cursor: not-allowed; }
+.recommendation-menu { position: relative; font-size: var(--text-md); }
+.recommendation-menu > summary {
+  display: flex; align-items: center; justify-content: center; min-height: 36px; padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-default); border-radius: var(--radius-md); list-style: none; cursor: pointer; color: var(--text-secondary); background: var(--surface-2);
+}
+.recommendation-menu > summary::-webkit-details-marker { display: none; }
+.recommendation-menu > summary:hover { background: var(--surface-3); }
+.recommendation-menu--primary > summary {
+  height: 100%; border-color: var(--accent); border-left-color: var(--text-on-accent); border-radius: 0 var(--radius-md) var(--radius-md) 0; color: var(--text-on-accent); background: var(--accent-bg);
+}
+.recommendation-menu--primary > summary:hover { background: var(--accent-bg-hover); }
+.recommendation-menu-content {
+  position: absolute; z-index: 10; right: 0; top: calc(100% + var(--space-2)); width: min(340px, calc(100vw - 48px)); max-height: 60vh; overflow: auto;
+  padding: var(--space-2); border: 1px solid var(--border-default); border-radius: var(--radius-lg); background: var(--surface-2); box-shadow: var(--shadow-modal);
+}
+.recommendations-panel .recommendation-menu-label { margin: var(--space-1) var(--space-2) var(--space-2); font-size: var(--text-xs); color: var(--text-muted); }
+.recommendation-menu-item { padding: var(--space-1); border-radius: var(--radius-md); }
+.recommendation-menu-item:hover { background: var(--surface-3); }
+.recommendation-menu-item--separated { margin-top: var(--space-2); border-top: 1px solid var(--border-default); border-radius: 0; padding-top: var(--space-2); }
+.recommendations-panel-header .recommendation-menu-item button { display: block; width: 100%; padding: var(--space-1); text-align: left; border: 0; border-radius: var(--radius-sm); background: transparent; font-size: var(--text-md); }
+.recommendations-panel-header .recommendation-menu-item button:hover:not(:disabled) { background: var(--surface-active); }
+.recommendations-panel .recommendation-menu-item p { padding: 0 var(--space-1) var(--space-1); margin: 0; color: var(--text-muted); font-size: var(--text-sm); line-height: var(--leading-normal); }
+.recommendations-list-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; margin-top: var(--space-5); margin-bottom: var(--space-3); }
+.recommendations-list-heading h3 { margin: 0; font-size: var(--text-lg); font-weight: var(--weight-medium); }
+.recommendations-list-heading h3 span { margin-left: var(--space-1); color: var(--text-muted); }
+.recommendation-menu summary:focus-visible, .recommendations-panel button:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
 .recommendation-analysis-status { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-4); padding: var(--space-3); border: 1px solid var(--border-default); border-radius: var(--radius-sm); background: var(--surface-2); }
 .recommendation-analysis-status p { margin: 0; color: var(--text-secondary); }
 .recommendation-analysis-run { margin: 0 0 var(--space-3); color: var(--text-secondary); font-size: 0.9rem; }
@@ -2751,7 +2787,7 @@ html, body, #root {
   color: var(--text-primary);
   font-style: italic;
 }
-.recommendations-panel-header button, .recommendation-sessions button, .recommendation-evidence-row button, .recommendation-dismiss, .recommendation-fix {
+.recommendations-panel-header button, .recommendations-filter-empty button, .recommendation-sessions button, .recommendation-evidence-row button, .recommendation-dismiss, .recommendation-fix {
   border: 1px solid var(--border-default); border-radius: var(--radius-sm); padding: var(--space-1) var(--space-3);
   color: var(--text-primary); background: var(--surface-2); font: inherit; cursor: pointer;
 }
@@ -2789,6 +2825,9 @@ html, body, #root {
 .recommendation-origin-filter .recommendation-origin-filter-option:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
 .recommendation-origin-filter .recommendation-origin-filter-option:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
 .recommendations-filter-empty { margin-bottom: var(--space-4); color: var(--text-muted); font-style: italic; }
+.recommendation-run-details, .recommendation-assessment-details { margin-block: var(--space-3); color: var(--text-muted); font-size: var(--text-sm); }
+.recommendation-run-details > summary, .recommendation-assessment-details > summary { cursor: pointer; }
+.recommendation-run-details .taskmaster-run-status { margin-top: var(--space-2); }
 .recommendation-proposal { margin: var(--space-4) 0 var(--space-2); color: var(--text-primary) !important; font-weight: 600; }
 .recommendation-proposed-change { margin: var(--space-3) 0; padding: var(--space-2) var(--space-3); border-left: 2px solid var(--border-default); }
 .recommendation-proposed-change ul { margin: var(--space-1) 0; padding-left: var(--space-4); }
@@ -3210,14 +3249,24 @@ html, body, #root {
   .git-changes-filter { margin-bottom: 7px; }
 }
 
-.readiness-panel { border: 1px solid var(--border-subtle); border-radius: 8px; padding: 16px; margin: 12px 0; min-width: 0; }
-.readiness-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.readiness-heading h3 { margin: 0; }
-.readiness-heading p, .readiness-retention { opacity: .72; font-size: .9em; }
+.readiness-panel { border: 1px solid var(--border-default); border-radius: var(--radius-lg); background: var(--surface-2); padding: var(--space-5); margin-block: var(--space-3) var(--space-5); min-width: 0; }
+.readiness-heading { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
+.readiness-heading h3 { margin: 0 0 var(--space-1); font-size: var(--text-lg); font-weight: var(--weight-medium); }
+.readiness-heading p, .readiness-retention, .readiness-empty { color: var(--text-muted); font-size: var(--text-sm); }
+.readiness-heading p { margin: var(--space-1) 0 0; }
+.readiness-overview-copy { flex: 1 1 220px; min-width: 0; }
+.readiness-overview-score { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 68px; height: 68px; border: 3px solid var(--accent); border-radius: var(--radius-pill); flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.readiness-overview-score strong { font-size: 24px; font-weight: var(--weight-semibold); line-height: var(--leading-tight); }
+.readiness-overview-score span { color: var(--text-muted); font-size: var(--text-xs); }
+.readiness-overview-score--empty { border-color: var(--border-default); }
+.readiness-overview-actions { display: flex; gap: var(--space-2); }
+.readiness-overview-copy .readiness-estimate { font-size: var(--text-xs); }
+#readiness-report:not([hidden]) { border-top: 1px solid var(--border-default); margin-top: var(--space-4); padding-top: var(--space-3); }
 .readiness-score { display: flex; align-items: baseline; gap: 4px; margin-top: 12px; }
 .readiness-score > strong { font-size: 2.6rem; font-variant-numeric: tabular-nums; }
 .readiness-delta { margin-left: 12px; font-size: .9rem; }
 .readiness-history-controls { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0; }
+.readiness-history-controls[hidden] { display: none; }
 .readiness-history-controls label { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .readiness-history-controls select { max-width: 100%; }
 .readiness-area { border-bottom: 1px solid var(--border-subtle); padding: 10px 0; }
@@ -3232,6 +3281,15 @@ html, body, #root {
 .readiness-panel button:disabled { opacity: .5; }
 .readiness-panel button:focus-visible, .readiness-panel select:focus-visible, .readiness-panel summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .readiness-summary p { margin: 6px 0; }
+@media (max-width: 700px) {
+  .recommendations-panel { padding: var(--space-4); }
+  .recommendations-panel-header { position: relative; gap: var(--space-4); }
+  .recommendations-panel-header .recommendation-menu { position: static; }
+  .recommendation-menu-content { top: calc(100% + var(--space-2)); }
+  .readiness-panel { padding: var(--space-4); }
+  .readiness-overview-copy { flex-basis: 150px; }
+  .recommendation-origin-filter .recommendation-origin-filter-option { padding-inline: var(--space-2); }
+}
 
 /* Workspace and personal skill inventory inside Settings. */
 .skills-settings { display: grid; gap: 20px; min-width: 0; color: var(--text-primary); }

@@ -132,7 +132,7 @@ test("assessment action is enabled while workspace readiness is known, even befo
       workspacePath: props.hasWorkspace ? "/workspace/a" : null,
       canFixWithAi: false,
     }));
-    return markup.match(/<button type="button"[^>]*>Assess workflow<\/button>/)?.[0] ?? null;
+    return markup.match(/<button type="button"[^>]*>Review workflow<\/button>/)?.[0] ?? null;
   };
 
   const readyButton = buttonMarkup({ hasWorkspace: true, taskmasterReady: true });
@@ -184,16 +184,16 @@ test("persisted ordinary attempts expose an explicit retry while local work and 
     "ordinary retry remains reachable if both durable recovery records exist");
   assert.equal(taskmasterAnalysisRequestBusy({ ...queued, assessment: assessing.assessment }, true, false), true,
     "a locally pending request still blocks retries");
-  assert.equal(formatTaskmasterAnalysisAction(queued), "Retry analysis");
-  assert.equal(formatTaskmasterAnalysisAction(running), "Retry analysis");
-  assert.equal(formatTaskmasterAnalysisAction(base), "Analyze now");
+  assert.equal(formatTaskmasterAnalysisAction(queued), "Retry discovery");
+  assert.equal(formatTaskmasterAnalysisAction(running), "Retry discovery");
+  assert.equal(formatTaskmasterAnalysisAction(base), "Run discovery");
 });
 
 test("persisted assessment progress can be retried while actual local work remains guarded", () => {
   const base: TaskmasterRunStatus = { workspacePath: "/workspace/a", activeAttempt: null, latestOutcome: null };
   const queued = { ...base, assessment: { state: "queued" as const, report: null, reused: false } };
   const running = { ...base, assessment: { state: "running" as const, report: null, reused: false } };
-  assert.equal(taskmasterAnalysisBusy(queued), true, "Analyze now remains blocked during assessment progress");
+  assert.equal(taskmasterAnalysisBusy(queued), true, "Run discovery remains blocked during assessment progress");
   assert.equal(taskmasterAssessmentRequestBusy(queued, false, false), false);
   assert.equal(taskmasterAssessmentRequestBusy(running, false, false), false);
   assert.equal(taskmasterAssessmentRequestBusy(base, true, false), true);
@@ -201,9 +201,9 @@ test("persisted assessment progress can be retried while actual local work remai
   assert.equal(taskmasterAssessmentRequestBusy({ ...base, activeAttempt: {
     id: 1, state: "queued", queuedAt: "t0", startedAt: null, trigger: "manual", provider: "codex", model: "gpt-x",
   } }, false, false), true);
-  assert.equal(formatTaskmasterAssessmentAction(queued.assessment), "Retry assessment");
-  assert.equal(formatTaskmasterAssessmentAction(running.assessment), "Retry assessment");
-  assert.equal(formatTaskmasterAssessmentAction(null), "Assess workflow");
+  assert.equal(formatTaskmasterAssessmentAction(queued.assessment), "Retry workflow review");
+  assert.equal(formatTaskmasterAssessmentAction(running.assessment), "Retry workflow review");
+  assert.equal(formatTaskmasterAssessmentAction(null), "Review workflow");
 });
 
 test("assessment recommendation focus happens only once for a new actionable proposal", () => {

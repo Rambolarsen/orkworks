@@ -78,7 +78,7 @@ interface Props {
   onApplyDebugAttention: (id: string, attention: SessionAttention, message?: string) => void;
   onTitleUpdated?: () => void;
   onFocusTerminal: () => void;
-  onOpenSettings: (section?: "tools" | "providers") => void;
+  onOpenSettings: (section?: "tools" | "providers" | "recommendations") => void;
   onOpenWorkspace: () => void;
   onBackendUnavailable: () => void;
   onRetryBackend: () => void;
@@ -373,6 +373,7 @@ export default function ApplicationShell(props: Props) {
       recommendationSource={recommendations}
       taskmasterReady={props.taskmasterReady} canFixWithAi={props.canFixWithAi && isSessionAlive(session)}
       onSelectSession={props.onSelectSession} onFixWithAi={props.onFixWithAi} onRunCleanup={props.onRunCleanup}
+      onOpenSettings={() => props.onOpenSettings("recommendations")}
       focusedRecommendationId={props.focusedRecommendationId} />;
   };
   const utilityHeader = (temporary: boolean) => <header className="shell-region-header">

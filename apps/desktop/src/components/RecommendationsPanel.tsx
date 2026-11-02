@@ -39,6 +39,7 @@ import EmptyState from "./EmptyState";
 import CleanupAuditBlock from "./CleanupAuditBlock";
 import RecommendationEvidence from "./RecommendationEvidence";
 import TaskmasterAssessmentSummary from "./TaskmasterAssessmentSummary";
+import RecommendationMenu from "./RecommendationMenu";
 
 interface RecommendationsPanelProps {
   recommendationSource?: ActionsRecommendationSnapshot;
@@ -50,6 +51,7 @@ interface RecommendationsPanelProps {
   onFixWithAi?: (recommendation: WorkflowRecommendation) => void;
   onRunCleanup?: (recommendation: WorkflowRecommendation) => void | PromiseLike<unknown>;
   focusedRecommendationId?: string | null;
+  onOpenSettings?: () => void;
 }
 
 function isActiveBrainRecommendation(recommendation: WorkflowRecommendation): boolean {
@@ -244,7 +246,7 @@ function WorkflowEvidenceBlocks({
   );
 }
 
-function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePath, taskmasterReady, canFixWithAi, onSelectSession, onFixWithAi, onRunCleanup, focusedRecommendationId }: RecommendationsPanelProps) {
+function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePath, taskmasterReady, canFixWithAi, onSelectSession, onFixWithAi, onRunCleanup, focusedRecommendationId, onOpenSettings }: RecommendationsPanelProps) {
   const ownSource = useActionsRecommendations(workspacePath ?? "", !recommendationSource && hasWorkspace && taskmasterReady, workspacePath ?? "");
   const source = recommendationSource ?? ownSource;
   const refreshList = source.refresh;
@@ -636,41 +638,58 @@ function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePat
 
   return (
     <section className="recommendations-panel">
+      <ReadinessPanel onHistory={setReadinessSnapshots} requestedSnapshot={readinessSource} key={workspacePath ?? 'none'} workspacePath={workspacePath ?? ''} enabled={hasWorkspace && taskmasterReady} disabled={analysisBusy || assessmentBusy || Boolean(currentRunStatus?.activeAttempt)} onBusyChange={setReadinessBusy} onSuggestion={(id) => { void refresh(); if (id) setOriginFilter("analysis"); }} renderActions={readinessActions => <>
       <div className="recommendations-panel-header">
-        <div><h2>Recommendations</h2><p>Evidence-backed workflow improvements.</p></div>
+        <div><h2>Recommendations</h2><p>Review what matters. Choose what happens next.</p></div>
         <div className="recommendations-panel-actions">
-          <div className="recommendation-origin-filter" role="group" aria-label="Filter by origin">
-            {(["all", "analysis", "observations", "cleanup"] as const).map((value) => (
-              <button
-                key={value}
-                type="button"
-                className={`recommendation-origin-filter-option${originFilter === value ? " recommendation-origin-filter-option--active" : ""}`}
-                aria-pressed={originFilter === value}
-                onClick={() => setOriginFilter(value)}
-              >
-                {value === "all" ? "All" : value === "analysis" ? "Analysis" : value === "cleanup" ? "Cleanup" : "Observations"}
-              </button>
-            ))}
+          <div className="recommendation-assessment-actions">
+            {readinessActions.findImprovement}
+            <RecommendationMenu label="Other assessment options" primary>
+              <div className="recommendation-menu-item">
+                <button type="button" disabled={!hasWorkspace || !taskmasterReady || assessmentRequestBusy} onClick={() => void assessWorkflow()}>
+                  {assessmentBusy ? "Assessing…" : formatTaskmasterAssessmentAction(assessmentStatus)}
+                </button>
+                <p>Suggest one improvement without updating readiness.</p>
+              </div>
+              <div className="recommendation-menu-item">
+                {readinessActions.checkReadiness}
+                <p>Check how well this repository supports coding agents, and save the assessment for comparison.</p>
+              </div>
+              <div className="recommendation-menu-item recommendation-menu-item--separated">
+                <button type="button" disabled={!hasWorkspace || !taskmasterReady || analysisRequestBusy} onClick={() => void analyzeNow()}>
+                  {analysisBusy ? "Requesting…" : formatTaskmasterAnalysisAction(currentRunStatus)}
+                </button>
+                <p>Look for recommendations using background discovery analysis.</p>
+              </div>
+            </RecommendationMenu>
           </div>
-          <button type="button" disabled={!hasWorkspace || !taskmasterReady || analysisRequestBusy} onClick={() => void analyzeNow()}>
-            {analysisBusy ? "Requesting…" : formatTaskmasterAnalysisAction(currentRunStatus)}
-          </button>
-          <button type="button" disabled={!hasWorkspace || !taskmasterReady || assessmentRequestBusy} onClick={() => void assessWorkflow()}>
-            {assessmentBusy ? "Assessing…" : formatTaskmasterAssessmentAction(assessmentStatus)}
-          </button>
-          <button type="button" disabled={!hasWorkspace || !taskmasterReady || auditBusy} onClick={() => void runAudit()}>
-            {auditBusy ? "Auditing…" : "Run audit"}
-          </button>
-          <button type="button" disabled={!hasWorkspace || !taskmasterReady} onClick={() => void refresh()}>Reload</button>
+          <RecommendationMenu label="Recommendation maintenance">
+            <div className="recommendation-menu-item">
+              <button type="button" disabled={!hasWorkspace || !taskmasterReady || auditBusy} onClick={() => void runAudit()}>
+                {auditBusy ? "Checking backlog…" : "Check recommendation backlog"}
+              </button>
+              <p>Identify outdated or duplicate recommendations for review. Nothing is dismissed without approval.</p>
+            </div>
+            <div className="recommendation-menu-item">
+              <button type="button" disabled={!hasWorkspace || !taskmasterReady} onClick={() => void refresh()}>Refresh list</button>
+              <p>Load the latest saved results without starting an assessment.</p>
+            </div>
+            {onOpenSettings && <div className="recommendation-menu-item recommendation-menu-item--separated">
+              <button type="button" onClick={onOpenSettings}>Taskmaster settings</button>
+              <p>Model, context access, and background discovery.</p>
+            </div>}
+          </RecommendationMenu>
         </div>
       </div>
-      {workspacePath && taskmasterReady && <ReadinessPanel onHistory={setReadinessSnapshots} requestedSnapshot={readinessSource} key={workspacePath} workspacePath={workspacePath} disabled={analysisBusy || assessmentBusy || Boolean(currentRunStatus?.activeAttempt)} onBusyChange={setReadinessBusy} onSuggestion={(id) => { void refresh(); if (id) setOriginFilter("analysis"); }} />}
-      {hasWorkspace && taskmasterReady && <TaskmasterAnalysisStatus
+      </>} />
+      {hasWorkspace && taskmasterReady && <details className="recommendation-run-details" open={Boolean(analysisBusy || analysisPending || currentRunStatus?.activeAttempt || runStatusError || currentRunStatus?.latestOutcome?.state === 'failed' || currentRunStatus?.latestOutcome?.state === 'interrupted')}>
+        <summary>Discovery status</summary>
+        <TaskmasterAnalysisStatus
         status={currentRunStatus}
         requesting={analysisBusy}
         pending={analysisPending}
         error={runStatusError}
-      />}
+      /></details>}
       {analysisMessage && <div className="recommendation-analysis-status" role="status">
         {blockedRecommendation && <strong>{blockedRecommendation.title}</strong>}
         <p>{analysisMessage}</p>
@@ -684,7 +703,7 @@ function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePat
       {assessmentStatus && assessmentStatus.state !== "idle" && (
         assessmentStatus.state === "unavailable" && !assessmentStatus.report
           ? <details className="recommendation-assessment-details"><summary>Workflow assessment unavailable</summary><TaskmasterAssessmentSummary assessment={assessmentStatus} /></details>
-          : <TaskmasterAssessmentSummary assessment={assessmentStatus} />
+          : <details className="recommendation-assessment-details" open={assessmentStatus.state === 'running' || assessmentStatus.state === 'queued' || assessmentStatus.state === 'failed' || assessmentStatus.state === 'interrupted'}><summary>Workflow review report</summary><TaskmasterAssessmentSummary assessment={assessmentStatus} /></details>
       )}
       {assessmentMessage && <p className="recommendation-analysis-run" role="status">{assessmentMessage}</p>}
       {assessmentError && <p className="recommendation-error" role="alert">{assessmentError}</p>}
@@ -692,13 +711,23 @@ function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePat
       {auditError && <p className="recommendation-error" role="alert">{auditError}</p>}
       {error && <p className="recommendation-error" role="alert">{error}</p>}
       <DiagnosticList diagnostics={diagnostics} />
+      <div className="recommendations-list-heading">
+        <h3>To review <span>{visibleRecommendations.length}</span></h3>
+        <div className="recommendation-origin-filter" role="group" aria-label="Filter by origin">
+          {(["all", "analysis", "observations", "cleanup"] as const).map((value) => (
+            <button key={value} type="button" className={`recommendation-origin-filter-option${originFilter === value ? " recommendation-origin-filter-option--active" : ""}`} aria-pressed={originFilter === value} onClick={() => setOriginFilter(value)}>
+              {value === "all" ? "All" : value === "analysis" ? "Analysis" : value === "cleanup" ? "Cleanup" : "Observations"}
+            </button>
+          ))}
+        </div>
+      </div>
       {visibleRecommendations.length === 0 && !error
         && hasWorkspace && taskmasterReady && originFilter !== "all" && (
         originFilter === "cleanup" ? (
           <div className="recommendations-filter-empty" role="status">
             <p>{panelEmptyMessage("cleanup")}</p>
             <button type="button" disabled={auditBusy} onClick={() => void runAudit()}>
-              {auditBusy ? "Auditing…" : "Run audit"}
+              {auditBusy ? "Checking backlog…" : "Check recommendation backlog"}
             </button>
           </div>
         ) : (

@@ -487,6 +487,61 @@ if (process.versions.electron) {
         assert.equal(await evaluate('fixture.prompts'),0);
         assert.deepEqual(await evaluate('fixture.errors'),[]);
         return;
+      } else if (scenario === 'recommendations-inbox') {
+        await evaluate('fixture.command("recommendations",true)');
+        await waitFor('document.querySelector(".readiness-overview-score strong")?.textContent === "50"');
+        assert.deepEqual(await evaluate('fixture.assessmentCalls'), [], 'opening Recommendations does not run inference');
+        assert.equal(await evaluate('document.querySelector("#readiness-report").hidden'), true);
+        await evaluate('[...document.querySelectorAll("button")].find(b=>b.textContent==="View report").click()');
+        assert.equal(await evaluate('document.querySelector("#readiness-report").hidden'), false);
+        assert.equal(await evaluate('getComputedStyle(document.querySelector(".readiness-history-controls")).display'), 'none', 'comparison controls stay hidden until History is opened');
+        await evaluate('[...document.querySelectorAll("button")].find(b=>b.textContent==="History").click()');
+        assert.equal(await evaluate('document.querySelector(".readiness-history-controls").hidden'), false);
+        assert.deepEqual(await evaluate('fixture.assessmentCalls'), [], 'reports and history only read saved results');
+        await evaluate('[...document.querySelectorAll("button")].find(b=>b.textContent==="View report").click()');
+        await evaluate('[...document.querySelectorAll("button")].find(b=>b.textContent==="History").click()');
+        assert.equal(await evaluate('getComputedStyle(document.querySelector(".readiness-history-controls")).display'), 'flex', 'History reopens after the report was collapsed');
+        await evaluate('[...document.querySelectorAll("button")].find(b=>b.textContent==="View report").click()');
+        await evaluate('document.querySelector(".recommendation-menu--primary summary").click()');
+        await evaluate('document.querySelector(".recommendation-menu--primary button").focus()');
+        await win.webContents.sendInputEvent({type:'keyDown',keyCode:'Escape'});
+        await win.webContents.sendInputEvent({type:'keyUp',keyCode:'Escape'});
+        await waitFor('!document.querySelector(".recommendation-menu--primary").open');
+        assert.equal(await evaluate('document.activeElement===document.querySelector(".recommendation-menu--primary summary")'), true);
+        assert.equal(await evaluate('!!document.querySelector(".recommendations-panel")'), true, 'Escape closes the dropdown before leaving the view');
+        for (const [label, expected] of [['Review workflow','workflow'],['Check agent readiness','readiness'],['Run discovery','discovery']]) {
+          await evaluate('document.querySelector(".recommendation-menu--primary summary").click()');
+          await evaluate('[...document.querySelectorAll(".recommendation-menu--primary button")].find(b=>b.textContent==='+JSON.stringify(label)+').click()');
+          await waitFor('fixture.assessmentCalls.at(-1)==='+JSON.stringify(expected));
+          await waitFor('!document.querySelector(".recommendation-primary").disabled');
+          assert.equal(await evaluate('document.querySelector(".recommendation-menu--primary").open'), false);
+        }
+        await evaluate('document.querySelector(".recommendation-primary").click()');
+        await waitFor('fixture.assessmentCalls.at(-1)==="combined"');
+        await waitFor('!document.querySelector(".recommendation-primary").disabled');
+        assert.deepEqual(await evaluate('fixture.assessmentCalls'), ['workflow','readiness','discovery','combined']);
+        await evaluate('document.querySelector(".recommendation-menu:not(.recommendation-menu--primary) summary").click()');
+        await evaluate('[...document.querySelectorAll("button")].find(b=>b.textContent==="Check recommendation backlog").click()');
+        await waitFor('fixture.auditCalls===1');
+        assert.equal(await evaluate('fixture.cleanupCalls'), 0, 'checking the backlog never applies cleanup');
+        await evaluate('document.querySelector(".recommendation-menu:not(.recommendation-menu--primary) summary").click()');
+        await evaluate('[...document.querySelectorAll("button")].find(b=>b.textContent==="Taskmaster settings").click()');
+        assert.deepEqual(await evaluate('fixture.settingsSections'), ['recommendations']);
+        for (const width of [1280,640,400]) {
+          await win.setContentSize(width,700);
+          await waitFor('window.innerWidth==='+width);
+          await evaluate('document.querySelector(".recommendation-menu--primary summary").click()');
+          await waitFor('document.querySelector(".recommendation-menu--primary").open');
+          const bounds = await evaluate('(()=>{const r=document.querySelector(".recommendation-menu--primary .recommendation-menu-content").getBoundingClientRect();return {left:r.left,right:r.right,width:innerWidth}})()');
+          assert.ok(bounds.left >= 0 && bounds.right <= bounds.width, 'assessment dropdown fits at width '+width);
+          if (process.env.ORKWORKS_CAPTURE_RECOMMENDATIONS) {
+            const {writeFileSync}=await import('node:fs');
+            writeFileSync(process.env.ORKWORKS_CAPTURE_RECOMMENDATIONS.replace('.png','-'+width+'.png'),(await win.webContents.capturePage()).toPNG());
+          }
+          await evaluate('document.querySelector(".recommendation-menu--primary summary").click()');
+        }
+        assert.deepEqual(await evaluate('fixture.errors'), []);
+        return;
       } else if (scenario === 'recommendation-status-error') {
         await evaluate('fixture.command("recommendations",true)');
         await waitFor('fixture.statusReads > 0 && !!document.querySelector(".recommendations-panel .recommendation-error")');
@@ -1885,7 +1940,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['app-review-branch-documents','session-menu','session-title','app-skills-picker','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['recommendations-inbox','app-review-branch-documents','session-menu','session-title','app-skills-picker','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
@@ -1995,6 +2050,23 @@ if (process.versions.electron) {
               throw new Error('Unexpected fixture request '+path);
             };
           }
+          if (${JSON.stringify(scenario)}==='recommendations-inbox') {
+            fixture.assessmentCalls=[];fixture.auditCalls=0;fixture.cleanupCalls=0;fixture.settingsSections=[];
+            const ids=['context-discovery','progressive-disclosure','instruction-scoping','architecture-awareness','domain-knowledge','environment-reproducibility','tool-accessibility','task-decomposition','verification','observability','change-safety','feedback-loops','durable-memory','human-oversight'];
+            const snapshot={id:'readiness-one',startedAt:'2026-11-01T10:00:00Z',completedAt:'2026-11-01T10:01:00Z',redacted:false,data:{workspacePath:'/tmp/test',inputFingerprint:'a'.repeat(64),comparisonFingerprint:'b'.repeat(64),rubricDigest:'c'.repeat(64),summary:'Saved assessment',concepts:ids.map(conceptId=>({conceptId,maturity:2,confidence:'medium',repositoryFactHashes:['d'.repeat(64)],rubricPageId:'playbooks/rubric.md',rationale:'Documented guidance',limits:[],nextTransition:'Check evidence',unassessedReason:null})),repositoryEvidence:[],knowledgeEvidence:[],coverage:14,rawTotal:28,overallScore:50,git:{headOid:null,dirty:null},inferenceIdentity:{},knowledgeIdentity:{}}};
+            window.orkworks.getReadinessStatus=async()=>({workspacePath:'/tmp/test',run:null,snapshots:[snapshot],freshness:'changed',retentionLimit:100,reasonCode:null});
+            window.orkworks.getTaskmasterRunStatus=async()=>({workspacePath:'/tmp/test',activeAttempt:null,latestOutcome:null,assessment:{state:'idle',report:null,reused:false}});
+            window.orkworks.requestReadinessSuggestion=async()=>{fixture.assessmentCalls.push('combined');return {outcome:'unavailable'}};
+            window.orkworks.requestReadinessAssessment=async()=>{fixture.assessmentCalls.push('readiness');return {outcome:'unavailable'}};
+            window.orkworks.requestTaskmasterAssessment=async()=>{fixture.assessmentCalls.push('workflow');return {status:'unavailable'}};
+            window.orkworks.requestTaskmasterAnalysis=async()=>{fixture.assessmentCalls.push('discovery');return {status:'unavailable'}};
+            window.fetch=async(url,init)=>{
+              const path=new URL(String(url)).pathname;
+              if(path==='/taskmaster/audit/recommendations')fixture.auditCalls++;
+              else if(init?.method==='POST')fixture.cleanupCalls++;
+              return {ok:true,status:200,json:async()=>path==='/taskmaster/audit/recommendations'?{recommendation:null}:{recommendations:[],diagnostics:[]}};
+            };
+          }
           if (${JSON.stringify(scenario)}==='recommendation-status-error') {
             fixture.statusReads=0;
             window.orkworks.getTaskmasterRunStatus=async()=>{fixture.statusReads++;return {workspacePath:'/tmp/test',state:'idle'}};
@@ -2031,9 +2103,9 @@ if (process.versions.electron) {
             fixture.select=setActiveSessionId;
             const [preferences,setPreferences]=useState({sessionsWidth:240,inspectorWidth:320,sessionsVisible:true,density:'low'});fixture.setPreferences=setPreferences;
             return <ApplicationShell centralSurface={reviewing ? {kind:"review",sessionId:activeSessionId,artifactId:"plan"} : {kind:"terminal",sessionId:activeSessionId}} onOpenReview={()=>setReviewing(true)} onCloseReview={()=>setReviewing(false)} reviewContent={<p>Current plan</p>} sessions={empty ? [] : ((${JSON.stringify(scenario)}==='sidebar-controls'?['coding','other',...Array.from({length:80},(_,i)=>'history-'+i)]:['coding','other']).map((id,i)=>({id,name:id,cwd:'/tmp/test',harnessId:'codex',harness:'codex',lifecycle:'alive',status:'running',attention:(${JSON.stringify(scenario)}==='actions' && id==='other'?'needs_you':'idle'),...sessionState,label:id,createdAt:'2026-10-10T10:00:00Z',lastActivityAt:i?'2026-10-10T09:00:00Z':'2026-10-10T10:00:00Z'})))}
-              workspace={{path:'/tmp/test',workspaceIdentity:['open-session-app','skills-main'].includes(${JSON.stringify(scenario)})?'/real/test':'/tmp/test'}} workspaceControl={<div className="shell-workspace-control"><span className="titlebar-text">test</span><WorkspaceHistoryDropdown triggerLabel="⇄" triggerClassName="titlebar-switch-button" triggerAriaLabel="Switch workspace" currentWorkspacePath="/tmp/test" isSwitching={false} onOpenPath={()=>{fixture.workspaceOpens++;setGeneration(n=>n+1)}} onOpenOtherFolder={()=>{}} onError={()=>{}}/></div>} onOpenSettings={()=>fixture.settingsOpened++} onCreateSession={()=>{fixture.sessionsCreated++;if(${JSON.stringify(scenario)}==='new-session'){setCreating(true);fixture.command('new-session')}}} activeSessionId={activeSessionId} workspaceGeneration={generation}
+              workspace={{path:'/tmp/test',workspaceIdentity:['open-session-app','skills-main'].includes(${JSON.stringify(scenario)})?'/real/test':'/tmp/test'}} workspaceControl={<div className="shell-workspace-control"><span className="titlebar-text">test</span><WorkspaceHistoryDropdown triggerLabel="⇄" triggerClassName="titlebar-switch-button" triggerAriaLabel="Switch workspace" currentWorkspacePath="/tmp/test" isSwitching={false} onOpenPath={()=>{fixture.workspaceOpens++;setGeneration(n=>n+1)}} onOpenOtherFolder={()=>{}} onError={()=>{}}/></div>} onOpenSettings={section=>{fixture.settingsOpened++;(fixture.settingsSections??=[]).push(section)}} onCreateSession={()=>{fixture.sessionsCreated++;if(${JSON.stringify(scenario)}==='new-session'){setCreating(true);fixture.command('new-session')}}} activeSessionId={activeSessionId} workspaceGeneration={generation}
               newSessionContent={creating ? <NewSessionDialog key={generation} harnesses={[]} providerRuntime={null} onConfirm={async opts=>{fixture.submitted=opts;fixture.finishCreate=new Promise(resolve=>fixture.resolveCreate=resolve);await fixture.finishCreate;setCreating(false);fixture.command("terminal")}} onCancel={()=>fixture.command("cancel-new-session")}/> : null}
-              onCancelNewSession={()=>setCreating(false)} backendStatus={backendStatus} sessionsSourceStatus={sessionsSourceStatus} taskmasterReady={['actions-sources','recommendation-status-error'].includes(${JSON.stringify(scenario)})} onOpenRecommendation={id=>fixture.openedRecommendations.push(id)} onFixWithAi={()=>fixture.prompts++} onRunCleanup={()=>fixture.prompts++} harnesses={[]} debugSettings={{showSessionIds:false}}
+              onCancelNewSession={()=>setCreating(false)} backendStatus={backendStatus} sessionsSourceStatus={sessionsSourceStatus} taskmasterReady={['actions-sources','recommendation-status-error','recommendations-inbox'].includes(${JSON.stringify(scenario)})} onOpenRecommendation={id=>fixture.openedRecommendations.push(id)} onFixWithAi={()=>fixture.prompts++} onRunCleanup={()=>fixture.prompts++} harnesses={[]} debugSettings={{showSessionIds:false}}
               commandRequest={commandRequest} preferences={preferences} onPreferencesChange={setPreferences} onResetPreferences={()=>new Promise(resolve=>{fixture.finishReset=resolve})}
               inspector={inspector} onInspect={setInspector} unreadIds={new Set(${JSON.stringify(scenario)}==='actions'?['other']:[])} acknowledgedIds={new Set()}
               visibleSubjectId={['resume-session','session-title','session-menu'].includes(${JSON.stringify(scenario)})?activeSessionId:undefined} resumingSessionIds={resumingSessionIds} onResumeSession={(id,strategy)=>fixture.resumed.push({id,strategy})} onSelectSession={id=>{fixture.selections++;if(${JSON.stringify(scenario)}.endsWith('-main'))setInspector(null);setActiveSessionId(id)}} onFocusTerminal={()=>fixture.runtime()?.terminal.focus()} onBackendUnavailable={()=>{}} />;
@@ -2049,7 +2121,7 @@ if (process.versions.electron) {
           builder.onLoad({filter:/.*/,namespace:'no-gpu'},()=>({contents:'export class WebglAddon { constructor(){throw new Error("GPU unavailable in headless fixture")} }',loader:'js'}));
           // Panel bodies connect to the backend/PTY; retain real React shell and terminal ownership.
           builder.onResolve({ filter: /^\.\/(SessionDetailPanel|RecommendationsPanel)$/ },
-            args => ((scenario.startsWith('app-review') || ['resume-session','session-title','session-menu'].includes(scenario)) && args.path === './SessionDetailPanel') || (['inspector-overlay','recommendation-status-error'].includes(scenario) && args.path === './RecommendationsPanel') ? undefined : ({ path: args.path, namespace: 'empty-panel' }));
+            args => ((scenario.startsWith('app-review') || ['resume-session','session-title','session-menu'].includes(scenario)) && args.path === './SessionDetailPanel') || (['inspector-overlay','recommendation-status-error','recommendations-inbox'].includes(scenario) && args.path === './RecommendationsPanel') ? undefined : ({ path: args.path, namespace: 'empty-panel' }));
           builder.onLoad({ filter: /.*/, namespace: 'empty-panel' },
             () => ({ contents: 'export default function Panel(){return null}', loader: 'tsx', resolveDir: root }));
 

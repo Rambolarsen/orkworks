@@ -56,7 +56,7 @@ export function panelEmptyMessage(originFilter: PanelOriginFilter): string {
   return originFilter === "analysis"
     ? "No Analysis recommendations match this filter."
     : originFilter === "cleanup"
-      ? "Run an audit to review stale recommendations."
+      ? "Check the recommendation backlog to review stale recommendations."
       : "No Observations recommendations match this filter.";
 }
 

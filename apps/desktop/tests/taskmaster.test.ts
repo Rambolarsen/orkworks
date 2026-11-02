@@ -236,7 +236,7 @@ test("Cleanup origin maps to the cleanup chip and stays proposed-visible under A
   assert.deepEqual(visible("cleanup"), [cleanup.id]);
   assert.deepEqual(visible("analysis"), []);
   assert.deepEqual(visible("observations"), []);
-  assert.equal(panelEmptyMessage("cleanup"), "Run an audit to review stale recommendations.");
+  assert.equal(panelEmptyMessage("cleanup"), "Check the recommendation backlog to review stale recommendations.");
 });
 
 test("Empty state names the active origin filter, not just 'no recommendations yet'", () => {
@@ -731,7 +731,7 @@ test("Recommendations dismissal uses the main generation-bound bridge", () => {
   assert.doesNotMatch(handler, /getBackendUrl\(\)/);
 });
 
-test("Run audit is an always-visible header action that posts to the sidecar audit route", () => {
+test("backlog checking is reachable from header maintenance and posts to the sidecar audit route", () => {
   // #811: the audit was reachable only by curling the sidecar; the panel's
   // own empty copy told the user to "Run an audit" with no way to do it.
   const panel = readFileSync(
@@ -742,8 +742,9 @@ test("Run audit is an always-visible header action that posts to the sidecar aud
     panel.indexOf("recommendations-panel-actions"),
     panel.indexOf("</div>\n      </div>", panel.indexOf("recommendations-panel-actions")),
   );
-  assert.match(actions, /Run audit/);
-  assert.match(actions, /Auditing…/);
+  assert.match(actions, /Recommendation maintenance/);
+  assert.match(actions, /Check recommendation backlog/);
+  assert.match(actions, /Checking backlog…/);
   assert.match(actions, /disabled=\{!hasWorkspace \|\| !taskmasterReady \|\| auditBusy\}/);
 
   const start = panel.indexOf("async function runAudit()");
@@ -792,7 +793,7 @@ test("dismissing or running the cleanup card clears a stale audit status", () =>
   assert.match(handlers, /setAuditMessage\(undefined\)/);
 });
 
-test("the Cleanup filter's empty state is itself a Run audit action", () => {
+test("the Cleanup filter's empty state can check the backlog directly", () => {
   // The empty tab previously ended at a status sentence; it must now
   // trigger the audit directly.
   const panel = readFileSync(
@@ -804,7 +805,7 @@ test("the Cleanup filter's empty state is itself a Run audit action", () => {
   // The audit prompt sentence keeps rendering through the shared helper.
   assert.match(emptyState, /panelEmptyMessage\("cleanup"\)/);
   assert.match(emptyState, /onClick=\{\(\) => void runAudit\(\)\}/);
-  assert.match(emptyState, /Auditing…/);
+  assert.match(emptyState, /Checking backlog…/);
 });
 
 test("debug attention injection uses the main generation-bound bridge", () => {

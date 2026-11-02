@@ -105,7 +105,7 @@ export function taskmasterAnalysisRequestBusy(
   return assessmentProgress && !status?.activeAttempt;
 }
 export function formatTaskmasterAnalysisAction(status: TaskmasterRunStatus | null): string {
-  return status?.activeAttempt ? "Retry analysis" : "Analyze now";
+  return status?.activeAttempt ? "Retry discovery" : "Run discovery";
 }
 export function taskmasterAssessmentRequestBusy(
   status: TaskmasterRunStatus | null,
@@ -118,8 +118,8 @@ export function formatTaskmasterAssessmentAction(
   assessment: TaskmasterAssessmentStatus | null,
 ): string {
   return assessment?.state === "queued" || assessment?.state === "running"
-    ? "Retry assessment"
-    : "Assess workflow";
+    ? "Retry workflow review"
+    : "Review workflow";
 }
 export function shouldFocusAssessmentRecommendation(
   recommendationId: string,

@@ -1139,6 +1139,35 @@ Taskmaster is a logical product component. It does not require a permanently run
 
 ## Brain-guided next-step assessment
 
+### Accepted Recommendations presentation (2026-11-02, #1314)
+
+The owner approved a focused inbox within the existing fixed central surface.
+**Find next improvement** is the primary action for the combined readiness and
+suggestion operation. Its adjacent **Other assessment options** disclosure offers
+**Review workflow** (the existing **Assess workflow** operation), **Check agent
+readiness** (standalone **Assess readiness**) and, separated from those options,
+**Run discovery** (existing **Analyze now**). Short descriptions explain the
+different results before activation. These names replace presentation only;
+the underlying operations, recovery/retry paths, API routes, context bounds,
+lease, eligibility and approval gates remain independent and unchanged.
+
+Keep the latest readiness score, date, coverage and freshness compact, with
+explicit **View report** and **History** controls for existing ratings, evidence,
+model limits and baseline comparison. Opening either never starts inference.
+Partial/redacted/unavailable states never invent an overall score. An explicit
+readiness source link opens its referenced saved assessment; ordinary polling
+does not reset a manually selected report.
+
+The recommendation list owns the main reading space, with its existing origin
+filters and explicit actions. **Recommendation maintenance** contains **Check
+recommendation backlog** (existing **Run audit**), **Refresh list** and
+**Taskmaster settings**. Checking the backlog proposes cleanup for review; it
+does not apply cleanup. Preserve explicit Fix with AI and cleanup approval,
+report provenance, workspace isolation, keyboard focus and responsive fixed-shell
+navigation. The presentation adds no model calls, session starts or authority.
+
+### Assessment contract
+
 Status: accepted 2026-10-17 with [ADR 0085](../docs/adr/0085-taskmaster-assessment-and-analysis-outcomes.md); runtime delivery remains tracked in #769.
 
 Recommendations offers a separate, user-triggered **Assess workflow** action
