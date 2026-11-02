@@ -1,0 +1,24 @@
+{
+  "telemetry": {
+    "captureContent": false,
+    "capture": {
+      "identity": false,
+      "prompts": false,
+      "responses": false,
+      "toolArguments": false,
+      "toolOutput": false,
+      "policyDetail": false
+    }
+  },
+  "disableAllHooks": true,
+  "memory": false,
+  "ide": {
+    "autoConnect": false
+  },
+  "continueOnAutoMode": false,
+  "customAgents": {
+    "defaultLocalOnly": true
+  },
+  "remoteExport": false,
+  "remoteSessions": false
+}

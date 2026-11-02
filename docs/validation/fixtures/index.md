@@ -34,3 +34,4 @@ Captured fixture context for reproducible validation.
 - [Exporter attribute-name diagnostic packet](copilot-1.0.90-exporter-diagnostic/index.md) — Exhausted positive-view diagnostic with fixed-name stop evidence.
 
 - [Collector-4 prompt-v4 scoring qualification](readiness-scoring-2026-11-02/index.md) — Nine fixed eighteen-call Luna medium scoring trials; semantic qualification failed despite complete transport.
+- [Final practical guardrail packet](copilot-1.0.90-practical-closeout/index.md) — Finite owned read/write-denial candidate and model-free checks.
