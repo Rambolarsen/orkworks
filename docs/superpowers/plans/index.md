@@ -267,3 +267,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Role configuration core review and handoff](2026-11-02-role-configuration-core-handoff.md) — Review existing component choices without new probes or runtime work.
 
 - [APM capability compatibility](2026-11-02-apm-capabilities.md) — Approved compatibility probe and automated behavior checks.
+
+- [Supplied role instruction validation and rendering](2026-11-02-role-instruction-bundles.md) — Proposed bounded pure module and golden-byte checks for #1303.
