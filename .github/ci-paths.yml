@@ -8,6 +8,10 @@ desktop:
   - '.github/ci-paths.yml'
   - '.github/workflows/main-ci.yml'
 rust:
+  # Embedded knowledge and shared behavioral fixtures are Rust inputs too.
+  - 'apps/desktop/resources/knowledge/**'
+  - 'apps/desktop/tests/fixtures/**'
+  - 'docs/validation/fixtures/**'
   - '.github/workflows/main-ci.yml'
   - 'crates/orkworksd/**'
   - 'rust-toolchain.toml'
