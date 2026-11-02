@@ -1,10 +1,10 @@
 ---
 type: Qualification Plan
 title: Retained child review source qualification handoff
-description: Owner review and source/control/consumer evidence gates for the proposed single-task retained-data child source records before artifact transactions.
+description: Accepted source choices and remaining source/control/consumer evidence gates for the single-task retained-data child source records before artifact transactions.
 tags: [orkworks, child-sources, review, qualification, preparation]
 status: draft
-workflow_status: source-codec-owner-review-required
+workflow_status: gate-a-complete-component-preparation
 ---
 
 # Retained child review source qualification handoff
@@ -54,10 +54,12 @@ reporting from reviewers. Apply findings before the written owner-review handoff
 
 ## Current decision boundary — 2026-11-02
 
-This review preserves the existing proposal; it does not accept new source choices.
-The remaining owner decision is one scoped package with these explicit tradeoffs:
+The owner accepted this exact package after #1320 at code head
+`e1eb6f3590d940b56ad1be4ee18b769b6e9cd2c6`; see the
+[acceptance record](../specs/2026-10-31-child-review-source-preparation-design.md#owner-acceptance-and-bounded-component-handoff--2026-11-02).
+The following table preserves the reviewed choices and their tradeoffs:
 
-| Proposed choice | Consequence to approve or revise |
+| Accepted choice | Retained consequence |
 | --- | --- |
 | One task, independent worktree, retained inline/research-report inputs, no materialized outputs | A bounded first source slice; general multi-task, path/output and other producer profiles remain unsupported |
 | Explicit child leaf/framing/input/plan/approval/event codecs and domains | No relabeled root records or promotion of old fixtures; exact original outcomes remain distinct from authority |
@@ -68,24 +70,27 @@ Already accepted: #741's logical role core, #1210's debit representation and
 historical accounting consumer, and practical native guardrails. #740 research
 is closed. The dormant #1307 root-byte validator does not supply child codecs,
 real source event owners or a supported native profile. None of these decisions
-accepts the package above.
+accepted this package by implication; its separate acceptance is recorded above.
 
-Gate A acceptance would authorize preparing the bounded component/source-ownership
-work in Gate B; it would not itself authorize runtime implementation, model calls,
+Gate A acceptance authorizes preparing the bounded component/source-ownership
+work in Gate B; it does not itself authorize runtime implementation, model calls,
 full transaction fixtures or a native adapter. Gates C and D retain their stated
 prerequisites. #1183 stays open until its source/preparation/consumer criteria are
 met; merging this written reconciliation is not completion of the issue.
 
 ## Gate A — scoped source/profile decision
 
-- [ ] Review the selected single-task/retained-data limits, explicit new child
+- [x] Review the selected single-task/retained-data limits, explicit new child
   leaf/framing/input-delivery and plan/approval/source records/domains, no-pruning
   source resource and fresh preparation order. Confirm no old codec/approval or
-  unknown consumer is silently promoted into this slice.
-- [ ] Record exact owner acceptance or revisions, and reconcile owning #741/#742/
+  unknown consumer is silently promoted into this slice. Owner accepted the
+  reviewed package on 2026-11-02; no technical body changed.
+- [x] Record exact owner acceptance or revisions, and reconcile owning #741/#742/
   #744/#746 catalogs. New source choices are not covered by accepting #1176's
-  artifact metadata representation. No dependent source fixture or adapter starts
-  merely because this design is merged.
+  artifact metadata representation. The linked acceptance is routed from each
+  owning contract; this records the catalog decision, not complete source/control
+  qualification. No full transaction fixture or adapter starts merely because
+  this design is merged.
 
 Check: every exact field/tag/domain/bound/command/default and newly excluded profile
 has a named choice; no open generic JSON leaf is treated as a source-valid record.
@@ -115,6 +120,38 @@ has a named choice; no open generic JSON leaf is treated as a source-valid recor
 
 Check: byte/component evidence is scoped correctly; actual source event proof and
 complete underlying control/consumer/authority evidence remain distinguishable.
+
+### Bounded next packet and inspected source seams — 2026-11-02
+
+The next deliverable is a documentation component packet for these accepted bytes:
+selected child v3 leaves/framing, full configuration/input/plan, approval request/
+source/receipt, reservation/allocation/attachment and assignment-source joins.
+Use independent canonical byte/digest generation and a strict checker with
+positive and negative cases from Gate B. Preserve existing root/child catalogs;
+label every constructed identity and outcome as synthetic and unverified. This
+packet must not claim complete fresh state, native object identity, source event
+participation, SQL atomicity, an eligible adapter or authority. Complete old/new
+transaction witnesses stay in Gate C, after the prerequisite closure.
+
+A bounded inspection at `53db3b8072453fcad14e89c6ff2970a998f9cc0d` establishes
+these nearby seams and missing joins; this is not an exhaustive absence proof:
+
+| Required owner | Inspected source seam | Remaining source evidence |
+| --- | --- | --- |
+| Immutable proposal and exact Electron-main approval | [CoordinatorStore](../../../crates/orkworksd/src/taskmaster/coordinator_store.rs) is explicitly dormant and persistence-only; its methods retain StoredPlan/approval history and activate an existing definition revision without runtime authority | The selected child-source plan/configuration/input publication and new exact UI request/receipt, complete controls/ledgers/membership and live grant cutoff still need their actual producer |
+| Reservation and frozen assignmentTaskVersion | [Coordinator records](../../../crates/orkworksd/src/taskmaster/coordinator.rs) are explicitly data-only | No original successful child-source reservation event is supplied by those records; close the real #742 transition and resulting version before full preparation witnesses |
+| Native allocation and unique attachment | [Session application](../../../crates/orkworksd/src/session_application.rs) create_session/create_session_workflow start ordinary sessions and detect Git context | Ordinary creation/Git context is not proof of a new plan-owned worktree allocation or unique child attachment; actual event producers and recoverable outcomes remain required |
+| Source/preparation/consumer publication | [Hierarchy registry](../specs/2026-10-24-hierarchy-storage-contract-design.md#source-registry-and-remaining-schema-work) identifies the outstanding control/consumer catalogs | Close original fresh owner proofs, complete incoming/outgoing membership including historical debits, effects and protected peer ledgers; accepted source formats alone do not supply them |
+| Workspace/native authority | [WorkspaceLease](../../../crates/orkworksd/src/workspace_runtime.rs) holds an advisory lock on an open file | The lock is workspace ownership evidence; it does not establish the child-source command's native/revocation commit cutoff or disposition |
+
+The exact-symbol search for child-source, child_plan_approvals, child_reservations,
+child_allocations, child_attachments, ChildAssignmentSourceV1, assignmentTaskVersion,
+artifact_read_debits and child-source-retained-bytes in crates/orkworksd/src,
+apps/desktop/electron and apps/desktop/src returned no matches. This supports the
+bounded finding above; differently named/external owners were not ruled out.
+Gate B's source/control/authority checkboxes remain open. Identify and close those
+joins independently of the component packet; do not manufacture passing event
+proofs or hold up unverified byte checks waiting for a native adapter.
 
 ## Gate C — complete fresh preparation/publication witnesses
 
@@ -169,6 +206,8 @@ the owner-decision/source-qualification boundary. Both reviewers reported no
 material findings in the changed material; unchanged proposal choices were not
 reopened. This review does not accept those choices or establish native evidence.
 
-Disposition: **Investigate for full source/executable qualification; ready for
-written owner review of the named new choices.** No acceptance or native result
-is inferred from the review or documentation checks.
+Disposition: **Gate A complete by explicit scoped owner acceptance; Gate B
+component/source-owner preparation next; full source/executable qualification
+remains Investigate.** Prior reviews cover the unchanged technical proposal.
+Recording approval does not turn document checks or synthetic bytes into native
+or source event evidence. No new approval of these unchanged choices is required.

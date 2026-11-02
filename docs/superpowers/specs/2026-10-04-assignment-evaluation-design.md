@@ -2273,3 +2273,21 @@ broader component gates remain unchanged. The [Gate 2 audit](../../validation/ev
 tracks missing child source/preparation/consumer records in #1183 and read-work
 reservation ordering in #1184. No full source profile, native fence, dependent
 transaction fixture, adapter, migration or runtime plan is approved by acceptance.
+
+
+## Scoped child source choices accepted — 2026-11-02
+
+The owner [accepted #1183's exact reviewed child source package](2026-10-31-child-review-source-preparation-design.md#owner-acceptance-and-bounded-component-handoff--2026-11-02):
+the one-task retained-data slice, selected child leaves/framing/input and exact
+source/approval/event records, single fresh format-4 catalog/provenance additions,
+and 8 MiB/run / 64 MiB/workspace no-pruning source pool with explicit preparation.
+This supersedes pending source-choice wording only for that package; it changes
+no technical field/domain or earlier catalog and accepts no broader profile.
+
+Gate A is complete. The [existing handoff](../plans/2026-10-31-child-review-source-qualification.md)
+now proceeds to bounded component/source-owner preparation. Actual source/control/
+consumer/atomic preparation and native authority remain unqualified; no complete
+transaction fixture, old-store import, database, migration, adapter, launch or
+runtime work is authorized by the source decision. #1183 and #1176 remain open;
+#740 research stays closed, with practical native guardrails governing later
+configuration qualification.
