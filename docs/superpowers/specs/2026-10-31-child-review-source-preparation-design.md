@@ -1,9 +1,10 @@
 ---
-type: Design Proposal
+type: Accepted Design
 title: Retained child reviewer source and preparation records
-description: Proposed bounded single-task retained-data child source codecs, exact approval/reservation/allocation/attachment joins, fresh ledgers and source consumer membership for artifact qualification.
+description: Owner-accepted bounded single-task retained-data child source codecs, exact approval/reservation/allocation/attachment joins, fresh ledgers and source consumer membership for artifact qualification.
 tags: [orkworks, hierarchy, child-sources, review, preparation, custody]
-status: draft
+status: stable
+workflow_status: source-codecs-accepted-qualification-pending
 ---
 
 # Retained child reviewer source and preparation records
@@ -16,9 +17,12 @@ Tracking: [#1183](https://github.com/Rambolarsen/orkworks/issues/1183),
 [#746](https://github.com/Rambolarsen/orkworks/issues/746).
 Inspection base: `98ce5503`, after the
 [artifact acceptance/source audit](../../validation/evaluation-artifact-source-closure.md).
-**New source/profile/codec/budget choices for owner review. Drafting or merging
-does not accept them, pass Gate 2, authorize dependent fixtures, or create a run,
-grant, worktree, child, database, migration or runtime implementation.**
+**The owner accepted the named source/profile/codec/budget package on 2026-11-02
+at reviewed code head `e1eb6f3590d940b56ad1be4ee18b769b6e9cd2c6`, merged in
+[#1320](https://github.com/Rambolarsen/orkworks/pull/1320). This settles Gate A's
+source choices for bounded component/source-ownership preparation. It does not
+pass artifact Gate 2, authorize full transaction fixtures, or create a run, grant,
+worktree, child, database, migration, native adapter or runtime implementation.**
 
 ## Outcome and selected slice
 
@@ -56,8 +60,8 @@ source slice**, not a general child/orchestration schema:
   arbitrary path/output evidence and other artifact producers stay unsupported.
 
 This narrowing, the selected leaf representations, plan/source domains and
-source-budget default need owner acceptance. Broader profiles keep their existing
-logical contracts and remain separate codec/qualification work. No legacy child
+source-budget default are covered by the scoped acceptance below. Broader profiles
+keep their existing logical contracts and remain separate codec/qualification work. No legacy child
 or old synthetic fixture is upgraded into this profile.
 
 ## Common encoding and owned source types
@@ -517,7 +521,7 @@ no owner/session/path adoption or replacement worktree creation occurs automatic
 
 ## Compatibility, owner choices and handoff
 
-New choices for scoped review: the single-task retained-data/no-live-access profile,
+The scoped owner acceptance covers: the single-task retained-data/no-live-access profile,
 selected child leaf/framing and input delivery, exact new source/approval domains
 and immutable record joins, closed format-4 source catalog/purpose additions,
 8 MiB run / 64 MiB workspace no-pruning source pool and explicit preparation order.
@@ -526,10 +530,11 @@ new approval request identity only closes this selected exact-plan operation.
 No older plan, configuration, root codec or synthetic child identity is upgraded.
 
 The [qualification handoff](../plans/2026-10-31-child-review-source-qualification.md)
-stops at owner decision, then exact codec/component and original source creation/
+now proceeds from completed Gate A to bounded component/source-ownership preparation,
+then exact codec/component and original source creation/
 consumer/control/authority closure, before complete independent transaction fixtures.
 Existing conditional sources remain unchanged evidence. #1183 remains open for
-review and source-owner agreement; #1176 Gate 2, #1184 and native/executable
+source-owner/consumer/control qualification; #1176 Gate 2, #1184 and native/executable
 plans remain separate. #740 is closed as research and #741's logical role core is
 accepted; neither qualifies this proposed child source profile. No source-valid
 complete profile, database/migration, fixture/checker, model/native probe, launch or runtime implementation is delivered.
@@ -550,3 +555,41 @@ bytes only. It supplies neither child codecs nor actual proposal/reservation/
 allocation/attachment event evidence. No fixture, database, probe, launch or runtime
 work follows from this reconciliation. The remaining owner choices and finite
 follow-on gates are listed in the qualification handoff.
+
+
+## Owner acceptance and bounded component handoff — 2026-11-02
+
+After review of #1320's exact code head
+`e1eb6f3590d940b56ad1be4ee18b769b6e9cd2c6` (merged as
+`53db3b8072453fcad14e89c6ff2970a998f9cc0d`), the owner answered “go ahead” to the
+explicit four-choice package. That approval covers the existing technical body:
+
+- The single-task independent-worktree retained-data worker/reviewer slice,
+  including its exclusions, exact selected evidence inputs and no materialized
+  outputs. Practical native guardrails govern later adapter qualification.
+- The selected child v3 leaves, child instruction framing and input delivery,
+  full plan/approval/reservation/allocation/attachment/assignment-source records,
+  reference joins, exact keys, fields, digest domains and stated byte bounds.
+- The additions to the single fresh format-4 source catalog and the
+  child-source-provenance purpose, with complete consumer membership and no old
+  store import, subset-by-row-presence or relabeled root source. Accepted #1210
+  debit accounting membership remains a separate closed-table retention invariant.
+- The child-source-retained-bytes resource: 8 MiB per owner run and 64 MiB per
+  workspace, all historical occurrences charged, no pruning/reset/repair, and
+  explicit source-owned fresh preparation order. Exhaustion can deny new plans;
+  acceptance does not increase an existing artifact, read-work or store ceiling.
+
+This supersedes owner-pending wording for this package in the original proposal
+and the 2026-11-02 review reconciliation. No technical field, value, domain or
+bound changes as part of recording acceptance; older accepted catalogs remain
+unchanged. Broader profiles and underlying #742 mutable control/grant/recovery
+records are not accepted by implication.
+
+Gate A is complete. The next bounded handoff is Gate B's component/source-owner
+preparation in the existing qualification plan. Its byte validation must remain
+unverified source-byte evidence until actual transition, source/control/preparation/
+consumer and authority closure is established. No live event can be reconstructed
+from an example or ordinary session metadata. Gates C–D, #1176 qualification,
+#1184's actual authority mechanism and native/profile/runtime implementation stay
+separate; no model call, launch, database or migration is authorized here. Keep
+#1183 open through the remaining source/preparation/consumer criteria.
