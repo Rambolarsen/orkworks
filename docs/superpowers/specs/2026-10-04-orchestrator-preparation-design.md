@@ -1508,3 +1508,17 @@ transaction fixture, old-store import, database, migration, adapter, launch or
 runtime work is authorized by the source decision. #1183 and #1176 remain open;
 #740 research stays closed, with practical native guardrails governing later
 configuration qualification.
+
+
+## Proposed selected launch controls — 2026-11-02
+
+The [child launch-control/recovery proposal](2026-11-02-child-launch-control-design.md)
+closes proposed selected direct-execution input, mutable run/plan/task/attempt,
+ordinary-session bridge, runtime-history, coordination-receipt and recovery
+representations for #1183. Its new catalog/profile/row/accounting choices require
+scoped owner acceptance; earlier source-codec acceptance does not cover them.
+No active grant is persisted, frozen assignment identity is unchanged, and
+source/control/native/consumer/full-transaction/runtime gates remain independent.
+The existing qualification handoff carries the next owner decision and bounded
+post-acceptance component work; no fixture, native/model probe or runtime path is
+authorized by this proposal.

@@ -4,7 +4,7 @@ title: Retained child review source qualification handoff
 description: Accepted source choices and remaining source/control/consumer evidence gates for the single-task retained-data child source records before artifact transactions.
 tags: [orkworks, child-sources, review, qualification, preparation]
 status: draft
-workflow_status: gate-a-complete-component-preparation
+workflow_status: source-accepted-launch-control-review-required
 ---
 
 # Retained child review source qualification handoff
@@ -160,6 +160,41 @@ bounded finding above; differently named/external owners were not ruled out.
 Gate B's source/control/authority checkboxes remain open. Identify and close those
 joins independently of the component packet; do not manufacture passing event
 proofs or hold up unverified byte checks waiting for a native adapter.
+
+### Proposed control-schema closure — 2026-11-02
+
+The [launch-control/recovery proposal](../specs/2026-11-02-child-launch-control-design.md)
+now supplies exact selected direct-execution input, runtime history, run/plan/task/
+launch/session, original coordination receipt and recovery decision record shapes.
+This is new representation/profile/catalog/accounting work for owner review,
+not acceptance by the earlier child-source package. Gate A remains complete and
+its unchanged choices need no repeated approval.
+
+- [ ] Obtain scoped owner acceptance/revisions for the selected control/input/
+  recovery schemas, mandatory fresh-catalog families, row/history caps and separate
+  8 MiB/run / 64 MiB/workspace control pool before dependent control fixtures.
+- [ ] After acceptance, independently pin every closed variant and original
+  source/reference/projection/hash join; exercise pause/continue/resume precedence,
+  frozen reservation/one-attempt and exact receipt retry, original native-disposition
+  recovery, lifecycle/capacity changes and byte/count/overflow denials.
+- [ ] Close actual producer/current-authority/consumer and native cross-store
+  publication mechanisms before calling any source/control prestate qualified.
+  Typed control records or a matching native descriptor do not close that proof.
+
+Review routing for this changed proposal: root owns all edits; one bounded pair
+of independent read-only lower-cost reviewers checks contract correctness and
+builder/closure decisions, maximum three active including root. Reuse review of
+unchanged source choices; no writers, model/native probes or metadata reporting.
+The bounded review found two material closure gaps: the run-wide capacity limit
+was not explicitly joined to the retained run definition, and historical recovery
+snapshots lacked direct original commit/proof anchors. The author bound capacity
+to the accepted immutable run ceiling/lower plan cap and added closed full
+run/task/launch/session read snapshots with original CommitRefs, exact current
+header binding and retained direct proofs. Recovery rows use the inherited 2 MiB
+ceiling and charge all frozen copies; smaller control/store limits can deny them.
+These are author-applied corrections from one round, not an independent second
+post-edit review. Risk/decision boundaries are in the proposal. This handoff
+remains gated and contains no runtime implementation or probe authorization.
 
 ## Gate C — complete fresh preparation/publication witnesses
 
