@@ -44,3 +44,22 @@ test('ordinary documentation skips product suites but behavioral fixtures do not
   }
   assert.ok(routed('rust', 'docs/validation/fixtures/score-directed-readiness-v4-2026-10-31/skipped-tests-sources.json'));
 });
+
+test('external URL-based desktop test inputs trigger Desktop validation', () => {
+  const directory = resolve(root, 'apps/desktop/tests');
+  const external = new Set();
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    if (!entry.isFile() || !/\.test\.(?:ts|mjs)$/.test(entry.name)) continue;
+    const source = readFileSync(resolve(directory, entry.name), 'utf8');
+    for (const match of source.matchAll(/new URL\(\s*["'](\.\.?\/[^"']+)["']\s*,\s*import.meta.url/g)) {
+      const path = relative(root, resolve(directory, match[1]));
+      if (path && !path.startsWith('apps/desktop/')) external.add(path);
+    }
+  }
+  assert.ok(external.size > 0, 'must discover real external inputs');
+  assert.deepEqual([...external].filter(path => !routed('desktop', path)), []);
+});
+
+test('release workflow changes run the desktop packaging contract tests', () => {
+  assert.ok(routed('desktop', '.github/workflows/release.yml'));
+});

@@ -1,5 +1,8 @@
 # Shared PR and main-push routing. Keep dependency inputs with their consumers.
 desktop:
+  - '.vscode/launch.json'
+  - 'docs/user/taskmaster.md'
+  - '.github/workflows/release.yml'
   - 'apps/desktop/**'
   - 'crates/orkworksd/resources/**'
   - 'tests/fixtures/**'

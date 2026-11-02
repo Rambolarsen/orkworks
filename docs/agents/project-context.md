@@ -80,8 +80,10 @@ GitHub Actions has eight distinct workflow classes:
 - `.github/workflows/main-ci.yml` validates affected desktop and Rust surfaces
   on pushes to `main`, using the same `.github/ci-paths.yml` dependency filters
   as PR CI. Push comparisons cover all commits since the pre-push SHA. Changes
-  limited to documentation prose skip both product jobs; embedded knowledge,
-  desktop test fixtures and documentation behavioral fixtures run Rust tests. Daily and manually dispatched runs always run
+  limited to unrelated documentation prose skip both product jobs; embedded knowledge,
+  desktop test fixtures and documentation behavioral fixtures run Rust tests.
+  Desktop also covers its external launch configuration, Taskmaster user-guide
+  assertions and release-workflow contract inputs. Daily and manually dispatched runs always run
   both full suites, including the OpenCode and POSIX harness reporter tests.
   Release calls also always run both suites at the supplied immutable SHA,
   including stable-tag pushes; release validation cannot be cancelled by a
