@@ -8,10 +8,12 @@ status: draft
 
 # Hierarchy storage owner kernel for the child-source slice
 
-Outcome: one private, dormant Rust owner validates and publishes the accepted
+Outcome: one private, dormant Rust owner validates and journals the accepted
 child-source storage rows — objects, dependencies, the four child metadata
-tables, quota rows and the commit chain — behind typed producer commands, with
-strict reload semantics and no production caller.
+tables, quota rows and the commit chain — through non-source-valid storage
+primitives (single-row/object journal commands), with strict reload semantics
+and no production caller. No accepted source-owned transition is published by
+this unit; attachment and its inseparable effects stay gated.
 Pass condition: local SQLite round-trip and recovery tests against merged
 child-source fixture bytes pass, all out-of-scope tables/catalog kinds are
 rejected, and no route/validation/launch/migration surface changes.
@@ -122,7 +124,7 @@ The schema delivers the complete accepted catalog with dormant
 | `connection.rs` | DDL-free `Connection::open`/config verification per scope 1; unavailable reasons instead of repairs |
 | `schema.rs` | Accepted-SQLite-DDL table creation/verification; unknown-object refusal guard |
 | `rows.rs` | `Counter` TEXT, canonical BLOB key/value validation, child kind registry, byte caps, domain digest and reference joins |
-| `publication.rs` | Typed producer commands for the accepted transitions: publish plan/configuration/input/assignment-source objects, child metadata rows, provenance edges, quota deltas (one transaction each, change manifest + proof entry) |
+| `publication.rs` | Non-source-valid storage primitives only: journal single retained objects (plan/configuration/input/assignment-source), individual child metadata rows, provenance/dependency edges and per-row quota deltas — one transaction each with a complete change manifest + proof entry. This unit does NOT publish any accepted source-owned transition; the attachment transition requires its exact accepted effect set (initial `summary_state`, five fresh assignment quota rows, retry/interrupted dispositions) that this unit does not supply, so attachment publication stays gated until those prerequisites are implemented under their own gate |
 | `reload.rs` | Full reopen recovery: epoch/workspace/chain/proof/row revalidation, write fence on any unavailable state |
 | `quota.rs` | `child-source-retained-bytes` checked counters (`used`/`reserved`) with 8 MiB run / 64 MiB workspace rejections and no-refund semantics |
 | `tests.rs` (+ fixtures) | The acceptance cases below, reusing `docs/validation/child-source-vectors.json` bytes as golden inputs |
@@ -144,9 +146,10 @@ The schema delivers the complete accepted catalog with dormant
    only — an above-16-KiB valid source object body (e.g. a 32 KiB plan body)
    is an acceptance case, not a rejection. Verify with parametrized
    positive/negative `#[test]`s.
-3. **Publication (scope 4)** — publishing the worker chain: objects + edges +
-   the four metadata rows + quota deltas + `commit_proof` land in one
-   transaction; a second publish of the same object body with different bytes
+3. **Journals (scope 4)** — journaling the worker source bytes: objects + edges +
+   the four metadata rows + per-row quota deltas + `commit_proof` land in one
+   transaction per primitive command (never an accepted transition publish, see
+   `publication.rs`); a second journal of the same object body with different bytes
    conflicts; a mid-command failure (injected via test seam) rolls back every
    row, leaving header/latest unchanged. Verify with round-trip + rollback
    `#[test]`s and exact format-4 manifest digest recomputation.
