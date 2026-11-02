@@ -153,6 +153,16 @@ Gate B's source/control/authority checkboxes remain open. Identify and close tho
 joins independently of the component packet; do not manufacture passing event
 proofs or hold up unverified byte checks waiting for a native adapter.
 
+The first half of Gate B is now delivered as the
+[child source component packet](../../validation/child-review-source-components.md):
+24 independently generated vector entries pinning the accepted bytes for the
+selected child v3 leaves/framing, retained review-input snapshot, plan/approval
+chain and provenance joins, plus 21 structural/join rejection cases and a strict
+checker wired into `docs:check`. Its task-key reading of the retained input
+snapshot (reviewer's own task) is owner-reconciliation pending. The remaining
+Gate B checkboxes above stay open for actual source-owner, consumer/ledger and
+authority closure; the packet neither represents events nor qualifies authority.
+
 ## Gate C — complete fresh preparation/publication witnesses
 
 - [ ] Only when preceding source/authority choices and owners are closed, generate
