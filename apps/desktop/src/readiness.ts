@@ -321,7 +321,7 @@ export function readinessFailureMessage(code:string|null|undefined):string {
   metadata_unavailable:'assessment history could not be read or saved. Check local storage access.',
  };
  const match=/^(discovery|evidence|scoring|publication)_(.+)$/.exec(code??'');
- if(!match||!Object.hasOwn(causes,match[2]))return 'The assessment could not finish. Try Assess readiness again.';
+ if(!match||!Object.hasOwn(causes,match[2]))return 'The assessment could not finish. Try Check agent readiness again.';
  return `${stages[match[1]]}: ${causes[match[2]]}`;
 }
 

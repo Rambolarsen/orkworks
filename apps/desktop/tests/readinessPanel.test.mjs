@@ -39,7 +39,7 @@ test('unknown readiness error codes never become displayed provider text',async 
  const view=await fixture(t,initial);assert.doesNotMatch(displayedText(view.render()),/private-account-secret/);
 });
 
-for(const [code,expected] of [['evidence_inputs_changed',/inputs changed/i],['publication_metadata_unavailable',/history could not be read or saved/i],['assessment_failed',/try assess readiness again/i]]){
+for(const [code,expected] of [['evidence_inputs_changed',/inputs changed/i],['publication_metadata_unavailable',/history could not be read or saved/i],['assessment_failed',/try check agent readiness again/i]]){
  test(`readiness describes ${code} without exposing the code`,async t=>{
   const initial=status();initial.run={id:'failed',state:code==='evidence_inputs_changed'?'interrupted':'failed',phase:null,startedAt:'2026-10-25T00:00:00Z',completedAt:'2026-10-25T00:01:00Z',errorCode:code};
   const view=await fixture(t,initial);const text=displayedText(view.render());assert.match(text,expected);assert.doesNotMatch(text,new RegExp(code));
@@ -50,9 +50,9 @@ for(const [code,expected] of [['evidence_inputs_changed',/inputs changed/i],['pu
 test('combined assessment is primary and scoring alone remains available',async t=>{
  const view=await fixture(t,status());
  const buttons=nodes(view.render()).filter(node=>node.type==='button');
- assert.equal(buttons[0].props.children,'Assess and suggest');
- assert.ok(buttons.some(button=>button.props.children==='Assess readiness'));
- assert.match(displayedText(view.render()),/four model calls/i);
+ assert.equal(buttons[0].props.children,'Find next improvement');
+ assert.ok(buttons.some(button=>button.props.children==='Check agent readiness'));
+ assert.match(buttons[0].props.title,/four model calls/i);
 });
 
 
@@ -61,7 +61,7 @@ test('combined action invokes only its privileged method and reports the schedul
  window.orkworks.requestReadinessSuggestion=async()=>{combined++;return{outcome:'scheduled',runId:'combined',reasonCode:null};};
  window.orkworks.requestReadinessAssessment=async()=>{score++;return{outcome:'scheduled',runId:'score',reasonCode:null};};
  view.queue.push(Promise.resolve(status()));
- const button=nodes(view.render()).find(node=>node.type==='button'&&node.props.children==='Assess and suggest');
+ const button=nodes(view.render()).find(node=>node.type==='button'&&node.props.children==='Find next improvement');
  button.props.onClick();await view.settle();
  assert.equal(combined,1);assert.equal(score,0);
  assert.match(displayedText(view.render()),/Assessment and suggestion requested/);
@@ -106,7 +106,7 @@ test('standalone assessment remains separate from the combined request', async t
  window.orkworks.requestReadinessAssessment = async () => { score++; return { outcome: 'scheduled' }; };
  window.orkworks.requestReadinessSuggestion = async () => { assert.fail('Combined action must not be invoked'); };
  view.queue.push(Promise.resolve(status()));
- nodes(view.render()).find(node => node.type === 'button' && node.props.children === 'Assess readiness').props.onClick();
+ nodes(view.render()).find(node => node.type === 'button' && node.props.children === 'Check agent readiness').props.onClick();
  await view.settle();
  assert.equal(score, 1);
  assert.match(displayedText(view.render()), /Readiness assessment requested/);
@@ -147,4 +147,37 @@ test('each source click reopens its saved assessment without polling overriding 
  view.render(); await view.settle();
  assert.equal(view.summary().id, other.id);
  assert.equal(scrolls, 2);
+});
+
+test('the compact overview opens its saved report and comparison history without a new assessment', async t => {
+ const recent = snapshot(), older = snapshot(); older.id = 'older';
+ const view = await fixture(t, status([recent, older]));
+ window.orkworks.requestReadinessAssessment = async () => assert.fail('Viewing a report must not assess');
+ window.orkworks.requestReadinessSuggestion = async () => assert.fail('Viewing history must not seek a suggestion');
+ const report = () => nodes(view.render()).find(node => node.props?.id === 'readiness-report');
+ const history = () => nodes(view.render()).find(node => node.props?.className === 'readiness-history-controls');
+ assert.equal(report()?.props.hidden, true);
+ nodes(view.render()).find(node => node.type === 'button' && node.props.children === 'View report').props.onClick();
+ assert.equal(report().props.hidden, false);
+ assert.equal(history().props.hidden, true);
+ nodes(view.render()).find(node => node.type === 'button' && node.props.children === 'History').props.onClick();
+ assert.equal(history().props.hidden, false);
+ const select = nodes(history()).find(node => node.type === 'select');
+ select.props.onChange({ target: { value: 'older' } });
+ assert.equal(view.summary().id, 'older');
+ assert.equal(view.summary().data.overallScore, 50);
+});
+
+test('the owner can place readiness actions in its toolbar without changing their privileged routing', async t => {
+ const view = await fixture(t, status(), { renderActions: actions => React.createElement('nav', { 'aria-label': 'Assessments' }, actions.findImprovement, actions.checkReadiness) });
+ const toolbar = nodes(view.render()).find(node => node.props?.['aria-label'] === 'Assessments');
+ assert.ok(toolbar, 'The toolbar must receive the actual readiness controls');
+ let combined = 0, score = 0;
+ window.orkworks.requestReadinessSuggestion = async () => { combined++; return { outcome: 'scheduled' }; };
+ window.orkworks.requestReadinessAssessment = async () => { score++; return { outcome: 'scheduled' }; };
+ view.queue.push(Promise.resolve(status()));
+ nodes(toolbar).find(node => node.type === 'button' && node.props.children === 'Find next improvement').props.onClick();
+ await view.settle();
+ assert.equal(combined, 1);
+ assert.equal(score, 0);
 });

@@ -396,6 +396,13 @@ any user session. Recovery reconciles history/run by run ID as specified above.
 
 ## Presentation and acceptance
 
+The owner-approved [Recommendations presentation](taskmaster.md#accepted-recommendations-presentation-2026-11-02-1314)
+uses **Find next improvement** for the combined operation and **Check agent
+readiness** for standalone scoring. The compact latest-score overview opens the
+existing report and history explicitly; these controls never start a run.
+This presentation supersedes older action labels below, without changing their
+underlying assessment/suggestion contracts.
+
 Use the existing Recommendations surface and fixed-shell navigation. Show the
 latest overall number prominently, its date, coverage and current/historical
 status, then expandable component ratings and evidence. History lists retained

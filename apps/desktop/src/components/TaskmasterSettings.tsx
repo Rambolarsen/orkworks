@@ -187,7 +187,7 @@ export default function TaskmasterSettings({ currentWorkspacePath }: { currentWo
     <label>Daily background AI evaluations across the app
       <input type="number" min={1} max={64} disabled={scope === "workspace"} value={draft.dailyEvaluationLimit} onChange={(event) => edit({ dailyEvaluationLimit: Number(event.target.value) })} />
     </label>
-    <p className="settings-section-copy">Automatic background-discovery calls, including failed calls, count toward this limit. Manual Analyze now requests are unlimited. Cost depends on the selected model. The daily limit resets at midnight UTC.</p>
+    <p className="settings-section-copy">Automatic background-discovery calls, including failed calls, count toward this limit. Manual Run discovery requests are unlimited. Cost depends on the selected model. The daily limit resets at midnight UTC.</p>
     <label className="taskmaster-checkbox"><input type="checkbox" disabled={scope === "workspace"} checked={draft.automaticKnowledgeUpdates} onChange={(event) => edit({ automaticKnowledgeUpdates: event.target.checked })} /> Update shared knowledge automatically</label>
     <dl className="recommendation-facts">
       <div><dt>Analysis</dt><dd>{status.analysisStatus === "knowledge_unavailable" ? "Verified reference knowledge required" : status.analysisStatus.replaceAll("_", " ")}</dd></div>

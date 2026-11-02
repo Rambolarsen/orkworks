@@ -54,7 +54,7 @@ export default function ReadinessSummary({ snapshot, baseline, freshness }: Prop
     </p>}
     <section aria-label="What to improve next">
       <h4>What to improve next</h4>
-      <p>These are evidence and improvement needs from the saved assessment, not confirmed defects. Assess and suggest checks current evidence for one actionable fix.</p>
+      <p>These are evidence and improvement needs from the saved assessment, not confirmed defects. Find next improvement checks current evidence for one actionable fix.</p>
       <ol>{nextImprovements.map(row => <li key={row.conceptId}>
         <strong>{conceptLabel(row.conceptId)}</strong>{row.confidence && <span> · {row.confidence} confidence</span>}
         {row.unassessedReason && <p><strong>Not assessed:</strong> {row.unassessedReason}</p>}

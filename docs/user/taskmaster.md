@@ -17,6 +17,24 @@ view; Escape within Recommendations does the same. Selecting a session opens
 its terminal. Sessions keeps its normal responsive placement. Published installers
 may still show Recommendations in the inspector.
 
+Current source builds use a focused inbox. **Find next improvement** is the
+primary action: assess readiness, then seek one grounded suggestion. Open its
+adjacent **Other assessment options** arrow for **Review workflow** (suggest
+without scoring), **Check agent readiness** (score only), or **Run discovery**
+(the same analysis as background discovery).
+
+The compact **Agent readiness** summary shows the latest saved assessment, its
+date, coverage and whether inputs changed. **View report** opens ratings,
+evidence, confidence and model limits; **History** opens saved assessments and
+comparison controls. Opening a report or history never starts an assessment.
+
+The **••• Recommendation maintenance** menu contains **Check recommendation
+backlog**, **Refresh list**, and **Taskmaster settings**. Backlog checking looks
+for outdated or duplicate recommendations and proposes cleanup for your review;
+it never silently dismisses them. Refresh list loads saved results without
+starting analysis. Older installers may retain the previous layout and labels:
+Assess and suggest, Assess workflow, Assess readiness, Analyze now and Run audit.
+
 ## Two kinds of recommendations
 
 Recommendations from either pipeline carry an origin badge (anything with an
@@ -32,7 +50,7 @@ a time.
   model-assisted rollups that group several similar recommendations into
   one card; such a rollup draws on observed friction rather than purely on
   best practices. These appear from the Background discovery poll or when
-  you press **Analyze now** — either way they are the same kind of
+  you press **Run discovery** — either way they are the same kind of
   recommendation.
 - **Observations** — recommendations built deterministically from problems
   actually observed in your sessions: friction that coding agents or Peon
@@ -83,7 +101,9 @@ flagged.
 
 ## Assess one next improvement
 
-Current source builds offer **Assess workflow** beside **Analyze now**. It uses
+Current source builds offer **Review workflow** and **Run discovery** in the
+**Other assessment options** dropdown beside **Find next improvement**.
+Review workflow uses
 your selected Taskmaster model, current context settings, and signed assessment
 guidance to assess one next workflow improvement. Its report explains the
 observed state and presents one grounded proposal or a reason why the supplied
@@ -97,9 +117,9 @@ cannot supply the repository facts this action requires.
 
 The report shows cited repository excerpts, Brain page provenance, and checks
 that remain unverified. Bounded excerpts establish what was supplied; omitted
-files remain unknown. A reused report is labeled explicitly. Assess workflow
+files remain unknown. A reused report is labeled explicitly. Review workflow
 works with Background discovery off and does not spend its daily allowance or
-cooldown. An active Brain recommendation must be handled first. **Retry assessment**
+cooldown. An active Brain recommendation must be handled first. **Retry workflow review**
 starts a fresh attempt after interruption; discovery is never replayed after
 restart, and a live run is not started twice.
 
@@ -119,7 +139,7 @@ their confidence is evidence to weigh, not a guarantee.
 - **Dismiss** declines the suggestion.
 - **Fix with AI** sends a scoped fix prompt into your currently active
   session. It requires an active session and your explicit action.
-- **Analyze now** asks the Brain to look for an improvement on demand when a
+- **Run discovery** asks the Brain to look for an improvement on demand when a
   supported Taskmaster model and verified signed knowledge are available.
   Current source builds include an eligible offline starter. If an improvement
   is already proposed or being implemented, Taskmaster asks you to handle that
@@ -127,7 +147,7 @@ their confidence is evidence to weigh, not a guarantee.
   off, and manual analyses are not limited by the daily analysis allowance —
   that limit governs automatic Background discovery only.
 
-If a saved analysis attempt remains queued or running, **Retry analysis** asks
+If a saved analysis attempt remains queued or running, **Retry discovery** asks
 the app to recover its status and try again. A live run is not started twice.
 A skipped request keeps the previous actual analysis outcome.
 
@@ -144,7 +164,8 @@ as design scope, not a checklist of features available in an installer.
 
 ## Agent-readiness score and history
 
-Current source adds **Assess readiness** in Recommendations. It assesses only
+Current source offers **Check agent readiness** in Recommendations’ **Other
+assessment options** dropdown. It assesses only
 the selected workspace and shows an overall score out of 100, with fourteen
 individual 0–4 maturity ratings, confidence, saved evidence and suggested next
 improvements. Run it manually after repository changes to compare assessments.
@@ -184,17 +205,17 @@ failed retained qualification. Treat current ratings as evidence-limited
 estimates. The original collector-2/prompt-v1 qualification remains separate;
 collector-3/prompt-v1 is also unqualified. Select the desired model in Taskmaster settings, which are shared
 with other Taskmaster analysis. The feature does not change your model selection.
-Source validation does not establish availability in an existing installer. Existing **Assess workflow** continues
+Source validation does not establish availability in an existing installer. Existing **Review workflow** continues
 to suggest one bounded improvement separately.
 
 
 ### Get a concrete next step after scoring
 
-Current source adds **Assess and suggest** as the primary readiness action. It
+Current source adds **Find next improvement** as the primary readiness action. It
 first saves the score, then asks the existing workflow assessment for one
 improvement supported by current repository evidence and signed Brain guidance.
 The combined action can make up to four model calls with your configured
-Taskmaster model. **Assess readiness** remains available for scoring alone.
+Taskmaster model. **Check agent readiness** remains available for scoring alone.
 
 The result shows a recommendation, an existing active recommendation, or a reason
 why no supported change was identified. Review a recommendation before choosing
