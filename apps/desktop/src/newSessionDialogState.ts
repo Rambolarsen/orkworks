@@ -87,3 +87,24 @@ export function canStartNewSession(
   const selectable = selectableHarnesses(harnesses);
   return selectable.length === 0 || selectable.some((harness) => harness.id === harnessId);
 }
+
+export const CUSTOM_MODEL_VALUE = "__custom__";
+
+export interface ModelChoice {
+  custom: boolean;
+  selectValue: string;
+  model: string | undefined;
+}
+
+/**
+ * Resolves the Model select and the optional custom-id input into the model to launch with.
+ * Custom entry needs a model list; an unlisted model without the custom flag falls back to the default.
+ */
+export function resolveModelChoice(models: string[], draftModel: string, customRequested: boolean): ModelChoice {
+  if (models.length === 0) return { custom: false, selectValue: "", model: undefined };
+  if (customRequested) {
+    return { custom: true, selectValue: CUSTOM_MODEL_VALUE, model: draftModel.trim() || undefined };
+  }
+  const listed = models.includes(draftModel) ? draftModel : "";
+  return { custom: false, selectValue: listed, model: listed || undefined };
+}

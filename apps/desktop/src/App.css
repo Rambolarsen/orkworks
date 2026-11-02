@@ -3065,6 +3065,8 @@ html, body, #root {
 }
 .new-session-composer .new-session-select:hover:not(:disabled) { border-color: var(--accent-strong); }
 .new-session-composer .new-session-select:disabled { cursor: default; color: var(--text-secondary); }
+.new-session-composer .new-session-custom-model { flex: none; padding-right: 10px; min-width: 12ch; cursor: text; }
+.new-session-composer .new-session-custom-model:focus { outline: none; border-color: var(--accent-strong); }
 .new-session-composer .new-session-select option { background: var(--surface-1); color: var(--text-primary); font-size: var(--text-md); }
 .new-session-composer .new-session-header h2 { font-size: clamp(24px, 3vw, 34px); font-weight: 500; line-height: 1.25; letter-spacing: -0.025em; }
 .new-session-composer .new-session-body { padding: 0; gap: 0; background: var(--surface-2); border: 1px solid var(--border-default); border-radius: 16px; }

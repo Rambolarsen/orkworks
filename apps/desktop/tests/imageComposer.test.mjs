@@ -17,7 +17,7 @@ if (process.versions.electron) {
       assert.equal(await evaluate('document.querySelector("#nsd-prompt").getAttribute("aria-label")'),'Initial prompt','the conversational prompt remains named');
       // The coding tool owns the catalog, including deferred and failed discovery.
       await wait('document.querySelector("#nsd-model")?.tagName==="SELECT"');
-      await wait('document.querySelector("#nsd-model").options.length===3');
+      await wait('document.querySelector("#nsd-model").options.length===4');
       assert.equal(await evaluate('document.querySelector("#nsd-model").value'),'','Unknown saved models must fall back to tool default');
       await evaluate('fixture.choose("#nsd-model","codex-fast")');
       await wait('!!document.querySelector("#nsd-effort")');
@@ -38,8 +38,8 @@ if (process.versions.electron) {
       await wait('fixture.submitted.length===1');
       assert.equal(await evaluate('fixture.submitted.pop().model'),undefined,'Pending discovery must not submit a stale default');
       await evaluate('fixture.choose("#nsd-harness","codex");fixture.finishOther({models:["other-only"]})');
-      await wait('document.querySelector("#nsd-model").options.length===3');
-      assert.deepEqual(await evaluate('Array.from(document.querySelector("#nsd-model").options, option=>option.value)'),['','codex-fast','codex-review']);
+      await wait('document.querySelector("#nsd-model").options.length===4');
+      assert.deepEqual(await evaluate('Array.from(document.querySelector("#nsd-model").options, option=>option.value)'),['','codex-fast','codex-review','__custom__']);
       await evaluate('fixture.failModels=true;fixture.choose("#nsd-harness","other")');
       await wait('document.querySelector("#nsd-model").options.length===1');
       await evaluate('document.querySelector(".new-session-confirm").click()');
@@ -48,7 +48,7 @@ if (process.versions.electron) {
       await evaluate('fixture.choose("#nsd-harness","generic-shell")');
       await wait('document.querySelector("#nsd-model").options.length===1');
       await evaluate('fixture.choose("#nsd-harness","codex")');
-      await wait('document.querySelector("#nsd-model").options.length===3');
+      await wait('document.querySelector("#nsd-model").options.length===4');
       // A failed fresh preflight must explain the rejection without replacing
       // the selected coding tool or losing the editable launch draft.
       await evaluate('fixture.choose("#nsd-model","codex-fast");fixture.paste(fixture.file("preflight.png"),"keep this launch draft")');
