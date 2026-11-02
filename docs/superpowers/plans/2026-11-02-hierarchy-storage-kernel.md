@@ -60,12 +60,20 @@ everything outside:
    `max_page_count=262144`, DELETE journal, `synchronous=EXTRA`, foreign keys on,
    `temp_store=MEMORY`, one retained worker connection, no `ATTACH`, no
    extension loading, no caller SQL.
-2. **Schema owner**: create/verify exactly the accepted tables
-   `store_header`, `objects`, `dependencies`, `child_plan_approvals`,
-   `child_reservations`, `child_allocations`, `child_attachments`, `quota_usage`,
-   `commit_proof`. No other table may exist after open; unknown tables/columns/
-   versions make the store unavailable. Storage epoch and
-   `store_header.latest` initialize only on a fresh empty database.
+2. **Schema owner**: create/verify the **complete** accepted format-4 catalog
+   — every [contract table](../specs/2026-10-24-hierarchy-storage-contract-design.md#proposed-strict-storage-representation)
+   (`store_header`, `objects`, `payloads`, `heads`, `dependencies`,
+   `summary_state`, `pending_material`, `receipt_slots`, `candidate_work`,
+   `quota_usage`, `commit_proof`) plus the accepted child additions
+   (`child_plan_approvals`, `child_reservations`, `child_allocations`,
+   `child_attachments`), including empty tables — the closed catalog must be
+   complete or the store reports unavailable ([whole-catalog
+   rule](../specs/2026-10-30-evaluation-artifact-producer-design.md#accepted-format-4-row-and-commitment-domains)).
+   The **producer APIs** remain child-source-only: no writer command touches
+   payloads/heads/summary/receipt-slot machinery in this unit, but the tables
+   exist in every database. Unknown tables/columns/versions make the store
+   unavailable. Storage epoch and `store_header.latest` initialize only on a
+   fresh empty database.
 3. **Row validation**: canonical JSON BLOB keys with byte equality (no
    collation), strict child-source `ObjectKey` registry (child source kinds
    only), closed field checks against the owning contracts, u64 `Counter` as
@@ -105,7 +113,9 @@ wired only to Rust tests.
 
 All new under `crates/orkworksd/src/taskmaster/hierarchy_storage/` plus one
 `mod.rs` registration in `crates/orkworksd/src/taskmaster/mod.rs`; existing
-modules are not modified (mirroring the dormant `root_bootstrap` precedent):
+modules are not modified (mirroring the dormant `root_bootstrap` precedent).
+The schema delivers the complete accepted catalog with dormant
+(producer-shell, child-source-only) writer APIs:
 
 | Item | Deliverable |
 | --- | --- |
@@ -119,11 +129,11 @@ modules are not modified (mirroring the dormant `root_bootstrap` precedent):
 
 ## Acceptance criteria and checks
 
-1. **Open/verify (scope 1–2)** — fresh empty path creates the accepted
-   schema; reopen verifies and continues; presence of any foreign table/column
-   or unknown schema version returns an unavailable error, never repairs.
-   Verify with a `#[test]` using a tempdir: nonempty file, foreign table, and
-   corrupt page-count cases.
+1. **Open/verify (scope 1–2)** — fresh empty path creates the complete
+   accepted catalog including empty out-of-scope tables; reopen verifies and
+   continues; presence of any foreign table/column or unknown schema version
+   returns an unavailable error, never repairs. Verify with a `#[test]` using
+   a tempdir: nonempty file, foreign table, and corrupt page-count cases.
 2. **Row admission (scope 3)** — each of the nine golden row kinds from
    `child-review-source-vectors.json` plus wrapper rows parses, reconstructs its
    key, verifies its domain digest and is accepted; each of the rejection
@@ -212,7 +222,7 @@ Implementation issues (if any) link to #1176/#1183. Keep the
 narrative aligned — update it only after the kernel lands, not before.
 
 Owner decisions requested at review: (a) confirm the driver choice (reuse the
-existing `rusqlite`); (b) confirm reduction of scope to these nine tables;
+existing `rusqlite`); (b) confirm the full-catalog DDL with dormant
 (c) confirm that the manifest metadata envelope may be adapted
 byte-for-byte from the accepted format-4 contract for these small,
 uniform payloads (the domain versions stay v4; no new bump is proposed). Everything else is mechanical.
