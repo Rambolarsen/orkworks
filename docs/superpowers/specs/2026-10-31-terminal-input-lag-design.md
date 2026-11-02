@@ -51,10 +51,13 @@ remaining fenced I/O must be measured honestly after the repair, not assumed fas
 
 ### Capture, compute and commit
 
-Use a fail-fast process-local analysis admission permit, independent of
-`projection_lock`, to bound one active capacity computation. Never wait for that
-permit while holding a state lock. Under a short capture fence, retain workspace
-ownership identity (lease/store semantics, not just path), each selected runtime
+Owner-approved amendment (2026-11-02, “go ahead”, [#1295](https://github.com/Rambolarsen/orkworks/issues/1295)): replace fail-fast admission with waiting outside state locks. Three overlapping `GET /sessions` requests reproduced one successful response and two HTTP 500 responses from ordinary analysis contention. Admission still permits only one active computation; capture, commit and terminal-input fencing remain unchanged.
+
+Use a serialized process-local analysis admission permit, independent of
+`projection_lock`, to bound one active capacity computation. Overlapping listings
+wait for the permit rather than failing on ordinary contention. Never wait for
+that permit while holding a state lock. Under a short capture fence, retain
+workspace ownership identity (lease/store semantics, not just path), each selected runtime
 generation/control identity, resolved capability fingerprint, capacity state,
 output revision, counters and immutable shared output references. Release the
 fence before scanning. Preserve owned snapshot interfaces for other consumers.
@@ -70,8 +73,9 @@ unavailable path, never an authoritative empty/removal set. Individual stale
 capacity observations do not invalidate the complete list: use the current
 committed capacity state for those sessions and let the next throttled pass
 observe them again. Never retry within the request or scan under the fence as
-fallback. Concurrent callers without the analysis permit take the existing
-unavailable/recovery path, with no unbounded blocking-pool waiter queue.
+fallback. Concurrent callers wait for the analysis permit before capturing
+state, outside all state locks and the terminal-input fence. The HTTP and
+workspace-stream callers retain their existing blocking-worker dispatch.
 
 ### Output churn and capacity authority
 
