@@ -44,3 +44,6 @@ docs/validation/root-preparation-effects.json text eol=lf
 
 # Preserve independently generated coherent review-history golden bytes.
 /docs/validation/coherent-review-history.json text eol=lf
+
+# Preserve mixed LF/CRLF bytes in the independent instruction golden fixture.
+/crates/orkworksd/tests/fixtures/role-instructions/bundle.txt -text whitespace=cr-at-eol

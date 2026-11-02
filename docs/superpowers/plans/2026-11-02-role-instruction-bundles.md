@@ -3,8 +3,8 @@ type: Implementation Plan
 title: Supplied role instruction validation and rendering
 description: A bounded pure Rust instruction composition unit following the accepted role configuration core.
 tags: [plans, roles, instructions, validation]
-status: draft
-workflow_status: awaiting-owner-review
+status: stable
+workflow_status: implemented
 ---
 
 # Supplied role instruction validation and rendering
@@ -13,7 +13,8 @@ Outcome: one dormant, data-only Rust module validates the structure of supplied
 instruction inputs and returns deterministic rendered bytes plus their SHA-256.
 Pass condition: exact golden bytes and rejection fixtures pass, with no production
 caller or new side effect. Tracking: [#1303](https://github.com/Rambolarsen/orkworks/issues/1303).
-The user authorized preparing this plan; product code awaits owner review of it.
+The owner approved inline implementation of reviewed source
+`8b668a447fbb5ee97777223f86be2ac73ebc82f1` with “yes, go ahead”.
 
 ## Accepted basis and bounded scope
 
@@ -57,6 +58,7 @@ canonicalization framework would add no value.
 | `crates/orkworksd/src/taskmaster/role_instructions_tests.rs` | In-crate unit tests and literal/checked-in golden comparisons. |
 | `crates/orkworksd/tests/fixtures/role-instructions/` | Synthetic input notes and independently computed expected UTF-8 output/digest; no real repository instructions or secrets. |
 | `crates/orkworksd/src/taskmaster/mod.rs` | Declare the dormant module and test module only; no production call site. |
+| `.gitattributes` | Preserve the golden fixture’s intentional mixed LF/CRLF bytes without text conversion. |
 
 Use one public-to-crate entry point:
 `render_instruction_bundle(input: &InstructionBundleInput) -> Result<RenderedInstructionBundle, InstructionBundleError>`.
@@ -167,14 +169,18 @@ One implementer owns this coupled module; inline execution is the recommended
 method. Use the local TDD skill once code is approved. Do not delegate separate
 writers for validation and rendering: they share the same private representation.
 
-1. **Structural validator and input types.** Add failing unit cases, then implement
+### Task 1: Structural validator and input types.
+
+ Add failing unit cases, then implement
    bounded checks. Cover valid empty rule/skill/resource sets with an explicit
    empty role manifest, all six role values, invalid IDs/lowercase digests,
    mismatched content, wrong task/source digest, duplicate IDs/locators/manifests,
    precedence gaps, missing/optional mandatory skills, incomplete requirement
    sources, duplicate source locations, all closure ownership failures and reported
    unresolved/conflicting input. Do not add a prose conflict parser.
-2. **Deterministic composition.** Add an independently specified golden bundle
+### Task 2: Deterministic composition.
+
+ Add an independently specified golden bundle
    containing a rule, role, assignment, mandatory and optional skills, resources,
    CRLF, non-ASCII/combining text, trailing/no trailing LF and header-looking
    content. Record literal expected bytes and a digest computed independently
@@ -185,7 +191,9 @@ writers for validation and rendering: they share the same private representation
    any content mutation
    changes its digest, and the accepted `Delegate.` plus LF instruction fixture
    still hashes to the canonical spec value.
-3. **Boundaries and close-out.** Test each collection limit at/over its boundary,
+### Task 3: Boundaries and close-out.
+
+ Test each collection limit at/over its boundary,
    exact 262,144-byte rendered output and one byte over (including multibyte
    content/framing), and integer-safe length arithmetic. Inspect the diff/call
    graph for no production callers, serde/full-configuration codecs, external I/O,
@@ -226,5 +234,26 @@ there is no persistent state to restore or migration to reverse.
 Total: 6/25, a planning judgment, not an approval threshold.
 Self-review disposition: **Ready for owner review**. Every in-scope invariant has
 an implementation/check above. No full-configuration or native qualification is
-claimed. Product implementation is pending approval of this concrete plan; this
-planning PR does not grant it. No further general research campaign is required.
+claimed. The owner subsequently approved this concrete plan for inline implementation;
+that approval retains the stated boundary. No further general research campaign is required.
+
+
+## Implementation result
+
+The owner-approved bounded unit is implemented as a dormant module. Eighteen
+focused tests pass: structural rejection groups, independent golden text/hash,
+set-order invariance, meaningful rule-order/content sensitivity, inclusive
+collection/metadata/blocker bounds, exact 262,144-byte rendered admission and
+checked overflow without large allocation. The initial validator and renderer
+tests were observed failing against their respective scaffolds before the
+corresponding implementation. Boundary tests exercise the completed invariants.
+The golden fixture retains its exact bytes even with `core.autocrlf=true`.
+
+A fresh `/code-review medium` (size escalation for more than 500 changed code/test
+lines) covered code head `3297045d8c27c22fd80326d23dab662d6dac34ae`; it found no
+Critical or Important issues and no declined-to-judge items. One minor remains:
+portable path checks also reject a POSIX relative filename such as `a:notes.md`.
+No production caller, full-configuration codec/digest, permission/native adapter,
+storage or runtime authority is added. Full repository and PR CI results are
+recorded with [#1303](https://github.com/Rambolarsen/orkworks/issues/1303)'s
+implementation PR; the supported production-role set remains empty.

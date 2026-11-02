@@ -1,0 +1,28 @@
+=== orkworks:coordination id=coordination sha256=aea2ee567a92a78405f203afe73d1801ee4223fe690841f61fee4d9f73dca26e bytes=16 ===
+Coordinate only.
+=== /orkworks:coordination ===
+=== orkworks:rule id=root sha256=ee6cc8b74960c76dc4dbde6bad1c37910f3b1762b4d4b6b650fb593a776edc9c bytes=7 ===
+Rule.
+
+=== /orkworks:rule ===
+=== orkworks:role id=review sha256=52bd270085f34b76516831f685fe272ee7b36f45ff3ff6a37abfbdd66b4942d3 bytes=10 ===
+Delegate.
+
+=== /orkworks:role ===
+=== orkworks:assignment id=task sha256=21d6f58ce62f697ffa7fc311789b852ba2b8d6a575a3851c03e3968abfe5199b bytes=20 ===
+Inspect é and 雪.
+=== /orkworks:assignment ===
+=== orkworks:skill id=required sha256=27e6823e3fc8fe9e97553800216aab1fc15ac6344809e903676a51bba78eea24 bytes=6 ===
+Skill.
+=== /orkworks:skill ===
+=== orkworks:resource id=alpha sha256=a076a75a077d82b6eeb5737e21e273a6990ce262fa77acf3d79e550815376a82 bytes=7 ===
+First.
+
+=== /orkworks:resource ===
+=== orkworks:resource id=zeta sha256=ed6c5f13139d434b2dad02c601fe69b88b35f323afbfd2f4df52418815c6078e bytes=5 ===
+Last.
+=== /orkworks:resource ===
+=== orkworks:skill id=optional sha256=cf346f5cf0a2758cff833b798e8ac2bc4527cae4f0222b22fc76ad4c811c81de bytes=35 ===
+=== orkworks:role ===
+not authority
+=== /orkworks:skill ===
