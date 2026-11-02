@@ -15,6 +15,18 @@ tags: ["orkworks", "design"]
 - Configuration: [Role configuration](2026-10-04-agent-role-configuration-design.md)
 - Eligibility: [Capability evidence register](../../validation/agent-role-capabilities.md), [Claude Code 2.1.287 static assessment](../../validation/claude-code-role-capability-evidence.md)
 
+## Role guardrail assurance — 2026-11-02
+
+Role permission evidence follows the owner-approved
+[native-guardrails amendment](2026-11-02-native-role-guardrails-design.md): apply
+available controls, confirm required delivery, exercise practical cases and
+show instruction-only limits before approval. Historical #740 no-go notes below
+describe the prior stricter assessment and do not categorically reject practical
+Copilot roles. No launch adapter is enabled by this clarification. Same-parent
+continuation/resume, run/grant authority, source custody and storage qualification
+remain their own functional requirements; they are not waived by ordinary-tool
+risk acceptance or prerequisites for an ordinary review child's assessment.
+
 ## Scoped technical acceptance — 2026-10-24
 
 The owner accepted the #744-facing frozen reservation identity, typed retained
@@ -63,7 +75,8 @@ This document does not authorize runtime implementation or claim adapter support
 A live PTY is not evidence that a parent can receive reports and act on them.
 The selected adapter must verify a machine-readable coordination/event channel
 that continues the same parent agent without typing into a terminal or starting
-another coding tool. This is an additional #740 eligibility question. If the
+another coding tool. This is a feature-specific #742 continuation requirement; #740 hands off its
+coverage separately from ordinary-child role assessment. If the
 adapter cannot provide it, automated continuity is unavailable for that adapter;
 OrkWorks shows the missing capability instead of pretending the process is working.
 
@@ -1066,14 +1079,15 @@ orchestration, role-restriction or model-loop continuation implementations.
 | Gate / owner | Current disposition | Evidence required to advance |
 | --- | --- | --- |
 | Detailed contract acceptance / project owner, #742 with #741 | Written requirements mapped; owner acceptance pending | Record acceptance or concrete changes to this lifecycle and #741's immutable bootstrap/plan/input bindings, including identity, capacity, correction, recovery and numeric bounds |
-| Role and continuation eligibility / #740 | No eligible launch slice; all six Copilot profiles remain no-go, as do the six statically assessed Claude Code profiles on the sampled platform | Reviewed version/platform/profile-specific instruction/skill delivery and effective restriction evidence; separately establish same-parent event continuation, gap handling and exact resume, or retain explicit no-go reasons |
+| Ordinary-role evidence / #740 and parent continuation / #742 | Current role assessment is partial practical evidence; no implemented role launch adapter or continuous parent is qualified | Apply the native-guardrails amendment to role delivery/settings and bounded ordinary cases; independently establish event continuation/gap handling/exact resume only for the continuous-parent feature |
 | Scoped runtime handoff / #610 consumers | Not executable; no runtime launch plan is authorized | After contract acceptance and an eligible initial slice, prepare PR-sized plans with exact records/routes/migrations, Electron-main/preload interfaces, renderer projections and adapter fixtures; obtain approval before code |
 
 The [#741 handoff](2026-10-04-agent-role-configuration-design.md)
 explicitly says not to create a runtime launch plan while the reviewed evidence
 yields no eligible profile. The [#740 register](../../validation/agent-role-capabilities.md#decision)
-records that no-go; draft probe work and static source/help inspection do not
-promote it. This specification task does not authorize live model probes or
+records partial practical evidence and its remaining finite checks. Neither
+risk acceptance nor static source/help inspection establishes missing required
+mapping/delivery or qualifies the continuous-parent feature. This specification task does not authorize live model probes or
 remove their separate evidence/resource gates.
 
 The existing [#610 unit boundaries](../plans/2026-09-26-taskmaster-orchestrated-child-sessions.md#runtime-planning-boundaries)
@@ -1086,9 +1100,10 @@ plan and do not authorize work on an otherwise gated unit.
 Keep #742 open for owner acceptance and the remaining scoped handoff. Updating
 its definition checkboxes means the written requirements have evidence here;
 it must not mark capability verification, runtime implementation or execution
-approval complete. If #740 retains no-go, record that blocker explicitly and
-leave runtime planning closed rather than inventing a fallback or unsupported
-launch plan.
+approval complete. If the required practical mapping/delivery or parent feature
+is still unqualified, record that specific blocker and leave the dependent
+runtime unit closed. Do not apply a blanket historical no-go to every ordinary
+role, or invent a fallback launch.
 
 ### Proposed hierarchy read transport
 

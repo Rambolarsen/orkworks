@@ -36,12 +36,15 @@ proposed immutable assignment contract in #741. All launch, exact-plan approval,
 parent-only delegation, worktree, manual-integration, and single-selected-
 terminal constraints in #610 remain binding.
 
-There is no verified initial adapter. The #740 register currently marks all six
-Copilot profiles no-go and names no verified substitute. A source session,
-adapter, or skill must not be described as supported until the version-specific
-delivery, permission, and event-coverage evidence required by #740 has passed
-review. Until then the structures below are design contracts and the UI
-projects capability as unavailable or unknown.
+No implemented initial role launch adapter is established by this contract.
+The current #740 assessment is partial practical evidence under the
+[native-guardrails amendment](2026-11-02-native-role-guardrails-design.md),
+superseding its earlier all-role strict-profile no-go classification. Support
+requires version-specific delivery and correctly applied native configuration
+with disclosed instruction-only limits. Native invocation/event coverage is
+required only for an observed-use claim, not for delivery or ordinary role
+eligibility. Until the corresponding capability is evidenced, project it as
+unavailable or unknown rather than inferring it from a source session.
 All JSON examples below are synthetic contract fixtures; they do not claim that
 Copilot or any other adapter is eligible.
 
@@ -318,7 +321,11 @@ observation as separate capabilities:
 **Delivery gate for `loaded`:** reproducible evidence must show how the exact
 selected skill bytes and their complete transitive resource closure are
 delivered, how the receipt binds those bytes and digests to the launched child,
-and that the role-specific permission profile has no unreviewed widening route.
+and that the role-specific native settings and instruction-only limitations
+match the reviewed configuration under the
+[native-guardrails amendment](2026-11-02-native-role-guardrails-design.md).
+Known ordinary same-user access does not require proof of impossible bypass;
+unknown delivery or incorrectly applied required controls remain blockers.
 The receipt path must have authenticated adapter provenance that the child
 cannot invoke or impersonate. Until this delivery gate passes, the adapter
 cannot produce `loaded` evidence for launch eligibility.
@@ -334,9 +341,10 @@ adapter may still confirm delivery if its delivery gate passed, while usage
 observation remains `unsupported`/`unknown`. Native observation is optional;
 it is not a prerequisite for delivery confirmation.
 
-There is no eligible adapter yet: the #740 register currently marks all six
-Copilot profiles no-go and names no verified substitute. A prompt instruction
-or successful process start is not a delivery receipt. Unsupported usage
+No implemented eligible role adapter is claimed here. #740's current practical
+assessment replaces the earlier blanket strict-profile verdict without promoting
+historical observations to launch support. A prompt instruction or successful
+process start is not a delivery receipt. Unsupported usage
 observation is not replaced with terminal parsing, model inference, or child
 claims.
 

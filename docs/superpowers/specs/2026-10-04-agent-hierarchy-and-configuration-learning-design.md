@@ -192,11 +192,15 @@ Broad inherited tools, shell execution, MCP access, or connectors must not
 silently bypass the requested profile. In particular, disabling an edit tool
 while leaving an unrestricted shell is insufficient to label a profile read-only.
 
-Only offer a role/tool combination as permission-restricted after its adapter
-has version-specific evidence that the needed controls apply. The launch path
-rejects unsupported or unverified profiles and explains the missing control;
-the user can choose a supported tool or approve a revised assignment. The
-system never silently substitutes prompt-only restrictions.
+The owner-approved [native-guardrails amendment](2026-11-02-native-role-guardrails-design.md)
+defines the assurance level: verify that available native controls are correctly
+applied, required instructions/skills delivered and bounded ordinary cases
+exercised. Disclose instruction-only limits and residual same-user access before
+approval. Do not require proof that all disobedience or bypass is impossible.
+Known disclosed native limitations are not automatically an unsupported role;
+unknown required delivery, mapping or functionality still blocks support. Never
+silently substitute instruction-only behavior for a claimed native restriction
+or label an unrestricted-shell configuration technically read-only.
 
 Children request missing access through a scoped blocker report. The
 orchestrator may propose a revised configuration but cannot broaden approved
