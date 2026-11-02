@@ -1,0 +1,137 @@
+{
+  "issue": 1292,
+  "purpose": "Offline semantic calibration references, not production score overrides or live qualification",
+  "runtimePrompt": "taskmaster-readiness-v5",
+  "providerCalls": 0,
+  "priorCorpusUnchanged": true,
+  "cases": [
+    {
+      "id": "static-domain-overrated",
+      "input": "../readiness-scoring-2026-11-02/healthy-1-final-input.json",
+      "inputSha256": "5e87260786ceaac1b9f01873e67ed71db5e808e1955b3a48641ffb8f219ddb7f",
+      "output": "../readiness-scoring-2026-11-02/healthy-1-final-output.json",
+      "outputSha256": "6b41a8f91b6479176ed96f0f692798cdd4b5e90113ebb43885a86f2ef6c3a8e2",
+      "rowPointer": "/concepts/4",
+      "conceptId": "domain-knowledge",
+      "signedLevels": [
+        "Implicit: Domain rules live only in the team's heads, or are only inferable by reading enough code and getting it wrong once.",
+        "Discoverable: Some domain documentation exists (a glossary, a rules doc) and can be found from the repo root.",
+        "Usable: Domain docs are accurate and specific enough that an agent can apply a domain rule correctly on a common task without asking.",
+        "Integrated: Domain docs are linked from the entry-point context (see context discovery) and updated as domain rules change, not just written once at project start.",
+        "Adaptive: Cases where an agent violated an undocumented domain rule get folded back into the domain docs, closing the gap for next time."
+      ],
+      "observedMaturity": 3,
+      "reviewVerdict": "unsupported",
+      "expectedMaturityForTheseInputs": 2,
+      "reason": "The supplied glossary defines concrete rules but does not show updates alongside rule changes. Static definitions and root links do not satisfy the maintained-documentation condition."
+    },
+    {
+      "id": "static-architecture-overrated",
+      "input": "../readiness-scoring-2026-11-02/healthy-2-final-input.json",
+      "inputSha256": "3fc171faaf1b6405f954e842bcc6c05700eb46307bae8ad486fc9ec7d0a653dc",
+      "output": "../readiness-scoring-2026-11-02/healthy-2-final-output.json",
+      "outputSha256": "a3a5d95aa05066290d0f2797ddb3aa5bbc3196ac24ad57c1435e216640dc61c3",
+      "rowPointer": "/concepts/3",
+      "conceptId": "architecture-awareness",
+      "signedLevels": [
+        "Implicit: Structure and constraints exist only in maintainers' heads; no docs describe them, and the codebase's actual layering has to be reverse-engineered.",
+        "Discoverable: Some architecture documentation exists (a diagram, an ADR folder, a design doc) and can be found from the repo root.",
+        "Usable: Architecture docs are accurate enough that an agent can locate the right place for a common kind of change without guessing.",
+        "Integrated: Architecture docs are linked from the entry-point context (see context discovery) and kept current alongside structural changes (e.g. ADRs added as decisions are made).",
+        "Adaptive: Cases where an agent violated an undocumented constraint get fed back into new or updated architecture docs, closing the gap."
+      ],
+      "observedMaturity": 3,
+      "reviewVerdict": "unsupported",
+      "expectedMaturityForTheseInputs": 2,
+      "reason": "The supplied architecture description and entry-point link do not establish maintenance alongside structural changes. The response itself says Integrated is unsupported."
+    },
+    {
+      "id": "planning-expectation-overrated",
+      "input": "../readiness-scoring-2026-11-02/improved-2-final-input.json",
+      "inputSha256": "4f2c9d5ab49c9443d24b3c8bcad70547051ab6c6628e86d66fed2dbb96fb9665",
+      "output": "../readiness-scoring-2026-11-02/improved-2-final-output.json",
+      "outputSha256": "104fa4b2d2e76537bc97072f35670237b8f7daa46b911c48aefbf5993a479e36",
+      "rowPointer": "/concepts/7",
+      "conceptId": "task-decomposition",
+      "signedLevels": [
+        "Implicit: No decomposition pattern exists anywhere; every large task is tackled as one big, hard-to-review change by default.",
+        "Discoverable: Some example of decomposed work exists (a well-structured PR history, an issue broken into sub-tasks) that an agent could learn from by example.",
+        "Usable: A documented workflow or playbook explicitly models breaking a task into steps (this brain's own playbooks are an example of this for brain-maintenance tasks).",
+        "Integrated: Decomposition is connected to validation \u2014 each step in a plan has its own way to be checked before moving to the next (ties directly to verification).",
+        "Adaptive: Cases where a task was decomposed poorly (steps too large, or too tightly coupled to review independently) feed back into better decomposition guidance."
+      ],
+      "observedMaturity": 2,
+      "reviewVerdict": "unsupported",
+      "expectedMaturityForTheseInputs": null,
+      "reason": "A small-plan expectation does not model a sequence of decomposed steps. Neither examples of decomposed work nor their absence are established."
+    },
+    {
+      "id": "usable-domain-supported",
+      "input": "../readiness-scoring-2026-11-02/healthy-3-final-input.json",
+      "inputSha256": "3fc171faaf1b6405f954e842bcc6c05700eb46307bae8ad486fc9ec7d0a653dc",
+      "output": "../readiness-scoring-2026-11-02/healthy-3-final-output.json",
+      "outputSha256": "362827f98726f503856081cc1945a930b2433cf93e11590f536a1273cd64ff17",
+      "rowPointer": "/concepts/4",
+      "conceptId": "domain-knowledge",
+      "signedLevels": [
+        "Implicit: Domain rules live only in the team's heads, or are only inferable by reading enough code and getting it wrong once.",
+        "Discoverable: Some domain documentation exists (a glossary, a rules doc) and can be found from the repo root.",
+        "Usable: Domain docs are accurate and specific enough that an agent can apply a domain rule correctly on a common task without asking.",
+        "Integrated: Domain docs are linked from the entry-point context (see context discovery) and updated as domain rules change, not just written once at project start.",
+        "Adaptive: Cases where an agent violated an undocumented domain rule get folded back into the domain docs, closing the gap for next time."
+      ],
+      "observedMaturity": 2,
+      "reviewVerdict": "supported",
+      "expectedMaturityForTheseInputs": 2,
+      "reason": "The supplied glossary defines relevant terms, invariants and non-models. This supports usable definitions without asserting ongoing maintenance."
+    },
+    {
+      "id": "usable-architecture-supported",
+      "input": "../readiness-scoring-2026-11-02/healthy-3-final-input.json",
+      "inputSha256": "3fc171faaf1b6405f954e842bcc6c05700eb46307bae8ad486fc9ec7d0a653dc",
+      "output": "../readiness-scoring-2026-11-02/healthy-3-final-output.json",
+      "outputSha256": "362827f98726f503856081cc1945a930b2433cf93e11590f536a1273cd64ff17",
+      "rowPointer": "/concepts/3",
+      "conceptId": "architecture-awareness",
+      "signedLevels": [
+        "Implicit: Structure and constraints exist only in maintainers' heads; no docs describe them, and the codebase's actual layering has to be reverse-engineered.",
+        "Discoverable: Some architecture documentation exists (a diagram, an ADR folder, a design doc) and can be found from the repo root.",
+        "Usable: Architecture docs are accurate enough that an agent can locate the right place for a common kind of change without guessing.",
+        "Integrated: Architecture docs are linked from the entry-point context (see context discovery) and kept current alongside structural changes (e.g. ADRs added as decisions are made).",
+        "Adaptive: Cases where an agent violated an undocumented constraint get fed back into new or updated architecture docs, closing the gap."
+      ],
+      "observedMaturity": 2,
+      "reviewVerdict": "supported",
+      "expectedMaturityForTheseInputs": 2,
+      "reason": "The architecture description identifies the catalog boundary, implementation entry point and behavior contracts without asserting ongoing maintenance."
+    },
+    {
+      "id": "decomposition-unknown",
+      "input": "../readiness-scoring-2026-11-02/baseline-1-final-input.json",
+      "inputSha256": "9e3271f01dcf576c2d1e91d8355686ed18832e5bea115842bcd423fea699ab54",
+      "output": "../readiness-scoring-2026-11-02/baseline-1-final-output.json",
+      "outputSha256": "c8b57f306fe2ed6ec472d110e6a5e5fa6e07bc4ebea3cc3fca8750115ec5ccd9",
+      "rowPointer": "/concepts/7",
+      "conceptId": "task-decomposition",
+      "signedLevels": [
+        "Implicit: No decomposition pattern exists anywhere; every large task is tackled as one big, hard-to-review change by default.",
+        "Discoverable: Some example of decomposed work exists (a well-structured PR history, an issue broken into sub-tasks) that an agent could learn from by example.",
+        "Usable: A documented workflow or playbook explicitly models breaking a task into steps (this brain's own playbooks are an example of this for brain-maintenance tasks).",
+        "Integrated: Decomposition is connected to validation \u2014 each step in a plan has its own way to be checked before moving to the next (ties directly to verification).",
+        "Adaptive: Cases where a task was decomposed poorly (steps too large, or too tightly coupled to review independently) feed back into better decomposition guidance."
+      ],
+      "observedMaturity": null,
+      "reviewVerdict": "justified_unassessed",
+      "expectedMaturityForTheseInputs": null,
+      "reason": "The planning expectation does not supply a decomposition playbook or example history. Missing history establishes neither level zero nor a usable workflow."
+    }
+  ],
+  "excludedThresholds": [
+    "disputed change-safety and instruction-scoping judgments"
+  ],
+  "limits": [
+    "Expectations apply only to each exact paired input and rubric.",
+    "Offline review and parser compatibility do not establish v5 model compliance or scoring accuracy.",
+    "No automatic English-keyword semantic rejection or production per-concept cap is introduced."
+  ]
+}

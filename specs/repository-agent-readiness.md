@@ -456,3 +456,16 @@ proposal gate, within the same four calls and access/evidence limits. Standalone
 discovery, persisted schemas and Fix with AI authority remain unchanged. The owner approved this design and implementation on 2026-10-31 ("go ahead").
 It supersedes candidate-first combined discovery when implemented, while
 standalone discovery remains unchanged. No additional live trial set is authorized.
+
+
+### Offline scoring calibration candidate (#1292)
+
+The owner approved the bounded prompt-only candidate on 2026-11-02. Scoring
+prompt v5 reorganizes the existing signed-condition rules into evidence checks,
+level choice and final self-consistency, with general static-documentation and
+decomposition examples. It preserves the response schema, signed rubric,
+collector, evidence access, model selection and call limits. Collector-4
+prompt-v3/v4 history stays readable; the changed prompt identity invalidates
+currentness/reuse and comparison. The linked offline calibration packet records
+reviewed expectations against immutable v4 inputs and outputs, not new model
+behavior. No live calls or new qualification are authorized by this correction.

@@ -1,0 +1,40 @@
+{
+  "effort": "low",
+  "baseSHA": "207569e4f676881d90f4532d518cb3300b1273c9",
+  "codeDiffSha256": "e8b4066d9f0bd1b22bcdbd7d4bc53ec7edf7da104d20104728e6ed74fe0e5774",
+  "findings": [],
+  "dispositions": [
+    {
+      "area": "semantic prompt constraints",
+      "result": "No changed-line finding. V5 retains the v4 output shape, citation and prose constraints, unknown-evidence handling, no overall score, and adds criterion-first level checks plus consistency between selected level and its explanatory fields. Wording tests and scripted outputs are not model-quality evidence."
+    },
+    {
+      "area": "collector-4 prompt version validation",
+      "result": "No changed-line finding. Both the general readiness manifest validation and collector-4 preference-admission validation accept v3, v4 and current v5; unsupported versions remain rejected by the tests."
+    },
+    {
+      "area": "historical readability/currentness",
+      "result": "No changed-line finding. Restoration is exercised for v3/v4/v5 against collector-4 context, legacy collector cases remain checked, and historical v2/v3/v4 snapshots are asserted readable while freshness is changed under the current v5 identity."
+    },
+    {
+      "area": "scripted provider routing",
+      "result": "No changed-line finding. V5 joins the existing readiness protocol allowlist for fixture response overrides and the existing generic scripted readiness response. This is orchestration coverage only."
+    },
+    {
+      "area": "offline packet",
+      "result": "PASS with stated limits. All six referenced input and output byte hashes match files in the retained collector-4 corpus. Each selected JSON pointer resolves to the stated concept row, and the recorded observed maturity/unassessed state matches the packet. The supplied signed level definitions support the packet\u2019s expected evidence limits for these exact pairs: static definitions/boundaries support usable level 2 but not maintenance-dependent integrated level 3; a small-plan expectation alone does not establish Discoverable examples or a Usable decomposition workflow; missing history is not evidence of level zero. Disputed change-safety and instruction-scoping thresholds are excluded. This is a manual offline semantic review, not qualification of v5 or model behavior."
+    }
+  ],
+  "packetReview": {
+    "verdict": "PASS for exact-pair integrity and stated semantic references",
+    "hashesMatched": 12,
+    "casesReviewed": 6,
+    "disputedThresholdsExcluded": true
+  },
+  "limits": [
+    "One bounded review pass; changed lines only.",
+    "No live inference, provider call, or metadata reporting performed.",
+    "No tests/build run in this review.",
+    "Offline packet review and prompt wording do not establish model-quality improvement or semantic compliance."
+  ]
+}

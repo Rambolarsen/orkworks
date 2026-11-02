@@ -177,7 +177,7 @@ starter are verified. The [earlier qualified fixture configuration](../validatio
 used native Codex **GPT-6.1-Sol with low reasoning effort**, collector 3,
 readiness prompt v2 and the reviewed brain-3 rubric/guidance. Ratings can vary on
 unchanged evidence; that qualification does not establish accuracy for every
-repository. Current source uses collector 4 and readiness prompt v4, which have
+repository. Current source uses collector 4 and readiness prompt v5, which have
 no retained qualification, including for GPT-6.1-Sol low. The model-profile note
 labels this configuration as unqualified; GPT-6-Luna medium is labeled as having
 failed retained qualification. Treat current ratings as evidence-limited

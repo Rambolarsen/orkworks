@@ -77,7 +77,9 @@ impl InputManifest {
                 if self.collector_version == READINESS_COLLECTOR_VERSION {
                     !matches!(
                         self.prompt_version.as_str(),
-                        "taskmaster-readiness-v3" | super::readiness::PROMPT_VERSION
+                        "taskmaster-readiness-v3"
+                            | "taskmaster-readiness-v4"
+                            | super::readiness::PROMPT_VERSION
                     )
                 } else {
                     !matches!(
@@ -101,7 +103,9 @@ impl InputManifest {
             if self.purpose.as_deref() != Some("readiness")
                 || !matches!(
                     self.prompt_version.as_str(),
-                    "taskmaster-readiness-v3" | super::readiness::PROMPT_VERSION
+                    "taskmaster-readiness-v3"
+                        | "taskmaster-readiness-v4"
+                        | super::readiness::PROMPT_VERSION
                 )
                 || self.preferred_file_ids.len() > 8
                 || preferred.len() != self.preferred_file_ids.len()

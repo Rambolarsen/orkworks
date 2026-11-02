@@ -52,11 +52,11 @@ if not is_discovery and response.with_suffix('.block-final').exists():
     response.with_suffix('.final-started').write_text('started')
     while not response.with_suffix('.final-release').exists(): time.sleep(0.01)
 override = response.with_suffix('.readiness-discovery' if prompt.get('protocol') in ['taskmaster-readiness-discovery-v1', 'taskmaster-readiness-discovery-v2'] else '.readiness-final')
-if prompt.get('protocol') in ['taskmaster-readiness-discovery-v1', 'taskmaster-readiness-discovery-v2', 'taskmaster-readiness-v2', 'taskmaster-readiness-v3', 'taskmaster-readiness-v4'] and override.exists():
+if prompt.get('protocol') in ['taskmaster-readiness-discovery-v1', 'taskmaster-readiness-discovery-v2', 'taskmaster-readiness-v2', 'taskmaster-readiness-v3', 'taskmaster-readiness-v4', 'taskmaster-readiness-v5'] and override.exists():
     output = override.read_text()
 elif prompt.get('protocol') in ['taskmaster-readiness-discovery-v1', 'taskmaster-readiness-discovery-v2']:
     output = json.dumps({'version':2,'preferredFileIds':[]})
-elif prompt.get('protocol') in ['taskmaster-readiness-v2', 'taskmaster-readiness-v3', 'taskmaster-readiness-v4']:
+elif prompt.get('protocol') in ['taskmaster-readiness-v2', 'taskmaster-readiness-v3', 'taskmaster-readiness-v4', 'taskmaster-readiness-v5']:
     output = json.dumps({'version':1,'summary':'Observed repository guidance','concepts':[{'conceptId':c['conceptId'],'maturity':2,'confidence':'medium','repositoryFactIds':[0],'rubricPageId':c['pageId'],'rationale':'Documented repository guidance','limits':['Runtime behavior remains unverified'],'nextTransition':'Evidence of workflow integration','unassessedReason':None} for c in prompt['rubric']['concepts']]})
 elif prompt.get('protocol') == 'taskmaster-readiness-investigation-v1':
     override = response.with_suffix('.investigation')

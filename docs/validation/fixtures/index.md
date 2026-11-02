@@ -35,3 +35,5 @@ Captured fixture context for reproducible validation.
 
 - [Collector-4 prompt-v4 scoring qualification](readiness-scoring-2026-11-02/index.md) — Nine fixed eighteen-call Luna medium scoring trials; semantic qualification failed despite complete transport.
 - [Final practical guardrail packet](copilot-1.0.90-practical-closeout/index.md) — Exhausted owned read/write-denial case, partial result and model-free checks.
+
+- [Offline v5 scoring calibration](readiness-calibration-offline-v5/index.md) — Six immutable semantic references and the unqualified criterion-first prompt candidate; zero provider calls.
