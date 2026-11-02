@@ -1,0 +1,95 @@
+name: CodeQL owned
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '37 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-owned-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  route:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.route.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - id: route
+        run: node scripts/codeql-routing.mjs
+
+  analyze:
+    name: Owned CodeQL (${{ matrix.language }})
+    needs: route
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.route.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - id: init
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          dependency-caching: true
+          db-location: ${{ runner.temp }}/codeql-databases
+      - name: Analyze
+        id: analyze
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}
+          output: results
+          # Default setup remains the publisher until staged qualification passes.
+          upload: ${{ vars.CODEQL_ADVANCED_UPLOAD == 'true' && (github.ref == 'refs/heads/main' || github.event_name == 'pull_request') && 'always' || 'never' }}
+          upload-database: ${{ vars.CODEQL_ADVANCED_UPLOAD == 'true' && github.ref == 'refs/heads/main' }}
+      - name: Record qualification inputs
+        if: always() && steps.init.outcome == 'success'
+        env:
+          CODEQL_BIN: ${{ steps.init.outputs.codeql-path }}
+          DATABASE_LOCATIONS: ${{ steps.analyze.outputs.db-locations }}
+        run: |
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/source-sha.txt
+          "$CODEQL_BIN" version --format=json > evidence/cli.json
+          "$CODEQL_BIN" resolve qlpacks --format=json > evidence/packs.json
+          node --input-type=module <<'JS'
+          import { copyFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          const paths = Object.values(JSON.parse(process.env.DATABASE_LOCATIONS));
+          if (paths.length !== 1 || typeof paths[0] !== 'string') throw new Error('Expected one CodeQL database');
+          copyFileSync(join(paths[0], 'codeql-database.yml'), 'evidence/database.yml');
+          JS
+      - uses: actions/upload-artifact@v4
+        if: always() && !cancelled()
+        with:
+          name: codeql-${{ matrix.language }}-${{ github.run_attempt }}
+          path: |
+            results/*.sarif
+            evidence/
+          retention-days: 7
+          if-no-files-found: error
