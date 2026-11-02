@@ -5,6 +5,9 @@
 //! drifted. They never install configuration or activate authority. Launch
 //! readiness is a conservative query and does not revoke authority.
 
+#[path = "harness_integration_codex.rs"]
+mod codex;
+
 use crate::harness::integration::{
     binding_for_key, IntegrationContext, IntegrationError, IntegrationKey, IntegrationOwnership,
     IntegrationRegistration, IntegrationStatus, ReporterAssetResolver,
@@ -282,6 +285,16 @@ impl HarnessIntegrationApplication {
         let mut snapshot = None;
         let result = self
             .with_revalidated_harness(harness_id, |harness, workspace, ctx| {
+                if codex::is_codex(harness) {
+                    return codex::OwnedAction::capture(
+                        harness,
+                        workspace,
+                        ctx,
+                        codex::Action::Mutate(mutation),
+                    )
+                    .map(codex::Execution::Codex)
+                    .map_err(IntegrationApplicationError::Configuration);
+                }
                 let ready_before = harness
                     .definition
                     .integration
@@ -312,11 +325,14 @@ impl HarnessIntegrationApplication {
                             .snapshot_prompt_authority_for_harness(harness_id, &workspace.path),
                     );
                 }
-                result.map_err(IntegrationApplicationError::Configuration)
+                Ok(codex::Execution::Completed(result))
             })
             .await;
         self.finalize_snapshot(snapshot)?;
-        result
+        result?
+            .finish()
+            .await?
+            .map_err(IntegrationApplicationError::Configuration)
     }
 
     async fn inspect_group(
@@ -324,10 +340,8 @@ impl HarnessIntegrationApplication {
         key: &IntegrationKey,
         expected: Option<IntegrationRevisionExpectation>,
     ) -> Result<GroupedIntegrationStatus, IntegrationApplicationError> {
-        self.run_group_action(key, expected, "retry", |harness, ctx| {
-            harness.integration_status(ctx)
-        })
-        .await
+        self.run_group_action(key, expected, "retry", codex::Action::Inspect)
+            .await
     }
 
     async fn mutate_group(
@@ -340,10 +354,8 @@ impl HarnessIntegrationApplication {
             IntegrationMutation::Install | IntegrationMutation::Repair => "action-needed",
             IntegrationMutation::Uninstall => "cleanup-needed",
         };
-        self.run_group_action(key, Some(expected), action, |harness, ctx| {
-            apply_mutation(harness, ctx, mutation)
-        })
-        .await
+        self.run_group_action(key, Some(expected), action, codex::Action::Mutate(mutation))
+            .await
     }
 
     fn session_app(&self) -> crate::session_application::SessionApplication {
@@ -369,13 +381,13 @@ impl HarnessIntegrationApplication {
             &IntegrationContext<'_>,
         ) -> Result<R, IntegrationApplicationError>,
     ) -> Result<R, IntegrationApplicationError> {
-        let workspace_path_at_start = self
+        let (workspace_path_at_start, workspace_origin_at_start) = self
             .state
             .workspace
             .lock()
             .unwrap()
             .as_ref()
-            .map(|ws| ws.path.clone())
+            .map(|ws| (ws.path.clone(), codex::Origin::capture(ws)))
             .ok_or(IntegrationApplicationError::NoWorkspace)?;
         let harness = self
             .state
@@ -396,6 +408,11 @@ impl HarnessIntegrationApplication {
         if let Some(hook) = &self.probe_revalidation_hook {
             hook(harness_id);
         }
+        let _projection = self
+            .state
+            .projection_lock
+            .lock()
+            .expect("projection lock poisoned");
         {
             let registry = self
                 .state
@@ -407,16 +424,13 @@ impl HarnessIntegrationApplication {
                 _ => return Err(IntegrationApplicationError::DefinitionChanged),
             }
         }
-        let _projection = self
-            .state
-            .projection_lock
-            .lock()
-            .expect("projection lock poisoned");
         let workspace_guard = self.state.workspace.lock().unwrap();
         let workspace = workspace_guard
             .as_ref()
             .ok_or(IntegrationApplicationError::NoWorkspace)?;
-        if workspace.path != workspace_path_at_start {
+        if workspace.path != workspace_path_at_start
+            || (codex::is_codex(&harness) && !workspace_origin_at_start.matches(workspace))
+        {
             return Err(IntegrationApplicationError::WorkspaceChanged);
         }
         let reporter_assets =
@@ -427,7 +441,7 @@ impl HarnessIntegrationApplication {
         let orkworks_root = home.join(".orkworks");
         let ctx = IntegrationContext {
             workspace: &workspace.path,
-            workspace_metadata: Some(&workspace.metadata),
+            workspace_metadata: Some(workspace.metadata.integration_metadata()),
             orkworks_root: &orkworks_root,
             enabled: workspace_harness_enabled(workspace, &harness.definition.id),
             detected_tool: detected.as_ref(),
@@ -441,14 +455,15 @@ impl HarnessIntegrationApplication {
         key: &IntegrationKey,
         expected: Option<IntegrationRevisionExpectation>,
         failure_action: &'static str,
-        action: impl FnOnce(
-            &ResolvedHarness,
-            &IntegrationContext<'_>,
-        ) -> Result<IntegrationStatus, IntegrationError>,
+        action: codex::Action,
     ) -> Result<GroupedIntegrationStatus, IntegrationApplicationError> {
         let mut snapshot = None;
         let result = self
-            .with_revalidated_key(key, expected.as_ref(), |group, harness, ctx| {
+            .with_revalidated_key(key, expected.as_ref(), |group, harness, workspace, ctx| {
+                if codex::is_codex(harness) && action.mutates() {
+                    let owned = codex::OwnedAction::capture(harness, workspace, ctx, action)?;
+                    return Ok((group.clone(), codex::Execution::Codex(owned)));
+                }
                 let ready_before = harness
                     .definition
                     .integration
@@ -466,7 +481,7 @@ impl HarnessIntegrationApplication {
                         );
                     }
                 }
-                let result = action(harness, ctx);
+                let result = codex::apply(harness, ctx, action);
                 let ready_after = harness
                     .definition
                     .integration
@@ -484,9 +499,13 @@ impl HarnessIntegrationApplication {
                         );
                     }
                 }
-                Ok((group.clone(), result))
+                Ok((group.clone(), codex::Execution::Completed(result)))
             })
             .await;
+        let result = match result {
+            Ok((group, execution)) => execution.finish().await.map(|status| (group, status)),
+            Err(error) => Err(error),
+        };
         let response = match result {
             Ok((group, Ok(status))) => Ok(GroupedIntegrationStatus {
                 key: key.clone(),
@@ -511,16 +530,17 @@ impl HarnessIntegrationApplication {
         action: impl FnOnce(
             &ResolvedIntegrationGroup,
             &ResolvedHarness,
+            &WorkspaceState,
             &IntegrationContext<'_>,
         ) -> Result<R, IntegrationError>,
     ) -> Result<R, IntegrationApplicationError> {
-        let workspace_path_at_start = self
+        let (workspace_path_at_start, workspace_origin_at_start) = self
             .state
             .workspace
             .lock()
             .unwrap()
             .as_ref()
-            .map(|ws| ws.path.clone())
+            .map(|ws| (ws.path.clone(), codex::Origin::capture(ws)))
             .ok_or(IntegrationApplicationError::NoWorkspace)?;
         if expected
             .and_then(|e| e.workspace_path.as_deref())
@@ -590,6 +610,7 @@ impl HarnessIntegrationApplication {
             .as_ref()
             .ok_or(IntegrationApplicationError::NoWorkspace)?;
         if workspace.path != workspace_path_at_start
+            || (codex::is_codex(&harness) && !workspace_origin_at_start.matches(workspace))
             || expected
                 .and_then(|e| e.workspace_path.as_deref())
                 .is_some_and(|p| p != workspace.path)
@@ -603,13 +624,14 @@ impl HarnessIntegrationApplication {
         })?;
         let ctx = IntegrationContext {
             workspace: &workspace.path,
-            workspace_metadata: Some(&workspace.metadata),
+            workspace_metadata: Some(workspace.metadata.integration_metadata()),
             orkworks_root: &home.join(".orkworks"),
             enabled,
             detected_tool: detected.as_ref(),
             reporter_assets: &reporter_assets,
         };
-        action(&group, &harness, &ctx).map_err(IntegrationApplicationError::Configuration)
+        action(&group, &harness, workspace, &ctx)
+            .map_err(IntegrationApplicationError::Configuration)
     }
 
     fn active_workspace_snapshot(&self) -> Result<(Vec<String>, u64), IntegrationApplicationError> {
@@ -682,7 +704,7 @@ impl HarnessIntegrationApplication {
             let key = group.key.clone();
             let mut snapshot = None;
             let operation = self
-                .with_revalidated_key(&key, None, |group, harness, ctx| {
+                .with_revalidated_key(&key, None, |group, harness, _workspace, ctx| {
                     let status = harness.integration_status(ctx);
                     let ready = harness
                         .definition
@@ -760,24 +782,28 @@ impl HarnessIntegrationApplication {
         let mut errors = Vec::new();
         for key in keys {
             let result = self
-                .with_revalidated_key(&key, expected.as_ref(), |group, harness, ctx| {
-                    let status = if ctx.enabled {
-                        harness.integration_status(ctx)
+                .with_revalidated_key(&key, expected.as_ref(), |group, harness, workspace, ctx| {
+                    let execution = if codex::is_codex(harness) {
+                        codex::Execution::Codex(codex::OwnedAction::capture(
+                            harness,
+                            workspace,
+                            ctx,
+                            codex::Action::Cleanup,
+                        )?)
                     } else {
-                        let status = harness.integration_status(ctx)?;
-                        if status.registration == IntegrationRegistration::Absent {
-                            Ok(status)
-                        } else if status.registration == IntegrationRegistration::Error
-                            || status.ownership == IntegrationOwnership::Ambiguous
-                        {
-                            Ok(cleanup_needed_status(status))
-                        } else {
-                            harness.integration_uninstall(ctx)
-                        }
+                        codex::Execution::Completed(codex::apply(
+                            harness,
+                            ctx,
+                            codex::Action::Cleanup,
+                        ))
                     };
-                    Ok((group.clone(), status))
+                    Ok((group.clone(), execution))
                 })
                 .await;
+            let result = match result {
+                Ok((group, execution)) => execution.finish().await.map(|status| (group, status)),
+                Err(error) => Err(error),
+            };
             match result {
                 Ok((group, Ok(status))) => outcomes.push(GroupedIntegrationStatus {
                     key,
@@ -915,7 +941,7 @@ fn prompt_attention_launch_ready(state: &AppState, harness_id: &str, executable:
     };
     let ctx = IntegrationContext {
         workspace: &workspace.path,
-        workspace_metadata: Some(&workspace.metadata),
+        workspace_metadata: Some(workspace.metadata.integration_metadata()),
         orkworks_root: &home.join(".orkworks"),
         enabled: workspace_harness_enabled(workspace, harness_id),
         detected_tool: Some(&detected_tool),

@@ -421,7 +421,7 @@ A controlled command consumer delivers actual PTY input while hook SQL is stalle
 This is source integration evidence, not a qualified installed SQL producer or a
 larger-history performance result.
 
-Legacy hook-install/clear scheduling, lifecycle/input bookkeeping,
+The legacy JSON identity observation writer, lifecycle/input bookkeeping,
 external events, producer coordination and version-specific eligibility remain
 prerequisites for SQL selection. Production native startup/clear gates stay closed; this optional
 backend does not select SQL or migrate a workspace.
@@ -511,8 +511,8 @@ identity. No metadata JSON fallback is invoked.
 
 This source-only adapter does not select SQL in production, qualify ordinary HTTP
 producers, enable native startup/clear, migrate data or establish measured typing
-latency. Legacy hook-install/clear scheduling, lifecycle/input and other external writer orchestration,
-producer qualification and migration/recovery remain prerequisites for selection.
+latency. The legacy JSON identity observation writer, lifecycle/input and other
+external writer orchestration, producer qualification and migration/recovery remain prerequisites for selection.
 
 
 ## Hook execution observation follow-up
@@ -565,8 +565,45 @@ while the file writer is stalled. It includes ignored reports, clear during SQL
 read, clear after original receipt, cancelled-drain retry, contention, typed file
 failure/recovery, stale runtime/token/workspace, foreign file owner, detached
 identity, pre-claim cancellation and owned completion after caller cancellation.
-Legacy install/uninstall still use their synchronous scheduling paths; their full
-async orchestration and queued-before-first-receipt trust timing qualification
-remain separate gates. Production SQL selection, installed producers, native
+Codex Settings install/repair/uninstall and unreferenced cleanup now use the owned
+action described below. The legacy JSON identity observation writer and
+queued-before-first-receipt trust timing qualification remain separate gates. Production SQL selection, installed producers, native
 startup/clear, migration/recovery and larger-history performance are not qualified
 by these isolated tests.
+
+## Codex Settings external-file scheduling
+
+Legacy harness and grouped-key Codex mutations, plus unreferenced cleanup, retain
+the existing probe-outside-lock validation flow. Admission rechecks the original
+workspace path, metadata file owner and lease; replacing metadata or its lease at
+the same path rejects the action before configuration work. Grouped actions still
+check harness document and active-selection revisions. A narrow owned integration
+handle shares the observation owner without exposing ordinary session metadata.
+
+At that cutoff the application admits at most one Codex action per external file
+owner. Overlap returns the existing revision-conflict error rather than adding
+waiters to a stalled filesystem. The owned action retains its workspace lease,
+resolved definition, enabled state, tool result and reporter assets, and runs
+configuration/reconciliation, observation clearing and resulting status in one
+blocking task after releasing projection/workspace guards. Cancellation during
+probing admits no action. After admission the action completes definitively even
+if its HTTP waiter disappears or the selected workspace is replaced; it edits
+only the original workspace and never publishes into its replacement.
+
+Clear still invalidates captured SQL receipts before waiting behind a previously
+claimed observation write, then removes that write's result. Real clear I/O
+failures now reach the integration application; committed hook configuration is
+not rolled back or falsely acknowledged as a successful clear. Grouped routes
+retain their existing diagnostic-status mapping. Admission is released after
+success or error. Repeating an unchanged install retains its existing observed
+trust rather than clearing it. Other harnesses keep their synchronous prompt
+revocation ordering; generic inspection and the legacy JSON identity observation
+writer are not qualified by this slice.
+
+Regression coverage uses actual ignored hook configuration and reporter assets,
+real workspace leases and file-owner exclusion. It covers all five mutation/
+cleanup routes, same-path owner/lease replacement, cancellation on both sides of
+admission, definitive old-workspace completion, bounded overlap/retry, clear
+failure after configuration commit, idempotent observed trust, and actual PTY
+input delivery while a clear waits behind an observation claim. These are source
+checks, not an installed release or large-history latency qualification.

@@ -286,6 +286,7 @@ impl JsonHookHandler {
             if self.contract.harness_id == "codex" {
                 let observed = ctx
                     .workspace_metadata
+                    .as_ref()
                     .and_then(|metadata| metadata.read_codex_hook_observation())
                     .map(|observation| observation.fingerprint);
                 let current = crate::harness::integrations::codex::hook_fingerprint(reporter)?;
@@ -407,8 +408,10 @@ impl IntegrationHandler for JsonHookHandler {
             .map_err(|error| IntegrationError::InvalidConfig(error.to_string()))?;
         transaction.commit(&replacement)?;
         if self.contract.harness_id == "codex" {
-            if let Some(metadata) = ctx.workspace_metadata {
-                metadata.clear_codex_hook_observation();
+            if let Some(metadata) = ctx.workspace_metadata.as_ref() {
+                metadata
+                    .clear_codex_hook_observation()
+                    .map_err(IntegrationError::Io)?;
             }
         }
         self.status(ctx)
@@ -422,8 +425,10 @@ impl IntegrationHandler for JsonHookHandler {
         match (self.remove)(&mut document)? {
             FragmentState::Absent => {
                 if self.contract.harness_id == "codex" {
-                    if let Some(metadata) = ctx.workspace_metadata {
-                        metadata.clear_codex_hook_observation();
+                    if let Some(metadata) = ctx.workspace_metadata.as_ref() {
+                        metadata
+                            .clear_codex_hook_observation()
+                            .map_err(IntegrationError::Io)?;
                     }
                 }
                 return self.status_from_document(ctx, &document, &reporter);
@@ -435,8 +440,10 @@ impl IntegrationHandler for JsonHookHandler {
             .map_err(|error| IntegrationError::InvalidConfig(error.to_string()))?;
         transaction.commit(&replacement)?;
         if self.contract.harness_id == "codex" {
-            if let Some(metadata) = ctx.workspace_metadata {
-                metadata.clear_codex_hook_observation();
+            if let Some(metadata) = ctx.workspace_metadata.as_ref() {
+                metadata
+                    .clear_codex_hook_observation()
+                    .map_err(IntegrationError::Io)?;
             }
         }
         self.status(ctx)
@@ -1882,7 +1889,7 @@ function Invoke-RestMethod {
         };
         let context = IntegrationContext {
             workspace: workspace.path(),
-            workspace_metadata: Some(&store),
+            workspace_metadata: Some(store.integration_metadata()),
             orkworks_root: home.path(),
             enabled: true,
             detected_tool: Some(&detected),
@@ -2677,7 +2684,7 @@ function Invoke-RestMethod {
         };
         let context = IntegrationContext {
             workspace: workspace.path(),
-            workspace_metadata: Some(&store),
+            workspace_metadata: Some(store.integration_metadata()),
             orkworks_root: stable.path(),
             enabled: true,
             detected_tool: None,
@@ -2862,7 +2869,7 @@ function Invoke-RestMethod {
         };
         let context = IntegrationContext {
             workspace: workspace.path(),
-            workspace_metadata: Some(&store),
+            workspace_metadata: Some(store.integration_metadata()),
             orkworks_root: stable.path(),
             enabled: true,
             detected_tool: None,
@@ -2900,7 +2907,7 @@ function Invoke-RestMethod {
         };
         let context = IntegrationContext {
             workspace: workspace.path(),
-            workspace_metadata: Some(&store),
+            workspace_metadata: Some(store.integration_metadata()),
             orkworks_root: stable.path(),
             enabled: true,
             detected_tool: None,

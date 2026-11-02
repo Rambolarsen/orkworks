@@ -505,7 +505,7 @@ fn install_reporter(root: &Path, workspace: &Path, state: &Arc<AppState>, binary
     };
     let ctx = IntegrationContext {
         workspace,
-        workspace_metadata: Some(&workspace_state.metadata),
+        workspace_metadata: Some(workspace_state.metadata.integration_metadata()),
         orkworks_root: root,
         enabled: true,
         detected_tool: Some(&detected),

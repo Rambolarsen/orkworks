@@ -704,19 +704,21 @@ pub(crate) struct IntegrationContext<'a> {
     pub workspace: &'a Path,
     /// Global metadata already scoped to this workspace. Integration handlers
     /// may use it for OrkWorks-owned preferences, never for repository files.
-    pub workspace_metadata: Option<&'a crate::metadata::MetadataStore>,
+    pub workspace_metadata: Option<crate::metadata::IntegrationMetadata>,
     pub orkworks_root: &'a Path,
     pub enabled: bool,
     pub detected_tool: Option<&'a DetectedTool>,
     pub reporter_assets: &'a ReporterAssetResolver,
 }
 
+#[derive(Clone)]
 pub(crate) struct DetectedTool {
     pub executable: PathBuf,
     pub version: Option<String>,
     pub compatible: bool,
 }
 
+#[derive(Clone)]
 pub(crate) struct ReporterAssetResolver {
     pub source_dir: PathBuf,
     pub stable_dir: PathBuf,

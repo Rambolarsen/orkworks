@@ -196,7 +196,12 @@ constant-size overflow epoch bounds untracked receipt authority; after its clear
 that relay suppresses further observations while still delivering identity. A
 short application claim checks that owner plus runtime/capability identity;
 file I/O retains its workspace lease outside application guards. An external
-failure can follow a committed identity and never implies a SQL rollback. The optional
+failure can follow a committed identity and never implies a SQL rollback. Codex
+Settings actions retain the same external owner and exact workspace lease after
+short admission checks, with one fail-fast action slot per owner. Cancellation
+after admission retains definitive configuration/clear completion on the original
+workspace; it cannot authorize a replacement workspace. Observation-clear failure
+can follow committed hook configuration and is reported separately from rollback. The optional
 SQL native-label follow-up retains the publishing runtime/native context and a
 process-local refresh epoch before lookup. Invalidation, cooldown reservation and
 clear/recreation rotate that epoch independently of its legacy numeric counter.

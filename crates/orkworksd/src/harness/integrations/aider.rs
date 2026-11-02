@@ -81,6 +81,7 @@ pub(crate) fn launch_enabled(metadata_root: &Path) -> Result<bool, IntegrationEr
 fn status(ctx: &IntegrationContext<'_>) -> IntegrationStatus {
     let preference = ctx
         .workspace_metadata
+        .as_ref()
         .ok_or(IntegrationError::NoWorkspace)
         .and_then(|store| read_preference(&store.root_path()));
     let (registration, ownership, configured, diagnostics) = match preference {
@@ -191,6 +192,7 @@ fn read_preference(
 fn write_preference(ctx: &IntegrationContext<'_>, enabled: bool) -> Result<(), IntegrationError> {
     let metadata = ctx
         .workspace_metadata
+        .as_ref()
         .ok_or(IntegrationError::NoWorkspace)?;
     let (transaction, mut document, _) = read_preference(&metadata.root_path())?;
     if !enabled && transaction.current_bytes().is_empty() {

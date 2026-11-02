@@ -439,6 +439,13 @@ async fn ambiguous_foreign_codex_hooks_are_preserved_on_uninstall() {
     let home = tempfile::tempdir().unwrap();
     let _fake_home = FakeHome::set(home.path());
     let state = test_app_state_with_workspace(dir.path());
+    {
+        let mut workspace = state.workspace.lock().unwrap();
+        let ws = workspace.as_mut().unwrap();
+        ws.lease = Some(Arc::new(
+            crate::workspace_runtime::WorkspaceLease::acquire(&ws.metadata.root_path()).unwrap(),
+        ));
+    }
     let result = HarnessIntegrationApplication::new(state)
         .mutate(IntegrationMutationRequest::Harness {
             harness_id: "codex".into(),
@@ -1062,6 +1069,13 @@ async fn codex_owned_install_preserves_needs_trust_with_compatible_tool() {
     let home = tempfile::tempdir().unwrap();
     let _fake_home = FakeHome::set(home.path());
     let state = test_app_state_with_workspace(dir.path());
+    {
+        let mut workspace = state.workspace.lock().unwrap();
+        let ws = workspace.as_mut().unwrap();
+        ws.lease = Some(Arc::new(
+            crate::workspace_runtime::WorkspaceLease::acquire(&ws.metadata.root_path()).unwrap(),
+        ));
+    }
     SessionApplication::new(state.clone())
         .set_active_harnesses(vec!["codex".into()])
         .unwrap();
@@ -1475,3 +1489,7 @@ async fn harness_definition_change_after_probe_is_rejected() {
         Err(IntegrationApplicationError::DefinitionChanged)
     ));
 }
+
+#[cfg(unix)]
+#[path = "harness_integration_codex_tests.rs"]
+mod codex_scheduling;

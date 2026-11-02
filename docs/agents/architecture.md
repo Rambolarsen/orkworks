@@ -878,9 +878,22 @@ lease retention and blocking file I/O then run outside shared application guards
 File errors remain typed and retryable even after an identity SQL commit. They do
 not imply rollback. Clear/install and legacy writes share the file owner, and a
 clear revokes work captured before it while following an already claimed write.
-Production label/relay routing remains JSON. Legacy installation/clear scheduling,
-lifecycle/input bookkeeping and other external events still need their full async
-integration before SQL selection; native eligibility gates remain unchanged.
+Codex Settings mutation and unreferenced cleanup now capture one owned action at
+that integration's existing post-probe validation cutoff. The exact workspace
+path, metadata owner and lease must still match, including same-path replacement;
+grouped actions retain their document/active-selection revision checks. Adapter
+configuration, reporter reconciliation, observation-clear exclusion and resulting
+status run in one blocking task outside projection/workspace guards. The action
+retains its original lease through definitive completion after caller cancellation;
+replacement workspaces receive no publication or file effects. A second action
+for that file owner fails fast with a revision conflict rather than queuing behind
+a stalled filesystem. A clear failure is reported even after configuration has
+committed, without implying rollback. Unchanged installation still preserves
+observed trust. Other harnesses retain their prompt-revocation sequencing.
+Production label/relay routing remains JSON. The legacy JSON identity report's
+observation writer, lifecycle/input bookkeeping and other external events still
+need their async integration before SQL selection; native eligibility gates remain
+unchanged.
 
 The source-only Peon SQL application boundary prepares bounded writes before
 waiting for a per-session lane shared by that worker. It retains the workspace
