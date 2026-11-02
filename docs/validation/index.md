@@ -82,3 +82,5 @@ Capability research, validation results, and evidence fixtures.
 - [Selective Rust CodeQL qualification](2026-11-02-codeql-qualification.md) — Source, coverage, findings and staged migration evidence for #1312.
 
 - [Retained child source component bytes](child-source-components.md) — Independent child configuration/input/plan/event source vectors and strict synthetic join checks; actual source and runtime qualification remain open.
+
+- [Child-source owner and transition closure audit](child-source-owner-closure.md) — Known production owners and gaps for the five retained child-source transitions; no complete source prestate is claimable.
