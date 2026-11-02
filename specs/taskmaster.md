@@ -270,9 +270,14 @@ result is neither independent quality review nor user acceptance. Missing,
 stale, conflicting or oversized evidence cannot advance undeclared work.
 
 The [role contract](../docs/superpowers/specs/2026-10-04-agent-role-configuration-design.md)
-requires version-specific evidence for coding-tool permissions and content
-delivery under [#740](https://github.com/Rambolarsen/orkworks/issues/740).
-Unverified profiles block launch without silently widening access. Automatic
+requires version-specific evidence for correctly applied native guardrails and
+content delivery under [#740](https://github.com/Rambolarsen/orkworks/issues/740).
+The owner-approved [practical assurance amendment](../docs/superpowers/specs/2026-11-02-native-role-guardrails-design.md)
+permits explicitly disclosed instruction-only limits and residual ordinary-user
+access; it does not require proving every bypass impossible. Unknown required
+mapping/delivery still blocks support; no existing profile is promoted to
+implemented support by this clarification. Unverified profiles block launch
+without silently widening access. Automatic
 parent continuation needs a verified machine-readable event/wait channel; a
 live PTY is insufficient. Roles, skills and scoring do not grant authority.
 Collection, persistence, replay, retention and deletion must obey the reviewed

@@ -25,6 +25,18 @@ amendments. Broader #741 role/configuration choices, profile evidence, native/
 storage/consumer qualification and executable implementation approval remain
 separate gates. SQLite mechanism/limits and runtime work are not accepted here.
 
+## Practical assurance amendment — 2026-11-02
+
+The owner approved [native coding-tool guardrails](2026-11-02-native-role-guardrails-design.md).
+This scoped decision supersedes earlier requirements for universal native scope/
+effect denial or an empty-start environment receipt for every vendor command.
+Roles use available native controls plus delivered instructions and explicit
+limitations, under the same ordinary-session risk model across harnesses.
+Historical no-go/deferred notes and strict-profile examples below retain their
+original evidence context; they are not current proof that practical roles are
+unsupported. Reassessment still needs actual delivery/configuration evidence.
+No wire field/digest, storage contract or runtime implementation changes here.
+
 ## Scope and status
 
 Define the configuration selected by an orchestrator for one assignment:
@@ -406,15 +418,19 @@ contract and must be resolved before launch, not silently ignored.
 `permissions` contains `requested` and `effective` profiles. A requested profile
 expresses the assignment's intended actions/resources. The adapter produces the
 effective profile, concrete tool settings, and evidence of their mapping before
-approval. Requested and effective values may differ only by narrowing that
-still satisfies the assignment; unresolved loss of required functionality is
-ineligible. Both are visible in approval details.
+approval. Requested scope describes intended work; effective controls describe
+actual native settings/tools and instruction-only limits, not guaranteed host
+containment. Disclose broader native access and residual risks before approval,
+with immutable surface reasons and rendered instructions under the
+[native-guardrails amendment](2026-11-02-native-role-guardrails-design.md).
+Unresolved loss of required functionality remains ineligible. Both profiles and
+their limitations are visible in approval details; no silent widening is allowed.
 
 | Profile field | Contract |
 | --- | --- |
 | `tools` | Allowlist of adapter-recognized action IDs; unknown or wildcard tool entries rejected |
 | `readPaths`, `writePaths` | Exact file or explicit subtree entries, bound to an approved repository/worktree root; canonical paths shown in approval |
-| `commands` | Exact executable identity, argv, cwd, declared output/effects, and a digest-bound `environmentPolicy`; no wildcard shell string or ambient environment inheritance |
+| `commands` | Intended executable/argv/cwd and declared outputs/effects, digest-bound explicit environment settings and known native inheritance/approval limits; native command restrictions applied where available, without claiming exact effect containment |
 | `externalSources` | Explicit source/host and action policy for search/fetch; redirected destinations must satisfy the same policy |
 | `connectors` | Exact server/connector identity and approved read/action scope; absent means denied, not inherit unrestricted MCP |
 | `coordinationActions` | Only declared parent-plan operations; child reports have assignment-scoped identity, not launch rights |
@@ -433,6 +449,10 @@ A credential slot identifies an approved source and use, never a secret value.
 Secret bytes are resolved at execution and excluded from digests, reports and
 logs; a slot/source/scope/rotation-policy change requires a revised approval.
 Rotation within its explicitly approved policy does not expose secret bytes.
+The snapshot binds environment settings explicitly constructed by OrkWorks.
+It does not attest to every vendor-native subprocess environment. Record normal
+native inheritance, unknown values and credential-access limitations in the
+commands surface reason and approval details; do not claim those bindings absent.
 
 ### Safe permission defaults
 
@@ -453,24 +473,15 @@ parent assignment. These additions remain within the role ceiling, are subject
 to capability evidence, and require user approval. Missing task-specific scope
 stays denied; neither role selection nor task text creates ambient access.
 
-The verified adapter constructs each command environment from this snapshot,
-starting empty. Unlisted ambient variables are removed rather than inherited.
-Required platform variables, working-directory/settings/search-path values and
-behavior-changing bindings must be explicit nonsecret approved values. In
-particular, `BASH_ENV`, `ENV`, `PYTHONPATH`, `NODE_OPTIONS`, `RUSTC_WRAPPER` and
-loader variables cannot arrive through ordinary-session inheritance. If needed,
-they require exact approved values plus content identities/scope for referenced
-startup scripts, modules or executable wrappers. A credential slot cannot be
-used to hide a behavior-changing nonsecret setting. The adapter validates its
-recognized credential-slot semantics; unknown slots are ineligible.
-
-Validate actual environment construction immediately before every command.
-An adapter unable to remove unlisted ambient variables or bind effective values
-cannot offer a command-enabled restricted profile. Exact executable/argv alone
-is insufficient; no prompt-only claim or OS confinement is substituted. This
-narrows coding-tool command execution, while ordinary session creation and the
-baseline's provider-login environment remain unchanged. Parent inference/login
-credentials do not implicitly authorize forwarding them to task commands.
+When OrkWorks constructs a command environment, it applies its approved explicit
+snapshot and checks its own construction. Native coding-tool shell execution may
+inherit ordinary vendor/user environment and login behavior. Apply native
+restrictions where available and disclose inherited/unknown bindings and effects
+in the commands evidence reason. A per-command native pre-dispatch empty-start
+receipt is not an ordinary-role eligibility requirement. Exact argv or a prompt
+does not establish effect containment. A task explicitly requiring such a
+stronger guarantee remains unsupported without suitable evidence; do not silently
+weaken that requirement. No command broker or OS confinement is introduced.
 
 Provider inference traffic inherent in the approved coding tool is described
 in adapter evidence, separate from agent-requested external search, shell
@@ -498,8 +509,9 @@ Do not infer command effects from executable names. Arbitrary shell can write,
 read credentials, call network endpoints or start processes. Denying edit tools
 while leaving arbitrary shell is not read-only. A check command can execute
 repository-authored scripts and produce generated files: its intended effects
-must be declared and the coding-tool mapping must prove the requested controls
-or mark the profile ineligible. No server broker, OS process isolation, or
+must be declared and the coding-tool mapping must apply available controls and
+disclose native versus instruction-only limits. Unknown required mapping or
+functionality remains ineligible; a known limitation is not a universal no-go. No server broker, OS process isolation, or
 hard CPU/token/cost ceilings are added by this contract.
 
 Coding-tool controls apply to the selected tool's actions. They do not protect
@@ -514,20 +526,24 @@ Eligibility is a persisted evidence decision, not a checkbox inferred from
 login, a resume recipe, model availability, tool installation, or working hooks.
 Key it by exact tool version/executable identity, adapter version, platform,
 instruction mechanism, effective settings digest, role, and profile digest.
-`verified` requires primary schema/reference, exact version evidence, and a
-reproducible bounded capability fixture for the exact combination and
-`effectiveProfileDigest`. It is the only decision that can make that exact
-effective profile eligible for user approval; approval and the launch-time checks
-below are still required. The requested and effective profiles may differ only
-by an assignment-satisfying narrowing described above. Such a narrowing can be
-`verified` when the evidence exactly covers the resulting effective profile and
-the user approves that effective profile. `limited` means evidence covers only a
-narrower capability set than the effective profile; it is ineligible until the
-effective profile and its configuration/evidence digests are updated to the
-covered set and reassessed. `unverified` means evidence is absent, incomplete,
-ambiguous, or stale. `unsupported` means evidence establishes that a required
-behavior for the exact effective profile cannot be enforced. Neither `limited`,
-`unverified`, nor `unsupported` can launch a restricted role.
+`verified` requires primary references, exact version/settings evidence and
+bounded reproducible cases for the declared practical mapping and
+`effectiveProfileDigest`. It can make that exact configuration eligible for user
+approval, subject to launch checks; it never certifies non-bypassability. Each
+surface reason distinguishes native controls, instruction-only limits, observed
+behavior and unknown coverage. Known limitations may coexist with passed checks
+when the available controls were applied correctly, necessary content delivered,
+ordinary acceptance cases passed and the user sees the limitations before
+approval. A requested hard guarantee is not silently downgraded.
+
+`limited` means required mapping, functionality or practical evidence covers only
+part of the declared configuration and needs reassessment; `unverified` means
+that evidence is absent, incomplete, ambiguous or stale; `unsupported` means a
+required functional capability or explicitly requested stronger guarantee is
+unavailable. These decisions cannot launch as a verified configuration. A known
+native limitation described in an otherwise evidenced practical mapping is not
+alone a reason to assign one of these non-eligible decisions. Historical strict-
+profile decisions require reassessment; none becomes verified automatically.
 
 ### Immutable capability evidence snapshot
 
@@ -549,7 +565,9 @@ Each check contains `surface`, `result` (`passed`, `failed`, `unverified`, or
 `not-applicable`), `reason`, and unique `referenceIds`. Required unique surfaces
 are `instructions`, `skills`, `tools`, `commands`, `filesystem`, `network`,
 `connectors`, `delegation`, `startup`, and `model-policy`. A passed check requires
-retained reproducible fixture evidence and a primary reference. Not-applicable
+retained reproducible practical fixture evidence and a primary reference. Its
+reason must state native controls and any instruction-only/residual limitations;
+passing does not assert that every prohibited host action is impossible. Not-applicable
 requires a source-backed reason and fixture confirming the surface is absent or
 denied; it is not a way to omit an untested control. A failed or unverified check
 requires a nonempty bounded explanation and source references for the observed
@@ -574,7 +592,8 @@ Checks may only name references in this snapshot. Artifact content is retained
 locally and protected with the referencing evidence/configuration; URLs or file
 names alone are insufficient. No secrets, hidden reasoning or full production
 transcripts are retained. The capability register is source evidence for a
-future unverified snapshot; it is not itself a verified permission fixture.
+future snapshot; a research classification alone is not an implemented launch
+adapter or evidence that every scope entry is technically enforced.
 
 Reject unknown fields, duplicate surfaces/references and dangling reference IDs.
 Sort checks by surface, references by ID and referenceIds by ID; use the same
@@ -592,10 +611,11 @@ Evidence inventories all applicable startup configuration, tool allow/deny
 behavior, shell effects, filesystem access, network actions, connectors, native
 subagents, and permission-changing controls. A flag's existence proves only that
 its parser/help exposes it. Current hooks prove neither skill delivery nor
-invocation coverage. The evidence register currently records a **no-go** for
-all six Copilot role profiles and links a static, sampled-platform no-go for all
-six Claude Code 2.1.287 role profiles. Other tools are not verified as
-substitutes; see the [capability register](../../validation/agent-role-capabilities.md)
+invocation coverage. The evidence register retains historical strict-profile no-go findings for
+Copilot and Claude Code. Its current practical assessment is partial, with no
+implemented eligible role adapter inferred from the changed assurance bar.
+The same practical standard applies to every tool, with no assumed parity;
+ see the [capability register](../../validation/agent-role-capabilities.md)
 and [Claude Code assessment](../../validation/claude-code-role-capability-evidence.md).
 
 A native skill invocation observer is optional for eligibility if instructions
@@ -854,9 +874,10 @@ review assignment, accept it as **eligible for exact-plan approval** only when:
    blocks substantive work; approval does not waive the delivery gate.
 
 The accepted result is limited to that synthetic fixture and exact profile.
-The capability register marks all six Copilot roles unavailable and all six
-Claude Code 2.1.287 roles no-go for the sampled macOS 26.6.2 (Darwin 25.6.0)
-arm64 platform; neither assessment establishes a supported profile. This example
+The earlier strict-profile capability register marked all six Copilot roles
+unavailable and the six sampled Claude Code roles no-go. Those classifications
+are historical under the 2026-11-02 amendment; no implemented role adapter or
+new verified configuration is inferred from the practical reassessment. This example
 tests the contract's acceptance conditions only; it cannot populate the
 register or authorize a production launch.
 
@@ -899,9 +920,9 @@ register or authorize a production launch.
 | Missing mandatory skill, conflicting repository rule, oversized context | Reject; no automatic skill removal or truncation |
 | Selected optional skill supplied in startup context | Loaded receipt only after adapter confirms delivery; no native invocation claim |
 | Hook records a terminal mention or unknown tool event | Unknown/reported usage; cannot create a native observed-use record |
-| Unlisted ambient command environment or unbound startup/wrapper value | Strip unlisted variables; command-enabled profile ineligible unless exact effective environment is verified |
+| Unlisted ambient native command environment or unbound startup/wrapper value | Apply explicit OrkWorks-owned environment settings; disclose native inheritance and unknown wrapper effects. Block an assignment requiring an unestablished hard guarantee, not every ordinary shell-enabled role |
 | Edit tool denied, unrestricted shell available | Ineligible for research/review; do not label read-only |
-| Undeclared MCP/server, external redirect or native subagent | Deny; if controls cannot guarantee this, ineligible |
+| Undeclared MCP/server, external redirect or native subagent | Apply available native disable/approval controls and deliver the prohibition; record known limits. Missing/failed required mapping blocks support; do not claim universal prevention |
 | Test output needed but write policy empty | Invalid verification configuration; declare generated paths/commands and obtain approval |
 | Approved worktree subtree resolves outside via symlink | Reject canonical path binding; do not widen root |
 | Executable/configuration/support evidence changes before launch | Block and propose reviewed revision; no substitution |
@@ -911,6 +932,11 @@ register or authorize a production launch.
 | Retired snapshot or corrected history | Preserve historical identity; use only eligible versions in future proposals |
 
 ## Review handoff — 2026-10-08
+
+Historical handoff: its all-role no-go and complete-restriction conclusions are
+superseded only for practical role assurance by the 2026-11-02 amendment above.
+The source/implementation observations and independent contract/authority gates
+remain valid; use the register's current assessment for new research decisions.
 
 The author-level correctness/completeness pass checked this contract against
 #741, the product direction, accepted ADR 0077, the #610 scope alignment, and
@@ -981,9 +1007,11 @@ those consumers reviewed or implemented. #610's authoritative scope/ADR
 alignment is accepted in PR #747. Before a runtime plan can be written,
 review this contract and #740's
 capability evidence, and establish a verified initial role/tool/profile slice.
-The current no-go result is valid research, but cannot be converted into
-permission-free fallback implementation. Keep #740/#741 open until their reviewed
-handoff and prerequisite gates are satisfied.
+The current practical assessment and disclosed limitations are research, not an
+implemented launch adapter. Preserve the required mapping/delivery and component
+review gates; do not infer a permission-free or unimplemented fallback. #740
+closes after its finite evidence classification and consumer handoff, while
+#741's broader contract/runtime prerequisites retain their own disposition.
 
 ## Proposed exact-result reviewer timing — 2026-10-24
 

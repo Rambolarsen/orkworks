@@ -81,8 +81,11 @@ bootstrap may hide behind learning, research completion or a report.
 The limits govern OrkWorks' orchestration APIs, not arbitrary same-user commands.
 Ordinary `POST /sessions` remains unauthenticated. Environment bearers can be
 inspected/replayed by same-user processes; neither a hook nor report proves
-OS process origin. Exact coding-tool controls need verified adapters, with
-unsupported combinations unavailable. No native confinement is claimed.
+OS process origin. Coding-tool controls need practical version-specific adapter evidence under the
+[native-guardrails amendment](2026-11-02-native-role-guardrails-design.md).
+Disclosed native limitations are acceptable ordinary-session risks; unknown
+required mapping/delivery and unsupported functional capabilities remain blockers.
+No native confinement is claimed.
 ADR 0060's separate independent-instance cleanup/replacement proof stays binding.
 
 ## Accepted issue disposition

@@ -14,9 +14,62 @@ For an immutable official-documentation source pointer, GitHub's CLI reference h
 
 ## Decision
 
-**Candidate mechanisms exist; end-to-end feasibility remains unverified. All six OrkWorks role/version combinations (orchestrator, research, implementation, review, verification, remediation) are no-go / unavailable today because exact content delivery and effective tool restrictions have not been verified.** The installed CLI help and GitHub documentation expose (a) a native custom-agent prompt with tool allowlists, (b) session-wide allow/deny and tool-visibility filters, and (c) optional OS-level shell sandbox controls. These are credible mechanisms for a future adapter; this is not a claim that Copilot CLI cannot enforce the profiles. No exact launch profile has been exercised against a disposable child session, and several important details are not bound to v1.0.90 or can be bypassed through startup settings, tool composition, MCP, or subagents. Keep the six profiles unavailable until the disposable probe procedure below establishes the effective combination. Do not substitute prompt-only roles.
+Current assessment: practical native guardrails, 2026-11-02.
 
-This matches the proposal's [coding-tool permission release bar](../superpowers/specs/2026-10-04-agent-hierarchy-and-configuration-learning-design.md#coding-tool-permissions): only offer a role/tool pairing after version-specific evidence, reject unknown combinations, and do not label edit-tool removal read-only while arbitrary shell remains. The baseline's [approved-plan boundary](../superpowers/specs/2026-09-26-taskmaster-orchestrated-child-sessions-design.md#approved-plan) expressly excludes OS confinement, and its [purpose](../superpowers/specs/2026-09-26-taskmaster-orchestrated-child-sessions-design.md#purpose) preserves ordinary child sessions. Section links refer to the proposed documents in this same revision rather than stale mutable line numbers.
+**Copilot CLI 1.0.90 has partial practical evidence; it is not categorically
+rejected because ordinary user access can exceed assignment instructions.**
+The owner approved the [native-guardrails assurance boundary](../superpowers/specs/2026-11-02-native-role-guardrails-design.md).
+Use available native controls correctly, deliver instructions/selected skills,
+exercise bounded ordinary cases and disclose instruction-only limits. Do not
+require proving every bypass impossible. The same standard applies across tools,
+without assuming their native controls are equal.
+
+No role is newly enabled in the installed product by this reassessment. Actual
+role-specific configuration mapping and usable behavior evidence still matter;
+existing hook/resume integration is not a role launch adapter. Historical strict-
+profile no-go findings below remain evidence of what was not established under
+that earlier bar, rather than a verdict that Copilot cannot perform the work.
+
+| Surface | Existing practical evidence | Remaining decision |
+| --- | --- | --- |
+| Runtime/settings identity | Pinned native and selected embedded/cache files; settings-only capture comparison and migration behavior | Recheck when the actual version/settings change; no repeated discovery batch needed for unchanged evidence |
+| Instructions | Exact synthetic root instruction supplied in startup context | Reuse the evidenced delivery mechanism; do not claim every nested/native custom-agent route tested |
+| Selected skill content | Complete 286-byte synthetic source delivered through AGENTS wrapper, exact digest; no resources | Supplied startup content is a valid route; native loading/invocation/adherence remain unknown and are not substitutes for delivery |
+| Native tool guardrails | Hosted request receipts show view/skill/rg/glob definitions without shell/edit/connector actions in that tested configuration | Reuse exact inventory evidence for that mapping; validate any changed mapping and preserve native control limitations |
+| Ordinary file action | Positive view attempts stopped during measurement; no usable correlated result retained | Obtain one usable bounded allowed-action receipt for the smallest review candidate, or record a specific functional/measurement blocker |
+| Paths/commands/network | Native help/settings expose candidate controls; ordinary same-user access and tool composition can exceed intended scope | Apply available controls and disclose instruction-only limits; no universal filesystem/argv/environment containment qualification required |
+| Skill usage / parent continuation | Discovery/delivery and usage are distinct; same-parent event behavior not established | Usage can remain unknown; continuation/resume belong to that feature under #742, not ordinary-child review qualification |
+
+### Finite remaining work for #740
+
+1. Review this changed assurance standard and its consumer mapping. Retained
+   facts stay unchanged; replace the blanket strict-profile verdict with the
+   per-surface practical assessment above.
+2. For the exact smallest review candidate, obtain one usable allowed-action
+   observation and confirm a representative available native restriction, reusing
+   existing exact tool-inventory evidence where applicable. One separately
+   approved batch, no automatic retry chain. A specific functional or measurement
+   blocker is a valid bounded result; do not create a new indefinite exporter
+   investigation merely to explain an unknown field's contents.
+3. Publish the final coverage classification and handoff to #741 (configuration),
+   #742 (feature-specific continuation) and #743 (delivery/usage), then close this
+   bounded research issue. Shell-enabled roles and remaining feature qualification
+   get scoped follow-ups if needed; their completion is not an endless #740 gate.
+
+No further call, content inspection or runtime implementation is authorized by
+this document. The completed probe budgets remain exhausted. Privacy/capture
+consent is separate from accepting ordinary coding-tool behavioral risk.
+
+## Historical strict-profile assessment
+
+The following assessment/matrix/probe methodology records the earlier stronger
+bar and its observed limitations. The current decision and scoped amendment above
+supersede its ordinary-role eligibility and research-completion requirements;
+source evidence, exact bytes and unknown outcomes are preserved. In particular,
+proposed exhaustive deny/bypass probes and every-command empty-start receipts
+below are not the current practical acceptance checklist. There is no verified
+production role launch slice yet; this does not require categorically rejecting
+Copilot, other tools or an explicitly reviewed instruction-only limit.
 
 Evidence levels used below:
 
@@ -36,7 +89,8 @@ that the model loop continues. This capability is **UNVERIFIED** for the current
 Copilot candidate; no live event-continuation probe has been run. A separately
 authorized adapter probe must verify the declared wait/return mechanism,
 duplicate/gap handling, parent runtime identity, revocation and absence of
-terminal typing or replacement-session fallback. The no-go status remains.
+terminal typing or replacement-session fallback. This remains a functional prerequisite only for the continuous-parent feature;
+it does not prevent assessing an ordinary review child under the current bar.
 
 ## What the installed CLI establishes
 
@@ -47,6 +101,11 @@ The exact installed CLI reports `GitHub Copilot CLI 1.0.90.` Its help exposes `-
 The v1.0.90 `copilot help sandbox` describes shell command sandboxing as experimental, disabled by default, and managed through `/sandbox enable` or the sandbox settings. In that help, disabled sandbox means shell commands run with the user's access; enabled sandbox can restrict files/network, but a default-allowed bypass can rerun a blocked command outside the sandbox. The exact `copilot --help` and `copilot --experimental --help` output did **not** list a `--sandbox` option. The retained help also describes managed sandbox floors and `allowBypass: false`; that is documented support, not an exercised policy. Current docs mention `--sandbox` and administrator-only `failIfUnavailable`; launch-flag support and actual managed fail-closed behavior remain **UNVERIFIED for 1.0.90**. See installed `copilot help sandbox` and the current [CLI sandbox reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference#command-sandboxing-experimental). Do not assume the current docs page applies unchanged to this exact release.
 
 ## Supported / limited / unsupported matrix
+
+Historical findings and consequences from the earlier strict-profile assessment.
+Statements requiring complete denial or barring shell-enabled roles below are
+superseded by the [current practical criteria](#decision). Retain source facts
+and unknown outcomes; this table is not the active acceptance checklist.
 
 | Capability | Finding for Copilot CLI 1.0.90 | Evidence and consequence |
 | --- | --- | --- |
@@ -109,6 +168,10 @@ Run only after a task explicitly permits model probes. Keep it separate from pro
 No model, permission, hook, settings, or sandbox probe was run in this assignment. This report is an evidence gate, not launch authorization.
 
 ## Role/profile eligibility matrix
+
+Historical strict-profile matrix: these are prior no-go decisions, not a current
+blanket verdict under the practical assurance standard. Reassess against the
+[current decision](#decision); no installed launch adapter is implied.
 
 | Tool/version/platform | Role/profile | Candidate instruction delivery | Skill delivery | Permission result | Usage coverage | Eligibility |
 | --- | --- | --- | --- | --- | --- | --- |

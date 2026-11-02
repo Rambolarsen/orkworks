@@ -17,6 +17,17 @@ tags: ["orkworks", "plans"]
 
 **Spec:** [Role configuration](../specs/2026-10-04-agent-role-configuration-design.md), [preparation lifecycle](../specs/2026-10-04-orchestrator-preparation-design.md), [capability register](../../validation/agent-role-capabilities.md). Tracks [#740](https://github.com/Rambolarsen/orkworks/issues/740); consumers #741–#743, initiative #738.
 
+## Current assurance and endpoint — 2026-11-02
+
+The owner-approved [native-guardrails amendment](../specs/2026-11-02-native-role-guardrails-design.md)
+supersedes this plan's exhaustive scope/effect-denial and every-native-command
+environment-proof requirements for ordinary roles. The current
+[finite remaining work](../../validation/agent-role-capabilities.md#finite-remaining-work-for-740)
+is the active checklist. Keep prior methodology and probe outcomes as history;
+do not resume their exhausted batches or multiply the same checks across roles.
+Same-parent continuation and shell-enabled qualification remain separate feature
+work. No new live authority is granted by the amendment or this plan.
+
 ## One-batch synthetic-history amendment — 2026-11-01
 
 A [bounded settings-only comparison proposal](2026-11-01-copilot-synthetic-capture-boundary.md)

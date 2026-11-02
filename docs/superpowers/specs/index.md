@@ -227,3 +227,5 @@ Dated design records; these do not establish current product behavior.
 - [Responsive terminal input during session projection](2026-10-31-terminal-input-lag-design.md) — Approved fenced capacity analysis and conservative sensitivity repair.
 
 - [SQLite session storage and bounded history](2026-11-01-sqlite-session-storage-design.md) — Accepted ordinary-session SQL authority, paged reads and recoverable producer/cutover contract; implementation pending.
+
+- [Native coding-tool role guardrails](2026-11-02-native-role-guardrails-design.md) — Owner-approved practical assurance and finite capability-research boundary.
