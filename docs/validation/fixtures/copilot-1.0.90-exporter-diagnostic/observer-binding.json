@@ -1,0 +1,15 @@
+{
+  "executedObserver": {
+    "file": "observe-diagnostic.py",
+    "bytes": 19579,
+    "sha256": "5cc40a1083d54e3f223aca73211064a64b2db9de55bafc7827f413eccf6c52f0"
+  },
+  "configurationSha256": "1b80abcb90ac7645be92cb90d6b39cb89be34b47a8f63594d485c43d80a8aced",
+  "status": "Exact source used for the single exhausted attempt; no later native run authorized",
+  "preparedObserver": {
+    "file": "observe-diagnostic.prepared.py",
+    "bytes": 19704,
+    "sha256": "46ee376ce3aa6691b7cb5c7fac66fab31f129b946f5c89b49f2db68fa1e5e4f8",
+    "status": "Post-run final stdout/stderr size guard; model-free tests only; not run against Copilot"
+  }
+}

@@ -380,3 +380,13 @@ exporter attribute-presence guard after two observed chat spans. No usable view
 receipt was collected; the triggering attribute was not retained. No permission
 denial, escape or content leak is established. The attempt is exhausted and raw
 roots were removed. All six profiles remain unverified/no-go; #740 stays open.
+
+## Exporter attribute-name diagnostic — 2026-11-01
+
+The [approved diagnostic](copilot-exporter-attribute-diagnostic.md) observed
+`gen_ai.output.messages` in an exporter attributes object and stopped before
+decoding its value. Value/type/meaning and read/permission outcomes remain
+unknown. The scanner stopped before the chat counter updated; its zero is not a
+zero-usage receipt. The single attempt is exhausted and raw roots were removed.
+This does not recover #1280’s missing trigger. All six profiles remain
+unverified/no-go and #740 stays open.

@@ -257,3 +257,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Copilot selected skill startup delivery](2026-11-01-copilot-startup-skill-delivery.md) — Approved, exhausted one-call selected-source delivery through startup context.
 
 - [Copilot view read-scope control](2026-11-01-copilot-view-read-scope.md) — Proposed owned-file/symlink primitive test with a fresh three-call maximum.
+
+- [Copilot exporter attribute-name diagnostic](2026-11-01-copilot-exporter-diagnostic.md) — One positive-view interaction with fixed-name-only exporter stop evidence.

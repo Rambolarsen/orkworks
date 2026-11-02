@@ -74,3 +74,5 @@ Capability research, validation results, and evidence fixtures.
 - [Copilot selected skill startup delivery](copilot-startup-skill-delivery.md) — Exact selected-source receipt through supplied startup context.
 
 - [Copilot view read-scope stopped probe](copilot-view-read-scope.md) — Exporter guard stop with no usable permission result.
+
+- [Copilot exporter attribute-name diagnostic](copilot-exporter-attribute-diagnostic.md) — Fixed forbidden key observed with its value and permission outcomes unknown.
