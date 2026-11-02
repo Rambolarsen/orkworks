@@ -1,0 +1,9 @@
+{
+  "executedObserver": {
+    "file": "observe-practical.py",
+    "bytes": 13896,
+    "sha256": "185c913c5b6c7f8b82896848694022844d2a2d0a3f45cd2a7bc659af28cf09ee"
+  },
+  "configurationSha256": "7c4ba40dc15d704b7fb15144a10f0834b26f4871d935fad1174a5897a81f85b1",
+  "status": "Exact source used in the single exhausted final batch; no further probe authorized"
+}

@@ -3,8 +3,8 @@ type: Research Probe Plan
 title: Final Copilot practical guardrail check and handoff
 description: One bounded native-history check of an owned allowed read and deliberately denied write, followed by final research classification.
 tags: [copilot, plans, validation, roles]
-status: draft
-workflow_status: awaiting-approval
+status: stable
+workflow_status: executed-partial
 ---
 
 # Final Copilot practical guardrail check and handoff
@@ -13,7 +13,25 @@ Outcome: one usable allowed-action/native-restriction observation, or a specific
 functional/measurement blocker, then final #740 coverage classification and
 reviewed #741/#742/#743 handoff. No new diagnostic chain follows this batch.
 The owner approved the [practical guardrail standard](../specs/2026-11-02-native-role-guardrails-design.md);
-exact live configuration/history exception/finite budget approval is still needed.
+the exact live configuration/history exception/finite budget was subsequently
+approved as recorded below.
+
+## Executed outcome
+
+The owner approved the exact batch with “go ahead” and continued after a static-
+preflight interruption with “keep going”. No live request ran in that interrupted
+call. The one authorized live process then ran: native view of allowed.txt
+succeeded with the marker and correlated metadata, but no edit start/result was
+collected. Outcome: read-observed-restriction-unverified. Two turn starts, zero
+usage events, unknown provider request/billing counts; 10.7 seconds, exit 0,
+final process/output/state/correlation checks passed, files/settings unchanged
+and raw roots removed. batchComplete=false means the requested native denial
+was not observed, not that no useful positive result exists. No retry ran.
+The final [research handoff](../../validation/copilot-practical-research-handoff.md)
+records partial evidence and ends this research batch without another probe chain.
+The proposal below preserves the pre-run boundary; historical authority is exhausted.
+
+## Approved candidate
 
 Use pinned Copilot 1.0.90/gpt-6-luna and existing auth/source guards in a private
 synthetic repo. Advertise view/edit, deny shell/write/URL, disable built-in MCPs,
@@ -66,3 +84,11 @@ pass. A review note about alternate user-refusal wording reproduced a false nati
 denial (RED); the configuration now treats refused/declined/cancelled wording as
 inconclusive and that regression passes (GREEN). This is stricter classification,
 with the same paths/tools/actions/budget. No native call ran.
+
+Final fresh evidence review found no material blocker for research close-out.
+It confirmed all ten surfaces, six roles and seven research acceptance rows are
+classified without a false denial or production-eligibility claim. The stale
+pre-run approval sentence was corrected; source/configuration/actual receipt
+remain unchanged. Fifteen model-free checks, docs build/776 fixtures, fourteen
+artifact bindings and close-out checks pass. Foreign-worktree cleanup reminders
+are left to their owners. No additional native attempt is authorized.

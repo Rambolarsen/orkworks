@@ -8,6 +8,10 @@
       "bytes": 34,
       "sha256": "cb40e069d7a4b1f4d7d5a15fe4e6484c1c88f594009d660de0c0d94dbd5ce3df"
     },
+    "authorization.json": {
+      "bytes": 1005,
+      "sha256": "9ff096a50cc67bee2c0b2b683060a7ed5ed9c9414462efbb1fba3e7668cfe520"
+    },
     "configuration.json": {
       "bytes": 7783,
       "sha256": "7c4ba40dc15d704b7fb15144a10f0834b26f4871d935fad1174a5897a81f85b1"
@@ -17,20 +21,32 @@
       "sha256": "145b4ca0109fdc4e9291016cb58eec2477f1bc20be6ba90f98e7c509ffdf389b"
     },
     "index.md": {
-      "bytes": 547,
-      "sha256": "c4d33ef653108fbd358fa7af70fd629f0b8a6b4eacf3ebd81d555dc0a73913e7"
+      "bytes": 759,
+      "sha256": "321b61d1f117025681247e42958f5063e7e403f20f8a1b91f46b883097ecdde4"
     },
     "observe-practical.py": {
       "bytes": 13896,
       "sha256": "185c913c5b6c7f8b82896848694022844d2a2d0a3f45cd2a7bc659af28cf09ee"
     },
+    "observer-binding.json": {
+      "bytes": 360,
+      "sha256": "b867741a83648c8ea6725d9f6930a89b24b8576b02550de0d8ec7dc6341a4715"
+    },
     "root-rule.txt": {
       "bytes": 284,
       "sha256": "1539a2d4a43741ae0795db05b6640ecfc249852c47fb9b81e2c625f74f92a7dd"
     },
+    "runtime-identity.json": {
+      "bytes": 1773,
+      "sha256": "712b5f13cd9b2e005ad40cdd066bbb6a37355374377ac4943e71e441d52dd151"
+    },
     "settings.json": {
       "bytes": 461,
       "sha256": "968082667c0608a65d476bcee1650a35a719e03907e568c52c899e92b6ae7641"
+    },
+    "summary.json": {
+      "bytes": 4532,
+      "sha256": "adaa0859f4fd9d910293d2830d46f11e615879adfbe5bdde2b529d1a57c6b043"
     },
     "test-classification.py": {
       "bytes": 967,

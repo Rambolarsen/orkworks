@@ -1,8 +1,10 @@
 # Final practical guardrail packet
 
-- [Practical check and close-out plan](../../../superpowers/plans/2026-11-02-copilot-practical-closeout.md) — One finite owned read/native write-denial check, then final #740 handoff.
+- [Practical result and research handoff](../../copilot-practical-research-handoff.md) — Allowed read observed; native write-denial remains unverified; final per-surface and per-role classification.
+- [Practical check plan](../../../superpowers/plans/2026-11-02-copilot-practical-closeout.md) — Exact approved finite batch; authority exhausted.
 
-The manifest binds the proposed exact configuration, synthetic inputs/settings,
-observer and model-free tests. No live result or reusable approval is included.
-The observer activates no OTel exporter and parses no exporter files. All prior
-hosted budgets remain exhausted; this new candidate requires exact finite approval.
+The manifest binds exact inputs/settings/configuration, historical authorization,
+executed observer, model-free tests, runtime identity and sanitized receipt.
+The observer activated no OTel exporter or exporter parsing. Private raw/native
+history roots were removed; no assistant/reasoning or raw tool body is published.
+No retained artifact grants a retry or later batch.

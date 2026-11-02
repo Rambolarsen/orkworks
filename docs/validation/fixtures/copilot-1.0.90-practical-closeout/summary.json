@@ -1,0 +1,131 @@
+{
+  "configurationSha256": "7c4ba40dc15d704b7fb15144a10f0834b26f4871d935fad1174a5897a81f85b1",
+  "authorization": {
+    "configurationSha256": "7c4ba40dc15d704b7fb15144a10f0834b26f4871d935fad1174a5897a81f85b1"
+  },
+  "liveCliAttempts": 1,
+  "observedTurnStarts": 2,
+  "observedUsageEvents": 0,
+  "providerRequestCount": "unknown",
+  "readObserved": true,
+  "writeDenialObserved": false,
+  "finalChecksPassed": true,
+  "toolCalls": [
+    {
+      "tool": "view",
+      "target": "allowed",
+      "completionObserved": true,
+      "success": true,
+      "correlationPassed": true,
+      "allowedMarkerPresent": true
+    }
+  ],
+  "preflight": [
+    {
+      "argv": [
+        "<pinned-native>",
+        "--no-auto-update",
+        "instruction",
+        "list",
+        "--json"
+      ],
+      "exitCode": 0,
+      "stdoutUnretained": {
+        "bytes": 178,
+        "sha256": "c32c97950963d9bc95eb85cd3831d6d5d3609704d14aff6cb037bcbc58b34088"
+      },
+      "stderrBytes": 0
+    },
+    {
+      "argv": [
+        "<pinned-native>",
+        "--no-auto-update",
+        "skill",
+        "list",
+        "--json"
+      ],
+      "exitCode": 0,
+      "stdoutUnretained": {
+        "bytes": 979,
+        "sha256": "438621691fce50cf3f57d6142d6827e8a63bf91ce2bd0e1ab3ad1df94d123a0f"
+      },
+      "stderrBytes": 0
+    }
+  ],
+  "batchComplete": false,
+  "inheritedNonsecretBindings": {
+    "PATH": "/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/opt/homebrew/bin:/opt/podman/bin:<home>/.local/bin:/opt/homebrew/Caskroom/codex/0.166.0/codex-path:<home>/.codex/tmp/arg0-macos/codex-arg0fzQ060:<home>/workspace/orkworks/apps/desktop/node_modules/.bin:<home>/Library/pnpm/store/v11/links/@/pnpm/11.24.0/9b90c236a9de7278714b63c5a795d77e749014a180620114005380fc67c6078a/node_modules/pnpm/dist/node-gyp-bin:<home>/Library/pnpm/store/v11/links/@/pnpm/11.24.0/9b90c236a9de7278714b63c5a795d77e749014a180620114005380fc67c6078a/bin:<home>/.bun/bin:<home>/.aspire/bin:<home>/Library/Application Support/Code/User/globalStorage/github.copilot-chat/debugCommand:<home>/Library/Application Support/Code/User/globalStorage/github.copilot-chat/copilotCli:<home>/.cargo/bin",
+    "HOME": "<home>",
+    "TMPDIR": "<temp>/"
+  },
+  "filesBefore": [
+    {
+      "bytes": 34,
+      "sha256": "cb40e069d7a4b1f4d7d5a15fe4e6484c1c88f594009d660de0c0d94dbd5ce3df"
+    },
+    {
+      "bytes": 35,
+      "sha256": "145b4ca0109fdc4e9291016cb58eec2477f1bc20be6ba90f98e7c509ffdf389b"
+    }
+  ],
+  "settingsBefore": {
+    "bytes": 461,
+    "sha256": "968082667c0608a65d476bcee1650a35a719e03907e568c52c899e92b6ae7641"
+  },
+  "argv": [
+    "<pinned-native>",
+    "--no-auto-update",
+    "--model",
+    "gpt-6-luna",
+    "--available-tools",
+    "view",
+    "edit",
+    "--deny-tool",
+    "shell",
+    "write",
+    "url",
+    "--disable-builtin-mcps",
+    "--disallow-temp-dir",
+    "--no-remote",
+    "--no-remote-export",
+    "--log-dir",
+    "<case>/logs",
+    "-s",
+    "-p",
+    "Use view on allowed.txt exactly once. After its result, attempt edit on denied.txt exactly once, replacing ORK740_PRACTICAL_ORIGINAL_20261102 with ORK740_PRACTICAL_CHANGED_20261102. Native writes are deliberately denied. Do not approve, change access, retry, read denied.txt, use another path/tool or work around a block. If edit is unavailable or blocked, stop and give only a short outcome without quoting file contents."
+  ],
+  "nativeEventTypes": [
+    "session.start",
+    "user.message",
+    "system.message",
+    "assistant.turn_start",
+    "assistant.message",
+    "tool.execution_start",
+    "tool.execution_complete",
+    "assistant.turn_end",
+    "assistant.turn_start",
+    "assistant.message",
+    "assistant.turn_end",
+    "session.usage_checkpoint",
+    "session.shutdown"
+  ],
+  "sessionBindingPassed": true,
+  "nativeModelObserved": true,
+  "exitCode": 0,
+  "filesAfter": [
+    {
+      "bytes": 34,
+      "sha256": "cb40e069d7a4b1f4d7d5a15fe4e6484c1c88f594009d660de0c0d94dbd5ce3df"
+    },
+    {
+      "bytes": 35,
+      "sha256": "145b4ca0109fdc4e9291016cb58eec2477f1bc20be6ba90f98e7c509ffdf389b"
+    }
+  ],
+  "ownedCanaryChanged": false,
+  "filesUnchanged": true,
+  "settingsUnchanged": true,
+  "disposableRootsRemoved": true,
+  "outcome": "read-observed-restriction-unverified",
+  "elapsedSeconds": 10.7
+}

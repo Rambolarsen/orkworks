@@ -77,4 +77,4 @@ Capability research, validation results, and evidence fixtures.
 
 - [Copilot exporter attribute-name diagnostic](copilot-exporter-attribute-diagnostic.md) — Fixed forbidden key observed with its value and permission outcomes unknown.
 
-- [Copilot practical research handoff](copilot-practical-research-handoff.md) — Prepared final surface/role classification; one exact bounded action case pending approval.
+- [Copilot practical research handoff](copilot-practical-research-handoff.md) — Final surface/role classification: allowed read observed, native write-denial unverified.
