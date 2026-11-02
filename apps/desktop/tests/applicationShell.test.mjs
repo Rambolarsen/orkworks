@@ -497,6 +497,8 @@ if (process.versions.electron) {
         await evaluate('fixture.command("recommendations",true)');
         await waitFor('document.querySelector(".readiness-overview-score strong")?.textContent === "50"');
         assert.deepEqual(await evaluate('fixture.assessmentCalls'), [], 'opening Recommendations does not run inference');
+        assert.equal(await evaluate('!!document.querySelector(".readiness-failure details:not([open])")'), true, 'previous failure detail starts collapsed');
+        assert.equal(await evaluate('document.querySelector(".readiness-failure time").dateTime'), '2026-11-02T10:01:00Z');
         assert.equal(await evaluate('document.querySelector("#readiness-report").hidden'), true);
         await evaluate('[...document.querySelectorAll("button")].find(b=>b.textContent==="View report").click()');
         assert.equal(await evaluate('document.querySelector("#readiness-report").hidden'), false);
@@ -538,13 +540,26 @@ if (process.versions.electron) {
           await waitFor('window.innerWidth==='+width);
           await evaluate('document.querySelector(".recommendation-menu--primary summary").click()');
           await waitFor('document.querySelector(".recommendation-menu--primary").open');
+          const split = await evaluate('(()=>{const b=document.querySelector(".recommendation-primary").getBoundingClientRect(),s=document.querySelector(".recommendation-menu--primary summary").getBoundingClientRect(),i=document.querySelector(".recommendation-menu--primary summary svg").getBoundingClientRect();return {buttonHeight:b.height,toggleHeight:s.height,centerOffset:Math.abs((i.top+i.bottom-s.top-s.bottom)/2)}})()');
+          assert.ok(Math.abs(split.buttonHeight - split.toggleHeight) <= 1, 'split button halves align at width '+width);
+          assert.ok(split.centerOffset <= 1, 'SVG chevron is vertically centered at width '+width);
+          const card = await evaluate('(()=>{const c=document.querySelector(".readiness-panel").getBoundingClientRect();return {width:c.width,scroll:document.querySelector(".readiness-panel").scrollWidth}})()');
+          assert.ok(card.scroll <= card.width + 1, 'readiness card does not overflow at width '+width);
           const bounds = await evaluate('(()=>{const r=document.querySelector(".recommendation-menu--primary .recommendation-menu-content").getBoundingClientRect();return {left:r.left,right:r.right,width:innerWidth}})()');
           assert.ok(bounds.left >= 0 && bounds.right <= bounds.width, 'assessment dropdown fits at width '+width);
           if (process.env.ORKWORKS_CAPTURE_RECOMMENDATIONS) {
+            await evaluate('new Promise(resolve=>setTimeout(resolve,150))');
             const {writeFileSync}=await import('node:fs');
             writeFileSync(process.env.ORKWORKS_CAPTURE_RECOMMENDATIONS.replace('.png','-'+width+'.png'),(await win.webContents.capturePage()).toPNG());
           }
           await evaluate('document.querySelector(".recommendation-menu--primary summary").click()');
+          if (process.env.ORKWORKS_CAPTURE_RECOMMENDATIONS) {
+            await waitFor('!document.querySelector(".recommendation-menu--primary").open');
+            await evaluate('document.querySelector(".readiness-panel").scrollIntoView({block:"center"})');
+            await evaluate('new Promise(resolve=>setTimeout(resolve,150))');
+            const {writeFileSync}=await import('node:fs');
+            writeFileSync(process.env.ORKWORKS_CAPTURE_RECOMMENDATIONS.replace('.png','-'+width+'-closed.png'),(await win.webContents.capturePage()).toPNG());
+          }
         }
         assert.deepEqual(await evaluate('fixture.errors'), []);
         return;
@@ -2060,7 +2075,7 @@ if (process.versions.electron) {
             fixture.assessmentCalls=[];fixture.auditCalls=0;fixture.cleanupCalls=0;fixture.settingsSections=[];
             const ids=['context-discovery','progressive-disclosure','instruction-scoping','architecture-awareness','domain-knowledge','environment-reproducibility','tool-accessibility','task-decomposition','verification','observability','change-safety','feedback-loops','durable-memory','human-oversight'];
             const snapshot={id:'readiness-one',startedAt:'2026-11-01T10:00:00Z',completedAt:'2026-11-01T10:01:00Z',redacted:false,data:{workspacePath:'/tmp/test',inputFingerprint:'a'.repeat(64),comparisonFingerprint:'b'.repeat(64),rubricDigest:'c'.repeat(64),summary:'Saved assessment',concepts:ids.map(conceptId=>({conceptId,maturity:2,confidence:'medium',repositoryFactHashes:['d'.repeat(64)],rubricPageId:'playbooks/rubric.md',rationale:'Documented guidance',limits:[],nextTransition:'Check evidence',unassessedReason:null})),repositoryEvidence:[],knowledgeEvidence:[],coverage:14,rawTotal:28,overallScore:50,git:{headOid:null,dirty:null},inferenceIdentity:{},knowledgeIdentity:{}}};
-            window.orkworks.getReadinessStatus=async()=>({workspacePath:'/tmp/test',run:null,snapshots:[snapshot],freshness:'changed',retentionLimit:100,reasonCode:null});
+            window.orkworks.getReadinessStatus=async()=>({workspacePath:'/tmp/test',run:{id:'failed-readiness',state:'failed',phase:null,startedAt:'2026-11-02T10:00:00Z',completedAt:'2026-11-02T10:01:00Z',errorCode:'evidence_evidence_limit'},snapshots:[snapshot],freshness:'unknown',retentionLimit:100,reasonCode:null});
             window.orkworks.getTaskmasterRunStatus=async()=>({workspacePath:'/tmp/test',activeAttempt:null,latestOutcome:null,assessment:{state:'idle',report:null,reused:false}});
             window.orkworks.requestReadinessSuggestion=async()=>{fixture.assessmentCalls.push('combined');return {outcome:'unavailable'}};
             window.orkworks.requestReadinessAssessment=async()=>{fixture.assessmentCalls.push('readiness');return {outcome:'unavailable'}};

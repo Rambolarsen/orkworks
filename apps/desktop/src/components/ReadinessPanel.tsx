@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { defaultBaseline, parseReadinessStatus, readinessFailureMessage, readinessSuggestionMessage, type ReadinessSnapshot, type ReadinessStatus } from '../readiness';
+import { defaultBaseline, parseReadinessStatus, readinessFailureMessage, readinessFailureRecovery, readinessSuggestionMessage, type ReadinessSnapshot, type ReadinessStatus } from '../readiness';
 import ReadinessSummary from './ReadinessSummary';
 
 interface Props {
   workspacePath: string;
   enabled?: boolean;
   disabled: boolean;
+  analysisActive?: boolean;
   onBusyChange: (busy: boolean) => void;
   requestedSnapshot?: { snapshotId: string };
   onHistory?: (snapshots: ReadinessSnapshot[]) => void;
@@ -24,10 +25,11 @@ function snapshotOptions(snapshots: ReadinessSnapshot[]) {
   </option>);
 }
 
-export default function ReadinessPanel({ workspacePath, enabled = true, disabled, onBusyChange, onSuggestion, onHistory, requestedSnapshot, renderActions }: Props) {
+export default function ReadinessPanel({ workspacePath, enabled = true, disabled, analysisActive = false, onBusyChange, onSuggestion, onHistory, requestedSnapshot, renderActions }: Props) {
   const [status, setStatus] = useState<ReadinessStatus | null>(null);
   const [error, setError] = useState<string>();
   const [message, setMessage] = useState<string>();
+  const [blocked, setBlocked] = useState(false);
   const [requesting, setRequesting] = useState(false);
   const [selectedId, setSelectedId] = useState('');
   const [baselineId, setBaselineId] = useState<string | null>(null);
@@ -48,6 +50,7 @@ export default function ReadinessPanel({ workspacePath, enabled = true, disabled
         return;
       }
       setStatus(result);
+      if (!analysisActive && ![result.run, result.suggestionRun].some(run => run?.state === 'queued' || run?.state === 'running')) setBlocked(false);
       onHistory?.(result.snapshots);
       setError(undefined);
     } catch (cause) {
@@ -64,6 +67,7 @@ export default function ReadinessPanel({ workspacePath, enabled = true, disabled
     setBaselineId(null);
     setError(undefined);
     setMessage(undefined);
+    setBlocked(false);
     setRequesting(false);
     setReportOpen(false);
     setHistoryOpen(false);
@@ -91,6 +95,11 @@ export default function ReadinessPanel({ workspacePath, enabled = true, disabled
   const suggestion = status?.suggestionRun;
   const suggestionActive = suggestion?.state === 'queued' || suggestion?.state === 'running';
   const running = suggestionActive || status?.run?.state === 'queued' || status?.run?.state === 'running';
+  // Request acknowledgements yield to authoritative live status as it advances.
+  useEffect(() => {
+    setMessage(undefined);
+    setBlocked(false);
+  }, [status?.run?.id, status?.run?.state, status?.run?.phase, suggestion?.id, suggestion?.state, suggestion?.phase, analysisActive]);
   const surfaced = useRef(new Set<string>());
   useEffect(() => {
     if (suggestion?.state === 'succeeded' && !surfaced.current.has(suggestion.id)) {
@@ -104,9 +113,10 @@ export default function ReadinessPanel({ workspacePath, enabled = true, disabled
   }, [running, requesting, onBusyChange]);
 
   const start = async (combined = false) => {
-    if (!enabled || disabled || requesting || running) return;
+    if (!enabled || disabled || analysisActive || requesting || running) return;
     const generation = epoch.current;
     setRequesting(true);
+    setBlocked(false);
     setError(undefined);
     setMessage(undefined);
     try {
@@ -115,7 +125,7 @@ export default function ReadinessPanel({ workspacePath, enabled = true, disabled
       if (result.outcome === 'scheduled') {
         setMessage(combined ? 'Assessment and suggestion requested.' : 'Readiness assessment requested.');
       } else if (result.outcome === 'already_running') {
-        setMessage('Another Taskmaster analysis is active.');
+        setBlocked(true);
       } else {
         setMessage('Readiness requires complete verified Brain guidance, repository access and an available Taskmaster model.');
       }
@@ -133,7 +143,7 @@ export default function ReadinessPanel({ workspacePath, enabled = true, disabled
   const baseline = baselineId === null
     ? defaultBaseline(selected ? [selected, ...earlier] : [])
     : earlier.find(snapshot => snapshot.id === baselineId);
-  const actionsDisabled = !enabled || disabled || requesting || running;
+  const actionsDisabled = !enabled || disabled || analysisActive || requesting || running;
   const actions = {
     findImprovement: <button className="recommendation-primary" type="button" disabled={actionsDisabled} title="Assess readiness and suggest one concrete improvement. Uses up to four model calls." onClick={() => void start(true)}>{running ? 'Assessing…' : requesting ? 'Requesting…' : 'Find next improvement'}</button>,
     checkReadiness: <button type="button" disabled={actionsDisabled} onClick={() => void start(false)}>Check agent readiness</button>,
@@ -141,18 +151,22 @@ export default function ReadinessPanel({ workspacePath, enabled = true, disabled
   const latest = snapshots[0];
   const latestData = latest && !latest.redacted ? latest.data : null;
 
+  const failedRun = status?.run?.state === 'failed' || status?.run?.state === 'interrupted' ? status.run : null;
+  const failedSuggestion = suggestion?.state === 'failed' || suggestion?.state === 'interrupted' ? suggestion : null;
+  const separateSuggestionFailure = failedSuggestion && (!failedRun || failedSuggestion.readinessRunId !== failedRun.id);
+  const freshnessLabel = latest?.redacted ? 'Redacted' : status?.freshness === 'changed' ? 'Needs reassessment' : status?.freshness === 'current' ? 'Inputs unchanged' : 'Currentness unknown';
+
   return <>
     {renderActions ? renderActions(actions) : <div className="readiness-actions">{actions.findImprovement}{actions.checkReadiness}</div>}
     {enabled && <section id="readiness-history" className="readiness-panel" aria-label="Repository agent readiness">
     <div className="readiness-heading">
-      <div className={`readiness-overview-score${latestData?.overallScore == null ? ' readiness-overview-score--empty' : ''}`} aria-label="Latest overall agent readiness">
+      <div className={`readiness-overview-score${latestData?.overallScore == null || status?.freshness !== 'current' ? ' readiness-overview-score--empty' : ''}`} aria-label="Saved overall agent readiness">
         {latestData?.overallScore != null ? <><strong>{latestData.overallScore}</strong><span>/ 100</span></> : <span>{latest?.redacted ? 'Redacted' : latestData ? 'Partial' : '—'}</span>}
       </div>
       <div className="readiness-overview-copy"><h3>Agent readiness</h3>
         {latest ? <>
-          <p>Assessed <time dateTime={latest.completedAt}>{new Date(latest.completedAt).toLocaleString()}</time>{latestData && ` · ${latestData.coverage}/14 areas assessed`}</p>
-          <p>{latest.redacted ? 'Assessment evidence and scores were redacted after access changed.' : status?.freshness === 'changed' ? 'Needs reassessment · Repository changed since assessment.' : status?.freshness === 'current' ? 'Saved assessment · Inputs unchanged.' : 'Saved assessment · Currentness could not be verified.'}</p>
-          {latestData && <p className="readiness-estimate">Evidence-limited estimate · View report for confidence and model limits.</p>}
+          <p className="readiness-saved">Saved <time dateTime={latest.completedAt}>{new Date(latest.completedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</time> <span className="readiness-freshness" title={latest.redacted ? 'Assessment evidence and scores were redacted after access changed.' : status?.freshness === 'changed' ? 'Repository changed since assessment.' : status?.freshness === 'current' ? 'Assessment inputs are unchanged; this is still a saved estimate.' : 'Currentness could not be verified.'}>{freshnessLabel}</span></p>
+          {latestData && <p className="readiness-estimate">{latestData.coverage}/14 areas assessed · Evidence-limited estimate</p>}
         </> : <p>Check how well this repository supports coding agents.</p>}
       </div>
       {selected && <div className="readiness-overview-actions">
@@ -160,11 +174,21 @@ export default function ReadinessPanel({ workspacePath, enabled = true, disabled
         <button type="button" aria-expanded={historyOpen && reportOpen} aria-controls="readiness-report" onClick={() => { setReportOpen(true); setHistoryOpen(!(historyOpen && reportOpen)); }}>History</button>
       </div>}
     </div>
-    {suggestion && <p role="status">{readinessSuggestionMessage(suggestion)}</p>}
-    {running && !suggestionActive && <p role="status">{status?.run?.phase ? phaseLabels[status.run.phase] : 'Collecting evidence'}…</p>}
-    {message && <p role="status">{message}</p>}
+    {running ? <p className="readiness-activity" role="status">{suggestionActive ? readinessSuggestionMessage(suggestion!) : `${status?.run?.phase ? phaseLabels[status.run.phase] : 'Collecting evidence'}…`}</p>
+      : (analysisActive || blocked) && <p className="readiness-activity" role="status">Another Taskmaster analysis is active. Assessment actions will be available when it finishes.</p>}
+    {suggestion && !suggestionActive && !failedSuggestion && <p role="status">{readinessSuggestionMessage(suggestion)}</p>}
+    {message && !running && !analysisActive && <p role="status">{message}</p>}
     {error && <p className="recommendation-error" role="alert">{error}</p>}
-    {(status?.run?.state === 'failed' || status?.run?.state === 'interrupted') && <p>The latest attempt {status.run.state === 'failed' ? 'failed' : 'was interrupted'}. Previous assessments are retained. {readinessFailureMessage(status.run.errorCode)}</p>}
+    {failedRun && <div className="readiness-failure">
+      <p className="readiness-failure-heading">Previous assessment {failedRun.state === 'failed' ? 'failed' : 'was interrupted'} · <time dateTime={failedRun.completedAt ?? failedRun.startedAt}>{new Date(failedRun.completedAt ?? failedRun.startedAt).toLocaleString()}</time></p>
+      <p>{latestData ? 'Your saved assessment is retained.' : 'No new assessment was saved.'} {readinessFailureRecovery(failedRun.errorCode)}</p>
+      <details><summary>Failure details</summary><p>{readinessFailureMessage(failedRun.errorCode)}</p></details>
+    </div>}
+    {separateSuggestionFailure && <div className="readiness-failure">
+      <p className="readiness-failure-heading">Previous improvement attempt {failedSuggestion.state === 'failed' ? 'failed' : 'was interrupted'}</p>
+      <p>{latestData ? 'Your saved score is retained.' : 'No new improvement is available.'} {failedSuggestion.reasonCode === 'suggestion_failed' ? 'The suggestion stage did not finish. Try Find next improvement again when analysis is idle.' : 'Try again when the workspace and settings are stable and analysis is idle.'}</p>
+      <details><summary>Failure details</summary><p>{readinessSuggestionMessage(failedSuggestion)}</p></details>
+    </div>}
     {status?.reasonCode && <p>Readiness history is unavailable ({status.reasonCode.replaceAll('_', ' ')}).</p>}
     {!selected && !running && !status?.reasonCode && <p className="readiness-empty">No assessment yet. Find next improvement assesses readiness and seeks one grounded suggestion; Check agent readiness scores only.</p>}
     {selected && <div id="readiness-report" hidden={!reportOpen}>

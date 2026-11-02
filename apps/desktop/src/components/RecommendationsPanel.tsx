@@ -638,7 +638,7 @@ function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePat
 
   return (
     <section className="recommendations-panel">
-      <ReadinessPanel onHistory={setReadinessSnapshots} requestedSnapshot={readinessSource} key={workspacePath ?? 'none'} workspacePath={workspacePath ?? ''} enabled={hasWorkspace && taskmasterReady} disabled={analysisBusy || assessmentBusy || Boolean(currentRunStatus?.activeAttempt)} onBusyChange={setReadinessBusy} onSuggestion={(id) => { void refresh(); if (id) setOriginFilter("analysis"); }} renderActions={readinessActions => <>
+      <ReadinessPanel onHistory={setReadinessSnapshots} requestedSnapshot={readinessSource} key={workspacePath ?? 'none'} workspacePath={workspacePath ?? ''} enabled={hasWorkspace && taskmasterReady} disabled={analysisBusy || assessmentBusy || Boolean(currentRunStatus?.activeAttempt)} analysisActive={analysisBusy || assessmentBusy || Boolean(currentRunStatus?.activeAttempt)} onBusyChange={setReadinessBusy} onSuggestion={(id) => { void refresh(); if (id) setOriginFilter("analysis"); }} renderActions={readinessActions => <>
       <div className="recommendations-panel-header">
         <div><h2>Recommendations</h2><p>Review what matters. Choose what happens next.</p></div>
         <div className="recommendations-panel-actions">

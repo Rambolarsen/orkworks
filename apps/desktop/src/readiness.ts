@@ -325,6 +325,22 @@ export function readinessFailureMessage(code:string|null|undefined):string {
  return `${stages[match[1]]}: ${causes[match[2]]}`;
 }
 
+// Recovery advice is local, cause-specific text; persisted provider prose is never rendered.
+export function readinessFailureRecovery(code: string | null | undefined): string {
+ const cause = /^(discovery|evidence|scoring|publication)_(.+)$/.exec(code ?? '')?.[2];
+ switch (cause) {
+  case 'evidence_limit': return 'The selection exceeded the evidence allowance. Review evidence access and exclusions in Taskmaster settings before retrying.';
+  case 'prompt_limit': return 'The assessment context was too large. Review context access and exclusions in Taskmaster settings before retrying.';
+  case 'provider_authentication': return 'Sign in to the model provider, then try again.';
+  case 'provider_model': case 'provider_request': case 'provider_unsupported': return 'Review the model and coding tool configuration in Taskmaster settings before retrying.';
+  case 'provider_timeout': case 'provider_unavailable': return 'Try again when the model provider is available and analysis is idle.';
+  case 'inputs_changed': return 'Assess again once the workspace and settings are stable.';
+  case 'evidence_unavailable': return 'Check repository access and excluded paths before retrying.';
+  case 'metadata_unavailable': return 'Check local storage access before retrying.';
+  default: return 'Try Check agent readiness again when analysis is idle.';
+ }
+}
+
 export function readinessQualification(data:ReadinessData):string {
  const selection=data.inferenceIdentity.selection;
  if(selection?.provider==='codex'&&selection.model==='gpt-6-luna'&&selection.reasoningEffort==='medium')return 'This model profile failed retained readiness qualification. These ratings may be unreliable. Consider a qualified profile in Taskmaster settings.';
@@ -336,7 +352,7 @@ export function readinessQualification(data:ReadinessData):string {
 export function readinessSuggestionMessage(run:ReadinessSuggestionRun):string {
  if(run.state==='queued'||run.state==='running')return run.phase==='suggesting'?'Finding a next improvement…':'Scoring readiness…';
  if(run.state==='interrupted')return 'Assessment and suggestion was interrupted. Any saved score is retained. Assess again when the workspace and settings are stable.';
- if(run.state==='failed')return 'The combined assessment could not finish. Any saved score is retained. Check Taskmaster settings and try again.';
+ if(run.state==='failed')return 'The combined assessment could not finish. Any saved score is retained. Try again when analysis is idle; review the linked failure details when available.';
  if(run.reasonCode==='active_recommendation')return 'An active Brain recommendation is available below. Complete or dismiss it before requesting another improvement.';
  if(run.reasonCode==='recommendation_created')return 'A grounded improvement is available in Analysis below. Review it before choosing Fix with AI.';
  if(run.reasonCode==='no_proposal')return run.noProposalReason??'No supported change was identified. A low score may reflect missing evidence rather than a confirmed defect.';
