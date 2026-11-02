@@ -4,7 +4,7 @@ import type { HarnessConfig, CreateSessionOptions, IntegrationStatusResult } fro
 import type { ProviderModelsResponse } from "../providerTypes";
 import type { ProviderRuntimeResponse } from "../api";
 import { getHarnessDetectionStatus } from "../harnessDetection";
-import { canStartNewSession, detectedSelectableHarnesses, syncDraftWithHarnesses, type NewSessionDraft } from "../newSessionDialogState";
+import { CUSTOM_MODEL_VALUE, canStartNewSession, detectedSelectableHarnesses, resolveModelChoice, syncDraftWithHarnesses, type NewSessionDraft } from "../newSessionDialogState";
 
 import { IMAGE_ACCEPT, prepareImageBatch, releaseImages, type DraftImage } from "../sessionImages";
 
@@ -23,6 +23,7 @@ function harnessLabel(name: string, state: string | undefined): string {
 
 const LS_HARNESS_KEY = "orkworks-new-session-harnessId";
 const LS_MODEL_KEY = "orkworks-new-session-model";
+const LS_MODEL_CUSTOM_KEY = "orkworks-new-session-model-custom";
 
 function getSavedDraft(): NewSessionDraft | null {
   const savedHarnessId = localStorage.getItem(LS_HARNESS_KEY);
@@ -74,7 +75,10 @@ export default function NewSessionDialog({ workspacePath = "", harnesses, provid
   const fileInput = useRef<HTMLInputElement>(null);
   const [modelCatalog, setModelCatalog] = useState<(ProviderModelsResponse & { harnessId: string }) | null>(null);
   const models = modelCatalog?.harnessId === draft.harnessId ? modelCatalog.models : [];
+  const [customModelRequested, setCustomModelRequested] = useState(() => localStorage.getItem(LS_MODEL_CUSTOM_KEY) === "1");
+  const modelChoice = resolveModelChoice(models, draft.model, customModelRequested);
   const selectedModel = models.includes(draft.model) ? draft.model : "";
+  const customModelInput = useRef<HTMLInputElement>(null);
   const [reasoningEffort, setReasoningEffort] = useState("");
   const efforts = draft.harnessId === "codex" && modelCatalog?.harnessId === draft.harnessId
     ? modelCatalog.modelOptions?.find((option) => option.id === selectedModel)?.reasoningEfforts ?? [] : [];
@@ -173,6 +177,7 @@ export default function NewSessionDialog({ workspacePath = "", harnesses, provid
 
   function handleHarnessChange(id: string) {
     setReasoningEffort("");
+    setCustomModelRequested(false);
     const h = selectable.find((h) => h.id === id);
     setDraft({
       harnessId: id,
@@ -209,10 +214,12 @@ export default function NewSessionDialog({ workspacePath = "", harnesses, provid
       }
       if (generation !== confirmationGeneration.current) return;
       const harnessId = draft.harnessId || undefined;
-      const model = selectedModel || undefined;
+      const model = modelChoice.model;
       if (harnessId) localStorage.setItem(LS_HARNESS_KEY, harnessId);
       if (model) localStorage.setItem(LS_MODEL_KEY, model);
       else localStorage.removeItem(LS_MODEL_KEY);
+      if (modelChoice.custom && model) localStorage.setItem(LS_MODEL_CUSTOM_KEY, "1");
+      else localStorage.removeItem(LS_MODEL_CUSTOM_KEY);
       setImageError("");
       await onConfirm({ harnessId, model, ...(selectedEffort ? { reasoningEffort: selectedEffort } : {}), initialPrompt: initialPrompt.trim() || undefined,
         ...(imagesRef.current.length ? {imageWorkspacePath: workspacePath, initialImages: imagesRef.current.map(({name,mimeType,dataBase64}) => ({name,mimeType,dataBase64}))} : {}),
@@ -222,7 +229,7 @@ export default function NewSessionDialog({ workspacePath = "", harnesses, provid
     } finally {
       if (generation === confirmationGeneration.current) setConfirmBusy(false);
     }
-  }, [selectedEffort, confirmBusy, detectedHarnessIds, draft.harnessId, selectedModel, imageTools, initialPrompt, onConfirm, selectable, workspacePath]);
+  }, [selectedEffort, confirmBusy, detectedHarnessIds, draft.harnessId, modelChoice.model, modelChoice.custom, imageTools, initialPrompt, onConfirm, selectable, workspacePath]);
 
   function handleKeyDown(e: React.KeyboardEvent) {
     // Buttons own Enter so keyboard attachment/removal/cancellation cannot submit.
@@ -294,16 +301,37 @@ export default function NewSessionDialog({ workspacePath = "", harnesses, provid
                 className="new-session-select"
                 aria-label="Model"
                 disabled={confirmBusy || models.length === 0}
-                value={selectedModel}
-                onChange={(e) => { setReasoningEffort(""); setDraft((current) => ({ ...current, model: e.target.value })); }}
+                value={modelChoice.selectValue}
+                onChange={(e) => {
+                  setReasoningEffort("");
+                  if (e.target.value === CUSTOM_MODEL_VALUE) {
+                    setCustomModelRequested(true);
+                    setDraft((current) => ({ ...current, model: modelChoice.custom ? current.model : "" }));
+                    setTimeout(() => customModelInput.current?.focus(), 0);
+                    return;
+                  }
+                  setCustomModelRequested(false);
+                  setDraft((current) => ({ ...current, model: e.target.value }));
+                }}
               >
                 <option value="">{!draft.harnessId || draft.harnessId === "generic-shell" ? "default settings" : "my default model"}</option>
                 {models.map((model) => (
                   <option key={model} value={model}>{model}</option>
                 ))}
+                {models.length > 0 && <option value={CUSTOM_MODEL_VALUE}>Custom model…</option>}
               </select>
               <ChevronDown size={16} aria-hidden="true" />
-            </span></span>
+            </span>{modelChoice.custom && <>{" "}<input
+              ref={customModelInput}
+              className="new-session-select new-session-custom-model"
+              aria-label="Custom model id"
+              placeholder="model id"
+              spellCheck={false}
+              autoComplete="off"
+              disabled={confirmBusy}
+              value={draft.model}
+              onChange={(e) => setDraft((current) => ({ ...current, model: e.target.value }))}
+            /></>}</span>
             {efforts.length > 0 && <span className="new-session-phrase"> with <span className="new-session-choice">
               <select id="nsd-effort" className="new-session-select" aria-label="Reasoning effort"
                 disabled={confirmBusy} value={selectedEffort} onChange={(event) => setReasoningEffort(event.target.value)}>

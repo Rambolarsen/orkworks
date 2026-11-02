@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { activeNewSessionHarnesses, canStartNewSession, detectedSelectableHarnesses, normalizeActiveHarnessIds, syncDraftWithHarnesses } from "../src/newSessionDialogState.ts";
+import { CUSTOM_MODEL_VALUE, activeNewSessionHarnesses, canStartNewSession, resolveModelChoice, detectedSelectableHarnesses, normalizeActiveHarnessIds, syncDraftWithHarnesses } from "../src/newSessionDialogState.ts";
 import type { HarnessConfig } from "../src/harnessTypes.ts";
 
 function harness(id: string, name = id, defaultModel = ""): HarnessConfig {
@@ -124,4 +124,28 @@ test("detectedSelectableHarnesses keeps Shell and filters unavailable coding too
 test("canStartNewSession rejects a stale harness when detection filters every tool", () => {
   assert.equal(canStartNewSession([harness("opencode", "OpenCode")], "opencode", new Set()), false);
   assert.equal(canStartNewSession([harness("opencode", "OpenCode")], "", new Set()), true);
+});
+
+test("resolveModelChoice passes a listed model through the select", () => {
+  const choice = resolveModelChoice(["opus", "sonnet"], "opus", false);
+  assert.deepEqual(choice, { custom: false, selectValue: "opus", model: "opus" });
+});
+
+test("resolveModelChoice reveals the custom input and trims the typed id", () => {
+  const choice = resolveModelChoice(["opus"], "  claude-opus-5-5 ", true);
+  assert.deepEqual(choice, { custom: true, selectValue: CUSTOM_MODEL_VALUE, model: "claude-opus-5-5" });
+});
+
+test("resolveModelChoice falls back to the default model for a blank custom id", () => {
+  const choice = resolveModelChoice(["opus"], "   ", true);
+  assert.equal(choice.custom, true);
+  assert.equal(choice.model, undefined);
+});
+
+test("resolveModelChoice drops an unlisted model unless custom entry is flagged", () => {
+  assert.deepEqual(resolveModelChoice(["opus"], "claude-x", false), { custom: false, selectValue: "", model: undefined });
+});
+
+test("resolveModelChoice offers no custom entry without a model list", () => {
+  assert.deepEqual(resolveModelChoice([], "claude-x", true), { custom: false, selectValue: "", model: undefined });
 });
