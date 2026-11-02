@@ -15,8 +15,14 @@ if (process.env.ORKWORKS_SKILLS_FIXTURE) {
         if (level >= 2) console.error(text);
       });
       const evaluate = async (code) => {
+        // Sanitize results so DOM nodes never cross the executeJavaScript
+        // serialization bridge: Electron 45 (Chromium 156) serializes expando
+        // properties of returned nodes, and React-rendered nodes carry
+        // function/cycle expandos that reject with "An object could not be
+        // cloned". Serialized primitives and plain objects pass through.
+        const sanitized = `(() => { const value = eval((${JSON.stringify(code)})); if (value && typeof value === "object" && value.nodeType) return "__NODE__"; if (typeof value === "function") return "__FUNCTION__"; return value; })()`;
         try {
-          return await win.webContents.executeJavaScript(code, true);
+          return await win.webContents.executeJavaScript(sanitized, true);
         } catch (error) {
           throw new Error(code + ": " + error.message);
         }
