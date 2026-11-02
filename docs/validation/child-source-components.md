@@ -71,7 +71,7 @@ own rubric cannot override it. Distinct child IDs cannot disguise shared worker/
 reviewer allocation descriptors.
 
 Bounds include inclusive multibyte labels, role/rubric and original reservation
-versions through 2^31−1, textual CommitRefs beyond 2^53 through 2^63−1, path/base/
+versions through 2^31−1, textual CommitRefs beyond 2^53 through 2^64−1, path/base/
 branch syntax, 16 KiB complete metadata wrappers, and exact 256 KiB frame/startup
 ceilings. A combination of individually valid native path components can still
 fail its complete metadata wrapper. This is a denial oracle, not a promise that
@@ -86,7 +86,7 @@ so these counts cannot establish delivery or native eligibility.
 
 ## Verification and review
 
-Node 22 docs:build passed all 907 documentation component tests, including 127
+Node 22 docs:build passed all 909 documentation component tests, including 129
 child-source cases and the existing 78 root-bootstrap cases. Independent Python
 regeneration reproduces the complete packet. Diff, documentation currency and
 worktree checks passed. The existing VitePress circular/large-chunk warnings do
@@ -122,3 +122,16 @@ native authority steps remain open in the
 Gate C complete transactions and Gate D runtime/platform qualification remain gated.
 #1183/#1176 stay open, #740 stays closed, and no model/native probe or runtime
 change is included.
+
+
+## Counter range correction — 2026-11-02
+
+Tracing the transition/preparation contracts found that the child checker used
+#742's signed-63-bit run/admission maximum for a storage CommitRef. The
+[storage Counter contract](../superpowers/specs/2026-10-24-hierarchy-storage-contract-design.md#proposed-strict-storage-representation)
+instead requires canonical u64 TEXT through 18446744073709551615. The child
+checker now accepts that complete positive range and rejects its successor;
+run/admission sequence and JSON task/version bounds are unchanged. Two boundary
+cases failed before the correction and pass after it. Existing golden bytes,
+fields, domains and older root fixture catalogs are unchanged. This is a checker
+correction, not a new source policy or proof that a commit occurred.

@@ -131,7 +131,7 @@ for (const [name, mutate] of [
   ['native path over 4096 bytes', p => p.worker.plan.task.group.absolutePath.base64=Buffer.from('/'+'x'.repeat(4096)).toString('base64')],
   ['native relative path', p => p.worker.plan.task.group.absolutePath.base64=Buffer.from('relative').toString('base64')],
   ['commit Counter precision loss', p => p.worker.receipt.commit.commitSequence=9007199254740992],
-  ['commit Counter overflow', p => p.worker.receipt.commit.commitSequence='9223372036854775808'],
+  ['commit Counter overflow', p => p.worker.receipt.commit.commitSequence='18446744073709551616'],
   ['rehashed reservation frozen version', p => {p.worker.reservation.assignmentTaskVersion++; reseal(p.worker.reservation,'reservationDigest','orkworks.child-source-reservation.v1');}],
   ['rehashed allocation wrong group', p => {p.worker.allocation.group.branchName='foreign'; reseal(p.worker.allocation,'allocationDigest','orkworks.child-source-allocation.v1');}],
   ['rehashed attachment wrong identity', p => {p.worker.attachment.assignmentIdentity.taskVersion++; reseal(p.worker.attachment,'attachmentDigest','orkworks.child-source-attachment.v1');}],
@@ -263,4 +263,9 @@ test('rehashing cannot make the worker allocation an independent reviewer worktr
   p.reviewer.allocation.group=structuredClone(p.reviewer.plan.task.group);
   p.reviewer.allocation.allocatedWorktree=structuredClone(w.allocatedWorktree); refreshOwner(p.reviewer);
   assert.throws(() => verifyChildSources(p),/reviewer allocation independence/);
+});
+
+for (const value of ['9223372036854775808','18446744073709551615']) test('storage CommitRef accepts full u64 TEXT '+value, () => {
+  const p=structuredClone(packet); p.reviewer.receipt.commit.commitSequence=value;
+  assert.equal(verifyChildSources(p).classification,'unverified-source-bytes-only');
 });
