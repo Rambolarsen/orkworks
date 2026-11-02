@@ -3255,8 +3255,8 @@ html, body, #root {
 .skills-group h3 span { color: var(--text-muted); background: var(--surface-2); padding: 2px 7px; border-radius: 6px; font-size: 11px; font-weight: 500; }
 .skills-group-caption { margin-bottom: 12px !important; }
 .skills-add, .skills-preview, .skills-detail { border: 1px solid var(--border-default); background: var(--surface-1); border-radius: 10px; padding: 16px; }
-.skills-installation-group { min-width: 0; margin-top: 18px; }
-.skills-plugin { min-width: 0; margin: 12px 0 18px; padding: 12px; border: 1px solid var(--border-subtle); border-radius: 10px; }
+.skills-installation-group { min-width: 0; margin-top: 8px; border: 1px solid var(--border-subtle); border-radius: 8px; padding: 8px; }
+.skills-plugin { min-width: 0; margin: 4px 0; padding: 4px; border-bottom: 1px solid var(--border-subtle); }
 .skills-plugin-heading { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 6px; cursor: pointer; list-style: none; }
 .skills-plugin[open] > .skills-plugin-heading { margin-bottom: 6px; }
 .skills-plugin-heading h4 { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; margin: 0; overflow-wrap: anywhere; }
@@ -3268,12 +3268,12 @@ html, body, #root {
 .skills-integrity--differs { color: var(--text-primary); font-weight: 600; }
 .skills-row { min-width: 0; border-bottom: 1px solid var(--border-subtle); }
 .skills-row-heading { flex-wrap: wrap; cursor: pointer; padding: 10px 8px; min-height: 22px; border-radius: 6px; list-style: none; }
-.skills-plugin-heading::-webkit-details-marker, .skills-row-heading::-webkit-details-marker { display: none; }
-.skills-plugin-heading:hover, .skills-row-heading:hover { background: var(--surface-2); }
-.skills-plugin-heading:focus-visible, .skills-row-heading:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: -2px; }
+.skills-section-heading::-webkit-details-marker, .skills-plugin-heading::-webkit-details-marker, .skills-row-heading::-webkit-details-marker { display: none; }
+.skills-section-heading:hover, .skills-plugin-heading:hover, .skills-row-heading:hover { background: var(--surface-2); }
+.skills-section-heading:focus-visible, .skills-plugin-heading:focus-visible, .skills-row-heading:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: -2px; }
 .skills-row-heading strong { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 13px; font-weight: 500; }
 .skills-chevron { flex-shrink: 0; color: var(--text-muted); }
-.skills-plugin[open] > summary > .skills-chevron, .skills-row details[open] > summary .skills-chevron { transform: rotate(90deg); }
+.skills-installation-group[open] > summary > .skills-chevron, .skills-apm[open] > summary > .skills-chevron, .skills-plugin[open] > summary > .skills-chevron, .skills-row details[open] > summary .skills-chevron { transform: rotate(90deg); }
 .skills-row-body { display: grid; gap: 10px; min-width: 0; padding: 4px 12px 16px 33px; font-size: 13px; }
 .skills-row-body button { justify-self: start; }
 .skills-badge { flex-shrink: 0; color: var(--text-muted); background: var(--surface-2); font-size: 10px; padding: 2px 7px; border-radius: 5px; }
@@ -3315,15 +3315,18 @@ html, body, #root {
 .skills-source h4 > .skills-badge { max-width: 100%; box-sizing: border-box; overflow-wrap: anywhere; }
 .skills-source h4 > span:not(.skills-badge) { min-width: 0; overflow-wrap: anywhere; }
 
+.skills-section-heading { display: flex; align-items: center; gap: 8px; padding: 8px; cursor: pointer; list-style: none; border-radius: 6px; }
+.skills-section-heading h3 { margin: 0; font-size: 13px; }
+.skills-section-heading > svg { flex-shrink: 0; color: var(--text-muted); }
+.skills-installation-group > .skills-group-caption { padding: 8px; }
+.skills-apm-body { display: grid; gap: 10px; padding: 12px 8px 8px; }
 .skills-apm {
-  display: grid;
-  gap: 10px;
   min-width: 0;
-  padding: 16px;
+  padding: 8px;
   border: 1px solid var(--border-default);
   border-radius: 8px;
 }
 .skills-apm label { display: grid; gap: 6px; min-width: 0; }
 .skills-apm .ui-input { width: 100%; min-width: 0; box-sizing: border-box; }
-.skills-apm > button { justify-self: start; }
+.skills-apm-body > button { justify-self: start; }
 .skills-apm p { margin: 0; overflow-wrap: anywhere; }

@@ -340,7 +340,8 @@ remote or broader packages show an explained terminal fallback. See the
 [qualification limits](docs/validation/skills-management.md). This does not claim
 that published installers already include the feature.
 
-The Skills page also shows APM's resolved executable, version and installation
+Plugins, Local skills and their groups start collapsed. Below the inventory,
+expand **APM configuration** to see APM's resolved executable, version and installation
 compatibility. An optional executable-path override handles desktop PATH differences;
 clearing it restores automatic detection. APM is installed and upgraded separately.
 

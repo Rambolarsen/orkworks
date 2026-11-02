@@ -31,6 +31,9 @@ scope filters, Changed only, Refresh, and Add skill. Each row expands to its sou
 clearly labeled Workspace or Personal. Back, its toggle, or Escape within the page
 returns to the previous central content; selecting a session opens its Terminal.
 Skills is transient and is not restored after restart.
+Plugins, Local skills, each plugin group and each skill row start collapsed.
+Section headings retain counts; search and filters remain visible. APM configuration
+appears below the inventory in a separate section that also starts collapsed.
 Personal discovery works without an open workspace; Workspace then explains
 that opening a workspace is required.
 Plugin registration names head their groups, appear on source entries, and remain

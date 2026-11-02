@@ -273,26 +273,6 @@ export default function SkillsSettings({
           </button>
         </div>
       </div>
-      <section data-apm-settings className="skills-apm" aria-label="APM configuration">
-        <div className="skills-heading">
-          <h3>APM</h3>
-          <button data-check-apm className="ui-button ui-button--md ui-button--secondary" disabled={busy} onClick={() => void load()}>
-            <RefreshCw size={14} aria-hidden="true" /> Check again
-          </button>
-        </div>
-        <p>{inventory?.apm?.message || "Checking APM availability…"}</p>
-        {inventory?.apm?.path && <p className="skills-path">Executable: {inventory.apm.path}</p>}
-        {inventory?.apm?.version && <p>Version: {inventory.apm.version}</p>}
-        <label>
-          APM executable path
-          <input aria-label="APM executable path" className="ui-input" value={apmPath} disabled={busy}
-            placeholder="Automatic detection from desktop PATH"
-            onChange={event => setApmPath(event.target.value)} />
-        </label>
-        <p className="skills-group-caption">Optional absolute path. Leave empty to use desktop PATH. Saving checks the selected executable, which runs as your user.</p>
-        <button data-save-apm className="ui-button ui-button--md ui-button--secondary" disabled={busy || !inventory || apmPath === (inventory.apm?.executableOverride || "")} onClick={() => void saveApm()}>Save path and check</button>
-        <p className="skills-group-caption">Reviewed installs support local standalone skills for Codex through APM 0.33.0. Install or update APM separately. Skill browsing works without APM.</p>
-      </section>
       <div role="status" aria-live="polite">
         {busy ? "Working…" : status}
       </div>
@@ -348,14 +328,6 @@ export default function SkillsSettings({
           Changed only
         </label>
       </div>
-      <p className="skills-group-caption">
-        Skills are grouped by recorded plugin, with other files under Local skills.
-        Expand a skill to inspect its sources. Local + plugin marks a name found in
-        both, even if another source is hidden by filters. Matching names may have
-        different instructions. Found does not mean loaded or enabled.
-        APM comparisons check SKILL.md only, at refresh time; companion resources and
-        package authenticity are outside this comparison.
-      </p>
       <p className="skills-group-caption">
         {currentWorkspacePath
           ? `Workspace: ${currentWorkspacePath}`
@@ -490,10 +462,14 @@ export default function SkillsSettings({
             : "Loading skills…"}</p>
         )}
         {!!pluginGroups.length && (
-          <section className="skills-installation-group" aria-label="Plugins">
-            <h3><Package size={16} aria-hidden="true" /> Plugins <span>{pluginGroups.length}</span></h3>
+          <details data-plugin-skills className="skills-installation-group" aria-label="Plugins">
+            <summary className="skills-section-heading">
+              <ChevronRight className="skills-chevron" size={15} aria-hidden="true" />
+              <Package size={16} aria-hidden="true" />
+              <h3>Plugins <span>{pluginGroups.length}</span></h3>
+            </summary>
             {pluginGroups.map(([plugin, entries]) => (
-              <details open key={plugin} data-skill-plugin={plugin} className="skills-plugin" aria-label={`Plugin: ${plugin}`}>
+              <details key={plugin} data-skill-plugin={plugin} className="skills-plugin" aria-label={`Plugin: ${plugin}`}>
                 <summary className="skills-plugin-heading">
                   <ChevronRight className="skills-chevron" size={15} aria-hidden="true" />
                   <h4><Package size={14} aria-hidden="true" />{plugin}<span className="skills-badge">{skillNameGroups(entries).length} {skillNameGroups(entries).length === 1 ? "skill" : "skills"}</span></h4>
@@ -501,19 +477,56 @@ export default function SkillsSettings({
                 {renderRows(entries)}
               </details>
             ))}
-          </section>
+          </details>
         )}
         {!!localSkills.length && (
-          <section data-local-skills className="skills-installation-group" aria-label="Local skills">
-            <h3>Local skills</h3>
+          <details data-local-skills className="skills-installation-group" aria-label="Local skills">
+            <summary className="skills-section-heading">
+              <ChevronRight className="skills-chevron" size={15} aria-hidden="true" />
+              <h3>Local skills <span>{skillNameGroups(localSkills).length}</span></h3>
+            </summary>
             <p className="skills-group-caption">No recorded plugin ownership. These may include manually installed or APM-generated files.</p>
             {renderRows(localSkills)}
-          </section>
+          </details>
         )}
       </section>
+      <details data-apm-settings className="skills-apm" aria-label="APM configuration">
+        <summary className="skills-section-heading">
+          <ChevronRight className="skills-chevron" size={15} aria-hidden="true" />
+          <h3>APM configuration</h3>
+        </summary>
+        <div className="skills-apm-body">
+          <div className="skills-heading">
+            <button data-check-apm className="ui-button ui-button--md ui-button--secondary" disabled={busy} onClick={() => void load()}>
+              <RefreshCw size={14} aria-hidden="true" /> Check again
+            </button>
+          </div>
+          <p>{inventory?.apm?.message || "Checking APM availability…"}</p>
+          {inventory?.apm?.path && <p className="skills-path">Executable: {inventory.apm.path}</p>}
+          {inventory?.apm?.version && <p>Version: {inventory.apm.version}</p>}
+          <label>
+            APM executable path
+            <input aria-label="APM executable path" className="ui-input" value={apmPath} disabled={busy}
+              placeholder="Automatic detection from desktop PATH"
+              onChange={event => setApmPath(event.target.value)} />
+          </label>
+          <p className="skills-group-caption">Optional absolute path. Leave empty to use desktop PATH. Saving checks the selected executable, which runs as your user.</p>
+          <button data-save-apm className="ui-button ui-button--md ui-button--secondary" disabled={busy || !inventory || apmPath === (inventory.apm?.executableOverride || "")} onClick={() => void saveApm()}>Save path and check</button>
+          <p className="skills-group-caption">Reviewed installs support local standalone skills for Codex through APM 0.33.0. Install or update APM separately. Skill browsing works without APM.</p>
+        </div>
+      </details>
       {inventory && (
         <details className="skills-coverage">
           <summary>Discovery coverage and source roots</summary>
+          <p className="skills-group-caption">
+            Skills are grouped by recorded plugin, with other files under Local skills.
+            Expand a skill to inspect its sources. Local + plugin marks a name found in
+            both, even if another source is hidden by filters. Matching names may have
+            different instructions. Found does not mean loaded or enabled.
+            APM comparisons check SKILL.md only, at refresh time; companion resources and
+            package authenticity are outside this comparison.
+          </p>
+
           <p>
             Found on disk does not confirm that a coding tool loaded or used a
             skill. Sources retain their scopes, paths and versions; effective

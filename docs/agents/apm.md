@@ -35,7 +35,8 @@ See [qualification evidence](../validation/skills-management.md) for the initial
 local-only profile and discovery gaps. The rest of this guide describes this
 repository's development setup, not a universal installer configuration.
 
-The desktop Skills page includes APM status and configuration: resolved executable,
+The desktop Skills page includes a collapsed APM configuration section below the
+inventory: resolved executable,
 CLI version, compatibility, Check again, and an optional absolute executable-path
 override stored in desktop settings. Clearing the path restores desktop PATH
 discovery; an unavailable override never falls back silently. Saving checks the
