@@ -49,6 +49,7 @@ pub(crate) struct NativeApprovalState {
     ownership: Option<(AttentionWriteToken, SessionWriteToken)>,
     sql_ownership: Option<(AttentionWriteToken, crate::session_store::AttentionProof)>,
     instance: Arc<()>,
+    hook_application: Arc<()>,
     validated_permission: Option<AttentionWriteToken>,
     live_revision: Option<AttentionWriteToken>,
     committed_input_sequence: u64,
@@ -78,6 +79,7 @@ impl NativeApprovalState {
             ownership: None,
             sql_ownership: None,
             instance: Arc::new(()),
+            hook_application: Arc::new(()),
             validated_permission: None,
             live_revision: None,
             committed_input_sequence: 0,
@@ -86,7 +88,7 @@ impl NativeApprovalState {
 }
 
 /// Private mailbox scalars only. Never include the reporting capability.
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct NativeHookReport {
     pub(crate) root_id: String,
@@ -104,7 +106,7 @@ pub(crate) enum HookReportOutcome {
     Rejected,
 }
 
-fn expected_fingerprint() -> Option<String> {
+pub(crate) fn expected_fingerprint() -> Option<String> {
     let reporter = dirs::home_dir()?
         .join(".orkworks/hook-scripts")
         .join(crate::harness::integrations::ReporterPlatform::current().asset_name());
@@ -255,108 +257,22 @@ pub(crate) fn report_hook(
         let Some(mut meta) = workspace.metadata.read_session(id) else {
             return HookReportOutcome::Retry;
         };
-        tracker.sync(handle, &meta);
-        let now = Instant::now();
-        let observed = chrono::DateTime::parse_from_rfc3339(&report.observed_at)
-            .ok()
-            .map(|t| t.with_timezone(&chrono::Utc));
-        if fingerprint.as_deref() != Some(report.hook_fingerprint.as_str())
-            || !crate::metadata::valid_hook_fingerprint(&report.hook_fingerprint)
-            || !bounded_id(&report.root_id)
-            || report.turn_id.as_deref().is_some_and(|id| !bounded_id(id))
-            || report
-                .tool_use_id
-                .as_deref()
-                .is_some_and(|id| !bounded_id(id))
-            || report.observed_at.len() > 64
-            || first_receipt > now
-            || observed.is_none()
-        {
-            tracker.reducer.disconnected();
-            tracker.hook_revision = tracker.hook_revision.and_then(|r| r.checked_add(1));
-            return HookReportOutcome::Rejected;
-        }
-        let observed = observed.expect("validated timestamp");
-        let age = chrono::Utc::now().signed_duration_since(observed);
-        let delayed_permission =
-            age > chrono::Duration::seconds(30) && report.event == HookEvent::PermissionRequest;
-        if age < chrono::Duration::seconds(-1)
-            || (age > chrono::Duration::seconds(30) && !delayed_permission)
-        {
-            tracker.reducer.disconnected();
-            tracker.hook_revision = tracker.hook_revision.and_then(|r| r.checked_add(1));
-            return HookReportOutcome::Rejected;
-        }
-        let Some(root) = tracker.root.as_deref() else {
-            return HookReportOutcome::Retry;
+        let prepared = match hook_context::prepare(
+            &mut tracker,
+            handle,
+            &meta,
+            first_receipt,
+            report,
+            fingerprint.as_deref(),
+        ) {
+            Ok(prepared) => prepared,
+            Err(outcome) => return outcome,
         };
-        if root != report.root_id || meta.lifecycle != "alive" {
-            tracker.invalidate();
-            return HookReportOutcome::Rejected;
-        }
-        if handle
-            .runtime
-            .accepted_input_at
-            .is_some_and(|input| observed <= input)
-        {
-            tracker.reducer.disconnected();
-            tracker.hook_revision = tracker.hook_revision.and_then(|r| r.checked_add(1));
-            return HookReportOutcome::Rejected;
-        }
-        let boundary = matches!(report.event, HookEvent::Stop | HookEvent::UserPromptSubmit);
-        if let Some(external) = handle.runtime.last_hook_attention_at.filter(|at| {
-            tracker
-                .last_private_attention_at
-                .is_none_or(|private| *at > private)
-        }) {
-            tracker.fenced_hook_at = Some(
-                tracker
-                    .fenced_hook_at
-                    .map_or(external, |at| at.max(external)),
-            );
-        }
-        // A valid boundary fences its older queued events even if newer
-        // correlation or attention makes replaying its transition stale.
-        // Input and all scalar/auth/root checks have already passed.
-        if boundary {
-            tracker.fenced_hook_at = Some(
-                tracker
-                    .fenced_hook_at
-                    .map_or(observed, |at| at.max(observed)),
-            );
-        }
-        if tracker
-            .fenced_hook_at
-            .is_some_and(|at| observed < at || (observed == at && !boundary))
-        {
-            tracker.reducer.disconnected();
-            tracker.hook_revision = tracker.hook_revision.and_then(|r| r.checked_add(1));
-            return HookReportOutcome::Rejected;
-        }
-        // UUID filename order is not event order. Ties and reversed delivery
-        // revoke correlation; an authenticated permission remains conservative.
-        let reordered = tracker
-            .last_hook_at
-            .is_some_and(|previous| observed <= previous)
-            || handle
-                .runtime
-                .last_hook_attention_at
-                .is_some_and(|previous| observed < previous);
-        if reordered {
-            tracker.reducer.disconnected();
-            tracker.hook_revision = tracker.hook_revision.and_then(|r| r.checked_add(1));
-            if report.event != HookEvent::PermissionRequest {
-                return HookReportOutcome::Rejected;
-            }
-        }
-        // A delayed permission is still validated evidence that a wait exists,
-        // but its old timestamp cannot support native correlation or clearing.
-        // Disconnect first so the reducer retains it only through its locked,
-        // post-grace conservative path.
-        if delayed_permission {
-            tracker.reducer.disconnected();
-        }
-        let activation = report.event == HookEvent::PermissionRequest && !handle.active_work_hook;
+        let hook_context::PreparedHook {
+            boundary,
+            activation,
+            ..
+        } = prepared;
         if (activation || boundary)
             && meta.attention_source() != "user"
             && handle
@@ -371,23 +287,21 @@ pub(crate) fn report_hook(
                 id,
                 crate::metadata::session_transactions::WriteScope::ATTENTION,
                 |latest| {
-                    if latest.attention_source() == "user" {
-                        return Ok(false);
-                    }
-                    latest.observed_status = match report.event {
-                        HookEvent::Stop => Some("idle".into()),
-                        HookEvent::UserPromptSubmit => Some("working".into()),
-                        _ => None,
+                    let transition = match report.event {
+                        HookEvent::Stop => {
+                            crate::metadata::internal_mutations::HookTransition::Stop
+                        }
+                        HookEvent::UserPromptSubmit => {
+                            crate::metadata::internal_mutations::HookTransition::UserPromptSubmit
+                        }
+                        _ => crate::metadata::internal_mutations::HookTransition::Activate,
                     };
-                    latest.attention = latest.observed_status.clone();
-                    latest.needs_user_input = None;
-                    latest.detected_question = None;
-                    latest.suggested_options = None;
-                    latest.provenance.attention_source = Some("agent".into());
-                    latest.provenance.attention_confidence = Some(1.0);
-                    latest.provenance.attention_origin = Some("harness_hook".into());
-                    latest.last_activity = crate::workspace_runtime::iso_now();
-                    Ok(true)
+                    Ok(crate::metadata::internal_mutations::apply_hook_transition(
+                        latest,
+                        &report.root_id,
+                        transition,
+                        &crate::workspace_runtime::iso_now(),
+                    ))
                 },
             );
             match updated {
@@ -406,48 +320,7 @@ pub(crate) fn report_hook(
                 Err(_) => return HookReportOutcome::Retry,
             }
         }
-        if activation || boundary {
-            handle.active_work_hook = true;
-        }
-        if report.turn_id.is_none() {
-            tracker.reducer.disconnected();
-        }
-        if !boundary && tracker.turn.is_some() && tracker.turn != report.turn_id {
-            // Missing or reordered turn evidence is ambiguity, not a trusted
-            // turn boundary that may discard an outstanding permission.
-            tracker.reducer.disconnected();
-        }
-        if boundary && tracker.turn != report.turn_id {
-            match tracker.fence.turn_revision.checked_add(1) {
-                Some(revision) => tracker.fence.turn_revision = revision,
-                None => tracker.hook_revision = None,
-            }
-            tracker.invalidate();
-        }
-        if report.event != HookEvent::PermissionRequest {
-            tracker.validated_permission = None;
-        }
-        if tracker.turn.is_none() || boundary {
-            tracker.turn.clone_from(&report.turn_id);
-        }
-        tracker.hook_revision = tracker.hook_revision.and_then(|r| r.checked_add(1));
-        tracker.last_hook_at = Some(
-            tracker
-                .last_hook_at
-                .map_or(observed, |previous| previous.max(observed)),
-        );
-        if boundary || report.event == HookEvent::PermissionRequest {
-            let attention_at = handle
-                .runtime
-                .last_hook_attention_at
-                .map_or(observed, |at| at.max(observed));
-            handle.runtime.last_hook_attention_at = Some(attention_at);
-            tracker.last_private_attention_at = Some(attention_at);
-        }
-        tracker.live_revision = handle.runtime.attention_owner.snapshot();
-        if tracker.hook_revision.is_none() || !tracker.reducer.assistance_available() {
-            tracker.reducer.disconnected();
-        }
+        hook_context::advance(&mut tracker, handle, report, &prepared);
         let effects =
             tracker
                 .reducer
@@ -474,15 +347,12 @@ pub(crate) fn report_hook(
                     id,
                     crate::metadata::session_transactions::WriteScope::ATTENTION,
                     |latest| {
-                        if latest.attention_source() == "user" {
-                            return Ok(false);
-                        }
-                        latest.observed_status = Some("waiting_for_input".into());
-                        latest.attention = Some("needs_you".into());
-                        latest.provenance.attention_source = Some("agent".into());
-                        latest.provenance.attention_confidence = Some(1.0);
-                        latest.provenance.attention_origin = Some("harness_hook".into());
-                        Ok(true)
+                        Ok(crate::metadata::internal_mutations::apply_hook_transition(
+                            latest,
+                            &report.root_id,
+                            crate::metadata::internal_mutations::HookTransition::FallbackPermission,
+                            &crate::workspace_runtime::iso_now(),
+                        ))
                     },
                 );
                 match updated {
@@ -2550,3 +2420,8 @@ pub(crate) mod sql_context;
 
 #[cfg(test)]
 mod sql_observer_tests;
+
+#[cfg(test)]
+mod sql_hook_tests;
+
+pub(crate) mod hook_context;

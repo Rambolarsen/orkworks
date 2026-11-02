@@ -4,9 +4,43 @@ use crate::runtime::codex_approval_application::{
     sql_context::{IssuedEffect, NativeCapture, ObservationContext},
     COORDINATED_METADATA_WRITERS,
 };
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+/// Shared by a hook's metadata and native effects. Cancellation can retire
+/// an unclaimed operation; an already claimed operation remains definitive.
+#[derive(Default)]
+struct HookOperation(AtomicU8);
+impl HookOperation {
+    fn is_cancelled(&self) -> bool {
+        self.0.load(Ordering::Acquire) == 2
+    }
+    fn cancel_before_claim(&self) -> bool {
+        self.0
+            .compare_exchange(0, 2, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+            || self.is_cancelled()
+    }
+    fn mark_claimed(&self) -> bool {
+        self.0
+            .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+            || self.0.load(Ordering::Acquire) == 1
+    }
+}
+struct NativeOrigin {
+    context: Arc<ObservationContext>,
+    operation: Option<Arc<HookOperation>>,
+}
+impl From<Arc<ObservationContext>> for NativeOrigin {
+    fn from(context: Arc<ObservationContext>) -> Self {
+        Self {
+            context,
+            operation: None,
+        }
+    }
+}
 struct NativeView {
     capture: NativeCapture,
+    operation: Option<Arc<HookOperation>>,
     authority: Option<crate::runtime::prompt_authority::AuthoritySnapshot>,
 }
 impl SessionWrites {
@@ -79,7 +113,7 @@ impl SessionWrites {
         effect: IssuedEffect,
         cancelled: Arc<AtomicBool>,
         coordinated: bool,
-        origin: Option<Arc<ObservationContext>>,
+        origin: Option<NativeOrigin>,
     ) -> Result<Outcome, StoreError> {
         // Read without runtime guards. An exact revision precondition prevents
         // native identity/provenance changing between this read and SQL commit.
@@ -95,14 +129,28 @@ impl SessionWrites {
             .native_current(id.clone(), None, None, move |ws, h, authority| {
                 // An observer effect keeps the owner captured before this read;
                 // admission must not adopt a replacement controller or authority.
-                if origin
-                    .as_ref()
-                    .is_some_and(|origin| !origin.matches(h, &authority))
-                {
+                if origin.as_ref().is_some_and(|origin| {
+                    !origin.context.matches(h, &authority)
+                        || origin
+                            .operation
+                            .as_ref()
+                            .is_some_and(|phase| phase.is_cancelled())
+                }) {
                     return None;
                 }
-                NativeCapture::capture(h, &record.metadata, effect, cancelled, coordinated)
-                    .map(|capture| (NativeView { capture, authority }, ws.lease.clone()))
+                let operation = origin.and_then(|origin| origin.operation);
+                NativeCapture::capture(h, &record.metadata, effect, cancelled, coordinated).map(
+                    |capture| {
+                        (
+                            NativeView {
+                                capture,
+                                authority,
+                                operation,
+                            },
+                            ws.lease.clone(),
+                        )
+                    },
+                )
             })
             .await?
             .flatten()
@@ -139,10 +187,17 @@ impl SessionWrites {
                     ready = ready => ready.ok(),
                 };
                 if let Some(request) = request {
+                    let claiming_operation = view.operation.clone();
                     tokio::select! {
                         biased;
                         completion = &mut finished => delivered = Some(completion),
-                        claimed = owner.native_current(id.clone(), Some(view.clone()), None, move |_, _, _| request.grant()) => {
+                        claimed = owner.native_current(id.clone(), Some(view.clone()), None, move |_, _, _| {
+                            let grant = request.grant()?;
+                            if claiming_operation.as_ref().is_some_and(|phase| {
+                                !phase.mark_claimed()
+                            }) { return Err(StoreError::Conflict); }
+                            Ok(grant)
+                        }) => {
                             // No shared application guards remain when SQL wakes.
                             if let Some(Ok(grant)) = claimed? { let _ = grant.execute(); }
                         }
@@ -167,3 +222,5 @@ impl SessionWrites {
 }
 
 pub(super) mod observer;
+
+pub(super) mod hook;

@@ -351,8 +351,57 @@ real SQL reads without JSON session files, owned native RPC, stale context and
 root changes, preserved newer work, stalled-read guard release, cancellation,
 shutdown while SQL is stalled, and storage failure without runtime termination.
 
-Hook relay activation/boundary/fallback writes still use their unchanged JSON
-owner and need typed SQL orchestration. That routing, lifecycle/input bookkeeping,
-external events, producer coordination and version-specific eligibility remain
-prerequisites for SQL selection. The production native startup/clear gates stay
-closed; this optional backend does not select SQL or migrate a workspace.
+## Native approval hook metadata
+
+Activation, Stop, UserPromptSubmit and conservative permission fallback now have
+typed private SQL intents. The JSON owner reuses their pure metadata rules and
+the shared hook validation/state stages. SQL checks the latest exact native root,
+creation/revision, lifecycle and user-source protection; accepted writes preserve
+unrelated work/extensions and revoke prior attention proof even for equal values.
+Fallback retains existing activity time and cannot overwrite a concrete prompt.
+
+The source-only `SessionWrites::report_native_hook` captures its original runtime,
+control, input, attention, tracker and prompt authority before metadata I/O.
+Shared validation retains token/fingerprint/root/scalar checks, source timestamps,
+trusted boundary watermarks, turn/correlation rules and the original monotonic
+first receipt. Temporary transition contention returns Retry rather than claiming
+that a valid report was invalid. Missing rows and storage errors remain typed.
+
+A process-local hook application identity binds the staged continuation and all
+issued native effects. Equal report values at exhausted hook counters cannot
+adopt an older pending application. Metadata stages use existing bounded worker
+reservations and per-session lanes, validating execution and publication under
+short guards and retaining the workspace lease through the definitive result.
+Caller cancellation synchronously retires an unclaimed operation; once claimed,
+its owner finishes the remaining stages internally even if the caller disappears.
+The same cutoff covers a hook's native effect. Every SQL wait releases the
+projection, workspace, session and prompt guards. No-op/error paths do not publish
+an attention write or adopt a persisted proof. A committed write that loses live
+publication returns committed-detached explicitly.
+
+A report may contain several scoped writes, matching the existing activation
+then fallback order. Failure after an earlier committed stage does not roll it
+back. A retry revalidates the immutable report and rereads current SQL; it never
+reuses a prepared command or renews the first-receipt grace period.
+
+`CodexHookReportRelay::consume_ready_sql` exercises this path against actual
+private approval mailbox files. It preserves bounded pending/retry quotas and
+immutable cached receipts, exposes the first typed storage failure separately,
+and consumes detached commits without acknowledging live application. Identity
+envelopes remain queued and are counted as deferred; there is no JSON identity
+fallback. Their authenticated SQL orchestration remains a separate writer group.
+The production drain still selects its JSON path.
+
+Regressions cover exact SQL tuples/proofs and protected no-ops, actual mailbox
+approval with deferred identity, close/reopen storage retry past the grace period,
+transition contention, an eleven-case stale-read matrix, caller cancellation on
+both sides of the execution cutoff, detached publication, equal-report overlap
+at exhausted counters and earlier native emissions fenced by a pending boundary.
+A controlled command consumer delivers actual PTY input while hook SQL is stalled.
+This is source integration evidence, not a qualified installed SQL producer or a
+larger-history performance result.
+
+Identity routing, lifecycle/input bookkeeping, external events, producer
+coordination and version-specific eligibility remain prerequisites for SQL
+selection. Production native startup/clear gates stay closed; this optional
+backend does not select SQL or migrate a workspace.

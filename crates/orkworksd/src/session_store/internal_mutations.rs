@@ -674,3 +674,6 @@ mod tests {
 
 #[cfg(test)]
 mod native_observer_tests;
+
+#[cfg(test)]
+mod hook_relay_tests;
