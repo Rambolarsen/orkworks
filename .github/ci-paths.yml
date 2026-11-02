@@ -15,6 +15,7 @@ rust:
   - 'apps/desktop/resources/knowledge/**'
   - 'apps/desktop/tests/fixtures/**'
   - 'docs/validation/fixtures/**'
+  - 'docs/validation/root-bootstrap-vectors.json'
   - '.github/workflows/main-ci.yml'
   - 'crates/orkworksd/**'
   - 'rust-toolchain.toml'
