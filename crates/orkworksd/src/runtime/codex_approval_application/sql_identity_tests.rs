@@ -92,6 +92,8 @@ async fn fixture(root_id: Option<&str>) -> Fixture {
 }
 fn report(root: &str, lifecycle: Option<(&str, &str)>) -> NativeIdentityReport {
     NativeIdentityReport {
+        hook_fingerprint: None,
+        observation_stamp: None,
         report: HarnessSessionReport {
             harness_session_id: root.into(),
             source: "codex_hook".into(),
@@ -1120,3 +1122,6 @@ async fn sql_identity_stalled_execution_keeps_real_pty_input_and_identity_public
 
 #[path = "sql_label_tests.rs"]
 mod label_tests;
+
+#[path = "sql_trust_tests.rs"]
+mod trust_tests;

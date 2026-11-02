@@ -4,6 +4,8 @@ use crate::runtime::codex_approval_application::sql_context::NativeIdentityConte
 #[derive(Clone, Debug)]
 pub(crate) struct NativeIdentityReport {
     pub(crate) report: crate::metadata::HarnessSessionReport,
+    pub(crate) hook_fingerprint: Option<String>,
+    pub(crate) observation_stamp: Option<crate::metadata::hook_observation::Stamp>,
     pub(crate) session_start_source: Option<String>,
     pub(crate) session_start_event: Option<String>,
 }
@@ -16,7 +18,7 @@ pub(crate) enum SqlIdentityOutcome {
 }
 impl SessionWrites {
     /// Accept only the authenticated private Codex runtime boundary. Production
-    /// HTTP routing and external label/trust follow-ups retain their owners.
+    /// HTTP routing remains JSON; label/trust follow-ups retain their data owners.
     pub(crate) async fn report_native_identity(
         self: &Arc<Self>,
         id: String,
@@ -73,18 +75,31 @@ impl SessionWrites {
         {
             return Ok(SqlIdentityOutcome::Rejected);
         }
+        let fingerprint = report
+            .hook_fingerprint
+            .as_ref()
+            .filter(|value| crate::metadata::valid_hook_fingerprint(value))
+            .cloned();
+        let observation_cancelled = cancelled.clone();
         let label_cancelled = cancelled.clone();
         let capture_id = id.clone();
         let capture_token = token.clone();
-        let context = match self
-            .native_access(id.clone(), None, None, move |_, h, authority| {
+        let (context, observation_stamp) = match self
+            .native_access(id.clone(), None, None, move |ws, h, authority| {
                 if !crate::runtime::terminal_runtime::verify_workflow_report_token(
                     &capture_id,
                     &capture_token,
                 ) {
                     return None;
                 }
-                NativeIdentityContext::capture(h, generation, cancelled, authority).map(Arc::new)
+                let stamp = report
+                    .observation_stamp
+                    .unwrap_or_else(|| ws.metadata.hook_observation_stamp());
+                if !stamp.belongs_to(&ws.metadata.hook_observation_owner()) {
+                    return None;
+                }
+                NativeIdentityContext::capture(h, generation, cancelled, authority)
+                    .map(|context| (Arc::new(context), stamp))
             })
             .await?
         {
@@ -169,74 +184,107 @@ impl SessionWrites {
             _ => return Err(StoreError::Unavailable),
         };
         if !matches!(disposition, Merge::Accepted | Merge::IgnoredUnchanged) {
-            return Ok(SqlIdentityOutcome::Accepted(disposition));
+            return self
+                .finish_identity_observation(
+                    id,
+                    token,
+                    Some(context),
+                    observation_stamp,
+                    fingerprint,
+                    disposition,
+                )
+                .await;
         }
         let changed = completion.outcome.document.is_some();
         let record: RevisionedSession = match completion.outcome.document.as_ref() {
             Some(document) => serde_json::from_value(document.clone())?,
             None => record,
         };
+        let observation_token = token.clone();
         let publishing_id = id.clone();
         let automatic_label = record.metadata.label_source.is_automatic();
         let identity_metadata = record.metadata.clone();
         let resume = record.metadata.resume;
         let published = self
-            .native_access(id, None, Some(completion), move |_, h, authority| {
-                if !context.matches(h, &authority)
-                    || !crate::runtime::terminal_runtime::verify_workflow_report_token(
-                        &publishing_id,
-                        &token,
-                    )
-                {
-                    return (false, None);
-                }
-                let old_root = h
-                    .info
-                    .resume
-                    .as_ref()
-                    .and_then(|r| r.harness_session_id.as_deref());
-                let new_root = resume
-                    .as_ref()
-                    .and_then(|r| r.harness_session_id.as_deref());
-                if old_root != new_root {
-                    if let Some(tracker) = h.runtime.native_approval.as_mut() {
-                        tracker.identity_changed();
-                    }
-                }
-                if let Some(root) = new_root {
-                    crate::codex_session_store::accept_native_label_identity(&publishing_id, root);
-                }
-                h.info.resume = resume;
-                if let Some(tracker) = h.runtime.native_approval.as_mut() {
-                    tracker.sync_identity(&identity_metadata);
-                }
-                let refresh = automatic_label
-                    .then(|| {
-                        super::label::NativeLabelRefresh::capture_after_identity(
-                            h,
-                            token,
-                            generation,
-                            label_cancelled,
-                            authority,
+            .native_access(
+                id.clone(),
+                None,
+                Some(completion),
+                move |_, h, authority| {
+                    if !context.matches(h, &authority)
+                        || !crate::runtime::terminal_runtime::verify_workflow_report_token(
+                            &publishing_id,
+                            &token,
                         )
-                    })
-                    .flatten();
-                (true, refresh)
-            })
+                    {
+                        return (false, None, None);
+                    }
+                    let old_root = h
+                        .info
+                        .resume
+                        .as_ref()
+                        .and_then(|r| r.harness_session_id.as_deref());
+                    let new_root = resume
+                        .as_ref()
+                        .and_then(|r| r.harness_session_id.as_deref());
+                    if old_root != new_root {
+                        if let Some(tracker) = h.runtime.native_approval.as_mut() {
+                            tracker.identity_changed();
+                        }
+                    }
+                    if let Some(root) = new_root {
+                        crate::codex_session_store::accept_native_label_identity(
+                            &publishing_id,
+                            root,
+                        );
+                    }
+                    h.info.resume = resume;
+                    if let Some(tracker) = h.runtime.native_approval.as_mut() {
+                        tracker.sync_identity(&identity_metadata);
+                    }
+                    let observation = NativeIdentityContext::capture(
+                        h,
+                        generation,
+                        observation_cancelled,
+                        authority.clone(),
+                    )
+                    .map(Arc::new);
+                    let refresh = automatic_label
+                        .then(|| {
+                            super::label::NativeLabelRefresh::capture_after_identity(
+                                h,
+                                token,
+                                generation,
+                                label_cancelled,
+                                authority,
+                            )
+                        })
+                        .flatten();
+                    (true, refresh, observation)
+                },
+            )
             .await?;
         if changed {
             self.state.updates.sessions_changed();
         }
-        Ok(match published {
-            NativeAccess::Current((true, refresh)) => {
+        match published {
+            NativeAccess::Current((true, refresh, observation)) => {
                 if let Some(refresh) = refresh {
                     self.schedule_native_label_refresh(refresh);
                 }
-                SqlIdentityOutcome::Accepted(disposition)
+                self.finish_identity_observation(
+                    id,
+                    observation_token,
+                    observation,
+                    observation_stamp,
+                    fingerprint,
+                    disposition,
+                )
+                .await
             }
-            NativeAccess::Busy => SqlIdentityOutcome::Retry,
-            _ if changed => SqlIdentityOutcome::CommittedDetached,
-            _ => SqlIdentityOutcome::Rejected,
-        })
+            NativeAccess::Busy => Ok(SqlIdentityOutcome::Retry),
+            _ if changed => Ok(SqlIdentityOutcome::CommittedDetached),
+            _ => Ok(SqlIdentityOutcome::Rejected),
+        }
     }
 }

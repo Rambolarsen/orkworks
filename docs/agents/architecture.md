@@ -868,8 +868,18 @@ claim/publication lane. User/unknown titles stay protected, unchanged native
 titles are no-ops, and reset/replacement/capability/refresh changes reject late
 results. The legacy refresh gate is only tried under application guards, never
 awaited there; its opaque epoch also fences counter exhaustion and recreation.
-Production label/relay routing remains JSON. Hook-trust observations,
-lifecycle/input bookkeeping and external events still need their owned
+The optional SQL identity path now records valid hook fingerprints through the
+existing workspace-owned external observation file, without session JSON reads.
+Its original file-clear epoch is retained before mailbox I/O and travels with
+validated immutable relay receipts across retries and cancelled drains. One
+constant-size overflow epoch prevents untracked packets from renewing authority;
+a later clear conservatively suppresses that relay's remaining observations. Short application checks admit one external file claim;
+lease retention and blocking file I/O then run outside shared application guards.
+File errors remain typed and retryable even after an identity SQL commit. They do
+not imply rollback. Clear/install and legacy writes share the file owner, and a
+clear revokes work captured before it while following an already claimed write.
+Production label/relay routing remains JSON. Legacy installation/clear scheduling,
+lifecycle/input bookkeeping and other external events still need their full async
 integration before SQL selection; native eligibility gates remain unchanged.
 
 The source-only Peon SQL application boundary prepares bounded writes before

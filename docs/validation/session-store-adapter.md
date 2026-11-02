@@ -421,7 +421,7 @@ A controlled command consumer delivers actual PTY input while hook SQL is stalle
 This is source integration evidence, not a qualified installed SQL producer or a
 larger-history performance result.
 
-Hook-trust observations, lifecycle/input bookkeeping,
+Legacy hook-install/clear scheduling, lifecycle/input bookkeeping,
 external events, producer coordination and version-specific eligibility remain
 prerequisites for SQL selection. Production native startup/clear gates stay closed; this optional
 backend does not select SQL or migrate a workspace.
@@ -450,10 +450,10 @@ ordinary typing and explicit user attention can continue during the SQL read.
 Publication changes live resume metadata only, preserving the newer attention
 and input state. It never acknowledges native attention proof. Lower-confidence
 or unauthorized identity changes remain ignored according to the shared reducer.
-Hook-trust telemetry retains its separate owner; this entry does not invoke its
-JSON metadata callback or qualify its SQL integration. The native-label follow-up
-now uses the source-only SQL path below. Ordinary HTTP routing and producer
-qualification are unchanged.
+Hook-trust telemetry retains its external-file owner, and the optional SQL path
+now uses the guarded observation follow-up below without invoking its session-JSON
+callback. The native-label follow-up also uses the source-only SQL path below.
+Ordinary HTTP routing and producer qualification are unchanged.
 
 Identity and approval metadata share bounded reservations, a per-session lane,
 lease retention, claim/cancellation cutoff, guard-contention classification and
@@ -511,5 +511,62 @@ identity. No metadata JSON fallback is invoked.
 
 This source-only adapter does not select SQL in production, qualify ordinary HTTP
 producers, enable native startup/clear, migrate data or establish measured typing
-latency. Hook-trust, lifecycle/input and other external writer orchestration,
+latency. Legacy hook-install/clear scheduling, lifecycle/input and other external writer orchestration,
 producer qualification and migration/recovery remain prerequisites for selection.
+
+
+## Hook execution observation follow-up
+
+The optional SQL identity path forwards a valid hook fingerprint to the existing
+workspace-owned `codex-hook-observation.json` owner. This file remains separate
+from ordinary SQL metadata. Accepted, unchanged, ignored-lower-confidence and
+ignored-identity-change reports retain the JSON owner's observation semantics.
+Missing/invalid fingerprints never write an observation. No session JSON read,
+attention mutation, native proof adoption or hook eligibility change is involved.
+
+Before SQL waits, the operation binds runtime/control/creation/native identity,
+capability/cancellation and the selected file owner's opaque clear epoch. Bounded
+mailbox admission retains that epoch before awaiting the mailbox read, even while
+the payload is unknown. The first validated bytes then become immutable before
+SQL awaits. Cancellation during either read cannot renew an admitted receipt's
+observation authority after a clear. A stamp from a different workspace file owner
+is rejected. This is a
+process-local execution fence, not proof of operating-system process identity or
+new native hook trust.
+
+If the 64 receipt slots are exhausted, one per-relay observation epoch floor also
+covers untracked overflow packets. It never advances. Once that epoch is cleared,
+the relay suppresses subsequent observations for its remaining lifetime, while
+identity packets remain retryable and deliverable. A fresh relay can observe a
+later execution normally. This conservative limit avoids both an unbounded
+filename/epoch map and renewed authority after overflow; it does not change
+identity persistence or the existing separate approval overflow floor.
+
+After the durable identity decision and any current live publication, short
+application validation admits at most one file claim for the workspace. Contention
+returns Retry without queuing behind filesystem work. The owned claim retains the
+workspace lease and writes the atomic observation file in a blocking task after
+all application guards are released. Caller cancellation before SQL claim cannot
+write; after claim the owned workflow retains definitive completion. A lost
+runtime/capability before file claim or an invalidated clear epoch suppresses the
+observation. An already admitted file write remains definitive, and a subsequent
+clear serializes after it and removes its result. Legacy observation writes and
+clears share this owner; reads keep their existing atomic-file behavior.
+
+A file write error is typed and keeps the immutable mailbox packet retryable. The
+SQL identity may already be committed and published: this is an external effect
+failure, never a rollback acknowledgement. A retry uses the existing identity
+rules and cannot renew the original clear epoch. Failed replacement leaves the
+previous observation intact and releases exclusion for a later retry.
+
+Coverage uses real SQL/application/mailbox and external files, deterministic
+stalls at file execution, and a controlled consumer delivering real PTY input
+while the file writer is stalled. It includes ignored reports, clear during SQL
+read, clear after original receipt, cancelled-drain retry, contention, typed file
+failure/recovery, stale runtime/token/workspace, foreign file owner, detached
+identity, pre-claim cancellation and owned completion after caller cancellation.
+Legacy install/uninstall still use their synchronous scheduling paths; their full
+async orchestration and queued-before-first-receipt trust timing qualification
+remain separate gates. Production SQL selection, installed producers, native
+startup/clear, migration/recovery and larger-history performance are not qualified
+by these isolated tests.

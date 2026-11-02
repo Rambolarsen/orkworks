@@ -1,4 +1,5 @@
 pub(crate) mod agent_patch;
+pub(crate) mod hook_observation;
 pub(crate) mod internal_mutations;
 pub(crate) mod lifecycle_mutations;
 pub(crate) mod provenance;
@@ -1253,6 +1254,7 @@ pub(crate) struct SessionWriteToken {
 }
 
 pub struct MetadataStore {
+    hook_observations: Arc<hook_observation::Store>,
     pub(crate) branch_documents: Arc<crate::branch_documents_store::Store>,
     pub(crate) organization: Arc<crate::session_archive::OrganizationStore>,
     root: PathBuf,
@@ -1267,6 +1269,7 @@ impl MetadataStore {
     pub fn new(root: &Path) -> Self {
         Self {
             branch_documents: Arc::new(crate::branch_documents_store::Store::new(root)),
+            hook_observations: hook_observation::Store::new(root),
             root: root.to_path_buf(),
             organization: Arc::new(crate::session_archive::OrganizationStore::new(root)),
             session_writes: Mutex::new(HashMap::new()),
@@ -1331,24 +1334,23 @@ impl MetadataStore {
         serde_json::from_str(&data).ok()
     }
 
+    pub(crate) fn hook_observation_owner(&self) -> Arc<hook_observation::Store> {
+        self.hook_observations.clone()
+    }
+
+    pub(crate) fn hook_observation_stamp(&self) -> hook_observation::Stamp {
+        self.hook_observations.stamp()
+    }
+
     pub fn write_codex_hook_observation(&self, observation: &CodexHookObservation) {
-        let path = self.codex_hook_observation_path();
-        let result = (|| -> std::io::Result<()> {
-            fs::create_dir_all(&self.root)?;
-            let json = serde_json::to_string_pretty(observation)
-                .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
-            write_atomic(&path, &json)
-        })();
-        if let Err(error) = result {
+        if let Err(error) = self.hook_observations.write(observation) {
             warn!(%error, "failed to write Codex hook observation");
         }
     }
 
     pub fn clear_codex_hook_observation(&self) {
-        if let Err(error) = fs::remove_file(self.codex_hook_observation_path()) {
-            if error.kind() != std::io::ErrorKind::NotFound {
-                warn!(%error, "failed to clear Codex hook observation");
-            }
+        if let Err(error) = self.hook_observations.clear() {
+            warn!(%error, "failed to clear Codex hook observation");
         }
     }
 
