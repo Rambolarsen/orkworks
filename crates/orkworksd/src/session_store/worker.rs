@@ -1010,7 +1010,10 @@ pub(crate) mod testing {
             matches!(self.entered.as_mut().unwrap().try_recv(), Ok(()))
         }
         pub(crate) async fn entered(&mut self) {
-            self.entered.take().unwrap().await.unwrap();
+            tokio::time::timeout(Duration::from_secs(5), self.entered.take().unwrap())
+                .await
+                .expect("SQL worker did not reach the test gate within 5 seconds")
+                .expect("SQL worker test gate closed before entry");
         }
     }
     impl Drop for ClaimPause {
@@ -1151,6 +1154,33 @@ fn run_worker(shared: &Shared, db: &mut Database) {
 mod tests {
     use super::super::tests::document;
     use super::*;
+    #[tokio::test]
+    async fn unreached_test_gate_fails_promptly_and_leaves_worker_usable() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::initialize(dir.path().into(), "/workspace".into())
+            .await
+            .unwrap();
+        let mut gate = testing::hold_next_internal(&store, "never-queued");
+        let waiting = tokio::spawn(async move { gate.entered().await });
+        let failure = tokio::time::timeout(Duration::from_secs(7), waiting)
+            .await
+            .expect("test gate waited indefinitely for an operation that was never queued")
+            .expect_err("an unreached test gate must fail explicitly");
+        assert!(failure.is_panic());
+        let panic = failure.into_panic();
+        let message = panic.downcast_ref::<String>().unwrap();
+        assert!(message.contains("SQL worker did not reach the test gate within 5 seconds"));
+        store
+            .create(document("after-unreached-gate"))
+            .await
+            .unwrap();
+        assert!(store
+            .get("after-unreached-gate".into())
+            .await
+            .unwrap()
+            .is_some());
+        store.close().await.unwrap();
+    }
     fn pause(store: &SessionStore) -> (Ticket, std::sync::mpsc::Sender<()>) {
         let (entered_tx, entered_rx) = std::sync::mpsc::channel();
         let (release_tx, release_rx) = std::sync::mpsc::channel();
