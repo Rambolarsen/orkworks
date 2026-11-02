@@ -273,3 +273,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Retained root-bootstrap v2 source validation](2026-11-02-root-bootstrap-v2-validation.md) — Proposed dormant Rust codec with preserved canonical bytes and strict version/source limits for #1307.
 
 - [Qualify selective Rust CodeQL scanning](2026-11-02-codeql-scan-routing.md) — Proposed staged comparison, activation and rollback checks for #1312.
+
+- [Hierarchy storage owner kernel](2026-11-02-hierarchy-storage-kernel.md) — Proposed dormant SQLite owner for the accepted child-source rows with strict reload; owner review pending for #1176/#1183.
