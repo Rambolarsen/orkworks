@@ -201,7 +201,16 @@ Settings actions retain the same external owner and exact workspace lease after
 short admission checks, with one fail-fast action slot per owner. Cancellation
 after admission retains definitive configuration/clear completion on the original
 workspace; it cannot authorize a replacement workspace. Observation-clear failure
-can follow committed hook configuration and is reported separately from rollback. The optional
+can follow committed hook configuration and is reported separately from rollback.
+The legacy JSON identity observation follow-up also captures its original clear
+epoch, workspace/creation and optional runtime/control identity. A valid original
+bearer must remain valid at file claim; existing bearerless telemetry stays
+bearerless and grants no native proof. Claimed writes retain the original lease
+outside application guards. Best-effort file failures leave the identity result
+intact and remain logged after waiter cancellation. Mailbox receipt ownership
+continues until definitive unlink, including failed/cancelled removal; reuse of
+changed packet bytes never inherits the retained receipt.
+ The optional
 SQL native-label follow-up retains the publishing runtime/native context and a
 process-local refresh epoch before lookup. Invalidation, cooldown reservation and
 clear/recreation rotate that epoch independently of its legacy numeric counter.

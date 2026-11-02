@@ -421,7 +421,7 @@ A controlled command consumer delivers actual PTY input while hook SQL is stalle
 This is source integration evidence, not a qualified installed SQL producer or a
 larger-history performance result.
 
-The legacy JSON identity observation writer, lifecycle/input bookkeeping,
+Ordinary JSON identity validation/merging, lifecycle/input bookkeeping,
 external events, producer coordination and version-specific eligibility remain
 prerequisites for SQL selection. Production native startup/clear gates stay closed; this optional
 backend does not select SQL or migrate a workspace.
@@ -511,7 +511,7 @@ identity. No metadata JSON fallback is invoked.
 
 This source-only adapter does not select SQL in production, qualify ordinary HTTP
 producers, enable native startup/clear, migrate data or establish measured typing
-latency. The legacy JSON identity observation writer, lifecycle/input and other
+latency. Ordinary JSON identity validation/merging, lifecycle/input and other
 external writer orchestration, producer qualification and migration/recovery remain prerequisites for selection.
 
 
@@ -566,7 +566,8 @@ read, clear after original receipt, cancelled-drain retry, contention, typed fil
 failure/recovery, stale runtime/token/workspace, foreign file owner, detached
 identity, pre-claim cancellation and owned completion after caller cancellation.
 Codex Settings install/repair/uninstall and unreferenced cleanup now use the owned
-action described below. The legacy JSON identity observation writer and
+action described below. The legacy JSON observation follow-up is now integrated
+as described below; ordinary identity validation/merging and
 queued-before-first-receipt trust timing qualification remain separate gates. Production SQL selection, installed producers, native
 startup/clear, migration/recovery and larger-history performance are not qualified
 by these isolated tests.
@@ -597,8 +598,8 @@ not rolled back or falsely acknowledged as a successful clear. Grouped routes
 retain their existing diagnostic-status mapping. Admission is released after
 success or error. Repeating an unchanged install retains its existing observed
 trust rather than clearing it. Other harnesses keep their synchronous prompt
-revocation ordering; generic inspection and the legacy JSON identity observation
-writer are not qualified by this slice.
+revocation ordering; generic inspection remains outside this Settings slice.
+The separate legacy identity observation qualification is described below.
 
 Regression coverage uses actual ignored hook configuration and reporter assets,
 real workspace leases and file-owner exclusion. It covers all five mutation/
@@ -607,3 +608,49 @@ admission, definitive old-workspace completion, bounded overlap/retry, clear
 failure after configuration commit, idempotent observed trust, and actual PTY
 input delivery while a clear waits behind an observation claim. These are source
 checks, not an installed release or large-history latency qualification.
+
+## Legacy JSON identity observation follow-up
+
+The existing HTTP identity path preserves its merge dispositions and compatibility:
+valid Codex hook fingerprints still record execution for accepted, unchanged,
+lower-confidence and ignored-identity-change results. Missing/invalid fingerprints
+never write. Bearerless legacy reports keep their existing best-effort telemetry
+eligibility; this refactor introduces no new native/process authority or credential
+requirement. A report that was authenticated binds that original bearer and must
+not downgrade after revocation.
+
+The route captures the selected file owner's clear epoch before its original
+metadata lookup, along with workspace ownership, creation identity and the optional
+runtime/controller. Its synchronous pre-execution cutoff revalidates those facts
+and the original valid bearer, then tries a single external-file claim. It never
+waits behind file exclusion under projection/workspace guards. An obsolete epoch
+skips telemetry. A busy file reports an optional diagnostic without changing the
+identity HTTP result; a later fresh report may recover. Ordinary JSON record reads
+and identity merging still retain their existing synchronous owner and are not
+qualified as a complete nonblocking storage producer here.
+
+Once claimed, blocking file work owns the original workspace lease until its
+definitive result, even after HTTP cancellation or selected-workspace replacement.
+A subsequent clear follows that claimed write and removes its result. File errors
+are typed internally and logged by the owned writer even if its waiter disappears;
+the identity response remains the existing best-effort identity acknowledgement,
+not a durable observation acknowledgement or rollback claim. Failed staging keeps
+a previous observation intact and releases exclusion. The independent optional
+native-label continuation binds/schedules before the new file await rather than
+capturing a replacement runtime afterward.
+
+Legacy mailbox identities share the SQL receipt book: at most 64 retained packets,
+immutable first-validated bytes, original pre-read clear epochs and one constant-size
+overflow floor. After that floor is cleared, a relay conservatively suppresses its
+remaining observations while still delivering identities; a new relay can observe
+fresh execution. A packet's receipt stays retained until a blocking owner completes
+unlink or confirms absence. Cancellation or unlink failure cannot renew the packet's
+authority. Changed/corrupted bytes revoke correlation and are never delivered as the
+original packet. This does not qualify execution timing before the first receipt.
+
+Regressions use real HTTP/file/mailbox paths, workspace leases, failed staging and
+unlink, actual PTY input during a stalled write, stale workspace/creation/runtime/
+controller/lease/token checks, cancellation during read/write/unlink, immutable-byte
+replacement, overflow and fresh-relay recovery. Native startup/clear, ordinary
+producer qualification, remaining lifecycle/input/external writers, migration and
+large-history performance gates remain open; production metadata remains JSON.

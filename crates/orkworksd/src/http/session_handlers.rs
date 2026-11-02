@@ -625,7 +625,7 @@ pub(crate) async fn report_harness_session(
     Path(id): Path<String>,
     Json(req): Json<HarnessSessionReportRequest>,
 ) -> impl IntoResponse {
-    report_harness_session_inner(state, id, HeaderMap::new(), req, None).await
+    report_harness_session_inner(state, id, HeaderMap::new(), req, None, None).await
 }
 
 pub(crate) async fn report_harness_session_envelope_with_headers(
@@ -634,7 +634,7 @@ pub(crate) async fn report_harness_session_envelope_with_headers(
     headers: HeaderMap,
     Json(envelope): Json<HarnessSessionReportEnvelope>,
 ) -> impl IntoResponse {
-    report_harness_session_inner(state, id, headers, envelope.report, envelope.cwd).await
+    report_harness_session_inner(state, id, headers, envelope.report, envelope.cwd, None).await
 }
 
 #[cfg(test)]
@@ -644,7 +644,7 @@ pub(crate) async fn report_harness_session_with_headers(
     headers: HeaderMap,
     Json(req): Json<HarnessSessionReportRequest>,
 ) -> impl IntoResponse {
-    report_harness_session_inner(state, id, headers, req, None).await
+    report_harness_session_inner(state, id, headers, req, None, None).await
 }
 
 async fn report_harness_session_inner(
@@ -653,16 +653,41 @@ async fn report_harness_session_inner(
     headers: HeaderMap,
     req: HarnessSessionReportRequest,
     reported_cwd: Option<String>,
+    observation_stamp: Option<crate::session_application::hook_observation::Receipt>,
 ) -> axum::response::Response {
     let observation_state = state.clone();
     let is_codex_hook = req.source == "codex_hook";
-    let target_harness = state
-        .workspace
-        .lock()
-        .unwrap()
-        .as_ref()
-        .and_then(|workspace| workspace.metadata.read_session(&id))
-        .map(|session| session.harness);
+    let observation_requested = is_codex_hook
+        && req
+            .hook_fingerprint
+            .as_deref()
+            .is_some_and(metadata::valid_hook_fingerprint);
+    // Preserve the request's original authentication class across the legacy
+    // metadata lookup. A trusted relay receipt is already capability-bound.
+    let relay_receipt = observation_stamp.is_some();
+    let original_observation_token = observation_requested
+        .then(|| {
+            bearer_token(&headers)
+                .filter(|token| relay_receipt || verify_workflow_report_token(&id, token))
+                .map(str::to_owned)
+        })
+        .flatten();
+    let (target_harness, mut observation_capture) =
+        crate::session_application::hook_observation::capture_target(
+            &state,
+            &id,
+            observation_requested,
+            observation_stamp,
+        );
+    if let Some(capture) = observation_capture.as_mut() {
+        if let (Ok(capture), Some(token)) =
+            (capture.as_mut(), original_observation_token.as_deref())
+        {
+            capture.authenticate(token);
+        } else if relay_receipt && original_observation_token.is_none() {
+            *capture = Err(crate::session_application::SessionError::Conflict);
+        }
+    }
     let prompt_harness = match target_harness.as_deref() {
         Some("claude-code") => Some("claude-code"),
         Some("copilot") => Some("copilot"),
@@ -718,6 +743,11 @@ async fn report_harness_session_inner(
     });
     let private_lookup_authorized = is_codex_hook
         && bearer_token(&headers).is_some_and(|token| verify_workflow_report_token(&id, token));
+    if private_lookup_authorized {
+        if let Some(Ok(capture)) = observation_capture.as_mut() {
+            capture.authenticate(bearer_token(&headers).expect("authorized report has a token"));
+        }
+    }
     let prompt_registration_authorized = if let Some(expected_harness) = prompt_harness {
         let token = bearer_token(&headers);
         let generation = req.prompt_hook_generation.as_deref();
@@ -799,25 +829,12 @@ async fn report_harness_session_inner(
         Err(_) => return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     };
 
-    if let Some(fingerprint) = req.hook_fingerprint {
-        if is_codex_hook
-            && metadata::valid_hook_fingerprint(&fingerprint)
-            && matches!(
-                result,
-                metadata::HarnessSessionMergeResult::Accepted
-                    | metadata::HarnessSessionMergeResult::IgnoredLowerConfidence
-                    | metadata::HarnessSessionMergeResult::IgnoredIdentityChange
-                    | metadata::HarnessSessionMergeResult::IgnoredUnchanged
-            )
-        {
-            if let Err(error) = SessionApplication::new(observation_state)
-                .record_codex_hook_observation(&id, &fingerprint)
-            {
-                tracing::warn!(session_id = %id, error = ?error, "failed to record Codex hook observation");
-            }
-        }
-    }
+    // Prompt registration and identity merge are complete; non-Codex routes
+    // have no asynchronous work below this cutoff.
+    drop(_prompt_transition);
 
+    // Schedule the independently owned label follow-up before the new file
+    // await. An observation stall must not adopt a replacement runtime later.
     if private_lookup_authorized
         && matches!(
             result,
@@ -866,11 +883,42 @@ async fn report_harness_session_inner(
         if let Some((runtime_identity, refresh_epoch)) = reservation {
             schedule_codex_label_refresh(
                 state,
-                id,
+                id.clone(),
                 native_session_id,
                 runtime_identity,
                 refresh_epoch,
             );
+        }
+    }
+
+    if let Some(fingerprint) = req.hook_fingerprint {
+        if is_codex_hook
+            && metadata::valid_hook_fingerprint(&fingerprint)
+            && matches!(
+                result,
+                metadata::HarnessSessionMergeResult::Accepted
+                    | metadata::HarnessSessionMergeResult::IgnoredLowerConfidence
+                    | metadata::HarnessSessionMergeResult::IgnoredIdentityChange
+                    | metadata::HarnessSessionMergeResult::IgnoredUnchanged
+            )
+        {
+            if let Err(error) = SessionApplication::new(observation_state)
+                .record_codex_hook_observation(
+                    &id,
+                    &fingerprint,
+                    observation_capture
+                        .take()
+                        .unwrap_or(Err(crate::session_application::SessionError::Conflict)),
+                )
+                .await
+            {
+                if !matches!(
+                    &error,
+                    crate::session_application::hook_observation::Error::Io(_)
+                ) {
+                    tracing::warn!(session_id = %id, error = %error, "failed to record Codex hook observation");
+                }
+            }
         }
     }
 
@@ -907,8 +955,9 @@ fn store_authenticated_reported_cwd(state: &AppState, id: &str, cwd: Option<&str
 pub(crate) async fn report_harness_session_from_local_relay(
     state: Arc<AppState>,
     id: String,
-    report: HarnessSessionReportRequest,
+    mut report: HarnessSessionReportRequest,
     report_token: &str,
+    observation: Option<crate::session_application::hook_observation::Receipt>,
 ) -> axum::http::StatusCode {
     use axum::http::header::AUTHORIZATION;
     use axum::http::HeaderValue;
@@ -924,7 +973,12 @@ pub(crate) async fn report_harness_session_from_local_relay(
     };
     let mut headers = HeaderMap::new();
     headers.insert(AUTHORIZATION, value);
-    report_harness_session_inner(state, id, headers, report, None)
+    // A relay without retained receipt authority may still deliver identity,
+    // but must not adopt a fresh observation epoch after its mailbox read.
+    if observation.is_none() {
+        report.hook_fingerprint = None;
+    }
+    report_harness_session_inner(state, id, headers, report, None, observation)
         .await
         .status()
 }
@@ -2690,6 +2744,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
         {
+            let mut workspace = state.workspace.lock().unwrap();
+            let ws = workspace.as_mut().unwrap();
+            ws.lease = Some(Arc::new(
+                crate::workspace_runtime::WorkspaceLease::acquire(&ws.metadata.root_path())
+                    .unwrap(),
+            ));
+        }
+        {
             let ws = state.workspace.lock().unwrap();
             ws.as_ref()
                 .unwrap()
@@ -2838,6 +2900,7 @@ mod tests {
                 session_start_observed_at: None,
             },
             token,
+            None,
         )
         .await;
         assert_eq!(
@@ -3005,6 +3068,14 @@ mod tests {
     async fn ignored_codex_identity_change_still_records_hook_fingerprint() {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
+        {
+            let mut workspace = state.workspace.lock().unwrap();
+            let ws = workspace.as_mut().unwrap();
+            ws.lease = Some(Arc::new(
+                crate::workspace_runtime::WorkspaceLease::acquire(&ws.metadata.root_path())
+                    .unwrap(),
+            ));
+        }
         let fingerprint = "b".repeat(64);
         let mut session = test_session_metadata(
             "known-codex",
@@ -9947,3 +10018,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "session_observation_tests.rs"]
+mod observation_tests;

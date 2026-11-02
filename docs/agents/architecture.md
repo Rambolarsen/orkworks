@@ -890,10 +890,26 @@ for that file owner fails fast with a revision conflict rather than queuing behi
 a stalled filesystem. A clear failure is reported even after configuration has
 committed, without implying rollback. Unchanged installation still preserves
 observed trust. Other harnesses retain their prompt-revocation sequencing.
-Production label/relay routing remains JSON. The legacy JSON identity report's
-observation writer, lifecycle/input bookkeeping and other external events still
-need their async integration before SQL selection; native eligibility gates remain
-unchanged.
+The legacy JSON identity route now captures that external owner's original clear
+epoch before its first metadata lookup. After identity merging it rechecks exact
+workspace/lease/file owner, creation and optional runtime/control identity, plus
+the original valid bearer when present, and tries one file claim without waiting
+behind file exclusion under application guards. The owned blocking write retains
+its old workspace lease through definitive completion after waiter cancellation.
+File errors remain best-effort diagnostics and do not change the HTTP identity
+result or imply identity rollback; the owned writer logs a definitive failure even
+if its waiter has disappeared. Legacy reports without a bearer retain their
+existing telemetry eligibility and do not gain native authority. The existing
+optional label continuation is scheduled before the new file await so it cannot
+adopt a replacement runtime after that wait.
+JSON and SQL mailbox identities now retain original clear epochs and immutable
+bytes in the same bounded receipt book before mailbox I/O. Failed or cancelled
+unlink retains receipt authority until an owned deletion completes; the existing
+constant-size overflow epoch prevents renewal after a clear while identity remains
+deliverable. Production session/label/relay routing remains JSON. Ordinary JSON
+identity validation/merging, generic inspection, lifecycle/input bookkeeping and
+other external events still need their complete async integration before SQL
+selection; native eligibility gates remain unchanged.
 
 The source-only Peon SQL application boundary prepares bounded writes before
 waiting for a per-session lane shared by that worker. It retains the workspace
