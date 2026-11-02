@@ -81,6 +81,17 @@ pub(crate) fn subject(
     state: &crate::AppState,
     id: &str,
 ) -> Result<(PathBuf, crate::session_location::GitLocationSource), String> {
+    let info = subject_info(state, id)?;
+    let (cwd, source) = effective_directory(state, &info)?;
+    git_changes_root(&cwd).map(|root| (root, source))
+}
+
+/// Capture current session location inputs without opening its repository.
+/// Projection callers can coalesce Git inspection after releasing these locks.
+pub(crate) fn subject_info(
+    state: &crate::AppState,
+    id: &str,
+) -> Result<crate::session_types::SessionInfo, String> {
     if id.is_empty()
         || id.len() > 256
         || !id
@@ -89,7 +100,7 @@ pub(crate) fn subject(
     {
         return Err("Invalid session ID.".into());
     }
-    let info = {
+    {
         let ws = state.workspace.lock().unwrap();
         let ws = ws.as_ref().ok_or("Workspace unavailable.")?;
         let live = state.sessions.lock().unwrap();
@@ -100,10 +111,8 @@ pub(crate) fn subject(
                     .read_session(id)
                     .map(|m| crate::session_types::SessionInfo::baseline_from_metadata(&m))
             })
-            .ok_or("Session unavailable.")?
-    };
-    let (cwd, source) = effective_directory(state, &info)?;
-    git_changes_root(&cwd).map(|root| (root, source))
+            .ok_or_else(|| "Session unavailable.".into())
+    }
 }
 
 /// Resolve without acquiring workspace/session locks, including at final admission.

@@ -150,6 +150,46 @@ struct ProjectionSnapshot {
     infos: Vec<SessionInfo>,
 }
 
+/// Fresh for each validation pass: shared historical rows must not multiply
+/// repository opens, and the final pass must not reuse pre-discovery identity.
+#[derive(Default)]
+struct DocumentLocations {
+    roots: HashMap<PathBuf, Option<PathBuf>>,
+    branches: HashMap<PathBuf, Option<crate::branch_documents::Identity>>,
+}
+
+impl DocumentLocations {
+    fn root(&mut self, cwd: &Path) -> Option<PathBuf> {
+        self.roots
+            .entry(cwd.to_path_buf())
+            .or_insert_with(|| git::worktree_root(cwd).and_then(|root| root.canonicalize().ok()))
+            .clone()
+    }
+
+    fn branch(&mut self, root: &Path) -> Option<crate::branch_documents::Identity> {
+        self.branches
+            .entry(root.to_path_buf())
+            .or_insert_with(|| crate::branch_documents::identity(root).ok())
+            .clone()
+    }
+
+    fn session_root(&mut self, state: &AppState, id: &str) -> Option<PathBuf> {
+        let info = crate::session_location::subject_info(state, id).ok()?;
+        let (cwd, _) = crate::session_location::effective_directory(state, &info).ok()?;
+        self.root(&cwd)
+    }
+
+    fn context(
+        &mut self,
+        state: &AppState,
+        id: &str,
+    ) -> Option<(PathBuf, Option<crate::branch_documents::Identity>)> {
+        let root = self.session_root(state, id)?;
+        let branch = self.branch(&root);
+        Some((root, branch))
+    }
+}
+
 // A path alone cannot distinguish replacement ownership at the same workspace.
 struct CapacityWorkspace {
     path: PathBuf,
@@ -387,17 +427,10 @@ impl SessionProjection {
             .as_ref()
             .map(|ws| ws.metadata.branch_documents.clone());
         drop(_fence);
-        let document_context = |id: &str| {
-            crate::session_location::subject(&self.state, id)
-                .ok()
-                .map(|(root, _)| {
-                    let branch = crate::branch_documents::identity(&root).ok();
-                    (root, branch)
-                })
-        };
+        let mut locations = DocumentLocations::default();
         let contexts: Vec<_> = infos
             .iter()
-            .map(|info| (info.id.clone(), document_context(&info.id)))
+            .map(|info| (info.id.clone(), locations.context(&self.state, &info.id)))
             .collect();
         let infos = self.enrich_workspace_with_documents(infos, documents, true);
         let _fence = self.state.projection_lock.lock().unwrap();
@@ -409,10 +442,11 @@ impl SessionProjection {
                 _ => false,
             }
         };
+        let mut current_locations = DocumentLocations::default();
         if !matches
             || contexts
                 .iter()
-                .any(|(id, context)| document_context(id) != *context)
+                .any(|(id, context)| current_locations.context(&self.state, id) != *context)
         {
             return Err(io::Error::other(
                 "workspace or session location changed during document inspection",
@@ -579,47 +613,67 @@ impl SessionProjection {
         // Release workspace locking before Git/document inspection. The shared
         // store cache coalesces session listings against the same worktree.
         if let Some(store) = documents {
+            // A scan may fail (and therefore never enter the store's TTL cache).
+            // Reuse the complete projection for this request, including errors,
+            // rather than multiplying discovery and selection reads by history.
+            let mut projections = HashMap::<PathBuf, crate::branch_documents::Projection>::new();
+            let mut locations = DocumentLocations::default();
+            let mut current_locations = DocumentLocations::default();
+            let mut memberships = HashMap::<(String, PathBuf), bool>::new();
             for info in &mut infos {
                 let root = if let Some(binding) = &info.worktree_binding {
                     binding.validate().ok()
                 } else {
                     effective_cwds
                         .get(&info.id)
-                        .and_then(|cwd| crate::git::worktree_root(Path::new(cwd)))
-                        .and_then(|root| root.canonicalize().ok())
+                        .and_then(|cwd| locations.root(Path::new(cwd)))
                 };
-                let projection = root
-                    .as_deref()
-                    .filter(|root| {
-                        info.worktree_binding.is_some()
-                            || root.to_str().is_some_and(|root| {
-                                crate::session_location::WorktreeBinding::resolve(&info.cwd, root)
-                                    .is_ok()
-                            })
-                    })
-                    .and_then(|root| {
-                        let scan = store.scan(root, false);
-                        let _fence = self.state.projection_lock.lock().unwrap();
-                        if validate_sessions
-                            && crate::session_location::subject(&self.state, &info.id)
-                                .ok()
-                                .map(|(root, _)| root)
-                                .as_deref()
-                                != Some(root)
-                        {
-                            return None;
-                        }
-                        let workspace = self.state.workspace.lock().unwrap();
-                        if !workspace
-                            .as_ref()
-                            .is_some_and(|ws| Arc::ptr_eq(&store, &ws.metadata.branch_documents))
-                        {
-                            return None;
-                        }
-                        Some(crate::branch_documents::projection_from_scan(
-                            &store, root, scan,
-                        ))
-                    });
+                let projection =
+                    root.as_deref()
+                        .filter(|root| {
+                            info.worktree_binding.is_some()
+                                || *memberships
+                                    .entry((info.cwd.clone(), root.to_path_buf()))
+                                    .or_insert_with(|| {
+                                        root.to_str().is_some_and(|root| {
+                                            crate::session_location::WorktreeBinding::resolve(
+                                                &info.cwd, root,
+                                            )
+                                            .is_ok()
+                                        })
+                                    })
+                        })
+                        .and_then(|root| {
+                            let scan =
+                                (!projections.contains_key(root)).then(|| store.scan(root, false));
+                            let _fence = self.state.projection_lock.lock().unwrap();
+                            if validate_sessions
+                                && current_locations
+                                    .session_root(&self.state, &info.id)
+                                    .as_deref()
+                                    != Some(root)
+                            {
+                                return None;
+                            }
+                            let workspace = self.state.workspace.lock().unwrap();
+                            if !workspace.as_ref().is_some_and(|ws| {
+                                Arc::ptr_eq(&store, &ws.metadata.branch_documents)
+                            }) {
+                                return None;
+                            }
+                            Some(
+                                projections
+                                    .entry(root.to_path_buf())
+                                    .or_insert_with(|| {
+                                        crate::branch_documents::projection_from_scan(
+                                            &store,
+                                            root,
+                                            scan.expect("uncached root has a prepared scan"),
+                                        )
+                                    })
+                                    .clone(),
+                            )
+                        });
                 if let Some(projection) = projection {
                     if projection.steps.iter().any(|step| step.available) {
                         info.has_openable_plan = Some(true);
@@ -651,7 +705,7 @@ impl SessionProjection {
                 .filter_map(|info| {
                     info.plan_documents.as_ref()?.branch.as_ref()?;
                     let root = effective_cwds.get(&info.id)?;
-                    let key = crate::branch_documents::identity(Path::new(root)).ok()?;
+                    let key = locations.branch(Path::new(root))?;
                     Some((info.id.clone(), key))
                 })
                 .collect();
@@ -1445,6 +1499,125 @@ mod tests {
                 .control_revision()
                 .unwrap()
                 > 0
+        );
+    }
+
+    #[test]
+    fn shared_worktree_document_inspection_runs_once_even_when_discovery_fails() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        fn count_scans(store: &Arc<crate::branch_documents_store::Store>, count: Arc<AtomicUsize>) {
+            let weak = Arc::downgrade(store);
+            *store.before_scan.lock().unwrap() = Some(Box::new(move || {
+                count.fetch_add(1, Ordering::SeqCst);
+                if let Some(store) = weak.upgrade() {
+                    count_scans(&store, count);
+                }
+            }));
+        }
+        let dir = tempfile::tempdir().unwrap();
+        git2::Repository::init(dir.path()).unwrap();
+        let specs = dir.path().join("specs");
+        std::fs::create_dir(&specs).unwrap();
+        // Exceed the discovery document bound, exercising the uncached error
+        // path that repeatedly rescanned large real repositories for each row.
+        for i in 0..501 {
+            std::fs::write(specs.join(format!("design-{i}.md")), "# Design\n").unwrap();
+        }
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let store = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .branch_documents
+            .clone();
+        let count = Arc::new(AtomicUsize::new(0));
+        count_scans(&store, count.clone());
+        let infos = (0..20)
+            .map(|i| warning_session(&format!("history-{i}"), dir.path(), "ended"))
+            .collect();
+        let projected = SessionProjection::new(state).enrich_workspace(infos);
+        assert_eq!(projected.len(), 20);
+        assert!(projected.iter().all(|info| info
+            .plan_documents
+            .as_ref()
+            .unwrap()
+            .notice
+            .is_some()));
+        assert_eq!(
+            count.load(Ordering::SeqCst),
+            1,
+            "shared history must not repeat a failed document scan"
+        );
+    }
+
+    #[test]
+    #[ignore = "manual read-only real-history projection benchmark"]
+    fn benchmark_real_history_document_projection() {
+        let source = std::env::var("ORKWORKS_BENCH_SESSION_DIR").unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let metadata = &workspace.as_ref().unwrap().metadata;
+            for file in std::fs::read_dir(source).unwrap() {
+                let path = file.unwrap().path();
+                if path.extension().is_some_and(|ext| ext == "json") {
+                    let meta: crate::metadata::SessionMetadata =
+                        serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+                    metadata.write_session(&meta);
+                }
+            }
+        }
+        let start = std::time::Instant::now();
+        let rows = SessionProjection::new(state).list().unwrap();
+        eprintln!(
+            "real-history: {} sessions in {:?}",
+            rows.len(),
+            start.elapsed()
+        );
+        let notices: std::collections::BTreeSet<_> = rows
+            .iter()
+            .filter_map(|row| row.plan_documents.as_ref()?.notice.as_deref())
+            .collect();
+        eprintln!("document notices: {notices:?}");
+        assert!(rows.len() > 700);
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(5),
+            "manual real-history projection must complete within five seconds"
+        );
+    }
+
+    #[tokio::test]
+    async fn branch_change_during_document_discovery_rejects_session_list() {
+        let (dir, state, _receiver) = input_fixture();
+        let repo = git2::Repository::init(dir.path()).unwrap();
+        repo.set_head("refs/heads/before").unwrap();
+        let store = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .branch_documents
+            .clone();
+        let root = dir.path().to_path_buf();
+        *store.before_scan.lock().unwrap() = Some(Box::new(move || {
+            git2::Repository::open(root)
+                .unwrap()
+                .set_head("refs/heads/after")
+                .unwrap();
+        }));
+        let error = SessionProjection::new(state).list().unwrap_err();
+        assert!(
+            error.to_string().contains("location changed"),
+            "final validation must inspect the branch afresh: {error}"
         );
     }
 
