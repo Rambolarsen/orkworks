@@ -18,6 +18,10 @@ name: Codex listener proof
 permissions:
   contents: read
 
+concurrency:
+  group: codex-listener-proof-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
 jobs:
   macos-listener-proof:
     name: macOS arm64 listener proof

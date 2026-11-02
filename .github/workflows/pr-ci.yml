@@ -9,8 +9,14 @@ permissions:
   contents: read
   pull-requests: read
 
+concurrency:
+  group: pr-ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   review-diagnostics:
+    needs: changes
+    if: needs.changes.outputs.review_diagnostics_changed == 'true'
     name: PR review diagnostics
     runs-on: ubuntu-latest
     steps:
@@ -20,6 +26,8 @@ jobs:
       - run: bash scripts/pr-review-delta.test.sh
 
   local-analysis:
+    needs: changes
+    if: needs.changes.outputs.local_analysis_changed == 'true'
     name: Local analysis helper (${{ matrix.os }})
     strategy:
       matrix:
@@ -33,6 +41,8 @@ jobs:
       - run: python scripts/sonar_test.py
 
   native-session-app-windows:
+    needs: changes
+    if: needs.changes.outputs.native_session_app_changed == 'true'
     name: Native session app (Windows)
     runs-on: windows-latest
     steps:
@@ -69,6 +79,9 @@ jobs:
     name: Detect changed surfaces
     runs-on: ubuntu-latest
     outputs:
+      review_diagnostics_changed: ${{ steps.filter.outputs.review_diagnostics }}
+      local_analysis_changed: ${{ steps.filter.outputs.local_analysis }}
+      native_session_app_changed: ${{ steps.filter.outputs.native_session_app }}
       desktop_changed: ${{ steps.filter.outputs.desktop }}
       rust_changed: ${{ steps.filter.outputs.rust }}
       windows_inference_changed: ${{ steps.filter.outputs.windows_inference }}
@@ -82,33 +95,7 @@ jobs:
       - id: filter
         uses: dorny/paths-filter@v3
         with:
-          filters: |
-            desktop:
-              - 'apps/desktop/**'
-            rust:
-              - 'crates/orkworksd/**'
-              - 'rust-toolchain.toml'
-              - '.nvmrc'
-              - '.github/workflows/pr-ci.yml'
-              - 'apps/desktop/electron/knowledge*.ts'
-              - 'apps/desktop/electron/strictJson.ts'
-              - 'apps/desktop/electron/taskmasterSettings.ts'
-              - 'apps/desktop/tests/knowledge*.ts'
-              - 'apps/desktop/tests/taskmasterSettings.test.ts'
-              - 'apps/desktop/package.json'
-              - 'apps/desktop/pnpm-lock.yaml'
-              - 'apps/desktop/pnpm-workspace.yaml'
-              - 'apps/desktop/.npmrc'
-              - 'apps/desktop/scripts/setup-electron.mjs'
-              - 'tests/fixtures/taskmaster-knowledge/**'
-            windows_inference:
-              - 'crates/orkworksd/**'
-              - 'rust-toolchain.toml'
-              - '.github/workflows/pr-ci.yml'
-            windows_ownership:
-              - 'crates/process-ownership-fixture/**'
-              - 'rust-toolchain.toml'
-              - '.github/workflows/pr-ci.yml'
+          filters: .github/ci-paths.yml
 
       - name: Print routing decision
         run: |
