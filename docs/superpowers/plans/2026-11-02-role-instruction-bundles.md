@@ -4,7 +4,7 @@ title: Supplied role instruction validation and rendering
 description: A bounded pure Rust instruction composition unit following the accepted role configuration core.
 tags: [plans, roles, instructions, validation]
 status: draft
-workflow_status: awaiting-owner-review
+workflow_status: implementing
 ---
 
 # Supplied role instruction validation and rendering
@@ -13,7 +13,8 @@ Outcome: one dormant, data-only Rust module validates the structure of supplied
 instruction inputs and returns deterministic rendered bytes plus their SHA-256.
 Pass condition: exact golden bytes and rejection fixtures pass, with no production
 caller or new side effect. Tracking: [#1303](https://github.com/Rambolarsen/orkworks/issues/1303).
-The user authorized preparing this plan; product code awaits owner review of it.
+The owner approved inline implementation of reviewed source
+`8b668a447fbb5ee97777223f86be2ac73ebc82f1` with “yes, go ahead”.
 
 ## Accepted basis and bounded scope
 
@@ -167,14 +168,18 @@ One implementer owns this coupled module; inline execution is the recommended
 method. Use the local TDD skill once code is approved. Do not delegate separate
 writers for validation and rendering: they share the same private representation.
 
-1. **Structural validator and input types.** Add failing unit cases, then implement
+### Task 1: Structural validator and input types.
+
+ Add failing unit cases, then implement
    bounded checks. Cover valid empty rule/skill/resource sets with an explicit
    empty role manifest, all six role values, invalid IDs/lowercase digests,
    mismatched content, wrong task/source digest, duplicate IDs/locators/manifests,
    precedence gaps, missing/optional mandatory skills, incomplete requirement
    sources, duplicate source locations, all closure ownership failures and reported
    unresolved/conflicting input. Do not add a prose conflict parser.
-2. **Deterministic composition.** Add an independently specified golden bundle
+### Task 2: Deterministic composition.
+
+ Add an independently specified golden bundle
    containing a rule, role, assignment, mandatory and optional skills, resources,
    CRLF, non-ASCII/combining text, trailing/no trailing LF and header-looking
    content. Record literal expected bytes and a digest computed independently
@@ -185,7 +190,9 @@ writers for validation and rendering: they share the same private representation
    any content mutation
    changes its digest, and the accepted `Delegate.` plus LF instruction fixture
    still hashes to the canonical spec value.
-3. **Boundaries and close-out.** Test each collection limit at/over its boundary,
+### Task 3: Boundaries and close-out.
+
+ Test each collection limit at/over its boundary,
    exact 262,144-byte rendered output and one byte over (including multibyte
    content/framing), and integer-safe length arithmetic. Inspect the diff/call
    graph for no production callers, serde/full-configuration codecs, external I/O,
@@ -226,5 +233,5 @@ there is no persistent state to restore or migration to reverse.
 Total: 6/25, a planning judgment, not an approval threshold.
 Self-review disposition: **Ready for owner review**. Every in-scope invariant has
 an implementation/check above. No full-configuration or native qualification is
-claimed. Product implementation is pending approval of this concrete plan; this
-planning PR does not grant it. No further general research campaign is required.
+claimed. The owner subsequently approved this concrete plan for inline implementation;
+that approval retains the stated boundary. No further general research campaign is required.
