@@ -188,3 +188,38 @@ test('artifact bound includes configuration JSON overhead', () => {
   x.bindings = Array.from({length:32}, (_, i) => ({name:'binding_' + String(i).padStart(2,'0'), value:'x'.repeat(2048)}));
   assert.throws(() => validateRootComponent('projection', x, context()), /artifact 64 KiB/);
 });
+
+function refreshSnapshotSources(b) {
+  const {contentDigest, ...body} = b.roleTemplate;
+  b.roleTemplate.contentDigest = sha(canonicalMutation(body));
+  for (const m of b.requirementManifests) if (m.sourceId === b.roleTemplate.id) m.sourceDigest = b.roleTemplate.contentDigest;
+  for (const skill of b.skills) skill.requirementSources = skill.requirement === 'mandatory'
+    ? b.requirementManifests.filter(m => m.requiredSkillIds.includes(skill.id)).map(({sourceId,sourceDigest,sourceLocations}) => ({sourceId,sourceDigest,sourceLocations})) : [];
+}
+for (const field of ['roleTemplate', 'rubric']) test(`${field} revision obeys the inherited signed-31-bit ceiling`, () => {
+  const b=get('complete-unverified-root'), c=context();
+  b[field].version=2147483647; refreshSnapshotSources(b); rebindSource(b,c);
+  assert.doesNotThrow(()=>validateRootBootstrap(b,c));
+  b[field].version=2147483648; refreshSnapshotSources(b); rebindSource(b,c);
+  assert.throws(()=>validateRootBootstrap(b,c), /bounded integer/);
+});
+test('every retained evidence artifact has an inclusive 64 KiB ceiling', () => {
+  const b=get('complete-unverified-root'), c=context();
+  const a=c.retainedArtifacts.find(a=>a.content.startsWith('Synthetic unverified gap:'));
+  const resize=n=>{const previous=a.contentDigest;a.content='x'.repeat(n);a.contentDigest=sha(a.content);
+    for(const r of b.capabilityEvidence.references)if(r.contentDigest===previous)r.contentDigest=a.contentDigest;
+    reseal(b.capabilityEvidence,'evidenceDigest','orkworks.capability-evidence.v1');b.harness.evidenceDigest=b.capabilityEvidence.evidenceDigest;rebindSource(b,c);};
+  resize(65536);assert.doesNotThrow(()=>validateRootBootstrap(b,c));
+  resize(65537);assert.throws(()=>validateRootBootstrap(b,c), /artifact 64 KiB/);
+});
+test('inline evidence counts its full canonical descriptor within 64 KiB', () => {
+  const e=get('unverified-evidence'), c=context();e.executableIdentity.kind='wrapped';
+  let found=false;
+  for(let size=1000;size<1500;size++) {
+    e.executableIdentity.components=Array.from({length:32},(_,i)=>({kind:'package-file',path:{encoding:'unix-bytes',base64:Buffer.from('/'+String(i)+'x'.repeat(size)).toString('base64')},contentDigest:'a'.repeat(64)}));
+    if(Buffer.byteLength(canonicalMutation(e.executableIdentity))<=65536 && Buffer.byteLength(canonicalMutation(e))>65536){found=true;break;}
+  }
+  assert(found,'fixture isolates inline evidence rather than executable size');
+  reseal(e,'evidenceDigest','orkworks.capability-evidence.v1');
+  assert.throws(()=>validateRootComponent('evidence',e,c), /evidence 64 KiB/);
+});

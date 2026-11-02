@@ -3,8 +3,8 @@ type: Implementation Plan
 title: Retained root-bootstrap v2 source validation
 description: A dormant Rust validator for the existing complete unverified root source slice, preserving canonical bytes and explicit version limits.
 tags: [plans, roles, bootstrap, codecs, validation]
-status: draft
-workflow_status: awaiting-owner-review
+status: stable
+workflow_status: implemented
 ---
 
 # Retained root-bootstrap v2 source validation
@@ -14,7 +14,8 @@ root-bootstrap v2 against its run, exact goal and retained artifact bytes.
 Pass condition: independent existing golden bytes and all in-scope rejection
 cases pass; success remains `unverified-source-bytes-only`.
 Tracking: [#1307](https://github.com/Rambolarsen/orkworks/issues/1307), under #738.
-The owner authorized preparing this concrete plan; code awaits its review.
+The owner approved inline implementation of reviewed source
+`c163bbbd3bde45c451f74a77c173e2569063ca38` with “go ahead”.
 
 ## Accepted basis and selected version
 
@@ -76,6 +77,7 @@ text, secret-like values or a formatted parser error that echoes input.
 | `crates/orkworksd/src/taskmaster/root_bootstrap_tests.rs` | Test through the same interface as callers; independent positives and adversarial cases. |
 | `crates/orkworksd/tests/fixtures/root-bootstrap/` | Independently extracted canonical run/context byte expectations and provenance notes, only where the existing catalog lacks byte strings. |
 | `crates/orkworksd/src/taskmaster/mod.rs` | Dormant module/test declarations only; no production caller. |
+| `.github/ci-paths.yml` | Route the external embedded root vector catalog to Rust validation. |
 | `docs/validation/root-bootstrap-components.mjs` and its test | Narrow corrections of inherited revision/artifact bound checks; preserve existing positive catalog bytes. |
 
 Helpers stay private to this module. Reuse coordinator canonical JSON/hash
@@ -208,3 +210,22 @@ Total: 6/25; judgment aid, not approval threshold. Self-review: **Ready for owne
 review**. All in-scope invariants have delivery/check coverage; no missing child
 codec or native/source-custody qualification is guessed. This plan’s approval
 would authorize only the named dormant validator and reference-check corrections.
+
+
+## Implementation record
+
+The owner-approved dormant validator and narrow reference-checker corrections are
+implemented. Eighteen focused Rust interface test groups pass, including the
+unchanged complete-root golden; native byte encodings; lossless counters;
+settings/model/artifact joins; exact 1 MiB canonical bootstrap, 16 KiB run,
+256 KiB rendering and 64 KiB evidence/artifact limits; and declared output bounds.
+All 78 root JavaScript cases and 780 documentation component tests pass. The
+unchanged Python generator reproduces the original catalog byte-for-byte.
+The initial strict-wire/source and four bound regressions were observed failing
+before their corresponding implementation. Full repository verification,
+independent review and PR CI evidence are recorded with #1307's implementation PR.
+No production caller or native/source-custody/authority qualification is added.
+
+The CI routing invariant initially rejected the new external Rust fixture input.
+The exact catalog path is now included in Rust routing; its local five-case
+routing suite passes. No product code or positive fixture bytes changed.

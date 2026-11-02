@@ -33,6 +33,9 @@ mod role_instructions;
 #[cfg(test)]
 mod role_instructions_tests;
 pub(crate) mod rollup;
+mod root_bootstrap;
+#[cfg(test)]
+mod root_bootstrap_tests;
 pub(crate) mod runtime;
 pub(crate) mod store;
 
