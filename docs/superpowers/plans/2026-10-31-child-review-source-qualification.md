@@ -112,6 +112,11 @@ has a named choice; no open generic JSON leaf is treated as a source-valid recor
   reservation, filesystem outcome and lineage attachment. Close every underlying
   mutable source/control record, fresh root/run/parent state and dependency/index
   expansion used by those transitions before claiming complete source prestate.
+  The [transition/resource effect derivation](../specs/2026-10-31-child-review-source-preparation-design.md#transition-ownership-and-preparation-effects--2026-11-02)
+  names the required producer responsibilities, five fresh assignment zero rows,
+  ten protected peer keys, summary branches and retry/uncertain-outcome oracles.
+  It does not close the remaining mutable run/task/grant/recovery codecs or
+  identify a qualified implemented lineage writer.
   Include accepted artifact_read_debits historical producerSource/artifact/resolved
   evaluation membership and exact source/mapping/custody/ledger/direct-proof joins.
   Use the accepted full-key 16 KiB row wrapper; add no ObjectRef purpose or summary/
@@ -165,7 +170,8 @@ proofs or hold up unverified byte checks waiting for a native adapter.
 - [ ] Cover shared workspace/run usage, duplicate/revoked/stale retries, interrupted
   allocation and attachment, held history/proofs, source/row/command/query/whole-store
   budget denial, lost responses, source health and no-pruning saturation. Reconcile
-  all six target/artifact resources and exact owner mapping without resetting peers.
+  the three target/reporting and two artifact resource names across their exact
+  assignment/run/workspace owner scopes without resetting peers.
   Debit-bearing histories must preserve all retained B charges and direct origin/
   predecessor proofs. A fresh-subject zero cannot replace prior run/workspace usage;
   missing debit/source/ledger membership fences availability rather than repairing it.

@@ -519,6 +519,130 @@ No canonical receipt/body is reconstructed from a high-water counter or latest I
 Interrupted allocation remains interrupted until explicit supported reconciliation;
 no owner/session/path adoption or replacement worktree creation occurs automatically.
 
+### Transition ownership and preparation effects — 2026-11-02
+
+This is a derivation of the accepted reservation, source and resource contracts,
+following [#1324's component packet](../../validation/child-source-components.md).
+It introduces no source/control field, digest domain, quota default, authority
+exception or new initialization permission. Contract owners below name the
+required producer responsibility; they do not assert an implemented route.
+
+| Transition / required producer | Required original facts and inseparable outcome |
+| --- | --- |
+| Proposal / #741 configuration resolver with #742 proposal owner | Full immutable configuration/input/evidence/plan bytes and complete source-owned membership are retained and charged before exact UI review. No grant, reservation, ordinary session, assignment ledger or result is created |
+| Approval / Electron main and #742 exact-plan authority owner | Current shown-byte context and existing UI authorization precede retry lookup; retain the exact request/source/receipt with the real grant transition. A receipt alone creates or revives no grant |
+| Reservation / #742 run/plan/task admission owner | Revalidate current grant, parent runtime, inputs, exact configuration, task version, batch/dependency/capacity and allocation ownership under the existing serialization. Commit launching/one-attempt/capacity effects and the original reservation together, freezing the resulting taskVersion once. No allocation or PTY start precedes this durable outcome |
+| Allocation / #742 plan-owned worktree allocator | Resolve the original reservation and exact planned group. Record actual newly allocated native objects or retain an interrupted/uncertain disposition; never promote an existing directory or another source worktree into a verified allocation. Reservation identity and capacity remain held while disposition is unresolved |
+| Attachment and preparation / ordinary-session lineage producer coordinated with #742 and #744 preparation owners | Establish the one pre-reserved child/configuration/allocation lineage, original attachment/source and the fresh subject effects below as one proven atomic/recovery outcome, before applicable reporting/runtime capability delivery or PTY start. A standalone ordinary create_session success is insufficient |
+
+The [ordinary session creation flow](../../../crates/orkworksd/src/session_application.rs)
+and [SessionMetadata](../../../crates/orkworksd/src/metadata.rs) do not supply the
+selected hierarchy lineage/transaction merely by existing. A bounded search at
+`7f80c8df8107acbdf0ce03c1436c5d18d7aecb9b` found no parentSession/parent_session,
+reservationId/reservation_id or child-source owner in metadata.rs, metadata/,
+http/session_handlers.rs or apps/desktop/electron. The accepted source packet
+therefore cannot identify an implemented attachment writer. A future producer
+must name its actual call/commit boundary and recovery behavior; separate stores
+or ordinary metadata publication cannot be assumed atomic with hierarchy rows.
+No read-side repair, copied session field or caller-supplied affected set closes it.
+
+#### Exact resource keys and owner mapping
+
+Let A be the newly attached ChildAssignmentIdentity reconstructed from the
+original reservation/configuration and unique attachment. Reuse the existing
+[closed ledger owner/key/value codecs](2026-10-25-hierarchy-candidate-command-manifests-design.md#closed-resource-ledger-subset):
+
+- Assignment owner: `{kind:"assignment",assignmentIdentity:A}`.
+- Owner-run: `{kind:"run",workspaceId:A.workspaceId,runId:A.runId}`.
+- Workspace: `{kind:"workspace",workspaceId:A.workspaceId}`, including retained
+  runs and admission epochs; no current-epoch filter.
+
+Each quota_usage key is exactly `{owner,resource}` and its value exactly
+`{used:Counter,reserved:Counter,lastCommit:CommitRef}`. Counter is canonical
+unsigned 64-bit decimal TEXT, through 18446744073709551615; a CommitRef sequence
+is positive. This is distinct from #742's signed-63-bit admission/run sequence
+limit and its bounded JSON task/run version counters. Never route any of them
+through a rounded JavaScript Number or substitute one range for another.
+
+| Existing resource | Required fresh A row | Existing owner-run/workspace rows |
+| --- | --- | --- |
+| reporting-receipt-bytes | used="0", reserved="0", no receipt slots | Preserve consumed/reserved credits for every retained subject and stream |
+| assignment-record-bytes | used="0", reserved="0", no candidate/result/evaluation/disposition body | Preserve all target-owned retained record occurrences; a reviewer source snapshot is not a new target record |
+| result-payload-bytes | used="0", reserved="0", no accepted payload | Preserve every accepted payload occurrence; source configuration/input bytes do not enter this pool |
+| evaluation-artifact-bytes | used="0", reserved="0", no produced artifact/mapping | Preserve all producing-owner retained artifacts/mappings, including historical versions |
+| evaluation-artifact-read-bytes | used="0", reserved="0", no committed debit | Preserve lifetime B sums from all retained full-key debit rows and source/mapping/custody/ledger/direct-proof joins; attachment or restart cannot reset them |
+
+There are five resource names and fifteen assignment/run/workspace scope keys
+for this attached subject, not six independent resource names. Exactly the five
+fresh assignment rows are inserted here. The ten run/workspace keys must already
+exist and reconcile through explicit owning preparation/history; this transition
+does not initialize or rewrite them merely because A starts at zero. Use the owning bounded
+indexes/read sets; incomplete bounded membership is unavailable, not permission
+for an assumed complete scan or a caller-supplied affected list. Two children
+in the same run share the same ten peer keys. A reviewer in another run uses its
+own producing run for artifact/read-work charges; later evaluation record/receipt
+charges still use the exact worker target's owner scopes.
+
+Missing historical peer rows are unavailable, not a fresh-zero opportunity.
+For a provably new run/workspace the owning fresh format-4 profile must prepare
+its required artifact and reporting resources before child source operations.
+The older initial-only root effect packet's three reporting resources cannot be
+silently treated as all five. No old store is extended on startup or first read.
+This names a required preparation dependency; it does not select a complete new
+initialize-store command or assert the remaining catalog/control rows absent.
+
+The separate child-source-retained-bytes run/workspace rows already exist before
+proposal publication and charge every source occurrence under the accepted
+8 MiB/run / 64 MiB/workspace policy. Their nonzero attachment/source delta is not
+charged to the five zero assignment pools. Preparation-retained/run-count,
+summary, proof/index, command and physical accounting retain their own rules.
+No ledger row grants a capability or producer role.
+
+#### Fresh attachment, summary and retry closure
+
+The attachment's logical changed set must contain the unique attachment row,
+child-assignment-source object, complete required provenance membership, initial
+summary_state and the five mandatory fresh assignment quota rows, plus actual
+lineage/task/control/capacity effects and changed source/summary quotas, indexes,
+header/new proof and required retained proof links. Coalesce each changed key to
+one original before and final after value; new zero rows are real effects even
+though their counters are zero. Merely read peer rows retain their links. The
+exact final set cannot be called complete until its control/consumer owners are
+closed; this inventory is not a transaction witness.
+
+Reuse the accepted no-result summary preparation branches: subjectRevision="1",
+with either an initialized Unassessed row/checkpoint from this child's own exact
+criteria/rubric, or the never-initialized marker with null row/checkpoint when
+summary capacity is denied. A reviewer's input target does not become its own
+accepted result. Existing workspace summary ledgers change only by their actual
+row/material/count deltas; there is no pending-material row or result/evaluation/
+receipt credit manufactured merely by attachment. Reads cannot initialize the
+marker, repair lineage or turn it into passing quality evidence.
+
+| Recovery / retry evidence | Required disposition |
+| --- | --- |
+| Proven reservation, but allocation interrupted/unknown | Preserve original snapshot/attempt/capacity and recorded native outcome; no inferred attachment, replacement allocation or automatic relaunch |
+| Original complete attachment/preparation committed, response lost | Resolve exact retained attachment/source/subject/ledger/proof bytes. Return historical identity/receipt only under the applicable current lookup authority; no second zero initialization, version increment, slot allocation or capability restoration |
+| Native/ordinary child metadata exists without complete hierarchy preparation proof | Treat the hierarchy attachment as unavailable/unsettled until its supported source-owner recovery proves disposition. Do not reconstruct source/zero ledgers from that session or declare a second child attempt |
+| One required source, lineage, quota, consumer or proof join missing/corrupt | Fence availability; no high-water/latest-counter/remaining-directory backfill and no claim that an interrupted operation rolled back |
+| Cancellation/restart/end after a committed attachment | Preserve immutable identity, source history and lifetime usage. Fresh actual runtime authority is separate; ordinary end releases neither retained source nor debit/receipt history |
+
+All five source transitions retain their own current-authority/transaction
+cutoffs. #744 publication claims and #1184 debit permits do not authorize them;
+queue admission, a response check or a durable archive is insufficient. Ordinary
+stop/revoke cannot wait behind SQL/fsync under the core latch. A new mechanism
+would require its own concrete scoped review, not an invented claim tag here.
+
+The remaining exact control-schema work is finite and separate from these
+accepted effects: full mutable #742 run/parent-runtime state (the root codec is
+initial/reserved only), plan/current-grant binding, live task/one-attempt/capacity
+state, and allocation/attachment interrupted-recovery state and indexes. Bearers
+and active grants remain volatile; this names required current runtime bindings,
+not archival credentials. Their
+closed fields/bounds and source/consumer effects must be supplied by those owners;
+no generic JSON bag, source digest or this prose substitutes for them. Physical
+producer/atomicity/native qualification still needs its separately approved plan.
+
 ## Compatibility, owner choices and handoff
 
 The scoped owner acceptance covers: the single-task retained-data/no-live-access profile,

@@ -161,7 +161,7 @@ function configuration(owner,context,snapshot) {
 }
 function commit(x) {
   exact(x,'storageEpoch commitSequence changeDigest'); digest(x.storageEpoch); digest(x.changeDigest);
-  assert(typeof x.commitSequence === 'string' && /^[1-9][0-9]{0,18}$/.test(x.commitSequence) && BigInt(x.commitSequence) <= 9223372036854775807n,'positive lossless commit Counter');
+  assert(typeof x.commitSequence === 'string' && /^[1-9][0-9]{0,19}$/.test(x.commitSequence) && BigInt(x.commitSequence) <= 18446744073709551615n,'positive lossless commit Counter');
 }
 function branch(x) {
   text(x,256); assert(x !== 'main' && x !== 'HEAD' && x !== '@' && !x.startsWith('-') && !/[\x00-\x20\x7f~^:?*\[\\]/.test(x) && !x.includes('..') && !x.includes('@{'),'Git ref syntax only');
