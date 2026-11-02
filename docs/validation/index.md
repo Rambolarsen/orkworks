@@ -80,3 +80,5 @@ Capability research, validation results, and evidence fixtures.
 - [Copilot practical research handoff](copilot-practical-research-handoff.md) — Final surface/role classification: allowed read observed, native write-denial unverified.
 
 - [Selective Rust CodeQL qualification](2026-11-02-codeql-qualification.md) — Source, coverage, findings and staged migration evidence for #1312.
+
+- [Retained child source component bytes](child-source-components.md) — Independent child configuration/input/plan/event source vectors and strict synthetic join checks; actual source and runtime qualification remain open.

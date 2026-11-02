@@ -153,10 +153,10 @@ function utc(x) {
   const date = new Date(x);
   assert(Number.isFinite(date.valueOf()) && date.toISOString() === x.replace('Z', '.000Z'), 'UTC Gregorian timestamp');
 }
-function evidence(x, b) {
+function evidence(x, b, expectedRole = 'orchestrator') {
   assert(Buffer.byteLength(canonical(x)) <= 65536, 'evidence 64 KiB');
   exact(x, 'schemaVersion evidenceId harnessId definitionDigest adapterId adapterVersion executableIdentity toolVersion platform instructionMechanism effectiveSettingsDigest role requestedProfileDigest effectiveProfileDigest decision checks references assessedAt assessorIdentity evidenceDigest');
-  assert.equal(x.schemaVersion, 1); assert.equal(x.role, 'orchestrator');
+  assert.equal(x.schemaVersion, 1); assert.equal(x.role, expectedRole);
   for (const k of ['evidenceId', 'harnessId', 'adapterId']) id(x[k]);
   for (const k of ['definitionDigest', 'effectiveSettingsDigest', 'requestedProfileDigest', 'effectiveProfileDigest']) digest(x[k]);
   for (const k of ['adapterVersion', 'toolVersion', 'assessorIdentity']) text(x[k], 512);
@@ -185,10 +185,10 @@ function evidence(x, b) {
   assert.equal(x.effectiveProfileDigest, raw(b.permissions.effective), 'effective profile digest');
   sealed(x, 'evidenceDigest', 'orkworks.capability-evidence.v1', 'evidence digest');
 }
-function snapshots(b, context) {
+function snapshots(b, context, expectedRole = 'orchestrator', taskId = b.rootAssignmentId) {
   const r = b.roleTemplate;
   exact(r, 'id version role instructions instructionsDigest contentDigest provenance'); id(r.id); integer(r.version, 1, 2147483647);
-  assert.equal(r.role, 'orchestrator'); text(r.instructions, 262144);
+  assert.equal(r.role, expectedRole); text(r.instructions, 262144);
   assert.equal(hash(r.instructions), r.instructionsDigest, 'role instructions digest');
   const roleBody = {...r}; delete roleBody.contentDigest;
   assert.equal(raw(roleBody), r.contentDigest, 'role content digest');
@@ -224,7 +224,7 @@ function snapshots(b, context) {
   for (const [i, m] of b.requirementManifests.entries()) {
     exact(m, 'sourceId sourceDigest taskId requiredSkillIds sourceLocations applicabilityReason');
     assert.equal(m.sourceDigest, sources[i].contentDigest, 'manifest source');
-    assert.equal(m.taskId, b.rootAssignmentId, 'manifest task'); text(m.applicabilityReason, 2048);
+    assert.equal(m.taskId, taskId, 'manifest task'); text(m.applicabilityReason, 2048);
     list(m.requiredSkillIds, 16); m.requiredSkillIds.forEach(id); sorted(m.requiredSkillIds);
     list(m.sourceLocations, 32, 1); m.sourceLocations.forEach(x => text(x, 512)); sorted(m.sourceLocations);
   }
@@ -349,3 +349,9 @@ export function validateRootComponent(kind, value, context) {
   }
   return raw(value); // fixture fingerprint, never an admission token
 }
+
+// Explicit common leaf checks reused by the child documentation packet. Defaults
+// above preserve every root rule; callers supply child role/task without relabeling.
+export {canonical, hash, exact, text, id, digest, integer, list, sorted, bindings,
+  nativePath, repository, worktree, artifact,
+  snapshots as validateInstructionSnapshots, evidence as validateUnverifiedEvidence};
