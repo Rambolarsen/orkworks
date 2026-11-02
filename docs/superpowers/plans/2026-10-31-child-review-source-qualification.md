@@ -23,7 +23,9 @@ Tracking: [#1183](https://github.com/Rambolarsen/orkworks/issues/1183),
 [#746](https://github.com/Rambolarsen/orkworks/issues/746).
 Spec: [child source/preparation proposal](../specs/2026-10-31-child-review-source-preparation-design.md).
 Baseline audit: [artifact source closure](../../validation/evaluation-artifact-source-closure.md).
-Inspection base: `98ce5503`. Existing artifact decisions stay accepted in their scope.
+Original inspection base: `98ce5503`; reconciliation base:
+`81322cc57c9f63de4778b42c0cd5bcf6d15efe29` (2026-11-02).
+Existing artifact decisions stay accepted in their scope.
 
 ## Investigated uncertainty and boundaries
 
@@ -37,8 +39,11 @@ records rather than a generic source JSON bag or a fake approved/session boolean
 Source representation is not source event authority. The immutable reservation
 must capture the actual normal #742 transition's resulting taskVersion, and unique
 attachment must come from the real lineage owner. The proposal does not close all
-mutable orchestration state or grant codecs. Missing native control/consumer/atomic
-publication remains a no-go even after a record's hash is correct. Artifact read-work
+mutable orchestration state or grant codecs. Unknown required native mapping/content
+delivery, incomplete consumer membership or missing atomic publication still blocks qualification after a record's hash is
+correct. Known instruction-only limits are assessed under the accepted
+[native guardrail standard](../specs/2026-11-02-native-role-guardrails-design.md),
+with actual native settings and residual host access disclosed. Artifact read-work
 ordering #1184 and other excluded source actions retain their own authority cutoffs.
 
 One root author owns spec/plan and all edits. After drafting, two independent
@@ -46,6 +51,30 @@ read-only lower-cost reviewers check (1) correctness/accepted-contract compatibi
 and (2) unanswered builder/closure decisions. Maximum three active agents, one
 bounded review round; no concurrent writers, code, model/native probe or metadata
 reporting from reviewers. Apply findings before the written owner-review handoff.
+
+## Current decision boundary — 2026-11-02
+
+This review preserves the existing proposal; it does not accept new source choices.
+The remaining owner decision is one scoped package with these explicit tradeoffs:
+
+| Proposed choice | Consequence to approve or revise |
+| --- | --- |
+| One task, independent worktree, retained inline/research-report inputs, no materialized outputs | A bounded first source slice; general multi-task, path/output and other producer profiles remain unsupported |
+| Explicit child leaf/framing/input/plan/approval/event codecs and domains | No relabeled root records or promotion of old fixtures; exact original outcomes remain distinct from authority |
+| Expanded single fresh format-4 catalog and child-source-provenance purpose | Whole-catalog readers and complete source/control/consumer membership are required; no old-store import or subset selected by row presence |
+| 8 MiB/run, 64 MiB/workspace source pool, no pruning, explicit fresh preparation | Historical sources can exhaust capacity and deny new plans; no reset, repair or silent budget increase |
+
+Already accepted: #741's logical role core, #1210's debit representation and
+historical accounting consumer, and practical native guardrails. #740 research
+is closed. The dormant #1307 root-byte validator does not supply child codecs,
+real source event owners or a supported native profile. None of these decisions
+accepts the package above.
+
+Gate A acceptance would authorize preparing the bounded component/source-ownership
+work in Gate B; it would not itself authorize runtime implementation, model calls,
+full transaction fixtures or a native adapter. Gates C and D retain their stated
+prerequisites. #1183 stays open until its source/preparation/consumer criteria are
+met; merging this written reconciliation is not completion of the issue.
 
 ## Gate A — scoped source/profile decision
 
@@ -76,6 +105,10 @@ has a named choice; no open generic JSON leaf is treated as a source-valid recor
   reservation, filesystem outcome and lineage attachment. Close every underlying
   mutable source/control record, fresh root/run/parent state and dependency/index
   expansion used by those transitions before claiming complete source prestate.
+  Include accepted artifact_read_debits historical producerSource/artifact/resolved
+  evaluation membership and exact source/mapping/custody/ledger/direct-proof joins.
+  Use the accepted full-key 16 KiB row wrapper; add no ObjectRef purpose or summary/
+  freshness consumer, and do not require historical generations to be current.
 - [ ] Establish current native authority and workspace/lease/source fences for
   excluded source metadata actions; no artifact-write claim, response precheck or
   core-lock-through-fsync workaround. Any required new policy is reviewed separately.
@@ -93,6 +126,9 @@ complete underlying control/consumer/authority evidence remain distinguishable.
   allocation and attachment, held history/proofs, source/row/command/query/whole-store
   budget denial, lost responses, source health and no-pruning saturation. Reconcile
   all six target/artifact resources and exact owner mapping without resetting peers.
+  Debit-bearing histories must preserve all retained B charges and direct origin/
+  predecessor proofs. A fresh-subject zero cannot replace prior run/workspace usage;
+  missing debit/source/ledger membership fences availability rather than repairing it.
 - [ ] Join child source to accepted artifact metadata/evaluation/receipt/custody
   effects only after both source and artifact gates hold. Preserve detail-only
   snapshot invalidation, historical identities and protected paired credits.
@@ -106,7 +142,9 @@ Only after the relevant written decisions, prepare a bounded actual implementati
 platform plan with module owners, supported versions, private disposable stores,
 finite fault/sample/time budgets and cleanup. Observe real atomicity, native object
 identity, memory/worker/lease/authority/stop responsiveness and capability evidence.
-#740, #1184, #745 shared custody and maximal profile gates remain independent.
+Reuse #740's closed version-bound research handoff; qualify the actual child
+configuration under the practical native guardrail standard. #1184, #745 shared
+custody and maximal profile gates remain independent. No new #740 probe is implied.
 No migration/rollout/reversal mechanism is selected here; code has not started.
 
 ## Risk and review disposition
@@ -124,6 +162,12 @@ selected worker 1–33 / reviewer 2–34 delivery entries with immediate post-su
 input ordering, and retained exact bounded evidence bytes without claiming a
 closed permission-fixture type or a passing check. Reviewers reported no other
 material findings; this was one round, not an independent post-edit review.
+
+The 2026-11-02 reconciliation received one bounded read-only Luna review round:
+correctness against the accepted debit/guardrail contracts, and completeness of
+the owner-decision/source-qualification boundary. Both reviewers reported no
+material findings in the changed material; unchanged proposal choices were not
+reopened. This review does not accept those choices or establish native evidence.
 
 Disposition: **Investigate for full source/executable qualification; ready for
 written owner review of the named new choices.** No acceptance or native result

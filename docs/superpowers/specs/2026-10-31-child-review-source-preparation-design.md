@@ -45,7 +45,11 @@ source slice**, not a general child/orchestration schema:
 - No model-visible shell, live filesystem, external source, connector, Git,
   native delegation or child coordination action. Retained review input is
   delivered as exact bounded startup task data under the existing scoped read
-  authority and a verified adapter; a prompt restriction alone is not enforcement.
+  authority and a separately qualified adapter. This describes intended task scope;
+  apply available native controls and disclose instruction-only limits under the
+  accepted [native guardrail standard](2026-11-02-native-role-guardrails-design.md).
+  A verified practical configuration is not proof that the tool cannot use broader
+  host access. Unknown required mapping or content delivery still blocks support.
 - Review targets are child results with matching retained source records, no
   materialized outputs, and zero selected output IDs. The first evidence slice
   supports existing research-report evidence only. Root/performance review,
@@ -162,7 +166,11 @@ length + LF, complete canonical input snapshot + LF. Entire composed startup,
 including automatically delivered content, remains at most 256 KiB. A larger
 valid stored input or configuration is therefore unsupported for this slice;
 reject before approval, never truncate or claim all maxima fit. Model adherence,
-secret absence and native permission/delivery remain #740 qualification gates.
+secret handling and native permission/delivery require separate practical
+qualification under the accepted native guardrail standard. Delivered bytes and
+observed behavior do not establish guaranteed containment. #740's completed
+[research handoff](../../validation/copilot-practical-research-handoff.md) supplies
+version-bound evidence, not an eligible adapter for this proposed child profile.
 
 ## Exact retained input snapshot
 
@@ -410,10 +418,21 @@ source records remain protected while any retained plan/source group names them;
 the run owner resolves that bounded membership from exact PlanRefs, not generic
 ObjectRefs fabricated for metadata tables.
 
+The accepted [#1210 debit representation](2026-10-31-artifact-read-debit-proof-design.md#owner-acceptance-and-source-closure-handoff--2026-10-31)
+also makes artifact_read_debits a mandatory historical accounting consumer of its
+exact producerSource, artifact and resolved evaluation. Retain the complete
+full-key debit row and its source/mapping/custody/ledger validation joins, including
+direct origin/predecessor CommitRef proofs. This is direct closed-table membership,
+not a new ObjectRef purpose or edge, evaluation-freshness consumer or current-summary
+input. Historical admission joins do not require the old generation to equal the
+current process and never recreate current authority. Complete bounded incoming
+membership must account for these debit references before any future deletion.
+
 Discover all incoming/outgoing consumers from the source-owned complete index,
-including historical configurations, snapshots, approved plans and retained child
-sources; selected/current rows alone are insufficient. Register these kinds with
-the artifact/custody/health/retention owners and use their actual bounded closures.
+including historical configurations, snapshots, approved plans, retained child
+sources and the accepted closed-table debit accounting membership; selected/current
+rows alone are insufficient. Register these kinds with the artifact/custody/health/
+retention owners and use their actual bounded closures.
 Unknown #743/preparation/proposal/launch/learning consumers are unavailable/no-go,
 not assumed absent to enter this slice. Preserve detail-only snapshot invalidation
 and existing subjectRevision/summary/material distinctions on every affected source
@@ -441,6 +460,12 @@ reservation, allocation and attachment row above, excluding only committed link
 paths. Count all retained occurrences/wrappers; no dedup/head-only/epoch reset or
 release on ordinary end. Root preparation, report, result/evaluation/artifact,
 read-work, receipt, summary/lineage/proof and physical/index budgets remain separate.
+Accepted debit rows retain their 16 KiB complete key/value wrapper bound and direct
+proof costs in the existing accounting/store profile; do not charge them as new
+child-source objects or discard them to make the proposed source pool fit. Read-work
+usage remains the sum of all retained committed debits for each prepared owner,
+across retained runs/admission epochs. Zero requires actual fresh preparation proof;
+attachment, restart or a new source plan cannot reset historical debit totals.
 No accepted quota/store ceiling is raised. The one-task source and no-pruning costs
 are new proposed policy; shared capacity can deny future plans without a purge route.
 
@@ -504,35 +529,24 @@ The [qualification handoff](../plans/2026-10-31-child-review-source-qualificatio
 stops at owner decision, then exact codec/component and original source creation/
 consumer/control/authority closure, before complete independent transaction fixtures.
 Existing conditional sources remain unchanged evidence. #1183 remains open for
-review and source-owner agreement; #1176 Gate 2, #1184, #740 and native/executable
-plans remain separate. No source-valid complete profile, database/migration,
-fixture/checker, model/native probe, launch or runtime implementation is delivered.
+review and source-owner agreement; #1176 Gate 2, #1184 and native/executable
+plans remain separate. #740 is closed as research and #741's logical role core is
+accepted; neither qualifies this proposed child source profile. No source-valid
+complete profile, database/migration, fixture/checker, model/native probe, launch or runtime implementation is delivered.
 
 
-## Proposed debit accounting consumer — 2026-10-31
+## Review reconciliation — 2026-11-02
 
-The [#1210 representation proposal](2026-10-31-artifact-read-debit-proof-design.md#recovery-accounting-completeness-and-retention)
-adds a proposed direct historical accounting consumer: artifact_read_debits rows
-retain exact producerSource, artifact/resolved evaluation and direct commit-proof
-validation joins. Reconcile that closed-table retention membership with this
-source/consumer registry before complete-state qualification. It is not a new
-ObjectRef dependency purpose, evaluation-freshness consumer or current-summary
-input. The initial no-purge profile supplies no debit/source eviction or repaired
-zero ledgers. These new representation/retention choices need scoped acceptance;
-this annotation does not accept the broader #1183 proposal or pass native gates.
+Review base: `81322cc57c9f63de4778b42c0cd5bcf6d15efe29`. The accepted #1210
+historical debit consumer is integrated into the main membership and accounting
+sections above. This supersedes the earlier pending-consumer annotation; it does
+not accept the broader #1183 source/profile/leaf/codec or 8 MiB/run and 64 MiB/workspace
+budget choices. The accepted native guardrail amendment governs practical adapter
+qualification without changing the proposed wire fields or digest domains.
 
-
-## Debit accounting consumer accepted; source proposal remains — 2026-10-31
-
-The owner [accepted #1210's exact debit representation](2026-10-31-artifact-read-debit-proof-design.md#owner-acceptance-and-source-closure-handoff--2026-10-31),
-including the historical artifact_read_debits accounting consumer and required
-source/mapping/custody/direct-proof validation retention. That supersedes the
-preceding consumer annotation's owner-pending status only for the debit choice.
-Reconcile its full incoming membership into this source registry before complete
-source-state qualification; it remains neither an ObjectRef dependency purpose
-nor a current-summary/evaluation-freshness input.
-
-This does not accept this document's broader #1183 source/profile/leaf/codec,
-8 MiB/run or 64 MiB/workspace source-budget choices, or qualify real source/control/
-preparation/attachment authority. The separate Gate A and source-owner/consumer/
-native gates remain. No source fixture, database, probe or runtime work follows.
+The dormant root-v2 validator delivered by
+[#1307](https://github.com/Rambolarsen/orkworks/issues/1307) validates root source
+bytes only. It supplies neither child codecs nor actual proposal/reservation/
+allocation/attachment event evidence. No fixture, database, probe, launch or runtime
+work follows from this reconciliation. The remaining owner choices and finite
+follow-on gates are listed in the qualification handoff.
