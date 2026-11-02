@@ -1,0 +1,2942 @@
+{
+  "reviewer": "Codex independent semantic adjudication",
+  "reviewerModel": "not exposed in this execution context",
+  "inferenceModelProfile": {
+    "provider": "codex",
+    "model": "gpt-6-luna",
+    "reasoningEffort": "medium"
+  },
+  "verdict": "fail",
+  "rowsReviewed": 126,
+  "rowVerdicts": [
+    {
+      "trial": "baseline-1",
+      "conceptId": "context-discovery",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-1-final-input.json#/repositoryFacts/0",
+          "baseline-1-final-input.json#/repositoryFacts/1",
+          "baseline-1-final-input.json#/repositoryFacts/3",
+          "baseline-1-final-input.json#/rubric/concepts/0"
+        ],
+        "outputPointer": "baseline-1-final-output.json#/concepts/0"
+      }
+    },
+    {
+      "trial": "baseline-1",
+      "conceptId": "progressive-disclosure",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-1-final-input.json#/repositoryFacts/0",
+          "baseline-1-final-input.json#/repositoryFacts/3",
+          "baseline-1-final-input.json#/repositoryFacts/4",
+          "baseline-1-final-input.json#/repositoryFacts/5",
+          "baseline-1-final-input.json#/rubric/concepts/1"
+        ],
+        "outputPointer": "baseline-1-final-output.json#/concepts/1"
+      }
+    },
+    {
+      "trial": "baseline-1",
+      "conceptId": "instruction-scoping",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-1-final-input.json#/repositoryFacts/0",
+          "baseline-1-final-input.json#/rubric/concepts/2"
+        ],
+        "outputPointer": "baseline-1-final-output.json#/concepts/2"
+      }
+    },
+    {
+      "trial": "baseline-1",
+      "conceptId": "architecture-awareness",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-1-final-input.json#/repositoryFacts/0",
+          "baseline-1-final-input.json#/repositoryFacts/3",
+          "baseline-1-final-input.json#/repositoryFacts/4",
+          "baseline-1-final-input.json#/rubric/concepts/3"
+        ],
+        "outputPointer": "baseline-1-final-output.json#/concepts/3"
+      }
+    },
+    {
+      "trial": "baseline-1",
+      "conceptId": "domain-knowledge",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-1-final-input.json#/repositoryFacts/0",
+          "baseline-1-final-input.json#/repositoryFacts/3",
+          "baseline-1-final-input.json#/repositoryFacts/5",
+          "baseline-1-final-input.json#/rubric/concepts/4"
+        ],
+        "outputPointer": "baseline-1-final-output.json#/concepts/4"
+      }
+    },
+    {
+      "trial": "baseline-1",
+      "conceptId": "environment-reproducibility",
+      "reportedMaturity": 2,
+      "verdict": "unsupported",
+      "supportedAlternative": 1,
+      "reason": "Documented setup is supported, but level 2 requires a reliably working clean-checkout sequence; no execution evidence establishes reliability.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-1-final-input.json#/repositoryFacts/1",
+          "baseline-1-final-input.json#/repositoryFacts/2",
+          "baseline-1-final-input.json#/repositoryFacts/3",
+          "baseline-1-final-input.json#/rubric/concepts/5"
+        ],
+        "outputPointer": "baseline-1-final-output.json#/concepts/5"
+      }
+    },
+    {
+      "trial": "baseline-1",
+      "conceptId": "tool-accessibility",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-1-final-input.json#/repositoryFacts/1",
+          "baseline-1-final-input.json#/repositoryFacts/3",
+          "baseline-1-final-input.json#/rubric/concepts/6"
+        ],
+        "outputPointer": "baseline-1-final-output.json#/concepts/6"
+      }
+    },
+    {
+      "trial": "baseline-1",
+      "conceptId": "task-decomposition",
+      "reportedMaturity": null,
+      "verdict": "justified_unassessed",
+      "supportedAlternative": null,
+      "reason": "The small-plan/focused-test instruction alone does not establish rubric level 1 examples, a level 2 decomposition workflow, or level 3 per-step validation; the bounded excerpts do not prove those examples absent elsewhere.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-1-final-input.json#/repositoryFacts/0",
+          "baseline-1-final-input.json#/rubric/concepts/7"
+        ],
+        "outputPointer": "baseline-1-final-output.json#/concepts/7"
+      }
+    },
+    {
+      "trial": "baseline-1",
+      "conceptId": "verification",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-1-final-input.json#/repositoryFacts/1",
+          "baseline-1-final-input.json#/repositoryFacts/2",
+          "baseline-1-final-input.json#/repositoryFacts/3",
+          "baseline-1-final-input.json#/rubric/concepts/8"
+        ],
+        "outputPointer": "baseline-1-final-output.json#/concepts/8"
+      }
+    },
+    {
+      "trial": "baseline-1",
+      "conceptId": "observability",
+      "reportedMaturity": null,
+      "verdict": "justified_unassessed",
+      "supportedAlternative": null,
+      "reason": "Bounded excerpts do not establish whether commit history, changelogs, CI results, or other records exist; omission is not evidence of absence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-1-final-input.json#/repositoryFacts/6",
+          "baseline-1-final-input.json#/rubric/concepts/9"
+        ],
+        "outputPointer": "baseline-1-final-output.json#/concepts/9"
+      }
+    },
+    {
+      "trial": "baseline-1",
+      "conceptId": "change-safety",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-1-final-input.json#/repositoryFacts/0",
+          "baseline-1-final-input.json#/rubric/concepts/10"
+        ],
+        "outputPointer": "baseline-1-final-output.json#/concepts/10"
+      }
+    },
+    {
+      "trial": "baseline-1",
+      "conceptId": "feedback-loops",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-1-final-input.json#/repositoryFacts/0",
+          "baseline-1-final-input.json#/repositoryFacts/6",
+          "baseline-1-final-input.json#/rubric/concepts/11"
+        ],
+        "outputPointer": "baseline-1-final-output.json#/concepts/11"
+      }
+    },
+    {
+      "trial": "baseline-1",
+      "conceptId": "durable-memory",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-1-final-input.json#/repositoryFacts/0",
+          "baseline-1-final-input.json#/repositoryFacts/6",
+          "baseline-1-final-input.json#/rubric/concepts/12"
+        ],
+        "outputPointer": "baseline-1-final-output.json#/concepts/12"
+      }
+    },
+    {
+      "trial": "baseline-1",
+      "conceptId": "human-oversight",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-1-final-input.json#/repositoryFacts/0",
+          "baseline-1-final-input.json#/rubric/concepts/13"
+        ],
+        "outputPointer": "baseline-1-final-output.json#/concepts/13"
+      }
+    },
+    {
+      "trial": "baseline-2",
+      "conceptId": "context-discovery",
+      "reportedMaturity": 3,
+      "verdict": "supported",
+      "supportedAlternative": 3,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-2-final-input.json#/repositoryFacts/0",
+          "baseline-2-final-input.json#/repositoryFacts/3",
+          "baseline-2-final-input.json#/repositoryFacts/4",
+          "baseline-2-final-input.json#/repositoryFacts/5",
+          "baseline-2-final-input.json#/rubric/concepts/0"
+        ],
+        "outputPointer": "baseline-2-final-output.json#/concepts/0"
+      }
+    },
+    {
+      "trial": "baseline-2",
+      "conceptId": "progressive-disclosure",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-2-final-input.json#/repositoryFacts/0",
+          "baseline-2-final-input.json#/repositoryFacts/3",
+          "baseline-2-final-input.json#/repositoryFacts/4",
+          "baseline-2-final-input.json#/repositoryFacts/5",
+          "baseline-2-final-input.json#/rubric/concepts/1"
+        ],
+        "outputPointer": "baseline-2-final-output.json#/concepts/1"
+      }
+    },
+    {
+      "trial": "baseline-2",
+      "conceptId": "instruction-scoping",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-2-final-input.json#/repositoryFacts/0",
+          "baseline-2-final-input.json#/repositoryFacts/4",
+          "baseline-2-final-input.json#/repositoryFacts/5",
+          "baseline-2-final-input.json#/rubric/concepts/2"
+        ],
+        "outputPointer": "baseline-2-final-output.json#/concepts/2"
+      }
+    },
+    {
+      "trial": "baseline-2",
+      "conceptId": "architecture-awareness",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-2-final-input.json#/repositoryFacts/0",
+          "baseline-2-final-input.json#/repositoryFacts/4",
+          "baseline-2-final-input.json#/rubric/concepts/3"
+        ],
+        "outputPointer": "baseline-2-final-output.json#/concepts/3"
+      }
+    },
+    {
+      "trial": "baseline-2",
+      "conceptId": "domain-knowledge",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-2-final-input.json#/repositoryFacts/0",
+          "baseline-2-final-input.json#/repositoryFacts/5",
+          "baseline-2-final-input.json#/rubric/concepts/4"
+        ],
+        "outputPointer": "baseline-2-final-output.json#/concepts/4"
+      }
+    },
+    {
+      "trial": "baseline-2",
+      "conceptId": "environment-reproducibility",
+      "reportedMaturity": 2,
+      "verdict": "unsupported",
+      "supportedAlternative": 1,
+      "reason": "README and CI configuration establish intended setup, not the clean-checkout reliability required by level 2.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-2-final-input.json#/repositoryFacts/1",
+          "baseline-2-final-input.json#/repositoryFacts/2",
+          "baseline-2-final-input.json#/repositoryFacts/3",
+          "baseline-2-final-input.json#/rubric/concepts/5"
+        ],
+        "outputPointer": "baseline-2-final-output.json#/concepts/5"
+      }
+    },
+    {
+      "trial": "baseline-2",
+      "conceptId": "tool-accessibility",
+      "reportedMaturity": 3,
+      "verdict": "unsupported",
+      "supportedAlternative": 2,
+      "reason": "CI provisioning guarantees tools in its runner, not that agent environments themselves have guaranteed availability as level 3 requires.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-2-final-input.json#/repositoryFacts/1",
+          "baseline-2-final-input.json#/repositoryFacts/2",
+          "baseline-2-final-input.json#/repositoryFacts/3",
+          "baseline-2-final-input.json#/rubric/concepts/6"
+        ],
+        "outputPointer": "baseline-2-final-output.json#/concepts/6"
+      }
+    },
+    {
+      "trial": "baseline-2",
+      "conceptId": "task-decomposition",
+      "reportedMaturity": null,
+      "verdict": "justified_unassessed",
+      "supportedAlternative": null,
+      "reason": "The small-plan/focused-test instruction alone does not establish rubric level 1 examples, a level 2 decomposition workflow, or level 3 per-step validation; the bounded excerpts do not prove those examples absent elsewhere.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-2-final-input.json#/repositoryFacts/0",
+          "baseline-2-final-input.json#/rubric/concepts/7"
+        ],
+        "outputPointer": "baseline-2-final-output.json#/concepts/7"
+      }
+    },
+    {
+      "trial": "baseline-2",
+      "conceptId": "verification",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-2-final-input.json#/repositoryFacts/1",
+          "baseline-2-final-input.json#/repositoryFacts/3",
+          "baseline-2-final-input.json#/rubric/concepts/8"
+        ],
+        "outputPointer": "baseline-2-final-output.json#/concepts/8"
+      }
+    },
+    {
+      "trial": "baseline-2",
+      "conceptId": "observability",
+      "reportedMaturity": null,
+      "verdict": "justified_unassessed",
+      "supportedAlternative": null,
+      "reason": "Bounded excerpts do not establish whether commit history, changelogs, CI results, or other records exist; omission is not evidence of absence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-2-final-input.json#/repositoryFacts/2",
+          "baseline-2-final-input.json#/repositoryFacts/6",
+          "baseline-2-final-input.json#/rubric/concepts/9"
+        ],
+        "outputPointer": "baseline-2-final-output.json#/concepts/9"
+      }
+    },
+    {
+      "trial": "baseline-2",
+      "conceptId": "change-safety",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-2-final-input.json#/repositoryFacts/0",
+          "baseline-2-final-input.json#/rubric/concepts/10"
+        ],
+        "outputPointer": "baseline-2-final-output.json#/concepts/10"
+      }
+    },
+    {
+      "trial": "baseline-2",
+      "conceptId": "feedback-loops",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-2-final-input.json#/repositoryFacts/0",
+          "baseline-2-final-input.json#/repositoryFacts/6",
+          "baseline-2-final-input.json#/rubric/concepts/11"
+        ],
+        "outputPointer": "baseline-2-final-output.json#/concepts/11"
+      }
+    },
+    {
+      "trial": "baseline-2",
+      "conceptId": "durable-memory",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-2-final-input.json#/repositoryFacts/0",
+          "baseline-2-final-input.json#/repositoryFacts/6",
+          "baseline-2-final-input.json#/rubric/concepts/12"
+        ],
+        "outputPointer": "baseline-2-final-output.json#/concepts/12"
+      }
+    },
+    {
+      "trial": "baseline-2",
+      "conceptId": "human-oversight",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-2-final-input.json#/repositoryFacts/0",
+          "baseline-2-final-input.json#/rubric/concepts/13"
+        ],
+        "outputPointer": "baseline-2-final-output.json#/concepts/13"
+      }
+    },
+    {
+      "trial": "baseline-3",
+      "conceptId": "context-discovery",
+      "reportedMaturity": 3,
+      "verdict": "supported",
+      "supportedAlternative": 3,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-3-final-input.json#/repositoryFacts/0",
+          "baseline-3-final-input.json#/repositoryFacts/3",
+          "baseline-3-final-input.json#/repositoryFacts/4",
+          "baseline-3-final-input.json#/repositoryFacts/5",
+          "baseline-3-final-input.json#/rubric/concepts/0"
+        ],
+        "outputPointer": "baseline-3-final-output.json#/concepts/0"
+      }
+    },
+    {
+      "trial": "baseline-3",
+      "conceptId": "progressive-disclosure",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-3-final-input.json#/repositoryFacts/0",
+          "baseline-3-final-input.json#/repositoryFacts/3",
+          "baseline-3-final-input.json#/repositoryFacts/4",
+          "baseline-3-final-input.json#/repositoryFacts/5",
+          "baseline-3-final-input.json#/rubric/concepts/1"
+        ],
+        "outputPointer": "baseline-3-final-output.json#/concepts/1"
+      }
+    },
+    {
+      "trial": "baseline-3",
+      "conceptId": "instruction-scoping",
+      "reportedMaturity": null,
+      "verdict": "justified_unassessed",
+      "supportedAlternative": null,
+      "reason": "Bounded excerpts do not establish repository-wide instruction structure or absence of subsystem-scoped guidance.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-3-final-input.json#/repositoryFacts/0",
+          "baseline-3-final-input.json#/rubric/concepts/2"
+        ],
+        "outputPointer": "baseline-3-final-output.json#/concepts/2"
+      }
+    },
+    {
+      "trial": "baseline-3",
+      "conceptId": "architecture-awareness",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-3-final-input.json#/repositoryFacts/0",
+          "baseline-3-final-input.json#/repositoryFacts/4",
+          "baseline-3-final-input.json#/rubric/concepts/3"
+        ],
+        "outputPointer": "baseline-3-final-output.json#/concepts/3"
+      }
+    },
+    {
+      "trial": "baseline-3",
+      "conceptId": "domain-knowledge",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-3-final-input.json#/repositoryFacts/0",
+          "baseline-3-final-input.json#/repositoryFacts/5",
+          "baseline-3-final-input.json#/rubric/concepts/4"
+        ],
+        "outputPointer": "baseline-3-final-output.json#/concepts/4"
+      }
+    },
+    {
+      "trial": "baseline-3",
+      "conceptId": "environment-reproducibility",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-3-final-input.json#/repositoryFacts/1",
+          "baseline-3-final-input.json#/repositoryFacts/3",
+          "baseline-3-final-input.json#/rubric/concepts/5"
+        ],
+        "outputPointer": "baseline-3-final-output.json#/concepts/5"
+      }
+    },
+    {
+      "trial": "baseline-3",
+      "conceptId": "tool-accessibility",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-3-final-input.json#/repositoryFacts/1",
+          "baseline-3-final-input.json#/repositoryFacts/3",
+          "baseline-3-final-input.json#/rubric/concepts/6"
+        ],
+        "outputPointer": "baseline-3-final-output.json#/concepts/6"
+      }
+    },
+    {
+      "trial": "baseline-3",
+      "conceptId": "task-decomposition",
+      "reportedMaturity": null,
+      "verdict": "justified_unassessed",
+      "supportedAlternative": null,
+      "reason": "The small-plan/focused-test instruction alone does not establish rubric level 1 examples, a level 2 decomposition workflow, or level 3 per-step validation; the bounded excerpts do not prove those examples absent elsewhere.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-3-final-input.json#/repositoryFacts/0",
+          "baseline-3-final-input.json#/rubric/concepts/7"
+        ],
+        "outputPointer": "baseline-3-final-output.json#/concepts/7"
+      }
+    },
+    {
+      "trial": "baseline-3",
+      "conceptId": "verification",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-3-final-input.json#/repositoryFacts/1",
+          "baseline-3-final-input.json#/repositoryFacts/2",
+          "baseline-3-final-input.json#/repositoryFacts/3",
+          "baseline-3-final-input.json#/rubric/concepts/8"
+        ],
+        "outputPointer": "baseline-3-final-output.json#/concepts/8"
+      }
+    },
+    {
+      "trial": "baseline-3",
+      "conceptId": "observability",
+      "reportedMaturity": null,
+      "verdict": "justified_unassessed",
+      "supportedAlternative": null,
+      "reason": "Bounded excerpts do not establish whether commit history, changelogs, CI results, or other records exist; omission is not evidence of absence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-3-final-input.json#/repositoryFacts/2",
+          "baseline-3-final-input.json#/repositoryFacts/6",
+          "baseline-3-final-input.json#/rubric/concepts/9"
+        ],
+        "outputPointer": "baseline-3-final-output.json#/concepts/9"
+      }
+    },
+    {
+      "trial": "baseline-3",
+      "conceptId": "change-safety",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-3-final-input.json#/repositoryFacts/0",
+          "baseline-3-final-input.json#/rubric/concepts/10"
+        ],
+        "outputPointer": "baseline-3-final-output.json#/concepts/10"
+      }
+    },
+    {
+      "trial": "baseline-3",
+      "conceptId": "feedback-loops",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-3-final-input.json#/repositoryFacts/0",
+          "baseline-3-final-input.json#/repositoryFacts/6",
+          "baseline-3-final-input.json#/rubric/concepts/11"
+        ],
+        "outputPointer": "baseline-3-final-output.json#/concepts/11"
+      }
+    },
+    {
+      "trial": "baseline-3",
+      "conceptId": "durable-memory",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-3-final-input.json#/repositoryFacts/0",
+          "baseline-3-final-input.json#/repositoryFacts/6",
+          "baseline-3-final-input.json#/rubric/concepts/12"
+        ],
+        "outputPointer": "baseline-3-final-output.json#/concepts/12"
+      }
+    },
+    {
+      "trial": "baseline-3",
+      "conceptId": "human-oversight",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "baseline-3-final-input.json#/repositoryFacts/0",
+          "baseline-3-final-input.json#/rubric/concepts/13"
+        ],
+        "outputPointer": "baseline-3-final-output.json#/concepts/13"
+      }
+    },
+    {
+      "trial": "healthy-1",
+      "conceptId": "context-discovery",
+      "reportedMaturity": 3,
+      "verdict": "supported",
+      "supportedAlternative": 3,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-1-final-input.json#/repositoryFacts/0",
+          "healthy-1-final-input.json#/repositoryFacts/1",
+          "healthy-1-final-input.json#/repositoryFacts/3",
+          "healthy-1-final-input.json#/repositoryFacts/4",
+          "healthy-1-final-input.json#/repositoryFacts/5",
+          "healthy-1-final-input.json#/rubric/concepts/0"
+        ],
+        "outputPointer": "healthy-1-final-output.json#/concepts/0"
+      }
+    },
+    {
+      "trial": "healthy-1",
+      "conceptId": "progressive-disclosure",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-1-final-input.json#/repositoryFacts/0",
+          "healthy-1-final-input.json#/repositoryFacts/3",
+          "healthy-1-final-input.json#/repositoryFacts/4",
+          "healthy-1-final-input.json#/repositoryFacts/5",
+          "healthy-1-final-input.json#/rubric/concepts/1"
+        ],
+        "outputPointer": "healthy-1-final-output.json#/concepts/1"
+      }
+    },
+    {
+      "trial": "healthy-1",
+      "conceptId": "instruction-scoping",
+      "reportedMaturity": 0,
+      "verdict": "supported",
+      "supportedAlternative": 0,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-1-final-input.json#/repositoryFacts/0",
+          "healthy-1-final-input.json#/repositoryFacts/1",
+          "healthy-1-final-input.json#/rubric/concepts/2"
+        ],
+        "outputPointer": "healthy-1-final-output.json#/concepts/2"
+      }
+    },
+    {
+      "trial": "healthy-1",
+      "conceptId": "architecture-awareness",
+      "reportedMaturity": 3,
+      "verdict": "unsupported",
+      "supportedAlternative": 2,
+      "reason": "Integrated level 3 requires architecture docs maintained alongside structural changes; the excerpt only describes and links them.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-1-final-input.json#/repositoryFacts/0",
+          "healthy-1-final-input.json#/repositoryFacts/4",
+          "healthy-1-final-input.json#/rubric/concepts/3"
+        ],
+        "outputPointer": "healthy-1-final-output.json#/concepts/3"
+      }
+    },
+    {
+      "trial": "healthy-1",
+      "conceptId": "domain-knowledge",
+      "reportedMaturity": 3,
+      "verdict": "unsupported",
+      "supportedAlternative": 2,
+      "reason": "The specific glossary supports usable rules, but level 3 also requires updates as domain rules change; no such evidence is supplied.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-1-final-input.json#/repositoryFacts/0",
+          "healthy-1-final-input.json#/repositoryFacts/5",
+          "healthy-1-final-input.json#/rubric/concepts/4"
+        ],
+        "outputPointer": "healthy-1-final-output.json#/concepts/4"
+      }
+    },
+    {
+      "trial": "healthy-1",
+      "conceptId": "environment-reproducibility",
+      "reportedMaturity": 3,
+      "verdict": "unsupported",
+      "supportedAlternative": 1,
+      "reason": "README/CI/lockfile specify intended setup but do not establish reliable clean-checkout results or consistent use for humans and agents.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-1-final-input.json#/repositoryFacts/1",
+          "healthy-1-final-input.json#/repositoryFacts/2",
+          "healthy-1-final-input.json#/repositoryFacts/3",
+          "healthy-1-final-input.json#/rubric/concepts/5"
+        ],
+        "outputPointer": "healthy-1-final-output.json#/concepts/5"
+      }
+    },
+    {
+      "trial": "healthy-1",
+      "conceptId": "tool-accessibility",
+      "reportedMaturity": 3,
+      "verdict": "unsupported",
+      "supportedAlternative": 2,
+      "reason": "CI provisions tools in its runner; no evidence establishes guaranteed availability in the agent environment required by level 3.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-1-final-input.json#/repositoryFacts/1",
+          "healthy-1-final-input.json#/repositoryFacts/2",
+          "healthy-1-final-input.json#/repositoryFacts/3",
+          "healthy-1-final-input.json#/rubric/concepts/6"
+        ],
+        "outputPointer": "healthy-1-final-output.json#/concepts/6"
+      }
+    },
+    {
+      "trial": "healthy-1",
+      "conceptId": "task-decomposition",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-1-final-input.json#/repositoryFacts/0",
+          "healthy-1-final-input.json#/rubric/concepts/7"
+        ],
+        "outputPointer": "healthy-1-final-output.json#/concepts/7"
+      }
+    },
+    {
+      "trial": "healthy-1",
+      "conceptId": "verification",
+      "reportedMaturity": 2,
+      "verdict": "unsupported",
+      "supportedAlternative": 1,
+      "reason": "A test command and assertions are supplied, but no change-type mapping lets agents choose a targeted check as level 2 requires.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-1-final-input.json#/repositoryFacts/1",
+          "healthy-1-final-input.json#/repositoryFacts/2",
+          "healthy-1-final-input.json#/repositoryFacts/3",
+          "healthy-1-final-input.json#/repositoryFacts/7",
+          "healthy-1-final-input.json#/rubric/concepts/8"
+        ],
+        "outputPointer": "healthy-1-final-output.json#/concepts/8"
+      }
+    },
+    {
+      "trial": "healthy-1",
+      "conceptId": "observability",
+      "reportedMaturity": 1,
+      "verdict": "unjustified_unassessed",
+      "supportedAlternative": null,
+      "reason": "The cited lessons file explicitly has no outcomes; an empty designated file is not an event record. No commit history, changelog, or CI results are supplied, so level 1 is unestablished.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-1-final-input.json#/repositoryFacts/6",
+          "healthy-1-final-input.json#/rubric/concepts/9"
+        ],
+        "outputPointer": "healthy-1-final-output.json#/concepts/9"
+      }
+    },
+    {
+      "trial": "healthy-1",
+      "conceptId": "change-safety",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-1-final-input.json#/repositoryFacts/0",
+          "healthy-1-final-input.json#/rubric/concepts/10"
+        ],
+        "outputPointer": "healthy-1-final-output.json#/concepts/10"
+      }
+    },
+    {
+      "trial": "healthy-1",
+      "conceptId": "feedback-loops",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-1-final-input.json#/repositoryFacts/0",
+          "healthy-1-final-input.json#/repositoryFacts/6",
+          "healthy-1-final-input.json#/rubric/concepts/11"
+        ],
+        "outputPointer": "healthy-1-final-output.json#/concepts/11"
+      }
+    },
+    {
+      "trial": "healthy-1",
+      "conceptId": "durable-memory",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-1-final-input.json#/repositoryFacts/0",
+          "healthy-1-final-input.json#/repositoryFacts/6",
+          "healthy-1-final-input.json#/rubric/concepts/12"
+        ],
+        "outputPointer": "healthy-1-final-output.json#/concepts/12"
+      }
+    },
+    {
+      "trial": "healthy-1",
+      "conceptId": "human-oversight",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-1-final-input.json#/repositoryFacts/0",
+          "healthy-1-final-input.json#/rubric/concepts/13"
+        ],
+        "outputPointer": "healthy-1-final-output.json#/concepts/13"
+      }
+    },
+    {
+      "trial": "healthy-2",
+      "conceptId": "context-discovery",
+      "reportedMaturity": 3,
+      "verdict": "supported",
+      "supportedAlternative": 3,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-2-final-input.json#/repositoryFacts/0",
+          "healthy-2-final-input.json#/repositoryFacts/3",
+          "healthy-2-final-input.json#/repositoryFacts/4",
+          "healthy-2-final-input.json#/repositoryFacts/5",
+          "healthy-2-final-input.json#/rubric/concepts/0"
+        ],
+        "outputPointer": "healthy-2-final-output.json#/concepts/0"
+      }
+    },
+    {
+      "trial": "healthy-2",
+      "conceptId": "progressive-disclosure",
+      "reportedMaturity": 3,
+      "verdict": "supported",
+      "supportedAlternative": 3,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-2-final-input.json#/repositoryFacts/0",
+          "healthy-2-final-input.json#/repositoryFacts/3",
+          "healthy-2-final-input.json#/repositoryFacts/4",
+          "healthy-2-final-input.json#/repositoryFacts/5",
+          "healthy-2-final-input.json#/rubric/concepts/1"
+        ],
+        "outputPointer": "healthy-2-final-output.json#/concepts/1"
+      }
+    },
+    {
+      "trial": "healthy-2",
+      "conceptId": "instruction-scoping",
+      "reportedMaturity": 0,
+      "verdict": "supported",
+      "supportedAlternative": 0,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-2-final-input.json#/repositoryFacts/0",
+          "healthy-2-final-input.json#/rubric/concepts/2"
+        ],
+        "outputPointer": "healthy-2-final-output.json#/concepts/2"
+      }
+    },
+    {
+      "trial": "healthy-2",
+      "conceptId": "architecture-awareness",
+      "reportedMaturity": 3,
+      "verdict": "unsupported",
+      "supportedAlternative": 2,
+      "reason": "Integrated level 3 requires maintenance alongside structural changes; no maintenance history is supplied.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-2-final-input.json#/repositoryFacts/3",
+          "healthy-2-final-input.json#/repositoryFacts/4",
+          "healthy-2-final-input.json#/rubric/concepts/3"
+        ],
+        "outputPointer": "healthy-2-final-output.json#/concepts/3"
+      }
+    },
+    {
+      "trial": "healthy-2",
+      "conceptId": "domain-knowledge",
+      "reportedMaturity": 3,
+      "verdict": "unsupported",
+      "supportedAlternative": 2,
+      "reason": "The specific glossary supports usable rules, but level 3 also requires updates as domain rules change; no such evidence is supplied.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-2-final-input.json#/repositoryFacts/0",
+          "healthy-2-final-input.json#/repositoryFacts/3",
+          "healthy-2-final-input.json#/repositoryFacts/5",
+          "healthy-2-final-input.json#/rubric/concepts/4"
+        ],
+        "outputPointer": "healthy-2-final-output.json#/concepts/4"
+      }
+    },
+    {
+      "trial": "healthy-2",
+      "conceptId": "environment-reproducibility",
+      "reportedMaturity": 3,
+      "verdict": "unsupported",
+      "supportedAlternative": 1,
+      "reason": "Documented setup/CI configuration does not establish reliable clean-checkout results or consistent human-agent use.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-2-final-input.json#/repositoryFacts/2",
+          "healthy-2-final-input.json#/repositoryFacts/3",
+          "healthy-2-final-input.json#/rubric/concepts/5"
+        ],
+        "outputPointer": "healthy-2-final-output.json#/concepts/5"
+      }
+    },
+    {
+      "trial": "healthy-2",
+      "conceptId": "tool-accessibility",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-2-final-input.json#/repositoryFacts/3",
+          "healthy-2-final-input.json#/rubric/concepts/6"
+        ],
+        "outputPointer": "healthy-2-final-output.json#/concepts/6"
+      }
+    },
+    {
+      "trial": "healthy-2",
+      "conceptId": "task-decomposition",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-2-final-input.json#/repositoryFacts/0",
+          "healthy-2-final-input.json#/rubric/concepts/7"
+        ],
+        "outputPointer": "healthy-2-final-output.json#/concepts/7"
+      }
+    },
+    {
+      "trial": "healthy-2",
+      "conceptId": "verification",
+      "reportedMaturity": 2,
+      "verdict": "unsupported",
+      "supportedAlternative": 1,
+      "reason": "Test contents and CI command do not establish targeted check selection by change type required for level 2.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-2-final-input.json#/repositoryFacts/1",
+          "healthy-2-final-input.json#/repositoryFacts/2",
+          "healthy-2-final-input.json#/repositoryFacts/3",
+          "healthy-2-final-input.json#/repositoryFacts/7",
+          "healthy-2-final-input.json#/rubric/concepts/8"
+        ],
+        "outputPointer": "healthy-2-final-output.json#/concepts/8"
+      }
+    },
+    {
+      "trial": "healthy-2",
+      "conceptId": "observability",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-2-final-input.json#/repositoryFacts/6",
+          "healthy-2-final-input.json#/rubric/concepts/9"
+        ],
+        "outputPointer": "healthy-2-final-output.json#/concepts/9"
+      }
+    },
+    {
+      "trial": "healthy-2",
+      "conceptId": "change-safety",
+      "reportedMaturity": 2,
+      "verdict": "unsupported",
+      "supportedAlternative": 1,
+      "reason": "Consultation/review are stated expectations, but no common destructive action requires an explicit deliberate safeguard as level 2 requires.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-2-final-input.json#/repositoryFacts/0",
+          "healthy-2-final-input.json#/rubric/concepts/10"
+        ],
+        "outputPointer": "healthy-2-final-output.json#/concepts/10"
+      }
+    },
+    {
+      "trial": "healthy-2",
+      "conceptId": "feedback-loops",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-2-final-input.json#/repositoryFacts/6",
+          "healthy-2-final-input.json#/rubric/concepts/11"
+        ],
+        "outputPointer": "healthy-2-final-output.json#/concepts/11"
+      }
+    },
+    {
+      "trial": "healthy-2",
+      "conceptId": "durable-memory",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-2-final-input.json#/repositoryFacts/0",
+          "healthy-2-final-input.json#/repositoryFacts/6",
+          "healthy-2-final-input.json#/rubric/concepts/12"
+        ],
+        "outputPointer": "healthy-2-final-output.json#/concepts/12"
+      }
+    },
+    {
+      "trial": "healthy-2",
+      "conceptId": "human-oversight",
+      "reportedMaturity": 3,
+      "verdict": "unsupported",
+      "supportedAlternative": 2,
+      "reason": "Risk-specific approval guidance supports level 2; level 3 requires structurally enforced oversight, not evidenced here.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-2-final-input.json#/repositoryFacts/0",
+          "healthy-2-final-input.json#/rubric/concepts/13"
+        ],
+        "outputPointer": "healthy-2-final-output.json#/concepts/13"
+      }
+    },
+    {
+      "trial": "healthy-3",
+      "conceptId": "context-discovery",
+      "reportedMaturity": 3,
+      "verdict": "supported",
+      "supportedAlternative": 3,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-3-final-input.json#/repositoryFacts/0",
+          "healthy-3-final-input.json#/repositoryFacts/3",
+          "healthy-3-final-input.json#/repositoryFacts/4",
+          "healthy-3-final-input.json#/repositoryFacts/5",
+          "healthy-3-final-input.json#/rubric/concepts/0"
+        ],
+        "outputPointer": "healthy-3-final-output.json#/concepts/0"
+      }
+    },
+    {
+      "trial": "healthy-3",
+      "conceptId": "progressive-disclosure",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-3-final-input.json#/repositoryFacts/0",
+          "healthy-3-final-input.json#/repositoryFacts/3",
+          "healthy-3-final-input.json#/repositoryFacts/4",
+          "healthy-3-final-input.json#/repositoryFacts/5",
+          "healthy-3-final-input.json#/rubric/concepts/1"
+        ],
+        "outputPointer": "healthy-3-final-output.json#/concepts/1"
+      }
+    },
+    {
+      "trial": "healthy-3",
+      "conceptId": "instruction-scoping",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-3-final-input.json#/repositoryFacts/0",
+          "healthy-3-final-input.json#/repositoryFacts/4",
+          "healthy-3-final-input.json#/repositoryFacts/5",
+          "healthy-3-final-input.json#/rubric/concepts/2"
+        ],
+        "outputPointer": "healthy-3-final-output.json#/concepts/2"
+      }
+    },
+    {
+      "trial": "healthy-3",
+      "conceptId": "architecture-awareness",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-3-final-input.json#/repositoryFacts/0",
+          "healthy-3-final-input.json#/repositoryFacts/4",
+          "healthy-3-final-input.json#/rubric/concepts/3"
+        ],
+        "outputPointer": "healthy-3-final-output.json#/concepts/3"
+      }
+    },
+    {
+      "trial": "healthy-3",
+      "conceptId": "domain-knowledge",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-3-final-input.json#/repositoryFacts/0",
+          "healthy-3-final-input.json#/repositoryFacts/5",
+          "healthy-3-final-input.json#/rubric/concepts/4"
+        ],
+        "outputPointer": "healthy-3-final-output.json#/concepts/4"
+      }
+    },
+    {
+      "trial": "healthy-3",
+      "conceptId": "environment-reproducibility",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-3-final-input.json#/repositoryFacts/1",
+          "healthy-3-final-input.json#/repositoryFacts/3",
+          "healthy-3-final-input.json#/rubric/concepts/5"
+        ],
+        "outputPointer": "healthy-3-final-output.json#/concepts/5"
+      }
+    },
+    {
+      "trial": "healthy-3",
+      "conceptId": "tool-accessibility",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-3-final-input.json#/repositoryFacts/1",
+          "healthy-3-final-input.json#/repositoryFacts/3",
+          "healthy-3-final-input.json#/rubric/concepts/6"
+        ],
+        "outputPointer": "healthy-3-final-output.json#/concepts/6"
+      }
+    },
+    {
+      "trial": "healthy-3",
+      "conceptId": "task-decomposition",
+      "reportedMaturity": null,
+      "verdict": "justified_unassessed",
+      "supportedAlternative": null,
+      "reason": "The small-plan/focused-test instruction alone does not establish rubric level 1 examples, a level 2 decomposition workflow, or level 3 per-step validation; the bounded excerpts do not prove those examples absent elsewhere.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-3-final-input.json#/repositoryFacts/0",
+          "healthy-3-final-input.json#/rubric/concepts/7"
+        ],
+        "outputPointer": "healthy-3-final-output.json#/concepts/7"
+      }
+    },
+    {
+      "trial": "healthy-3",
+      "conceptId": "verification",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-3-final-input.json#/repositoryFacts/1",
+          "healthy-3-final-input.json#/repositoryFacts/2",
+          "healthy-3-final-input.json#/repositoryFacts/3",
+          "healthy-3-final-input.json#/rubric/concepts/8"
+        ],
+        "outputPointer": "healthy-3-final-output.json#/concepts/8"
+      }
+    },
+    {
+      "trial": "healthy-3",
+      "conceptId": "observability",
+      "reportedMaturity": null,
+      "verdict": "justified_unassessed",
+      "supportedAlternative": null,
+      "reason": "Bounded excerpts do not establish whether commit history, changelogs, CI results, or other records exist; omission is not evidence of absence.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-3-final-input.json#/repositoryFacts/6",
+          "healthy-3-final-input.json#/rubric/concepts/9"
+        ],
+        "outputPointer": "healthy-3-final-output.json#/concepts/9"
+      }
+    },
+    {
+      "trial": "healthy-3",
+      "conceptId": "change-safety",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-3-final-input.json#/repositoryFacts/0",
+          "healthy-3-final-input.json#/rubric/concepts/10"
+        ],
+        "outputPointer": "healthy-3-final-output.json#/concepts/10"
+      }
+    },
+    {
+      "trial": "healthy-3",
+      "conceptId": "feedback-loops",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-3-final-input.json#/repositoryFacts/6",
+          "healthy-3-final-input.json#/rubric/concepts/11"
+        ],
+        "outputPointer": "healthy-3-final-output.json#/concepts/11"
+      }
+    },
+    {
+      "trial": "healthy-3",
+      "conceptId": "durable-memory",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-3-final-input.json#/repositoryFacts/0",
+          "healthy-3-final-input.json#/repositoryFacts/4",
+          "healthy-3-final-input.json#/repositoryFacts/5",
+          "healthy-3-final-input.json#/repositoryFacts/6",
+          "healthy-3-final-input.json#/rubric/concepts/12"
+        ],
+        "outputPointer": "healthy-3-final-output.json#/concepts/12"
+      }
+    },
+    {
+      "trial": "healthy-3",
+      "conceptId": "human-oversight",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "healthy-3-final-input.json#/repositoryFacts/0",
+          "healthy-3-final-input.json#/rubric/concepts/13"
+        ],
+        "outputPointer": "healthy-3-final-output.json#/concepts/13"
+      }
+    },
+    {
+      "trial": "improved-1",
+      "conceptId": "context-discovery",
+      "reportedMaturity": 3,
+      "verdict": "supported",
+      "supportedAlternative": 3,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-1-final-input.json#/repositoryFacts/0",
+          "improved-1-final-input.json#/repositoryFacts/3",
+          "improved-1-final-input.json#/repositoryFacts/4",
+          "improved-1-final-input.json#/repositoryFacts/5",
+          "improved-1-final-input.json#/rubric/concepts/0"
+        ],
+        "outputPointer": "improved-1-final-output.json#/concepts/0"
+      }
+    },
+    {
+      "trial": "improved-1",
+      "conceptId": "progressive-disclosure",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-1-final-input.json#/repositoryFacts/0",
+          "improved-1-final-input.json#/repositoryFacts/3",
+          "improved-1-final-input.json#/repositoryFacts/4",
+          "improved-1-final-input.json#/repositoryFacts/5",
+          "improved-1-final-input.json#/rubric/concepts/1"
+        ],
+        "outputPointer": "improved-1-final-output.json#/concepts/1"
+      }
+    },
+    {
+      "trial": "improved-1",
+      "conceptId": "instruction-scoping",
+      "reportedMaturity": null,
+      "verdict": "justified_unassessed",
+      "supportedAlternative": null,
+      "reason": "Bounded excerpts do not establish repository-wide instruction structure or absence of subsystem-scoped guidance.",
+      "evidence": {
+        "inputPointers": [
+          "improved-1-final-input.json#/repositoryFacts/0",
+          "improved-1-final-input.json#/rubric/concepts/2"
+        ],
+        "outputPointer": "improved-1-final-output.json#/concepts/2"
+      }
+    },
+    {
+      "trial": "improved-1",
+      "conceptId": "architecture-awareness",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-1-final-input.json#/repositoryFacts/0",
+          "improved-1-final-input.json#/repositoryFacts/4",
+          "improved-1-final-input.json#/rubric/concepts/3"
+        ],
+        "outputPointer": "improved-1-final-output.json#/concepts/3"
+      }
+    },
+    {
+      "trial": "improved-1",
+      "conceptId": "domain-knowledge",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-1-final-input.json#/repositoryFacts/0",
+          "improved-1-final-input.json#/repositoryFacts/5",
+          "improved-1-final-input.json#/rubric/concepts/4"
+        ],
+        "outputPointer": "improved-1-final-output.json#/concepts/4"
+      }
+    },
+    {
+      "trial": "improved-1",
+      "conceptId": "environment-reproducibility",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-1-final-input.json#/repositoryFacts/1",
+          "improved-1-final-input.json#/repositoryFacts/2",
+          "improved-1-final-input.json#/repositoryFacts/3",
+          "improved-1-final-input.json#/rubric/concepts/5"
+        ],
+        "outputPointer": "improved-1-final-output.json#/concepts/5"
+      }
+    },
+    {
+      "trial": "improved-1",
+      "conceptId": "tool-accessibility",
+      "reportedMaturity": 3,
+      "verdict": "unsupported",
+      "supportedAlternative": 2,
+      "reason": "CI provisioning does not establish that tool availability is guaranteed by the agent environment, as level 3 requires.",
+      "evidence": {
+        "inputPointers": [
+          "improved-1-final-input.json#/repositoryFacts/1",
+          "improved-1-final-input.json#/repositoryFacts/2",
+          "improved-1-final-input.json#/repositoryFacts/3",
+          "improved-1-final-input.json#/rubric/concepts/6"
+        ],
+        "outputPointer": "improved-1-final-output.json#/concepts/6"
+      }
+    },
+    {
+      "trial": "improved-1",
+      "conceptId": "task-decomposition",
+      "reportedMaturity": null,
+      "verdict": "justified_unassessed",
+      "supportedAlternative": null,
+      "reason": "The small-plan/focused-test instruction alone does not establish rubric level 1 examples, a level 2 decomposition workflow, or level 3 per-step validation; the bounded excerpts do not prove those examples absent elsewhere.",
+      "evidence": {
+        "inputPointers": [
+          "improved-1-final-input.json#/repositoryFacts/0",
+          "improved-1-final-input.json#/rubric/concepts/7"
+        ],
+        "outputPointer": "improved-1-final-output.json#/concepts/7"
+      }
+    },
+    {
+      "trial": "improved-1",
+      "conceptId": "verification",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-1-final-input.json#/repositoryFacts/1",
+          "improved-1-final-input.json#/repositoryFacts/2",
+          "improved-1-final-input.json#/repositoryFacts/3",
+          "improved-1-final-input.json#/rubric/concepts/8"
+        ],
+        "outputPointer": "improved-1-final-output.json#/concepts/8"
+      }
+    },
+    {
+      "trial": "improved-1",
+      "conceptId": "observability",
+      "reportedMaturity": null,
+      "verdict": "justified_unassessed",
+      "supportedAlternative": null,
+      "reason": "Bounded excerpts do not establish whether commit history, changelogs, CI results, or other records exist; omission is not evidence of absence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-1-final-input.json#/repositoryFacts/2",
+          "improved-1-final-input.json#/repositoryFacts/6",
+          "improved-1-final-input.json#/rubric/concepts/9"
+        ],
+        "outputPointer": "improved-1-final-output.json#/concepts/9"
+      }
+    },
+    {
+      "trial": "improved-1",
+      "conceptId": "change-safety",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-1-final-input.json#/repositoryFacts/0",
+          "improved-1-final-input.json#/rubric/concepts/10"
+        ],
+        "outputPointer": "improved-1-final-output.json#/concepts/10"
+      }
+    },
+    {
+      "trial": "improved-1",
+      "conceptId": "feedback-loops",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-1-final-input.json#/repositoryFacts/0",
+          "improved-1-final-input.json#/repositoryFacts/6",
+          "improved-1-final-input.json#/rubric/concepts/11"
+        ],
+        "outputPointer": "improved-1-final-output.json#/concepts/11"
+      }
+    },
+    {
+      "trial": "improved-1",
+      "conceptId": "durable-memory",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-1-final-input.json#/repositoryFacts/0",
+          "improved-1-final-input.json#/repositoryFacts/6",
+          "improved-1-final-input.json#/rubric/concepts/12"
+        ],
+        "outputPointer": "improved-1-final-output.json#/concepts/12"
+      }
+    },
+    {
+      "trial": "improved-1",
+      "conceptId": "human-oversight",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-1-final-input.json#/repositoryFacts/0",
+          "improved-1-final-input.json#/rubric/concepts/13"
+        ],
+        "outputPointer": "improved-1-final-output.json#/concepts/13"
+      }
+    },
+    {
+      "trial": "improved-2",
+      "conceptId": "context-discovery",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-2-final-input.json#/repositoryFacts/0",
+          "improved-2-final-input.json#/repositoryFacts/3",
+          "improved-2-final-input.json#/rubric/concepts/0"
+        ],
+        "outputPointer": "improved-2-final-output.json#/concepts/0"
+      }
+    },
+    {
+      "trial": "improved-2",
+      "conceptId": "progressive-disclosure",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-2-final-input.json#/repositoryFacts/0",
+          "improved-2-final-input.json#/repositoryFacts/3",
+          "improved-2-final-input.json#/repositoryFacts/4",
+          "improved-2-final-input.json#/repositoryFacts/5",
+          "improved-2-final-input.json#/rubric/concepts/1"
+        ],
+        "outputPointer": "improved-2-final-output.json#/concepts/1"
+      }
+    },
+    {
+      "trial": "improved-2",
+      "conceptId": "instruction-scoping",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-2-final-input.json#/repositoryFacts/0",
+          "improved-2-final-input.json#/repositoryFacts/4",
+          "improved-2-final-input.json#/repositoryFacts/5",
+          "improved-2-final-input.json#/rubric/concepts/2"
+        ],
+        "outputPointer": "improved-2-final-output.json#/concepts/2"
+      }
+    },
+    {
+      "trial": "improved-2",
+      "conceptId": "architecture-awareness",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-2-final-input.json#/repositoryFacts/0",
+          "improved-2-final-input.json#/repositoryFacts/4",
+          "improved-2-final-input.json#/rubric/concepts/3"
+        ],
+        "outputPointer": "improved-2-final-output.json#/concepts/3"
+      }
+    },
+    {
+      "trial": "improved-2",
+      "conceptId": "domain-knowledge",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-2-final-input.json#/repositoryFacts/0",
+          "improved-2-final-input.json#/repositoryFacts/5",
+          "improved-2-final-input.json#/repositoryFacts/7",
+          "improved-2-final-input.json#/rubric/concepts/4"
+        ],
+        "outputPointer": "improved-2-final-output.json#/concepts/4"
+      }
+    },
+    {
+      "trial": "improved-2",
+      "conceptId": "environment-reproducibility",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-2-final-input.json#/repositoryFacts/1",
+          "improved-2-final-input.json#/repositoryFacts/3",
+          "improved-2-final-input.json#/rubric/concepts/5"
+        ],
+        "outputPointer": "improved-2-final-output.json#/concepts/5"
+      }
+    },
+    {
+      "trial": "improved-2",
+      "conceptId": "tool-accessibility",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-2-final-input.json#/repositoryFacts/1",
+          "improved-2-final-input.json#/repositoryFacts/3",
+          "improved-2-final-input.json#/rubric/concepts/6"
+        ],
+        "outputPointer": "improved-2-final-output.json#/concepts/6"
+      }
+    },
+    {
+      "trial": "improved-2",
+      "conceptId": "task-decomposition",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-2-final-input.json#/repositoryFacts/0",
+          "improved-2-final-input.json#/rubric/concepts/7"
+        ],
+        "outputPointer": "improved-2-final-output.json#/concepts/7"
+      }
+    },
+    {
+      "trial": "improved-2",
+      "conceptId": "verification",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-2-final-input.json#/repositoryFacts/1",
+          "improved-2-final-input.json#/repositoryFacts/2",
+          "improved-2-final-input.json#/repositoryFacts/3",
+          "improved-2-final-input.json#/rubric/concepts/8"
+        ],
+        "outputPointer": "improved-2-final-output.json#/concepts/8"
+      }
+    },
+    {
+      "trial": "improved-2",
+      "conceptId": "observability",
+      "reportedMaturity": 1,
+      "verdict": "unjustified_unassessed",
+      "supportedAlternative": null,
+      "reason": "A blank lessons file and CI configuration are not records of events. No change history or CI results are supplied, so level 1 is unestablished.",
+      "evidence": {
+        "inputPointers": [
+          "improved-2-final-input.json#/repositoryFacts/2",
+          "improved-2-final-input.json#/repositoryFacts/6",
+          "improved-2-final-input.json#/rubric/concepts/9"
+        ],
+        "outputPointer": "improved-2-final-output.json#/concepts/9"
+      }
+    },
+    {
+      "trial": "improved-2",
+      "conceptId": "change-safety",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-2-final-input.json#/repositoryFacts/0",
+          "improved-2-final-input.json#/rubric/concepts/10"
+        ],
+        "outputPointer": "improved-2-final-output.json#/concepts/10"
+      }
+    },
+    {
+      "trial": "improved-2",
+      "conceptId": "feedback-loops",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-2-final-input.json#/repositoryFacts/0",
+          "improved-2-final-input.json#/repositoryFacts/6",
+          "improved-2-final-input.json#/rubric/concepts/11"
+        ],
+        "outputPointer": "improved-2-final-output.json#/concepts/11"
+      }
+    },
+    {
+      "trial": "improved-2",
+      "conceptId": "durable-memory",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-2-final-input.json#/repositoryFacts/0",
+          "improved-2-final-input.json#/repositoryFacts/6",
+          "improved-2-final-input.json#/rubric/concepts/12"
+        ],
+        "outputPointer": "improved-2-final-output.json#/concepts/12"
+      }
+    },
+    {
+      "trial": "improved-2",
+      "conceptId": "human-oversight",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-2-final-input.json#/repositoryFacts/0",
+          "improved-2-final-input.json#/rubric/concepts/13"
+        ],
+        "outputPointer": "improved-2-final-output.json#/concepts/13"
+      }
+    },
+    {
+      "trial": "improved-3",
+      "conceptId": "context-discovery",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-3-final-input.json#/repositoryFacts/0",
+          "improved-3-final-input.json#/repositoryFacts/3",
+          "improved-3-final-input.json#/rubric/concepts/0"
+        ],
+        "outputPointer": "improved-3-final-output.json#/concepts/0"
+      }
+    },
+    {
+      "trial": "improved-3",
+      "conceptId": "progressive-disclosure",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-3-final-input.json#/repositoryFacts/0",
+          "improved-3-final-input.json#/repositoryFacts/3",
+          "improved-3-final-input.json#/repositoryFacts/4",
+          "improved-3-final-input.json#/repositoryFacts/5",
+          "improved-3-final-input.json#/rubric/concepts/1"
+        ],
+        "outputPointer": "improved-3-final-output.json#/concepts/1"
+      }
+    },
+    {
+      "trial": "improved-3",
+      "conceptId": "instruction-scoping",
+      "reportedMaturity": null,
+      "verdict": "justified_unassessed",
+      "supportedAlternative": null,
+      "reason": "Bounded excerpts do not establish repository-wide instruction structure or absence of subsystem-scoped guidance.",
+      "evidence": {
+        "inputPointers": [
+          "improved-3-final-input.json#/repositoryFacts/0",
+          "improved-3-final-input.json#/rubric/concepts/2"
+        ],
+        "outputPointer": "improved-3-final-output.json#/concepts/2"
+      }
+    },
+    {
+      "trial": "improved-3",
+      "conceptId": "architecture-awareness",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-3-final-input.json#/repositoryFacts/0",
+          "improved-3-final-input.json#/repositoryFacts/4",
+          "improved-3-final-input.json#/rubric/concepts/3"
+        ],
+        "outputPointer": "improved-3-final-output.json#/concepts/3"
+      }
+    },
+    {
+      "trial": "improved-3",
+      "conceptId": "domain-knowledge",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-3-final-input.json#/repositoryFacts/0",
+          "improved-3-final-input.json#/repositoryFacts/5",
+          "improved-3-final-input.json#/rubric/concepts/4"
+        ],
+        "outputPointer": "improved-3-final-output.json#/concepts/4"
+      }
+    },
+    {
+      "trial": "improved-3",
+      "conceptId": "environment-reproducibility",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-3-final-input.json#/repositoryFacts/1",
+          "improved-3-final-input.json#/repositoryFacts/2",
+          "improved-3-final-input.json#/repositoryFacts/3",
+          "improved-3-final-input.json#/rubric/concepts/5"
+        ],
+        "outputPointer": "improved-3-final-output.json#/concepts/5"
+      }
+    },
+    {
+      "trial": "improved-3",
+      "conceptId": "tool-accessibility",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-3-final-input.json#/repositoryFacts/1",
+          "improved-3-final-input.json#/repositoryFacts/2",
+          "improved-3-final-input.json#/repositoryFacts/3",
+          "improved-3-final-input.json#/rubric/concepts/6"
+        ],
+        "outputPointer": "improved-3-final-output.json#/concepts/6"
+      }
+    },
+    {
+      "trial": "improved-3",
+      "conceptId": "task-decomposition",
+      "reportedMaturity": null,
+      "verdict": "justified_unassessed",
+      "supportedAlternative": null,
+      "reason": "The small-plan/focused-test instruction alone does not establish rubric level 1 examples, a level 2 decomposition workflow, or level 3 per-step validation; the bounded excerpts do not prove those examples absent elsewhere.",
+      "evidence": {
+        "inputPointers": [
+          "improved-3-final-input.json#/repositoryFacts/0",
+          "improved-3-final-input.json#/rubric/concepts/7"
+        ],
+        "outputPointer": "improved-3-final-output.json#/concepts/7"
+      }
+    },
+    {
+      "trial": "improved-3",
+      "conceptId": "verification",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-3-final-input.json#/repositoryFacts/1",
+          "improved-3-final-input.json#/repositoryFacts/2",
+          "improved-3-final-input.json#/repositoryFacts/3",
+          "improved-3-final-input.json#/rubric/concepts/8"
+        ],
+        "outputPointer": "improved-3-final-output.json#/concepts/8"
+      }
+    },
+    {
+      "trial": "improved-3",
+      "conceptId": "observability",
+      "reportedMaturity": null,
+      "verdict": "justified_unassessed",
+      "supportedAlternative": null,
+      "reason": "Bounded excerpts do not establish whether commit history, changelogs, CI results, or other records exist; omission is not evidence of absence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-3-final-input.json#/repositoryFacts/6",
+          "improved-3-final-input.json#/rubric/concepts/9"
+        ],
+        "outputPointer": "improved-3-final-output.json#/concepts/9"
+      }
+    },
+    {
+      "trial": "improved-3",
+      "conceptId": "change-safety",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-3-final-input.json#/repositoryFacts/0",
+          "improved-3-final-input.json#/rubric/concepts/10"
+        ],
+        "outputPointer": "improved-3-final-output.json#/concepts/10"
+      }
+    },
+    {
+      "trial": "improved-3",
+      "conceptId": "feedback-loops",
+      "reportedMaturity": 1,
+      "verdict": "supported",
+      "supportedAlternative": 1,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-3-final-input.json#/repositoryFacts/6",
+          "improved-3-final-input.json#/rubric/concepts/11"
+        ],
+        "outputPointer": "improved-3-final-output.json#/concepts/11"
+      }
+    },
+    {
+      "trial": "improved-3",
+      "conceptId": "durable-memory",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-3-final-input.json#/repositoryFacts/0",
+          "improved-3-final-input.json#/repositoryFacts/6",
+          "improved-3-final-input.json#/rubric/concepts/12"
+        ],
+        "outputPointer": "improved-3-final-output.json#/concepts/12"
+      }
+    },
+    {
+      "trial": "improved-3",
+      "conceptId": "human-oversight",
+      "reportedMaturity": 2,
+      "verdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Cited facts support at least the reported rubric level. The score does not itself establish execution, reliability, maintenance over time, habitual use, or enforcement beyond the stated evidence.",
+      "evidence": {
+        "inputPointers": [
+          "improved-3-final-input.json#/repositoryFacts/0",
+          "improved-3-final-input.json#/rubric/concepts/13"
+        ],
+        "outputPointer": "improved-3-final-output.json#/concepts/13"
+      }
+    }
+  ],
+  "findings": [
+    {
+      "id": "controlled-glossary-gain",
+      "finding": "All three baseline→improved pairs score domain-knowledge 1→2 as the sparse glossary is replaced with specific SKU/stock/uniqueness/persistence rules. The controlled one-level gain is directionally supported; it does not validate broad accuracy.",
+      "evidencePointers": [
+        "baseline-1-final-input.json#/repositoryFacts/5",
+        "improved-1-final-input.json#/repositoryFacts/5",
+        "baseline-1-final-output.json#/concepts/4",
+        "improved-1-final-output.json#/concepts/4"
+      ]
+    },
+    {
+      "id": "unsupported-levels",
+      "finding": "Some outputs overclaim capability from configuration or written policy: reliability/consistent environment use, agent environment tool guarantee, targeted verification, maintenance of architecture/domain docs, and structural enforcement. Row-level reasons include exact evidence pointers.",
+      "evidencePointers": [
+        "healthy-1-final-input.json#/repositoryFacts/2",
+        "healthy-1-final-output.json#/concepts/5",
+        "healthy-1-final-output.json#/concepts/8",
+        "healthy-1-final-output.json#/concepts/10",
+        "healthy-2-final-output.json#/concepts/13"
+      ]
+    },
+    {
+      "id": "unassessed-and-observability",
+      "finding": "Most unassessed rows are justified by bounded evidence. Two observability=1 ratings are not justified: empty lessons files and CI configuration do not establish actual event records.",
+      "evidencePointers": [
+        "healthy-1-final-input.json#/repositoryFacts/6",
+        "healthy-1-final-output.json#/concepts/9",
+        "improved-2-final-input.json#/repositoryFacts/6",
+        "improved-2-final-output.json#/concepts/9"
+      ]
+    },
+    {
+      "id": "rating-variability",
+      "finding": "Improved domain score is stable at 2,2,2. Healthy domain score varies 3,3,2 despite identical improved/healthy source bytes across matched runs. Repeated ratings vary on several concepts, limiting reproducibility.",
+      "evidencePointers": [
+        "improved-1-final-output.json#/concepts/4",
+        "improved-2-final-output.json#/concepts/4",
+        "improved-3-final-output.json#/concepts/4",
+        "healthy-1-final-output.json#/concepts/4",
+        "healthy-2-final-output.json#/concepts/4",
+        "healthy-3-final-output.json#/concepts/4"
+      ]
+    }
+  ],
+  "controlledPairs": [
+    {
+      "pair": 1,
+      "baselineDomainKnowledge": 1,
+      "improvedDomainKnowledge": 2,
+      "delta": 1,
+      "comparisonFingerprintSame": true,
+      "onlySourceDifference": "docs/domain.md",
+      "baselineGlossary": "# Domain glossary\nProducts have SKU and stock fields. Detailed term definitions and business invariants are not documented here yet.\n",
+      "improvedGlossary": "# Domain glossary\nA Product is a catalog entry with a unique nonempty SKU string and a nonnegative integer stock count. SKU means stock keeping unit; it is case-sensitive and is not a display label. A Catalog owns products keyed by SKU. Adding an existing SKU is an error, never an update. Stock is the count of individual available units, not currency or a reservation. Negative and fractional stock are invalid. src/catalog.ts add enforces these invariants and src/catalog.test.ts encodes the duplicate, negative and fractional cases. There is no persistence, order or reservation model.\n"
+    },
+    {
+      "pair": 2,
+      "baselineDomainKnowledge": 1,
+      "improvedDomainKnowledge": 2,
+      "delta": 1,
+      "comparisonFingerprintSame": true,
+      "onlySourceDifference": "docs/domain.md",
+      "baselineGlossary": "# Domain glossary\nProducts have SKU and stock fields. Detailed term definitions and business invariants are not documented here yet.\n",
+      "improvedGlossary": "# Domain glossary\nA Product is a catalog entry with a unique nonempty SKU string and a nonnegative integer stock count. SKU means stock keeping unit; it is case-sensitive and is not a display label. A Catalog owns products keyed by SKU. Adding an existing SKU is an error, never an update. Stock is the count of individual available units, not currency or a reservation. Negative and fractional stock are invalid. src/catalog.ts add enforces these invariants and src/catalog.test.ts encodes the duplicate, negative and fractional cases. There is no persistence, order or reservation model.\n"
+    },
+    {
+      "pair": 3,
+      "baselineDomainKnowledge": 1,
+      "improvedDomainKnowledge": 2,
+      "delta": 1,
+      "comparisonFingerprintSame": true,
+      "onlySourceDifference": "docs/domain.md",
+      "baselineGlossary": "# Domain glossary\nProducts have SKU and stock fields. Detailed term definitions and business invariants are not documented here yet.\n",
+      "improvedGlossary": "# Domain glossary\nA Product is a catalog entry with a unique nonempty SKU string and a nonnegative integer stock count. SKU means stock keeping unit; it is case-sensitive and is not a display label. A Catalog owns products keyed by SKU. Adding an existing SKU is an error, never an update. Stock is the count of individual available units, not currency or a reservation. Negative and fractional stock are invalid. src/catalog.ts add enforces these invariants and src/catalog.test.ts encodes the duplicate, negative and fractional cases. There is no persistence, order or reservation model.\n"
+    }
+  ],
+  "variability": {
+    "perConditionAndConcept": {
+      "baseline": {
+        "context-discovery": {
+          "scores": [
+            1,
+            3,
+            3
+          ],
+          "distinctScores": [
+            1,
+            3
+          ],
+          "hasUnassessed": false
+        },
+        "progressive-disclosure": {
+          "scores": [
+            2,
+            2,
+            2
+          ],
+          "distinctScores": [
+            2
+          ],
+          "hasUnassessed": false
+        },
+        "instruction-scoping": {
+          "scores": [
+            1,
+            2,
+            null
+          ],
+          "distinctScores": [
+            1,
+            2
+          ],
+          "hasUnassessed": true
+        },
+        "architecture-awareness": {
+          "scores": [
+            2,
+            2,
+            2
+          ],
+          "distinctScores": [
+            2
+          ],
+          "hasUnassessed": false
+        },
+        "domain-knowledge": {
+          "scores": [
+            1,
+            1,
+            1
+          ],
+          "distinctScores": [
+            1
+          ],
+          "hasUnassessed": false
+        },
+        "environment-reproducibility": {
+          "scores": [
+            2,
+            2,
+            1
+          ],
+          "distinctScores": [
+            1,
+            2
+          ],
+          "hasUnassessed": false
+        },
+        "tool-accessibility": {
+          "scores": [
+            1,
+            3,
+            1
+          ],
+          "distinctScores": [
+            1,
+            3
+          ],
+          "hasUnassessed": false
+        },
+        "task-decomposition": {
+          "scores": [
+            null,
+            null,
+            null
+          ],
+          "distinctScores": [],
+          "hasUnassessed": true
+        },
+        "verification": {
+          "scores": [
+            1,
+            1,
+            1
+          ],
+          "distinctScores": [
+            1
+          ],
+          "hasUnassessed": false
+        },
+        "observability": {
+          "scores": [
+            null,
+            null,
+            null
+          ],
+          "distinctScores": [],
+          "hasUnassessed": true
+        },
+        "change-safety": {
+          "scores": [
+            1,
+            1,
+            1
+          ],
+          "distinctScores": [
+            1
+          ],
+          "hasUnassessed": false
+        },
+        "feedback-loops": {
+          "scores": [
+            1,
+            1,
+            1
+          ],
+          "distinctScores": [
+            1
+          ],
+          "hasUnassessed": false
+        },
+        "durable-memory": {
+          "scores": [
+            2,
+            2,
+            2
+          ],
+          "distinctScores": [
+            2
+          ],
+          "hasUnassessed": false
+        },
+        "human-oversight": {
+          "scores": [
+            2,
+            2,
+            2
+          ],
+          "distinctScores": [
+            2
+          ],
+          "hasUnassessed": false
+        }
+      },
+      "improved": {
+        "context-discovery": {
+          "scores": [
+            3,
+            1,
+            1
+          ],
+          "distinctScores": [
+            1,
+            3
+          ],
+          "hasUnassessed": false
+        },
+        "progressive-disclosure": {
+          "scores": [
+            2,
+            2,
+            2
+          ],
+          "distinctScores": [
+            2
+          ],
+          "hasUnassessed": false
+        },
+        "instruction-scoping": {
+          "scores": [
+            null,
+            1,
+            null
+          ],
+          "distinctScores": [
+            1
+          ],
+          "hasUnassessed": true
+        },
+        "architecture-awareness": {
+          "scores": [
+            2,
+            2,
+            2
+          ],
+          "distinctScores": [
+            2
+          ],
+          "hasUnassessed": false
+        },
+        "domain-knowledge": {
+          "scores": [
+            2,
+            2,
+            2
+          ],
+          "distinctScores": [
+            2
+          ],
+          "hasUnassessed": false
+        },
+        "environment-reproducibility": {
+          "scores": [
+            1,
+            1,
+            1
+          ],
+          "distinctScores": [
+            1
+          ],
+          "hasUnassessed": false
+        },
+        "tool-accessibility": {
+          "scores": [
+            3,
+            1,
+            2
+          ],
+          "distinctScores": [
+            1,
+            2,
+            3
+          ],
+          "hasUnassessed": false
+        },
+        "task-decomposition": {
+          "scores": [
+            null,
+            2,
+            null
+          ],
+          "distinctScores": [
+            2
+          ],
+          "hasUnassessed": true
+        },
+        "verification": {
+          "scores": [
+            1,
+            1,
+            1
+          ],
+          "distinctScores": [
+            1
+          ],
+          "hasUnassessed": false
+        },
+        "observability": {
+          "scores": [
+            null,
+            1,
+            null
+          ],
+          "distinctScores": [
+            1
+          ],
+          "hasUnassessed": true
+        },
+        "change-safety": {
+          "scores": [
+            1,
+            1,
+            1
+          ],
+          "distinctScores": [
+            1
+          ],
+          "hasUnassessed": false
+        },
+        "feedback-loops": {
+          "scores": [
+            1,
+            1,
+            1
+          ],
+          "distinctScores": [
+            1
+          ],
+          "hasUnassessed": false
+        },
+        "durable-memory": {
+          "scores": [
+            2,
+            2,
+            2
+          ],
+          "distinctScores": [
+            2
+          ],
+          "hasUnassessed": false
+        },
+        "human-oversight": {
+          "scores": [
+            2,
+            2,
+            2
+          ],
+          "distinctScores": [
+            2
+          ],
+          "hasUnassessed": false
+        }
+      },
+      "healthy": {
+        "context-discovery": {
+          "scores": [
+            3,
+            3,
+            3
+          ],
+          "distinctScores": [
+            3
+          ],
+          "hasUnassessed": false
+        },
+        "progressive-disclosure": {
+          "scores": [
+            2,
+            3,
+            2
+          ],
+          "distinctScores": [
+            2,
+            3
+          ],
+          "hasUnassessed": false
+        },
+        "instruction-scoping": {
+          "scores": [
+            0,
+            0,
+            2
+          ],
+          "distinctScores": [
+            0,
+            2
+          ],
+          "hasUnassessed": false
+        },
+        "architecture-awareness": {
+          "scores": [
+            3,
+            3,
+            2
+          ],
+          "distinctScores": [
+            2,
+            3
+          ],
+          "hasUnassessed": false
+        },
+        "domain-knowledge": {
+          "scores": [
+            3,
+            3,
+            2
+          ],
+          "distinctScores": [
+            2,
+            3
+          ],
+          "hasUnassessed": false
+        },
+        "environment-reproducibility": {
+          "scores": [
+            3,
+            3,
+            1
+          ],
+          "distinctScores": [
+            1,
+            3
+          ],
+          "hasUnassessed": false
+        },
+        "tool-accessibility": {
+          "scores": [
+            3,
+            1,
+            1
+          ],
+          "distinctScores": [
+            1,
+            3
+          ],
+          "hasUnassessed": false
+        },
+        "task-decomposition": {
+          "scores": [
+            2,
+            2,
+            null
+          ],
+          "distinctScores": [
+            2
+          ],
+          "hasUnassessed": true
+        },
+        "verification": {
+          "scores": [
+            2,
+            2,
+            1
+          ],
+          "distinctScores": [
+            1,
+            2
+          ],
+          "hasUnassessed": false
+        },
+        "observability": {
+          "scores": [
+            1,
+            1,
+            null
+          ],
+          "distinctScores": [
+            1
+          ],
+          "hasUnassessed": true
+        },
+        "change-safety": {
+          "scores": [
+            1,
+            2,
+            1
+          ],
+          "distinctScores": [
+            1,
+            2
+          ],
+          "hasUnassessed": false
+        },
+        "feedback-loops": {
+          "scores": [
+            1,
+            1,
+            1
+          ],
+          "distinctScores": [
+            1
+          ],
+          "hasUnassessed": false
+        },
+        "durable-memory": {
+          "scores": [
+            2,
+            2,
+            2
+          ],
+          "distinctScores": [
+            2
+          ],
+          "hasUnassessed": false
+        },
+        "human-oversight": {
+          "scores": [
+            2,
+            3,
+            2
+          ],
+          "distinctScores": [
+            2,
+            3
+          ],
+          "hasUnassessed": false
+        }
+      }
+    },
+    "improvedVsHealthySourceIdentity": [
+      {
+        "pair": 1,
+        "sameInputFingerprint": false,
+        "sameComparisonFingerprint": true,
+        "sameSourceBytes": true,
+        "sameDomainGlossary": true,
+        "improvedDomainScore": 2,
+        "healthyDomainScore": 3
+      },
+      {
+        "pair": 2,
+        "sameInputFingerprint": false,
+        "sameComparisonFingerprint": true,
+        "sameSourceBytes": true,
+        "sameDomainGlossary": true,
+        "improvedDomainScore": 2,
+        "healthyDomainScore": 3
+      },
+      {
+        "pair": 3,
+        "sameInputFingerprint": false,
+        "sameComparisonFingerprint": true,
+        "sameSourceBytes": true,
+        "sameDomainGlossary": true,
+        "improvedDomainScore": 2,
+        "healthyDomainScore": 2
+      }
+    ]
+  },
+  "qualificationLimits": {
+    "sourceCodeHead": "11ef66fe (task-supplied; dispatch git head is null in captured fixtures)",
+    "purpose": "readiness scoring accuracy only",
+    "pinnedProfileAndVersions": {
+      "model": "gpt-6-luna",
+      "provider": "codex",
+      "effort": "medium",
+      "collector": 4,
+      "prompt": "taskmaster-readiness-v4",
+      "scoring": 1,
+      "knowledgeVersion": "brain-3",
+      "rubricDigestByTrial": {
+        "baseline-1": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+        "baseline-2": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+        "baseline-3": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+        "healthy-1": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+        "healthy-2": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+        "healthy-3": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+        "improved-1": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+        "improved-2": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+        "improved-3": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e"
+      },
+      "dispatchIdentities": {
+        "baseline-1": {
+          "inputFingerprint": "89ea0b2377c4aeda5389367c0ef2052b144616bb2852e3d1d4ace2d25963d4f8",
+          "comparisonFingerprint": "d1f663134de62984005ae8b221ee5c8e33fe4cc54472cd07d3c34f8e72b6b0ac",
+          "sourceCodeHead": null,
+          "contextLevel": "source_code",
+          "collectorVersion": 4,
+          "promptVersion": "taskmaster-readiness-v4",
+          "scoringVersion": 1,
+          "rubricDigest": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+          "model": {
+            "model": "gpt-6-luna",
+            "provider": "codex",
+            "reasoningEffort": "medium"
+          },
+          "knowledgeVersion": "brain-3",
+          "knowledgeBundleSha256": "ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511",
+          "sourceFiles": {
+            ".github/workflows/ci.yml": "ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b",
+            ".node-version": "a0e27aeeac42d6102f4ff2bce40d8fb011c07e5cb28eff3c9d77e68df29e5dd6",
+            "AGENTS.md": "68a0ebf69c1638a6ea2883b51e8c07af397bc9b474ab1c7f07b2d5f9cf48dfe2",
+            "README.md": "dd79961ddf606b64f62bf075ab44dbb207559a297d0fcf348e1bbae9edc4b04b",
+            "docs/architecture.md": "f1693566484194859059352d40b95de7a4069ba5bc3afde0ecdc469f96d036e7",
+            "docs/domain.md": "f20d17202867ecd0d8ca18da0ceda06d3988b8f368fe041d57b41fa9c66fd60a",
+            "docs/lessons.md": "7b8150cc072424ee1858e66e625e3fdcd8edec71fb88e331d9fa53499077a2fd",
+            "package.json": "40f9817991562b311834d810ce2cc8fc6839b5c300b3b0191dc3579ef73d1f74",
+            "pnpm-lock.yaml": "15709a4944e0a189685e0bc13e56d1d0d37a88e24d8b7ecc2415e5d4b1eff1ee",
+            "src/catalog.test.ts": "683c4eaba43b054a7dce65c398b5902163363400041fb7e7013e22d04f244eeb",
+            "src/catalog.ts": "2162b7d71312db8324fd844b5f31728352e0a1c396c573337d140dcb837bb5a2"
+          }
+        },
+        "baseline-2": {
+          "inputFingerprint": "551def98719a1d33720f88365e14d2f6e6334f8cacb8eb122b8a4389635a7147",
+          "comparisonFingerprint": "d1f663134de62984005ae8b221ee5c8e33fe4cc54472cd07d3c34f8e72b6b0ac",
+          "sourceCodeHead": null,
+          "contextLevel": "source_code",
+          "collectorVersion": 4,
+          "promptVersion": "taskmaster-readiness-v4",
+          "scoringVersion": 1,
+          "rubricDigest": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+          "model": {
+            "model": "gpt-6-luna",
+            "provider": "codex",
+            "reasoningEffort": "medium"
+          },
+          "knowledgeVersion": "brain-3",
+          "knowledgeBundleSha256": "ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511",
+          "sourceFiles": {
+            ".github/workflows/ci.yml": "ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b",
+            ".node-version": "a0e27aeeac42d6102f4ff2bce40d8fb011c07e5cb28eff3c9d77e68df29e5dd6",
+            "AGENTS.md": "68a0ebf69c1638a6ea2883b51e8c07af397bc9b474ab1c7f07b2d5f9cf48dfe2",
+            "README.md": "dd79961ddf606b64f62bf075ab44dbb207559a297d0fcf348e1bbae9edc4b04b",
+            "docs/architecture.md": "f1693566484194859059352d40b95de7a4069ba5bc3afde0ecdc469f96d036e7",
+            "docs/domain.md": "f20d17202867ecd0d8ca18da0ceda06d3988b8f368fe041d57b41fa9c66fd60a",
+            "docs/lessons.md": "7b8150cc072424ee1858e66e625e3fdcd8edec71fb88e331d9fa53499077a2fd",
+            "package.json": "40f9817991562b311834d810ce2cc8fc6839b5c300b3b0191dc3579ef73d1f74",
+            "pnpm-lock.yaml": "15709a4944e0a189685e0bc13e56d1d0d37a88e24d8b7ecc2415e5d4b1eff1ee",
+            "src/catalog.test.ts": "683c4eaba43b054a7dce65c398b5902163363400041fb7e7013e22d04f244eeb",
+            "src/catalog.ts": "2162b7d71312db8324fd844b5f31728352e0a1c396c573337d140dcb837bb5a2"
+          }
+        },
+        "baseline-3": {
+          "inputFingerprint": "e09f8281280268a99a14db231596fc18fbae4f1d484bc17bc4fc27110f5341bf",
+          "comparisonFingerprint": "d1f663134de62984005ae8b221ee5c8e33fe4cc54472cd07d3c34f8e72b6b0ac",
+          "sourceCodeHead": null,
+          "contextLevel": "source_code",
+          "collectorVersion": 4,
+          "promptVersion": "taskmaster-readiness-v4",
+          "scoringVersion": 1,
+          "rubricDigest": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+          "model": {
+            "model": "gpt-6-luna",
+            "provider": "codex",
+            "reasoningEffort": "medium"
+          },
+          "knowledgeVersion": "brain-3",
+          "knowledgeBundleSha256": "ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511",
+          "sourceFiles": {
+            ".github/workflows/ci.yml": "ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b",
+            ".node-version": "a0e27aeeac42d6102f4ff2bce40d8fb011c07e5cb28eff3c9d77e68df29e5dd6",
+            "AGENTS.md": "68a0ebf69c1638a6ea2883b51e8c07af397bc9b474ab1c7f07b2d5f9cf48dfe2",
+            "README.md": "dd79961ddf606b64f62bf075ab44dbb207559a297d0fcf348e1bbae9edc4b04b",
+            "docs/architecture.md": "f1693566484194859059352d40b95de7a4069ba5bc3afde0ecdc469f96d036e7",
+            "docs/domain.md": "f20d17202867ecd0d8ca18da0ceda06d3988b8f368fe041d57b41fa9c66fd60a",
+            "docs/lessons.md": "7b8150cc072424ee1858e66e625e3fdcd8edec71fb88e331d9fa53499077a2fd",
+            "package.json": "40f9817991562b311834d810ce2cc8fc6839b5c300b3b0191dc3579ef73d1f74",
+            "pnpm-lock.yaml": "15709a4944e0a189685e0bc13e56d1d0d37a88e24d8b7ecc2415e5d4b1eff1ee",
+            "src/catalog.test.ts": "683c4eaba43b054a7dce65c398b5902163363400041fb7e7013e22d04f244eeb",
+            "src/catalog.ts": "2162b7d71312db8324fd844b5f31728352e0a1c396c573337d140dcb837bb5a2"
+          }
+        },
+        "healthy-1": {
+          "inputFingerprint": "90a74bc3538fd9cf4de1b492d6282381cea6c12a04ed8e89056e7f0f3dc46112",
+          "comparisonFingerprint": "d1f663134de62984005ae8b221ee5c8e33fe4cc54472cd07d3c34f8e72b6b0ac",
+          "sourceCodeHead": null,
+          "contextLevel": "source_code",
+          "collectorVersion": 4,
+          "promptVersion": "taskmaster-readiness-v4",
+          "scoringVersion": 1,
+          "rubricDigest": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+          "model": {
+            "model": "gpt-6-luna",
+            "provider": "codex",
+            "reasoningEffort": "medium"
+          },
+          "knowledgeVersion": "brain-3",
+          "knowledgeBundleSha256": "ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511",
+          "sourceFiles": {
+            ".github/workflows/ci.yml": "ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b",
+            ".node-version": "a0e27aeeac42d6102f4ff2bce40d8fb011c07e5cb28eff3c9d77e68df29e5dd6",
+            "AGENTS.md": "68a0ebf69c1638a6ea2883b51e8c07af397bc9b474ab1c7f07b2d5f9cf48dfe2",
+            "README.md": "dd79961ddf606b64f62bf075ab44dbb207559a297d0fcf348e1bbae9edc4b04b",
+            "docs/architecture.md": "f1693566484194859059352d40b95de7a4069ba5bc3afde0ecdc469f96d036e7",
+            "docs/domain.md": "7299fb412eacab5cde8b6bb735915981df7e9637f712b1f39625972ab6d4136c",
+            "docs/lessons.md": "7b8150cc072424ee1858e66e625e3fdcd8edec71fb88e331d9fa53499077a2fd",
+            "package.json": "40f9817991562b311834d810ce2cc8fc6839b5c300b3b0191dc3579ef73d1f74",
+            "pnpm-lock.yaml": "15709a4944e0a189685e0bc13e56d1d0d37a88e24d8b7ecc2415e5d4b1eff1ee",
+            "src/catalog.test.ts": "683c4eaba43b054a7dce65c398b5902163363400041fb7e7013e22d04f244eeb",
+            "src/catalog.ts": "2162b7d71312db8324fd844b5f31728352e0a1c396c573337d140dcb837bb5a2"
+          }
+        },
+        "healthy-2": {
+          "inputFingerprint": "825c9618f71e38ee395cf89ed507d66c13d218ea124bc432cecf31f5196b7631",
+          "comparisonFingerprint": "d1f663134de62984005ae8b221ee5c8e33fe4cc54472cd07d3c34f8e72b6b0ac",
+          "sourceCodeHead": null,
+          "contextLevel": "source_code",
+          "collectorVersion": 4,
+          "promptVersion": "taskmaster-readiness-v4",
+          "scoringVersion": 1,
+          "rubricDigest": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+          "model": {
+            "model": "gpt-6-luna",
+            "provider": "codex",
+            "reasoningEffort": "medium"
+          },
+          "knowledgeVersion": "brain-3",
+          "knowledgeBundleSha256": "ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511",
+          "sourceFiles": {
+            ".github/workflows/ci.yml": "ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b",
+            ".node-version": "a0e27aeeac42d6102f4ff2bce40d8fb011c07e5cb28eff3c9d77e68df29e5dd6",
+            "AGENTS.md": "68a0ebf69c1638a6ea2883b51e8c07af397bc9b474ab1c7f07b2d5f9cf48dfe2",
+            "README.md": "dd79961ddf606b64f62bf075ab44dbb207559a297d0fcf348e1bbae9edc4b04b",
+            "docs/architecture.md": "f1693566484194859059352d40b95de7a4069ba5bc3afde0ecdc469f96d036e7",
+            "docs/domain.md": "7299fb412eacab5cde8b6bb735915981df7e9637f712b1f39625972ab6d4136c",
+            "docs/lessons.md": "7b8150cc072424ee1858e66e625e3fdcd8edec71fb88e331d9fa53499077a2fd",
+            "package.json": "40f9817991562b311834d810ce2cc8fc6839b5c300b3b0191dc3579ef73d1f74",
+            "pnpm-lock.yaml": "15709a4944e0a189685e0bc13e56d1d0d37a88e24d8b7ecc2415e5d4b1eff1ee",
+            "src/catalog.test.ts": "683c4eaba43b054a7dce65c398b5902163363400041fb7e7013e22d04f244eeb",
+            "src/catalog.ts": "2162b7d71312db8324fd844b5f31728352e0a1c396c573337d140dcb837bb5a2"
+          }
+        },
+        "healthy-3": {
+          "inputFingerprint": "383168c0b52028de46e1eb35c9969f8c49fe7c70ec1129c153856f7e0e7e5018",
+          "comparisonFingerprint": "d1f663134de62984005ae8b221ee5c8e33fe4cc54472cd07d3c34f8e72b6b0ac",
+          "sourceCodeHead": null,
+          "contextLevel": "source_code",
+          "collectorVersion": 4,
+          "promptVersion": "taskmaster-readiness-v4",
+          "scoringVersion": 1,
+          "rubricDigest": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+          "model": {
+            "model": "gpt-6-luna",
+            "provider": "codex",
+            "reasoningEffort": "medium"
+          },
+          "knowledgeVersion": "brain-3",
+          "knowledgeBundleSha256": "ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511",
+          "sourceFiles": {
+            ".github/workflows/ci.yml": "ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b",
+            ".node-version": "a0e27aeeac42d6102f4ff2bce40d8fb011c07e5cb28eff3c9d77e68df29e5dd6",
+            "AGENTS.md": "68a0ebf69c1638a6ea2883b51e8c07af397bc9b474ab1c7f07b2d5f9cf48dfe2",
+            "README.md": "dd79961ddf606b64f62bf075ab44dbb207559a297d0fcf348e1bbae9edc4b04b",
+            "docs/architecture.md": "f1693566484194859059352d40b95de7a4069ba5bc3afde0ecdc469f96d036e7",
+            "docs/domain.md": "7299fb412eacab5cde8b6bb735915981df7e9637f712b1f39625972ab6d4136c",
+            "docs/lessons.md": "7b8150cc072424ee1858e66e625e3fdcd8edec71fb88e331d9fa53499077a2fd",
+            "package.json": "40f9817991562b311834d810ce2cc8fc6839b5c300b3b0191dc3579ef73d1f74",
+            "pnpm-lock.yaml": "15709a4944e0a189685e0bc13e56d1d0d37a88e24d8b7ecc2415e5d4b1eff1ee",
+            "src/catalog.test.ts": "683c4eaba43b054a7dce65c398b5902163363400041fb7e7013e22d04f244eeb",
+            "src/catalog.ts": "2162b7d71312db8324fd844b5f31728352e0a1c396c573337d140dcb837bb5a2"
+          }
+        },
+        "improved-1": {
+          "inputFingerprint": "a8bdc9a95c37952ff19bcb27e192cda34ae4ae65604d818114ad891e11887a20",
+          "comparisonFingerprint": "d1f663134de62984005ae8b221ee5c8e33fe4cc54472cd07d3c34f8e72b6b0ac",
+          "sourceCodeHead": null,
+          "contextLevel": "source_code",
+          "collectorVersion": 4,
+          "promptVersion": "taskmaster-readiness-v4",
+          "scoringVersion": 1,
+          "rubricDigest": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+          "model": {
+            "model": "gpt-6-luna",
+            "provider": "codex",
+            "reasoningEffort": "medium"
+          },
+          "knowledgeVersion": "brain-3",
+          "knowledgeBundleSha256": "ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511",
+          "sourceFiles": {
+            ".github/workflows/ci.yml": "ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b",
+            ".node-version": "a0e27aeeac42d6102f4ff2bce40d8fb011c07e5cb28eff3c9d77e68df29e5dd6",
+            "AGENTS.md": "68a0ebf69c1638a6ea2883b51e8c07af397bc9b474ab1c7f07b2d5f9cf48dfe2",
+            "README.md": "dd79961ddf606b64f62bf075ab44dbb207559a297d0fcf348e1bbae9edc4b04b",
+            "docs/architecture.md": "f1693566484194859059352d40b95de7a4069ba5bc3afde0ecdc469f96d036e7",
+            "docs/domain.md": "7299fb412eacab5cde8b6bb735915981df7e9637f712b1f39625972ab6d4136c",
+            "docs/lessons.md": "7b8150cc072424ee1858e66e625e3fdcd8edec71fb88e331d9fa53499077a2fd",
+            "package.json": "40f9817991562b311834d810ce2cc8fc6839b5c300b3b0191dc3579ef73d1f74",
+            "pnpm-lock.yaml": "15709a4944e0a189685e0bc13e56d1d0d37a88e24d8b7ecc2415e5d4b1eff1ee",
+            "src/catalog.test.ts": "683c4eaba43b054a7dce65c398b5902163363400041fb7e7013e22d04f244eeb",
+            "src/catalog.ts": "2162b7d71312db8324fd844b5f31728352e0a1c396c573337d140dcb837bb5a2"
+          }
+        },
+        "improved-2": {
+          "inputFingerprint": "ee780b9b38a87f5fa543cec388fe6a52b2184fe79f5216a706d1e75e79313c0a",
+          "comparisonFingerprint": "d1f663134de62984005ae8b221ee5c8e33fe4cc54472cd07d3c34f8e72b6b0ac",
+          "sourceCodeHead": null,
+          "contextLevel": "source_code",
+          "collectorVersion": 4,
+          "promptVersion": "taskmaster-readiness-v4",
+          "scoringVersion": 1,
+          "rubricDigest": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+          "model": {
+            "model": "gpt-6-luna",
+            "provider": "codex",
+            "reasoningEffort": "medium"
+          },
+          "knowledgeVersion": "brain-3",
+          "knowledgeBundleSha256": "ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511",
+          "sourceFiles": {
+            ".github/workflows/ci.yml": "ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b",
+            ".node-version": "a0e27aeeac42d6102f4ff2bce40d8fb011c07e5cb28eff3c9d77e68df29e5dd6",
+            "AGENTS.md": "68a0ebf69c1638a6ea2883b51e8c07af397bc9b474ab1c7f07b2d5f9cf48dfe2",
+            "README.md": "dd79961ddf606b64f62bf075ab44dbb207559a297d0fcf348e1bbae9edc4b04b",
+            "docs/architecture.md": "f1693566484194859059352d40b95de7a4069ba5bc3afde0ecdc469f96d036e7",
+            "docs/domain.md": "7299fb412eacab5cde8b6bb735915981df7e9637f712b1f39625972ab6d4136c",
+            "docs/lessons.md": "7b8150cc072424ee1858e66e625e3fdcd8edec71fb88e331d9fa53499077a2fd",
+            "package.json": "40f9817991562b311834d810ce2cc8fc6839b5c300b3b0191dc3579ef73d1f74",
+            "pnpm-lock.yaml": "15709a4944e0a189685e0bc13e56d1d0d37a88e24d8b7ecc2415e5d4b1eff1ee",
+            "src/catalog.test.ts": "683c4eaba43b054a7dce65c398b5902163363400041fb7e7013e22d04f244eeb",
+            "src/catalog.ts": "2162b7d71312db8324fd844b5f31728352e0a1c396c573337d140dcb837bb5a2"
+          }
+        },
+        "improved-3": {
+          "inputFingerprint": "1629cacdfc581ce7aa0268074794d11432633100c85925e73251aa87b9c8789e",
+          "comparisonFingerprint": "d1f663134de62984005ae8b221ee5c8e33fe4cc54472cd07d3c34f8e72b6b0ac",
+          "sourceCodeHead": null,
+          "contextLevel": "source_code",
+          "collectorVersion": 4,
+          "promptVersion": "taskmaster-readiness-v4",
+          "scoringVersion": 1,
+          "rubricDigest": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+          "model": {
+            "model": "gpt-6-luna",
+            "provider": "codex",
+            "reasoningEffort": "medium"
+          },
+          "knowledgeVersion": "brain-3",
+          "knowledgeBundleSha256": "ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511",
+          "sourceFiles": {
+            ".github/workflows/ci.yml": "ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b",
+            ".node-version": "a0e27aeeac42d6102f4ff2bce40d8fb011c07e5cb28eff3c9d77e68df29e5dd6",
+            "AGENTS.md": "68a0ebf69c1638a6ea2883b51e8c07af397bc9b474ab1c7f07b2d5f9cf48dfe2",
+            "README.md": "dd79961ddf606b64f62bf075ab44dbb207559a297d0fcf348e1bbae9edc4b04b",
+            "docs/architecture.md": "f1693566484194859059352d40b95de7a4069ba5bc3afde0ecdc469f96d036e7",
+            "docs/domain.md": "7299fb412eacab5cde8b6bb735915981df7e9637f712b1f39625972ab6d4136c",
+            "docs/lessons.md": "7b8150cc072424ee1858e66e625e3fdcd8edec71fb88e331d9fa53499077a2fd",
+            "package.json": "40f9817991562b311834d810ce2cc8fc6839b5c300b3b0191dc3579ef73d1f74",
+            "pnpm-lock.yaml": "15709a4944e0a189685e0bc13e56d1d0d37a88e24d8b7ecc2415e5d4b1eff1ee",
+            "src/catalog.test.ts": "683c4eaba43b054a7dce65c398b5902163363400041fb7e7013e22d04f244eeb",
+            "src/catalog.ts": "2162b7d71312db8324fd844b5f31728352e0a1c396c573337d140dcb837bb5a2"
+          }
+        }
+      }
+    },
+    "scope": "Only these 126 rows across nine supplied artifacts. Does not substantiate accuracy across other repos, profiles, prompts, or time; does not infer observed execution, reliability, maintenance, habitual use, or enforcement from configuration/policy. No aggregate score is calculated because evidence coverage is incomplete.",
+    "reviewRounds": 1
+  },
+  "verdictCounts": {
+    "supported": 94,
+    "unsupported": 15,
+    "justified_unassessed": 15,
+    "unjustified_unassessed": 2
+  }
+}

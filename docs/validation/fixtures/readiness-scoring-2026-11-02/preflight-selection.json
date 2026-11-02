@@ -1,0 +1,7 @@
+{
+  "selection": {
+    "provider": "codex",
+    "model": "gpt-6-luna",
+    "reasoningEffort": "medium"
+  }
+}

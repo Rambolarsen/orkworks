@@ -420,3 +420,22 @@ unchanged retained response as a partial assessment with zero assessed areas
 and no overall score; imperative and literal-command cases remain rejected.
 This codec regression does not repair the recorded provider trial or establish
 end-to-end qualification. The usefulness gate remains failed.
+
+
+## Collector-4 prompt-v4 scoring qualification (#1285)
+
+The [fixed nine-trial corpus](fixtures/readiness-scoring-2026-11-02/index.md)
+retains eighteen calls on configured Codex GPT-6-Luna medium at source head
+`11ef66fe93c9db1a0212378011e8841982546c2e`, collector 4 and scoring prompt v4. All nine trials
+saved snapshots, but independent review of all 126 rows fails semantic
+qualification. Written configuration or policy was sometimes treated as evidence
+of reliability, maintenance or structural enforcement. Domain maturity
+changes 1 to 2 in all three source pairs, but only one pair has glossary-only
+final fact differences. Byte-identical final inputs
+also yield different ratings and coverage. Three stored overall scores are
+retained observations, not validated accuracy claims.
+
+The budget is exhausted, with no model retries, replacement samples or settings
+changes. The separate evidence-first combined-usefulness pass remains limited
+to that gate; it does not qualify current scoring accuracy. Historical failures
+and the earlier Sol collector-3/prompt-v2 qualification remain unchanged.

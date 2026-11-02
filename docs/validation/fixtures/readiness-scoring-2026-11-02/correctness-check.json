@@ -1,0 +1,147 @@
+{
+  "reviewer": "Codex independent correctness verification",
+  "verdictAgreement": "partial; overall fail remains warranted",
+  "checkedScope": {
+    "artifacts": "All 126 semantic-review rows across baseline-{1,2,3}, improved-{1,2,3}, and healthy-{1,2,3} final input/output artifacts; all 17 rows reported as unsupported or unjustified_unassessed; additional checks of supported/null instruction-scoping, task-decomposition, and observability claims; persisted outcome snapshots.",
+    "method": "Read-only comparison of exact concept rubric text, cited repositoryFacts, coverage metadata, output maturity/rationale, and stored snapshots. No live calls or repository edits. Citation filenames in semantic-review.json resolve under trials/<trial>/."
+  },
+  "corrections": [
+    {
+      "trial": "healthy-2",
+      "conceptId": "change-safety",
+      "currentMaturity": 2,
+      "currentVerdict": "unsupported",
+      "correctedVerdict": "supported",
+      "supportedAlternative": 2,
+      "reason": "Rubric level 2 requires a common destructive action to require an explicit deliberate step; it does not require technical enforcement. The guide explicitly says to ask the maintainer before data deletion or publishing. Structural enforcement is the separate level-4 condition, so its absence cannot invalidate level 2.",
+      "inputPointers": [
+        "trials/healthy-2/final-input.json#/repositoryFacts/0",
+        "trials/healthy-2/final-input.json#/rubric/concepts/10"
+      ],
+      "outputPointer": "trials/healthy-2/final-output.json#/concepts/10"
+    },
+    {
+      "trialGroup": [
+        "baseline-1",
+        "baseline-2",
+        "baseline-3",
+        "improved-1",
+        "improved-2",
+        "improved-3",
+        "healthy-1",
+        "healthy-3"
+      ],
+      "conceptId": "change-safety",
+      "currentMaturity": 1,
+      "recommendedMaturity": 2,
+      "currentVerdict": "supported",
+      "reason": "The same explicit ask-before-deletion/publishing safeguard is supplied in repositoryFacts/0 in each trial. Since level 2 is satisfied by a required deliberate action and level 4 separately requires technical enforcement, these eight level-1 outputs under-rate the cited policy. This is an exact-rubric omission, not a demand for structural enforcement.",
+      "inputPointerTemplate": "trials/<trial>/final-input.json#/repositoryFacts/0 and #/rubric/concepts/10",
+      "outputPointerTemplate": "trials/<trial>/final-output.json#/concepts/10"
+    },
+    {
+      "trialGroup": [
+        "healthy-1",
+        "healthy-2",
+        "improved-2"
+      ],
+      "conceptId": "task-decomposition",
+      "currentMaturity": 2,
+      "recommendedMaturity": null,
+      "currentVerdict": "supported",
+      "reason": "The rubric's level 2 requires a documented workflow or playbook that explicitly models breaking a task into steps. A general requirement for a small plan and focused tests does not model decomposition. Because no examples/history establish level 1 and absence is not established, null is preferable to zero. This also applies to improved-2, whose output is likewise maturity 2 on the same small-plan evidence.",
+      "inputPointerTemplate": "trials/<trial>/final-input.json#/repositoryFacts/0 and #/rubric/concepts/7",
+      "outputPointerTemplate": "trials/<trial>/final-output.json#/concepts/7"
+    },
+    {
+      "trialGroup": [
+        "baseline-3",
+        "improved-1",
+        "improved-3"
+      ],
+      "conceptId": "instruction-scoping",
+      "currentMaturity": null,
+      "recommendedMaturity": 1,
+      "currentVerdict": "justified_unassessed",
+      "reason": "The supplied input explicitly marks instructionCoverageComplete=true, and repositoryFacts/0 contains a root guide that directs readers by task to separate setup, architecture, and domain guidance. This is sectioned task guidance meeting the rubric's level-1 discoverability example. The review's claim that bounded excerpts cannot establish whether scoped instructions exist overlooks the explicit coverage flag and the supplied directional instructions.",
+      "inputPointerTemplate": "trials/<trial>/final-input.json#/coverage/instructionCoverageComplete, #/repositoryFacts/0, and #/rubric/concepts/2",
+      "outputPointerTemplate": "trials/<trial>/final-output.json#/concepts/2"
+    },
+    {
+      "trialGroup": [
+        "healthy-1",
+        "healthy-2"
+      ],
+      "conceptId": "instruction-scoping",
+      "currentMaturity": 0,
+      "recommendedMaturity": 1,
+      "currentVerdict": "supported",
+      "reason": "The same repository guide explicitly points agents to separate setup, architecture, and domain guidance by task. That supplies some sectioned guidance at level 1; calling scoping wholly absent overlooks the provided instruction. This is consistent with the 1 recommendation for the null rows, rather than treating the linked pages as proof of nested instruction files or level 2 reliability.",
+      "inputPointerTemplate": "trials/<trial>/final-input.json#/repositoryFacts/0 and #/rubric/concepts/2",
+      "outputPointerTemplate": "trials/<trial>/final-output.json#/concepts/2"
+    },
+    {
+      "trialGroup": [
+        "baseline-2",
+        "improved-1",
+        "healthy-1"
+      ],
+      "conceptId": "tool-accessibility",
+      "currentMaturity": 3,
+      "recommendedSupportedAlternative": 1,
+      "currentVerdict": "unsupported",
+      "reason": "The level-3 rejection is sound, but the proposed level-2 alternative adds an unsupported agent-environment reliability claim. The supplied README lists tools/versions and CI provisions its own runner; neither establishes that an agent environment can reliably be matched to the requirements. Level 1 (requirements listed) is the supported alternative. This distinguishes accessibility from environment reproducibility/reliability.",
+      "inputPointerTemplate": "trials/<trial>/final-input.json#/repositoryFacts/1, /2, /3 and #/rubric/concepts/6",
+      "outputPointerTemplate": "trials/<trial>/final-output.json#/concepts/6"
+    },
+    {
+      "trialGroup": [
+        "improved-2",
+        "healthy-1"
+      ],
+      "conceptId": "observability",
+      "currentMaturity": 1,
+      "currentVerdict": "unjustified_unassessed",
+      "correctedVerdict": "unsupported",
+      "supportedAlternative": null,
+      "reason": "These are rated maturity-1 output rows, not null rows, so the verdict label unjustified_unassessed is internally inconsistent. A designated lessons file stating that it has no outcomes and CI configuration without results do not establish a level-1 event record. But the supplied excerpts do not establish absence of git history/changelogs, so recommend changing the output to null and the semantic verdict to unsupported with no numeric alternative, rather than assigning level 0.",
+      "inputPointerTemplate": "trials/<trial>/final-input.json#/repositoryFacts/2, /6 and #/rubric/concepts/9",
+      "outputPointerTemplate": "trials/<trial>/final-output.json#/concepts/9"
+    }
+  ],
+  "additionalFindings": [
+    {
+      "finding": "The aggregate-score statement is contradicted by persisted snapshots. semantic-review.json says no aggregate score is calculated because evidence coverage is incomplete, while outcome snapshots persist overallScore/rawTotal values for improved-2 (36/20), healthy-1 (50/28), and healthy-2 (52/29). Matrix entries show score=null because those are a separate derived view; they do not erase the snapshot values. Clarify that this reviewer did not recalculate an aggregate, rather than saying none is calculated/persisted.",
+      "citations": [
+        "trials/improved-2/outcome.json#/history/snapshots/0/data/overallScore",
+        "trials/improved-2/outcome.json#/history/snapshots/0/data/rawTotal",
+        "trials/healthy-1/outcome.json#/history/snapshots/0/data/overallScore",
+        "trials/healthy-1/outcome.json#/history/snapshots/0/data/rawTotal",
+        "trials/healthy-2/outcome.json#/history/snapshots/0/data/overallScore",
+        "trials/healthy-2/outcome.json#/history/snapshots/0/data/rawTotal",
+        "matrix.json#/2/score",
+        "matrix.json#/6/score",
+        "matrix.json#/7/score"
+      ]
+    },
+    {
+      "finding": "Task-decomposition nulls in the six remaining trials are justified: the small-plan/focused-test instruction does not satisfy the rubric's explicit stepwise workflow, while missing PR/history examples do not prove the level-0 absence claim. The healthy-1/2 and improved-2 rated level-2 rows are the exceptions captured above.",
+      "citations": [
+        "trials/baseline-1/final-input.json#/repositoryFacts/0",
+        "trials/baseline-1/final-input.json#/rubric/concepts/7",
+        "trials/baseline-1/final-output.json#/concepts/7"
+      ]
+    },
+    {
+      "finding": "The other reported under-supported findings remain sound: environment-reproducibility level 2/3 requires reliable clean-checkout production or consistent automated setup, architecture/domain integrated levels require maintenance alongside changes, verification level 2 requires targeted check selection, and human-oversight level 3 requires structural enforcement. The observability alternative is null for insufficient evidence rather than proof of level 0.",
+      "citations": [
+        "trials/healthy-1/final-input.json#/rubric/concepts/5",
+        "trials/healthy-1/final-input.json#/rubric/concepts/3",
+        "trials/healthy-1/final-input.json#/rubric/concepts/4",
+        "trials/healthy-1/final-input.json#/rubric/concepts/8",
+        "trials/healthy-2/final-input.json#/rubric/concepts/13"
+      ]
+    }
+  ],
+  "verdictCountsNote": "The reported fail remains warranted: several material ratings are unsupported and at least one rated row was misclassified, while the discovered omissions do not justify a pass. The report's exact verdict counts should be revised after the above score/label corrections."
+}

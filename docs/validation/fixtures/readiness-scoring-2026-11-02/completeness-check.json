@@ -1,0 +1,248 @@
+{
+  "verdict": "incomplete_for_unqualified_controlled_glossary_claim; core transport and row artifacts present, but pair 2 is not exact final-input controlled and raw per-call trace is absent",
+  "counts": {
+    "trialOutcomes": 9,
+    "expectedTrials": 9,
+    "successfulOutcomes": 9,
+    "failedOrMissingOutcomes": 0,
+    "logicalProviderCallsReported": 18,
+    "perTrialLogicalCallsReported": 2,
+    "configuredRetries": 0,
+    "configuredReplacements": 0,
+    "semanticRows": 126,
+    "expectedRows": 126,
+    "uniqueTrialConceptPairings": 126,
+    "duplicatePairings": 0,
+    "missingPairings": 0,
+    "conceptRowsPerTrial": 14,
+    "persistedCoverageSum": 111,
+    "persistedUnratedRows": 15,
+    "publicFixtureArtifactsCompared": 68,
+    "publicFixtureArtifactsByteIdentical": 68,
+    "publicFixtureArtifactsMissingOrMismatched": 0
+  },
+  "evidence": {
+    "attempts": {
+      "pointer": "run.log",
+      "detail": "Exactly nine named trial Succeeded lines, then one passing selected_provider_readiness_quality_matrix result. Each trials/{trial}/outcome.json has ok=true, run.state=succeeded, one history snapshot."
+    },
+    "logicalCalls": {
+      "pointer": "trials-summary.json#/0/logicalProviderCalls through #/8/logicalProviderCalls",
+      "detail": "Each of nine entries reports 2 logicalProviderCalls; total 18. This establishes the recorded total, but no raw provider-request/transport trace exists in the supplied artifact inventory, so absence of hidden retry attempts cannot be independently verified."
+    },
+    "retryReplacement": {
+      "pointer": "experiment.json#/retries, #/replacements, #/modelSubstitution; run.log; trials-summary.json",
+      "detail": "Configured as zero/zero/false; no failed, replaced, or substituted trial is recorded. Raw attempt trace absent as above."
+    },
+    "preflight": {
+      "pointer": "preflight-missing-settings.log; preflight-selection.json; experiment.json#/preflight",
+      "detail": "Selection-only configuration fails at deserialization with missing field enabled; test exits before trial execution. Artifact records zero logical calls; consistent with immediate config panic and no trial outcome."
+    },
+    "pinnedSelection": {
+      "pointer": "experiment.json#/selection; selection.json#/selection",
+      "detail": "codex/gpt-6-luna/medium agrees. selection.json also pins enabled=true, contextLevel=source_code, excludedPaths=[], dailyEvaluationLimit=8, minIntervalMinutes=60, automaticKnowledgeUpdates=true, workspaceOverrides={}."
+    },
+    "pinnedVersions": {
+      "pointer": "trials-summary.json#/0/versions through #/8/versions; #/0/rubricDigest through #/8/rubricDigest; #/0/knowledgeIdentity through #/8/knowledgeIdentity",
+      "detail": "All trials report collector 4, discovery schema 2, final schema 1, prompt taskmaster-readiness-v4, scoring 1; rubric digest 9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e; same brain-3 knowledge identity, bundle SHA-256 ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511."
+    },
+    "codePin": {
+      "pointer": "experiment.json#/codeHead; experiment.json#/sourceSha256",
+      "detail": "Records head 11ef66fe93c9db1a0212378011e8841982546c2e and hashes for four named source files."
+    },
+    "rowCoverage": {
+      "pointer": "semantic-review.json#/rowVerdicts; trials/{trial}/final-output.json#/concepts; matrix.json",
+      "detail": "126 semantic rows are exactly 9 trials × 14 concept IDs with no duplicate trial/concept pair and none missing. Persisted coverage is 111 rated rows; remaining 15 are null/unrated rows, not omitted semantic rows."
+    },
+    "publicFixtureParity": {
+      "pointer": "/Users/froomiebot/workspace/orkworks-readiness-scoring-qualification/docs/validation/fixtures/readiness-scoring-2026-11-02",
+      "detail": "All 68 private JSON artifacts used as fixtures (5 root JSON plus 63 per-trial JSON) match public fixture files byte-for-byte. Four private ancillary artifacts are not fixture copies: run.log, preflight-missing-settings.log, preflight-selection.json, semantic-review.json. No public fixture mismatch."
+    }
+  },
+  "sourceIdentities": {
+    "pointer": "source-check.json#/baselineToImprovedChangedPaths, #/baselineRepeatedIdentical, #/improvedHealthyAllIdentical; trials/{trial}/sources.json; experiment.json#/sourceSha256",
+    "baselineToImprovedSourceDifference": "docs/domain.md only; reported for all three condition-level pairs",
+    "baselineRepeatedSourcesIdentical": true,
+    "improvedAndHealthySourcesIdentical": true,
+    "comparisonFingerprint": "d1f663134de62984005ae8b221ee5c8e33fe4cc54472cd07d3c34f8e72b6b0ac in every dispatch identity and snapshot"
+  },
+  "finalInputIdentities": {
+    "method": "SHA-256 of canonical JSON (sorted keys, compact separators) for each trials/{trial}/final-input.json; hash is audit-derived, not a stored run identifier",
+    "trials": {
+      "baseline-1": {
+        "sha256": "5fbd6fb18ab9fdbd13b3701a0d957918fc56e84563e65b5588530668808c4e80",
+        "factCount": 9,
+        "factPaths": [
+          "AGENTS.md",
+          "package.json",
+          ".github/workflows/ci.yml",
+          "README.md",
+          "docs/architecture.md",
+          "docs/domain.md",
+          "docs/lessons.md",
+          "src/catalog.test.ts",
+          "src/catalog.ts"
+        ]
+      },
+      "baseline-2": {
+        "sha256": "1c2365e273d30510e7938c5e96dd96ac386109eb26a94c86c547a04782dee54f",
+        "factCount": 8,
+        "factPaths": [
+          "AGENTS.md",
+          "package.json",
+          ".github/workflows/ci.yml",
+          "README.md",
+          "docs/architecture.md",
+          "docs/domain.md",
+          "docs/lessons.md",
+          "src/catalog.test.ts"
+        ]
+      },
+      "baseline-3": {
+        "sha256": "1c2365e273d30510e7938c5e96dd96ac386109eb26a94c86c547a04782dee54f",
+        "factCount": 8,
+        "factPaths": [
+          "AGENTS.md",
+          "package.json",
+          ".github/workflows/ci.yml",
+          "README.md",
+          "docs/architecture.md",
+          "docs/domain.md",
+          "docs/lessons.md",
+          "src/catalog.test.ts"
+        ]
+      },
+      "improved-1": {
+        "sha256": "2db5b97c17762bcfe5872527e7254fc341de2e6db5a97163a919abaf42bab077",
+        "factCount": 9,
+        "factPaths": [
+          "AGENTS.md",
+          "package.json",
+          ".github/workflows/ci.yml",
+          "README.md",
+          "docs/architecture.md",
+          "docs/domain.md",
+          "docs/lessons.md",
+          "src/catalog.test.ts",
+          "src/catalog.ts"
+        ]
+      },
+      "improved-2": {
+        "sha256": "c9d8b6c2684cc86e3008ad5e3ed5c328f6b0ac12a86cb2bdc5793ec32e49ee92",
+        "factCount": 8,
+        "factPaths": [
+          "AGENTS.md",
+          "package.json",
+          ".github/workflows/ci.yml",
+          "README.md",
+          "docs/architecture.md",
+          "docs/domain.md",
+          "docs/lessons.md",
+          "src/catalog.ts"
+        ]
+      },
+      "improved-3": {
+        "sha256": "2db5b97c17762bcfe5872527e7254fc341de2e6db5a97163a919abaf42bab077",
+        "factCount": 9,
+        "factPaths": [
+          "AGENTS.md",
+          "package.json",
+          ".github/workflows/ci.yml",
+          "README.md",
+          "docs/architecture.md",
+          "docs/domain.md",
+          "docs/lessons.md",
+          "src/catalog.test.ts",
+          "src/catalog.ts"
+        ]
+      },
+      "healthy-1": {
+        "sha256": "2db5b97c17762bcfe5872527e7254fc341de2e6db5a97163a919abaf42bab077",
+        "factCount": 9,
+        "factPaths": [
+          "AGENTS.md",
+          "package.json",
+          ".github/workflows/ci.yml",
+          "README.md",
+          "docs/architecture.md",
+          "docs/domain.md",
+          "docs/lessons.md",
+          "src/catalog.test.ts",
+          "src/catalog.ts"
+        ]
+      },
+      "healthy-2": {
+        "sha256": "d9c81bdf4b5b5b22a063ac8fa314b26002bfdd1fd9b583c5e6076ec4a96f673d",
+        "factCount": 8,
+        "factPaths": [
+          "AGENTS.md",
+          "package.json",
+          ".github/workflows/ci.yml",
+          "README.md",
+          "docs/architecture.md",
+          "docs/domain.md",
+          "docs/lessons.md",
+          "src/catalog.test.ts"
+        ]
+      },
+      "healthy-3": {
+        "sha256": "d9c81bdf4b5b5b22a063ac8fa314b26002bfdd1fd9b583c5e6076ec4a96f673d",
+        "factCount": 8,
+        "factPaths": [
+          "AGENTS.md",
+          "package.json",
+          ".github/workflows/ci.yml",
+          "README.md",
+          "docs/architecture.md",
+          "docs/domain.md",
+          "docs/lessons.md",
+          "src/catalog.test.ts"
+        ]
+      }
+    },
+    "criticalPairDelta": {
+      "pointer": "trials/baseline-2/final-input.json#/repositoryFacts; trials/improved-2/final-input.json#/repositoryFacts",
+      "detail": "Pair 2 is not an exact final-input control: baseline-2 supplies src/catalog.test.ts but not src/catalog.ts; improved-2 supplies src/catalog.ts but not src/catalog.test.ts. Alongside docs/domain.md this changes relevant domain evidence. Therefore only pairs 1 and 3 have matching fact-path sets with the glossary as the sole changed fact; the three-pair controlled-gain statement overstates the final-input control."
+    }
+  },
+  "persistedScores": {
+    "pointer": "trials/*/outcome.json#/history/snapshots/0/data/overallScore; trials-summary.json#/snapshotKeys; matrix.json#/score",
+    "detail": "Three snapshots contain calculated overallScore values: improved-2=36 (rawTotal 20), healthy-1=50 (rawTotal 28), healthy-2=52 (rawTotal 29). Six others have overallScore=null. Persisted coverage is 14 for those three; incomplete-coverage snapshots do not carry a numeric score. The statement semantic-review.json#/qualificationLimits/scope that 'No aggregate score is calculated because evidence coverage is incomplete' is false as a blanket claim. Correct to say aggregate qualification/comparison is not made; three individual full-coverage snapshots do persist overall scores."
+  },
+  "corrections": [
+    {
+      "pointer": "semantic-review.json#/controlledPairs/1/onlySourceDifference; semantic-review.json#/findings/0/finding",
+      "correction": "Source bytes differ only at docs/domain.md, but baseline-2 and improved-2 final inputs also swap the selected code fact (catalog test versus catalog implementation). Do not call all three pairs exact-input controlled; qualify the glossary direction as supported in the two path-matched pairs, with pair 2 confounded by evidence selection."
+    },
+    {
+      "pointer": "semantic-review.json#/qualificationLimits/scope",
+      "correction": "Three persisted overall scores exist (improved-2 36, healthy-1 50, healthy-2 52); say no overall qualification/comparative pass is concluded due incomplete coverage and variability, rather than no aggregate score calculated."
+    },
+    {
+      "pointer": "semantic-review.json#/findings/3/finding; semantic-review.json#/variability",
+      "correction": "Repeated outputs vary under identical condition-level source bytes, but exact final evidence inputs are not constant in every condition. Describe observed output variability and input-selection variation; do not attribute all score changes solely to model nondeterminism on identical facts."
+    }
+  ],
+  "qualificationLimits": [
+    {
+      "pointer": "experiment.json#/purpose; experiment.json#/adjudicationCriteria",
+      "limit": "This fixed fixture exercise tests this readiness scoring profile and supplied fixture evidence only; it is not general accuracy evidence across repositories, prompts, profiles, or time."
+    },
+    {
+      "pointer": "semantic-review.json#/rowVerdicts; trials/*/final-input.json#/repositoryFacts",
+      "limit": "Semantic completeness is 126 rows, but evidence coverage is 111/126 rated rows; nulls remain evidence-limited or unjustified according to the semantic report. No semantic ratings were independently graded in this completeness audit."
+    },
+    {
+      "pointer": "trials/baseline-2/final-input.json#/repositoryFacts; trials/improved-2/final-input.json#/repositoryFacts",
+      "limit": "One of three purported controlled glossary pairs has different included code evidence in its actual final inputs, limiting causal strength of the three-pair gain claim."
+    },
+    {
+      "pointer": "run.log; trials-summary.json",
+      "limit": "No raw provider transport/request event trace is supplied, so configured zero retries plus successful summaries do not independently prove absence of unrecorded retry attempts."
+    },
+    {
+      "pointer": "trials/*/outcome.json#/history/snapshots/0/data/overallScore; matrix.json",
+      "limit": "Overall scores are persisted for only three full-coverage snapshots; six snapshots have null overallScore. Do not infer a stable aggregate condition score or qualification pass."
+    }
+  ]
+}

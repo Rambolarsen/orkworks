@@ -1,0 +1,281 @@
+[
+  {
+    "trial": "baseline-1",
+    "ok": true,
+    "state": "succeeded",
+    "error": null,
+    "logicalProviderCalls": 2,
+    "versions": {
+      "collector": 4,
+      "discoverySchema": 2,
+      "finalSchema": 1,
+      "prompt": "taskmaster-readiness-v4",
+      "scoring": 1
+    },
+    "rubricDigest": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+    "knowledgeIdentity": {
+      "bundle_sha256": "ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511",
+      "format_version": 2,
+      "privacy_policy_version": 1,
+      "public_key_sha256": "a35da5934c629903f8f31db5067a9c5086f8372c34e3d917c9efb7decfd465dd",
+      "sequence": 3,
+      "version": "brain-3"
+    },
+    "snapshotKeys": [
+      "completedAt",
+      "data",
+      "id",
+      "redacted",
+      "startedAt"
+    ],
+    "finalOutputRows": 14
+  },
+  {
+    "trial": "baseline-2",
+    "ok": true,
+    "state": "succeeded",
+    "error": null,
+    "logicalProviderCalls": 2,
+    "versions": {
+      "collector": 4,
+      "discoverySchema": 2,
+      "finalSchema": 1,
+      "prompt": "taskmaster-readiness-v4",
+      "scoring": 1
+    },
+    "rubricDigest": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+    "knowledgeIdentity": {
+      "bundle_sha256": "ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511",
+      "format_version": 2,
+      "privacy_policy_version": 1,
+      "public_key_sha256": "a35da5934c629903f8f31db5067a9c5086f8372c34e3d917c9efb7decfd465dd",
+      "sequence": 3,
+      "version": "brain-3"
+    },
+    "snapshotKeys": [
+      "completedAt",
+      "data",
+      "id",
+      "redacted",
+      "startedAt"
+    ],
+    "finalOutputRows": 14
+  },
+  {
+    "trial": "baseline-3",
+    "ok": true,
+    "state": "succeeded",
+    "error": null,
+    "logicalProviderCalls": 2,
+    "versions": {
+      "collector": 4,
+      "discoverySchema": 2,
+      "finalSchema": 1,
+      "prompt": "taskmaster-readiness-v4",
+      "scoring": 1
+    },
+    "rubricDigest": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+    "knowledgeIdentity": {
+      "bundle_sha256": "ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511",
+      "format_version": 2,
+      "privacy_policy_version": 1,
+      "public_key_sha256": "a35da5934c629903f8f31db5067a9c5086f8372c34e3d917c9efb7decfd465dd",
+      "sequence": 3,
+      "version": "brain-3"
+    },
+    "snapshotKeys": [
+      "completedAt",
+      "data",
+      "id",
+      "redacted",
+      "startedAt"
+    ],
+    "finalOutputRows": 14
+  },
+  {
+    "trial": "improved-1",
+    "ok": true,
+    "state": "succeeded",
+    "error": null,
+    "logicalProviderCalls": 2,
+    "versions": {
+      "collector": 4,
+      "discoverySchema": 2,
+      "finalSchema": 1,
+      "prompt": "taskmaster-readiness-v4",
+      "scoring": 1
+    },
+    "rubricDigest": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+    "knowledgeIdentity": {
+      "bundle_sha256": "ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511",
+      "format_version": 2,
+      "privacy_policy_version": 1,
+      "public_key_sha256": "a35da5934c629903f8f31db5067a9c5086f8372c34e3d917c9efb7decfd465dd",
+      "sequence": 3,
+      "version": "brain-3"
+    },
+    "snapshotKeys": [
+      "completedAt",
+      "data",
+      "id",
+      "redacted",
+      "startedAt"
+    ],
+    "finalOutputRows": 14
+  },
+  {
+    "trial": "improved-2",
+    "ok": true,
+    "state": "succeeded",
+    "error": null,
+    "logicalProviderCalls": 2,
+    "versions": {
+      "collector": 4,
+      "discoverySchema": 2,
+      "finalSchema": 1,
+      "prompt": "taskmaster-readiness-v4",
+      "scoring": 1
+    },
+    "rubricDigest": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+    "knowledgeIdentity": {
+      "bundle_sha256": "ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511",
+      "format_version": 2,
+      "privacy_policy_version": 1,
+      "public_key_sha256": "a35da5934c629903f8f31db5067a9c5086f8372c34e3d917c9efb7decfd465dd",
+      "sequence": 3,
+      "version": "brain-3"
+    },
+    "snapshotKeys": [
+      "completedAt",
+      "data",
+      "id",
+      "redacted",
+      "startedAt"
+    ],
+    "finalOutputRows": 14
+  },
+  {
+    "trial": "improved-3",
+    "ok": true,
+    "state": "succeeded",
+    "error": null,
+    "logicalProviderCalls": 2,
+    "versions": {
+      "collector": 4,
+      "discoverySchema": 2,
+      "finalSchema": 1,
+      "prompt": "taskmaster-readiness-v4",
+      "scoring": 1
+    },
+    "rubricDigest": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+    "knowledgeIdentity": {
+      "bundle_sha256": "ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511",
+      "format_version": 2,
+      "privacy_policy_version": 1,
+      "public_key_sha256": "a35da5934c629903f8f31db5067a9c5086f8372c34e3d917c9efb7decfd465dd",
+      "sequence": 3,
+      "version": "brain-3"
+    },
+    "snapshotKeys": [
+      "completedAt",
+      "data",
+      "id",
+      "redacted",
+      "startedAt"
+    ],
+    "finalOutputRows": 14
+  },
+  {
+    "trial": "healthy-1",
+    "ok": true,
+    "state": "succeeded",
+    "error": null,
+    "logicalProviderCalls": 2,
+    "versions": {
+      "collector": 4,
+      "discoverySchema": 2,
+      "finalSchema": 1,
+      "prompt": "taskmaster-readiness-v4",
+      "scoring": 1
+    },
+    "rubricDigest": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+    "knowledgeIdentity": {
+      "bundle_sha256": "ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511",
+      "format_version": 2,
+      "privacy_policy_version": 1,
+      "public_key_sha256": "a35da5934c629903f8f31db5067a9c5086f8372c34e3d917c9efb7decfd465dd",
+      "sequence": 3,
+      "version": "brain-3"
+    },
+    "snapshotKeys": [
+      "completedAt",
+      "data",
+      "id",
+      "redacted",
+      "startedAt"
+    ],
+    "finalOutputRows": 14
+  },
+  {
+    "trial": "healthy-2",
+    "ok": true,
+    "state": "succeeded",
+    "error": null,
+    "logicalProviderCalls": 2,
+    "versions": {
+      "collector": 4,
+      "discoverySchema": 2,
+      "finalSchema": 1,
+      "prompt": "taskmaster-readiness-v4",
+      "scoring": 1
+    },
+    "rubricDigest": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+    "knowledgeIdentity": {
+      "bundle_sha256": "ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511",
+      "format_version": 2,
+      "privacy_policy_version": 1,
+      "public_key_sha256": "a35da5934c629903f8f31db5067a9c5086f8372c34e3d917c9efb7decfd465dd",
+      "sequence": 3,
+      "version": "brain-3"
+    },
+    "snapshotKeys": [
+      "completedAt",
+      "data",
+      "id",
+      "redacted",
+      "startedAt"
+    ],
+    "finalOutputRows": 14
+  },
+  {
+    "trial": "healthy-3",
+    "ok": true,
+    "state": "succeeded",
+    "error": null,
+    "logicalProviderCalls": 2,
+    "versions": {
+      "collector": 4,
+      "discoverySchema": 2,
+      "finalSchema": 1,
+      "prompt": "taskmaster-readiness-v4",
+      "scoring": 1
+    },
+    "rubricDigest": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+    "knowledgeIdentity": {
+      "bundle_sha256": "ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511",
+      "format_version": 2,
+      "privacy_policy_version": 1,
+      "public_key_sha256": "a35da5934c629903f8f31db5067a9c5086f8372c34e3d917c9efb7decfd465dd",
+      "sequence": 3,
+      "version": "brain-3"
+    },
+    "snapshotKeys": [
+      "completedAt",
+      "data",
+      "id",
+      "redacted",
+      "startedAt"
+    ],
+    "finalOutputRows": 14
+  }
+]

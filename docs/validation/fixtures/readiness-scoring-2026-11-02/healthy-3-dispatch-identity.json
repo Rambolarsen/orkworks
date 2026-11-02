@@ -1,0 +1,132 @@
+{
+  "workspacePath": "/private/tmp/orkworks-readiness-scoring-2026-11-02/trials/healthy-3/workspace",
+  "workspaceInstance": 9,
+  "git": {
+    "headOid": null,
+    "dirty": null
+  },
+  "inputFingerprint": "383168c0b52028de46e1eb35c9969f8c49fe7c70ec1129c153856f7e0e7e5018",
+  "comparisonFingerprint": "d1f663134de62984005ae8b221ee5c8e33fe4cc54472cd07d3c34f8e72b6b0ac",
+  "inputManifest": {
+    "version": 1,
+    "purpose": "readiness",
+    "collector": {
+      "purpose": "readiness",
+      "contextLevel": "source_code",
+      "excludedPaths": [],
+      "collectorVersion": 4,
+      "promptVersion": "taskmaster-readiness-v4",
+      "catalogDigest": "dda403810a1694393a3b580278e5e40a76279feae127b10cd5fd9c7b0af4302f",
+      "catalogComplete": true,
+      "instructionCoverageComplete": true,
+      "files": [
+        {
+          "path": "AGENTS.md",
+          "sha256": "68a0ebf69c1638a6ea2883b51e8c07af397bc9b474ab1c7f07b2d5f9cf48dfe2",
+          "bytes": 381,
+          "seed": true,
+          "excerptStart": 0,
+          "excerptEnd": 381,
+          "excerptDigest": "68a0ebf69c1638a6ea2883b51e8c07af397bc9b474ab1c7f07b2d5f9cf48dfe2"
+        },
+        {
+          "path": "package.json",
+          "sha256": "40f9817991562b311834d810ce2cc8fc6839b5c300b3b0191dc3579ef73d1f74",
+          "bytes": 195,
+          "seed": true,
+          "excerptStart": 0,
+          "excerptEnd": 195,
+          "excerptDigest": "40f9817991562b311834d810ce2cc8fc6839b5c300b3b0191dc3579ef73d1f74"
+        },
+        {
+          "path": ".github/workflows/ci.yml",
+          "sha256": "ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b",
+          "bytes": 299,
+          "seed": true,
+          "excerptStart": 0,
+          "excerptEnd": 299,
+          "excerptDigest": "ec3a48ef1b67a13276ca1205ac0f5e593714a8208e8d215062a9355f8968106b"
+        },
+        {
+          "path": "README.md",
+          "sha256": "dd79961ddf606b64f62bf075ab44dbb207559a297d0fcf348e1bbae9edc4b04b",
+          "bytes": 366,
+          "seed": true,
+          "excerptStart": 0,
+          "excerptEnd": 366,
+          "excerptDigest": "dd79961ddf606b64f62bf075ab44dbb207559a297d0fcf348e1bbae9edc4b04b"
+        },
+        {
+          "path": "docs/architecture.md",
+          "sha256": "f1693566484194859059352d40b95de7a4069ba5bc3afde0ecdc469f96d036e7",
+          "bytes": 302,
+          "seed": true,
+          "excerptStart": 0,
+          "excerptEnd": 302,
+          "excerptDigest": "f1693566484194859059352d40b95de7a4069ba5bc3afde0ecdc469f96d036e7"
+        },
+        {
+          "path": "docs/domain.md",
+          "sha256": "7299fb412eacab5cde8b6bb735915981df7e9637f712b1f39625972ab6d4136c",
+          "bytes": 590,
+          "seed": true,
+          "excerptStart": 0,
+          "excerptEnd": 590,
+          "excerptDigest": "7299fb412eacab5cde8b6bb735915981df7e9637f712b1f39625972ab6d4136c"
+        },
+        {
+          "path": "docs/lessons.md",
+          "sha256": "7b8150cc072424ee1858e66e625e3fdcd8edec71fb88e331d9fa53499077a2fd",
+          "bytes": 164,
+          "seed": true,
+          "excerptStart": 0,
+          "excerptEnd": 164,
+          "excerptDigest": "7b8150cc072424ee1858e66e625e3fdcd8edec71fb88e331d9fa53499077a2fd"
+        }
+      ],
+      "requestedFileIds": [],
+      "discoveryDigest": null,
+      "redacted": false
+    },
+    "observationsDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+  },
+  "inferenceIdentity": {
+    "custom": null,
+    "generation": 2,
+    "knowledge": {
+      "bundle_sha256": "ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511",
+      "format_version": 2,
+      "privacy_policy_version": 1,
+      "public_key_sha256": "a35da5934c629903f8f31db5067a9c5086f8372c34e3d917c9efb7decfd465dd",
+      "sequence": 3,
+      "version": "brain-3"
+    },
+    "native": {
+      "document_revision": null,
+      "profile": "Codex"
+    },
+    "selection": {
+      "model": "gpt-6-luna",
+      "provider": "codex",
+      "reasoningEffort": "medium"
+    }
+  },
+  "knowledgeIdentity": {
+    "bundle_sha256": "ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511",
+    "format_version": 2,
+    "privacy_policy_version": 1,
+    "public_key_sha256": "a35da5934c629903f8f31db5067a9c5086f8372c34e3d917c9efb7decfd465dd",
+    "sequence": 3,
+    "version": "brain-3"
+  },
+  "rubricDigest": "9f2c7c21b0edfa0e96fd806d9bcc50e2dd983dbf3ab2a45cf5395b0e1aea1a5e",
+  "versions": {
+    "collector": 4,
+    "discoverySchema": 2,
+    "finalSchema": 1,
+    "prompt": "taskmaster-readiness-v4",
+    "scoring": 1
+  },
+  "contextLevel": "source_code",
+  "excludedPaths": []
+}

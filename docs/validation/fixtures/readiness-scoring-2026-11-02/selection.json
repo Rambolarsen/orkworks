@@ -1,0 +1,14 @@
+{
+  "enabled": true,
+  "selection": {
+    "provider": "codex",
+    "model": "gpt-6-luna",
+    "reasoningEffort": "medium"
+  },
+  "contextLevel": "source_code",
+  "excludedPaths": [],
+  "dailyEvaluationLimit": 8,
+  "minIntervalMinutes": 60,
+  "automaticKnowledgeUpdates": true,
+  "workspaceOverrides": {}
+}

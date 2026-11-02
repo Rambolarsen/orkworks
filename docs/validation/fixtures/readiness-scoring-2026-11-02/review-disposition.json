@@ -1,0 +1,133 @@
+{
+  "owner": "root",
+  "verdict": "fail",
+  "rowsIndependentlyReviewed": 126,
+  "ratedRows": 111,
+  "unassessedRows": 15,
+  "reviewerExecution": {
+    "semantic": "gpt-6-luna medium",
+    "correctness": "gpt-6-luna medium",
+    "completeness": "gpt-6-luna medium",
+    "rounds": 1
+  },
+  "confirmedFailureExamples": [
+    {
+      "trial": "healthy-1",
+      "conceptId": "domain-knowledge",
+      "reportedMaturity": 3,
+      "reason": "Integrated definition requires glossary updates alongside domain changes; static glossary and links provide no maintenance evidence.",
+      "input": "healthy-1-final-input.json#/rubric/concepts/4",
+      "output": "healthy-1-final-output.json#/concepts/4"
+    },
+    {
+      "trial": "healthy-2",
+      "conceptId": "architecture-awareness",
+      "reportedMaturity": 3,
+      "reason": "Static architecture documentation does not establish updates alongside structural changes.",
+      "input": "healthy-2-final-input.json#/rubric/concepts/3",
+      "output": "healthy-2-final-output.json#/concepts/3"
+    },
+    {
+      "trial": "improved-2",
+      "conceptId": "task-decomposition",
+      "reportedMaturity": 2,
+      "reason": "A requirement for a small plan does not supply an explicit modeled sequence of task decomposition.",
+      "input": "improved-2-final-input.json#/rubric/concepts/7",
+      "output": "improved-2-final-output.json#/concepts/7"
+    }
+  ],
+  "reviewCorrections": [
+    {
+      "source": "review.json",
+      "resolution": "Its two observability maturity-1 rows labeled unjustified_unassessed are rated rows with an unsupported-rating finding, not null rows. Do not treat initial verdict categories as final accepted counts."
+    },
+    {
+      "source": "review.json and correctness-check.json",
+      "resolution": "Change-safety policy interpretation is disputed. The correctness reviewer accepts explicit ask-before-deletion guidance at level 2 and flags eight level-1 underratings. Preserve both reasons; failure conclusion relies on undisputed maintenance and decomposition examples, not this disputed threshold."
+    },
+    {
+      "source": "correctness-check.json",
+      "resolution": "Its change-safety correction calls structural enforcement level 4, but exact rubric places it at level 3. Its claim that derived matrix scores are null is also incorrect: matrix.json preserves 36,50,52. Accept the actual snapshot scores; do not adopt those report details."
+    },
+    {
+      "source": "review.json and completeness-check.json",
+      "resolution": "Three snapshots have overall scores 36,50,52. Six partial snapshots have no overall number. No accuracy claim is inferred from those stored numbers."
+    },
+    {
+      "source": "completeness-check.json",
+      "resolution": "Only pair 1 has glossary-only final fact differences. Pair 2 swaps test for implementation; pair 3 adds implementation. The completeness report incorrectly calls pair 3 path-matched. All source repositories still differ only in docs/domain.md."
+    },
+    {
+      "source": "review.json",
+      "resolution": "All three source pairs show observed domain 1-to-2 movement, but only pair 1 is an exact final-evidence glossary control. This is not three isolated causal demonstrations."
+    }
+  ],
+  "finalEvidencePairChecks": [
+    {
+      "pair": 1,
+      "baselineOnlyPaths": [],
+      "improvedOnlyPaths": [],
+      "changedSharedFacts": [
+        "docs/domain.md"
+      ]
+    },
+    {
+      "pair": 2,
+      "baselineOnlyPaths": [
+        "src/catalog.test.ts"
+      ],
+      "improvedOnlyPaths": [
+        "src/catalog.ts"
+      ],
+      "changedSharedFacts": [
+        "docs/domain.md"
+      ]
+    },
+    {
+      "pair": 3,
+      "baselineOnlyPaths": [],
+      "improvedOnlyPaths": [
+        "src/catalog.ts"
+      ],
+      "changedSharedFacts": [
+        "docs/domain.md"
+      ]
+    }
+  ],
+  "byteIdenticalFinalInputGroups": [
+    [
+      "baseline-1-final-input.json"
+    ],
+    [
+      "baseline-2-final-input.json",
+      "baseline-3-final-input.json"
+    ],
+    [
+      "healthy-1-final-input.json",
+      "improved-1-final-input.json",
+      "improved-3-final-input.json"
+    ],
+    [
+      "healthy-2-final-input.json",
+      "healthy-3-final-input.json"
+    ],
+    [
+      "improved-2-final-input.json"
+    ]
+  ],
+  "callAccounting": {
+    "logicalProviderCalls": 18,
+    "stageCaptures": 18,
+    "fixedTrials": 9,
+    "preflightCalls": 0,
+    "sampleRetries": 0,
+    "replacements": 0,
+    "limit": "Application-level sample dispatch accounting only. Underlying provider network retries were not traced."
+  },
+  "limits": [
+    "Scoring qualification failed for this fixed configuration; no profile or general accuracy claim.",
+    "Review artifacts are retained verbatim; this disposition resolves their material reporting errors.",
+    "No model output, failed corpus or previous qualification is rewritten.",
+    "Budget exhausted; no additional model calls authorized."
+  ]
+}
