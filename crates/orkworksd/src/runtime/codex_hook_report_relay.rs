@@ -54,9 +54,14 @@ enum CodexHookReportEnvelope {
     Approval(ApprovalEnvelope),
 }
 
+struct RetainedReceipt {
+    observation: Option<crate::metadata::hook_observation::Stamp>,
+}
+
 struct PendingReceipt {
-    bytes: Vec<u8>,
+    bytes: Option<Vec<u8>>,
     first_receipt: Instant,
+    observation: Option<crate::metadata::hook_observation::Stamp>,
 }
 
 #[derive(Default)]
@@ -66,6 +71,9 @@ struct ReceiptBook {
     // Once exhausted, conservatively disable assistance for this relay's
     // remaining lifetime. This floor never advances on drain or reconnect.
     overflow_floor: Option<Instant>,
+    // Untracked packets must not renew observation authority after a clear.
+    // This constant-size fence never advances during the relay's lifetime.
+    observation_floor: Option<crate::metadata::hook_observation::Stamp>,
 }
 const MAX_RETRIES_PER_PASS: usize = MAX_REPORTS_PER_PASS / 2;
 
@@ -75,8 +83,8 @@ pub(crate) struct RelayOutcome {
     pub(crate) reports_accepted: usize,
 }
 
-/// Optional SQL approval/identity drain. External trust/label follow-ups remain
-/// separate owners; this path never falls back to JSON session metadata.
+/// Optional SQL approval/identity drain, including owned trust/label follow-ups.
+/// This path never falls back to JSON session metadata.
 #[derive(Default)]
 pub(crate) struct SqlRelayOutcome {
     pub(crate) activity: RelayOutcome,
@@ -112,32 +120,74 @@ impl CodexHookReportRelay {
             .path()
     }
 
+    /// Reserve only bounded receipt authority before any cancellable mailbox I/O.
+    /// Payload bytes become immutable after the first successful validation.
+    fn prepare_sql_receipt(
+        &self,
+        name: &OsString,
+        first_receipt: Instant,
+        observation: crate::metadata::hook_observation::Stamp,
+    ) {
+        let mut book = self.receipts.lock().unwrap();
+        if book.pending.contains_key(name) {
+            return;
+        }
+        if book.pending.len() >= MAX_PENDING_RECEIPTS {
+            book.observation_floor.get_or_insert(observation);
+            return;
+        }
+        let observation = book.observation_floor.clone().unwrap_or(observation);
+        book.pending.insert(
+            name.clone(),
+            PendingReceipt {
+                bytes: None,
+                first_receipt,
+                observation: Some(observation),
+            },
+        );
+        book.retry_order.push_back(name.clone());
+    }
+
     fn retain_sql_receipt(
         &self,
         name: &OsString,
         bytes: &[u8],
         first_receipt: Instant,
         approval: bool,
-    ) -> bool {
+        observation: Option<crate::metadata::hook_observation::Stamp>,
+    ) -> Option<RetainedReceipt> {
         let mut book = self.receipts.lock().unwrap();
-        if book.pending.contains_key(name) {
-            return true;
+        let observation = book.observation_floor.clone().or(observation);
+        if let Some(receipt) = book.pending.get_mut(name) {
+            if receipt.bytes.as_ref().is_some_and(|old| old != bytes) {
+                return None;
+            }
+            if receipt.bytes.is_none() {
+                receipt.bytes = Some(bytes.to_vec());
+            }
+            if receipt.observation.is_none() {
+                receipt.observation = observation;
+            }
+            return Some(RetainedReceipt {
+                observation: receipt.observation.clone(),
+            });
         }
         if book.pending.len() >= MAX_PENDING_RECEIPTS {
             if approval {
                 book.overflow_floor.get_or_insert(first_receipt);
             }
-            return false;
+            return None;
         }
         book.pending.insert(
             name.clone(),
             PendingReceipt {
-                bytes: bytes.to_vec(),
+                bytes: Some(bytes.to_vec()),
                 first_receipt,
+                observation: observation.clone(),
             },
         );
         book.retry_order.push_back(name.clone());
-        true
+        Some(RetainedReceipt { observation })
     }
 
     pub(crate) async fn consume_ready(
@@ -249,6 +299,12 @@ impl CodexHookReportRelay {
             let read_mailbox = Arc::clone(&mailbox);
             let read_name = name.clone();
             let receipt = Instant::now();
+            let observation = sql
+                .as_ref()
+                .map(|(writes, _)| writes.native_observation_stamp());
+            if let Some(stamp) = observation.as_ref() {
+                self.prepare_sql_receipt(&name, receipt, stamp.clone());
+            }
             let report =
                 tokio::task::spawn_blocking(move || read_report(&read_mailbox, &read_name))
                     .await
@@ -265,7 +321,10 @@ impl CodexHookReportRelay {
                     }
                     let floor = book.overflow_floor.unwrap_or(receipt);
                     let (first, changed) = book.pending.get(&name).map_or((floor, false), |old| {
-                        (old.first_receipt, old.bytes != bytes)
+                        (
+                            old.first_receipt,
+                            old.bytes.as_ref().is_some_and(|old| old != &bytes),
+                        )
                     });
                     (first, changed, full, book.overflow_floor.is_some())
                 };
@@ -281,13 +340,25 @@ impl CodexHookReportRelay {
                     match report {
                         CodexHookReportEnvelope::Identity(envelope) => {
                             if let Some((writes, cancelled)) = &sql {
-                                if full
-                                    || !self.retain_sql_receipt(&name, &bytes, first_receipt, false)
-                                {
-                                    keep = true;
+                                let retained = if full {
+                                    None
                                 } else {
+                                    self.retain_sql_receipt(
+                                        &name,
+                                        &bytes,
+                                        first_receipt,
+                                        false,
+                                        observation,
+                                    )
+                                };
+                                if let Some(RetainedReceipt {
+                                    observation: Some(stamp),
+                                }) = retained
+                                {
                                     let request = envelope.report;
                                     let report = NativeIdentityReport {
+                                        hook_fingerprint: request.hook_fingerprint,
+                                        observation_stamp: Some(stamp),
                                         report: crate::metadata::HarnessSessionReport {
                                             harness_session_id: request.harness_session_id,
                                             source: request.source,
@@ -321,6 +392,8 @@ impl CodexHookReportRelay {
                                             keep = true;
                                         }
                                     }
+                                } else {
+                                    keep = true;
                                 }
                             } else {
                                 let status = report_harness_session_from_local_relay(
@@ -341,10 +414,18 @@ impl CodexHookReportRelay {
                                 // overflow floor prevents renewed grace later.
                                 keep = true;
                             } else {
-                                // Retain the immutable packet before the first await. A
+                                // Retain the validated packet before SQL awaits. A
                                 // cancelled drain must not renew its permission grace.
                                 if sql.is_some()
-                                    && !self.retain_sql_receipt(&name, &bytes, first_receipt, true)
+                                    && self
+                                        .retain_sql_receipt(
+                                            &name,
+                                            &bytes,
+                                            first_receipt,
+                                            true,
+                                            None,
+                                        )
+                                        .is_none()
                                 {
                                     continue;
                                 }
@@ -403,8 +484,9 @@ impl CodexHookReportRelay {
                                             book.pending.insert(
                                                 name.clone(),
                                                 PendingReceipt {
-                                                    bytes,
+                                                    bytes: Some(bytes),
                                                     first_receipt,
+                                                    observation: None,
                                                 },
                                             );
                                             book.retry_order.push_back(name.clone());
@@ -554,6 +636,8 @@ fn read_report(
     mailbox: &MailboxDirectory,
     name: &OsStr,
 ) -> Option<(CodexHookReportEnvelope, Vec<u8>)> {
+    #[cfg(test)]
+    read_testing::before_read(name);
     let mut file = mailbox.open_report(name).ok()?;
     let mut bytes = Vec::with_capacity(MAX_REPORT_BYTES as usize);
     file.by_ref()
@@ -1189,5 +1273,54 @@ mod tests {
             std::fs::rename(relay.mailbox_path(), moved_path).is_err(),
             "the held directory handle must prevent mailbox replacement"
         );
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod read_testing {
+    use super::*;
+    use std::sync::LazyLock;
+    use tokio::sync::oneshot;
+    type Gate = (oneshot::Sender<()>, std::sync::mpsc::Receiver<()>);
+    static GATES: LazyLock<Mutex<HashMap<OsString, Gate>>> =
+        LazyLock::new(|| Mutex::new(HashMap::new()));
+    pub(crate) struct Pause {
+        entered: Option<oneshot::Receiver<()>>,
+        release: Option<std::sync::mpsc::Sender<()>>,
+    }
+    impl Pause {
+        pub(crate) async fn entered(&mut self) {
+            self.entered.take().unwrap().await.unwrap();
+        }
+    }
+    impl Drop for Pause {
+        fn drop(&mut self) {
+            if let Some(release) = self.release.take() {
+                let _ = release.send(());
+            }
+        }
+    }
+    pub(crate) fn pending_count(relay: &CodexHookReportRelay) -> usize {
+        relay.receipts.lock().unwrap().pending.len()
+    }
+    pub(crate) fn hold_next(name: OsString) -> Pause {
+        let (entered_tx, entered) = oneshot::channel();
+        let (release, release_rx) = std::sync::mpsc::channel();
+        assert!(GATES
+            .lock()
+            .unwrap()
+            .insert(name, (entered_tx, release_rx))
+            .is_none());
+        Pause {
+            entered: Some(entered),
+            release: Some(release),
+        }
+    }
+    pub(super) fn before_read(name: &OsStr) {
+        let gate = GATES.lock().unwrap().remove(name);
+        if let Some((entered, release)) = gate {
+            let _ = entered.send(());
+            let _ = release.recv();
+        }
     }
 }

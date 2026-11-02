@@ -18,6 +18,7 @@ pub(crate) struct SessionWrites {
     state: Arc<AppState>,
     store: Arc<SessionStore>,
     workspace: RecommendationDeliveryWorkspace,
+    hook_observations: Arc<metadata::hook_observation::Store>,
     #[cfg(test)]
     before_callback: std::sync::Mutex<Option<oneshot::Sender<()>>>,
     #[cfg(test)]
@@ -42,7 +43,7 @@ impl SessionWrites {
         state: Arc<AppState>,
         store: Arc<SessionStore>,
     ) -> Result<Arc<Self>, StoreError> {
-        let workspace = {
+        let (workspace, hook_observations) = {
             let guard = state.workspace.lock().unwrap();
             let ws = guard.as_ref().ok_or(StoreError::Conflict)?;
             if ws.lease.is_none() {
@@ -52,17 +53,24 @@ impl SessionWrites {
             if root != ws.metadata.root_path() || path != ws.path.to_string_lossy() {
                 return Err(StoreError::Conflict);
             }
-            RecommendationDeliveryWorkspace::capture(ws)
+            (
+                RecommendationDeliveryWorkspace::capture(ws),
+                ws.metadata.hook_observation_owner(),
+            )
         };
         Ok(Arc::new(Self {
             state,
             store,
             workspace,
+            hook_observations,
             #[cfg(test)]
             before_callback: std::sync::Mutex::new(None),
             #[cfg(test)]
             before_hook_lane: std::sync::Mutex::new(None),
         }))
+    }
+    pub(crate) fn native_observation_stamp(&self) -> metadata::hook_observation::Stamp {
+        self.hook_observations.stamp()
     }
     #[cfg(test)]
     pub(crate) fn test_before_callback(&self) -> oneshot::Receiver<()> {

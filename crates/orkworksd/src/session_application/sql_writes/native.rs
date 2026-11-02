@@ -360,3 +360,5 @@ pub(super) mod identity;
 mod mutation;
 
 pub(super) mod label;
+
+mod trust;

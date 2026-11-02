@@ -189,7 +189,14 @@ Its opaque process-local identity epoch changes on binding/reset transitions,
 so equal native values after counter exhaustion cannot revive an old continuation.
 A committed identity changes live resume metadata only after current capability
 and ownership checks; it does not grant native attention proof. Production relay
-routing and trust follow-up qualification remain separate gates. The optional
+routing remains a separate gate. Hook execution observations stay in the existing
+workspace-owned external file. A process-local clear epoch binds original SQL
+report receipt authority and is retained across mailbox retry/cancellation. A
+constant-size overflow epoch bounds untracked receipt authority; after its clear,
+that relay suppresses further observations while still delivering identity. A
+short application claim checks that owner plus runtime/capability identity;
+file I/O retains its workspace lease outside application guards. An external
+failure can follow a committed identity and never implies a SQL rollback. The optional
 SQL native-label follow-up retains the publishing runtime/native context and a
 process-local refresh epoch before lookup. Invalidation, cooldown reservation and
 clear/recreation rotate that epoch independently of its legacy numeric counter.
