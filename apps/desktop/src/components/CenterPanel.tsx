@@ -174,12 +174,13 @@ function CenterPanel({ backendStatus, sessionId, starting, onBackendUnavailable,
       />
       {starting && !ended && (
         <div className="terminal-starting-overlay" role="status" aria-live="polite">
-          Starting session
-          <span className="starting-dots" aria-hidden="true">
-            <span>.</span>
-            <span>.</span>
-            <span>.</span>
-          </span>
+          <div className="terminal-starting-card">
+            <span className="terminal-starting-spinner" aria-hidden="true" />
+            <div className="terminal-starting-copy">
+              <strong>Starting session…</strong>
+              <span>Waiting for your coding tool to be ready.</span>
+            </div>
+          </div>
         </div>
       )}
     </div>

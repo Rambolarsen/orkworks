@@ -569,7 +569,7 @@ test("CenterPanel disables stdin and shows a loading overlay while starting, ins
   const source = readFileSync(new URL("../src/components/CenterPanel.tsx", import.meta.url), "utf8");
   assert.match(source, /computeTerminalInteractivity/);
   assert.match(source, /terminal-starting-overlay/);
-  assert.match(source, /starting-dots/);
+  assert.match(source, /terminal-starting-spinner/);
   assert.match(source, /aria-live="polite"/);
 });
 
