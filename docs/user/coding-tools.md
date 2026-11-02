@@ -121,9 +121,10 @@ failures appear in that tool's status, so check the message before retrying.
 
 In current source builds, open **Skills** in the left sidebar, below
 Recommendations. **Plugins** groups skills beneath their recorded plugin names.
-Select a plugin heading to collapse or expand its skills; the plugin name and
-matching skill count stay visible. Plugin groups start expanded, and each toggles
-independently with a click or Space while its heading has keyboard focus.
+Plugins, Local skills, individual plugin groups and skill rows start collapsed.
+Select a section or plugin heading to expand it; names and matching counts stay
+visible while collapsed. Each toggles independently with a click or Space while
+its heading has keyboard focus. Search and filters remain visible above the groups.
 **Local skills** lists sources without recorded plugin ownership, including local
 files and APM records. Expand a skill name within either group to inspect its
 sources. Sources keep their **Workspace** or **Personal** scope, plugin name,
@@ -166,8 +167,8 @@ unknown. Skills installed outside APM are visible without being modified.
 A long instruction body does not hide a skill with valid bounded metadata;
 reading its full text still has a separate size limit.
 
-The **APM** section shows the executable path, version and whether that version
-supports reviewed installation. Use **Check again** after installing or updating
+Expand **APM configuration** below the skill inventory to see the executable path,
+version and whether that version supports reviewed installation. It starts collapsed. Use **Check again** after installing or updating
 APM separately. If desktop PATH does not find it, enter an absolute **APM executable
 path** and choose **Save path and check**. Saving runs the selected executable as
 your user to check its version. Clear and save the field to restore automatic

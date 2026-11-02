@@ -33,6 +33,13 @@ if (process.env.ORKWORKS_SKILLS_FIXTURE) {
       const search = (value) => evaluate(`(()=>{const el=document.querySelector('input[type="search"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set.call(el,${JSON.stringify(value)});el.dispatchEvent(new Event("input",{bubbles:true}))})()`);
       const filter = (label, value) => evaluate(`(()=>{const el=document.querySelector('select[aria-label="'+${JSON.stringify(label)}+'"]');el.value=${JSON.stringify(value)};el.dispatchEvent(new Event("change",{bubbles:true}))})()`);
       await wait('document.querySelectorAll("[data-skill-source]").length===4');
+      assert.equal(await evaluate('document.querySelectorAll("details[open]").length'), 0, 'all disclosures start collapsed');
+      assert.equal(await evaluate('document.querySelector("[data-apm-settings] input").checkVisibility()'), false);
+      if (process.env.ORKWORKS_SKILLS_CAPTURE) {
+        const { writeFileSync } = await import("node:fs");
+        writeFileSync(process.env.ORKWORKS_SKILLS_CAPTURE + ".initial.png", (await win.webContents.capturePage()).toPNG());
+      }
+      assert.equal(await evaluate('!!(document.querySelector("[data-apm-settings]").compareDocumentPosition(document.querySelector(".skills-group")) & Node.DOCUMENT_POSITION_PRECEDING)'), true, 'APM follows the inventory');
       assert.equal(await evaluate(`document.querySelector('input[aria-label="Changed only"]')?.checked`), false);
       await click('input[aria-label="Changed only"]');
       await wait('document.querySelectorAll("[data-skill-source]").length===0');
@@ -45,12 +52,12 @@ if (process.env.ORKWORKS_SKILLS_FIXTURE) {
       assert.equal(await evaluate('document.querySelectorAll("[data-skill-plugin]").length'), 2);
       assert.equal(await evaluate(`document.querySelector('[data-skill-plugin="alpha@local"] [data-skill-row]').dataset.skillRow`), "review");
       assert.equal(await evaluate(`document.querySelector('[data-skill-plugin="beta@local"] [data-skill-row]').dataset.skillRow`), "build");
+      await click('[data-plugin-skills] > summary');
+      await click('[data-local-skills] > summary');
       const alpha = '[data-skill-plugin="alpha@local"]';
       const beta = '[data-skill-plugin="beta@local"]';
-      assert.equal(await evaluate(`document.querySelector('${alpha}').open`), true, 'plugin groups start expanded');
-      await click(`${alpha} > summary`);
-      assert.equal(await evaluate(`document.querySelector('${alpha}').open`), false);
-      assert.equal(await evaluate(`document.querySelector('${beta}').open`), true, 'other plugins remain expanded');
+      assert.equal(await evaluate(`document.querySelector('${alpha}').open`), false, 'plugins start collapsed');
+      assert.equal(await evaluate(`document.querySelector('${beta}').open`), false, 'other plugins remain collapsed');
       assert.equal(await evaluate(`document.querySelector('${alpha} [data-skill-row]').checkVisibility()`), false);
       assert.match(await evaluate(`document.querySelector('${alpha} > summary').innerText`), /alpha@local.*1 skill/s);
       await evaluate(`document.querySelector('${alpha} > summary').focus()`);
@@ -90,6 +97,10 @@ if (process.env.ORKWORKS_SKILLS_FIXTURE) {
       assert.equal(await evaluate('document.querySelector("[data-skill-content]").checkVisibility()'), false);
       await click(`${alpha} > summary`);
       assert.equal(await evaluate('document.querySelector("[data-skill-content]").checkVisibility()'), true, 'plugin collapse preserves the expanded skill and loaded instructions');
+      await click('[data-plugin-skills] > summary');
+      assert.equal(await evaluate('document.querySelector("[data-skill-content]").checkVisibility()'), false, 'the whole plugin section collapses');
+      await click('[data-plugin-skills] > summary');
+      assert.equal(await evaluate('document.querySelector("[data-skill-content]").checkVisibility()'), true, 'reopening the section preserves instructions');
 
       if (process.env.ORKWORKS_SKILLS_CAPTURE) {
         const { writeFileSync } = await import("node:fs");
@@ -188,6 +199,7 @@ if (process.env.ORKWORKS_SKILLS_FIXTURE) {
       await wait('document.querySelectorAll("[data-skill-source]").length===0');
       await search('owner/package');
       await wait('document.querySelectorAll("[data-skill-source]").length===1');
+      await click('[data-local-skills] > summary');
       await click('[data-local-skills] [data-skill-row] summary');
       await click('[data-skill-source="apm-local"] [data-skill-detail]');
       await wait('document.querySelector("[data-skill-content]").innerText.includes("apm-local")');
@@ -198,6 +210,8 @@ if (process.env.ORKWORKS_SKILLS_FIXTURE) {
       await click('input[aria-label="Changed only"]');
       await wait('document.querySelectorAll("[data-skill-source]").length===8');
 
+      await click('[data-plugin-skills] > summary');
+      await click('[data-skill-plugin="alpha@local"] > summary');
       await click('[data-skill-plugin="alpha@local"] [data-skill-row="apm-skill"] summary');
       assert.match(await evaluate('document.querySelector("[data-skill-source=apm-plugin] [data-apm-integrity]").innerText'), /unavailable.*No recorded SHA-256/s);
       await click('[data-skill-plugin="alpha@local"] [data-skill-row="multi-skill"] summary');
@@ -227,8 +241,10 @@ if (process.env.ORKWORKS_SKILLS_FIXTURE) {
       }
       await evaluate('document.querySelector(".settings-content").scrollTop = 0');
       await wait('document.querySelector("[data-apm-settings]")');
+      await click('[data-apm-settings] > summary');
       assert.match(await evaluate('document.querySelector("[data-apm-settings]").innerText'), /0.33.0/);
       assert.match(await evaluate('document.querySelector("[data-apm-settings]").innerText'), /\/usr\/local\/bin\/apm/);
+      assert.equal(await evaluate('document.querySelector("[data-apm-settings] input").checkVisibility()'), true);
       const apmPath = value => evaluate(`(()=>{const el=document.querySelector('input[aria-label="APM executable path"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set.call(el,${JSON.stringify(value)});el.dispatchEvent(new Event("input",{bubbles:true}))})()`);
       await apmPath('/custom/unsupported-apm');
       await click('[data-save-apm]');
