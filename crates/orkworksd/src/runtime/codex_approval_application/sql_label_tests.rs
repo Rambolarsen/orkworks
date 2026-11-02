@@ -559,3 +559,66 @@ async fn sql_label_busy_publication_retries_without_rewriting_an_identical_title
     clear_token();
     store.close().await.unwrap();
 }
+
+#[tokio::test]
+async fn sql_label_normal_observer_sync_does_not_revoke_a_published_identity_lookup() {
+    let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
+    for (previous, root) in [(None, "root-one"), (Some("root-one"), "root-two")] {
+        let (_dir, state, store, writes, _commands) = fixture(previous).await;
+        if let Some(previous) = previous {
+            crate::codex_session_store::block_native_label_refresh(ID, previous);
+        }
+        assert_eq!(
+            apply(
+                &writes,
+                &state,
+                report(
+                    root,
+                    Some((
+                        if previous.is_some() {
+                            "clear"
+                        } else {
+                            "startup"
+                        },
+                        "SessionStart"
+                    ))
+                )
+            )
+            .await
+            .unwrap(),
+            SqlIdentityOutcome::Accepted(Merge::Accepted)
+        );
+        automatic(&store).await;
+        let generation = state.sessions.lock().unwrap()[ID].runtime.run_generation();
+        let refresh = writes
+            .begin_native_label_refresh(
+                ID.into(),
+                TOKEN.into(),
+                generation,
+                root.into(),
+                Arc::new(AtomicBool::new(false)),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        let observation = writes
+            .begin_native_observation(ID.into(), generation, Arc::new(AtomicBool::new(false)))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(observation.root(), root);
+        assert_eq!(
+            writes
+                .persist_native_label(refresh, "Observed same identity".into())
+                .await
+                .unwrap(),
+            SqlLabelOutcome::Applied
+        );
+        assert_eq!(
+            store.get(ID.into()).await.unwrap().unwrap()["label"],
+            "Observed same identity"
+        );
+        clear_token();
+        store.close().await.unwrap();
+    }
+}

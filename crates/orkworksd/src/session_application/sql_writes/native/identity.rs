@@ -178,6 +178,7 @@ impl SessionWrites {
         };
         let publishing_id = id.clone();
         let automatic_label = record.metadata.label_source.is_automatic();
+        let identity_metadata = record.metadata.clone();
         let resume = record.metadata.resume;
         let published = self
             .native_access(id, None, Some(completion), move |_, h, authority| {
@@ -206,6 +207,9 @@ impl SessionWrites {
                     crate::codex_session_store::accept_native_label_identity(&publishing_id, root);
                 }
                 h.info.resume = resume;
+                if let Some(tracker) = h.runtime.native_approval.as_mut() {
+                    tracker.sync_identity(&identity_metadata);
+                }
                 let refresh = automatic_label
                     .then(|| {
                         super::label::NativeLabelRefresh::capture_after_identity(

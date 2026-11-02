@@ -481,6 +481,8 @@ installed-producer qualification.
 ## Native label refresh persistence
 
 A current private SQL identity publication may schedule automatic-title enrichment.
+Identity publication first synchronizes the tracker’s accepted durable binding, so
+a normal observation of that same root cannot invalidate dependent lookup work.
 Before lookup it captures the exact runtime/control/creation/tracker/native identity
 epoch, capability, cancellation and refresh epoch. The existing five-second
 per-native-ID cooldown and three bounded lookup attempts are preserved. Read-only
