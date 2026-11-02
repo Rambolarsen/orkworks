@@ -98,5 +98,7 @@ definitive and may complete on its original workspace after waiter cancellation;
 its result cannot authorize a replacement workspace. Clear failure is surfaced
 even when hook configuration already committed. This does not imply rollback.
 Other harnesses retain the synchronous prompt-revocation sequencing from the
-application-ownership amendment. Inspection and the legacy JSON observation
-writer retain their existing scheduling and need separate qualification.
+application-ownership amendment. Inspection retains its existing scheduling.
+The separate legacy JSON observation follow-up subsequently adopts the external
+file claim/lease boundary; its compatibility and remaining synchronous identity
+validation are recorded in the [adapter validation record](../validation/session-store-adapter.md#legacy-json-identity-observation-follow-up).

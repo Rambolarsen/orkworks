@@ -1,3 +1,5 @@
+pub(crate) mod hook_observation;
+
 #[path = "branch_documents_application.rs"]
 mod branch_documents_application;
 
@@ -4070,34 +4072,6 @@ impl SessionApplication {
         }
 
         Ok(result)
-    }
-
-    pub(crate) fn record_codex_hook_observation(
-        &self,
-        session_id: &str,
-        fingerprint: &str,
-    ) -> Result<(), SessionError> {
-        if !metadata::valid_hook_fingerprint(fingerprint) {
-            return Err(SessionError::BadRequest("invalid hook fingerprint"));
-        }
-        let workspace = self.state.workspace.lock().unwrap();
-        let workspace = workspace.as_ref().ok_or(SessionError::Conflict)?;
-        let session = workspace
-            .metadata
-            .read_session(session_id)
-            .ok_or(SessionError::NotFound)?;
-        if session.harness != "codex" {
-            return Err(SessionError::BadRequest(
-                "hook fingerprint requires a Codex session",
-            ));
-        }
-        workspace
-            .metadata
-            .write_codex_hook_observation(&metadata::CodexHookObservation {
-                fingerprint: fingerprint.into(),
-                observed_at: iso_now(),
-            });
-        Ok(())
     }
 
     /// Applies one normalized attention signal while holding the workspace
