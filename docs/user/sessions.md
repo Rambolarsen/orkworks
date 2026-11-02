@@ -26,8 +26,9 @@ session**. If the check fails or the tool cannot be found, the composer explains
 the problem and keeps your tool, model, prompt and attachments. Check the tool
 settings or installation, then press **Start session** to retry.
 
-Current source builds can include images when starting a verified Codex version
-(currently Codex 0.163.0 on macOS arm64). Paste a screenshot, drop image files
+Current source builds can include images when starting Codex 0.163.0 or later
+on macOS arm64, provided the installed CLI passes the image-interface check.
+Paste a screenshot, drop image files
 into the composer, or choose **Attach images**. Review the thumbnails and use
 **Remove** before starting. PNG, JPEG, and WebP are supported, up to eight images,
 5 MiB each and 20 MiB total. An image-only start asks the agent to describe them.
