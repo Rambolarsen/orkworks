@@ -77,18 +77,15 @@ GitHub Actions has eight distinct workflow classes:
   before execution; this does not qualify an installed Codex binary or enable
   native startup. [GitHub's runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
   documents the `macos-15` arm64 label.
-- `.github/workflows/main-ci.yml` unconditionally reruns the full desktop and
-  Rust test suites plus the OpenCode session reporter's Node tests and POSIX
-  harness reporter's Bash diagnostics test against `main`, without path
-  filters, on every push to `main`, daily by schedule,
-  and by manual dispatch. This exists because
-  `pr-ci.yml` only triggers on `pull_request` and never re-validates `main`
-  after a merge, so a bad merge — including one that bypasses branch
-  protection as an administrator — could sit undetected until the next pull
-  request; the daily schedule also catches drift such as flaky tests and
-  dependency updates without a code change. The same workflow is callable by
-  the release pipeline with an immutable SHA so validation and packaging cannot
-  drift to different commits.
+- `.github/workflows/main-ci.yml` validates affected desktop and Rust surfaces
+  on pushes to `main`, using the same `.github/ci-paths.yml` dependency filters
+  as PR CI. Push comparisons cover all commits since the pre-push SHA. Docs-only
+  pushes skip both product jobs. Daily and manually dispatched runs always run
+  both full suites, including the OpenCode and POSIX harness reporter tests.
+  Release calls also always run both suites at the supplied immutable SHA,
+  including stable-tag pushes; release validation cannot be cancelled by a
+  main-push run. Main-push validation runs are not cancelled: each push owns
+  its affected-surface comparison, including when a later push changes only docs.
 - `.github/workflows/docs.yml` builds the VitePress documentation site and
   deploys it to GitHub Pages when documentation or generated-fact inputs change
   on `main`, after public release changes, and daily to refresh release data.
@@ -115,6 +112,9 @@ GitHub's native Copilot code review is also enabled as a repository ruleset for
 pull requests targeting `main`. It is not a workflow file, is not a required
 check, and does not replace the manual `/code-review` gate.
 
+PR CI and the macOS listener proof cancel superseded PR runs. The proof
+also cancels superseded main-push runs; its platform coverage is unchanged.
+
 PR CI is path-routed: desktop changes run desktop validation, Rust changes run
 a blocking `cargo fmt --check` gate, Rust tests, and the OpenCode reporter Node
 tests. Changes to Electron knowledge proof/cache/updater/transport modules and
@@ -132,9 +132,13 @@ the documentation site and tests generated-fact filtering. `pr-ci.yml` runs a
 `doc-drift` job on every pull request using the same checks as
 `scripts/doc-check.sh`; this job is informational and cannot block a merge.
 
-The PR workflow also runs the optional local analysis helper's standard-library
-tests on Ubuntu and native Windows (Python 3.9). This checks snapshot/report
-contracts, locks and credential handling; it does not start a SonarQube stack
+The PR workflow runs the optional local analysis helper's standard-library
+tests on Ubuntu and native Windows (Python 3.9) when its scripts or analysis
+configuration change. Review diagnostics run when the review scripts or workflow
+change. The Windows session-app opener tests run when the opener, its tests,
+built-in harness definitions, or Node pin change. Edits to the shared routing
+file or PR workflow run all these helper jobs. The local analysis tests check
+snapshot/report contracts, locks and credential handling; it does not start a SonarQube stack
 or replace the required product checks.
 
 PR CI also exercises the Claude review workflow's inline failure diagnostics

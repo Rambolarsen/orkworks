@@ -1,11 +1,7 @@
 name: Main CI
 
-# Re-runs the full test suites against `main` itself, independent of PR CI.
-# pr-ci.yml only triggers on `pull_request` and path-filters by changed
-# surface — it never re-validates `main` after a merge, and an admin-bypass
-# merge (branch protection allows this today) skips it entirely. This
-# workflow closes that gap: every push to `main`, plus a daily schedule to
-# catch drift with no code change (flaky tests, dependency updates).
+# Validate affected surfaces on main pushes, and both full suites daily,
+# on manual dispatch, and when releases call this workflow at an immutable SHA.
 
 on:
   push:
@@ -26,7 +22,28 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Detect changed surfaces
+    runs-on: ubuntu-latest
+    outputs:
+      desktop_changed: ${{ github.event_name != 'push' || inputs.source_sha != '' || github.event.before == '0000000000000000000000000000000000000000' || steps.filter.outputs.desktop == 'true' }}
+      rust_changed: ${{ github.event_name != 'push' || inputs.source_sha != '' || github.event.before == '0000000000000000000000000000000000000000' || steps.filter.outputs.rust == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+      - id: filter
+        if: github.event_name == 'push' && inputs.source_sha == '' && github.event.before != '0000000000000000000000000000000000000000'
+        uses: dorny/paths-filter@v3
+        with:
+          # Compare immutable event SHAs, including every commit in the push.
+          base: ${{ github.event.before }}
+          ref: ${{ github.sha }}
+          filters: .github/ci-paths.yml
+
   desktop:
+    needs: changes
+    if: needs.changes.outputs.desktop_changed == 'true'
     name: Desktop
     runs-on: ubuntu-latest
     steps:
@@ -65,6 +82,8 @@ jobs:
         run: pnpm build
 
   rust:
+    needs: changes
+    if: needs.changes.outputs.rust_changed == 'true'
     name: Rust
     runs-on: ubuntu-latest
     timeout-minutes: 10
