@@ -1231,7 +1231,7 @@ mod tests {
     }
 
     #[test]
-    fn opencode_launch_and_resume_share_one_definition() {
+    fn opencode_launch_and_resume_keep_reporting_in_a_private_server() {
         let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
         let registry = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
         let harness = registry.get("opencode").unwrap();
@@ -1248,9 +1248,20 @@ mod tests {
             .unwrap();
 
         assert_eq!(launch.program, "opencode");
-        assert_eq!(launch.args, ["--model", "ollama/qwen3"]);
+        assert_eq!(launch.args, ["--standalone", "--model", "ollama/qwen3"]);
         assert_eq!(resume.program, "opencode");
-        assert_eq!(resume.args, ["--session", "ses_1"]);
+        assert_eq!(resume.args, ["--standalone", "--session", "ses_1"]);
+        assert_eq!(launch.cwd, "/repo");
+        assert_eq!(resume.cwd, "/repo");
+        for strategy in [
+            crate::harness::ResumeStrategy::LatestCwd,
+            crate::harness::ResumeStrategy::LatestRepo,
+        ] {
+            let fallback = harness
+                .build_resume(strategy, "/repo/subdir", None, Some("/repo"), None)
+                .unwrap();
+            assert_eq!(fallback.args, ["--standalone", "--continue"]);
+        }
         assert!(harness
             .effective_capabilities
             .contains(&CapabilityName::Attention));
@@ -1439,10 +1450,7 @@ mod tests {
         let opencode = registry.get("opencode").unwrap();
         let claude = registry.get("claude-code").unwrap();
 
-        assert_eq!(
-            opencode.build_launch("/repo", None).args,
-            Vec::<String>::new()
-        );
+        assert_eq!(opencode.build_launch("/repo", None).args, ["--standalone"]);
         assert_eq!(
             claude.capacity_patterns(),
             ["you've hit your session limit"]
