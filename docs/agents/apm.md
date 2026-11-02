@@ -43,7 +43,13 @@ discovery; an unavailable override never falls back silently. Saving checks the
 selected executable as the current user. Changing selection invalidates pending
 installation reviews, including during native confirmation. Local discovery is
 available without APM. Reviewed installation remains limited to local standalone
-skills targeting Codex through APM 0.33.0; OrkWorks does not install or upgrade APM.
+skills targeting Codex when APM exposes the required install options; OrkWorks does not install or upgrade APM.
+Status and preview share capability discovery; version is informational. Missing
+install options or probe failures disable reviewed adds with a specific reason.
+The daily/manual [APM compatibility workflow](../../.github/workflows/apm-compatibility.yml)
+and relevant PRs exercise the latest stable source CLI with disposable fixtures.
+See [ADR 0105](../adr/0105-apm-capability-compatibility.md) for the accepted
+tradeoff: help advertises capabilities; it cannot prove future CLI semantics.
 
 ## Superpowers
 

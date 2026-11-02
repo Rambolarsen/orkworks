@@ -403,7 +403,7 @@ export default function SkillsSettings({
           </div>
           <p>
             Initial install support: local single-skill directories for Codex
-            through APM 0.33. Other sources show a terminal command when a
+            through APM with the required install options. Other sources show a terminal command when a
             complete review is unavailable.
           </p>
           {preview && (
@@ -512,7 +512,7 @@ export default function SkillsSettings({
           </label>
           <p className="skills-group-caption">Optional absolute path. Leave empty to use desktop PATH. Saving checks the selected executable, which runs as your user.</p>
           <button data-save-apm className="ui-button ui-button--md ui-button--secondary" disabled={busy || !inventory || apmPath === (inventory.apm?.executableOverride || "")} onClick={() => void saveApm()}>Save path and check</button>
-          <p className="skills-group-caption">Reviewed installs support local standalone skills for Codex through APM 0.33.0. Install or update APM separately. Skill browsing works without APM.</p>
+          <p className="skills-group-caption">Reviewed installs support local standalone skills for Codex when APM provides the required install options. Install or update APM separately. Skill browsing works without APM.</p>
         </div>
       </details>
       {inventory && (

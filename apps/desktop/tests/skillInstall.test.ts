@@ -15,7 +15,7 @@ import {
   SkillInstaller,
   skillProcessEnvironment,
 } from "../electron/skillInstall.ts";
-async function fixture(t: any) {
+async function fixture(t: any, help = "  --target TEXT\n  --only [apm|mcp]\n  --dry-run\n  --global\n  --trust-bin / --no-trust-bin\n") {
   const root = await realpath(await mkdtemp(join(tmpdir(), "orkworks-add-")));
   t.after(() => rm(root, { recursive: true, force: true }));
   const home = join(root, "home"),
@@ -51,8 +51,9 @@ async function fixture(t: any) {
       operations.push({ args, cwd });
       if (args[0] === "--version") {
         if (changeOnVersion) revision++;
-        return "Agent Package Manager (APM) CLI version 0.33.0 (18c4c43)";
+        return "Agent Package Manager (APM) CLI version 0.35.0 (fixture)";
       }
+      if (args[0] === "install" && args[1] === "--help") return help;
       if (args.includes("--dry-run")) {
         assert.notEqual(cwd, workspace);
         assert.notEqual(cwd, home);
@@ -293,7 +294,7 @@ test("changing APM selection during native confirmation prevents deployment", as
   f.changeSelectionDuringConfirmation();
   assert.equal((await f.installer.install(review.id)).ok, false);
   assert.equal(f.count(), 1);
-  assert.equal(f.operations.filter(op => op.args[0] === "install" && !op.args.includes("--dry-run")).length, 0);
+  assert.equal(f.operations.filter(op => op.args[0] === "install" && !op.args.includes("--dry-run") && !op.args.includes("--help")).length, 0);
   await assert.rejects(readFile(join(f.home, ".agents/skills/example/SKILL.md")));
 });
 
@@ -315,4 +316,13 @@ test("a changed executable resolution invalidates the review even with unchanged
   assert.equal((await f.installer.install(review.id)).ok, false);
   assert.equal(f.count(), 0);
   await assert.rejects(readFile(join(f.home, ".agents/skills/example/SKILL.md")));
+});
+
+test("missing install capabilities block preview before dry-run or confirmation", async t => {
+  const f = await fixture(t, "  --target TEXT\n  --only [apm|mcp]\n  --dry-run\n  --global\n");
+  const preview = await f.installer.preview({ scope: "workspace", source: f.source, target: "codex" });
+  assert.equal(preview.available, false);
+  assert.match(preview.reason || "", /--no-trust-bin/);
+  assert.equal(f.operations.some(op => op.args.includes("--dry-run")), false);
+  assert.equal(f.count(), 0);
 });

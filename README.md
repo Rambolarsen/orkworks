@@ -341,8 +341,10 @@ remote or broader packages show an explained terminal fallback. See the
 that published installers already include the feature.
 
 Plugins, Local skills and their groups start collapsed. Below the inventory,
-expand **APM configuration** to see APM's resolved executable, version and installation
-compatibility. An optional executable-path override handles desktop PATH differences;
+expand **APM configuration** to see APM's resolved executable, version and install
+compatibility based on the required options, without an exact-version allowlist.
+Automated fixtures check the latest stable APM release daily.
+An optional executable-path override handles desktop PATH differences;
 clearing it restores automatic detection. APM is installed and upgraded separately.
 
 ## Repo skills

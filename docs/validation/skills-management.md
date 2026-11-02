@@ -113,14 +113,15 @@ observations of SKILL.md, not companion-resource verification, package
 reputation/authenticity, or proof of a manual edit. No files are repaired or
 installed and no session is restarted.
 
-## Initial APM profile
+## Historical initial APM profile
 
 Qualified source: APM 0.33.0, upstream commit
 `18c4c43c924ceae890fe0f2038806690e5b2d6c8`.
 Installed macOS arm64 executable SHA-256:
 `657dd56be64e50b0b89c6cfa9f02d9a0ffcce8af6682d2f66810c2711b36222a`.
-The runtime admits version 0.33.0; a version match is compatibility evidence,
-not executable authenticity or a sandbox guarantee.
+The initial runtime admitted version 0.33.0. This historical version gate is
+replaced by capability discovery below; neither gate authenticates an executable
+or provides a sandbox guarantee.
 
 Workspace fixture: installed binary, absolute local directory containing only
 SKILL.md, `--target codex --only apm --no-trust-bin`. Exit 0; actual skill bytes
@@ -162,9 +163,9 @@ an exact personal file diff.
 Admitted sources are canonical local standalone skills with a small known
 resource layout. Existing manifests must target Codex only and declare only
 other validated absolute local standalone skills, without lifecycle, service,
-custom include or development dependencies. Broader/remote/mixed packages, Windows
-installs and other APM versions remain unavailable in the UI with an explained
-terminal fallback. No force, trust, compile, upgrade or session restart occurs.
+custom include or development dependencies. Broader/remote/mixed packages and Windows installs remain unavailable in the UI
+with an explained terminal fallback. APM admission now follows capabilities as
+described below. No force, trust, compile, upgrade or session restart occurs.
 
 The installer is not atomic or a confinement boundary. It runs as the user;
 external edits/processes can race filesystem checks. Failures may leave partial
@@ -188,3 +189,42 @@ settings persistence. Installer fixtures check that selection changes invalidate
 reviews. The Electron UI fixture exercises status, saving/resetting an override,
 incompatible-version Add disabling and 360/700/1000px layout. This is source and
 fixture evidence, not published-installer availability.
+
+## Capability compatibility and automated behavioral checks
+
+Owner approved capability admission in place of the exact-version allowlist on
+2026-11-02 ([ADR 0105](../adr/0105-apm-capability-compatibility.md),
+[#1300](https://github.com/Rambolarsen/orkworks/issues/1300)). Status and preview
+share bounded version/help probes; version is informational. Required install
+options are --target, --only, --dry-run, --no-trust-bin and --global. Missing
+options and failed probes disable reviewed adds with explicit messages. Existing
+operation and platform restrictions remain. Help discovery is not behavioral
+qualification, executable authenticity or confinement.
+
+Local macOS arm64 evidence, 2026-11-02: installed APM 0.35.0 (`17a2fc4`) passed
+the actual Electron installer service fixture with two sequential local skill
+adds, native-confirmation callback, private previews, an existing manifest and
+preserved unmanaged file. No developer workspace or personal skill tree changed.
+Review identified that APM also writes user-level lock/receipt metadata for
+workspace operations; the unmodified executable fixture is now CI-only. Local
+qualification uses the isolated source fixture below.
+
+The real source CLI at commit `17a2fc4dfff238c7d93e55cce6ef42ffa1db928e`
+passed workspace and personal fixtures, fresh and existing manifests, exact
+deployed instruction bytes, preserved prior skill/unmanaged file, private
+preview destination checks, and no other target hooks/configuration. Each CLI
+invocation uses a fresh interpreter and process-local Path.home and os.path.expanduser resolvers under
+a temporary directory; HOME is not reassigned. Lifecycle is disabled only in the
+fixture. This is source-level personal evidence, not installed-binary personal
+qualification. All inherited APM configuration/cache overrides are cleared in the fixture.
+Repeated CliRunner calls in one process retained upstream state;
+fresh processes match production and passed.
+
+The [APM compatibility workflow](../../.github/workflows/apm-compatibility.yml)
+resolves the latest stable release and records its tag/commit, runs these source
+fixtures and the desktop service integration fixture on Linux and macOS daily,
+on manual dispatch and on relevant PRs. Runs use read-only repository permission
+and persist no checkout credentials. CI failures surface behavioral regressions;
+they do not change policy in running apps. The fixtures do not establish every
+possible package/profile or every future release's behavior. No Windows support
+or automatic APM upgrades are added.

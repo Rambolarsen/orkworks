@@ -265,3 +265,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Final Copilot practical check and handoff](2026-11-02-copilot-practical-closeout.md) — One bounded native-history batch followed by final #740 classification.
 
 - [Role configuration core review and handoff](2026-11-02-role-configuration-core-handoff.md) — Review existing component choices without new probes or runtime work.
+
+- [APM capability compatibility](2026-11-02-apm-capabilities.md) — Approved compatibility probe and automated behavior checks.
