@@ -484,3 +484,14 @@ pub(crate) fn render_instruction_bundle(
     let sha256 = sha256(&text);
     Ok(RenderedInstructionBundle { text, sha256 })
 }
+
+#[cfg(test)]
+mod arithmetic_tests {
+    use super::checked_total;
+    #[test]
+    fn role_instructions_checked_lengths_reject_overflow_without_allocating() {
+        assert_eq!(checked_total(262143, 1, 262144).unwrap(), 262144);
+        assert!(checked_total(262144, 1, 262144).is_err());
+        assert!(checked_total(usize::MAX, 1, usize::MAX).is_err());
+    }
+}

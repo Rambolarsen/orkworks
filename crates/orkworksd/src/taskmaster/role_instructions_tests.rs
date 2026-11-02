@@ -328,3 +328,162 @@ fn role_instructions_meaningful_order_and_exact_content_change_hash() {
         render_instruction_bundle(&input).unwrap().sha256()
     );
 }
+
+#[test]
+fn role_instructions_collection_limits_are_inclusive() {
+    let mut x = empty();
+    x.skills = (0..16)
+        .map(|i| skill(&format!("s{i}"), SkillRequirement::Optional))
+        .collect();
+    assert!(render_instruction_bundle(&x).is_ok());
+    x.skills.push(skill("overflow", SkillRequirement::Optional));
+    rejects(&x, "collection limit");
+    let mut x = empty();
+    for i in 0..32 {
+        add_rule(&mut x, &format!("r{i}"));
+    }
+    assert!(render_instruction_bundle(&x).is_ok());
+    add_rule(&mut x, "overflow");
+    rejects(&x, "collection limit");
+    let mut x = empty();
+    for i in 0..32 {
+        add_rule(&mut x, &format!("r{i}"));
+    }
+    x.requirements.push(x.requirements[0].clone());
+    rejects(&x, "collection limit");
+    let mut x = empty();
+    x.skills.push(skill("owner", SkillRequirement::Optional));
+    for i in 0..32 {
+        let id = format!("res{i}");
+        x.skills[0].resource_ids.push(id.clone());
+        x.resources.push(ResourceInstruction {
+            id,
+            skill_id: "owner".into(),
+            content: "R".into(),
+            content_digest: hash("R"),
+        });
+    }
+    assert!(render_instruction_bundle(&x).is_ok());
+    x.skills[0].resource_ids.push("extra".into());
+    rejects(&x, "resource ids");
+    x.skills[0].resource_ids.pop();
+    x.resources.push(ResourceInstruction {
+        id: "extra".into(),
+        skill_id: "owner".into(),
+        content: "R".into(),
+        content_digest: hash("R"),
+    });
+    rejects(&x, "collection limit");
+    let mut x = populated();
+    for i in 0..32 {
+        x.resources.push(ResourceInstruction {
+            id: format!("extra{i}"),
+            skill_id: "required".into(),
+            content: "R".into(),
+            content_digest: hash("R"),
+        });
+    }
+    rejects(&x, "collection limit");
+}
+#[test]
+fn role_instructions_manifest_and_source_set_limits_are_inclusive() {
+    let mut x = empty();
+    x.skills = (0..16)
+        .map(|i| {
+            let mut s = skill(&format!("s{i}"), SkillRequirement::Mandatory);
+            s.requirement_source_ids = vec!["review".into()];
+            s
+        })
+        .collect();
+    x.requirements[0].required_skill_ids = x.skills.iter().map(|s| s.id.clone()).collect();
+    assert!(render_instruction_bundle(&x).is_ok());
+    x.requirements[0].required_skill_ids.push("extra".into());
+    rejects(&x, "required skill ids");
+    let mut x = populated();
+    x.resources.clear();
+    x.skills[0].resource_ids.clear();
+    for i in 0..30 {
+        add_rule(&mut x, &format!("r{i}"));
+    }
+    for r in &mut x.requirements {
+        r.required_skill_ids = vec!["required".into()];
+    }
+    x.skills[0].requirement_source_ids =
+        x.requirements.iter().map(|r| r.source_id.clone()).collect();
+    assert_eq!(x.skills[0].requirement_source_ids.len(), 32);
+    assert!(render_instruction_bundle(&x).is_ok());
+    add_rule(&mut x, "last");
+    x.requirements.last_mut().unwrap().required_skill_ids = vec!["required".into()];
+    x.skills[0].requirement_source_ids.push("last".into());
+    rejects(&x, "requirement sources");
+}
+#[test]
+fn role_instructions_metadata_limits_count_utf8_bytes() {
+    let mut x = empty();
+    x.task_id = "x".repeat(128);
+    x.requirements[0].task_id = x.task_id.clone();
+    assert!(render_instruction_bundle(&x).is_ok());
+    x.task_id.push('x');
+    rejects(&x, "id");
+    let mut x = populated();
+    x.rules[0].source_path = "é".repeat(1024);
+    assert!(render_instruction_bundle(&x).is_ok());
+    x.rules[0].source_path.push('x');
+    rejects(&x, "rule path");
+    let mut x = empty();
+    x.requirements[0].applicability_reason = "é".repeat(1024);
+    assert!(render_instruction_bundle(&x).is_ok());
+    x.requirements[0].applicability_reason.push('x');
+    rejects(&x, "applicability reason");
+    let mut x = empty();
+    x.requirements[0].source_locations = (0..32)
+        .map(|i| format!("{i:02}{}", "é".repeat(255)))
+        .collect();
+    assert!(render_instruction_bundle(&x).is_ok());
+    x.requirements[0].source_locations.push("extra".into());
+    rejects(&x, "source locations");
+    x.requirements[0].source_locations.pop();
+    x.requirements[0].source_locations[0].push('x');
+    rejects(&x, "source locations");
+}
+#[test]
+fn role_instructions_blocker_limits_are_bounded_before_rejection() {
+    let mut x = empty();
+    x.reported_unresolved_source_ids = (0..16).map(|i| format!("s{i}")).collect();
+    rejects(&x, "reported unresolved source");
+    x.reported_unresolved_source_ids.push("extra".into());
+    rejects(&x, "blocker references");
+    let mut x = empty();
+    x.reported_conflicts = (0..8)
+        .map(|i| InstructionConflict {
+            source_ids: ["a".into(), "b".into()],
+            explanation: "x".repeat(if i == 7 { 2032 } else { 2048 }),
+        })
+        .collect();
+    rejects(&x, "reported conflict");
+    x.reported_conflicts[7].explanation.push('x');
+    rejects(&x, "byte limit");
+    let mut x = empty();
+    x.reported_conflicts.push(InstructionConflict {
+        source_ids: ["a".into(), "b".into()],
+        explanation: "x".repeat(2049),
+    });
+    rejects(&x, "conflict reason");
+}
+#[test]
+fn role_instructions_exact_rendered_limit_includes_framing_and_utf8() {
+    let mut x = empty();
+    x.coordination_text.clear();
+    x.role.instructions.clear();
+    x.role.instructions_digest = hash("");
+    // Independently counted from the documented three-frame grammar using Python.
+    x.assignment_text = "é".repeat(261699 / 2);
+    if 261699 % 2 != 0 {
+        x.assignment_text.push('x');
+    }
+    assert_eq!(render_instruction_bundle(&x).unwrap().text().len(), 262144);
+    x.assignment_text.push('x');
+    rejects(&x, "byte limit");
+    x.assignment_text = "x".repeat(262145);
+    rejects(&x, "content bytes");
+}
