@@ -499,6 +499,9 @@ if (process.versions.electron) {
         assert.equal(await evaluate('document.querySelector(".readiness-history-controls").hidden'), false);
         assert.deepEqual(await evaluate('fixture.assessmentCalls'), [], 'reports and history only read saved results');
         await evaluate('[...document.querySelectorAll("button")].find(b=>b.textContent==="View report").click()');
+        await evaluate('[...document.querySelectorAll("button")].find(b=>b.textContent==="History").click()');
+        assert.equal(await evaluate('getComputedStyle(document.querySelector(".readiness-history-controls")).display'), 'flex', 'History reopens after the report was collapsed');
+        await evaluate('[...document.querySelectorAll("button")].find(b=>b.textContent==="View report").click()');
         await evaluate('document.querySelector(".recommendation-menu--primary summary").click()');
         await evaluate('document.querySelector(".recommendation-menu--primary button").focus()');
         await win.webContents.sendInputEvent({type:'keyDown',keyCode:'Escape'});

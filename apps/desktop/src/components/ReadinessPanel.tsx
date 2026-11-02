@@ -64,6 +64,7 @@ export default function ReadinessPanel({ workspacePath, enabled = true, disabled
     setBaselineId(null);
     setError(undefined);
     setMessage(undefined);
+    setRequesting(false);
     setReportOpen(false);
     setHistoryOpen(false);
     if (!enabled) return;
@@ -156,7 +157,7 @@ export default function ReadinessPanel({ workspacePath, enabled = true, disabled
       </div>
       {selected && <div className="readiness-overview-actions">
         <button type="button" aria-expanded={reportOpen} aria-controls="readiness-report" onClick={() => setReportOpen(!reportOpen)}>View report</button>
-        <button type="button" aria-expanded={historyOpen && reportOpen} aria-controls="readiness-report" onClick={() => { setReportOpen(true); setHistoryOpen(!historyOpen); }}>History</button>
+        <button type="button" aria-expanded={historyOpen && reportOpen} aria-controls="readiness-report" onClick={() => { setReportOpen(true); setHistoryOpen(!(historyOpen && reportOpen)); }}>History</button>
       </div>}
     </div>
     {suggestion && <p role="status">{readinessSuggestionMessage(suggestion)}</p>}

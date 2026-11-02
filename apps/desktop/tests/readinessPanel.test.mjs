@@ -166,6 +166,11 @@ test('the compact overview opens its saved report and comparison history without
  select.props.onChange({ target: { value: 'older' } });
  assert.equal(view.summary().id, 'older');
  assert.equal(view.summary().data.overallScore, 50);
+ nodes(view.render()).find(node => node.type === 'button' && node.props.children === 'View report').props.onClick();
+ assert.equal(report().props.hidden, true);
+ nodes(view.render()).find(node => node.type === 'button' && node.props.children === 'History').props.onClick();
+ assert.equal(report().props.hidden, false);
+ assert.equal(history().props.hidden, false, 'History opens on the first click even after the report was collapsed');
 });
 
 test('the owner can place readiness actions in its toolbar without changing their privileged routing', async t => {
@@ -180,4 +185,20 @@ test('the owner can place readiness actions in its toolbar without changing thei
  await view.settle();
  assert.equal(combined, 1);
  assert.equal(score, 0);
+});
+
+test('disabling readiness during a pending request does not leave controls stuck after cancellation', async t => {
+ const props = { enabled: true };
+ const view = await fixture(t, status(), props);
+ const pending = deferred();
+ window.orkworks.requestReadinessSuggestion = () => pending.promise;
+ const primary = () => nodes(view.render()).find(node => node.type === 'button' && node.props.className === 'recommendation-primary');
+ primary().props.onClick();
+ assert.equal(primary().props.disabled, true);
+ props.enabled = false; view.render(); await view.settle();
+ props.enabled = true; view.queue.push(Promise.resolve(status())); view.render(); await view.settle();
+ assert.equal(primary().props.disabled, false, 'Cancelling workspace selection must reenable readiness');
+ pending.resolve({ outcome: 'scheduled', runId: 'old-workspace-attempt' }); await view.settle();
+ assert.doesNotMatch(displayedText(view.render()), /Assessment and suggestion requested/);
+ assert.equal(primary().props.disabled, false);
 });
