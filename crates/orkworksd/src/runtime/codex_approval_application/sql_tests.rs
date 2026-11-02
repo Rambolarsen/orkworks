@@ -6,6 +6,39 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 pub(crate) const ID: &str = "native-sql";
 pub(super) const CREATED: &str = "2026-01-01T00:00:00Z";
+
+// These contracts assert an otherwise uncontended transition. Other tests use
+// the same process-global mutex, including ordinary JSON attention writers.
+// Run the real case in a fresh process instead of changing native try-locks or
+// accepting a contention result where this case requires an exact outcome.
+async fn isolated_case(case: &str) -> bool {
+    const CHILD: &str = "ORKWORKS_NATIVE_SQL_TEST_CASE";
+    let module = module_path!().split_once("::").unwrap().1;
+    let test = format!("{module}::{case}");
+    let marker = format!("isolated native SQL case: {test}");
+    if std::env::var(CHILD).as_deref() == Ok(test.as_str()) {
+        println!("{marker}");
+        return false;
+    }
+    let output = tokio::time::timeout(
+        Duration::from_secs(30),
+        tokio::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", &test, "--nocapture"])
+            .env(CHILD, &test)
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    .unwrap_or_else(|error| panic!("{test}: isolated case timed out: {error}"))
+    .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success() && stdout.contains(&marker),
+        "{test}: isolated case did not pass\n{stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    true
+}
 pub(crate) type Fixture = (
     tempfile::TempDir,
     Arc<AppState>,
@@ -125,6 +158,9 @@ fn clear(state: &Arc<AppState>) -> IssuedEffect {
 
 #[tokio::test]
 async fn native_sql_commits_before_live_acknowledgement_and_uses_owned_clear() {
+    if isolated_case("native_sql_commits_before_live_acknowledgement_and_uses_owned_clear").await {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (_dir, state, store, writes, effect, _commands) = fixture().await;
     assert_eq!(
@@ -174,6 +210,9 @@ async fn native_sql_commits_before_live_acknowledgement_and_uses_owned_clear() {
 }
 #[tokio::test]
 async fn native_sql_commit_cannot_acknowledge_a_replacement_runtime() {
+    if isolated_case("native_sql_commit_cannot_acknowledge_a_replacement_runtime").await {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (_dir, state, store, writes, effect, _commands) = fixture().await;
     let mut held = test_worker::hold_next_internal(&store, ID);
@@ -201,6 +240,9 @@ async fn native_sql_commit_cannot_acknowledge_a_replacement_runtime() {
 // Losing any captured authority must reject before the real worker executes.
 #[tokio::test]
 async fn native_sql_queued_effect_rechecks_every_runtime_boundary() {
+    if isolated_case("native_sql_queued_effect_rechecks_every_runtime_boundary").await {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     for change in [
         "input",
@@ -234,8 +276,8 @@ async fn native_sql_queued_effect_rechecks_every_runtime_boundary() {
         let writer = tokio::spawn(async move { writes.native(ID.into(), effect, flag).await });
         tokio::time::timeout(Duration::from_secs(5), captured)
             .await
-            .unwrap()
-            .unwrap();
+            .unwrap_or_else(|error| panic!("{change}: capture timed out: {error}"))
+            .unwrap_or_else(|error| panic!("{change}: capture was not reached: {error}"));
         {
             let mut sessions = state.sessions.lock().unwrap();
             let h = sessions.get_mut(ID).unwrap();
@@ -272,9 +314,10 @@ async fn native_sql_queued_effect_rechecks_every_runtime_boundary() {
         }
         drop(lane);
         drop(reservation);
+        let outcome = writer.await.unwrap();
         assert!(
-            matches!(writer.await.unwrap(), Err(StoreError::Conflict)),
-            "{change}"
+            matches!(outcome, Err(StoreError::Conflict)),
+            "{change}: {outcome:?}"
         );
         let doc = store.get(ID.into()).await.unwrap().unwrap();
         assert_eq!(doc["metadataRevision"], "1", "{change}");
@@ -284,6 +327,9 @@ async fn native_sql_queued_effect_rechecks_every_runtime_boundary() {
 }
 #[tokio::test]
 async fn native_sql_queued_caller_cancellation_never_writes() {
+    if isolated_case("native_sql_queued_caller_cancellation_never_writes").await {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (_dir, _state, store, writes, effect, _commands) = fixture().await;
     let reservation = store
@@ -315,6 +361,11 @@ async fn native_sql_queued_caller_cancellation_never_writes() {
 }
 #[tokio::test]
 async fn native_sql_executing_caller_cancellation_retains_commit_and_acknowledgement() {
+    if isolated_case("native_sql_executing_caller_cancellation_retains_commit_and_acknowledgement")
+        .await
+    {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (_dir, state, store, writes, effect, _commands) = fixture().await;
     let mut held = test_worker::hold_next_internal(&store, ID);
@@ -348,6 +399,9 @@ async fn native_sql_executing_caller_cancellation_retains_commit_and_acknowledge
 }
 #[tokio::test]
 async fn native_sql_intervening_durable_revision_change_is_a_conflict() {
+    if isolated_case("native_sql_intervening_durable_revision_change_is_a_conflict").await {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (_dir, state, store, writes, effect, _commands) = fixture().await;
     let reservation = store
@@ -394,6 +448,9 @@ async fn native_sql_intervening_durable_revision_change_is_a_conflict() {
 
 #[tokio::test]
 async fn native_sql_expired_clear_never_publishes_or_consumes_ownership() {
+    if isolated_case("native_sql_expired_clear_never_publishes_or_consumes_ownership").await {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (_dir, state, store, writes, effect, _commands) = fixture().await;
     writes
@@ -438,6 +495,9 @@ async fn native_sql_expired_clear_never_publishes_or_consumes_ownership() {
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn native_sql_stall_leaves_actual_pty_input_delivery_available() {
+    if isolated_case("native_sql_stall_leaves_actual_pty_input_delivery_available").await {
+        return;
+    }
     use crate::runtime::session_runtime::RuntimeCommand;
     use std::io::{Read, Write};
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
@@ -531,6 +591,9 @@ async fn native_sql_stall_leaves_actual_pty_input_delivery_available() {
 
 #[tokio::test]
 async fn native_sql_refuses_an_issued_effect_carried_into_a_new_runtime() {
+    if isolated_case("native_sql_refuses_an_issued_effect_carried_into_a_new_runtime").await {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (_dir, state, store, writes, effect, _commands) = fixture().await;
     {
@@ -554,6 +617,9 @@ async fn native_sql_refuses_an_issued_effect_carried_into_a_new_runtime() {
 }
 #[tokio::test]
 async fn native_sql_refuses_an_effect_with_already_superseded_live_revision() {
+    if isolated_case("native_sql_refuses_an_effect_with_already_superseded_live_revision").await {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (_dir, state, store, writes, effect, _commands) = fixture().await;
     {
@@ -578,6 +644,11 @@ async fn native_sql_refuses_an_effect_with_already_superseded_live_revision() {
 
 #[tokio::test]
 async fn native_sql_transition_contention_rejects_execution_or_detaches_publication() {
+    if isolated_case("native_sql_transition_contention_rejects_execution_or_detaches_publication")
+        .await
+    {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     for publication in [false, true] {
         let (_dir, state, store, writes, effect, _commands) = fixture().await;
@@ -639,6 +710,11 @@ async fn native_sql_transition_contention_rejects_execution_or_detaches_publicat
 
 #[tokio::test]
 async fn native_sql_effect_from_replaced_issuing_tracker_is_rejected_before_capture() {
+    if isolated_case("native_sql_effect_from_replaced_issuing_tracker_is_rejected_before_capture")
+        .await
+    {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (_dir, state, store, writes, effect, _commands) = fixture().await;
     let raw = effect.effect;
@@ -721,6 +797,11 @@ async fn native_sql_effect_from_replaced_issuing_tracker_is_rejected_before_capt
 
 #[tokio::test]
 async fn native_sql_old_clear_cannot_borrow_a_reissued_effects_fresh_observation() {
+    if isolated_case("native_sql_old_clear_cannot_borrow_a_reissued_effects_fresh_observation")
+        .await
+    {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (_dir, state, store, writes, shown, _commands) = fixture().await;
     writes
