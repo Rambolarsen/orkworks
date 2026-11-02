@@ -4,7 +4,7 @@ title: Qualify selective Rust CodeQL scanning
 description: Bounded implementation, comparison and reversible activation of the proposed CodeQL routing design.
 tags: [ci, codeql, security, implementation]
 status: draft
-workflow_status: awaiting-owner-approval
+workflow_status: implementing
 ---
 
 # Qualify selective Rust CodeQL scanning
@@ -18,7 +18,8 @@ full Rust security analysis and the other four language jobs. The
 
 Owner approval of the new security design precedes dependent implementation.
 The owning session implements serially; no parallel writers or new harnesses.
-Current authorization covers investigation and this proposed design only.
+The owner approved the concrete design on 2026-11-02 ("yes, go ahead"); this
+authorizes implementation and the qualified cutover/rollback described there.
 Implement through an owned worktree and PR, with the normal review and merge gates.
 Do not activate live settings until staged qualification passes.
 
@@ -84,9 +85,29 @@ review-ready plan.
 
 ## Plan review
 
-Disposition: Ready for owner design approval. One fresh read-only builder check
+Disposition: Approved for implementation. One fresh read-only builder check
 found no important unanswered planning questions. The owning review confirmed
-that each security boundary has a delivery check. Ready means ready for owner
-design approval, not
-permission to implement or proof that a live cutover is safe. Review this plan
+that each security boundary has a delivery check. Design approval does not establish qualification or prove that a live cutover is safe. Review this plan
 once; revisit only material changes to scope, risks or acceptance criteria.
+
+## Execution evidence
+
+- Owner design approval recorded in conversation: 2026-11-02, "yes, go ahead".
+- Preflight: staged routing outputs feed the fixed-language analysis matrix;
+  activation consumes successful staged evidence. No conflicting interfaces found.
+- Routing tests failed against empty exports before implementation; five routing,
+  real-Git cumulative diff/rename, embedded-input and publication checks now pass.
+  Forty documentation tooling tests pass; workflow linting passes.
+- Current default configuration and category analyses captured under the owning
+  session's `/tmp/orkworks-codeql-qualification/`; the publication variable is absent.
+- Full local repository verification stops at the existing Node 26/required Node 22
+  prerequisite; hosted checks use their configured versions.
+- Rollout ruling: the non-publishing workflow may merge while default setup remains
+  active, after its staged PR run passes. This makes full main and manual repeated
+  qualification possible. A subsequent documentation/evidence PR can prove a real
+  unrelated-change skip before activation. This is staged delivery of this same
+  approved task; publisher cutover still requires all qualification checks.
+- Fresh implementation review found canonical database aliases (`cpp`,
+  `javascript`) differ from matrix language names. Fixed evidence capture to
+  consume CodeQL's `db-locations` output. The actual workflow shell step failed
+  against alias fixtures before the correction and passes afterward.

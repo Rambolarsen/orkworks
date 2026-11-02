@@ -111,6 +111,15 @@ GitHub Actions has eight distinct workflow classes:
   documentation-only changes, is informational rather than a required check,
   cannot block a merge, and does not replace the manual `/code-review` gate.
 
+The owned `.github/workflows/codeql.yml` is initially staged with publication
+controlled by the repository variable `CODEQL_ADVANCED_UPLOAD`. An absent or
+non-`true` value prevents SARIF and database publication. Managed default setup
+remains the publisher until the approved qualification and cutover in the
+[CodeQL design](../superpowers/specs/2026-11-02-codeql-scan-routing-design.md)
+passes. The owned workflow keeps four language scans on every eligible event,
+routes Rust conservatively, cancels only superseded PR runs, and forces all five
+languages for weekly and manual scans. No source or query exclusions are added.
+
 GitHub's native Copilot code review is also enabled as a repository ruleset for
 pull requests targeting `main`. It is not a workflow file, is not a required
 check, and does not replace the manual `/code-review` gate.

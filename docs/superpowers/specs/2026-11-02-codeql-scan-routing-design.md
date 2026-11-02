@@ -4,15 +4,15 @@ title: Selective Rust CodeQL scanning
 description: Proposed Rust scan routing with unchanged security queries and a staged default-to-advanced cutover.
 tags: [ci, codeql, security, performance]
 status: draft
-workflow_status: proposed
+workflow_status: approved
 ---
 
 # Selective Rust CodeQL scanning
 
 Reduce repeated Rust analysis for unrelated changes while preserving the existing
-five-language security coverage. This is a proposed security design for
-[issue #1312](https://github.com/Rambolarsen/orkworks/issues/1312), not approval to
-change live scanning. The owner must approve this design before implementation.
+five-language security coverage. This is the owner-approved security design for
+[issue #1312](https://github.com/Rambolarsen/orkworks/issues/1312), approved in conversation on 2026-11-02 ("yes, go ahead"). Implementation and
+qualified activation are authorized within the boundaries below.
 
 ## Evidence and decision
 
