@@ -391,14 +391,96 @@ fn validate(input: &InstructionBundleInput) -> Result<(), InstructionBundleError
     Ok(())
 }
 
-/// Checks only supplied instruction structure/bytes; never grants configuration or launch authority.
+struct Frame<'a> {
+    header: String,
+    content: &'a str,
+    footer: String,
+}
+impl<'a> Frame<'a> {
+    fn new(kind: &str, id: &str, content: &'a str, digest: &str) -> Self {
+        Self {
+            header: format!(
+                "=== orkworks:{kind} id={id} sha256={digest} bytes={} ===\n",
+                content.len()
+            ),
+            content,
+            footer: format!("\n=== /orkworks:{kind} ===\n"),
+        }
+    }
+}
+
+/// Checks supplied structure/bytes only. Caller owns source interpretation, full
+/// versioned configuration validation and all approval/native-delivery checks.
+/// Framing is explanatory prompt text, not a security boundary or trusted parser.
 pub(crate) fn render_instruction_bundle(
     input: &InstructionBundleInput,
 ) -> Result<RenderedInstructionBundle, InstructionBundleError> {
     validate(input)?;
-    // Rendering is the next independently tested task.
-    Ok(RenderedInstructionBundle {
-        text: String::new(),
-        sha256: String::new(),
-    })
+    let mut frames = vec![Frame::new(
+        "coordination",
+        "coordination",
+        &input.coordination_text,
+        &sha256(&input.coordination_text),
+    )];
+    for rule in &input.rules {
+        frames.push(Frame::new(
+            "rule",
+            &rule.id,
+            &rule.content,
+            &rule.content_digest,
+        ));
+    }
+    frames.push(Frame::new(
+        "role",
+        &input.role.id,
+        &input.role.instructions,
+        &input.role.instructions_digest,
+    ));
+    frames.push(Frame::new(
+        "assignment",
+        &input.task_id,
+        &input.assignment_text,
+        &sha256(&input.assignment_text),
+    ));
+    let mut skills: Vec<_> = input.skills.iter().collect();
+    skills.sort_by_key(|skill| (skill.requirement, skill.id.as_str()));
+    let resources: BTreeMap<_, _> = input
+        .resources
+        .iter()
+        .map(|resource| (resource.id.as_str(), resource))
+        .collect();
+    for skill in skills {
+        frames.push(Frame::new(
+            "skill",
+            &skill.id,
+            &skill.content,
+            &skill.content_digest,
+        ));
+        let mut ids: Vec<_> = skill.resource_ids.iter().collect();
+        ids.sort();
+        for id in ids {
+            // Validation established exact ownership and closure before framing.
+            let resource = resources[id.as_str()];
+            frames.push(Frame::new(
+                "resource",
+                &resource.id,
+                &resource.content,
+                &resource.content_digest,
+            ));
+        }
+    }
+    let mut length = 0;
+    for frame in &frames {
+        for part in [&frame.header, frame.content, &frame.footer] {
+            length = checked_total(length, part.len(), MAX_RENDERED)?;
+        }
+    }
+    let mut text = String::with_capacity(length);
+    for frame in frames {
+        text.push_str(&frame.header);
+        text.push_str(frame.content);
+        text.push_str(&frame.footer);
+    }
+    let sha256 = sha256(&text);
+    Ok(RenderedInstructionBundle { text, sha256 })
 }

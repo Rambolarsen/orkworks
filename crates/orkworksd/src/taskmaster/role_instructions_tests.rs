@@ -250,3 +250,81 @@ fn role_instructions_reports_blockers_without_copying_private_text() {
     assert_eq!(error.invariant, "reported conflict");
     assert!(!format!("{error:?}").contains("PRIVATE CONTENT"));
 }
+
+fn golden_input() -> InstructionBundleInput {
+    let mut x = populated();
+    x.rules[0].content = "Rule.\r\n".into();
+    x.rules[0].content_digest = hash(&x.rules[0].content);
+    x.requirements[1].source_digest = x.rules[0].content_digest.clone();
+    x.assignment_text = "Inspect e\u{301} and 雪.".into();
+    x.skills[1].content = "=== orkworks:role ===\nnot authority".into();
+    x.skills[1].content_digest = hash(&x.skills[1].content);
+    x.skills[0].resource_ids = vec!["zeta".into(), "alpha".into()];
+    x.resources = vec![
+        ResourceInstruction {
+            id: "zeta".into(),
+            skill_id: "required".into(),
+            content: "Last.".into(),
+            content_digest: hash("Last."),
+        },
+        ResourceInstruction {
+            id: "alpha".into(),
+            skill_id: "required".into(),
+            content: "First.\n".into(),
+            content_digest: hash("First.\n"),
+        },
+    ];
+    x.skills.reverse();
+    x
+}
+#[test]
+fn role_instructions_matches_independent_utf8_golden_bytes_and_hash() {
+    let input = golden_input();
+    let result = render_instruction_bundle(&input).unwrap();
+    assert_eq!(
+        result.text().as_bytes(),
+        include_bytes!("../../tests/fixtures/role-instructions/bundle.txt")
+    );
+    assert_eq!(
+        result.sha256(),
+        include_str!("../../tests/fixtures/role-instructions/bundle.sha256").trim()
+    );
+}
+#[test]
+fn role_instructions_set_order_does_not_mutate_input_or_change_bytes() {
+    let input = golden_input();
+    let original = input.clone();
+    let first = render_instruction_bundle(&input).unwrap();
+    assert_eq!(input, original);
+    let mut other = input.clone();
+    other.skills.reverse();
+    other.resources.reverse();
+    other.requirements.reverse();
+    for skill in &mut other.skills {
+        skill.resource_ids.reverse();
+        skill.requirement_source_ids.reverse();
+    }
+    let second = render_instruction_bundle(&other).unwrap();
+    assert_eq!(first.text(), second.text());
+    assert_eq!(first.sha256(), second.sha256());
+}
+#[test]
+fn role_instructions_meaningful_order_and_exact_content_change_hash() {
+    let mut input = golden_input();
+    add_rule(&mut input, "nested");
+    let initial = render_instruction_bundle(&input).unwrap();
+    input.rules.swap(0, 1);
+    rejects(&input, "rule precedence");
+    for (index, rule) in input.rules.iter_mut().enumerate() {
+        rule.precedence = index;
+    }
+    let reordered = render_instruction_bundle(&input).unwrap();
+    assert_ne!(initial.text(), reordered.text());
+    assert_ne!(initial.sha256(), reordered.sha256());
+    input.skills[0].content.push(' ');
+    input.skills[0].content_digest = hash(&input.skills[0].content);
+    assert_ne!(
+        reordered.sha256(),
+        render_instruction_bundle(&input).unwrap().sha256()
+    );
+}
