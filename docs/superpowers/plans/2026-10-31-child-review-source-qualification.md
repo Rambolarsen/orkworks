@@ -97,10 +97,12 @@ has a named choice; no open generic JSON leaf is treated as a source-valid recor
 
 ## Gate B — bounded component codecs and source ownership
 
-- [ ] After applicable acceptance, independently pin selected nested child and full
+- [x] After applicable acceptance, independently pin selected nested child and full
   source object bytes, snapshots, approved plan/approval request/receipt, immutable
   reservation/allocation/attachment and child source reference reconstruction.
-  Preserve all older root/child catalogs and source/wire identity mappings.
+  Preserve all older root/child catalogs and source/wire identity mappings. Delivered
+  by the [synthetic component packet](../../validation/child-source-components.md);
+  supplied bytes and CommitRefs are not actual source-event/manifest proof.
 - [ ] Exercise unknown/duplicate fields, invalid integers/Unicode, wrong root/child/
   profile, mismatched plan/configuration/task/snapshot/result/approval, dirty base,
   source versus allocated worktree substitution, ambiguous original version/child,
@@ -123,7 +125,8 @@ complete underlying control/consumer/authority evidence remain distinguishable.
 
 ### Bounded next packet and inspected source seams — 2026-11-02
 
-The next deliverable is a documentation component packet for these accepted bytes:
+The delivered [documentation component packet](../../validation/child-source-components.md)
+covers these accepted bytes:
 selected child v3 leaves/framing, full configuration/input/plan, approval request/
 source/receipt, reservation/allocation/attachment and assignment-source joins.
 Use independent canonical byte/digest generation and a strict checker with
@@ -207,7 +210,7 @@ material findings in the changed material; unchanged proposal choices were not
 reopened. This review does not accept those choices or establish native evidence.
 
 Disposition: **Gate A complete by explicit scoped owner acceptance; Gate B
-component/source-owner preparation next; full source/executable qualification
-remains Investigate.** Prior reviews cover the unchanged technical proposal.
+component bytes delivered, source/control/consumer/authority qualification open;
+full source/executable qualification remains Investigate.** Prior reviews cover the unchanged technical proposal.
 Recording approval does not turn document checks or synthetic bytes into native
 or source event evidence. No new approval of these unchanged choices is required.
