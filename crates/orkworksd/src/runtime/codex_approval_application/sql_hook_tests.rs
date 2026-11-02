@@ -1194,6 +1194,11 @@ async fn sql_hook_relay_review_post_commit_contention_retries_native_and_fallbac
                 .unwrap(),
             SqlHookOutcome::Accepted
         );
+        assert_eq!(
+            state.sessions.lock().unwrap()[ID].info.attention.as_deref(),
+            Some("needs_you"),
+            "a fresh retry must restore live permission attention before acceptance"
+        );
         assert!(
             state.sessions.lock().unwrap()[ID]
                 .runtime
@@ -1203,6 +1208,76 @@ async fn sql_hook_relay_review_post_commit_contention_retries_native_and_fallbac
                 .sql_ownership
                 .is_none(),
             "a retry must not adopt the durable proof from a skipped publication"
+        );
+        super::super::terminal_runtime::clear_workflow_report_token(ID);
+        store.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn sql_hook_relay_review_expiry_drains_resources_while_claim_guards_are_blocked() {
+    let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
+    for native in [false, true] {
+        let (_dir, state, store, writes, _effect, _commands) = inactive_fixture().await;
+        let generation = {
+            let mut sessions = state.sessions.lock().unwrap();
+            let h = sessions.get_mut(ID).unwrap();
+            h.active_work_hook = native;
+            h.runtime.run_generation()
+        };
+        let reservation = store
+            .prepare_internal(
+                ID.into(),
+                super::sql_tests::CREATED.into(),
+                crate::metadata::internal_mutations::InternalMutation::UserTitle { title: None },
+            )
+            .unwrap();
+        let lane_key = reservation.lane().unwrap();
+        let lane = lane_key.clone().lock_owned().await;
+        let ready = crate::session_application::sql_writes::testing::before_hook_lane(&writes);
+        let mut pending = tokio::spawn(async move {
+            writes
+                .report_native_hook(
+                    ID.into(),
+                    TOKEN.into(),
+                    generation,
+                    Instant::now() - std::time::Duration::from_secs(3),
+                    report(HookEvent::PermissionRequest, chrono::Utc::now()),
+                    Arc::new(AtomicBool::new(false)),
+                )
+                .await
+        });
+        ready.await.unwrap();
+        let projection = state.projection_lock.lock().unwrap();
+        drop(lane);
+        drop(reservation);
+        let result =
+            tokio::time::timeout(std::time::Duration::from_millis(2800), &mut pending).await;
+        // Ticket expiry and the worker's deadline retirement race. Require the
+        // lane to become available while validation is still blocked, allowing
+        // the worker to deliver/drop its rejected completion.
+        let lane_available =
+            tokio::time::timeout(std::time::Duration::from_millis(300), lane_key.lock_owned())
+                .await
+                .is_ok();
+        drop(projection);
+        if result.is_err() {
+            let _ = pending.await;
+        }
+        assert!(
+            matches!(
+                result,
+                Ok(Ok(Err(crate::session_store::StoreError::Expired)))
+            ),
+            "expiry must finish even while the application guard is unavailable"
+        );
+        assert!(
+            lane_available,
+            "expired completion must release its session lane before guard release"
+        );
+        assert_eq!(
+            store.get(ID.into()).await.unwrap().unwrap()["metadataRevision"],
+            "1"
         );
         super::super::terminal_runtime::clear_workflow_report_token(ID);
         store.close().await.unwrap();

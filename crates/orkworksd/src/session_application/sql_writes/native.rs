@@ -284,14 +284,26 @@ impl SessionWrites {
                 let mut retry = false;
                 if let Some(request) = request {
                     let claiming = view.clone();
-                    let claimed = owner.native_access(id.clone(), None, None, move |_, h, authority| {
+                    let mut claiming = Box::pin(owner.native_access(id.clone(), None, None, move |_, h, authority| {
                         if !claiming.is_current(h, &authority) { return Err(StoreError::Conflict); }
                         let grant = request.grant()?;
                         if claiming.operation.as_ref().is_some_and(|phase| !phase.mark_claimed()) {
                             return Err(StoreError::Conflict);
                         }
                         Ok(grant)
-                    }).await?;
+                    }));
+                    let claimed = tokio::select! {
+                        biased;
+                        completion = &mut finished => {
+                            match completion {
+                                Err(StoreError::Conflict) => delivered = Some(Err(StoreError::Conflict)),
+                                Err(error) => return Err(error.into()),
+                                Ok(_) => return Err(StoreError::Unavailable.into()),
+                            }
+                            claiming.await?
+                        }
+                        claimed = &mut claiming => claimed?,
+                    };
                     // The callback can drop its request before its result arrives.
                     // Await that result before classifying the worker rejection.
                     match claimed {

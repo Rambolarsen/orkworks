@@ -386,6 +386,14 @@ projection, workspace, session and prompt guards. No-op/error paths do not publi
 an attention write or adopt a persisted proof. A committed write that loses live
 ownership returns committed-detached explicitly. Temporary guard contention
 retains the immutable packet for fresh application without adopting a stored proof.
+If an earlier native wait is already durable and the fresh native attempt is a
+no-op, the validated hook recovers through a new conservative scoped write and
+publication before accepting the retry, retaining user/concrete-prompt protection.
+While execution validation is blocked, expired worker completions are drained
+independently so their lane, lease and reservation can retire without waiting for
+the application mutex. A rejection racing the guard callback still retains its
+Busy versus Obsolete classification; execution after a successful claim remains
+definitive.
 
 A report may contain several scoped writes, matching the existing activation
 then fallback order. Failure after an earlier committed stage does not roll it
@@ -404,7 +412,9 @@ The production drain still selects its JSON path.
 Regressions cover exact SQL tuples/proofs and protected no-ops, actual mailbox
 approval with deferred identity, close/reopen storage retry past the grace period,
 transition contention before and after commit, token replacement at native claim
-and publication, cancellation without receipt renewal, unknown-root retention,
+and publication, blocked-claim expiry/resource retirement, restoration of live
+attention after a skipped publication, cancellation without receipt renewal,
+unknown-root retention,
 an eleven-case stale-read matrix, caller cancellation on
 both sides of the execution cutoff, detached publication, equal-report overlap
 at exhausted counters and earlier native emissions fenced by a pending boundary.

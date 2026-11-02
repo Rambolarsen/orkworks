@@ -287,6 +287,60 @@ impl SessionWrites {
             {
                 Ok(Outcome::Committed) => {}
                 Ok(Outcome::CommittedDetached) => return Ok(SqlHookOutcome::CommittedDetached),
+                Ok(Outcome::Noop { .. })
+                    if report.event
+                        == crate::runtime::codex_approval::HookEvent::PermissionRequest =>
+                {
+                    // A prior ShowWait may be durable without a live acknowledgement.
+                    // Fresh authenticated evidence can publish a conservative hook
+                    // wait through a new scoped write, never by adopting its proof.
+                    let document = self
+                        .store
+                        .get(id.clone())
+                        .await?
+                        .ok_or(StoreError::Missing)?;
+                    let record: RevisionedSession = serde_json::from_value(document)?;
+                    let checking = context.clone();
+                    let checking_id = id.clone();
+                    let checking_token = token.clone();
+                    let metadata = record.metadata.clone();
+                    match self
+                        .native_access(id.clone(), None, None, move |_, h, authority| {
+                            if !checking.matches(h, &authority)
+                                || !verify_workflow_report_token(&checking_id, &checking_token)
+                            {
+                                return None;
+                            }
+                            Some(hook_context::fallback_allowed(h, &metadata))
+                        })
+                        .await?
+                    {
+                        NativeAccess::Busy => return Ok(SqlHookOutcome::Retry),
+                        NativeAccess::Obsolete | NativeAccess::Current(None) => {
+                            return Ok(obsolete(committed))
+                        }
+                        NativeAccess::Current(Some(false)) => return Ok(SqlHookOutcome::Accepted),
+                        NativeAccess::Current(Some(true)) => {}
+                    }
+                    let stage = self
+                        .hook_metadata(
+                            id,
+                            token,
+                            context,
+                            record,
+                            HookTransition::FallbackPermission,
+                            phase,
+                        )
+                        .await?;
+                    if stage.retry {
+                        return Ok(SqlHookOutcome::Retry);
+                    }
+                    return Ok(if stage.context.is_some() {
+                        SqlHookOutcome::Accepted
+                    } else {
+                        obsolete(committed || stage.committed)
+                    });
+                }
                 Ok(Outcome::Noop { .. }) => {}
                 Err(NativeAttemptError::Retry) => return Ok(SqlHookOutcome::Retry),
                 Err(NativeAttemptError::Store(error)) => return Err(error),
@@ -362,20 +416,33 @@ impl SessionWrites {
             let claiming = origin.clone();
             let claim_id = id.clone();
             let claim_token = token.clone();
-            let claimed = self
-                .native_access(id.clone(), None, None, move |_, h, authority| {
-                    if !claiming.matches(h, &authority)
-                        || !verify_workflow_report_token(&claim_id, &claim_token)
-                    {
-                        return Ok(None);
+            let mut claiming =
+                Box::pin(
+                    self.native_access(id.clone(), None, None, move |_, h, authority| {
+                        if !claiming.matches(h, &authority)
+                            || !verify_workflow_report_token(&claim_id, &claim_token)
+                        {
+                            return Ok(None);
+                        }
+                        let grant = request.grant()?;
+                        if !phase.mark_claimed() {
+                            return Ok(None);
+                        }
+                        Ok(Some(grant))
+                    }),
+                );
+            let claimed = tokio::select! {
+                biased;
+                completion = &mut finished => {
+                    match completion {
+                        Err(StoreError::Conflict) => delivered = Some(Err(StoreError::Conflict)),
+                        Err(error) => return Err(error),
+                        Ok(_) => return Err(StoreError::Unavailable),
                     }
-                    let grant = request.grant()?;
-                    if !phase.mark_claimed() {
-                        return Ok(None);
-                    }
-                    Ok(Some(grant))
-                })
-                .await?;
+                    claiming.await?
+                }
+                claimed = &mut claiming => claimed?,
+            };
             match claimed {
                 NativeAccess::Current(Ok(Some(grant))) => grant.execute()?,
                 NativeAccess::Current(Ok(None)) | NativeAccess::Obsolete => {}
