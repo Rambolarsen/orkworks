@@ -20,6 +20,8 @@ pub(crate) struct SessionWrites {
     workspace: RecommendationDeliveryWorkspace,
     #[cfg(test)]
     before_callback: std::sync::Mutex<Option<oneshot::Sender<()>>>,
+    #[cfg(test)]
+    before_hook_lane: std::sync::Mutex<Option<oneshot::Sender<()>>>,
 }
 struct Capture {
     created: String,
@@ -58,6 +60,8 @@ impl SessionWrites {
             workspace,
             #[cfg(test)]
             before_callback: std::sync::Mutex::new(None),
+            #[cfg(test)]
+            before_hook_lane: std::sync::Mutex::new(None),
         }))
     }
     #[cfg(test)]
@@ -317,3 +321,15 @@ fn protected_permission(handle: &crate::SessionHandle) -> bool {
 mod native;
 
 pub(crate) use native::observer::SqlObservationSnapshot;
+
+pub(crate) use native::hook::SqlHookOutcome;
+
+#[cfg(test)]
+pub(crate) mod testing {
+    use super::*;
+    pub(crate) fn before_hook_lane(writes: &Arc<SessionWrites>) -> oneshot::Receiver<()> {
+        let (sent, received) = oneshot::channel();
+        *writes.before_hook_lane.lock().unwrap() = Some(sent);
+        received
+    }
+}

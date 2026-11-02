@@ -49,7 +49,7 @@ impl SessionWrites {
                     effect,
                     context.cancellation(),
                     COORDINATED_METADATA_WRITERS,
-                    Some(context.clone()),
+                    Some(context.clone().into()),
                 )
                 .await
             {
@@ -149,7 +149,7 @@ impl SessionWrites {
                     effect,
                     context.cancellation(),
                     coordinated,
-                    Some(context.clone()),
+                    Some(context.clone().into()),
                 )
                 .await?
             {

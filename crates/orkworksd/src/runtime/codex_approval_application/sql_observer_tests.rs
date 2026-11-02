@@ -481,6 +481,7 @@ async fn sql_observer_pipeline_retains_post_rpc_metadata_read_deadline_errors() 
 async fn sql_observer_recovers_rpc_polling_after_detached_wait_without_adopting_proof() {
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (_dir, state, store, writes, _effect, _commands) = fixture_with_root("root").await;
+    tokio::time::sleep(std::time::Duration::from_millis(350)).await;
     let generation = state.sessions.lock().unwrap()[ID].runtime.run_generation();
     let cancelled = Arc::new(AtomicBool::new(false));
     let mut held = crate::session_store::test_worker::hold_next_internal(&store, ID);
@@ -513,10 +514,20 @@ async fn sql_observer_recovers_rpc_polling_after_detached_wait_without_adopting_
         }
     }
     let snapshot = snapshot.expect("polling must resume after transition contention clears");
-    assert!(writes
+    // A stale native baseline can conservatively reissue ShowWait. SQL already
+    // holds that wait, so no-op is safe and must not adopt the skipped proof.
+    let _applied = writes
         .finish_native_observation_coordinated_for_test(snapshot, result())
         .await
-        .unwrap());
+        .unwrap();
+    assert!(
+        writes
+            .begin_native_observation(ID.into(), generation, Arc::new(AtomicBool::new(false)))
+            .await
+            .unwrap()
+            .is_some(),
+        "a protected no-op must not stop subsequent RPC polling"
+    );
     let record = store.get(ID.into()).await.unwrap().unwrap();
     assert_eq!(record["attention"], "needs_you");
     assert_eq!(record["metadataRevision"], "2");

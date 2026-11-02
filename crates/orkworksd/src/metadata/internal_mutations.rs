@@ -14,6 +14,13 @@ pub(crate) enum PeonPolicy {
         source: String,
     },
 }
+#[derive(Clone, Copy, Debug, Serialize)]
+pub(crate) enum HookTransition {
+    Activate,
+    Stop,
+    UserPromptSubmit,
+    FallbackPermission,
+}
 #[derive(Clone, Debug, Serialize)]
 pub(crate) enum InternalMutation {
     Lifecycle(super::lifecycle_mutations::LifecycleMutation),
@@ -24,6 +31,11 @@ pub(crate) enum InternalMutation {
         timestamp: String,
         #[serde(skip)]
         observation_started_at: std::time::Instant,
+    },
+    HookTransition {
+        root: String,
+        transition: HookTransition,
+        timestamp: String,
     },
     HookCompletion {
         root: String,
@@ -91,6 +103,15 @@ impl InternalMutation {
             }),
             Self::NativeClearWait { timestamp, .. } => Ok(Decision {
                 scope: apply_native_clear_wait(meta, timestamp).then_some(WriteScope::ATTENTION),
+                disposition: Disposition::Applied,
+            }),
+            Self::HookTransition {
+                root,
+                transition,
+                timestamp,
+            } => Ok(Decision {
+                scope: apply_hook_transition(meta, root, *transition, timestamp)
+                    .then_some(WriteScope::ATTENTION),
                 disposition: Disposition::Applied,
             }),
             Self::HookCompletion {
@@ -639,5 +660,50 @@ pub(crate) fn apply_native_clear_wait(meta: &mut SessionMetadata, timestamp: &st
     meta.observed_status = Some("working".into());
     meta.attention = Some("working".into());
     meta.last_activity = timestamp.into();
+    true
+}
+
+/// Validated relay transitions use the latest exact native root; user attention wins.
+pub(crate) fn apply_hook_transition(
+    meta: &mut SessionMetadata,
+    root: &str,
+    transition: HookTransition,
+    timestamp: &str,
+) -> bool {
+    if meta.lifecycle != "alive"
+        || meta.lifecycle_phase != "active"
+        || meta.harness != "codex"
+        || meta.harness_session_id_source.as_deref() != Some("codex_hook")
+        || meta
+            .resume
+            .as_ref()
+            .and_then(|r| r.harness_session_id.as_deref())
+            != Some(root)
+        || meta.attention_source() == "user"
+    {
+        return false;
+    }
+    if matches!(transition, HookTransition::FallbackPermission) {
+        if meta.needs_user_input == Some(true) || meta.detected_question.is_some() {
+            return false;
+        }
+        meta.observed_status = Some("waiting_for_input".into());
+        meta.attention = Some("needs_you".into());
+    } else {
+        meta.observed_status = match transition {
+            HookTransition::Activate => None,
+            HookTransition::Stop => Some("idle".into()),
+            HookTransition::UserPromptSubmit => Some("working".into()),
+            HookTransition::FallbackPermission => unreachable!(),
+        };
+        meta.attention = meta.observed_status.clone();
+        meta.needs_user_input = None;
+        meta.detected_question = None;
+        meta.suggested_options = None;
+        meta.last_activity = timestamp.into();
+    }
+    meta.provenance.attention_source = Some("agent".into());
+    meta.provenance.attention_confidence = Some(1.0);
+    meta.provenance.attention_origin = Some("harness_hook".into());
     true
 }

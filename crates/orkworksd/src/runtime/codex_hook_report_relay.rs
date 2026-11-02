@@ -8,6 +8,8 @@ use crate::http::session_handlers::{
     report_harness_session_from_local_relay, HarnessSessionReportRequest,
 };
 use crate::runtime::terminal_runtime::verify_workflow_report_token;
+use crate::session_application::sql_writes::{SessionWrites, SqlHookOutcome};
+use crate::session_store::StoreError;
 use crate::AppState;
 use axum::http::StatusCode;
 use serde::Deserialize;
@@ -19,6 +21,7 @@ use std::io::{self, Read};
 use std::path::Path;
 #[cfg(not(unix))]
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -70,6 +73,16 @@ pub(crate) struct RelayOutcome {
     pub(crate) reports_accepted: usize,
 }
 
+/// Optional SQL approval drain. Identity reporting remains a separate pending
+/// writer group; its files stay untouched rather than falling back to JSON.
+#[derive(Default)]
+pub(crate) struct SqlRelayOutcome {
+    pub(crate) activity: RelayOutcome,
+    pub(crate) identities_deferred: usize,
+    pub(crate) committed_detached: usize,
+    pub(crate) storage_error: Option<StoreError>,
+}
+
 /// A private temporary directory whose path is passed only to one Codex
 /// runtime. Its handle and lifetime are tied to the PTY driver's lifetime.
 pub(crate) struct CodexHookReportRelay {
@@ -105,8 +118,44 @@ impl CodexHookReportRelay {
         report_token: &str,
         runtime_generation: u64,
     ) -> RelayOutcome {
+        self.consume_ready_inner(state, session_id, report_token, runtime_generation, None)
+            .await
+            .activity
+    }
+    pub(crate) async fn consume_ready_sql(
+        &self,
+        state: Arc<AppState>,
+        session_id: &str,
+        report_token: &str,
+        runtime_generation: u64,
+        writes: Arc<SessionWrites>,
+        cancelled: Arc<AtomicBool>,
+    ) -> SqlRelayOutcome {
+        if !writes.native_matches_state(&state) {
+            return SqlRelayOutcome {
+                storage_error: Some(StoreError::Conflict),
+                ..Default::default()
+            };
+        }
+        self.consume_ready_inner(
+            state,
+            session_id,
+            report_token,
+            runtime_generation,
+            Some((writes, cancelled)),
+        )
+        .await
+    }
+    async fn consume_ready_inner(
+        &self,
+        state: Arc<AppState>,
+        session_id: &str,
+        report_token: &str,
+        runtime_generation: u64,
+        sql: Option<(Arc<SessionWrites>, Arc<AtomicBool>)>,
+    ) -> SqlRelayOutcome {
         if !verify_workflow_report_token(session_id, report_token) {
-            return RelayOutcome::default();
+            return SqlRelayOutcome::default();
         }
         let owns_live_codex_runtime =
             state
@@ -122,10 +171,11 @@ impl CodexHookReportRelay {
                             || handle.info.harness_id.as_deref() == Some("codex"))
                 });
         if !owns_live_codex_runtime {
-            return RelayOutcome::default();
+            return SqlRelayOutcome::default();
         }
 
-        let mut outcome = RelayOutcome::default();
+        let mut result = SqlRelayOutcome::default();
+        let outcome = &mut result.activity;
         let mailbox = Arc::clone(
             self.mailbox
                 .as_ref()
@@ -161,6 +211,12 @@ impl CodexHookReportRelay {
             reports.extend(new_reports);
         }
         for name in reports {
+            if sql
+                .as_ref()
+                .is_some_and(|(_, cancelled)| cancelled.load(Ordering::Acquire))
+            {
+                break;
+            }
             let read_mailbox = Arc::clone(&mailbox);
             let read_name = name.clone();
             let receipt = Instant::now();
@@ -195,15 +251,20 @@ impl CodexHookReportRelay {
                 if !changed {
                     match report {
                         CodexHookReportEnvelope::Identity(envelope) => {
-                            let status = report_harness_session_from_local_relay(
-                                state.clone(),
-                                session_id.to_string(),
-                                envelope.report,
-                                report_token,
-                            )
-                            .await;
-                            if status == StatusCode::OK {
-                                outcome.reports_accepted += 1;
+                            if sql.is_some() {
+                                keep = true;
+                                result.identities_deferred += 1;
+                            } else {
+                                let status = report_harness_session_from_local_relay(
+                                    state.clone(),
+                                    session_id.to_string(),
+                                    envelope.report,
+                                    report_token,
+                                )
+                                .await;
+                                if status == StatusCode::OK {
+                                    outcome.reports_accepted += 1;
+                                }
                             }
                         }
                         CodexHookReportEnvelope::Approval(envelope) => {
@@ -212,23 +273,67 @@ impl CodexHookReportRelay {
                                 // overflow floor prevents renewed grace later.
                                 keep = true;
                             } else {
-                                let callback_state = state.clone();
-                                let callback_id = session_id.to_string();
-                                let callback_token = report_token.to_string();
-                                // Application validation/persistence does blocking
-                                // I/O too; keep it off the async PTY driver.
-                                let callback = tokio::task::spawn_blocking(move || {
-                                    codex_approval_application::report_hook(
-                                        &callback_state,
-                                        &callback_id,
-                                        &callback_token,
-                                        runtime_generation,
-                                        first_receipt,
-                                        &envelope.approval,
-                                    )
-                                })
-                                .await;
-                                match callback.unwrap_or(HookReportOutcome::Retry) {
+                                // Retain the immutable packet before the first await. A
+                                // cancelled drain must not renew its permission grace.
+                                if sql.is_some() {
+                                    let mut book = self.receipts.lock().unwrap();
+                                    if !book.pending.contains_key(&name) {
+                                        book.pending.insert(
+                                            name.clone(),
+                                            PendingReceipt {
+                                                bytes: bytes.clone(),
+                                                first_receipt,
+                                            },
+                                        );
+                                        book.retry_order.push_back(name.clone());
+                                    }
+                                }
+                                let callback = if let Some((writes, cancelled)) = &sql {
+                                    match writes
+                                        .report_native_hook(
+                                            session_id.into(),
+                                            report_token.into(),
+                                            runtime_generation,
+                                            first_receipt,
+                                            envelope.approval,
+                                            cancelled.clone(),
+                                        )
+                                        .await
+                                    {
+                                        Ok(SqlHookOutcome::Accepted) => HookReportOutcome::Accepted,
+                                        Ok(SqlHookOutcome::Rejected) => HookReportOutcome::Rejected,
+                                        Ok(SqlHookOutcome::Retry) => HookReportOutcome::Retry,
+                                        Ok(SqlHookOutcome::CommittedDetached) => {
+                                            result.committed_detached += 1;
+                                            HookReportOutcome::Rejected
+                                        }
+                                        Err(error) => {
+                                            // Retry the immutable report through fresh validation
+                                            // and reads, never a previously prepared SQL command.
+                                            if result.storage_error.is_none() {
+                                                result.storage_error = Some(error);
+                                            }
+                                            HookReportOutcome::Retry
+                                        }
+                                    }
+                                } else {
+                                    let callback_state = state.clone();
+                                    let callback_id = session_id.to_string();
+                                    let callback_token = report_token.to_string();
+                                    tokio::task::spawn_blocking(move || {
+                                        codex_approval_application::report_hook(
+                                            &callback_state,
+                                            &callback_id,
+                                            &callback_token,
+                                            runtime_generation,
+                                            first_receipt,
+                                            &envelope.approval,
+                                        )
+                                    })
+                                    .await
+                                    .unwrap_or(HookReportOutcome::Retry)
+                                };
+                                match callback {
                                     HookReportOutcome::Accepted => outcome.reports_accepted += 1,
                                     HookReportOutcome::Rejected => {}
                                     HookReportOutcome::Retry => {
@@ -272,7 +377,7 @@ impl CodexHookReportRelay {
             }
         }
 
-        outcome
+        result
     }
 }
 

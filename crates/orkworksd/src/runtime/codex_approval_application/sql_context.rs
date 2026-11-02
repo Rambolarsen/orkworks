@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub(crate) struct IssuedEffect {
     pub(super) effect: Effect,
     instance: Arc<()>,
+    hook_application: Arc<()>,
     hook_revision: u64,
     attention: AttentionWriteToken,
     observation_start: Option<Instant>,
@@ -67,6 +68,7 @@ impl NativeApprovalState {
         Some(IssuedEffect {
             effect,
             instance: self.instance.clone(),
+            hook_application: self.hook_application.clone(),
             hook_revision: self.hook_revision?,
             attention: owner.snapshot()?,
             observation_start: match effect {
@@ -81,6 +83,7 @@ pub(crate) struct NativeCapture {
     pub(crate) created: String,
     effect: Effect,
     instance: Arc<()>,
+    hook_application: Arc<()>,
     runtime: super::super::session_runtime::RuntimeIdentity,
     control: tokio::sync::mpsc::Sender<super::super::session_runtime::RuntimeCommand>,
     fence: Fence,
@@ -103,6 +106,7 @@ impl NativeCapture {
         let effect = issued.effect;
         let tracker = h.runtime.native_approval.as_ref()?;
         if !Arc::ptr_eq(&issued.instance, &tracker.instance)
+            || !Arc::ptr_eq(&issued.hook_application, &tracker.hook_application)
             || tracker.hook_revision != Some(issued.hook_revision)
             || !h.runtime.attention_owner.owns(&issued.attention)
             || (matches!(effect, Effect::ClearWait { .. })
@@ -122,6 +126,7 @@ impl NativeCapture {
             created: h.info.created_at.clone(),
             effect,
             instance: issued.instance,
+            hook_application: issued.hook_application,
             runtime: h.runtime.identity(),
             control: h.runtime.control_tx.clone(),
             fence: tracker.fence,
@@ -156,6 +161,7 @@ impl NativeCapture {
             return false;
         };
         let common = Arc::ptr_eq(&self.instance, &tracker.instance)
+            && Arc::ptr_eq(&self.hook_application, &tracker.hook_application)
             && h.runtime.matches_identity(&self.runtime)
             && h.runtime.run_generation() == self.fence.runtime_generation
             && h.runtime.control_tx.same_channel(&self.control)
@@ -253,10 +259,11 @@ pub(crate) struct ObservationContext {
     id: String,
     created: String,
     instance: Arc<()>,
+    hook_application: Arc<()>,
     runtime: super::super::session_runtime::RuntimeIdentity,
     control: tokio::sync::mpsc::Sender<super::super::session_runtime::RuntimeCommand>,
     fence: Fence,
-    hook_revision: u64,
+    hook_revision: Option<u64>,
     root: Option<String>,
     live_root: Option<String>,
     attention: AttentionWriteToken,
@@ -268,6 +275,15 @@ pub(crate) struct ObservationContext {
 }
 impl ObservationContext {
     pub(crate) fn capture(
+        h: &SessionHandle,
+        generation: u64,
+        cancelled: Arc<AtomicBool>,
+        authority: Option<super::super::prompt_authority::AuthoritySnapshot>,
+    ) -> Option<Self> {
+        h.runtime.native_approval.as_ref()?.hook_revision?;
+        Self::capture_hook(h, generation, cancelled, authority)
+    }
+    pub(crate) fn capture_hook(
         h: &SessionHandle,
         generation: u64,
         cancelled: Arc<AtomicBool>,
@@ -288,10 +304,11 @@ impl ObservationContext {
             id: h.info.id.clone(),
             created: h.info.created_at.clone(),
             instance: tracker.instance.clone(),
+            hook_application: tracker.hook_application.clone(),
             runtime: h.runtime.identity(),
             control: h.runtime.control_tx.clone(),
             fence: tracker.fence,
-            hook_revision: tracker.hook_revision?,
+            hook_revision: tracker.hook_revision,
             root: tracker.root.clone(),
             live_root: h
                 .info
@@ -325,8 +342,9 @@ impl ObservationContext {
             && h.runtime.committed_input_sequence == self.committed_input_sequence
             && h.active_work_hook == self.active_work_hook
             && Arc::ptr_eq(&tracker.instance, &self.instance)
+            && Arc::ptr_eq(&tracker.hook_application, &self.hook_application)
             && tracker.fence == self.fence
-            && tracker.hook_revision == Some(self.hook_revision)
+            && tracker.hook_revision == self.hook_revision
             && tracker.root == self.root
             && h.info
                 .resume
