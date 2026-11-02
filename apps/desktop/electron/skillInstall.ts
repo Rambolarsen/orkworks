@@ -67,21 +67,37 @@ export async function findApm(env: NodeJS.ProcessEnv, override: string | null = 
   }
   throw new Error("APM is not installed on the desktop PATH. Install APM separately or configure its path, then Check again.");
 }
+async function probeApm(run: (args: string[]) => Promise<string>) {
+  let version: string | null;
+  let help: string;
+  try {
+    version = (await run(["--version"])).match(/CLI version (\d+\.\d+\.\d+)\b/)?.[1] || null;
+    help = await run(["install", "--help"]);
+  } catch {
+    throw new Error("APM capabilities could not be checked. Verify the executable and Check again. Browsing remains available.");
+  }
+  // Only option declaration lines count, not references in descriptive prose.
+  const options = new Set((help.match(/^\s+-[^\n]+/gm) || [])
+    .flatMap(line => line.match(/--[a-z][a-z0-9-]*/g) || []));
+  const missing = ["--target", "--only", "--dry-run", "--no-trust-bin", "--global"]
+    .filter(option => !options.has(option));
+  const compatible = missing.length === 0 && process.platform !== "win32";
+  const message = process.platform === "win32"
+    ? "Windows APM installation is not yet qualified. Browsing remains available."
+    : missing.length
+      ? `APM install is missing required options: ${missing.join(", ")}. Browsing remains available.`
+      : "APM provides the required install options. Each source and destination is checked during preview.";
+  return { version, compatible, message };
+}
 export async function inspectApm(env: NodeJS.ProcessEnv, override: string | null = null): Promise<ApmStatus> {
   const result: ApmStatus = { available: false, compatible: false, path: null, version: null, executableOverride: override, message: "" };
   try {
-    result.path = await findApm(env, override);
+    const file = await findApm(env, override);
+    result.path = file;
     result.available = true;
-    const output = await runApm(result.path, ["--version"], tmpdir(), skillProcessEnvironment(env));
-    result.version = output.match(/CLI version (\d+\.\d+\.\d+)\b/)?.[1] || null;
-    result.compatible = result.version === "0.33.0" && process.platform !== "win32";
-    result.message = result.compatible
-      ? "APM 0.33.0 supports reviewed installations. Each source and destination is checked during preview."
-      : process.platform === "win32" ? "Windows APM installation is not yet qualified. Browsing remains available."
-      : "This APM version is not qualified for reviewed installation (supported: 0.33.0). Browsing remains available.";
+    Object.assign(result, await probeApm(args => runApm(file, args, tmpdir(), skillProcessEnvironment(env))));
   } catch (error) {
-    result.message = result.path ? "The APM version could not be checked. Verify the executable and Check again. Browsing remains available."
-      : error instanceof Error ? error.message : "APM could not be found.";
+    result.message = error instanceof Error ? error.message : "APM could not be checked.";
   }
   return result;
 }
@@ -426,11 +442,8 @@ export class SkillInstaller {
       const executable = await (this.deps.executable
         ? this.deps.executable()
         : findApm(this.deps.env));
-      const version = await this.run(executable, ["--version"], tmpdir());
-      if (!/CLI version 0\.33\.0\b/.test(version))
-        throw new Error(
-          "This APM version is not yet qualified for reviewed installation (qualified: 0.33.0). Browsing remains available.",
-        );
+      const capabilities = await probeApm(args => this.run(executable, args, tmpdir()));
+      if (!capabilities.compatible) throw new Error(capabilities.message);
       const before = await this.check(request, destination, executable);
       const stage = await mkdtemp(join(tmpdir(), "orkworks-skill-preview-"));
       try {
@@ -466,7 +479,7 @@ export class SkillInstaller {
         join(destination, ".gitignore"),
       ];
       view.summary =
-        "Add this local skill with APM 0.33.0 for Codex. Other tools may also discover the shared .agents/skills directory. APM may reconcile existing declared local skills and ownership metadata. This is a bounded operation review, not an exact file diff. No session is restarted.";
+        "Add this local skill with APM for Codex. Other tools may also discover the shared .agents/skills directory. APM may reconcile existing declared local skills and ownership metadata. This is a bounded operation review, not an exact file diff. No session is restarted.";
       view.available = true;
       view.id = randomUUID();
       // Only a bounded set of short-lived, single-use reviews is retained.

@@ -142,3 +142,5 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 - [ADR 0103: Ordinary sessions use SQLite with bounded history reads](0103-sqlite-session-storage.md) — Accepted session storage/migration decision; implementation and qualification pending.
 
 - [Peon admission shares the session deletion fence](0104-peon-scheduling-deletion-fence.md) — Accepted synchronous admission/timer fence; provider execution remains independent.
+
+- [APM capability compatibility](0105-apm-capability-compatibility.md) — Accepted capability admission and automated behavioral evidence.

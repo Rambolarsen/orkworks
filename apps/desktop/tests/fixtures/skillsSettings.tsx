@@ -26,7 +26,7 @@ const inventory = {
   ],
   roots: [],
   diagnostics: ["Coverage is limited; native loading is unknown."],
-  apm: { available: true, compatible: true, path: "/usr/local/bin/apm", version: "0.33.0", executableOverride: null as string | null, message: "APM 0.33.0 supports reviewed installations." },
+  apm: { available: true, compatible: true, path: "/usr/local/bin/apm", version: "0.35.0", executableOverride: null as string | null, message: "APM provides the required install options." },
 };
 const edgeSkills = [
   { ...skill, id: "apm-local", name: "apm-skill", scope: "personal", management: "apm", packageSource: "owner/package", apmIntegrity: { status: "differs" } },
@@ -49,8 +49,8 @@ Object.assign(window, {
       inventory.apm.executableOverride = value || null;
       inventory.apm.path = value || "/usr/local/bin/apm";
       inventory.apm.compatible = !value.includes("unsupported");
-      inventory.apm.version = inventory.apm.compatible ? "0.33.0" : "0.34.0";
-      inventory.apm.message = inventory.apm.compatible ? "APM 0.33.0 supports reviewed installations." : "This APM version is not qualified.";
+      inventory.apm.version = "0.35.0";
+      inventory.apm.message = inventory.apm.compatible ? "APM provides the required install options." : "APM install is missing required options: --no-trust-bin. Browsing remains available.";
     },
     readSkillDetail: async (id: string) =>
       `Read-only instructions for ${id}.`,

@@ -1,0 +1,68 @@
+name: APM compatibility
+
+on:
+  schedule:
+    - cron: '23 7 * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/apm-compatibility.yml'
+      - 'apps/desktop/electron/skillInstall.ts'
+      - 'apps/desktop/tests/skillApm*'
+
+permissions:
+  contents: read
+
+jobs:
+  compatibility:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Resolve latest stable APM
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag=$(gh api repos/microsoft/apm/releases/latest --jq .tag_name)
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Testing APM $tag on $RUNNER_OS" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/checkout@v4
+        with:
+          repository: microsoft/apm
+          ref: ${{ steps.release.outputs.tag }}
+          path: .apm-compatibility-source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install uv
+      - name: Qualify workspace and isolated personal contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C .apm-compatibility-source rev-parse HEAD >> "$GITHUB_STEP_SUMMARY"
+          uv run --project .apm-compatibility-source --no-dev python apps/desktop/tests/skillApmQualification.py
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.24.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+        working-directory: apps/desktop
+      - name: Qualify actual desktop installer service
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ORKWORKS_APM_QUALIFICATION="$GITHUB_WORKSPACE/.apm-compatibility-source/.venv/bin/apm"
+          node --experimental-strip-types --test apps/desktop/tests/skillApm.integration.test.ts

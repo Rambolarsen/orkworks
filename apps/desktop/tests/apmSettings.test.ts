@@ -6,11 +6,22 @@ import { tmpdir } from "node:os";
 import * as apm from "../electron/skillInstall.ts";
 import { normalizeSettings, readSettings, writeSettings } from "../electron/settingsMemory.ts";
 
+const installHelp = "  --target TEXT\n  --only [apm|mcp]\n  --dry-run\n  --global\n  --trust-bin / --no-trust-bin\n";
+function executableScript(version: string, help = installHelp, failHelp = false) {
+  return `#!/bin/sh
+case "$*" in
+  --version) printf '%s\\n' 'Agent Package Manager (APM) CLI version ${version} (fixture)' ;;
+  'install --help') ${failHelp ? 'exit 2' : `printf '%s' '${help}'`} ;;
+  *) exit 2 ;;
+esac
+`;
+}
+
 test("explicit APM selection wins over PATH and an invalid selection never falls back", async t => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "apm-selection-")));
   t.after(() => rm(root, { recursive: true, force: true }));
   for (const name of ["apm", "custom apm"]) {
-    await writeFile(join(root, name), "#!/bin/sh\nprintf 'Agent Package Manager (APM) CLI version 0.33.0 (fixture)\\n'\n");
+    await writeFile(join(root, name), executableScript("0.35.0"));
     await chmod(join(root, name), 0o755);
   }
   const env = { PATH: root };
@@ -21,9 +32,9 @@ test("explicit APM selection wins over PATH and an invalid selection never falls
   assert.equal(await apm.findApm(env, null), join(root, "apm"));
   const status = await apm.inspectApm(env, join(root, "custom apm"));
   assert.equal(status.path, join(root, "custom apm"));
-  assert.equal(status.version, "0.33.0");
+  assert.equal(status.version, "0.35.0");
   assert.equal(status.compatible, true);
-  await writeFile(join(root, "custom apm"), "#!/bin/sh\nprintf 'CLI version 0.34.0\\n'\n");
+  await writeFile(join(root, "custom apm"), executableScript("0.35.0", installHelp.replace("  --global\n", "")));
   assert.equal((await apm.inspectApm(env, join(root, "custom apm"))).compatible, false);
   const missing = await apm.inspectApm(env, join(root, "missing"));
   assert.equal(missing.available, false);
@@ -40,4 +51,23 @@ test("APM settings default to automatic detection and persist without replacing 
   writeSettings(root, settings);
   assert.equal(readSettings(root).apmExecutablePath, "/custom/apm");
   assert.equal(readSettings(root).untouched, "retained");
+});
+
+test("APM admission follows capabilities across versions and reports missing options", async t => {
+  const root = await mkdtemp(join(tmpdir(), "apm-capabilities-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const file = join(root, "apm");
+  await writeFile(file, executableScript("99.0.0"));
+  await chmod(file, 0o755);
+  assert.equal((await apm.inspectApm({ PATH: root }, file)).compatible, true);
+  for (const flag of ["--target", "--only", "--dry-run", "--global", "--no-trust-bin"]) {
+    await writeFile(file, executableScript("0.33.0", installHelp.replace(flag, flag + "-other")));
+    const status = await apm.inspectApm({ PATH: root }, file);
+    assert.equal(status.compatible, false, flag);
+    assert.ok(status.message.includes(flag), status.message);
+  }
+  await writeFile(file, executableScript("0.35.0", installHelp, true));
+  const failed = await apm.inspectApm({ PATH: root }, file);
+  assert.equal(failed.compatible, false);
+  assert.match(failed.message, /capabilit.*could not be checked/i);
 });

@@ -190,11 +190,22 @@ requiring those additional mutations are blocked in the initial UI and explained
 with the terminal fallback. A trusted lifecycle script is still executable work;
 never assume its absence because no new trust prompt was shown.
 
-The implementation must qualify an APM version/operation profile with disposable
-fixtures, including personal destinations and pre-existing manifests. CLI help
-alone is not qualification. If APM cannot safely provide the proposed reviewed
-operation for a package/profile, that operation remains unavailable. Preview
-incompleteness must not turn into a false safety or reproducibility guarantee.
+Compatibility follows the operation contract rather than an exact CLI version
+allowlist (owner approved 2026-11-02; [ADR 0105](../docs/adr/0105-apm-capability-compatibility.md)).
+Status and preview share a bounded version/help probe. Version is informational;
+reviewed adds require install options --target, --only, --dry-run, --no-trust-bin
+and --global. Missing options or failed probes disable reviewed installation
+with a specific reason. Existing source, manifest, policy, destination, drift,
+confirmation and platform restrictions remain binding.
+
+CLI help is capability discovery, not behavioral qualification. Disposable real
+APM fixtures exercise workspace/personal destinations, pre-existing manifests and
+preview behavior in scheduled/manual CI against latest stable APM and relevant
+pull requests. Runtime checks perform no test installs. New versions with the
+required capabilities can operate without an OrkWorks release; this accepts the
+risk of semantic changes between automated checks. CI failures require
+investigation, not automatic remote policy changes. Preview incompleteness must
+not become a false safety or reproducibility guarantee.
 
 ## Architecture and recovery
 
