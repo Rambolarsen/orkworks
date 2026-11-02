@@ -3,8 +3,8 @@ type: Design
 title: Selective Rust CodeQL scanning
 description: Proposed Rust scan routing with unchanged security queries and a staged default-to-advanced cutover.
 tags: [ci, codeql, security, performance]
-status: draft
-workflow_status: approved
+status: stable
+workflow_status: activated
 ---
 
 # Selective Rust CodeQL scanning
@@ -104,3 +104,11 @@ forecast neither billing nor a percentage saving from the supplied usage window.
 Product CI, manual review policy, AI security-findings quotas, paid runners and
 existing Rust extraction defects are outside this change. The
 [implementation plan](../plans/2026-11-02-codeql-scan-routing.md) owns delivery checks.
+
+## Delivered evidence
+
+Staged workflow implementation landed in PR #1313. The
+[qualification report](../../validation/2026-11-02-codeql-qualification.md)
+records full source/query/finding comparisons, real routing/cancellation checks,
+activation and remaining limitations. Managed default setup is disabled and the
+owned publisher is active. Product CI and reviewer policies are unchanged.
