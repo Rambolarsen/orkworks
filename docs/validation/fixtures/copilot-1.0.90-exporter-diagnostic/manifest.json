@@ -17,16 +17,20 @@
       "sha256": "1b80abcb90ac7645be92cb90d6b39cb89be34b47a8f63594d485c43d80a8aced"
     },
     "index.md": {
-      "bytes": 693,
-      "sha256": "38c6f1b37e876498ea143b293c2c45c72ed091625e580da2eaf19f6180aeabf3"
+      "bytes": 933,
+      "sha256": "03732629ad7e3a7fa221b79e05e21924f2a774b27b8ec78476ed3a8fc2721c18"
+    },
+    "observe-diagnostic.prepared.py": {
+      "bytes": 19704,
+      "sha256": "46ee376ce3aa6691b7cb5c7fac66fab31f129b946f5c89b49f2db68fa1e5e4f8"
     },
     "observe-diagnostic.py": {
       "bytes": 19579,
       "sha256": "5cc40a1083d54e3f223aca73211064a64b2db9de55bafc7827f413eccf6c52f0"
     },
     "observer-binding.json": {
-      "bytes": 361,
-      "sha256": "85bfb4c89fa24e255ca371a232286425f0d539cd330a97adf183a029b97ea2e4"
+      "bytes": 642,
+      "sha256": "041569c0edf0d9c1373893badb0a4acf74789c2e001e98e3825e0a05573ceb0e"
     },
     "outside.txt": {
       "bytes": 37,
@@ -48,9 +52,13 @@
       "bytes": 4229,
       "sha256": "0cd54f2a8ca5ee1638381dbc9c6f02052c936d1f1649c373de8672b2c744561b"
     },
-    "test-observer.py": {
+    "test-observer.executed.py": {
       "bytes": 9080,
       "sha256": "0e571b333d68e81fb592efdf5cae9855b624e68a3f81137d3e81d6512cb79ad9"
+    },
+    "test-observer.py": {
+      "bytes": 9723,
+      "sha256": "fe3eee3adefb4100f2f7aad712738cfcd303226e8105b847cf68dac5e7edd377"
     }
   }
 }

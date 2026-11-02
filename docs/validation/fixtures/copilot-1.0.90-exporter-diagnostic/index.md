@@ -8,3 +8,7 @@ historical authority, executed observer, tests, runtime identity and sanitized
 receipt. Outside/symlink compatibility fixtures were not intentional model
 targets. No raw exporter, native-history, assistant/reasoning or result body is
 retained. Historical receipts grant no further attempt.
+
+The observer binding distinguishes the unchanged executed source from a separate
+prepared final-output-size correction. Its nine-case test suite and the original
+seven-case executed-source suite are model-free; neither grants another run.

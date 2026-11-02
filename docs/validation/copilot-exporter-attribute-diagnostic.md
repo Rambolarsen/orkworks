@@ -91,7 +91,9 @@ The [packet manifest](fixtures/copilot-1.0.90-exporter-diagnostic/manifest.json)
 binds exact inputs/settings, configuration, historical authority, runtime
 identity and [sanitized receipt](fixtures/copilot-1.0.90-exporter-diagnostic/summary.json).
 The [observer binding](fixtures/copilot-1.0.90-exporter-diagnostic/observer-binding.json)
-identifies the exact source used; it has not been modified after the run.
+identifies observe-diagnostic.py as the exact source used; it has not been
+modified after the run. A separate observe-diagnostic.prepared.py contains the
+post-review final-output-size correction and has not run against Copilot.
 
 The lexical projector decodes permitted metadata and own view start arguments,
 skips native result/error/assistant/reasoning bodies, and raises at the first
@@ -109,6 +111,24 @@ live attempt; all seven pass. Installation identities and native invocations
 are synthetic in these checks; fixture/Git/projection/cleanup behavior is real.
 Fresh written review confirmed the corrected boundary before exact approval.
 These checks establish observer behavior, not native permission enforcement.
+
+## Final-output measurement limitation
+
+Copilot review identified a final-size-check gap in the executed observer. Its
+stdout/stderr ceiling was checked only while the process was running. A process
+that exited before the first poll or wrote after the last poll could bypass that
+ceiling before diagnostic completion. The recorded attempt stopped at the
+attribute guard and was never classified complete. No final stdout/stderr size
+receipt was retained, so this report does not establish whether either raw
+stream exceeded its limit. The source gap is not evidence that overflow occurred.
+
+The exact executed observer and its original seven-test suite are preserved.
+A separately bound prepared revision checks both final stdout and stderr sizes
+before final measurement/classification. Two early-exit regressions reproduced
+the stdout false-completion and missing stderr-size check (RED); all nine tests
+now pass (GREEN). The original seven also pass against the unchanged executed
+source. These are model-free corrections; no new native call ran or is authorized.
+Retained-artifact bounds do not certify every transient raw-file byte bound.
 
 ## Retention and handoff
 

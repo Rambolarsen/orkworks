@@ -14,7 +14,7 @@ import uuid
 
 HERE = Path(__file__).resolve().parent
 CONFIG = json.loads((HERE / "configuration.json").read_text())
-OBSERVER = runpy.run_path(str(HERE / "observe-diagnostic.py"), run_name="observer_under_test")
+OBSERVER = runpy.run_path(str(HERE / "observe-diagnostic.prepared.py"), run_name="observer_under_test")
 PRIVATE = "PRIVATE_SYNTHETIC_REASONING_DO_NOT_RETAIN"
 
 def ident(n):
@@ -91,7 +91,8 @@ class ObserverBoundaryTests(unittest.TestCase):
                             value = json.dumps(spans[0]["attributes"]["gen_ai.output.messages"])
                             encoded = encoded.replace('"gen_ai.output.messages": '+value, '"gen_ai.output.messages": invalid-private-value', 1)
                         Path(kwargs["env"]["COPILOT_OTEL_FILE_EXPORTER_PATH"]).write_text(encoded)
-                    kwargs["stdout"].write(b"synthetic outcome\n")
+                    kwargs["stdout"].write(b"x"*131073 if variant == "oversized-stdout" else b"synthetic outcome\n")
+                    if variant == "oversized-stderr": kwargs["stderr"].write(b"x"*131073)
                 def poll(self): return 0
             def launch(argv, **kwargs):
                 return FakeNative(argv, **kwargs) if argv[0] == CONFIG["nativePath"] else real_popen(argv, **kwargs)
@@ -124,6 +125,16 @@ class ObserverBoundaryTests(unittest.TestCase):
 
     def test_arbitrary_authorization_fields_are_not_retained(self):
         self.assertTrue(self.run_case("extra-auth")["batchComplete"])
+
+    def test_early_exit_with_oversized_stdout_is_inconclusive(self):
+        result = self.run_case("oversized-stdout")
+        self.assertFalse(result["batchComplete"])
+        self.assertEqual(result["stopReason"], "Final raw output overflow")
+
+    def test_early_exit_with_oversized_stderr_is_inconclusive(self):
+        result = self.run_case("oversized-stderr")
+        self.assertFalse(result["batchComplete"])
+        self.assertEqual(result["stopReason"], "Final raw output overflow")
 
     def test_missing_telemetry_is_inconclusive(self):
         self.assertFalse(self.run_case("missing-telemetry")["batchComplete"])

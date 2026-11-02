@@ -133,3 +133,11 @@ source binding. Seven model-free tests, all 13 artifact hashes, executed-source
 identity, docs metadata/index checks, 776 fixtures and the docs build pass.
 Existing circular/large-chunk build warnings are unrelated to this docs-only
 diff. Raw data is deleted and the name receipt cannot independently be rechecked.
+
+Copilot review disposition: the executed observer lacked a final stdout/stderr
+size check for an early-exiting process. Preserve its source and original seven
+model-free tests, disclose that raw final sizes were not measured in the actual
+stopped attempt, and bind a separate prepared revision with the final checks.
+Two regressions were RED then GREEN; all nine prepared-revision tests and all
+seven preserved-source tests pass. No actual overflow is inferred and no new
+native attempt is authorized.
