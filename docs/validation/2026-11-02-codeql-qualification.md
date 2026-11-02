@@ -3,8 +3,8 @@ type: Validation Report
 title: Selective Rust CodeQL qualification
 description: Retained source, coverage and scan-routing evidence for the approved CodeQL publisher migration.
 tags: [ci, codeql, security, validation]
-status: draft
-workflow_status: qualifying
+status: stable
+workflow_status: activated
 ---
 
 # Selective Rust CodeQL qualification
@@ -50,11 +50,36 @@ their configured versions. The final Codex review of the staged code was clean.
 
 ## Main and repeated qualification
 
-Full-source comparison is in progress at the immutable merged staging commit:
+Full-source comparison passed at the immutable merged staging commit:
 
 - Owned main run: [41477528118](https://github.com/Rambolarsen/orkworks/actions/runs/41477528118).
 - Managed main run: [41477525339](https://github.com/Rambolarsen/orkworks/actions/runs/41477525339).
 - Forced-full manual repeat: [41477677099](https://github.com/Rambolarsen/orkworks/actions/runs/41477677099), on the frozen qualification branch at the same commit.
+
+All three full runs used the same source commit and CodeQL 2.27.3/query-pack
+versions. Individual findings matched after resolving standard SARIF defaults:
+rule default severity when `result.level` is omitted, and `startLine` when
+`endLine` is omitted. Messages, primary file/region and duplicate findings were
+retained in the comparison; no findings were filtered. These are serialization
+defaults in [SARIF 2.1.0](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html),
+not severity or location changes.
+
+| Language | Managed findings | Owned main | Manual repeat | Extracted-file locations in both owned full runs |
+| --- | ---: | ---: | ---: | ---: |
+| Actions | 0 | 0 | 0 | 10 |
+| C/C++ | 0 | 0 | 0 | 2 |
+| JavaScript/TypeScript | 26 | 26 | 26 | 404 |
+| Python | 0 | 0 | 0 | 57 |
+| Rust | 13 | 13 | 13 | 197 |
+
+The successful-file location sets and extraction-warning/error diagnostics match
+between the owned full scans. Managed full Rust logs match the same 196 successful
+files, one error file and existing `runtime.rs:2150:9` macro warning.
+
+Rust job runtimes were 476 seconds managed, 318 seconds owned main and 303 seconds
+on the manual repeat. These observations do not establish a per-scan speedup:
+runner/cache/load conditions differ. Routing avoids the Rust job entirely for
+qualifying unrelated changes; actual aggregate savings depend on change mix.
 
 ## Hosted unrelated-change routing
 
@@ -62,12 +87,51 @@ The prose-only [PR #1316](https://github.com/Rambolarsen/orkworks/pull/1316)
 triggered owned run
 [41478156533, attempt 1](https://github.com/Rambolarsen/orkworks/actions/runs/41478156533/attempts/1).
 Routing and all four non-Rust jobs passed. No Rust analysis job was created.
-The diff consists only of this report and its Markdown directory index. Managed
+The diff consists only of this report and its Markdown directory index.
+A bounded rerun of that PR scan (attempt 2) was cancelled by the newer commit
+`9e572042cd5143033a05022237dff600344de0a9`. The replacement owned run
+[41478724182](https://github.com/Rambolarsen/orkworks/actions/runs/41478724182)
+passed its routing job and four non-Rust jobs. The main and manual full scans
+were not cancelled by these PR updates. Managed
 scanning still runs separately during qualification; it has not been disabled.
 
 ## Activation state
 
-Not activated. Default setup remains configured. Main/repeated coverage,
-query/finding comparison, a real prose-only routing check, cancellation evidence
-and the full publisher cutover/restore checks remain required. No billing saving
-or lower per-scan runtime is claimed from PR timings.
+Activated after successful qualification. Managed default setup is
+`not-configured`; `CODEQL_ADVANCED_UPLOAD=true` enables the owned publisher.
+The first full publishing run
+[41479654105](https://github.com/Rambolarsen/orkworks/actions/runs/41479654105)
+passed all five jobs on main at the exact qualified commit. Its published
+SARIF matches the immutable managed baseline's source tree, CodeQL/query-pack
+versions and individual findings across all five languages. Successful-file
+locations and extraction diagnostics remain unchanged. The new publisher was
+never used as its own comparison baseline.
+
+All existing `/language:actions`, `/language:c-cpp`,
+`/language:javascript-typescript`, `/language:python`, and `/language:rust`
+categories received successful owned uploads. All 27 previously open alert
+identities were retained, with no additional or missing open identities at the
+cutover check. No historical analyses or alerts were deleted.
+
+A concurrent Rust source change at
+`81322cc57c9f63de4778b42c0cd5bcf6d15efe29` triggered all five owned jobs in
+[41479894475](https://github.com/Rambolarsen/orkworks/actions/runs/41479894475),
+where all five jobs passed, confirming positive routing for a real Rust change.
+It is a separate source
+revision and was not substituted for the frozen activation comparison.
+
+## Recovery and remaining limits
+
+The pre-cutover configuration and SARIF were captured before mutation. Disabling
+managed setup retained its languages, default suite, remote threat model and
+standard runner settings, as confirmed by the subsequent GET. Recovery is to
+set `CODEQL_ADVANCED_UPLOAD=false`, restore managed setup with `state=configured`
+and the recorded settings, then verify a new full managed scan. Do not leave both
+publishers enabled or delete historical results during recovery. The authenticated
+path successfully changed both relevant settings during cutover; restoration was
+not needed and a production rollback drill was not performed.
+
+Artifacts retain SARIF, CLI/query-pack versions, source SHA and database metadata
+for seven days. The baseline macro-expansion limitation remains unchanged. The
+independent AI security-findings quota failure is outside this migration. Neither
+future billing nor an aggregate percentage saving is inferred from these runs.

@@ -4,7 +4,7 @@ title: Qualify selective Rust CodeQL scanning
 description: Bounded implementation, comparison and reversible activation of the proposed CodeQL routing design.
 tags: [ci, codeql, security, implementation]
 status: draft
-workflow_status: implementing
+workflow_status: activated
 ---
 
 # Qualify selective Rust CodeQL scanning
@@ -33,40 +33,43 @@ implemented. Keep the selector narrowly responsible for choosing whether Rust
 joins the fixed four-language matrix. Consume complete changed paths plus a
 forced-full indicator; emit the matrix and a bounded routing reason.
 
-- [ ] Capture current default-setup settings, per-language analysis categories,
+- [x] Capture current default-setup settings, per-language analysis categories,
   effective versions and exact-SHA source identities. Locate the existing Rust
   extraction error and retain the diagnostic as a baseline limitation.
-- [ ] Write failing routing cases for renderer/prose-only skips; Rust/Cargo,
+- [x] Write failing routing cases for renderer/prose-only skips; Rust/Cargo,
   new crates, bundled knowledge, external includes, shared fixtures and workflow
   edits; additions/deletions/renames; unknown/empty/truncated inventories; and
   initial pushes, schedules, manual runs and immutable main-push comparisons.
-- [ ] Implement the conservative allowlist with Rust inputs taking precedence.
+- [x] Implement the conservative allowlist with Rust inputs taking precedence.
   Unknown inputs run Rust. Validate against actual external Rust includes and
   pin cumulative PR-diff behavior. Use existing change-detection tools where
   sufficient; no custom GitHub client or persistent cache service.
-- [ ] Implement the five-language workflow with explicit no-upload staging,
+- [x] Implement the five-language workflow with explicit no-upload staging,
   least permissions, same-repository PRs and PR-only cancellation. Keep all
   source/query scope, categories and other-language behavior from the design.
-- [ ] Run routing tests, workflow linting, docs checks/build, repository checks
+- [x] Run routing tests, workflow linting, docs checks/build, repository checks
   appropriate to the diff, and a current-diff review. Verify no publishing or
   default-setup setting has changed.
 
 ### 2. Qualify, then activate or restore
 
-- [ ] While managed scanning remains active, run the staged workflow and compare
+- [x] While managed scanning remains active, run the staged workflow and compare
   full five-language and repeated-Rust results using matching source inputs,
   CLI/query-pack versions and effective configuration. Preserve diagnostics,
   SARIF, coverage metrics and timings; do not compare only green conclusions
   or aggregate finding counts. Explain every new/missing diagnostic or finding.
-- [ ] Demonstrate real unrelated UI/prose skips, Rust/external-input scans,
+- [x] Demonstrate real unrelated UI/prose skips, Rust/external-input scans,
   cumulative PR changes, cancellation and a forced-full five-language dispatch.
   Confirm category names and upload permissions before cutover.
-- [ ] With qualification passing and owner design approval recorded, perform the
+- [x] With qualification passing and owner design approval recorded, perform the
   exact reversible cutover in the design. Confirm all five main categories upload
   successfully. On failure restore managed setup and verify its new full scan;
   leave the issue open and record the failure. Do not change required checks.
-- [ ] Publish actual runtime/skip evidence and remaining limitations, update
-  canonical guidance, complete PR lifecycle and clean up only the owned worktree.
+- [x] Record actual runtime/skip evidence and remaining limitations in the
+  qualification report and update canonical guidance.
+
+Final evidence-PR merge and owned-worktree cleanup follow repository policy;
+issue #1312 records that close-out after the checks pass.
 
 ## Risk review
 
@@ -111,3 +114,10 @@ once; revisit only material changes to scope, risks or acceptance criteria.
   `javascript`) differ from matrix language names. Fixed evidence capture to
   consume CodeQL's `db-locations` output. The actual workflow shell step failed
   against alias fixtures before the correction and passes afterward.
+- Hosted PR staging and full main/manual comparisons passed for all five
+  languages at matching source/tool/query versions. Prose-only routing omitted
+  Rust, and a newer PR commit cancelled the bounded rerun of the older run.
+- Activated with managed setup disabled and owned upload enabled. Full publishing
+  run 41479654105 passed; five categories uploaded; all 27 open alert identities
+  were retained. The qualification report records remaining extraction and live
+  rollback-drill limits. Final evidence PR closes the issue after its checks pass.
