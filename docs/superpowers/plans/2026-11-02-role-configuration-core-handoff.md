@@ -3,8 +3,8 @@ type: Component Handoff Plan
 title: Role configuration core review and handoff
 description: Complete the existing #741 written contract review without new probes, storage design or runtime implementation.
 tags: [plans, roles, configuration, review]
-status: draft
-workflow_status: active
+status: stable
+workflow_status: core-accepted
 ---
 
 # Role configuration core review and handoff
@@ -34,6 +34,10 @@ version routing, no source/runtime file edits. Docs-only work needs no TDD or
 product test suite. Existing component fixtures/build and fresh written review
 provide validation of this documentation surface, not runtime qualification.
 
-Review disposition: Ready for owner acceptance after a fresh read-only
-builder/consistency pass found no material blocker. Broader core acceptance remains pending until the
-owner has reviewed this concrete brief; prior scoped decisions remain valid.
+Review disposition: fresh written review found no material blocker; the owner
+accepted the concrete logical core/defaults in source
+`8759dded4fa312bb06110f98211684fa0e873ab1` with “keep going” after the exact
+acceptance question. This record/handoff is executed in the same PR. Existing
+schema bodies/domains/defaults, prior technical decisions and runtime/native/
+storage gates are unchanged. No code or probe is authorized. Final CI/review/
+merge and issue synchronization finish the written-specification work.

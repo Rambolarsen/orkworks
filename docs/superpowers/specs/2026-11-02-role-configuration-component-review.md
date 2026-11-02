@@ -3,8 +3,8 @@ type: Component Review
 title: Role configuration component review
 description: Decision-ready review of the existing immutable role configuration contract after the finite Copilot research handoff.
 tags: [roles, configuration, review, orchestration]
-status: draft
-workflow_status: awaiting-owner-acceptance
+status: stable
+workflow_status: core-accepted
 ---
 
 # Role configuration component review
@@ -13,12 +13,12 @@ workflow_status: awaiting-owner-acceptance
 
 #741 is a specification issue. Its logical core is already written in the
 [canonical role contract](2026-10-04-agent-role-configuration-design.md).
-This brief puts that existing core and its existing defaults up for owner
-acceptance, with the approved [native-guardrails interpretation](2026-11-02-native-role-guardrails-design.md).
+The owner accepted that existing core and its existing defaults, with the approved [native-guardrails interpretation](2026-11-02-native-role-guardrails-design.md).
 It does not ask for another capability probe, storage architecture or runtime
-launch approval. Broader component acceptance is currently pending.
+launch approval. The core acceptance is recorded below; independent technical
+qualification and executable implementation remain gated.
 
-Accepting the core would approve these design choices for a separately scoped
+Acceptance approves these design choices for a separately scoped
 implementation/qualification plan:
 
 1. **Freeze what the agent is asked to do.** Keep role/template, repository rules,
@@ -133,11 +133,19 @@ producer or native qualification gap after its reviewed core handoff is complete
 
 ## Finite handoff and approval boundary
 
-After written consistency review, the next decision is owner acceptance or a
-specific revision of this core. That is one decision, not another research loop.
-If accepted, record it against the reviewed source in this same PR, update #741's
-written-coverage disposition and complete the specification handoff. No acceptance
-is inferred from merging a proposal or from asking to prepare this review.
+The owner accepted this logical core with “keep going” in response to the exact
+acceptance question for draft PR #1298. Reviewed source:
+`8759dded4fa312bb06110f98211684fa0e873ab1`. This includes the five choices above,
+existing logical bounds, written graph-skill/bootstrap requirements and unchanged
+version routing. It permits separately scoped planning, not runtime code, storage
+changes, probes or a production adapter. The owner also authorized up to thirty
+minutes after the reply for recording acceptance and completing this PR's CI,
+review/merge and specification close-out (start 2026-11-02T06:56:04Z).
+
+The decision resolves #741's outstanding written-core acceptance. Prior
+technical amendments are not broadened, and no new producer/source/storage or
+native guarantee is approved. The acceptance record and issue handoff complete
+this specification; no further general research loop is required.
 
 The next code-sized unit can be an isolated data-only configuration validator/
 canonical renderer with deterministic fixtures and explicit version coverage.
@@ -154,6 +162,6 @@ logical core, and no runtime grant follows from that acceptance.
 A fresh read-only builder/consistency review found no material blocker or missing
 core decision. It confirmed the practical-risk boundary, all written criteria,
 empty current production-role set, preserved version routing and separate
-implementation/qualification gates. The review does not substitute for owner
-acceptance. Docs metadata/index/build and 776 component tests pass; source/runtime
+implementation/qualification gates. The subsequent owner acceptance is recorded above; it is not inferred from
+the builder review or a proposal merge. Docs metadata/index/build and 776 component tests pass; source/runtime
 files, old field definitions/digest domains and numeric defaults are unchanged.

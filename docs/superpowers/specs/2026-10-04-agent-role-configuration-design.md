@@ -7,7 +7,7 @@ tags: ["orkworks", "design"]
 
 # Agent role configuration and coding-tool permissions
 
-- Status: broader component contract proposed; scoped #744 technical amendments accepted 2026-10-24, qualification/runtime gates open
+- Status: logical role/configuration core accepted 2026-11-02; scoped #744 technical amendments accepted 2026-10-24; producer/storage/native/runtime gates remain open
 - Date: 2026-10-04
 - Tracking: [#741](https://github.com/Rambolarsen/orkworks/issues/741)
 - Product direction: [Agent hierarchy and configuration learning](2026-10-04-agent-hierarchy-and-configuration-learning-design.md)
@@ -23,7 +23,10 @@ amendments in the
 following PR #1019. This supersedes pending-owner wording only for those named
 amendments. Broader #741 role/configuration choices, profile evidence, native/
 storage/consumer qualification and executable implementation approval remain
-separate gates. SQLite mechanism/limits and runtime work are not accepted here.
+separate gates. SQLite mechanism/limits and runtime work are not accepted here. The later
+[logical core acceptance](#component-review-after-740-close-out--2026-11-02)
+resolves the core component decision only; it does not expand this technical
+acceptance into independent qualification or runtime approval.
 
 ## Practical assurance amendment — 2026-11-02
 
@@ -42,12 +45,23 @@ No wire field/digest, storage contract or runtime implementation changes here.
 #740 completed its bounded research in PR #1290 with partial practical evidence:
 an allowed read was observed, native write-denial was not observed, and no
 production role adapter was enabled. It is no longer a deferred research task.
-The [component review brief](2026-11-02-role-configuration-component-review.md)
-maps the written core contract and finite next handoff for owner review. It
-requests acceptance only of that logical core and existing defaults; separate
-source/storage/producer/native qualification and runtime authority remain gated.
-The broader component acceptance is pending, not inferred from #740 closure or
-the owner's earlier scoped technical/guardrail decisions.
+The owner accepted the existing logical core and defaults summarized in the
+[component review brief](2026-11-02-role-configuration-component-review.md)
+with “keep going” after the exact acceptance question for draft PR #1298.
+Reviewed source: `8759dded4fa312bb06110f98211684fa0e873ab1`. Scope: immutable
+configuration/content/digest records, deterministic composition, six role
+ceilings and mandatory skills, native guardrails with visible instruction-only
+limits, model/approval/drift, finite logical bounds, retirement and ordinary-
+session compatibility. The separate bootstrap/plan binding is part of the written
+core; this does not establish its actual native delivery or continuation.
+
+This supersedes earlier pending-owner/keep-#741-open wording only for the core
+written specification and its handoff. Prior typed/output/reporting technical
+amendments retain their own accepted scope and version routing. Independent
+producer/source/storage/native qualification and executable implementation
+approval remain separate. No field, canonical domain, bound or runtime source
+is changed by recording this acceptance. The empty supported production-role set
+and partial Copilot evidence are preserved. No new probe authority is created.
 
 ## Scope and status
 
@@ -56,13 +70,14 @@ role instructions, task inputs, skills, rubric, coding tool/model, and effective
 coding-tool permissions. Configuration is immutable once approved. Evidence
 about delivery, usage, and outcomes lives in separate records.
 
-This is a proposed component contract, not an implemented API or a declaration
+This is an accepted logical core contract, not an implemented API or a declaration
 that a coding tool is eligible. The authoritative ordinary-child scope is aligned
 under accepted ADR 0077 and PR #747; #610 remains open for gated runtime work.
 The capability
-register currently supplies no verified launch slice. Review of this document,
-the upstream launch scope, and a scoped execution plan is required before code.
-No accepted ADR is amended or superseded by this draft.
+register currently supplies no verified launch slice. The core written review
+and owner acceptance are complete; any code still requires its own scoped
+executable plan and the applicable upstream/qualification gates. No accepted ADR
+is amended or superseded by this acceptance record.
 
 ### Current source and intended seam
 
@@ -1022,16 +1037,20 @@ versioned configuration plus independently assessed outcomes. UI #746 consumes
 bounded descriptors, permission reasons, and actual delivery/evaluation evidence;
 it never grants permissions or decides adapter eligibility.
 
-This draft supplies the contract for their written review. It does not mark
-those consumers reviewed or implemented. #610's authoritative scope/ADR
-alignment is accepted in PR #747. Before a runtime plan can be written,
-review this contract and #740's
-capability evidence, and establish a verified initial role/tool/profile slice.
-The current practical assessment and disclosed limitations are research, not an
-implemented launch adapter. Preserve the required mapping/delivery and component
-review gates; do not infer a permission-free or unimplemented fallback. #740
-closes after its finite evidence classification and consumer handoff, while
-#741's broader contract/runtime prerequisites retain their own disposition.
+The logical core is reviewed and accepted for the #741 specification handoff.
+#610's ordinary-session architecture alignment remains accepted in PR #747;
+#740's final research classification is partial, with no implemented role adapter.
+Neither is a runtime launch grant. A separately scoped data-only validation/
+canonical-rendering plan can be prepared from this core without inventing a
+supported native launch. An actual launch integration additionally requires
+correct adapter mapping/delivery, #742/#610 authority and applicable source/
+storage qualification. Preserve those specific gates rather than reopening the
+completed written core for every downstream producer task.
+
+#741's specification disposition completes through the owner-acceptance/handoff
+PR; consumer implementation and qualification retain their own issue scopes.
+No code execution, schema migration, native probe or new UI/server authority is
+authorized by accepting this document.
 
 ## Proposed exact-result reviewer timing — 2026-10-24
 
