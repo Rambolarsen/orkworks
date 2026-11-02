@@ -36,25 +36,21 @@ that earlier bar, rather than a verdict that Copilot cannot perform the work.
 | Instructions | Exact synthetic root instruction supplied in startup context | Reuse the evidenced delivery mechanism; do not claim every nested/native custom-agent route tested |
 | Selected skill content | Complete 286-byte synthetic source delivered through AGENTS wrapper, exact digest; no resources | Supplied startup content is a valid route; native loading/invocation/adherence remain unknown and are not substitutes for delivery |
 | Native tool guardrails | Hosted request receipts show view/skill/rg/glob definitions without shell/edit/connector actions in that tested configuration | Reuse exact inventory evidence for that mapping; validate any changed mapping and preserve native control limitations |
-| Ordinary file action | Positive view attempts stopped during measurement; no usable correlated result retained | Obtain one usable bounded allowed-action receipt for the smallest review candidate, or record a specific functional/measurement blocker |
+| Ordinary file action | [Final practical case](copilot-practical-research-handoff.md) observed a successful correlated owned-file view with its marker; no edit attempt/result was collected | Allowed read established; native write-denial explicitly unverified. Final finite batch exhausted, no retry or new diagnostic chain |
 | Paths/commands/network | Native help/settings expose candidate controls; ordinary same-user access and tool composition can exceed intended scope | Apply available controls and disclose instruction-only limits; no universal filesystem/argv/environment containment qualification required |
 | Skill usage / parent continuation | Discovery/delivery and usage are distinct; same-parent event behavior not established | Usage can remain unknown; continuation/resume belong to that feature under #742, not ordinary-child review qualification |
 
 ### Finite remaining work for #740
 
-1. Review this changed assurance standard and its consumer mapping. Retained
-   facts stay unchanged; replace the blanket strict-profile verdict with the
-   per-surface practical assessment above.
-2. For the exact smallest review candidate, obtain one usable allowed-action
-   observation and confirm a representative available native restriction, reusing
-   existing exact tool-inventory evidence where applicable. One separately
-   approved batch, no automatic retry chain. A specific functional or measurement
-   blocker is a valid bounded result; do not create a new indefinite exporter
-   investigation merely to explain an unknown field's contents.
-3. Publish the final coverage classification and handoff to #741 (configuration),
-   #742 (feature-specific continuation) and #743 (delivery/usage), then close this
-   bounded research issue. Shell-enabled roles and remaining feature qualification
-   get scoped follow-ups if needed; their completion is not an endless #740 gate.
+1. Assurance alignment and consumer mapping completed in #1284. Prior facts remain
+   unchanged; the current assessment is practical partial evidence.
+2. The [single final practical batch](copilot-practical-research-handoff.md)
+   completed its bounded attempt: allowed read observed, native write denial
+   unverified because no edit attempt/result was collected. This is the explicit
+   partial outcome, not a further probe prerequisite.
+3. Final review and merge of the per-surface/role classification and #741/#742/#743
+   handoff complete the research issue. Checkmarks denote research dispositions,
+   not a claim that every native control passed or that a launch adapter exists.
 
 No further call, content inspection or runtime implementation is authorized by
 this document. The completed probe budgets remain exhausted. Privacy/capture

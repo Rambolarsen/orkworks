@@ -76,3 +76,5 @@ Capability research, validation results, and evidence fixtures.
 - [Copilot view read-scope stopped probe](copilot-view-read-scope.md) — Exporter guard stop with no usable permission result.
 
 - [Copilot exporter attribute-name diagnostic](copilot-exporter-attribute-diagnostic.md) — Fixed forbidden key observed with its value and permission outcomes unknown.
+
+- [Copilot practical research handoff](copilot-practical-research-handoff.md) — Final surface/role classification: allowed read observed, native write-denial unverified.

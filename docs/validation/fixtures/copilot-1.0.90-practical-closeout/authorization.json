@@ -1,0 +1,8 @@
+{
+  "configurationSha256": "7c4ba40dc15d704b7fb15144a10f0834b26f4871d935fad1174a5897a81f85b1",
+  "ownerResponse": "go ahead",
+  "continuationResponse": "keep going",
+  "context": "Owner approval of exact final bounded batch in draft PR #1290; interruption affected static preflight only, not a live attempt",
+  "recordedAtUtc": "2026-11-02T05:40:04.657582+00:00",
+  "scope": "One network-enabled pinned Copilot process, 120 seconds/process and 300 seconds batch, two owned view/edit attempts, native shell/write/URL denial and built-in MCPs disabled. Three observed turn/usage-event stop ceilings; provider request/billing counts unknown. Existing auth, disposable native history and inspection only of expected correlated synthetic result/error fields. No OTel activation, all capture classes requested off, acknowledged managed capture/remote/provider-retention uncertainties. No retry/fallback; result or blocker goes to final #740 classification/handoff and research closure, no later probe chain."
+}

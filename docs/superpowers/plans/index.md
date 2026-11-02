@@ -261,3 +261,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Copilot exporter attribute-name diagnostic](2026-11-01-copilot-exporter-diagnostic.md) — One positive-view interaction with fixed-name-only exporter stop evidence.
 
 - [Align role research with native guardrails](2026-11-02-role-guardrails-alignment.md) — Apply the accepted boundary without more hosted probes or runtime changes.
+
+- [Final Copilot practical check and handoff](2026-11-02-copilot-practical-closeout.md) — One bounded native-history batch followed by final #740 classification.
