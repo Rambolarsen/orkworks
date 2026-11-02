@@ -269,3 +269,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [APM capability compatibility](2026-11-02-apm-capabilities.md) — Approved compatibility probe and automated behavior checks.
 
 - [Supplied role instruction validation and rendering](2026-11-02-role-instruction-bundles.md) — Proposed bounded pure module and golden-byte checks for #1303.
+
+- [Retained root-bootstrap v2 source validation](2026-11-02-root-bootstrap-v2-validation.md) — Proposed dormant Rust codec with preserved canonical bytes and strict version/source limits for #1307.
