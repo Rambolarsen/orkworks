@@ -189,7 +189,14 @@ Its opaque process-local identity epoch changes on binding/reset transitions,
 so equal native values after counter exhaustion cannot revive an old continuation.
 A committed identity changes live resume metadata only after current capability
 and ownership checks; it does not grant native attention proof. Production relay
-routing and external label/trust follow-up qualification remain separate gates.
+routing and trust follow-up qualification remain separate gates. The optional
+SQL native-label follow-up retains the publishing runtime/native context and a
+process-local refresh epoch before lookup. Invalidation, cooldown reservation and
+clear/recreation rotate that epoch independently of its legacy numeric counter.
+A typed native label changes only automatic display title/provenance, preserving
+attention/work freshness, summary and activity. A detached committed title cannot
+be published into a newer runtime or a revoked refresh. Manual and unknown title
+ownership remain protected.
 
 Attention has separate `attentionSource`, `attentionConfidence`, `attentionOrigin`,
 and `attentionUpdatedAt` fields. `metadataSource` and `metadataConfidence` describe

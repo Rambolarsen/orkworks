@@ -335,3 +335,5 @@ pub(crate) mod testing {
 }
 
 pub(crate) use native::identity::{NativeIdentityReport, SqlIdentityOutcome};
+
+pub(crate) use native::label::{NativeLabelRefresh, SqlLabelOutcome};

@@ -421,7 +421,7 @@ A controlled command consumer delivers actual PTY input while hook SQL is stalle
 This is source integration evidence, not a qualified installed SQL producer or a
 larger-history performance result.
 
-Hook-trust observations, native-label enrichment, lifecycle/input bookkeeping,
+Hook-trust observations, lifecycle/input bookkeeping,
 external events, producer coordination and version-specific eligibility remain
 prerequisites for SQL selection. Production native startup/clear gates stay closed; this optional
 backend does not select SQL or migrate a workspace.
@@ -450,9 +450,10 @@ ordinary typing and explicit user attention can continue during the SQL read.
 Publication changes live resume metadata only, preserving the newer attention
 and input state. It never acknowledges native attention proof. Lower-confidence
 or unauthorized identity changes remain ignored according to the shared reducer.
-Hook-trust telemetry and native-label lookup/persistence retain separate owners;
-this entry does not invoke their JSON metadata callbacks or qualify their SQL
-integration. Ordinary HTTP routing and producer qualification are unchanged.
+Hook-trust telemetry retains its separate owner; this entry does not invoke its
+JSON metadata callback or qualify its SQL integration. The native-label follow-up
+now uses the source-only SQL path below. Ordinary HTTP routing and producer
+qualification are unchanged.
 
 Identity and approval metadata share bounded reservations, a per-session lane,
 lease retention, claim/cancellation cutoff, guard-contention classification and
@@ -475,3 +476,40 @@ publication, and bounded expiry while projection validation is blocked. A real
 PTY receives input while an identity commit is stalled and the current identity
 can still publish afterward. This is availability evidence, not latency or
 installed-producer qualification.
+
+
+## Native label refresh persistence
+
+A current private SQL identity publication may schedule automatic-title enrichment.
+Identity publication first synchronizes the tracker’s accepted durable binding, so
+a normal observation of that same root cannot invalidate dependent lookup work.
+Before lookup it captures the exact runtime/control/creation/tracker/native identity
+epoch, capability, cancellation and refresh epoch. The existing five-second
+per-native-ID cooldown and three bounded lookup attempts are preserved. Read-only
+native lookup remains exact-ID, prefers saved name over generated title, and
+continues to ignore unavailable/missing native rows without clearing a title.
+Lookup work and SQL waits run outside terminal-critical shared guards.
+
+The SQL owner tries the legacy refresh gate rather than waiting for it under
+application guards. An opaque epoch rotates with existing generation reservation,
+invalidation and clear/recreation, so exhaustion cannot resurrect a stale lookup.
+The typed CodexLabel reducer is shared with JSON persistence: only a live active
+Codex record with matching native ID and automatic label source can change title
+and Codex provenance. Manual/unknown sources remain protected. Identical native
+title/source is a true no-op; attention, summary, activity, scoped freshness and
+unknown extensions remain independent.
+
+Before execution claim and publication, the original context, refresh epoch,
+reset block and reporting capability must still match. Writes share the bounded
+reservation/lane/lease and cancellation cutoff with identity/approval metadata.
+A caller cancelled before claim cannot write; after claim an owned task drains
+the definitive result and either publishes to the original owner or reports a
+committed-detached outcome. Busy publication can retry through a fresh checked
+read/write, including a no-op durable title. Metadata storage errors stay typed;
+a background optional enrichment logs failure and cannot undo an already accepted
+identity. No metadata JSON fallback is invoked.
+
+This source-only adapter does not select SQL in production, qualify ordinary HTTP
+producers, enable native startup/clear, migrate data or establish measured typing
+latency. Hook-trust, lifecycle/input and other external writer orchestration,
+producer qualification and migration/recovery remain prerequisites for selection.

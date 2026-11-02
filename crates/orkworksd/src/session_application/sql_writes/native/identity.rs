@@ -73,6 +73,7 @@ impl SessionWrites {
         {
             return Ok(SqlIdentityOutcome::Rejected);
         }
+        let label_cancelled = cancelled.clone();
         let capture_id = id.clone();
         let capture_token = token.clone();
         let context = match self
@@ -176,6 +177,8 @@ impl SessionWrites {
             None => record,
         };
         let publishing_id = id.clone();
+        let automatic_label = record.metadata.label_source.is_automatic();
+        let identity_metadata = record.metadata.clone();
         let resume = record.metadata.resume;
         let published = self
             .native_access(id, None, Some(completion), move |_, h, authority| {
@@ -185,7 +188,7 @@ impl SessionWrites {
                         &token,
                     )
                 {
-                    return false;
+                    return (false, None);
                 }
                 let old_root = h
                     .info
@@ -204,14 +207,33 @@ impl SessionWrites {
                     crate::codex_session_store::accept_native_label_identity(&publishing_id, root);
                 }
                 h.info.resume = resume;
-                true
+                if let Some(tracker) = h.runtime.native_approval.as_mut() {
+                    tracker.sync_identity(&identity_metadata);
+                }
+                let refresh = automatic_label
+                    .then(|| {
+                        super::label::NativeLabelRefresh::capture_after_identity(
+                            h,
+                            token,
+                            generation,
+                            label_cancelled,
+                            authority,
+                        )
+                    })
+                    .flatten();
+                (true, refresh)
             })
             .await?;
         if changed {
             self.state.updates.sessions_changed();
         }
         Ok(match published {
-            NativeAccess::Current(true) => SqlIdentityOutcome::Accepted(disposition),
+            NativeAccess::Current((true, refresh)) => {
+                if let Some(refresh) = refresh {
+                    self.schedule_native_label_refresh(refresh);
+                }
+                SqlIdentityOutcome::Accepted(disposition)
+            }
             NativeAccess::Busy => SqlIdentityOutcome::Retry,
             _ if changed => SqlIdentityOutcome::CommittedDetached,
             _ => SqlIdentityOutcome::Rejected,

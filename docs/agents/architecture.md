@@ -860,9 +860,17 @@ reset authority. Identity publication updates live resume metadata while leaving
 input and attention independent; an opaque identity epoch fences actual binding
 changes even after counter exhaustion. Identity and approval retries retain their
 original packet bytes before SQL awaits. Production relay routing remains JSON.
-Hook-trust observations, native-label enrichment, lifecycle/input bookkeeping and
-external events still need their owned integration before SQL selection; native
-eligibility gates remain unchanged.
+After a current SQL identity publishes, its automatic-title follow-up captures
+that exact runtime/native epoch and an opaque refresh reservation before any
+native lookup. The bounded read-only exact-ID Codex adapter runs outside shared
+guards; accepted names/titles use a typed SQL display-only intent and the same
+claim/publication lane. User/unknown titles stay protected, unchanged native
+titles are no-ops, and reset/replacement/capability/refresh changes reject late
+results. The legacy refresh gate is only tried under application guards, never
+awaited there; its opaque epoch also fences counter exhaustion and recreation.
+Production label/relay routing remains JSON. Hook-trust observations,
+lifecycle/input bookkeeping and external events still need their owned
+integration before SQL selection; native eligibility gates remain unchanged.
 
 The source-only Peon SQL application boundary prepares bounded writes before
 waiting for a per-session lane shared by that worker. It retains the workspace

@@ -1117,3 +1117,6 @@ async fn sql_identity_stalled_execution_keeps_real_pty_input_and_identity_public
     clear_token();
     store.close().await.unwrap();
 }
+
+#[path = "sql_label_tests.rs"]
+mod label_tests;

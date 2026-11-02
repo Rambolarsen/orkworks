@@ -188,7 +188,9 @@ impl NativeApprovalState {
         self.validated_permission = owner.snapshot();
     }
 
-    fn sync(&mut self, handle: &SessionHandle, meta: &crate::metadata::SessionMetadata) {
+    /// Reconcile an accepted durable binding before capturing dependent work.
+    /// A later observation of this same root must not rotate its identity epoch.
+    pub(crate) fn sync_identity(&mut self, meta: &crate::metadata::SessionMetadata) {
         let root = accepted_root(meta).map(str::to_owned);
         if self.root != root {
             self.root = root;
@@ -200,6 +202,10 @@ impl NativeApprovalState {
             self.last_hook_at = None;
             self.identity_changed();
         }
+    }
+
+    fn sync(&mut self, handle: &SessionHandle, meta: &crate::metadata::SessionMetadata) {
+        self.sync_identity(meta);
         if self.fence.input_revision != handle.runtime.input_generation
             || self.committed_input_sequence != handle.runtime.committed_input_sequence
             || self
