@@ -5,6 +5,7 @@ use std::sync::{Arc, Condvar, Mutex};
 struct State {
     epoch: Arc<()>,
     busy: bool,
+    integration_busy: bool,
 }
 pub(crate) struct Store {
     root: PathBuf,
@@ -25,6 +26,15 @@ pub(crate) enum Admission {
 pub(crate) struct Claim {
     owner: Arc<Store>,
 }
+/// One Settings action per owner; never an unbounded queue behind a file stall.
+pub(crate) struct IntegrationClaim {
+    owner: Arc<Store>,
+}
+impl Drop for IntegrationClaim {
+    fn drop(&mut self) {
+        self.owner.state.lock().unwrap().integration_busy = false;
+    }
+}
 impl Store {
     pub(crate) fn new(root: &Path) -> Arc<Self> {
         Arc::new(Self {
@@ -32,8 +42,23 @@ impl Store {
             state: Mutex::new(State {
                 epoch: Arc::new(()),
                 busy: false,
+                integration_busy: false,
             }),
             available: Condvar::new(),
+        })
+    }
+    pub(crate) fn read(&self) -> Option<CodexHookObservation> {
+        let data = std::fs::read_to_string(self.root.join("codex-hook-observation.json")).ok()?;
+        serde_json::from_str(&data).ok()
+    }
+    pub(crate) fn try_integration(self: &Arc<Self>) -> Option<IntegrationClaim> {
+        let mut state = self.state.lock().unwrap();
+        if state.integration_busy {
+            return None;
+        }
+        state.integration_busy = true;
+        Some(IntegrationClaim {
+            owner: self.clone(),
         })
     }
     pub(crate) fn stamp(self: &Arc<Self>) -> Stamp {

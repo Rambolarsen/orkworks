@@ -1253,6 +1253,27 @@ pub(crate) struct SessionWriteToken {
     write: crate::runtime::observed_status::AttentionWriteToken,
 }
 
+/// Narrow owned handle for workspace integration files, never session metadata.
+#[derive(Clone)]
+pub(crate) struct IntegrationMetadata {
+    root: PathBuf,
+    observations: Arc<hook_observation::Store>,
+}
+impl IntegrationMetadata {
+    pub(crate) fn root_path(&self) -> PathBuf {
+        self.root.clone()
+    }
+    pub(crate) fn read_codex_hook_observation(&self) -> Option<CodexHookObservation> {
+        self.observations.read()
+    }
+    pub(crate) fn clear_codex_hook_observation(&self) -> std::io::Result<()> {
+        self.observations.clear()
+    }
+    pub(crate) fn claim_codex_integration(&self) -> Option<hook_observation::IntegrationClaim> {
+        self.observations.try_integration()
+    }
+}
+
 pub struct MetadataStore {
     hook_observations: Arc<hook_observation::Store>,
     pub(crate) branch_documents: Arc<crate::branch_documents_store::Store>,
@@ -1277,6 +1298,13 @@ impl MetadataStore {
             summary_checkpoints: Mutex::new(HashMap::new()),
             #[cfg(test)]
             after_event_write: Mutex::new(None),
+        }
+    }
+
+    pub(crate) fn integration_metadata(&self) -> IntegrationMetadata {
+        IntegrationMetadata {
+            root: self.root.clone(),
+            observations: self.hook_observations.clone(),
         }
     }
 
@@ -1330,8 +1358,7 @@ impl MetadataStore {
     }
 
     pub fn read_codex_hook_observation(&self) -> Option<CodexHookObservation> {
-        let data = fs::read_to_string(self.codex_hook_observation_path()).ok()?;
-        serde_json::from_str(&data).ok()
+        self.hook_observations.read()
     }
 
     pub(crate) fn hook_observation_owner(&self) -> Arc<hook_observation::Store> {

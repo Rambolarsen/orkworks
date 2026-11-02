@@ -79,3 +79,24 @@ existing policies; readiness does not revoke authority.
 This amendment changes ownership and interface visibility, not observable
 behavior, failure semantics, storage or authorization. Adapter internals and
 unrelated blocking workspace readers remain outside this decision.
+
+## Amendment — owned Codex filesystem execution (2026-11-02)
+
+The approved [ordinary-session storage scheduling contract](../superpowers/specs/2026-11-01-sqlite-session-storage-design.md#interface-scheduling-and-publication)
+requires external effects to release input-critical application guards. Codex
+Settings mutation/cleanup operationalizes that contract at the same post-probe
+validation cutoff: capture one owned action under the existing checks, then run
+its adapter/configuration/observation-clear work on a blocking task outside the
+projection/workspace guards. A narrow integration-file handle retains the exact
+observation owner and the action retains the original workspace lease. Same-path
+owner/lease replacement is rejected before admission; grouped document/selection
+revision checks still apply. Bounded fail-fast admission prevents an unbounded
+queue behind a stalled clear.
+
+The accepted identity revalidation decision stands. Once admitted, an action is
+definitive and may complete on its original workspace after waiter cancellation;
+its result cannot authorize a replacement workspace. Clear failure is surfaced
+even when hook configuration already committed. This does not imply rollback.
+Other harnesses retain the synchronous prompt-revocation sequencing from the
+application-ownership amendment. Inspection and the legacy JSON observation
+writer retain their existing scheduling and need separate qualification.
