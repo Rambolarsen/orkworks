@@ -3,8 +3,8 @@ type: Implementation Plan
 title: Retained root-bootstrap v2 source validation
 description: A dormant Rust validator for the existing complete unverified root source slice, preserving canonical bytes and explicit version limits.
 tags: [plans, roles, bootstrap, codecs, validation]
-status: draft
-workflow_status: implementing
+status: stable
+workflow_status: implemented
 ---
 
 # Retained root-bootstrap v2 source validation
@@ -209,3 +209,18 @@ Total: 6/25; judgment aid, not approval threshold. Self-review: **Ready for owne
 review**. All in-scope invariants have delivery/check coverage; no missing child
 codec or native/source-custody qualification is guessed. This plan’s approval
 would authorize only the named dormant validator and reference-check corrections.
+
+
+## Implementation record
+
+The owner-approved dormant validator and narrow reference-checker corrections are
+implemented. Eighteen focused Rust interface test groups pass, including the
+unchanged complete-root golden; native byte encodings; lossless counters;
+settings/model/artifact joins; exact 1 MiB canonical bootstrap, 16 KiB run,
+256 KiB rendering and 64 KiB evidence/artifact limits; and declared output bounds.
+All 78 root JavaScript cases and 780 documentation component tests pass. The
+unchanged Python generator reproduces the original catalog byte-for-byte.
+The initial strict-wire/source and four bound regressions were observed failing
+before their corresponding implementation. Full repository verification,
+independent review and PR CI evidence are recorded with #1307's implementation PR.
+No production caller or native/source-custody/authority qualification is added.
