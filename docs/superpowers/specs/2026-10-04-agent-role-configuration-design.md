@@ -37,6 +37,18 @@ original evidence context; they are not current proof that practical roles are
 unsupported. Reassessment still needs actual delivery/configuration evidence.
 No wire field/digest, storage contract or runtime implementation changes here.
 
+## Component review after #740 close-out — 2026-11-02
+
+#740 completed its bounded research in PR #1290 with partial practical evidence:
+an allowed read was observed, native write-denial was not observed, and no
+production role adapter was enabled. It is no longer a deferred research task.
+The [component review brief](2026-11-02-role-configuration-component-review.md)
+maps the written core contract and finite next handoff for owner review. It
+requests acceptance only of that logical core and existing defaults; separate
+source/storage/producer/native qualification and runtime authority remain gated.
+The broader component acceptance is pending, not inferred from #740 closure or
+the owner's earlier scoped technical/guardrail decisions.
+
 ## Scope and status
 
 Define the configuration selected by an orchestrator for one assignment:
@@ -58,13 +70,16 @@ No accepted ADR is amended or superseded by this draft.
 | --- | --- | --- |
 | `crates/orkworksd/src/taskmaster/coordinator.rs:181` | Data-only `PlanNode` records contain role, context digest, criteria, scope, tools, and provider choices | Bind a separate versioned configuration into the approved definition; do not reinterpret existing tool lists as enforcement |
 | `crates/orkworksd/src/taskmaster/coordinator_store.rs:50,76` | `StoredPlan` and `CoordinatorStore` retain durable definitions and approval state, with no runtime authority | Persist immutable configuration snapshots with definitions and mutable delivery evidence separately |
-| `crates/orkworksd/src/session_application.rs:216` | `CreateSessionCommand` carries harness, model, initial prompt | A separately reviewed orchestration launch path consumes a validated configuration; ordinary creation remains unchanged |
+| `crates/orkworksd/src/session_application.rs:298` | `CreateSessionCommand` carries harness, model, initial prompt | A separately reviewed orchestration launch path consumes a validated configuration; ordinary creation remains unchanged |
 | `crates/orkworksd/src/harness/definition.rs:12` | Harness definition declares launch/resume/integration capabilities | Versioned adapter eligibility evidence and deterministic role/permission mapping |
 | `crates/orkworksd/src/harness/registry.rs:44` | Resolved definition and effective capabilities snapshot | Pin that definition plus executable/version/configuration evidence; registry membership alone is insufficient |
 
-These are source investigation references at branch base
-`18936e0f83d37ae9bf16ee672e961e14b646a11c`, rechecked against the current
-`origin/main`; they are not new production types. A later implementation plan
+These source seams were rechecked at
+`0d43ed6770eddc60edbe13fa74cae8accdd9ca30` for the #741 component review.
+PlanNode/StoredPlan remain data records; ordinary CreateSessionCommand has
+harness/model/prompt inputs, and registry capabilities do not implement the
+proposed RoleTemplateSnapshot/AssignmentConfiguration/CapabilityEvidenceSnapshot
+records. These are intended seams, not new production types. A later implementation plan
 must choose exact modules and wire routes after contract review.
 
 ## Configuration identity and canonical digest
@@ -664,11 +679,16 @@ instructions or access changed in place. A replacement/retry follows the baselin
 new-revision, terminal-child and quiescence gates. A prompt asking the user to
 allow a broader coding-tool action is not OrkWorks plan approval.
 
-A denied or interactive permission prompt leaves the assignment blocked under
-its current profile. If the tool lets a prompt permanently broaden its own
-policy, that control must be disabled/proven unavailable for eligibility.
-User acceptance of a result, a high score, and reported completion do not waive
-these checks or authorize additional tasks.
+A denied or interactive permission prompt leaves the managed assignment blocked
+under its current profile. Apply available native approval restrictions and
+instruct the child to stop rather than grant itself broader access. If the native
+tool can still expose a prompt that broadens policy, disclose that limitation
+before approval; do not require proving the prompt impossible under the practical
+guardrail standard. A native prompt approval is not an OrkWorks plan revision.
+Detected policy drift blocks further managed launches/coordination and requires
+user attention and a revised proposal; detection does not guarantee immediate
+native-process quiescence. Result acceptance, scores and reported completion do
+not authorize additional tasks or revise the approved configuration.
 
 ## Bounds, compatibility, and persistence
 

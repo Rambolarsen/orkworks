@@ -229,3 +229,5 @@ Dated design records; these do not establish current product behavior.
 - [SQLite session storage and bounded history](2026-11-01-sqlite-session-storage-design.md) — Accepted ordinary-session SQL authority, paged reads and recoverable producer/cutover contract; implementation pending.
 
 - [Native coding-tool role guardrails](2026-11-02-native-role-guardrails-design.md) — Owner-approved practical assurance and finite capability-research boundary.
+
+- [Role configuration component review](2026-11-02-role-configuration-component-review.md) — Decision-ready logical core/defaults and finite #741 handoff after #740 close-out.
