@@ -6,6 +6,7 @@ use crate::runtime::terminal_runtime::verify_workflow_report_token;
 pub(super) enum NativeMetadataOrigin {
     Hook(Arc<ObservationContext>),
     Identity(Arc<NativeIdentityContext>),
+    Label(Arc<super::label::NativeLabelRefresh>),
 }
 impl From<Arc<ObservationContext>> for NativeMetadataOrigin {
     fn from(context: Arc<ObservationContext>) -> Self {
@@ -26,6 +27,7 @@ impl NativeMetadataOrigin {
         match self {
             Self::Hook(context) => context.matches(h, authority),
             Self::Identity(context) => context.matches(h, authority),
+            Self::Label(context) => context.matches(h, authority),
         }
     }
 }

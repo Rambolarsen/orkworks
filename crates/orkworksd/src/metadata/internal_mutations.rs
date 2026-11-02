@@ -54,6 +54,10 @@ pub(crate) enum InternalMutation {
         timestamp: String,
         allow_codex_identity_replacement: bool,
     },
+    CodexLabel {
+        root: String,
+        label: String,
+    },
     ProviderContext(crate::providers::ProviderObservation),
     UserTitle {
         title: Option<String>,
@@ -62,6 +66,7 @@ pub(crate) enum InternalMutation {
 #[derive(Debug, Serialize)]
 pub(crate) enum Disposition {
     Applied,
+    NativeLabel { accepted: bool },
     PeonSkipped { permanent_hold: bool },
     HarnessReport(HarnessSessionMergeResult),
 }
@@ -152,6 +157,7 @@ impl InternalMutation {
                 timestamp,
                 allow_codex_identity_replacement,
             } => apply_harness_report(meta, report, timestamp, *allow_codex_identity_replacement),
+            Self::CodexLabel { root, label } => apply_codex_label(meta, root, label),
             Self::ProviderContext(provider) => {
                 apply_provider(meta, provider);
                 Ok(Decision {
@@ -706,4 +712,39 @@ pub(crate) fn apply_hook_transition(
     meta.provenance.attention_confidence = Some(1.0);
     meta.provenance.attention_origin = Some("harness_hook".into());
     true
+}
+
+/// Native titles own display metadata only; manual/unknown sources stay protected.
+pub(crate) fn apply_codex_label(
+    meta: &mut SessionMetadata,
+    root: &str,
+    label: &str,
+) -> io::Result<Decision> {
+    if label.trim().is_empty() || label.chars().any(char::is_control) || label.chars().count() > 100
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "invalid native title",
+        ));
+    }
+    let accepted = meta.harness == "codex"
+        && meta.lifecycle == "alive"
+        && meta.lifecycle_phase == "active"
+        && meta.label_source.is_automatic()
+        && meta
+            .resume
+            .as_ref()
+            .and_then(|r| r.harness_session_id.as_deref())
+            == Some(root);
+    let changed =
+        accepted && (meta.label != label || meta.label_source != super::LabelSource::Codex);
+    if changed {
+        meta.label = label.to_owned();
+        meta.label_source = super::LabelSource::Codex;
+        meta.label_from_initial_prompt = false;
+    }
+    Ok(Decision {
+        scope: changed.then_some(WriteScope::NONE),
+        disposition: Disposition::NativeLabel { accepted },
+    })
 }

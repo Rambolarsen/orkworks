@@ -3602,26 +3602,18 @@ impl SessionApplication {
                 let saved = ws
                     .metadata
                     .mutate_session_optional(id, WriteScope::NONE, |meta| {
-                        if meta.harness != "codex"
-                            || meta.lifecycle_phase != "active"
-                            || !meta.label_source.is_automatic()
-                            || meta
-                                .resume
-                                .as_ref()
-                                .and_then(|resume| resume.harness_session_id.as_deref())
-                                != Some(native_session_id)
-                        {
-                            return Ok(false);
-                        }
-                        if meta.label == label && meta.label_source == metadata::LabelSource::Codex
-                        {
-                            unchanged = true;
-                            return Ok(false);
-                        }
-                        meta.label = label.clone();
-                        meta.label_source = metadata::LabelSource::Codex;
-                        meta.label_from_initial_prompt = false;
-                        Ok(true)
+                        let decision = metadata::internal_mutations::apply_codex_label(
+                            meta,
+                            native_session_id,
+                            &label,
+                        )?;
+                        unchanged = matches!(
+                            decision.disposition,
+                            metadata::internal_mutations::Disposition::NativeLabel {
+                                accepted: true
+                            }
+                        ) && decision.scope.is_none();
+                        Ok(decision.scope.is_some())
                     });
                 if !(matches!(saved, Ok(Some(_))) || (unchanged && matches!(saved, Ok(None)))) {
                     return false;

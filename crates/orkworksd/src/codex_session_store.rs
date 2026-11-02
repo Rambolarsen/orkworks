@@ -3,8 +3,35 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
-static LABEL_REFRESH_GENERATIONS: LazyLock<Mutex<std::collections::HashMap<String, u64>>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+#[derive(Clone)]
+struct RefreshGeneration {
+    number: u64,
+    epoch: Arc<()>,
+}
+impl Default for RefreshGeneration {
+    fn default() -> Self {
+        Self {
+            number: 0,
+            epoch: Arc::new(()),
+        }
+    }
+}
+#[derive(Clone)]
+pub(crate) struct LabelRefreshToken {
+    epoch: Arc<()>,
+}
+impl LabelRefreshToken {
+    pub(crate) fn is_current(&self, id: &str) -> bool {
+        LABEL_REFRESH_GENERATIONS
+            .lock()
+            .unwrap()
+            .get(id)
+            .is_some_and(|current| Arc::ptr_eq(&current.epoch, &self.epoch))
+    }
+}
+static LABEL_REFRESH_GENERATIONS: LazyLock<
+    Mutex<std::collections::HashMap<String, RefreshGeneration>>,
+> = LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
 static LABEL_REFRESH_RESERVATIONS: LazyLock<
     Mutex<std::collections::HashMap<String, (String, std::time::Instant)>>,
 > = LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
@@ -22,8 +49,9 @@ pub(crate) fn invalidate_label_refresh_generation(session_id: &str) {
     let gate = label_refresh_gate(session_id);
     let _gate = gate.lock().unwrap();
     let mut generations = LABEL_REFRESH_GENERATIONS.lock().unwrap();
-    let generation = generations.entry(session_id.to_owned()).or_insert(0);
-    *generation = generation.saturating_add(1);
+    let generation = generations.entry(session_id.to_owned()).or_default();
+    generation.number = generation.number.saturating_add(1);
+    generation.epoch = Arc::new(());
     drop(generations);
     LABEL_REFRESH_RESERVATIONS
         .lock()
@@ -95,9 +123,10 @@ fn reserve_label_refresh_generation_at(
     }
     reservations.insert(session_id.to_owned(), (native_session_id.to_owned(), now));
     let mut generations = LABEL_REFRESH_GENERATIONS.lock().unwrap();
-    let generation = generations.entry(session_id.to_owned()).or_insert(0);
-    *generation = generation.saturating_add(1);
-    Some(*generation)
+    let generation = generations.entry(session_id.to_owned()).or_default();
+    generation.number = generation.number.saturating_add(1);
+    generation.epoch = Arc::new(());
+    Some(generation.number)
 }
 
 pub(crate) fn block_native_label_refresh(session_id: &str, native_session_id: &str) {
@@ -164,7 +193,7 @@ pub(crate) fn with_label_refresh_generation<T>(
         .lock()
         .unwrap()
         .get(session_id)
-        .copied()
+        .map(|value| value.number)
         .unwrap_or(0)
         == expected_generation;
     matches.then(operation)
@@ -674,5 +703,73 @@ mod tests {
         );
         assert_eq!(current_reservation, Some(1));
         clear_label_refresh_generation(session_id);
+    }
+}
+
+/// Called under short application guards: never wait for the legacy gate, whose
+/// JSON owner takes that gate before acquiring the workspace/session locks.
+pub(crate) fn try_reserve_native_label_refresh(id: &str, root: &str) -> Option<LabelRefreshToken> {
+    let gate = label_refresh_gate(id);
+    let _guard = gate.try_lock().ok()?;
+    reserve_label_refresh_generation_at(
+        id,
+        root,
+        std::time::Instant::now(),
+        Duration::from_secs(5),
+    )?;
+    let epoch = LABEL_REFRESH_GENERATIONS
+        .lock()
+        .unwrap()
+        .get(id)?
+        .epoch
+        .clone();
+    Some(LabelRefreshToken { epoch })
+}
+
+#[cfg(test)]
+pub(crate) fn test_lookup_label_candidate_at(
+    path: &Path,
+    root: &str,
+) -> Result<Option<CodexLabelCandidate>, CodexStoreError> {
+    lookup_label_candidate_at(path, root)
+}
+
+#[cfg(test)]
+mod sql_refresh_tests {
+    use super::*;
+    #[test]
+    fn sql_label_refresh_epoch_rejects_exhaustion_and_recreated_generations() {
+        let id = "sql-label-exhaustion";
+        clear_label_refresh_generation(id);
+        let old = try_reserve_native_label_refresh(id, "root-one").unwrap();
+        LABEL_REFRESH_GENERATIONS
+            .lock()
+            .unwrap()
+            .get_mut(id)
+            .unwrap()
+            .number = u64::MAX;
+        invalidate_label_refresh_generation(id);
+        assert!(!old.is_current(id));
+        let max = try_reserve_native_label_refresh(id, "root-one").unwrap();
+        assert!(max.is_current(id));
+        invalidate_label_refresh_generation(id);
+        assert!(!max.is_current(id));
+        let cleared = try_reserve_native_label_refresh(id, "root-one").unwrap();
+        clear_label_refresh_generation(id);
+        let new = try_reserve_native_label_refresh(id, "root-one").unwrap();
+        assert!(!cleared.is_current(id));
+        assert!(new.is_current(id));
+        assert!(try_reserve_native_label_refresh(id, "root-one").is_none());
+        clear_label_refresh_generation(id);
+    }
+    #[test]
+    fn sql_label_refresh_never_waits_for_a_legacy_gate_under_application_guards() {
+        let id = "sql-label-legacy-gate";
+        let gate = label_refresh_gate(id);
+        let held = gate.lock().unwrap();
+        assert!(try_reserve_native_label_refresh(id, "root-one").is_none());
+        drop(held);
+        assert!(try_reserve_native_label_refresh(id, "root-one").is_some());
+        clear_label_refresh_generation(id);
     }
 }

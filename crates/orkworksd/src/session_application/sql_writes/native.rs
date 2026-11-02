@@ -358,3 +358,5 @@ pub(super) mod hook;
 pub(super) mod identity;
 
 mod mutation;
+
+pub(super) mod label;
