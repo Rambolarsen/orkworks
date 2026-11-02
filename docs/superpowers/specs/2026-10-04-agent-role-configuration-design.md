@@ -7,7 +7,7 @@ tags: ["orkworks", "design"]
 
 # Agent role configuration and coding-tool permissions
 
-- Status: broader component contract proposed; scoped #744 technical amendments accepted 2026-10-24, qualification/runtime gates open
+- Status: logical role/configuration core accepted 2026-11-02; scoped #744 technical amendments accepted 2026-10-24; producer/storage/native/runtime gates remain open
 - Date: 2026-10-04
 - Tracking: [#741](https://github.com/Rambolarsen/orkworks/issues/741)
 - Product direction: [Agent hierarchy and configuration learning](2026-10-04-agent-hierarchy-and-configuration-learning-design.md)
@@ -23,7 +23,10 @@ amendments in the
 following PR #1019. This supersedes pending-owner wording only for those named
 amendments. Broader #741 role/configuration choices, profile evidence, native/
 storage/consumer qualification and executable implementation approval remain
-separate gates. SQLite mechanism/limits and runtime work are not accepted here.
+separate gates. SQLite mechanism/limits and runtime work are not accepted here. The later
+[logical core acceptance](#component-review-after-740-close-out--2026-11-02)
+resolves the core component decision only; it does not expand this technical
+acceptance into independent qualification or runtime approval.
 
 ## Practical assurance amendment — 2026-11-02
 
@@ -37,6 +40,29 @@ original evidence context; they are not current proof that practical roles are
 unsupported. Reassessment still needs actual delivery/configuration evidence.
 No wire field/digest, storage contract or runtime implementation changes here.
 
+## Component review after #740 close-out — 2026-11-02
+
+#740 completed its bounded research in PR #1290 with partial practical evidence:
+an allowed read was observed, native write-denial was not observed, and no
+production role adapter was enabled. It is no longer a deferred research task.
+The owner accepted the existing logical core and defaults summarized in the
+[component review brief](2026-11-02-role-configuration-component-review.md)
+with “keep going” after the exact acceptance question for draft PR #1298.
+Reviewed source: `8759dded4fa312bb06110f98211684fa0e873ab1`. Scope: immutable
+configuration/content/digest records, deterministic composition, six role
+ceilings and mandatory skills, native guardrails with visible instruction-only
+limits, model/approval/drift, finite logical bounds, retirement and ordinary-
+session compatibility. The separate bootstrap/plan binding is part of the written
+core; this does not establish its actual native delivery or continuation.
+
+This supersedes earlier pending-owner/keep-#741-open wording only for the core
+written specification and its handoff. Prior typed/output/reporting technical
+amendments retain their own accepted scope and version routing. Independent
+producer/source/storage/native qualification and executable implementation
+approval remain separate. No field, canonical domain, bound or runtime source
+is changed by recording this acceptance. The empty supported production-role set
+and partial Copilot evidence are preserved. No new probe authority is created.
+
 ## Scope and status
 
 Define the configuration selected by an orchestrator for one assignment:
@@ -44,13 +70,14 @@ role instructions, task inputs, skills, rubric, coding tool/model, and effective
 coding-tool permissions. Configuration is immutable once approved. Evidence
 about delivery, usage, and outcomes lives in separate records.
 
-This is a proposed component contract, not an implemented API or a declaration
+This is an accepted logical core contract, not an implemented API or a declaration
 that a coding tool is eligible. The authoritative ordinary-child scope is aligned
 under accepted ADR 0077 and PR #747; #610 remains open for gated runtime work.
 The capability
-register currently supplies no verified launch slice. Review of this document,
-the upstream launch scope, and a scoped execution plan is required before code.
-No accepted ADR is amended or superseded by this draft.
+register currently supplies no verified launch slice. The core written review
+and owner acceptance are complete; any code still requires its own scoped
+executable plan and the applicable upstream/qualification gates. No accepted ADR
+is amended or superseded by this acceptance record.
 
 ### Current source and intended seam
 
@@ -58,13 +85,16 @@ No accepted ADR is amended or superseded by this draft.
 | --- | --- | --- |
 | `crates/orkworksd/src/taskmaster/coordinator.rs:181` | Data-only `PlanNode` records contain role, context digest, criteria, scope, tools, and provider choices | Bind a separate versioned configuration into the approved definition; do not reinterpret existing tool lists as enforcement |
 | `crates/orkworksd/src/taskmaster/coordinator_store.rs:50,76` | `StoredPlan` and `CoordinatorStore` retain durable definitions and approval state, with no runtime authority | Persist immutable configuration snapshots with definitions and mutable delivery evidence separately |
-| `crates/orkworksd/src/session_application.rs:216` | `CreateSessionCommand` carries harness, model, initial prompt | A separately reviewed orchestration launch path consumes a validated configuration; ordinary creation remains unchanged |
+| `crates/orkworksd/src/session_application.rs:298` | `CreateSessionCommand` carries harness, model, initial prompt | A separately reviewed orchestration launch path consumes a validated configuration; ordinary creation remains unchanged |
 | `crates/orkworksd/src/harness/definition.rs:12` | Harness definition declares launch/resume/integration capabilities | Versioned adapter eligibility evidence and deterministic role/permission mapping |
 | `crates/orkworksd/src/harness/registry.rs:44` | Resolved definition and effective capabilities snapshot | Pin that definition plus executable/version/configuration evidence; registry membership alone is insufficient |
 
-These are source investigation references at branch base
-`18936e0f83d37ae9bf16ee672e961e14b646a11c`, rechecked against the current
-`origin/main`; they are not new production types. A later implementation plan
+These source seams were rechecked at
+`0d43ed6770eddc60edbe13fa74cae8accdd9ca30` for the #741 component review.
+PlanNode/StoredPlan remain data records; ordinary CreateSessionCommand has
+harness/model/prompt inputs, and registry capabilities do not implement the
+proposed RoleTemplateSnapshot/AssignmentConfiguration/CapabilityEvidenceSnapshot
+records. These are intended seams, not new production types. A later implementation plan
 must choose exact modules and wire routes after contract review.
 
 ## Configuration identity and canonical digest
@@ -664,11 +694,16 @@ instructions or access changed in place. A replacement/retry follows the baselin
 new-revision, terminal-child and quiescence gates. A prompt asking the user to
 allow a broader coding-tool action is not OrkWorks plan approval.
 
-A denied or interactive permission prompt leaves the assignment blocked under
-its current profile. If the tool lets a prompt permanently broaden its own
-policy, that control must be disabled/proven unavailable for eligibility.
-User acceptance of a result, a high score, and reported completion do not waive
-these checks or authorize additional tasks.
+A denied or interactive permission prompt leaves the managed assignment blocked
+under its current profile. Apply available native approval restrictions and
+instruct the child to stop rather than grant itself broader access. If the native
+tool can still expose a prompt that broadens policy, disclose that limitation
+before approval; do not require proving the prompt impossible under the practical
+guardrail standard. A native prompt approval is not an OrkWorks plan revision.
+Detected policy drift blocks further managed launches/coordination and requires
+user attention and a revised proposal; detection does not guarantee immediate
+native-process quiescence. Result acceptance, scores and reported completion do
+not authorize additional tasks or revise the approved configuration.
 
 ## Bounds, compatibility, and persistence
 
@@ -1002,16 +1037,20 @@ versioned configuration plus independently assessed outcomes. UI #746 consumes
 bounded descriptors, permission reasons, and actual delivery/evaluation evidence;
 it never grants permissions or decides adapter eligibility.
 
-This draft supplies the contract for their written review. It does not mark
-those consumers reviewed or implemented. #610's authoritative scope/ADR
-alignment is accepted in PR #747. Before a runtime plan can be written,
-review this contract and #740's
-capability evidence, and establish a verified initial role/tool/profile slice.
-The current practical assessment and disclosed limitations are research, not an
-implemented launch adapter. Preserve the required mapping/delivery and component
-review gates; do not infer a permission-free or unimplemented fallback. #740
-closes after its finite evidence classification and consumer handoff, while
-#741's broader contract/runtime prerequisites retain their own disposition.
+The logical core is reviewed and accepted for the #741 specification handoff.
+#610's ordinary-session architecture alignment remains accepted in PR #747;
+#740's final research classification is partial, with no implemented role adapter.
+Neither is a runtime launch grant. A separately scoped data-only validation/
+canonical-rendering plan can be prepared from this core without inventing a
+supported native launch. An actual launch integration additionally requires
+correct adapter mapping/delivery, #742/#610 authority and applicable source/
+storage qualification. Preserve those specific gates rather than reopening the
+completed written core for every downstream producer task.
+
+#741's specification disposition completes through the owner-acceptance/handoff
+PR; consumer implementation and qualification retain their own issue scopes.
+No code execution, schema migration, native probe or new UI/server authority is
+authorized by accepting this document.
 
 ## Proposed exact-result reviewer timing — 2026-10-24
 
