@@ -84,3 +84,5 @@ Capability research, validation results, and evidence fixtures.
 - [Retained child source component bytes](child-source-components.md) — Independent child configuration/input/plan/event source vectors and strict synthetic join checks; actual source and runtime qualification remain open.
 
 - [Child-source owner and transition closure audit](child-source-owner-closure.md) — Known production owners and gaps for the five retained child-source transitions; no complete source prestate is claimable.
+
+- [Selected child control component bytes](child-control-components.md) — Independent synthetic control, lifecycle, coordination and recovery vectors with conditional logical checks; actual owner and complete-state qualification remain open.

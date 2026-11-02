@@ -234,4 +234,4 @@ Dated design records; these do not establish current product behavior.
 
 - [Selective Rust CodeQL scanning](2026-11-02-codeql-scan-routing-design.md) — Proposed conservative routing, full-scan backstop and staged security-scanner cutover.
 
-- [Selected child launch control and recovery records](2026-11-02-child-launch-control-design.md) — Proposed direct-execution control/input/lifecycle/recovery schemas and finite accounting, pending scoped owner acceptance.
+- [Selected child launch control and recovery records](2026-11-02-child-launch-control-design.md) — Accepted scoped direct-execution control/input/lifecycle/recovery codecs and finite accounting; component and actual-owner qualification remain separate.
