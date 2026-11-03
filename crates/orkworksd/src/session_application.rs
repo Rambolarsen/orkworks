@@ -10995,7 +10995,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
         let result = SessionApplication::new(state.clone())
             .resume_session(id, Some(harness::ResumeStrategy::Exact))
             .await;
-        assert!(matches!(result, Err(SessionError::BadRequest("OpenCode has no saved local conversation for this exact ID; no replacement was started."))), "{result:?}");
+        assert!(matches!(result, Err(SessionError::BadRequest("OpenCode has no saved local conversation for this exact ID; no replacement was started."))));
         assert!(!state.sessions.lock().unwrap().contains_key(id));
         assert!(!root.path().join("opencode-fixture.started").exists());
         let saved = state
