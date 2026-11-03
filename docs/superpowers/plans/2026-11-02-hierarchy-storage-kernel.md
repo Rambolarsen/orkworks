@@ -1,10 +1,10 @@
 ---
 type: Implementation Plan
 title: Hierarchy storage readiness and first source-codec unit
-description: Reconciled storage-kernel prerequisites and one proposed dormant Rust child-source byte validator; no format-4 store creation or producer publication is authorized.
+description: Reconciled storage-kernel prerequisites and one dormant Rust child-source byte validator; no format-4 store creation or producer publication is authorized.
 tags: [plans, hierarchy, storage, child-sources, validation]
 status: draft
-workflow_status: source-codec-unit-owner-review
+workflow_status: source-codec-unit-implemented
 ---
 
 # Hierarchy storage readiness and first source-codec unit
@@ -25,8 +25,8 @@ Reviewed base: `5e8d54339e03dd670eb29f85b9f83d6feb879b55`.
 This replaces the executable instructions from
 [#1337](https://github.com/Rambolarsen/orkworks/pull/1337); its original reviewed
 plan is preserved in Git at `70d8e2724c74831a5555c16ec2d3734f241f7e2c`.
-**SQL kernel: Investigate, not ready for execution. First pure codec unit: ready
-for scoped owner review, not yet implementation approval.** An existing worktree
+**SQL kernel: Investigate, not ready for execution. First pure codec unit: scoped
+owner execution approval recorded on 2026-11-03 below.** An existing worktree
 or merged plan document is not evidence of approval or ownership of another task.
 
 ## Review findings and corrected disposition — 2026-11-03
@@ -72,7 +72,7 @@ use, replace or qualify that driver. Accepted format-4 row/change domains stay
 unchanged; no alternate schema, command tag, migration or physical projection is
 selected by this revision.
 
-## First executable unit proposed for approval
+## First executable unit
 
 One pure crate-private module, under `crates/orkworksd/src/taskmaster/child_sources/`
 with its entry in `child_sources.rs`, and one registration in taskmaster/mod.rs.
@@ -126,17 +126,17 @@ remains independent. Do not adopt a foreign storage-kernel branch to execute thi
 
 ### Coupled implementation sequence and pass checks
 
-- [ ] **Strict bytes/context and selected configuration.** Write failing tests
+- [x] **Strict bytes/context and selected configuration.** Write failing tests
   first for the original worker/reviewer configuration, evidence/settings/model,
   input/output and exact child rendering/startup joins. Implement the pure
   configuration path. Accept original canonical bytes/digests; reject changed
   source context or unsupported live-access/root-role substitutions.
-- [ ] **Exact plan and original event-source chain.** Add the plan/request/
+- [x] **Exact plan and original event-source chain.** Add the plan/request/
   approval/receipt/reservation/allocation/attachment/source validators with the
   same entry and context. Keep resulting assignmentTaskVersion frozen separately
   from mutable versions. Resolve original full refs and exact report/target/
   criteria/rubric joins; a recomputed outer hash cannot hide a changed identity.
-- [ ] **Boundary and dormancy close-out.** Finish the meaningful denial classes
+- [x] **Boundary and dormancy close-out.** Finish the meaningful denial classes
   below, run existing root and new child tests, then all repository checks and
   current-code review. Record the production reference inventory and exact code
   head. Stop after this unit's PR terminal state; do not begin SQL as a follow-on.
@@ -281,3 +281,43 @@ no important interface/scope/test gap for the first pure unit. These reviews are
 not execution approval and supply no actual source/store/native evidence. Root
 remained the sole writer; no second round or foreign-worktree change occurred.
 The concrete coding handoff is #1345; its execution gate remains pending.
+
+
+### Scoped first-unit execution approval — 2026-11-03
+
+After #1346, reviewed head c1971690de9d871f2a96feb5744dee221c6057ed,
+the owner answered “go ahead” to the concrete approval request for #1345's pure
+Rust byte validator with no I/O, SQLite writes or production caller. This approves
+the first unit's direct implementation and verification in an owned worktree.
+It approves no SQL kernel, generic journal/producer transition, runtime wiring,
+native/model probe or configuration/adapter eligibility. Existing source/control/
+membership choices remain unchanged. Other sessions' worktrees stay separate.
+
+
+### First-unit implementation and checks — 2026-11-03
+
+The pure Rust source codec is implemented on owned branch
+`feat/rust-child-sources`; [canonical evidence](../../validation/child-source-components.md#dormant-rust-source-codec--2026-11-03)
+records its retained-byte boundary. Initial positive entry test failed before
+implementation; the final 12 focused tests pass, including all 28 independent
+vectors through full supplied context and 117 complete-packet verdicts (115 from
+the unchanged 129-case assay plus two exact metadata-envelope boundaries).
+Full repository verification passed: Rust formatting/build/tests, OpenCode
+reporter tests, desktop type-check/native ABI/tests/build, docs build, diff,
+documentation currency and worktree checks. Rust unit tests: 2,726 passed,
+17 intentionally ignored; existing root validation tests pass unchanged.
+
+One bounded pair of read-only Luna reviewers completed `/code-review medium`;
+the coupled codec port exceeds the repository's 500-line threshold. Correctness
+review approved; coverage feedback led to test-only vector/byte/accounting
+regressions, and both reviewers cleared the final diff. The PR records the exact
+reviewed code head. Root remained the sole writer. Reference inventory finds
+only definitions/private orchestration and test calls for the new entry/types;
+there is no production caller. An authenticated Taskmaster read returned no
+active recommendation to tie off.
+
+Documentation's user-facing-change advisory needs no onboarding edit because
+this is dormant source validation. The merged `harness-workspace-signals`
+worktree advisory names another owner's branch, which remains untouched.
+The full SQL kernel and every native/runtime qualification gate above remain
+open; this unit authorizes no next implementation task.

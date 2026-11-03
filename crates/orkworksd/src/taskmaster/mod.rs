@@ -8,6 +8,9 @@ pub(crate) mod assessment_model;
 pub(crate) mod assessment_report;
 pub(crate) mod assessment_store;
 pub(crate) mod audit;
+mod child_sources;
+#[cfg(test)]
+mod child_sources_tests;
 pub(crate) mod completion;
 #[cfg(test)]
 pub(crate) mod completion_tests;
