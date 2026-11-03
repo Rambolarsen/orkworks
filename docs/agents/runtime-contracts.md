@@ -147,6 +147,6 @@ extends the authenticated revisioned metadata API with `agentMetadata.worktreePa
 (absolute same-repository directory or null to clear). The sidecar persists the
 canonical binding and preserves it across legacy snapshot replacements. Invalid
 or missing bound worktrees are unavailable; launch `cwd` never changes. The
-narrow `session-metadata.py worktree` command and Codex worktree-only SessionStart
-context are independent of the general API-only marker. This does not enable
+narrow `session-metadata.py worktree` command and worktree-only startup context
+for Codex, Claude Code and Copilot are independent of the general API-only marker. This does not enable
 general metadata commands, native observers, or completion authority.

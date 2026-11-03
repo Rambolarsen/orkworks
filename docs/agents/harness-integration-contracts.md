@@ -540,8 +540,12 @@ The renderer has no shell API.
 
 ## Explicit task-worktree helper
 
-Codex SessionStart supplies scoped task-worktree reporting instructions when the
-existing session capability is available. `session-metadata.py worktree PATH`
+Codex and Claude Code `SessionStart`, and Copilot `sessionStart`, supply scoped
+task-worktree reporting instructions when the existing session capability is
+available. Claude/Codex use `hookSpecificOutput.additionalContext`; Copilot uses
+root `additionalContext`. Only Codex may combine the separately gated general
+metadata instructions. See the [qualification evidence](../validation/harness-workspace-signals.md)
+for live delivery, platform fixtures and unverified native signals. `session-metadata.py worktree PATH`
 (or `worktree --clear`) runs from the actual agent context and sends only a
 revisioned worktree patch. Its optional explicit HTTP proxy has the same transport
 restrictions as the general helper. The generated context includes the explicit
@@ -551,7 +555,7 @@ in a proxy-enforced sandbox even when networking is enabled. Ambient proxy
 variables or a loopback address alone do not establish relay trust. If no
 authorized route is available, report the missing binding; do not change sandbox
 policy or substitute metadata-file writes. General bootstrap/get/patch/instructions
-retain the API-only marker gate; a marked SessionStart combines both contexts
-in one response. Stable helper reconciliation still owns installed bytes.
+retain the API-only marker gate; a marked Codex SessionStart combines both
+contexts in one response. Stable helper reconciliation still owns installed bytes.
 This is cooperative reporting, not automatic worktree discovery, and does not
 relax any #789/native/completion gate. See [ADR 0094](../adr/0094-explicit-session-worktree-binding.md).
