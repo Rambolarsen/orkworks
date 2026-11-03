@@ -131,7 +131,10 @@ fn golden_metadata_records_admit_with_reconstructed_keys() {
         admit_meta_record(MetaKind::Reservation, &golden("worker-reservation")).unwrap();
     assert_eq!(reservation.key["taskId"], "worker-task");
     let allocation = admit_meta_record(MetaKind::Allocation, &golden("worker-allocation")).unwrap();
-    assert_eq!(allocation.key["allocationId"], "worker-allocation");
+    assert_eq!(
+        allocation.key["reservationId"], "worker-reservation",
+        "the allocation row keys by the exact ReservationRef"
+    );
     let attachment = admit_meta_record(MetaKind::Attachment, &golden("worker-attachment")).unwrap();
     assert_eq!(
         attachment.key,
@@ -258,6 +261,80 @@ fn large_valid_source_body_over_16kib_is_an_acceptance_case() {
             .unavailable_reason(),
         None,
         "a valid >16 KiB source body is not a rejection"
+    );
+}
+
+#[test]
+fn review_snapshot_binds_the_retained_result() {
+    // The snapshot's embedded result is validated: identity, revision and
+    // the source-domain digest bind it to the target.
+    let bytes = modified("review-snapshot", |value| {
+        value["result"]["resultRevision"] = json!(2);
+    });
+    let rejection = rows::admit_source_object(ObjectKind::ReviewInput, &source_context(), &bytes)
+        .err()
+        .map(|e| e.0);
+    assert_eq!(
+        rejection,
+        Some("result revision binding"),
+        "a result that does not bind to the target must refuse"
+    );
+}
+
+#[test]
+fn approval_request_digest_reconstruction_binds_the_record() {
+    let bytes = modified("worker-approval", |value| {
+        value["requestDigest"] =
+            json!("0000000000000000000000000000000000000000000000000000000000000000");
+    });
+    let rejection = rows::admit_meta_record(MetaKind::PlanApproval, &bytes)
+        .err()
+        .map(|e| e.0);
+    assert_eq!(
+        rejection,
+        Some("approval request digest"),
+        "the request digest must reconstruct from the record's own joins"
+    );
+}
+
+#[test]
+fn manifest_positions_follow_source_id_order() {
+    // The accepted checker sorts rules + role template by source ID before
+    // matching requirement manifests positionally. Rename the rule to sort
+    // AFTER the role ("worker-role" < "zz-late-rule") and place the manifests
+    // in ID-sorted order (role first): valid config, accepted although the
+    // rule's own precedence is 0 and the rule is not the first source.
+    // Fragments of the rename appear in all three joined places; every other
+    // byte is the accepted fixture.
+    let bytes = modified("worker-configuration", |value| {
+        let renamed_rule_id = json!("zz-late-rule");
+        let role_manifest = value["requirementManifests"][1].clone();
+        value["rules"][0]["id"] = renamed_rule_id.clone();
+        value["requirementManifests"][0]["sourceId"] = renamed_rule_id.clone();
+        value["requirementManifests"] = json!([role_manifest, value["requirementManifests"][0]]);
+        // The framing contract tracks the renamed block identity; the test
+        // mirrors the owning codec, reseals, and re-digests.
+        let re_rendered = super::rows::render_child_instructions(value).unwrap();
+        value["renderedInstructions"] = json!(re_rendered);
+        value["renderedInstructionsDigest"] = json!(super::sha256_hex(
+            value["renderedInstructions"].as_str().unwrap().as_bytes()
+        ));
+        let mut body = value.clone();
+        body.as_object_mut()
+            .expect("configuration object")
+            .remove("configurationDigest");
+        let resealed = super::domain_digest(
+            "orkworks.assignment-configuration.v3",
+            &super::canonical(&body).unwrap(),
+        );
+        value["configurationDigest"] = json!(resealed);
+    });
+    let rejection = rows::admit_source_object(ObjectKind::Configuration, &source_context(), &bytes)
+        .err()
+        .map(|e| e.0);
+    assert_eq!(
+        rejection, None,
+        "manifest positions follow the ID-sorted source order, not rule precedence"
     );
 }
 

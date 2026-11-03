@@ -683,11 +683,23 @@ fn rules_skills_resources(c: &Value, task_id: &str) -> Result<()> {
             .collect::<Vec<_>>();
         ensure(closed == actual, "resource closure")?;
     }
-    // Requirement manifests: closed coverage over rules + role template.
+    // Requirement manifests: closed coverage over rules + role template,
+    // ordered by source ID (the accepted checker sorts rules and the role
+    // template by ID before matching manifests positionally).
     let role = &c["roleTemplate"];
     let mut roles_sources: Vec<&Value> = Vec::with_capacity(rules.len() + 1);
     roles_sources.extend(rules.iter());
     roles_sources.push(role);
+    let mut id_order: Vec<String> = Vec::with_capacity(roles_sources.len());
+    for source in &roles_sources {
+        id_order.push(s(&source["id"])?.to_string());
+    }
+    id_order.sort();
+    roles_sources.sort_by_key(|source| {
+        s(&source["id"])
+            .map(|id| id.to_string())
+            .unwrap_or_default()
+    });
     let manifests = list(&c["requirementManifests"], 33, 0)?;
     ensure(manifests.len() == roles_sources.len(), "manifest coverage")?;
     let mut covered = Vec::new();
@@ -1454,7 +1466,7 @@ fn snapshot_identity(x: &Value) -> Result<Value> {
         "criteria evidence inputDigest result rubric schemaVersion task target",
     )?;
     ensure(x["schemaVersion"] == 1, "snapshot version")?;
-    task_key(&x["task"])?;
+    let task = task_key(&x["task"])?;
     exact(
         &x["target"],
         "assignmentIdentity resultDigest resultRevision",
@@ -1462,6 +1474,9 @@ fn snapshot_identity(x: &Value) -> Result<Value> {
     child_identity(&x["target"]["assignmentIdentity"])?;
     integer(&x["target"]["resultRevision"], 1, 32)?;
     digest(&x["target"]["resultDigest"])?;
+    // The embedded result is a typed retained `AssignmentResult` bound to
+    // the target through identity, revision and source-domain digest.
+    retained_result(&x["result"], &x["target"])?;
     criteria(&x["criteria"])?;
     rubric(&x["rubric"])?;
     for pair in list(&x["evidence"], 113, 0)? {
@@ -1469,9 +1484,117 @@ fn snapshot_identity(x: &Value) -> Result<Value> {
     }
     sealed(x, "inputDigest", "orkworks.child-review-input.v1")?;
     Ok(json!({
-        "task": x["task"],
+        "task": task,
         "inputDigest": x["inputDigest"],
     }))
+}
+
+/// The snapshot's retained result: closed #744 `AssignmentResult` shape,
+/// bound to the snapshot target through identity, revision and digest.
+fn retained_result(x: &Value, target: &Value) -> Result<()> {
+    exact(
+        x,
+        "assignmentIdentity authorityGeneration candidateDigest predecessor outputs resultRevision schemaVersion timeCostEvidence",
+    )?;
+    ensure(x["schemaVersion"] == 1, "result version")?;
+    // Identity: the result belongs to the snapshot's exact target subject.
+    ensure(
+        canonical(&x["assignmentIdentity"])? == canonical(&target["assignmentIdentity"])?,
+        "result identity binding",
+    )?;
+    integer(&x["resultRevision"], 1, 32)?;
+    ensure(
+        x["resultRevision"] == target["resultRevision"],
+        "result revision binding",
+    )?;
+    digest(&x["candidateDigest"])?;
+    ensure(
+        x["outputs"] == json!([]),
+        "selected target has no materialized outputs",
+    )?;
+    let authority = &x["authorityGeneration"];
+    exact(authority, "generation kind sidecarGeneration")?;
+    ensure(
+        authority["kind"] == json!("child-launch"),
+        "child-launch authority",
+    )?;
+    digest(&authority["sidecarGeneration"])?;
+    digest(&authority["generation"])?;
+    let predecessor = &x["predecessor"];
+    if predecessor["kind"] == "no-head" {
+        ensure(
+            predecessor == &json!({"kind": "no-head"}),
+            "result predecessor",
+        )?;
+        ensure(x["resultRevision"] == 1, "no-head result starts at one")?;
+    } else {
+        exact(predecessor, "kind resultDigest resultRevision")?;
+        ensure(
+            predecessor["kind"] == json!("revision"),
+            "result predecessor kind",
+        )?;
+        integer(&predecessor["resultRevision"], 1, 31)?;
+        let revision = x["resultRevision"].as_u64().unwrap_or(u64::MAX);
+        ensure(
+            predecessor["resultRevision"] == json!(revision - 1),
+            "result predecessor revision",
+        )?;
+        digest(&predecessor["resultDigest"])?;
+    }
+    let entries = list(&x["timeCostEvidence"], 32, 0)?;
+    let keys: Vec<String> = entries
+        .iter()
+        .map(|entry| {
+            let usage = entry["usageRecordId"]
+                .as_str()
+                .map(|value| value.to_string())
+                .unwrap_or_default();
+            Ok(format!("{}\0{}", s(&entry["kind"])?, usage))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let mut sorted_keys = keys.clone();
+    sorted_keys.sort();
+    ensure(keys == sorted_keys, "sorted unique set")?;
+    for entry in entries {
+        ensure(canonical(entry)?.len() <= 512, "time-cost evidence bound")?;
+        if entry["kind"] == "elapsed" {
+            exact(entry, "authorityGeneration elapsedMilliseconds kind")?;
+            integer(&entry["elapsedMilliseconds"], 0, 604_800_000)?;
+            ensure(
+                entry["authorityGeneration"] == *authority,
+                "elapsed authority",
+            )?;
+        } else {
+            exact(
+                entry,
+                "costMicroUsd kind pricingSnapshotId providerId usageDigest usageRecordId modelId",
+            )?;
+            ensure(entry["kind"] == json!("cost"), "cost evidence kind")?;
+            integer(&entry["costMicroUsd"], 0, 1_000_000_000_000)?;
+            for name in [
+                "providerId",
+                "modelId",
+                "pricingSnapshotId",
+                "usageRecordId",
+            ] {
+                id(&entry[name])?;
+            }
+            digest(&entry["usageDigest"])?;
+        }
+    }
+    ensure(canonical(x)?.len() <= 524_288, "result bound")?;
+    let result_domain_digest = sha256_hex(
+        &[
+            ASSIGNMENT_RESULT_DOMAIN.as_bytes(),
+            b"\n",
+            canonical(x)?.as_slice(),
+        ]
+        .concat(),
+    );
+    ensure(
+        target["resultDigest"] == json!(result_domain_digest),
+        "result digest binding",
+    )
 }
 
 /// Child source evidence object: exact cited artifact bytes under strict
@@ -1641,6 +1764,27 @@ fn approval_source(x: &Value) -> Result<Value> {
     digest(&x["reviewContextId"])?;
     digest(&x["sidecarGeneration"])?;
     plan_ref(&x["plan"])?;
+    // The recorded request digest must reconstruct from the record's own
+    // plan/approvalId/reviewContextId exactly as the merged checker does.
+    let request = json!({
+        "action": "orkworks.child-source-plan.approve.v1",
+        "approvalId": x["approvalId"],
+        "plan": x["plan"],
+        "reviewContextId": x["reviewContextId"],
+        "schemaVersion": 1,
+    });
+    let request_digest = sha256_hex(
+        &[
+            REQUEST_DOMAIN.as_bytes(),
+            b"\n",
+            canonical(&request)?.as_slice(),
+        ]
+        .concat(),
+    );
+    ensure(
+        x["requestDigest"] == json!(request_digest),
+        "approval request digest",
+    )?;
     Ok(json!({
         "approvalId": x["approvalId"],
         "plan": x["plan"],
@@ -1680,10 +1824,10 @@ fn allocation_source(x: &Value) -> Result<Value> {
     )?;
     worktree_binding(allocated)?;
     sealed(x, "allocationDigest", "orkworks.child-source-allocation.v1")?;
-    Ok(json!({
-        "allocationId": x["allocationId"],
-        "reservation": reservation,
-    }))
+    // The row key is the exact ReservationRef (accepted table contract:
+    // `child_allocations / ReservationRef`, one immutable allocation per
+    // task); the allocation's own ID lives only in the record body.
+    Ok(reservation)
 }
 
 fn attachment_source(x: &Value) -> Result<Value> {
@@ -1731,6 +1875,7 @@ pub(crate) const EVIDENCE_DOMAIN: &str = "orkworks.child-source-evidence.v1";
 pub(crate) const ASSIGNMENT_SOURCE_DOMAIN: &str = "orkworks.child-assignment-source.v1";
 pub(crate) const REVIEW_INPUT_DOMAIN: &str = "orkworks.child-review-input.v1";
 pub(crate) const REQUEST_DOMAIN: &str = "orkworks.child-source-plan-request.v1";
+pub(crate) const ASSIGNMENT_RESULT_DOMAIN: &str = "orkworks.assignment-result.v1";
 
 /// Row commitment digest: the format-4 row domain over the canonical
 /// `{body, key, table}` envelope; `value` carries no `lastCommit` link.
@@ -1763,7 +1908,7 @@ pub(crate) fn owner_keys(table: &str, key: &Value, value: &Value) -> Result<Vec<
             })
         }
         "child_allocations" => {
-            let task = &key["reservation"]["task"];
+            let task = &key["task"];
             json!({
                 "kind": "run",
                 "runId": task["runId"],

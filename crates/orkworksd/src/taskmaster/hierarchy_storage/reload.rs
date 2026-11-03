@@ -158,7 +158,29 @@ pub(super) fn verify_chain(
     for table in ROW_TABLES {
         reverify_rows(database, table, epoch, &manifests)?;
     }
-    // 4. Retained-byte quota recompute for the admitted resource.
+    // 4. Missing committed state: every change entry across the chain must
+    //    still have its stored row (this kernel never deletes rows), so a
+    //    deleted dependency/quota/row after journaling fences the store.
+    for (_sequence, manifest, _digest) in &manifests {
+        for entry in manifest["changes"]
+            .as_array()
+            .ok_or(HierarchyStorageError("chain"))?
+        {
+            let table = entry["table"]
+                .as_str()
+                .ok_or(HierarchyStorageError("chain"))?;
+            let key = canonical(&entry["key"])?;
+            let exists: bool = database
+                .query_row(
+                    &format!("SELECT EXISTS(SELECT 1 FROM {table} WHERE key = ?1)"),
+                    rusqlite::params![key],
+                    |row| row.get(0),
+                )
+                .map_err(|_| HierarchyStorageError("physical database"))?;
+            ensure(exists, "rows")?;
+        }
+    }
+    // 5. Retained-byte quota recompute for the admitted resource.
     reverify_quotas(database)?;
     Ok(())
 }
@@ -281,6 +303,9 @@ fn reverify_rows(
         ensure(commit.storage_epoch == epoch, "epoch")?;
         ensure(commit.sequence == sequence, "chain")?;
         ensure(commit.change_digest == *proof_digest(sequence)?, "rows")?;
+        // The embedded lastCommit link inside the value must match the
+        // verified column bytes exactly.
+        ensure(canonical(&value["lastCommit"])? == commit_bytes, "rows")?;
         // The row's digest inside that proof's manifest of the changed set.
         let entry: Value = entry_for(sequence, &key_bytes)?;
         let recomputed = rows::row_digest(table, &key, &body)?;
