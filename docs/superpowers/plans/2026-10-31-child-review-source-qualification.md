@@ -254,6 +254,33 @@ review does not adopt or alter another owner's kernel worktree or authorize its
 implementation. Earlier source/control/membership choices stay accepted; only
 the revised concrete first coding unit needs its execution decision.
 
+### Qualification handoff after the storage kernel landed — 2026-11-03
+
+The reconciled unit above is now implemented and merged: [PR #1351](https://github.com/Rambolarsen/orkworks/pull/1351)
+(squash commit `79df8287`). The dormant
+[`crates/orkworksd/src/taskmaster/hierarchy_storage/`](../../../crates/orkworksd/src/taskmaster/hierarchy_storage/)
+owner kernel delivers all scopes of the accepted plan: the connection owner
+(page caps, no ATTACH or caller SQL), the complete format-4 catalog with
+out-of-scope tables empty, strict canonical child-source row admission for the
+nine golden kinds from
+[`docs/validation/child-source-vectors.json`](../../validation/child-source-vectors.json)
+(including the deterministic child instruction framing re-render and the
+snapshot's retained-result binding), checked `child-source-retained-bytes` quota
+counters charged inside single transactions with the format-4 commitment chain,
+and open-time revalidation that fences on corruption, deletion or epoch drift
+and never repairs. 2800+ crate tests green; the module has no production
+callers, so nothing outside tests is affected.
+
+The "No SQLite file, DDL …" paragraph above is thereby superseded for this
+first unit only, and only in its realized form: the kernel stores canonical
+rows and validates sources, but it still publishes no accepted transition —
+attachment publication stays gated, the #1184 read-work cutoff remains open,
+no native durability evidence exists, and other use cases (#744 subjects,
+summaries, claims, receipts, indexes, producers, authority qualification plus
+Gate B and Gate C checkboxes) remain exactly as this handoff records them. The
+full SQL kernel non-goals in the reconciliation paragraph hold for everything
+not delivered in `hierarchy_storage/`.
+
 ## Gate C — complete fresh preparation/publication witnesses
 
 - [ ] Only when preceding source/authority choices and owners are closed, generate
