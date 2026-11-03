@@ -61,8 +61,8 @@ Missing capabilities and unrelated events emit no instruction context.
 
 POSIX subprocess regressions cover the three formats, omitted capabilities and
 unrelated events. A native Windows PowerShell fixture exercises the real helper
-through a scoped Python launcher and is routed to Windows CI; it is skipped on
-macOS. Source code and synthetic fixtures do not establish live Copilot/Windows
+through a scoped Python launcher and passed native Windows CI on code head
+`2b86b4375694dc13d38b662cfb4121d1cdc6f671`; it is skipped on macOS. Source code and synthetic fixtures do not establish live Copilot/Windows
 qualification. Existing hook installation and trust/reconciliation rules apply.
 Existing sessions receive new instructions only when the normal native startup
 or resume event runs with the updated installed reporter; the app does not
@@ -73,3 +73,18 @@ Their agents may still invoke the same helper explicitly where their tool
 context supports it. Process/launch fallback remains labeled. No event can
 replace an explicit task binding, and no location update changes attention,
 launch/resume directory or native identity.
+
+
+## Verification of the delivery change
+
+`bash scripts/verify-repo.sh` passed with pinned Node 22 in the owned worktree,
+including Rust build/tests, OpenCode reporter tests, desktop type-check, native
+ABI repair, desktop tests/build, docs build and close-out checks. The standalone
+metadata helper suite passed 45 tests with its Windows-only fixture skipped on
+macOS. Both new Workspace reporting CI jobs passed on Linux and Windows.
+
+The required `/code-review low` approved code SHA
+`2b86b4375694dc13d38b662cfb4121d1cdc6f671` against base `70d8e272` with no
+findings. A later documentation-only verification update does not change that
+reviewed code diff. The read-only native-app inspection timed out, so this record
+does not claim live rendered Git-view verification.
