@@ -224,6 +224,13 @@ fn large_valid_source_body_over_16kib_is_an_acceptance_case() {
                 manifest["sourceDigest"] = json!(super::sha256_hex(content.as_bytes()));
             }
         }
+        // The framing contract requires the rendered byte payload to track
+        // the mutated content; the test mirrors the owning codec.
+        let re_rendered = super::rows::render_child_instructions(value).unwrap();
+        value["renderedInstructions"] = json!(re_rendered);
+        value["renderedInstructionsDigest"] = json!(super::sha256_hex(
+            value["renderedInstructions"].as_str().unwrap().as_bytes()
+        ));
         let mut body = value.clone();
         body.as_object_mut()
             .expect("configuration object")
