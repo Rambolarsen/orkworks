@@ -890,6 +890,21 @@ for that file owner fails fast with a revision conflict rather than queuing behi
 a stalled filesystem. A clear failure is reported even after configuration has
 committed, without implying rollback. Unchanged installation still preserves
 observed trust. Other harnesses retain their prompt-revocation sequencing.
+The identity route's first target-record lookup uses a typed owned JSON reader.
+It captures workspace/reader and optional runtime/control/creation identity before
+I/O, retains the original lease where present, and admits at most eight outstanding
+reads per metadata owner without a waiting queue. File decoding and legacy corrupt
+record quarantine run on a blocking task outside application guards. Quarantine
+shares the existing per-session transaction lane and rechecks the parsed bytes
+before renaming, so it cannot move a replacement committed by a writer in that
+lane. Legacy direct file writers bypass that lane and remain a separate producer
+qualification gate. The task keeps
+its slot and lease until completion after waiter cancellation. The continuation
+rejects a replaced workspace, reader, lease or runtime before identity handling;
+admission overload returns a retryable 503, and local relays retain the original
+packet/clear receipt rather than unlinking it. This qualifies only the first target
+lookup: later identity validation, transactional merging and label reservations
+still retain their existing synchronous owners.
 The legacy JSON identity route now captures that external owner's original clear
 epoch before its first metadata lookup. After identity merging it rechecks exact
 workspace/lease/file owner, creation and optional runtime/control identity, plus

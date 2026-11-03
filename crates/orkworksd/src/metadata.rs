@@ -3,6 +3,7 @@ pub(crate) mod hook_observation;
 pub(crate) mod internal_mutations;
 pub(crate) mod lifecycle_mutations;
 pub(crate) mod provenance;
+pub(crate) mod session_reader;
 pub(crate) mod session_transactions;
 pub(crate) use provenance::MetadataProvenance;
 
@@ -12,7 +13,7 @@ use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use tracing::warn;
 
@@ -1275,12 +1276,13 @@ impl IntegrationMetadata {
 }
 
 pub struct MetadataStore {
+    session_reader: Arc<session_reader::SessionReader>,
     hook_observations: Arc<hook_observation::Store>,
     pub(crate) branch_documents: Arc<crate::branch_documents_store::Store>,
     pub(crate) organization: Arc<crate::session_archive::OrganizationStore>,
     root: PathBuf,
     session_writes: Mutex<HashMap<String, crate::runtime::observed_status::AttentionOwner>>,
-    session_write_locks: Mutex<HashMap<String, Weak<Mutex<()>>>>,
+    session_write_locks: session_reader::SessionWriteLocks,
     summary_checkpoints: Mutex<HashMap<String, SummaryCheckpointCacheEntry>>,
     #[cfg(test)]
     after_event_write: Mutex<Option<Box<dyn Fn(&Path) + Send>>>,
@@ -1288,13 +1290,15 @@ pub struct MetadataStore {
 
 impl MetadataStore {
     pub fn new(root: &Path) -> Self {
+        let session_write_locks = Arc::new(Mutex::new(HashMap::new()));
         Self {
+            session_reader: session_reader::SessionReader::new(root, session_write_locks.clone()),
             branch_documents: Arc::new(crate::branch_documents_store::Store::new(root)),
             hook_observations: hook_observation::Store::new(root),
             root: root.to_path_buf(),
             organization: Arc::new(crate::session_archive::OrganizationStore::new(root)),
             session_writes: Mutex::new(HashMap::new()),
-            session_write_locks: Mutex::new(HashMap::new()),
+            session_write_locks,
             summary_checkpoints: Mutex::new(HashMap::new()),
             #[cfg(test)]
             after_event_write: Mutex::new(None),
@@ -1316,33 +1320,13 @@ impl MetadataStore {
         self.root.clone()
     }
 
+    #[cfg(test)]
     fn session_write_lock(&self, id: &str) -> Arc<Mutex<()>> {
-        let mut locks = self.session_write_locks.lock().unwrap();
-        if let Some(lock) = locks.get(id).and_then(Weak::upgrade) {
-            return lock;
-        }
-        let lock = Arc::new(Mutex::new(()));
-        locks.insert(id.to_owned(), Arc::downgrade(&lock));
-        lock
+        session_reader::session_write_lock(&self.session_write_locks, id)
     }
 
     fn with_session_write_lock<T>(&self, id: &str, operation: impl FnOnce() -> T) -> T {
-        let lock = self.session_write_lock(id);
-        let guard = lock.lock().unwrap();
-        let result = operation();
-        drop(guard);
-
-        let mut locks = self.session_write_locks.lock().unwrap();
-        let remove = locks
-            .get(id)
-            .and_then(Weak::upgrade)
-            .is_some_and(|registered| {
-                Arc::ptr_eq(&registered, &lock) && Arc::strong_count(&registered) == 2
-            });
-        if remove {
-            locks.remove(id);
-        }
-        result
+        session_reader::with_session_write_lock(&self.session_write_locks, id, operation)
     }
 
     pub fn events_dir(&self) -> PathBuf {
@@ -1409,7 +1393,7 @@ impl MetadataStore {
         let mut sessions: Vec<SessionMetadata> = entries
             .filter_map(|entry| entry.ok())
             .filter(|entry| entry.path().extension().and_then(|e| e.to_str()) == Some("json"))
-            .filter_map(|entry| self.load_session_file(&entry.path()))
+            .filter_map(|entry| self.session_reader.read_path(&entry.path()))
             .collect();
         sessions.sort_by(|a, b| a.created_at.cmp(&b.created_at));
         sessions
@@ -1419,7 +1403,10 @@ impl MetadataStore {
     /// parse is quarantined (renamed to `<id>.json.corrupt`) and logged, so a
     /// corrupt session disappears from the list observably instead of
     /// silently — and only once, not on every poll.
-    fn load_session_file(&self, path: &std::path::Path) -> Option<SessionMetadata> {
+    fn load_session_file(
+        path: &std::path::Path,
+        quarantine: impl FnOnce(&str, serde_json::Error),
+    ) -> Option<SessionMetadata> {
         let data = match fs::read_to_string(path) {
             Ok(data) => data,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
@@ -1441,17 +1428,9 @@ impl MetadataStore {
                 Some(meta)
             }
             Err(e) => {
-                let quarantine = corrupt_session_path(path);
-                match fs::rename(path, &quarantine) {
-                    Ok(()) => warn!(
-                        "session file {:?} is corrupt ({e}); quarantined to {:?}",
-                        path, quarantine
-                    ),
-                    Err(rename_err) => warn!(
-                        "session file {:?} is corrupt ({e}) and could not be quarantined: {rename_err}",
-                        path
-                    ),
-                }
+                #[cfg(test)]
+                session_reader::testing::before_quarantine(path);
+                quarantine(&data, e);
                 None
             }
         }
@@ -1751,9 +1730,12 @@ impl MetadataStore {
             .collect()
     }
 
+    pub(crate) fn session_reader(&self) -> Arc<session_reader::SessionReader> {
+        self.session_reader.clone()
+    }
+
     pub fn read_session(&self, id: &str) -> Option<SessionMetadata> {
-        let path = self.sessions_dir().join(format!("{}.json", id));
-        self.load_session_file(&path)
+        self.session_reader.read(id)
     }
 
     pub fn append_event(&self, id: &str, event: &Event) {

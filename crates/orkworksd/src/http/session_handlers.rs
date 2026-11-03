@@ -673,12 +673,25 @@ async fn report_harness_session_inner(
         })
         .flatten();
     let (target_harness, mut observation_capture) =
-        crate::session_application::hook_observation::capture_target(
+        match crate::session_application::hook_observation::capture_target(
             &state,
             &id,
             observation_requested,
             observation_stamp,
-        );
+        )
+        .await
+        {
+            Ok(target) => target,
+            Err(crate::session_application::hook_observation::TargetReadError::Conflict) => {
+                return axum::http::StatusCode::CONFLICT.into_response()
+            }
+            Err(crate::session_application::hook_observation::TargetReadError::Busy) => {
+                return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response()
+            }
+            Err(crate::session_application::hook_observation::TargetReadError::Unavailable) => {
+                return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response()
+            }
+        };
     if let Some(capture) = observation_capture.as_mut() {
         if let (Ok(capture), Some(token)) =
             (capture.as_mut(), original_observation_token.as_deref())

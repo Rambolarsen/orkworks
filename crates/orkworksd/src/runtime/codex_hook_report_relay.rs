@@ -434,6 +434,11 @@ impl CodexHookReportRelay {
                                 .await;
                                 if status == StatusCode::OK {
                                     outcome.reports_accepted += 1;
+                                } else if status == StatusCode::SERVICE_UNAVAILABLE {
+                                    // Bounded target-read admission did not apply identity.
+                                    // Retry with the retained receipt/overflow floor;
+                                    // never acquire a fresh clear epoch.
+                                    keep = true;
                                 }
                             }
                         }
