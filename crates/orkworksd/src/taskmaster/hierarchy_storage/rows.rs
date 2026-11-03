@@ -1408,14 +1408,9 @@ fn configuration_identity(c: &Value, context: &SourceContext) -> Result<Value> {
     // assignment block, skills and resources, length encoding and block
     // ordering from the root algorithm): the rendered payload must equal the
     // deterministic re-render of this configuration's own blocks.
+    // `str` equality is bytewise, so this is the complete-byte comparison.
     let re_rendered = render_child_instructions(c)?;
-    ensure(rendered == re_rendered.as_str(), "child framing")?;
-    // Complete-bytes framing contract: the rendered payload must equal the
-    // deterministic re-render of this configuration's own blocks.
-    ensure(
-        rendered.as_bytes() == render_child_instructions(c)?.as_bytes(),
-        "child framing",
-    )?;
+    ensure(rendered == re_rendered, "child framing")?;
     sealed(
         c,
         "configurationDigest",
