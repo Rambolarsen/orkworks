@@ -1,7 +1,7 @@
 //! Dormant retained root-v2 source validation. No I/O, eligibility or launch authority.
 #![allow(dead_code)]
-mod source;
-mod wire;
+pub(super) mod source;
+pub(super) mod wire;
 use serde_json::{json, Value};
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct RootBootstrapError(pub &'static str);
@@ -33,7 +33,7 @@ impl ValidatedUnverifiedRootBootstrap {
 
 use std::collections::{BTreeMap, BTreeSet};
 use wire::*;
-fn run(x: &Value) -> Result<()> {
+pub(in crate::taskmaster) fn run(x: &Value) -> Result<()> {
     exact(x,"schemaVersion runId workspaceId parentSessionId repositoryBindingDigest sourceWorktreeBindingDigest goal goalDigest admissionEpoch runSequence bootstrapConfigurationDigest maxParallelChildren runDefinitionDigest")?;
     ensure(x["schemaVersion"] == 1, "run version")?;
     for k in ["runId", "workspaceId", "parentSessionId"] {

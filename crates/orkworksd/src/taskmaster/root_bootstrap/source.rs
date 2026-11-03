@@ -23,7 +23,7 @@ const RESULT_TOOLS: &[&str] = &[
     "orkworks.result.receipt.read.v1",
     "orkworks.result.submit.v1",
 ];
-pub(super) fn native_path(x: &Value, max: usize) -> Result<()> {
+pub(in crate::taskmaster) fn native_path(x: &Value, max: usize) -> Result<()> {
     exact(x, "encoding base64")?;
     tags(&x["encoding"], &["unix-bytes", "windows-utf16le"])?;
     let encoded = text(&x["base64"], max.div_ceil(3) * 4, 1)?;
@@ -71,7 +71,7 @@ fn directory(x: &Value) -> Result<()> {
     number(&x["mechanismVersion"], 1, 9007199254740991)?;
     Ok(())
 }
-pub(super) fn repository(x: &Value) -> Result<()> {
+pub(in crate::taskmaster) fn repository(x: &Value) -> Result<()> {
     exact(x,"schemaVersion registryEpoch repositoryId canonicalCommonDirectory commonDirectoryObject bindingDigest")?;
     ensure(x["schemaVersion"] == 1, "repository version")?;
     let epoch = s(&x["registryEpoch"])?;
@@ -93,7 +93,7 @@ pub(super) fn repository(x: &Value) -> Result<()> {
     ensure(canonical(x)?.len() <= 8192, "repository bytes")?;
     sealed(x, "bindingDigest", "orkworks.repository-binding.v1")
 }
-pub(super) fn worktree(x: &Value, r: &Value) -> Result<()> {
+pub(in crate::taskmaster) fn worktree(x: &Value, r: &Value) -> Result<()> {
     exact(x,"repositoryBinding canonicalRoot rootObject canonicalPrivateGitDirectory privateGitDirectoryObject kind worktreeBindingDigest")?;
     ensure(x["repositoryBinding"] == *r, "worktree repository")?;
     tags(&x["kind"], &["primary", "linked"])?;
@@ -129,7 +129,7 @@ fn provenance(x: &Value) -> Result<()> {
     }
     Ok(())
 }
-pub(super) fn executable(x: &Value) -> Result<()> {
+pub(in crate::taskmaster) fn executable(x: &Value) -> Result<()> {
     ensure(canonical(x)?.len() <= 65536, "executable bytes")?;
     tags(&x["kind"], &["direct", "wrapped"])?;
     exact(
@@ -305,6 +305,13 @@ fn content(x: &Value, key: &str, digest_key: &str) -> Result<()> {
     )
 }
 pub(super) fn snapshots(b: &Value) -> Result<()> {
+    snapshots_for_assignment(b, "orchestrator", &b["rootAssignmentId"])
+}
+pub(in crate::taskmaster) fn snapshots_for_assignment(
+    b: &Value,
+    role: &str,
+    task: &Value,
+) -> Result<()> {
     let r = &b["roleTemplate"];
     exact(
         r,
@@ -312,7 +319,7 @@ pub(super) fn snapshots(b: &Value) -> Result<()> {
     )?;
     id(&r["id"])?;
     number(&r["version"], 1, 2147483647)?;
-    ensure(r["role"] == "orchestrator", "root role")?;
+    ensure(r["role"] == role, "root role")?;
     content(r, "instructions", "instructionsDigest")?;
     let mut body = r.clone();
     body.as_object_mut()
@@ -420,7 +427,7 @@ pub(super) fn snapshots(b: &Value) -> Result<()> {
             .get(s(&m["sourceId"])?)
             .ok_or(RootBootstrapError("manifest binding"))?;
         ensure(
-            m["sourceDigest"] == source["contentDigest"] && m["taskId"] == b["rootAssignmentId"],
+            m["sourceDigest"] == source["contentDigest"] && m["taskId"] == *task,
             "manifest binding",
         )?;
         text(&m["applicabilityReason"], 2048, 1)?;
@@ -466,7 +473,7 @@ pub(super) fn snapshots(b: &Value) -> Result<()> {
     }
     Ok(())
 }
-pub(super) fn bindings(x: &Value) -> Result<()> {
+pub(in crate::taskmaster) fn bindings(x: &Value) -> Result<()> {
     let xs = list(x, 32, 0)?;
     sorted(xs, Some("name"))?;
     for b in xs {
@@ -523,10 +530,17 @@ pub(super) fn projection(x: &Value) -> Result<()> {
     ensure(canonical(x)?.len() <= 65536, "projection bytes")
 }
 pub(super) fn evidence(x: &Value, b: &Value) -> Result<()> {
+    unverified_evidence_for_role(x, b, "orchestrator")
+}
+pub(in crate::taskmaster) fn unverified_evidence_for_role(
+    x: &Value,
+    b: &Value,
+    role: &str,
+) -> Result<()> {
     ensure(canonical(x)?.len() <= 65536, "evidence bytes")?;
     exact(x,"schemaVersion evidenceId harnessId definitionDigest adapterId adapterVersion executableIdentity toolVersion platform instructionMechanism effectiveSettingsDigest role requestedProfileDigest effectiveProfileDigest decision checks references assessedAt assessorIdentity evidenceDigest")?;
     ensure(
-        x["schemaVersion"] == 1 && x["role"] == "orchestrator",
+        x["schemaVersion"] == 1 && x["role"] == role,
         "evidence version role",
     )?;
     for k in ["evidenceId", "harnessId", "adapterId"] {

@@ -135,3 +135,47 @@ run/admission sequence and JSON task/version bounds are unchanged. Two boundary
 cases failed before the correction and pass after it. Existing golden bytes,
 fields, domains and older root fixture catalogs are unchanged. This is a checker
 correction, not a new source policy or proof that a commit occurred.
+
+## Dormant Rust source codec — 2026-11-03
+
+The first coding unit in [#1345](https://github.com/Rambolarsen/orkworks/issues/1345)
+adds the crate-private
+[child source validator](../../crates/orkworksd/src/taskmaster/child_sources.rs).
+Its borrowed Rust input supplies complete canonical run/initial input, both
+configuration/evidence/event-source bundles, and the retained target/report
+snapshot with declared validation context. Read-only results retain the original
+configuration/source bytes and digests, classified only
+`unverified-source-bytes-only`. There is no production caller or store access.
+
+Common strict bytes, repository/worktree/executable leaves and explicit role/task
+snapshot checks reuse the dormant root validator; root entrypoint, error type and
+root framing remain unchanged. Child profiles, settings/model artifacts, frames,
+approval/event joins, frozen identity and target-owned review joins are separate.
+All existing fields, domains and selected source bounds are preserved.
+
+Rust tests pin all 28 independent vectors. A test-only
+[parity bridge](../../scripts/child-source-parity-cases.mjs) executes the existing
+129-case JavaScript assay and supplies its 115 complete-packet verdicts to the
+Rust entry, plus two fully rebound complete metadata wrappers at the 16 KiB
+ceiling and its successor. The remaining assay cases exercise standalone framing/decoding/generation;
+Rust additionally checks raw input decoding across both bundles, complete frame/
+startup limits, per-occurrence complete-plan accounting at its 2 MiB ceiling and successor,
+and rehashed report semantics with exact supplied captures, URI
+and UTC timestamp grammar. No test invokes a coding harness or performs a model
+call. These checks establish retained-byte validation only; the remaining
+qualification above still applies.
+
+The final 12 focused Rust tests and full repository verification passed, including
+2,726 Rust unit tests (17 intentionally ignored), existing root validation,
+reporter/desktop checks and documentation build. One bounded correctness/coverage
+review pair cleared the final code; coverage feedback added direct vector and
+byte/accounting boundary regressions. The coding PR records the reviewed head.
+The user-doc advisory needs no edit for this dormant module; the worktree
+advisory concerns a foreign branch and does not authorize its cleanup.
+
+PR CI additionally checks literal embedded-input routing and caught the new
+child catalog missing from the Rust path filter. The routing now includes that
+catalog and every dynamic parity-bridge dependency. A local regression reproduced
+both the catalog and bridge omissions before the fix; all six routing cases and
+the complete 42-case documentation/tooling contract suite pass after it. This
+changes CI selection only; the reviewed Rust codec and source bytes are unchanged.

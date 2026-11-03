@@ -2,14 +2,14 @@ use super::{Result, RootBootstrapError};
 use crate::taskmaster::coordinator::{canonical_json_bytes, sha256_hex};
 use serde_json::Value;
 
-pub(super) fn ensure(ok: bool, reason: &'static str) -> Result<()> {
+pub(in crate::taskmaster) fn ensure(ok: bool, reason: &'static str) -> Result<()> {
     if ok {
         Ok(())
     } else {
         Err(RootBootstrapError(reason))
     }
 }
-pub(super) fn canonical(x: &Value) -> Result<Vec<u8>> {
+pub(in crate::taskmaster) fn canonical(x: &Value) -> Result<Vec<u8>> {
     canonical_json_bytes(x).map_err(|_| RootBootstrapError("canonical wire"))
 }
 fn integers(x: &Value) -> bool {
@@ -24,14 +24,14 @@ fn integers(x: &Value) -> bool {
         _ => true,
     }
 }
-pub(super) fn decode(bytes: &[u8], limit: usize) -> Result<Value> {
+pub(in crate::taskmaster) fn decode(bytes: &[u8], limit: usize) -> Result<Value> {
     ensure(bytes.len() <= limit, "canonical wire")?;
     let x: Value =
         serde_json::from_slice(bytes).map_err(|_| RootBootstrapError("canonical wire"))?;
     ensure(integers(&x) && canonical(&x)? == bytes, "canonical wire")?;
     Ok(x)
 }
-pub(super) fn exact(x: &Value, fields: &str) -> Result<()> {
+pub(in crate::taskmaster) fn exact(x: &Value, fields: &str) -> Result<()> {
     let m = x.as_object().ok_or(RootBootstrapError("closed fields"))?;
     ensure(
         m.len() == fields.split_whitespace().count()
@@ -39,15 +39,15 @@ pub(super) fn exact(x: &Value, fields: &str) -> Result<()> {
         "closed fields",
     )
 }
-pub(super) fn s(x: &Value) -> Result<&str> {
+pub(in crate::taskmaster) fn s(x: &Value) -> Result<&str> {
     x.as_str().ok_or(RootBootstrapError("string"))
 }
-pub(super) fn text(x: &Value, max: usize, min: usize) -> Result<&str> {
+pub(in crate::taskmaster) fn text(x: &Value, max: usize, min: usize) -> Result<&str> {
     let v = s(x)?;
     ensure((min..=max).contains(&v.len()), "text bound")?;
     Ok(v)
 }
-pub(super) fn id(x: &Value) -> Result<&str> {
+pub(in crate::taskmaster) fn id(x: &Value) -> Result<&str> {
     let v = text(x, 128, 1)?;
     ensure(
         v.bytes()
@@ -56,7 +56,7 @@ pub(super) fn id(x: &Value) -> Result<&str> {
     )?;
     Ok(v)
 }
-pub(super) fn digest(x: &Value) -> Result<&str> {
+pub(in crate::taskmaster) fn digest(x: &Value) -> Result<&str> {
     let v = s(x)?;
     ensure(
         v.len() == 64
@@ -66,17 +66,17 @@ pub(super) fn digest(x: &Value) -> Result<&str> {
     )?;
     Ok(v)
 }
-pub(super) fn number(x: &Value, min: u64, max: u64) -> Result<u64> {
+pub(in crate::taskmaster) fn number(x: &Value, min: u64, max: u64) -> Result<u64> {
     let n = x.as_u64().ok_or(RootBootstrapError("integer"))?;
     ensure((min..=max).contains(&n), "integer")?;
     Ok(n)
 }
-pub(super) fn list(x: &Value, max: usize, min: usize) -> Result<&[Value]> {
+pub(in crate::taskmaster) fn list(x: &Value, max: usize, min: usize) -> Result<&[Value]> {
     let a = x.as_array().ok_or(RootBootstrapError("array"))?;
     ensure((min..=max).contains(&a.len()), "array bound")?;
     Ok(a)
 }
-pub(super) fn sorted(xs: &[Value], key: Option<&str>) -> Result<()> {
+pub(in crate::taskmaster) fn sorted(xs: &[Value], key: Option<&str>) -> Result<()> {
     let mut prev = None;
     for x in xs {
         let next = s(key.map_or(x, |k| &x[k]))?;
@@ -85,16 +85,16 @@ pub(super) fn sorted(xs: &[Value], key: Option<&str>) -> Result<()> {
     }
     Ok(())
 }
-pub(super) fn tags(x: &Value, choices: &[&str]) -> Result<()> {
+pub(in crate::taskmaster) fn tags(x: &Value, choices: &[&str]) -> Result<()> {
     ensure(choices.contains(&s(x)?), "tag")
 }
-pub(super) fn hash(bytes: impl AsRef<[u8]>) -> String {
+pub(in crate::taskmaster) fn hash(bytes: impl AsRef<[u8]>) -> String {
     sha256_hex(bytes.as_ref())
 }
-pub(super) fn raw(x: &Value) -> Result<String> {
+pub(in crate::taskmaster) fn raw(x: &Value) -> Result<String> {
     Ok(hash(canonical(x)?))
 }
-pub(super) fn sealed(x: &Value, field: &str, domain: &str) -> Result<()> {
+pub(in crate::taskmaster) fn sealed(x: &Value, field: &str, domain: &str) -> Result<()> {
     let expected = digest(&x[field])?;
     let mut body = x.clone();
     body.as_object_mut()

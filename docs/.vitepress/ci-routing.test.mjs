@@ -63,3 +63,19 @@ test('external URL-based desktop test inputs trigger Desktop validation', () => 
 test('release workflow changes run the desktop packaging contract tests', () => {
   assert.ok(routed('desktop', '.github/workflows/release.yml'));
 });
+
+test('Rust child source parity bridge and its inputs trigger Rust validation', () => {
+  for (const path of [
+    'scripts/child-source-parity-cases.mjs',
+    'docs/validation/child-source-vectors.json',
+    'docs/validation/child-source-components.mjs',
+    'docs/validation/child-source-components.test.mjs',
+    'docs/validation/generate-child-source-vectors.py',
+    'docs/validation/root-bootstrap-vectors.json',
+    'docs/validation/root-bootstrap-components.mjs',
+    'docs/validation/root-preparation-components.mjs',
+    'docs/validation/root-preparation-source-components.mjs',
+    'docs/validation/hierarchy-summary-components.mjs',
+    'docs/validation/r2-report-components.mjs',
+  ]) assert.ok(routed('rust', path), path);
+});
