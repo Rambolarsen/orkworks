@@ -126,6 +126,18 @@ impl Connection {
                 .map_err(|_| HierarchyStorageError("physical database"))?;
             let before_digest = match (mode, &existing) {
                 (super::connection::RowMode::Insert, Some(_)) => {
+                    // An exact retry of identical stored content is a no-op:
+                    // the committed chain and row links stay as they are.
+                    let stored: Value =
+                        serde_json::from_slice(existing.as_deref().expect("existing row"))
+                            .map_err(|_| HierarchyStorageError("physical database"))?;
+                    let body = super::rows::without_field(&stored, "lastCommit");
+                    if canonical(&body)? == canonical(value)? {
+                        transaction.commit().ok();
+                        return Ok(RowJournalCommit {
+                            commit: latest.clone(),
+                        });
+                    }
                     return Err(HierarchyStorageError(conflict_reason));
                 }
                 (super::connection::RowMode::Replace, Some(bytes)) => {
@@ -188,11 +200,11 @@ impl Connection {
                 .map_err(|_| HierarchyStorageError("header"))?;
             let value_bytes = canonical(&value_with_commit)?;
             let statement = match mode {
-                super::connection::RowMode::Insert => format!(
-                    "INSERT INTO {table} (key, value, last_commit, sequence) VALUES (?1, ?2, ?3, ?4)"
-                ),
                 super::connection::RowMode::Replace => format!(
                     "INSERT OR REPLACE INTO {table} (key, value, last_commit, sequence) VALUES (?1, ?2, ?3, ?4)"
+                ),
+                _ => format!(
+                    "INSERT INTO {table} (key, value, last_commit, sequence) VALUES (?1, ?2, ?3, ?4)"
                 ),
             };
             transaction
@@ -221,6 +233,12 @@ impl Connection {
                 rusqlite::params![commit_bytes],
             )
             .map_err(|_| HierarchyStorageError("physical database"))?;
+        // Test-only mid-command failure seam: rolls back every row before the
+        // proof insert; production builds have no seam.
+        #[cfg(test)]
+        if test_seam_armed() {
+            return Err(HierarchyStorageError("seam"));
+        }
         transaction
             .commit()
             .map_err(|_| HierarchyStorageError("physical database"))?;
@@ -243,6 +261,12 @@ impl Connection {
             )
             .map_err(|_| HierarchyStorageError(reason))?;
         serde_json::from_slice(&bytes).map_err(|_| HierarchyStorageError(reason))
+    }
+
+    /// Test access to the retained connection (cfg(test) only).
+    #[cfg(test)]
+    pub(crate) fn raw(&self) -> std::sync::MutexGuard<'_, rusqlite::Connection> {
+        self.database.lock().expect("store lock")
     }
 
     /// Read the current `header.latest` CommitRef of an available store.
@@ -422,7 +446,11 @@ fn init_manifest(workspace_id: &str, epoch: &str) -> Value {
 /// `beforeDigest` tracking (replacements must differ from the stored body).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RowMode {
+    /// Insert-only write; identical stored bodies are no-op retries.
     Insert,
+    /// Establish-only write (fresh preparation): any existing row refuses.
+    InsertStrict,
+    /// Mutable-row replacement with beforeDigest tracking.
     Replace,
 }
 
@@ -440,4 +468,19 @@ pub(crate) struct RowChange {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct RowJournalCommit {
     pub commit: super::rows::CommitRef,
+}
+#[cfg(test)]
+pub(crate) fn arm_test_seam() {
+    super::TEST_SEAM.with(|seam| seam.store(true, std::sync::atomic::Ordering::SeqCst));
+}
+
+#[cfg(test)]
+pub(crate) fn disarm_test_seam() {
+    super::TEST_SEAM.with(|seam| seam.store(false, std::sync::atomic::Ordering::SeqCst));
+}
+
+/// Test-only journal seam read; production builds never arm it.
+#[cfg(test)]
+fn test_seam_armed() -> bool {
+    super::TEST_SEAM.with(|seam| seam.load(std::sync::atomic::Ordering::SeqCst))
 }

@@ -41,7 +41,7 @@ pub(crate) fn establish_resource(
         super::JOURNAL_COMMAND,
         vec![super::connection::RowChange {
             table: "quota_usage",
-            mode: super::connection::RowMode::Insert,
+            mode: super::connection::RowMode::InsertStrict,
             key,
             value,
         }],

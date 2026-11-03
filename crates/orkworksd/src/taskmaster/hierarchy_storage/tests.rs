@@ -308,6 +308,234 @@ fn noncanonical_stored_bytes_reject() {
 
 use super::quota;
 
+// Publication primitives (scope 4): one transaction per command.
+
+use super::publication;
+
+#[test]
+fn golden_worker_source_chain_journals_row_by_row() {
+    let root = tempdir().unwrap();
+    let path = root.path().join("journals.sqlite");
+    let store = Connection::open(&path, "workspace-1").unwrap();
+    // The plan first: the run identity comes from the plan binding itself.
+    let plan = publication::journal_object(
+        &store,
+        ObjectKind::Plan,
+        &source_context(),
+        &golden("worker-plan"),
+    )
+    .unwrap();
+    assert_eq!(
+        plan.commit().sequence,
+        2,
+        "first journal after initialization"
+    );
+    // The same body journals as an exact retry with no new commit.
+    let retry = publication::journal_object(
+        &store,
+        ObjectKind::Plan,
+        &source_context(),
+        &golden("worker-plan"),
+    )
+    .unwrap();
+    assert_eq!(
+        retry.commit(),
+        plan.commit(),
+        "exact retries leave links unchanged"
+    );
+    // The configuration joins the frozen run id through the same context.
+    publication::journal_object(
+        &store,
+        ObjectKind::Configuration,
+        &source_context(),
+        &golden("worker-configuration"),
+    )
+    .unwrap();
+    publication::journal_object(
+        &store,
+        ObjectKind::AssignmentSource,
+        &source_context(),
+        &golden("worker-source"),
+    )
+    .unwrap();
+    for id in [
+        "worker-evidence-0",
+        "worker-evidence-1",
+        "worker-evidence-2",
+        "worker-evidence-3",
+    ] {
+        publication::journal_object(&store, ObjectKind::Evidence, &source_context(), &golden(id))
+            .unwrap();
+    }
+    // The out-of-scope catalog tables stay untouched by producer commands.
+    assert_eq!(
+        super::schema::empty_out_of_scope_tables(&path).unwrap(),
+        super::schema::OUT_OF_SCOPE
+    );
+}
+
+#[test]
+fn established_child_metadata_conflicts_on_same_key_change() {
+    let root = tempdir().unwrap();
+    let path = root.path().join("immutable_row.sqlite");
+    let store = Connection::open(&path, "workspace-1").unwrap();
+    let admitted = super::rows::admit_meta_record(
+        super::rows::MetaKind::Attachment,
+        &golden("worker-attachment"),
+    )
+    .unwrap();
+    publication::journal_child_metadata(&store, super::rows::MetaKind::Attachment, &admitted, None)
+        .unwrap();
+    // A second record bound to the same childSessionId with different bytes
+    // changes the attachment body: re-sealed admission passes, but the row
+    // conflict refuses the rewrite.
+    let bytes = modified("worker-attachment", |value| {
+        value["assignmentIdentity"]["taskVersion"] = json!(3);
+        let mut body = value.clone();
+        if let Some(map) = body.as_object_mut() {
+            map.remove("attachmentDigest");
+        }
+        let resealed = super::sha256_hex(
+            &[
+                super::rows::ATTACHMENT_DOMAIN.as_bytes(),
+                b"\n",
+                &super::canonical(&body).unwrap(),
+            ]
+            .concat(),
+        );
+        value["attachmentDigest"] = json!(resealed);
+    });
+    let re_admitted = super::rows::admit_meta_record(super::rows::MetaKind::Attachment, &bytes)
+        .expect("re-sealed attachment record");
+    let rejection = publication::journal_child_metadata(
+        &store,
+        super::rows::MetaKind::Attachment,
+        &re_admitted,
+        None,
+    )
+    .err()
+    .map(|e| e.0);
+    assert_eq!(
+        rejection,
+        Some("metadata row"),
+        "established child metadata rows are immutable"
+    );
+}
+
+#[test]
+fn mid_command_failure_rolls_back_every_row() {
+    let root = tempdir().unwrap();
+    let path = root.path().join("rollback.sqlite");
+    let store = Connection::open(&path, "workspace-1").unwrap();
+    let _ = publication::journal_object(
+        &store,
+        ObjectKind::Plan,
+        &source_context(),
+        &golden("worker-plan"),
+    )
+    .unwrap();
+    super::connection::arm_test_seam();
+    let rejection = publication::journal_object(
+        &store,
+        ObjectKind::Configuration,
+        &source_context(),
+        &golden("worker-configuration"),
+    )
+    .err()
+    .map(|e| e.0);
+    super::connection::disarm_test_seam();
+    assert_eq!(rejection, Some("seam"), "injected mid-command failure");
+    // The header/latest stays unchanged and the rolled-back proof is absent.
+    let connection = store.raw();
+    let proof_head: i64 = connection
+        .query_row("SELECT MAX(sequence) FROM commit_proof", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(proof_head, 2, "no proof at the failed sequence");
+}
+
+#[test]
+fn provenance_edges_journal_with_retained_join() {
+    let root = tempdir().unwrap();
+    let path = root.path().join("edges.sqlite");
+    let store = Connection::open(&path, "workspace-1").unwrap();
+    let configuration = publication::journal_object(
+        &store,
+        ObjectKind::Configuration,
+        &source_context(),
+        &golden("worker-configuration"),
+    )
+    .unwrap();
+    let evidence = publication::journal_object(
+        &store,
+        ObjectKind::Evidence,
+        &source_context(),
+        &golden("worker-evidence-0"),
+    )
+    .unwrap();
+    let consumer_ref = {
+        let admitted = super::rows::admit_source_object(
+            ObjectKind::Configuration,
+            &source_context(),
+            &golden("worker-configuration"),
+        )
+        .unwrap();
+        json!({"digest": admitted.digest, "key": admitted.key})
+    };
+    let target_ref = {
+        let admitted = super::rows::admit_source_object(
+            ObjectKind::Evidence,
+            &source_context(),
+            &golden("worker-evidence-0"),
+        )
+        .unwrap();
+        json!({"digest": admitted.digest, "key": admitted.key})
+    };
+    let edge = publication::journal_dependency(&store, &consumer_ref, &target_ref).unwrap();
+    assert!(edge.commit().sequence > configuration.commit().sequence);
+    // Exact edge retry: unchanged commit.
+    let retry = publication::journal_dependency(&store, &consumer_ref, &target_ref).unwrap();
+    assert_eq!(retry.commit(), edge.commit());
+    // Cited digest drift breaks the join.
+    let drifted = json!({"digest": "0000000000000000000000000000000000000000000000000000000000000000", "key": consumer_ref["key"].clone()});
+    assert_eq!(
+        publication::journal_dependency(&store, &drifted, &target_ref)
+            .err()
+            .map(|e| e.0),
+        Some("join")
+    );
+}
+
+#[test]
+fn format_four_manifest_digest_recomputes_from_stored_proof() {
+    let root = tempdir().unwrap();
+    let path = root.path().join("manifest.sqlite");
+    let store = Connection::open(&path, "workspace-1").unwrap();
+    publication::journal_object(
+        &store,
+        ObjectKind::Plan,
+        &source_context(),
+        &golden("worker-plan"),
+    )
+    .unwrap();
+    let connection = store.raw();
+    let (sequence, body, change_digest): (i64, Vec<u8>, String) = connection
+        .query_row(
+            "SELECT sequence, body, change_digest FROM commit_proof ORDER BY sequence DESC LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(sequence, 2);
+    // Exact recomputation: the change domain over the manifest bytes.
+    let recomputed = super::domain_digest(super::CHANGE_DOMAIN, &body);
+    assert_eq!(recomputed, change_digest);
+    // Canonical manifest bytes: re-serializing the parsed value is identical.
+    let manifest: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(super::canonical(&manifest).unwrap(), body);
+}
+
 /// The run-owner quota key from the accepted owner codecs.
 fn run_owner() -> Value {
     json!({

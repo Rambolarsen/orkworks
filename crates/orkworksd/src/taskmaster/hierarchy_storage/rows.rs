@@ -90,6 +90,9 @@ fn exact(x: &Value, fields: &str) -> Result<()> {
     )
 }
 
+fn as_object(x: &Value) -> Result<&serde_json::Map<String, Value>> {
+    x.as_object().ok_or(HierarchyStorageError("closed fields"))
+}
 fn s(x: &Value) -> Result<&str> {
     x.as_str().ok_or(HierarchyStorageError("string"))
 }
@@ -1695,6 +1698,21 @@ fn attachment_source(x: &Value) -> Result<Value> {
 pub(crate) const APPROVAL_RECEIPT_CAP: usize = 4096;
 pub(crate) const METADATA_WRAPPER_CAP: usize = 16 * 1024;
 pub(crate) const APPROVAL_DOMAIN: &str = "orkworks.child-source-plan-approval.v1";
+/// The only dependency purpose admitted by this kernel's primitives.
+pub(crate) const CHILD_SOURCE_PROVENANCE: &str = "child-source-provenance";
+
+/// `ObjectRef` is exactly `{key: ObjectKey, digest: Digest}`.
+pub(crate) fn object_ref(x: &Value) -> Result<()> {
+    exact(x, "digest key")?;
+    digest(&x["digest"])?;
+    let key = as_object(&x["key"])?;
+    ensure(
+        key.contains_key("identity") && key.contains_key("kind"),
+        "open key",
+    )?;
+    Ok(())
+}
+
 pub(crate) const RESERVATION_DOMAIN: &str = "orkworks.child-source-reservation.v1";
 pub(crate) const ALLOCATION_DOMAIN: &str = "orkworks.child-source-allocation.v1";
 pub(crate) const ATTACHMENT_DOMAIN: &str = "orkworks.child-source-attachment.v1";
