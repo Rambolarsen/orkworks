@@ -843,13 +843,14 @@ async fn report_harness_session_inner(
     } else {
         false
     };
-    let result = match SessionApplication::new(state.clone())
-        .report_harness_session_with_codex_context(
+    let completion = match SessionApplication::new(state.clone())
+        .report_harness_session_with_completion(
             &id,
             report,
             req.session_start_source.as_deref(),
             req.session_start_event.as_deref(),
             private_lookup_authorized || prompt_registration_authorized,
+            bearer_token(&headers),
         ) {
         Ok(result) => result,
         Err(crate::session_application::SessionError::Conflict) => {
@@ -857,6 +858,8 @@ async fn report_harness_session_inner(
         }
         Err(_) => return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     };
+
+    let result = completion.result;
 
     // Prompt registration and identity merge are complete; non-Codex routes
     // have no asynchronous work below this cutoff.
@@ -871,44 +874,7 @@ async fn report_harness_session_inner(
                 | metadata::HarnessSessionMergeResult::IgnoredUnchanged
         )
     {
-        let reservation = crate::codex_session_store::with_label_refresh_reservation(
-            &id,
-            &native_session_id,
-            std::time::Duration::from_secs(5),
-            |reserve| {
-                let workspace = state.workspace.lock().unwrap();
-                let Some(meta) = workspace
-                    .as_ref()
-                    .and_then(|workspace| workspace.metadata.read_session(&id))
-                    .filter(|meta| {
-                        meta.harness == "codex"
-                            && meta
-                                .resume
-                                .as_ref()
-                                .and_then(|resume| resume.harness_session_id.as_deref())
-                                == Some(native_session_id.as_str())
-                    })
-                else {
-                    return None;
-                };
-                if !crate::codex_session_store::accept_native_label_identity(
-                    &id,
-                    &native_session_id,
-                ) || !should_schedule_codex_label_refresh(result, meta.label_source)
-                {
-                    return None;
-                }
-                let runtime_identity = state
-                    .sessions
-                    .lock()
-                    .unwrap()
-                    .get(&id)
-                    .filter(|handle| handle.info.harness.as_deref() == Some("codex"))
-                    .map(|handle| handle.runtime.identity())?;
-                let refresh_epoch = reserve()?;
-                Some((runtime_identity, refresh_epoch))
-            },
-        );
+        let reservation = completion.reserve_codex_label_refresh(&id, &native_session_id);
         if let Some((runtime_identity, refresh_epoch)) = reservation {
             schedule_codex_label_refresh(
                 state,
@@ -1012,16 +978,8 @@ pub(crate) async fn report_harness_session_from_local_relay(
         .status()
 }
 
-fn should_schedule_codex_label_refresh(
-    result: metadata::HarnessSessionMergeResult,
-    label_source: metadata::LabelSource,
-) -> bool {
-    match result {
-        metadata::HarnessSessionMergeResult::Accepted
-        | metadata::HarnessSessionMergeResult::IgnoredUnchanged => label_source.is_automatic(),
-        _ => false,
-    }
-}
+#[cfg(test)]
+use crate::session_application::identity_completion::should_schedule_codex_label_refresh;
 
 fn schedule_codex_label_refresh(
     state: Arc<AppState>,
@@ -10090,3 +10048,7 @@ mod tests {
 #[cfg(test)]
 #[path = "session_observation_tests.rs"]
 mod observation_tests;
+
+#[cfg(test)]
+#[path = "identity_completion_tests.rs"]
+mod identity_completion_tests;

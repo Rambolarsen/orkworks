@@ -1145,6 +1145,28 @@ pub enum HarnessSessionMergeResult {
     PersistFailed,
 }
 
+/// Exact identity fields read or committed by one metadata transaction.
+/// This is an internal result, never a persisted or wire capability.
+pub(crate) struct HarnessSessionIdentity {
+    pub(crate) id: String,
+    pub(crate) created_at: String,
+    pub(crate) harness: String,
+    pub(crate) resume: Option<ResumeMemory>,
+    pub(crate) label_source: LabelSource,
+}
+pub(crate) struct HarnessSessionMerge {
+    pub(crate) result: HarnessSessionMergeResult,
+    pub(crate) identity: Option<HarnessSessionIdentity>,
+}
+impl HarnessSessionMerge {
+    pub(crate) fn status(result: HarnessSessionMergeResult) -> Self {
+        Self {
+            result,
+            identity: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AttentionMergeResult {
     Accepted,
@@ -1925,8 +1947,19 @@ impl MetadataStore {
         timestamp: &str,
         allow_codex_identity_replacement: bool,
     ) -> HarnessSessionMergeResult {
+        self.merge_harness_session_identity(id, report, timestamp, allow_codex_identity_replacement)
+            .result
+    }
+
+    pub(crate) fn merge_harness_session_identity(
+        &self,
+        id: &str,
+        report: &HarnessSessionReport,
+        timestamp: &str,
+        allow_codex_identity_replacement: bool,
+    ) -> HarnessSessionMerge {
         if !valid_harness_session_report(report) {
-            return HarnessSessionMergeResult::Invalid;
+            return HarnessSessionMerge::status(HarnessSessionMergeResult::Invalid);
         }
 
         let mut disposition = HarnessSessionMergeResult::Accepted;
@@ -1946,33 +1979,39 @@ impl MetadataStore {
             });
         let meta = match result {
             Ok(Some(record)) => record.metadata,
-            Ok(None) => return disposition,
+            Ok(None) => return HarnessSessionMerge::status(disposition),
             Err(session_transactions::SessionTransactionError::Io(error))
                 if error.kind() == std::io::ErrorKind::NotFound =>
             {
-                return HarnessSessionMergeResult::NotFound
+                return HarnessSessionMerge::status(HarnessSessionMergeResult::NotFound)
             }
-            Err(_) => return HarnessSessionMergeResult::PersistFailed,
+            Err(_) => return HarnessSessionMerge::status(HarnessSessionMergeResult::PersistFailed),
         };
-        if disposition == HarnessSessionMergeResult::IgnoredUnchanged {
-            return disposition;
+        if disposition != HarnessSessionMergeResult::IgnoredUnchanged {
+            self.append_event(
+                id,
+                &Event {
+                    event_type: "session.harness_session_captured".into(),
+                    timestamp: timestamp.to_string(),
+                    status: meta.status.clone(),
+                    observed_status: None,
+                    confidence: Some(report.confidence),
+                    summary: None,
+                    source: None,
+                    recommendation_id: None,
+                },
+            );
         }
-
-        self.append_event(
-            id,
-            &Event {
-                event_type: "session.harness_session_captured".into(),
-                timestamp: timestamp.to_string(),
-                status: meta.status.clone(),
-                observed_status: None,
-                confidence: Some(report.confidence),
-                summary: None,
-                source: None,
-                recommendation_id: None,
-            },
-        );
-
-        disposition
+        HarnessSessionMerge {
+            result: disposition,
+            identity: Some(HarnessSessionIdentity {
+                id: meta.id,
+                created_at: meta.created_at,
+                harness: meta.harness,
+                resume: meta.resume,
+                label_source: meta.label_source,
+            }),
+        }
     }
 
     /// Writes a deterministic attention signal (e.g. from a Claude Code `Notification`
