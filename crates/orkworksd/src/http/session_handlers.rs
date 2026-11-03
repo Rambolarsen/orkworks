@@ -764,25 +764,14 @@ async fn report_harness_session_inner(
     let prompt_registration_authorized = if let Some(expected_harness) = prompt_harness {
         let token = bearer_token(&headers);
         let generation = req.prompt_hook_generation.as_deref();
-        let live_harness_matches = state
+        let matching_harness = state
             .workspace
             .lock()
             .unwrap()
             .as_ref()
             .and_then(|workspace| workspace.metadata.read_session(&id))
-            .is_some_and(|session| session.harness == expected_harness)
-            && state
-                .sessions
-                .lock()
-                .unwrap()
-                .get(&id)
-                .is_some_and(|handle| {
-                    handle.info.lifecycle == "alive"
-                        && handle.info.lifecycle_phase == "active"
-                        && (handle.info.harness_id.as_deref() == Some(expected_harness)
-                            || handle.info.harness.as_deref() == Some(expected_harness))
-                });
-        let authorized = live_harness_matches
+            .is_some_and(|session| session.harness == expected_harness);
+        let capability_matches = matching_harness
             && token.is_some_and(|token| verify_workflow_report_token(&id, token))
             && generation.is_some_and(|generation| {
                 crate::runtime::prompt_authority::registry().generation_matches(
@@ -791,8 +780,35 @@ async fn report_harness_session_inner(
                     generation,
                 )
             });
-        if !authorized {
+        if !capability_matches {
             return axum::http::StatusCode::BAD_REQUEST.into_response();
+        }
+        let live_phase = state
+            .sessions
+            .lock()
+            .unwrap()
+            .get(&id)
+            .filter(|handle| {
+                handle.info.harness_id.as_deref() == Some(expected_harness)
+                    || handle.info.harness.as_deref() == Some(expected_harness)
+            })
+            .map(|handle| {
+                (
+                    handle.info.lifecycle.clone(),
+                    handle.info.lifecycle_phase.clone(),
+                )
+            });
+        match live_phase
+            .as_ref()
+            .map(|(lifecycle, phase)| (lifecycle.as_str(), phase.as_str()))
+        {
+            Some(("alive", "active")) => {}
+            // No identity or attention mutation before runtime activation.
+            // The same authenticated launch may retry once startup completes.
+            Some(("creating", "creating")) if expected_harness == "claude-code" => {
+                return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response();
+            }
+            _ => return axum::http::StatusCode::BAD_REQUEST.into_response(),
         }
         match crate::runtime::prompt_authority::registry().register_native_id(
             &id,
@@ -2105,6 +2121,45 @@ mod tests {
             prompt_hook_generation: Some(generation.clone()),
             session_start_observed_at: None,
         };
+
+        {
+            let mut handles = state.sessions.lock().unwrap();
+            let handle = handles.get_mut(&session_id).unwrap();
+            handle.info.lifecycle = "creating".into();
+            handle.info.lifecycle_phase = "creating".into();
+        }
+        let early = report_harness_session_with_headers(
+            State(state.clone()),
+            Path(session_id.clone()),
+            headers.clone(),
+            Json(report()),
+        )
+        .await
+        .into_response();
+        assert_eq!(early.status(), axum::http::StatusCode::SERVICE_UNAVAILABLE);
+        assert!(
+            !crate::runtime::prompt_authority::registry().native_id_matches(
+                &session_id,
+                "claude-code",
+                &generation,
+                "claude-native-session-1",
+            )
+        );
+        let unauthorized = report_harness_session_with_headers(
+            State(state.clone()),
+            Path(session_id.clone()),
+            HeaderMap::new(),
+            Json(report()),
+        )
+        .await
+        .into_response();
+        assert_eq!(unauthorized.status(), axum::http::StatusCode::BAD_REQUEST);
+        {
+            let mut handles = state.sessions.lock().unwrap();
+            let handle = handles.get_mut(&session_id).unwrap();
+            handle.info.lifecycle = "alive".into();
+            handle.info.lifecycle_phase = "active".into();
+        }
 
         for _ in 0..2 {
             let response = if state

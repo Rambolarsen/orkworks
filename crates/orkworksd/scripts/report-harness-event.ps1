@@ -365,8 +365,20 @@ if (-not $codexCaptureOnly -and $sessionId -and $port -and $harnessSessionId -an
             if ($env:ORKWORKS_REPORT_TOKEN) {
                 $sessionHeaders["Authorization"] = "Bearer $($env:ORKWORKS_REPORT_TOKEN)"
             }
-            Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$port/sessions/$sessionId/harness-session" `
-                -Headers $sessionHeaders -ContentType "application/json" -Body $sessionBody -TimeoutSec 5 | Out-Null
+            $startupRetry = $sessionSource -eq "claude_hook" -and $Event -eq "SessionStart"
+            $attempts = if ($startupRetry) { 3 } else { 1 }
+            $requestTimeout = if ($startupRetry) { 2 } else { 5 }
+            for ($attempt = 1; $attempt -le $attempts; $attempt++) {
+                try {
+                    Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$port/sessions/$sessionId/harness-session" `
+                        -Headers $sessionHeaders -ContentType "application/json" -Body $sessionBody -TimeoutSec $requestTimeout | Out-Null
+                    break
+                } catch {
+                    $responseStatus = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { 0 }
+                    if ($attempt -ge $attempts -or $responseStatus -notin @(0, 503)) { throw }
+                    Start-Sleep -Milliseconds 200
+                }
+            }
         }
         if ($sessionSource -in @("claude_hook", "copilot_hook")) {
             $nativeRegistrationAccepted = $true

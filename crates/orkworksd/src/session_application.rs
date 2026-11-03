@@ -5956,7 +5956,15 @@ async fn resume_session_workflow(
             ));
         }
     }
-    let (meta, command, strategy, resume_flags, capacity_check_pending, active_work_hook) = {
+    let (
+        meta,
+        command,
+        strategy,
+        resume_flags,
+        capacity_check_pending,
+        active_work_hook,
+        resume_root,
+    ) = {
         let ws_guard = state.workspace.lock().unwrap();
         let Some(ref ws) = *ws_guard else {
             return Err(crate::session_application::SessionError::Conflict);
@@ -6017,8 +6025,38 @@ async fn resume_session_workflow(
             harness.resume_flags(),
             !harness.capacity_patterns().is_empty(),
             active_work_hook,
+            ws.metadata.root_path(),
         )
     };
+
+    if meta.harness == "opencode" && strategy == harness::ResumeStrategy::Exact {
+        let native_id = meta
+            .resume
+            .as_ref()
+            .and_then(|r| r.harness_session_id.as_deref())
+            .ok_or(SessionError::BadRequest(
+                "OpenCode session has no captured native ID",
+            ))?;
+        crate::opencode_session_store::verify_exact(&command, native_id)
+            .await
+            .map_err(SessionError::BadRequest)?;
+        // The bounded external probe may yield; never adopt another workspace,
+        // record, directory or native binding after it completes.
+        let workspace = state.workspace.lock().unwrap();
+        let ws = workspace.as_ref().ok_or(SessionError::Conflict)?;
+        let current = ws
+            .metadata
+            .read_session(&id)
+            .ok_or(SessionError::Conflict)?;
+        if ws.metadata.root_path() != resume_root
+            || current.created_at != meta.created_at
+            || current.harness != meta.harness
+            || current.cwd != meta.cwd
+            || current.resume != meta.resume
+        {
+            return Err(SessionError::Conflict);
+        }
+    }
 
     // A non-exact resume starts a fresh native conversation binding, just as a
     // new launch does. Retain the previous metadata only for admission rollback.
@@ -10889,6 +10927,88 @@ mod tests {
                 "Codex has no saved local session for this ID"
             ))
         ));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn opencode_exact_resume_refuses_deleted_native_data_without_claiming_a_runtime() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let executable = root.path().join("opencode-fixture");
+        let path = root.path().join("opencode-fixture.db");
+        rusqlite::Connection::open(&path)
+            .unwrap()
+            .execute_batch("CREATE TABLE session_v2 (id TEXT PRIMARY KEY)")
+            .unwrap();
+        std::fs::write(
+            &executable,
+            r#"#!/bin/sh
+if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
+"#,
+        )
+        .unwrap();
+        crate::test_support::make_test_executable(&executable);
+        state
+            .harness_store
+            .mutate(&state.harness_catalog, |doc| {
+                doc.overrides.entry("opencode".into()).or_default().resume =
+                    Some(Some(harness::definition::ResumePatch {
+                        exact: Some(Some(harness::CommandTemplate {
+                            command: executable.display().to_string(),
+                            args: vec![
+                                "--standalone".into(),
+                                "--session".into(),
+                                "{harnessSessionId}".into(),
+                            ],
+                        })),
+                        ..Default::default()
+                    }));
+                Ok(())
+            })
+            .unwrap();
+        let id = "opencode-missing-native";
+        let mut meta = crate::test_support::test_session_metadata(
+            id,
+            "Resume",
+            root.path().display().to_string(),
+            "ended",
+            "before",
+            "before",
+        );
+        meta.harness = "opencode".into();
+        meta.lifecycle_phase = "ended".into();
+        meta.resume = Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::Exact,
+            harness_session_id: Some("ses_deleted".into()),
+            latest_fallback: true,
+            last_seen_at: None,
+        });
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
+        let result = SessionApplication::new(state.clone())
+            .resume_session(id, Some(harness::ResumeStrategy::Exact))
+            .await;
+        assert!(matches!(result, Err(SessionError::BadRequest("OpenCode has no saved local conversation for this exact ID; no replacement was started."))), "{result:?}");
+        assert!(!state.sessions.lock().unwrap().contains_key(id));
+        assert!(!root.path().join("opencode-fixture.started").exists());
+        let saved = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(saved.resume, meta.resume);
+        assert_eq!(saved.lifecycle_phase, "ended");
     }
 
     #[tokio::test]

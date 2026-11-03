@@ -33,6 +33,7 @@ export default {
   id: 'orkworks.session-reporter',
   setup: async (ctx) => {
     let openCodeSessionId = null;
+    let identityDelivered = false;
     let turnStatus = 'idle';
     let lastReported = null;
     let lastMicros = 0;
@@ -53,6 +54,7 @@ export default {
     };
 
     const postAttention = async (event) => {
+      if (!identityDelivered) return;
       const current = effectiveAttention();
       if (lastReported?.status === current.status && lastReported?.message === current.message) return;
       lastReported = current;
@@ -78,6 +80,7 @@ export default {
 
     const resetCaptureState = (harnessSessionId) => {
       openCodeSessionId = harnessSessionId;
+      identityDelivered = false;
       turnStatus = 'idle';
       permissionIds.clear();
       questionIds.clear();
@@ -88,15 +91,32 @@ export default {
       const port = process.env.ORKWORKS_PORT;
       const orkworksSessionId = process.env.ORKWORKS_SESSION_ID;
       if (!port || !orkworksSessionId) return;
-      await fetch(`http://127.0.0.1:${port}/sessions/${orkworksSessionId}/harness-session`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          harnessSessionId: openCodeSessionId,
-          source: "opencode_hook",
-          confidence: 0.99,
-        }),
-      }).catch(() => {});
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const response = await fetch(`http://127.0.0.1:${port}/sessions/${orkworksSessionId}/harness-session`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              harnessSessionId: openCodeSessionId,
+              source: "opencode_hook",
+              confidence: 0.99,
+            }),
+            signal: AbortSignal.any([controller.signal, AbortSignal.timeout(2000)]),
+            redirect: 'error',
+          });
+          // Consume the bounded identity response before another attempt.
+          await response.body?.cancel();
+          if (response.ok) {
+            identityDelivered = true;
+            return;
+          }
+          if (response.status !== 429 && response.status < 500) return;
+        } catch {
+          // Transport errors remain pending, including request deadlines.
+        }
+        if (controller.signal.aborted) return;
+        if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 100));
+      }
     };
 
     const handleEvent = async (event) => {
@@ -122,10 +142,12 @@ export default {
         await postAttention('session.capture');
         return;
       }
+      let capturedNow = false;
       if (!openCodeSessionId) {
         if (typeof sessionID !== 'string' || !sessionID || !type.startsWith('session.')) return;
         if (type === 'session.deleted' || type === 'session.error') return;
         resetCaptureState(sessionID);
+        capturedNow = true;
         await postHarnessSession();
         await postAttention('session.capture');
         // The capture event still flows through the switch below so the
@@ -136,6 +158,7 @@ export default {
       // host several OpenCode sessions, and stale ones must not steer
       // OrkWorks' attention state.
       if (sessionID !== openCodeSessionId) return;
+      if (!identityDelivered && !capturedNow) await postHarnessSession();
       const { id, requestID } = data;
       switch (type) {
         case 'session.execution.succeeded':

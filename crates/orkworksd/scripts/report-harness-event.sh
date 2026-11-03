@@ -380,11 +380,26 @@ except Exception:
     fi
   fi
   if [ "$report_spooled" != "yes" ]; then
-    session_curl_exit=0
-    session_http_status=$(printf '%b' "$session_curl_config" |
-      reporter_curl --config - -sS --max-time 5 --connect-timeout 2 -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/harness-session" \
-        -H "Content-Type: application/json" \
-        -d "$session_payload" --output /dev/null --write-out '%{http_code}') || session_curl_exit=$?
+    session_attempts=1
+    session_timeout=5
+    if [ "$session_source" = "claude_hook" ] && [ "$event" = "SessionStart" ]; then
+      session_attempts=3
+      session_timeout=2
+    fi
+    session_attempt=1
+    while :; do
+      session_curl_exit=0
+      session_http_status=$(printf '%b' "$session_curl_config" |
+        reporter_curl --config - -sS --max-time "$session_timeout" --connect-timeout 2 -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/harness-session" \
+          -H "Content-Type: application/json" \
+          -d "$session_payload" --output /dev/null --write-out '%{http_code}') || session_curl_exit=$?
+      if [ "$session_attempt" -ge "$session_attempts" ]; then break; fi
+      # Only transient startup/transport failure retries. Rejected authority
+      # (400/401/403/409) must not be reinterpreted as a startup delay.
+      if [ "$session_curl_exit" = "0" ] && [ "$session_http_status" != "503" ]; then break; fi
+      session_attempt=$((session_attempt + 1))
+      sleep 0.2
+    done
   fi
   if { [ "$session_source" = "claude_hook" ] || [ "$session_source" = "copilot_hook" ]; }; then
     if [ "$session_curl_exit" = "0" ] && {
