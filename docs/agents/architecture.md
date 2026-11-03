@@ -1210,6 +1210,20 @@ its existing locks, so a stale sweep cannot mark a terminal or replacement
 runtime idle. Failed finalization writes preserve `ending` and can be retried
 through the same operation once storage recovers; no automatic retry is implied.
 
+The runtime's final persistence now runs on a retained blocking job. For an
+existing record, that owner confirms the final replay grid before committing
+ended metadata, then appends the status event and publishes to its original
+workspace/reader and runtime/control/creation/harness context captured before
+blocking-job dispatch. A replay failure
+leaves the existing record ending. Private per-stage results distinguish absent
+storage, failed writes, committed metadata with a failed event append, and
+committed results detached from live publication. Missing storage still permits
+known physical-runtime completion without claiming a record/event commit. Event
+failure is logged as a partial result and is not blindly retried; these files
+are not one atomic transaction. The legacy JSON owner still holds shared guards
+around file I/O, so this does not complete async storage routing. See the
+[ordering evidence](../validation/session-store-adapter.md#legacy-ending-history-ordering).
+
 PTY input runs as one sequential blocking-pool write at a time, while the
 session driver continues draining output and observing the independent stop
 channel. Input and resize remain ordered in the bounded queue. A command

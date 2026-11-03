@@ -2556,14 +2556,19 @@ impl MetadataStore {
     /// no in-memory runtime to read a size from and never reaches the
     /// terminal-status transition itself.
     pub fn write_terminal_size(&self, id: &str, cols: u16, rows: u16) {
-        if let Err(e) = fs::create_dir_all(&self.events_dir()) {
-            warn!("failed to create events dir for terminal size: {e}");
-            return;
+        if let Err(error) = self.try_write_terminal_size(id, cols, rows) {
+            warn!("failed to write terminal size for {id}: {error}");
         }
-        let path = self.terminal_size_path(id);
-        if let Err(e) = fs::write(&path, format!("{cols}x{rows}")) {
-            warn!("failed to write terminal size for {id}: {e}");
-        }
+    }
+
+    pub(crate) fn try_write_terminal_size(
+        &self,
+        id: &str,
+        cols: u16,
+        rows: u16,
+    ) -> std::io::Result<()> {
+        fs::create_dir_all(self.events_dir())?;
+        fs::write(self.terminal_size_path(id), format!("{cols}x{rows}"))
     }
 
     /// Reads back the size written by `write_terminal_size`. Returns `None`

@@ -425,12 +425,13 @@ fn fixture_state(path: &Path, id: &str) -> (Arc<AppState>, mpsc::Receiver<Runtim
     );
     let (runtime, control) = SessionRuntime::live(24, 80);
     let (kill_tx, _) = tokio::sync::watch::channel(false);
+    let now = crate::workspace_runtime::iso_now();
     let mut info = crate::test_support::test_session_info(
         id,
         "Diagnostic",
         path.display().to_string(),
         "running",
-        "now",
+        &now,
     );
     info.harness = Some("codex".into());
     state.sessions.lock().unwrap().insert(
@@ -448,7 +449,6 @@ fn fixture_state(path: &Path, id: &str) -> (Arc<AppState>, mpsc::Receiver<Runtim
             active_work_hook: false,
         },
     );
-    let now = crate::workspace_runtime::iso_now();
     let mut meta = crate::test_support::test_session_metadata(
         id,
         "Diagnostic",

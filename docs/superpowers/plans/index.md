@@ -277,3 +277,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Hierarchy storage readiness and first source-codec unit](2026-11-02-hierarchy-storage-kernel.md) — Reconciled SQL prerequisites and proposed dormant Rust child-source byte validator; first-unit owner review required, SQL kernel remains Investigate.
 
 - [SQL lifecycle write reservations](2026-11-03-sql-lifecycle-reservations.md) — Dormant lifecycle metadata joins the shared application lane; production lifecycle and external effects remain gated.
+
+- [Lifecycle replay and event ordering](2026-11-03-lifecycle-history-ordering.md) — Confirm final replay grids and expose actual partial finalization results while preserving existing storage owners.
