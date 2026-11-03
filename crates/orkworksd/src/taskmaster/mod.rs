@@ -20,6 +20,7 @@ pub(crate) mod coordinator_store;
 #[cfg(test)]
 mod coordinator_tests;
 pub(crate) mod evaluator;
+pub(crate) mod hierarchy_storage;
 pub(crate) mod inference_approval;
 pub(crate) mod inference_trust;
 #[allow(dead_code)]
