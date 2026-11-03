@@ -731,3 +731,200 @@ is selected synthetic component evidence; actual complete physical indexes,
 producer/current-authority/consumer and complete-state qualification remain open.
 #1183/#1176 stay open, #740 stays closed. No storage-kernel or runtime plan is
 approved by this codec/discovery decision.
+
+## Durable command effect map — 2026-11-03
+
+Tracking: [#1355](https://github.com/Rambolarsen/orkworks/issues/1355),
+[#1176](https://github.com/Rambolarsen/orkworks/issues/1176), initiative #738.
+Review base: `79df82874453aa071f75f1729f0ce6eab97d68b9` after #1351/#1352.
+#1183 is closed on the live board; this work does not reopen it or infer that
+its closure qualified native authority, the whole catalog or a transaction.
+
+This section derives the five command kinds already covered by the
+[scoped source acceptance](#owner-acceptance-and-bounded-component-handoff--2026-11-02),
+the [transition owners](#transition-ownership-and-preparation-effects--2026-11-02),
+[selected controls](2026-11-02-child-launch-control-design.md#transition-and-recovery-rules)
+and [membership contract](2026-11-03-child-consumer-membership-design.md#coherent-discovery-and-publication).
+It introduces no new command tag/body/domain, authority exception, quota or
+initialization permission. It is an effect specification, not an executable
+command codec, complete transaction witness or permission to write a database.
+
+### Common read, commit and retry contract
+
+Let H be the exact captured store_header.latest in the selected workspace/epoch.
+The owner derives all reads and effects from the typed command's original source
+identities. There is no caller-supplied affected list, arbitrary table/key/value
+input, absence flag or completeness digest. Each command resolves:
+
+- Original root preparation, immutable run definition and initial seed; selected
+  parent attachment/runtime history and current run control. The seed cannot
+  replace missing current controls or actual current authority.
+- Its exact plan/configuration/input/evidence and applicable original approval,
+  reservation/allocation/attachment identities, including historical source/proof
+  joins. Original frozen taskVersion is never rewritten to a live control version.
+- Complete forward/reverse object and direct metadata/source-group membership
+  at H, including retained historical consumers, with the accepted cumulative
+  discovery budget. Missing/inconsistent or unsupported membership is unavailable.
+- All applicable source/control/summary and assignment/run/workspace owner ledgers,
+  direct owning proofs and current source/lease/health/native conditions. A missing
+  historical row is not fresh state, even when the requested new charge is zero.
+
+Capture full current row commitments and applicable run/plan/task/ordinary bridge
+versions. Revalidate H and the entire source-owned read set at the transaction
+boundary, including read-only peers and derived capacity. A changed header/read
+set denies the attempt; do not patch captured facts, retry under the same authority
+or retain only CAS over changed rows. Actual cutoff/ordinary lifecycle ownership
+is still a producer qualification obligation, not supplied by these field names.
+
+For an admitted semantic change, C has predecessor H and its checked successor
+sequence. Coalesce each changed key to one original before and final after
+commitment; retain every original occurrence for accounting. Include complete
+source/control/dependency/quota/summary/lineage effects and physical lookup
+maintenance atomically. Manifest changes list every logical change except the
+separate header/new-proof controls. Unchanged rows keep their original links.
+No post-commit index registration, link-only stamping or quota-only repair is
+permitted. Keep format-4 domains and every accepted nested codec version.
+
+These five operations remain outside the #744 publication-claim amendment and
+#1184 debit permit. Their excluded-command manifest claim is null under the
+[existing manifest union](2026-10-25-hierarchy-claim-proof-design.md#proposed-format-2-placement-and-commitment-graph);
+null is no authority substitute. Do not create a #744 claim proof, mutation lookup
+or reporting receipt slot to make a child source command writable. No lock is
+held through SQL/fsync and ordinary stop/revoke remains independent. This map
+selects no new source authority/commit fence.
+
+Authentication/scope checks precede exact retained retry lookup under the owning
+operation's existing policy. A proven identical committed operation returns its
+original result without new source rows, versions, proof, charges, initialization
+or grant restoration. Conflicting bytes fail; missing/ambiguous original disposition
+stays unavailable. A matching current counter, directory or receipt alone is not
+proof of the complete original transaction.
+
+### Five accepted command kinds
+
+Each recipe below includes the common contract above. Existing control fields,
+state/precondition rules and finite bounds remain authoritative; this table is
+not a generic writable union. Actual source/control publisher code and its native
+cutoff must be named and qualified before any complete-state fixture or execution.
+
+| Command / producer | Additional exact read and admission basis | Inseparable source and control effects |
+| --- | --- | --- |
+| child-source-propose / #741 resolver with #742 proposal owner | Exact immutable configuration and its cited evidence closure; optional reviewer input with exact target/report/criteria/rubric joins; complete approved-plan byte accounting; original root and prepared input/replacement binding; current parent producer/run and pending-plan state | Insert the new plan/configuration/evidence/optional review-input objects and prescribed provenance/review-input edges. Freeze/retain the exact prepared input and producer when this event creates it. Insert new plan/task controls at version 1, extend ordered planReferences/pendingPlan and update currentInput when actually changed. Retain replaced plans/inputs and preserve capacity. Charge source/control occurrences and maintain direct memberships in the same outcome. No approval, reservation, ordinary child, assignment ledger or result is created |
+| child-source-plan-approve / Electron main with #742 exact-plan owner | Authenticate the current shown-byte context before retry lookup; resolve exact retained request/plan/configuration/input and current run/plan/task sources, existing reservations and any original approval history | Insert the immutable approval source/digest/receipt and update current plan/latestApproval/status through the real exact-plan approval transition. Advance only actually changed controls once. Keep older approvals and a reservation's original ApprovalRef. A fresh volatile grant is possible only under the existing eligible/unreserved-task authority rules; archive/status alone issues none. Exact replay cannot revive a revoked grant or launch a reserved task |
+| child-source-reserve / #742 admission owner | Exact current grant, parent runtime, inputs/configuration/approved group and expected live taskVersion; absent original attempt; complete run/plan capacity membership under both immutable limits | Insert the original reservation and frozen launch admission together with task launching/one-attempt effects. Resulting taskVersion is expectedTaskVersion+1, incremented once and frozen as assignmentTaskVersion in that reservation. Create reserved launch control with original approval/parent runtime and null allocation/attachment/runtime; derived capacity counts the unsettled reservation once. No filesystem mutation or process start precedes this proven outcome |
+| child-source-allocate / #742 worktree allocator | Original reservation and immutable admission/approved group; exact phase/current versions; source-owned original intent and actual native directory/path/base/repository observations for an outcome | Persist allocating intent before native mutation. In the later outcome publication insert the original allocation and allocated phase only on verified success; otherwise retain exact established observations and interrupted/uncertain disposition without manufacturing an allocation. Preserve reservation/attempt/capacity. An existing path is no allocation proof, and timeout creates neither rollback proof nor retry permission |
+| child-source-attach / ordinary lineage producer with #742/#744 preparation owners | Original reservation/configuration/allocation and full frozen child identity; provably unique pre-reserved session/attachment; absent fresh subject/assignment-ledger membership; ten prepared peer keys; complete ordinary lineage/control and bounded consumer/proof read set | Insert immutable attachment and child-assignment-source, complete provenance/direct membership, prepared ordinary lineage/session bridge and prepared launch control. Initialize this subject's exact summary branch and five assignment ledgers together. Session producerRevision begins at Counter "1", state prepared/runtime null; launch retains its original allocation/attachment and null spawnRuntime. Coalesce all actual source/control/summary quota deltas and owning version changes; no PTY start or reporting/runtime capability precedes proven complete preparation |
+
+The allocate tag names a producer operation with distinct durable intent and
+outcome phases, not one transaction around filesystem work. This map adds no
+phase discriminator codec or alternate command envelope. The exact supported
+intent/outcome command representation and source-owned native disposition must
+be closed before implementation; do not reuse a single-row journal for either
+phase or infer that the success source codec supplies an interruption codec.
+
+When prepared input is co-published with a proposal, compute its frozen bytes
+before the plan digest, using its exact accepted record set and revision rules.
+No future plan digest, mutable parent control or active grant enters that input.
+This map supplies no standalone assessment/input-only publisher. A changed
+record set cannot rewrite an older frozen input or reuse its version.
+
+Apply the accepted control version policy: a semantic run transition advances
+runVersion once; a changed plan control advances planVersion once; a relevant
+task/launch/session transition advances live taskVersion once; an actual ordinary
+state event advances producerRevision once. Coalesce multi-row effects rather
+than incrementing per row. Unchanged controls are not rewritten to stamp C.
+All overflow, unknown capacity, source drift and incomplete consumer outcomes deny
+without inventing a fresh attempt or weakening original frozen identity.
+
+### Fresh attachment and preparation closure
+
+The five mandatory new quota_usage keys are the assignment owner for the new A
+paired with reporting-receipt-bytes, assignment-record-bytes, result-payload-bytes,
+evaluation-artifact-bytes and evaluation-artifact-read-bytes. Each has used="0"
+and reserved="0" with the new owning link C. These five inserts are real changes
+and count toward row/command limits despite their zero values.
+
+The ten corresponding owner-run/workspace keys must already exist, reconcile
+against complete retained history, and remain unchanged merely because A is new.
+The attachment does not reinitialize them or stamp their links. The older initial
+root packet's three reporting resource names do not establish all five resources.
+A provably fresh profile's initializer must explicitly prepare the missing scopes
+before enabling child commands; this map does not extend an old store or select
+that complete initialization command.
+
+Both child-source-retained-bytes scope rows and both child-control-retained-bytes
+scope rows must already be explicitly prepared as applicable. Compute real
+old-to-final retained projections, charging every new occurrence under each
+resource's accepted rules. Source/control data is not a target record or produced
+artifact payload. Preserve protected receipt credits and lifetime debit totals;
+no assignment resource is borrowed to cover source/control publication.
+
+Attachment creates subjectRevision="1" and either the exact Unassessed row with
+its own no-result criteria/rubric checkpoint, or the accepted never-initialized
+marker with null row/checkpoint when summary capacity is denied. Charge actual
+workspace summary count/material bytes for that branch. It creates no pending
+material transition, accepted result, candidate, receipt slot, artifact stream,
+evaluation, debit or content payload. A reviewer's input target is not its own
+result. Read-only peers and unrelated subjects retain their original links/state.
+
+The ordinary session/lineage record and hierarchy preparation require one proven
+atomic/recovery disposition. The current ordinary create_session result followed
+by separate hierarchy writes is insufficient. Missing original lineage/source/
+ledger/proof cannot be backfilled by recovery. The concrete cross-owner mechanism
+is unresolved; this derivation does not claim a multi-database transaction or
+adopt another store's mutex/lease as that proof.
+
+### Control events not given a publisher by these five tags
+
+| Accepted event/record | Missing durable-command or producer boundary; required disposition |
+| --- | --- |
+| Fresh root/profile/control preparation | Complete one-catalog initializer, all required zero-resource scopes and exact initial control effects; no standalone establish-on-missing helper |
+| Parent attach/resume | Atomic parent_attachments replacement, immutable runtime history and current run pointer/version under actual UI/native ownership; no source-object journal substitute |
+| Standalone direct assessment/input | Exact input-only publication recipe and current producer/cutoff; the proposal recipe does not authorize an independent generic control write |
+| Spawn intent/outcome | Exact original pending generation, successful runtime history/session/task outcome or retained interrupted disposition; attachment is no spawn authority or process proof |
+| Ordinary ending/resume | Coherent source-owned producerRevision/current runtime/capacity bridge, independent of immediate ordinary stop; a copied status or model coordination report cannot settle capacity |
+| Coordination result | Original request/receipt and task transition/retry policy, separate from quality; no reporting claim/slot alias |
+| Pause/cancel/continue/recovery | Exact event-specific controls/read/CAS/native disposition and retained RecoveryDecision proofs. Recovery may confirm a proven original outcome, never reconstruct missing preparation or restore a grant |
+
+Their accepted records, versions, bounds and semantic transitions stay accepted.
+No new internal tag, serialized body or source-authority mechanism is selected
+for these events here. They remain unavailable to an executable publisher until
+their owners close those exact representations and participating atomic/cutoff
+mechanisms. They cannot be routed through hierarchy-storage-journal, source-health,
+an unrelated source tag or #744 claim as an implementation convenience.
+
+### Merged kernel seam check and handoff
+
+#1351 is merged and dormant. This review does not infer instructions or approval
+from its former worktree or review its entire implementation. The relevant merged
+seams at the review base are concrete:
+
+| Merged seam | What it supplies | Why it is not one of the recipes above |
+| --- | --- | --- |
+| [publication.rs](../../../crates/orkworksd/src/taskmaster/hierarchy_storage/publication.rs) journal_object/journal_child_metadata/journal_dependency | One object, metadata row or provenance edge, with some source-pool charges and header/proof transaction | Each call is a separate hierarchy-storage-journal command. It cannot atomically publish the complete proposal, grant/reservation/control outcome or attachment/lineage/summary/five-ledger union |
+| [quota.rs](../../../crates/orkworksd/src/taskmaster/hierarchy_storage/quota.rs) establish_resource | One child-source-retained-bytes run/workspace zero row | No complete fresh profile/preparation history, control pool or five assignment resources; row absence alone is not initial preparation proof |
+| [schema.rs](../../../crates/orkworksd/src/taskmaster/hierarchy_storage/schema.rs) CATALOG | 17 declared families | Missing 16 of the [33 already named mandatory families](../plans/2026-11-02-hierarchy-storage-kernel.md#required-family-inventory); row emptiness does not select another format-4 profile |
+| [reload.rs](../../../crates/orkworksd/src/taskmaster/hierarchy_storage/reload.rs) predecessor loop | Requires each retained proof's predecessor to be the previous retained sequence | Not the accepted sparse direct-proof retention rule. Required origin/receipt/checkpoint/expected joins must be validated without requiring every unrelated intermediate predecessor |
+
+The missing families are claim_proofs, mutation_lookup, root_drafts,
+root_preparations, run_states, parent_attachments, preparation_artifacts and all
+nine child control families. The hierarchy-storage-journal tag is not one of the
+five accepted source command kinds. Dormancy prevents these seams being a current
+runtime publisher; it does not qualify their catalog/tag/recovery semantics for
+future production reuse. This mapping does not alter or approve those mechanisms.
+
+Disposition: the five accepted source-command responsibilities and mandatory
+preparation effects are explicitly mapped. Exact executable phase/control bodies,
+source/native cutoff, ordinary-lineage transaction participation, complete catalog,
+metadata-only physical membership and sparse direct-proof recovery remain open
+under #1176 and the owning issues. Source fields/domains/quotas and coding-tool
+instruction/host-risk assumptions are unchanged. No new approval is requested for
+those unchanged choices; any new mechanism must be concrete and scoped before
+its dependent implementation. No source-valid full transaction, SQL/DDL, runtime
+route, native/model probe or maximal supported profile follows from this map.
+
+One fresh read-only Luna builder check reviewed this added derivation against the
+accepted source/control/membership contracts and inspected seams. It reported no
+factual mismatch or important unanswered question for the bounded qualification
+handoff. The named executable/native/index/recovery gaps remain unverified; the
+review is not their qualification or an approval of new implementation behavior.

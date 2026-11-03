@@ -495,3 +495,31 @@ existing SQL risk assessment remains incomplete because reversibility and native
 resource/disposition evidence remain unresolved. Verification for this docs-only
 review is source-to-inventory key/variant reconciliation, 33-family uniqueness,
 documentation checks/build and diff/worktree checks; it makes no runtime claim.
+
+### Durable command mapping follow-up — 2026-11-03
+
+[#1355](https://github.com/Rambolarsen/orkworks/issues/1355) derives the five already
+accepted source command kinds into explicit producer/read/CAS/atomic effects in
+[the canonical source contract](../specs/2026-10-31-child-review-source-preparation-design.md#durable-command-effect-map--2026-11-03).
+It spells out five fresh assignment inserts versus ten preserved peer keys,
+allocation intent/outcome phases, complete attachment/lineage preparation and
+unsupported standalone control publisher boundaries. #1183 is now closed on the
+live board and is not reopened; remaining qualification routes through #1176.
+
+The current baseline includes merged dormant #1351 kernel code. Its inspected
+17-family catalog, single-row hierarchy-storage-journal methods and predecessor
+loop do not satisfy the 33-family inventory or the source-owned publication/
+sparse direct-proof contracts. This is evidence from those merged seams, not an
+assessment of another session's former authorization or whole implementation.
+Neither merge nor dormancy makes those helpers complete source commands.
+
+Mapping disposition: accepted effects are explicit; executable command-body,
+actual source/ordinary-lineage authority, complete physical catalog/index and
+native resource/recovery qualification remain Investigate. No dependent code,
+fixture, database or new source/authority policy is selected by this update.
+
+The next bounded stabilization item is
+[#1356](https://github.com/Rambolarsen/orkworks/issues/1356): fence the incomplete
+dormant profile from accepted format-4 admission/publication. It is not a request
+to fill the entire catalog or activate producers. No code for that item is
+implemented by this command-map documentation task.
