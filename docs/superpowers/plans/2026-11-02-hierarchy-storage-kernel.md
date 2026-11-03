@@ -1,263 +1,283 @@
 ---
 type: Implementation Plan
-title: Hierarchy storage owner kernel for the child-source slice
-description: A dormant SQLite-backed hierarchy_store module owning rows/receipts/ledgers for the accepted child-source slice, with strict reload and one-transaction publication, wired only to tests.
-tags: [plans, hierarchy, storage, sqlite, child-sources]
+title: Hierarchy storage readiness and first source-codec unit
+description: Reconciled storage-kernel prerequisites and one proposed dormant Rust child-source byte validator; no format-4 store creation or producer publication is authorized.
+tags: [plans, hierarchy, storage, child-sources, validation]
 status: draft
+workflow_status: source-codec-unit-owner-review
 ---
 
-# Hierarchy storage owner kernel for the child-source slice
+# Hierarchy storage readiness and first source-codec unit
 
-Outcome: one private, dormant Rust owner validates and journals the accepted
-child-source storage rows — objects, dependencies, the four child metadata
-tables, quota rows and the commit chain — through non-source-valid storage
-primitives (single-row/object journal commands), with strict reload semantics
-and no production caller. No accepted source-owned transition is published by
-this unit; attachment and its inseparable effects stay gated.
-Pass condition: local SQLite round-trip and recovery tests against merged
-child-source fixture bytes pass, all out-of-scope tables/catalog kinds are
-rejected, and no route/validation/launch/migration surface changes.
-Tracking: [#1176](https://github.com/Rambolarsen/orkworks/issues/1176),
+Outcome: move the accepted selected child-source byte validation into a pure,
+dormant Rust module, so a later storage owner can reuse strict source types and
+joins without copying documentation JavaScript into production. This first unit
+creates no store, journal command, producer route, grant or eligible adapter.
+Pass condition: the Rust interface accepts the independent selected worker/
+reviewer golden bytes, rejects their malformed/rehashed semantic variants and
+returns only unverified-source-bytes-only; existing root validation is unchanged.
+
+Tracking: first coding unit [#1345](https://github.com/Rambolarsen/orkworks/issues/1345),
+[#1176](https://github.com/Rambolarsen/orkworks/issues/1176),
 [#1183](https://github.com/Rambolarsen/orkworks/issues/1183), initiative
 [#738](https://github.com/Rambolarsen/orkworks/issues/738).
+Reviewed base: `5e8d54339e03dd670eb29f85b9f83d6feb879b55`.
+This replaces the executable instructions from
+[#1337](https://github.com/Rambolarsen/orkworks/pull/1337); its original reviewed
+plan is preserved in Git at `70d8e2724c74831a5555c16ec2d3734f241f7e2c`.
+**SQL kernel: Investigate, not ready for execution. First pure codec unit: ready
+for scoped owner review, not yet implementation approval.** An existing worktree
+or merged plan document is not evidence of approval or ownership of another task.
 
-## Accepted basis and honored offsets
+## Review findings and corrected disposition — 2026-11-03
 
-Use only what is already owner-accepted:
-
-- Architecture direction: one selected-workspace SQLite database under one
-  private storage worker, DELETE journal mode, `synchronous=EXTRA` ([accepted
-  scoped direction](../specs/2026-10-23-hierarchy-transaction-storage-design.md#scoped-architecture-direction-acceptance--2026-10-24)).
-- Row shapes and closed catalog for the child-source slice: [strict storage
-  representation](../specs/2026-10-24-hierarchy-storage-contract-design.md#proposed-strict-storage-representation)
-  (objects/dependencies/commit_proof/quota_usage) plus the accepted child
-  additions ([child-source reading](../specs/2026-10-24-hierarchy-storage-contract-design.md#scoped-child-source-choices-accepted--2026-11-02):
-  `child_plan_approvals`/`child_reservations`/`child_allocations`/
-  `child_attachments`, the `child-source-provenance` dependency purpose, and the
-  8 MiB/run / 64 MiB/workspace source pool).
-- Component bytes and row joins: the [child-source component packet](../../validation/child-source-components.md)
-  supplies fixture canonical bytes/digests; the root package
-  (`root-bootstrap-components.mjs`, `root-preparation-components.mjs`,
-  `hierarchy-claim-proof-vectors.json`) supplies shared byte conventions.
-- Transition/preparation effects and consumer/ledger duties: the accepted
-  [effects derivation](../specs/2026-10-31-child-review-source-preparation-design.md#transition-ownership-and-preparation-effects--2026-11-02)
-  (zero initialization order, exactly-required effects, unavailable-on-missing).
-- Authority/commit ordering gaps: [no explicit no-go](../specs/2026-10-24-hierarchy-storage-contract-design.md#authority-and-commit-ordering-explicit-no-go)
-  machinery is inherited; this kernel contains no #744 receipt-slot machinery
-  where that no-go lives.
-
-Known unresolved items that deliberately remain open after this kernel (they do
-not block it, but they gate later slices): the #1184 read-work physical-commit
-cutoff; worst-case whole-command accounting beyond these small rows; research
-report/#743 ledger shapes; payloads/heads/summary machinery; native durability
-evidence beyond journal/`EXTRA` defaults; producer routes and UI.
-
-## Scope decisions and boundaries
-
-In the first (and only) implementable unit, the storage owner owns and refuses
-everything outside:
-
-1. **Connection/config owner** `hierarchy_store::Connection`: open `<workspace
-   metadata>/hierarchy/v1.sqlite` with validated `page_size=4096`,
-   `max_page_count=262144`, DELETE journal, `synchronous=EXTRA`, foreign keys on,
-   `temp_store=MEMORY`, one retained worker connection, no `ATTACH`, no
-   extension loading, no caller SQL.
-2. **Schema owner**: create/verify the **complete** accepted format-4 catalog
-   — every [contract table](../specs/2026-10-24-hierarchy-storage-contract-design.md#proposed-strict-storage-representation)
-   (`store_header`, `objects`, `payloads`, `heads`, `dependencies`,
-   `summary_state`, `pending_material`, `receipt_slots`, `candidate_work`,
-   `quota_usage`, `commit_proof`) plus the accepted child additions
-   (`child_plan_approvals`, `child_reservations`, `child_allocations`,
-   `child_attachments`), including empty tables — the closed catalog must be
-   complete or the store reports unavailable ([whole-catalog
-   rule](../specs/2026-10-30-evaluation-artifact-producer-design.md#accepted-format-4-row-and-commitment-domains)).
-   The **producer APIs** remain child-source-only: no writer command touches
-   payloads/heads/summary/receipt-slot machinery in this unit, but the tables
-   exist in every database. Unknown tables/columns/versions make the store
-   unavailable. Storage epoch and `store_header.latest` initialize only on a
-   fresh empty database.
-3. **Row validation**: canonical JSON BLOB keys with byte equality (no
-   collation), strict child-source `ObjectKey` registry (child source kinds
-   only), closed field checks against the owning contracts, u64 `Counter` as
-   checked canonical decimal TEXT in Rust, per-kind body limits (plan ≤64 KiB,
-   configuration ≤1 MiB, input snapshot ≤256 KiB per owning contracts), the
-   16 KiB complete key/value pair wrapper cap for the four `child_*` metadata
-   tables only, 2 MiB per-row ceiling, domain digest verification on
-   admission/reload (row commitment domain `orkworks.hierarchy-storage-row.v4`
-   where the accepted format-4 catalog names one), immutable objects never
-   overwritten with different bytes.
-4. **Commit chain and atomic publication**: one transaction per producer
-   command covering every changed row + its `lastCommit` CommitRef, dependency
-   changes, quota deltas and the new `commit_proof` entry; manifest identity
-   over [`orkworks.hierarchy-storage-change.v4`](../specs/2026-10-30-evaluation-artifact-producer-design.md#accepted-format-4-row-and-commitment-domains)
-   per the accepted format-4 row/manifest domains (row commitment domain
-   `orkworks.hierarchy-storage-row.v4`) — small payloads do not make the older
-   v1 commitment format interchangeable; monotonic commit sequence; exhaustion
-   fences rather than wraps.
-5. **Reload/recovery semantics**: every open revalidates epoch/workspace, chain
-   continuity, all retained proofs and every row's shape/digests; any
-   missing/ambiguous/corrupt state fences writes and reports unavailable —
-   never repairs, truncates, migrates or recomputes from latest rows.
-6. **Quota rows**: `child-source-retained-bytes` only, as `(owner, resource)`
-   rows with checked Counter arithmetic in Rust, `reserved="0"` semantics per
-   the accepted fresh-preparation order, missing/ambiguous counts fence writes.
-
-Explicitly out of scope (reject or refuse; never implement here): payloads,
-heads, summary_state, pending_material, receipt_slots, candidate_work; #743
-research-report ledgers; `artifact_read_debits` kernel rows (owner handoff
-recorded instead); any HTTP route, renderer/Electron surface, producer
-integration with `create_session_workflow`, `WorkspaceLease` enforcement,
-armored claim/authority ordering, WAL mode, backups, migration of any older
-store, model/native probes and any production caller at all. The module is
-wired only to Rust tests.
-
-## Deliverable map
-
-All new under `crates/orkworksd/src/taskmaster/hierarchy_storage/` plus one
-`mod.rs` registration in `crates/orkworksd/src/taskmaster/mod.rs`; existing
-modules are not modified (mirroring the dormant `root_bootstrap` precedent).
-The schema delivers the complete accepted catalog with dormant
-(producer-shell, child-source-only) writer APIs:
-
-| Item | Deliverable |
+| Finding in the #1337 plan | Evidence and disposition |
 | --- | --- |
-| `connection.rs` | DDL-free `Connection::open`/config verification per scope 1; unavailable reasons instead of repairs |
-| `schema.rs` | Accepted-SQLite-DDL table creation/verification; unknown-object refusal guard |
-| `rows.rs` | `Counter` TEXT, canonical BLOB key/value validation, child kind registry, byte caps, domain digest and reference joins |
-| `publication.rs` | Non-source-valid storage primitives only: journal single retained objects (plan/configuration/input/assignment-source), individual child metadata rows, provenance/dependency edges and per-row quota deltas — one transaction each with a complete change manifest + proof entry. This unit does NOT publish any accepted source-owned transition; the attachment transition requires its exact accepted effect set (initial `summary_state`, five fresh assignment quota rows, retry/interrupted dispositions) that this unit does not supply, so attachment publication stays gated until those prerequisites are implemented under their own gate |
-| `reload.rs` | Full reopen recovery: epoch/workspace/chain/proof/row revalidation, write fence on any unavailable state |
-| `quota.rs` | `child-source-retained-bytes` checked counters (`used`/`reserved`) with 8 MiB run / 64 MiB workspace rejections and no-refund semantics |
-| `tests.rs` (+ fixtures) | The acceptance cases below, reusing `docs/validation/child-source-vectors.json` bytes as golden inputs |
+| “Complete” format-4 catalog listed only the eleven base tables plus four child source tables | The accepted root, compact-claim, artifact/debit and nine control families are also mandatory, including empty tables. A writable subset cannot define another format-4 reader/profile. Retire that DDL/admission instruction; close the complete catalog before store creation |
+| Generic single-object/row/edge journal commands were described as non-source-valid, but still wrote format-4 manifests | The accepted manifest has a closed command registry and complete source-owned effects. Relabeling a partial write does not select an admissible commandKind, source policy or fresh preparation state. Remove this publisher interface; no standalone journal command is proposed here |
+| Recovery required “chain continuity” on every open | Accepted retention is latest plus directly named origin/expected/checkpoint/receipt proofs, not every predecessor forever. Sparse unreferenced sequence gaps are not automatically corruption. Future reload must validate the required direct joins and header without electing a maximum or reconstructing rows |
+| CoordinatorStore was cited as a mutex around a private connection | `crates/orkworksd/src/taskmaster/coordinator_store.rs:76-113` owns a directory, IDs and Mutex<()>; it is JSON/file-backed, not a SQLite connection/worker precedent. Do not derive SQL worker/cancellation or native durability from it |
+| Source quota reservation “deactivation”, outdated source/control status and fixture name | Source/control retained pools keep reserved="0"; end/resume does not release immutable history. Controls and membership are now separately accepted. Use the real child-source-vectors.json path; do not invent a domain bump or new acceptance for unchanged codecs |
 
-## Acceptance criteria and checks
+These are plan corrections, not a finding that an implementation exists or is
+incorrect. This task inspects the merged source and plan only; it does not adopt,
+stop, edit or authorize another session's storage-kernel worktree. It makes no
+claim about instructions supplied in another session or uninspected working code.
 
-1. **Open/verify (scope 1–2)** — fresh empty path creates the complete
-   accepted catalog including empty out-of-scope tables; reopen verifies and
-   continues; presence of any foreign table/column or unknown schema version
-   returns an unavailable error, never repairs. Verify with a `#[test]` using
-   a tempdir: nonempty file, foreign table, and corrupt page-count cases.
-2. **Row admission (scope 3)** — each of the nine golden row kinds from
-   `child-review-source-vectors.json` plus wrapper rows parses, reconstructs its
-   key, verifies its domain digest and is accepted; each of the rejection
-   classes (unknown/extra/duplicate fields, wrong kind root substitution,
-   invalid counter TEXT, oversized wrapper/row, digest mismatch, broken join,
-   noncanonical stored bytes) rejects before persistence with the merged
-   checker's reasons. The 16 KiB wrapper cap applies to child metadata rows
-   only — an above-16-KiB valid source object body (e.g. a 32 KiB plan body)
-   is an acceptance case, not a rejection. Verify with parametrized
-   positive/negative `#[test]`s.
-3. **Journals (scope 4)** — journaling the worker source bytes: objects + edges +
-   the four metadata rows + per-row quota deltas + `commit_proof` land in one
-   transaction per primitive command (never an accepted transition publish, see
-   `publication.rs`); a second journal of the same object body with different bytes
-   conflicts; a mid-command failure (injected via test seam) rolls back every
-   row, leaving header/latest unchanged. Verify with round-trip + rollback
-   `#[test]`s and exact format-4 manifest digest recomputation.
-4. **Reload/recovery (scope 5)** — after every publish, reopen revalidates and
-   continues; deleted `commit_proof` row, truncated body or mismatched epoch
-   opens unavailable and rejects a subsequent write. Verify with reopen/
-   corruption `#[test]`s.
-5. **Quota (scope 6)** — a publish charging the owning run beyond 8 MiB and the
-   workspace beyond 64 MiB in two separate increment steps rejects visibly with
-   complete old state; `reserved` rows deactivate per accepted effects; missing
-   quota rows fence rather than autofix. Verify with arithmetic `#[test]`s.
-6. **Dormancy/no-go** — the production surface gains no callers: a recorded
-   check in the PR body shows `hierarchy_storage` is referenced only by tests;
-   `cargo test -p orkworksd` passes with the module dormant.
+## Accepted basis
 
-Level checks: `rustfmt`/`clippy -D warnings`, `cargo test` (full suite),
-`bash scripts/doc-check.sh`, `pnpm --dir docs docs:check` and `docs:build` for
-the plan/handoff documents, and the format-4 change-manifest byte fixture test
-using the merged storage-contract oracle bytes where present.
+Reuse these decisions without asking for them again:
 
-## Dependencies and sequencing
+- [Selected child source codecs](../specs/2026-10-31-child-review-source-preparation-design.md#owner-acceptance-and-bounded-component-handoff--2026-11-02):
+  worker/reviewer v3 configurations and framing, input/report snapshots, exact
+  plan/approval/reservation/allocation/attachment/source bytes and frozen identity.
+- [Transition/preparation effects](../specs/2026-10-31-child-review-source-preparation-design.md#transition-ownership-and-preparation-effects--2026-11-02):
+  inseparable owner effects and no historical zero-row repair, not permission to
+  publish their pieces independently.
+- [Selected controls](../specs/2026-11-02-child-launch-control-design.md#scoped-owner-acceptance-and-component-handoff--2026-11-02)
+  and [consumer discovery](../specs/2026-11-03-child-consumer-membership-design.md#scoped-owner-acceptance-and-component-handoff--2026-11-03):
+  accepted logical codecs/lookup ownership, not qualified current/native owners.
+- [Independent child source bytes](../../validation/child-source-components.md),
+  [control bytes](../../validation/child-control-components.md) and
+  [membership relations](../../validation/child-membership-components.md):
+  synthetic component evidence, not one source-valid store or original manifest.
+- Existing dormant root validator in
+  [root_bootstrap.rs](../../../crates/orkworksd/src/taskmaster/root_bootstrap.rs)
+  is a suitable pure-byte implementation precedent: no I/O or eligibility.
+  Common byte helpers may be reused; root semantics cannot be relabeled as child.
 
-Sequencing inside the unit: connection/schema → rows → quota → publication →
-reload → tests, with each step built green before the next. External
-dependencies: none new (SQLite available via `git2`'s linked sqlite3 or a
-dependency decision recorded below).
+SQLite/private-worker DELETE/EXTRA remains an accepted architecture direction,
+and rusqlite 0.32 with bundled/hooks is already in Cargo.toml. This unit does not
+use, replace or qualify that driver. Accepted format-4 row/change domains stay
+unchanged; no alternate schema, command tag, migration or physical projection is
+selected by this revision.
 
-Material decisions left to implementation, bounded here:
-- SQLite driver: the existing `rusqlite = { version = "0.32", features =
-  ["bundled", "hooks"] }` (`crates/orkworksd/Cargo.toml:37`) is reused — no new
-  runtime dependency is introduced. The `hooks` feature stays unused; enabling
-  extra features is out of scope.
-- Concurrency: the retained connection follows the `CoordinatorStore` precedent
-  (`mutation: Mutex` around a private connection, `crates/orkworksd/src/taskmaster/
-  coordinator_store.rs:108`); the module exposes no parallel writer. A later
-  worker slice introduces the private worker if needed; this unit does not.
+## First executable unit proposed for approval
 
-## Risks, recovery and no-go boundary
+One pure crate-private module, under `crates/orkworksd/src/taskmaster/child_sources/`
+with its entry in `child_sources.rs`, and one registration in taskmaster/mod.rs.
+No production caller. It validates only the already selected retained-data worker/
+reviewer source pair from the existing component packet; it is not a generalized
+all-role configuration engine or store/source admission owner.
 
-- **Canonical-byte drift between Rust and fixture checkers**: mitigated by
-  reusing the merged packet vectors as golden inputs; any mismatch fails the
-  build rather than silently normalizing.
-- **Unexpected SQLite behavior** (page/journal/locking): out of this unit's
-  claims — no native durability or concurrency evidence is asserted; the kernel
-  only follows the accepted DELETE/EXTRA configuration and defers qualification
-  evidence to a later slice.
-- **Recovery repair temptation**: recovery never heals; every ambiguous state
-  pins the store unavailable. Tests must show recovery leaves bytes untouched.
-- **Scope creep into claim/receipt machinery**: the #1184 ordering and #744
-  receipt-slot machinery stay out; a PR adding them is out of scope by default.
-- **Old-store migration**: never present here; unknown older formats remain
-  unsupported forever within this slice (accepted).
-- Recovery/rollback decisions use the store's own durable journal; no extra
-  external cleanup path is introduced.
+### Interface and inputs
 
-## Coordination and user-acceptance separation
+Expose one crate-private validation entry:
 
-This kernel supplies storage mechanics only. It cannot launch work, retry,
-widen permissions, advance dependencies, accept results, or weaken the
-accepted producer/qualification gates. Producer-side authority and native
-fences stay separately gated; getting rows into storage proves nothing about
-eligibility. Component ownership stays with the module; no session/parent state
-writes, no YAML/JSON mirrors, no UI.
+```text
+validate_unverified_child_sources_v1(&ChildSourceValidationInput)
+    -> Result<ValidatedUnverifiedChildSources, ChildSourceError>
+```
 
-## Handoff
+ChildSourceValidationInput is a Rust-only borrowed input container, not a new
+serialized product/source schema. It supplies the complete canonical source bytes
+already named by the selected packet:
 
-Following the [local plan policy](../../agents/development-workflow.md#plan-complexity-and-quality),
-run the acceptance checks at PR time and record results in the PR body; the
-defined owner-review gate is #1176's acceptance of this scoped plan before the
-merge is attempted; official acceptance wording is recorded on the PR.
-Implementation issues (if any) link to #1176/#1183. Keep the
-[qualification handoff](2026-10-31-child-review-source-qualification.md)
-narrative aligned — update it only after the kernel lands, not before.
+- Exact retained run and revision-one parent InitialInputV1 context.
+- Worker and reviewer bundles, each containing complete configuration, cited
+  evidence-object bytes, plan, approval request/source/receipt, reservation,
+  allocation, attachment and child-assignment-source bytes.
+- Exact retained reviewer input snapshot, including its target result and report
+  descriptor bytes, plus the packet's declared report validation context and
+  repository binding digest. That context is supplied synthetic/source-validation
+  data, not proof of currentness, native identity or authenticated custody.
 
-Owner decisions requested at review: (a) confirm the driver choice (reuse the
-existing `rusqlite`); (b) confirm the full-catalog DDL with dormant
-(c) confirm that the manifest metadata envelope may be adapted
-byte-for-byte from the accepted format-4 contract for these small,
-uniform payloads (the domain versions stay v4; no new bump is proposed). Everything else is mechanical.
+The module accepts bytes and validates them; it never fetches files, executes a
+harness, searches a repository or reads a current process/catalog. The result
+exposes validated original canonical configuration/source bytes and unchanged
+digests through read-only accessors, plus classification exactly
+unverified-source-bytes-only. It contains no eligibility/admitted/approved flag,
+active grant, commit witness, store handle or public transport envelope.
 
-## Plan review (inline)
+### Ownership and delivery
 
-Recorded per the [local plan policy](../../agents/development-workflow.md#plan-complexity-and-quality);
-a completed review is not an approval and authorizes nothing.
+| Responsibility | Files and deliverable |
+| --- | --- |
+| Validation interface and orchestration | child_sources.rs: one pure entry, private validated result and bounded source/context joins; no storage dependencies |
+| Selected child configuration/framing | child_sources/configuration.rs: worker/reviewer role, permissions, evidence/settings/model, child frames/startup and approved input/output joins |
+| Original plan and event-source codecs | child_sources/records.rs: exact plan/request/approval/receipt/reservation/allocation/attachment/source reconstruction and frozen assignmentTaskVersion |
+| Strict bytes and report context | Private helper code inside the module, reusing existing coordinator/root byte/hash machinery where appropriate; existing root entrypoint/errors/goldens remain unchanged. Any small shared-helper extraction stays byte-only and crate-private |
+| Tests and independent fixtures | child_sources_tests.rs or a private tests module; test-only adapter reads include_str! fixture catalogs and supplies original canonical vector bytes. Fixture loading/JSON wrapper extraction must not ship as a new product parser |
 
-- **Scope/simplicity.** One dormant module, no production callers, no new
-  dependencies; the boundary table refuses out-of-scope machinery explicitly
-  (payloads/heads/summary/receipt slots, routes, probes). Splits that ship
-  ledger-only or publication-only slices were rejected because they leave the
-  commit chain untested end-to-end.
-- **Clarity and decisions.** Named sources back every config/config-table/cap/
-  effect choice; three items still requiring an owner call are explicit. The
-  one ambiguity found — `commit_proof` retention breadth — is resolved in favor
-  of the merged contract's wording (latest plus retained-named proofs); no new
-  rule is invented.
-- **Requirement/gate coverage.** Tables, caps and joins trace to accepted
-  clauses; the merged design's hard no-gos (unknown products, collation keys,
-  WAL mode, caller SQL) are carried verbatim into row/admission rules. #1184
-  and native durability evidence remain named open gates rather than silently
-  dropped.
-- **Verification.** Golden bytes come from the merged packet (independent
-  generator, not this plan); rejection classes mirror the checker's reasons;
-  dormancy is mechanically checkable. The 16 MiB/4,096-row whole-command
-  accounting is re-bounded before any larger payload slice.
-- **Open risks.** Recovery fencing depends on never repairing; tests must prove
-  bytes are left untouched. Two upstream proposals (child launch controls;
-  #1184) remain unaccepted — if their final fields differ, that is a new
-  domain-version bump for the closed registry, never an in-place change.
+Root is the sole writer in an owned worktree during implementation. No concurrent
+writer may alter the same helper/root modules. The owning agent implements
+directly unless the owner explicitly chooses delegated writers; code review
+remains independent. Do not adopt a foreign storage-kernel branch to execute this unit.
 
-Status: ready for owner review. Implementation remains unauthorized until the
-owner accepts the reviewed plan.
+### Coupled implementation sequence and pass checks
+
+- [ ] **Strict bytes/context and selected configuration.** Write failing tests
+  first for the original worker/reviewer configuration, evidence/settings/model,
+  input/output and exact child rendering/startup joins. Implement the pure
+  configuration path. Accept original canonical bytes/digests; reject changed
+  source context or unsupported live-access/root-role substitutions.
+- [ ] **Exact plan and original event-source chain.** Add the plan/request/
+  approval/receipt/reservation/allocation/attachment/source validators with the
+  same entry and context. Keep resulting assignmentTaskVersion frozen separately
+  from mutable versions. Resolve original full refs and exact report/target/
+  criteria/rubric joins; a recomputed outer hash cannot hide a changed identity.
+- [ ] **Boundary and dormancy close-out.** Finish the meaningful denial classes
+  below, run existing root and new child tests, then all repository checks and
+  current-code review. Record the production reference inventory and exact code
+  head. Stop after this unit's PR terminal state; do not begin SQL as a follow-on.
+
+All steps serve one deliverable; no separate wire-helper or ledger-only PR is
+required. Tests cross the same pure entry used by future callers. Use the existing
+28 Python-generated vectors and unchanged independent expected source digests,
+not expected values computed by the Rust implementation under test. Standalone
+records within that packet still require their complete supplied source context;
+a matching digest alone is not a valid source chain.
+
+Mandatory denial coverage, with an observed failing regression before its fix:
+
+- Unknown/duplicate fields (including escaped duplicate keys), noncanonical order/
+  spacing, invalid UTF-8/Unicode, floats/exponents/negative zero and rounded JSON
+  integers. Keep storage CommitRef positive u64 TEXT separate from runSequence,
+  JSON task/version and source-size encodings; test exact limits/successors.
+- Child/root/profile/role replacement, live permission/delegation tools, missing/
+  changed evidence bytes, settings/model/adapter mismatch and startup order drift.
+- Wrong configuration/input/plan/request/approval or original reservation version;
+  source/allocated worktree substitution and shared worker/reviewer allocation
+  descriptors; wrong unique child session/attachment identity.
+- Wrong target result/criteria/rubric/report identity, selected evidence or content
+  bytes; reviewer rubric cannot override the target's required evaluator role.
+- Inclusive accepted UTF-8/body/frame/startup/complete-plan/metadata wrapper bounds
+  and denial when individually valid fields exceed their complete envelope.
+  Preserve per-occurrence accounting; maximum source fields need not fit together.
+
+The existing JavaScript checker has 129 child-source tests; those contracts and
+its negative classes are the parity checklist, not a requirement to clone its
+internal functions. No Rust control/membership/summary/receipt publisher, actual
+report owner or full proof validator is included in this first unit.
+
+## Verification for the coding PR
+
+Follow [Rust instructions](../../../crates/orkworksd/AGENTS.md) and TDD. Before
+Rust/full repository tests, use the repository Node version and frozen desktop
+pnpm dependencies as those instructions require. Use host Node native ABI for
+those transport tests; no premature Electron rebuild.
+
+Run focused child/root tests first, then:
+
+```bash
+rtk proxy cargo fmt --manifest-path crates/orkworksd/Cargo.toml --check
+rtk proxy cargo build --manifest-path crates/orkworksd/Cargo.toml
+rtk proxy cargo test --manifest-path crates/orkworksd/Cargo.toml
+rtk proxy bash scripts/verify-repo.sh
+rtk proxy bash scripts/doc-check.sh
+rtk proxy bash .claude/hooks/worktree-check.sh
+```
+
+Record failures or missing prerequisites explicitly. Rust changes require the
+current-code `/code-review low` gate before merge, escalating only under the
+repository's documented size/risk conditions. Automatic Codex/Copilot review does
+not replace it. The dormancy inventory allows module declarations/definitions/
+private helpers/tests only; there must be no HTTP/session/workspace/producer caller.
+Do not test dormancy by running a native coding tool or creating a database.
+
+## SQL kernel prerequisites left open
+
+The first pure unit does not satisfy these gates. A later SQL execution plan must
+name complete codecs, exact source-owned commands and physical/resource/recovery
+mechanisms before advertising or creating an admitted format-4 store.
+
+1. **Whole catalog.** At least 33 already named required table families must be
+   reconciled: the eleven base storage tables; claim_proofs/mutation_lookup;
+   root_drafts/root_preparations/run_states/parent_attachments/preparation_artifacts;
+   the four child source tables; the nine selected child control tables;
+   evaluation_artifact_streams; artifact_read_debits. This list is not a claim that
+   all upstream codecs/receipts/consumers/DDL are closed. Include the attached
+   parent variant and every required object/purpose/resource even for empty tables.
+   No unknown/unsupported variant or historical store is normalized/adopted.
+2. **Complete producers and fresh preparation.** Replace arbitrary row journals
+   with exact approved source-owned commands and complete Q,S,D,P,K effects.
+   Explicitly prepare fresh root/control/source/assignment owner rows and preserve
+   all existing shared ledgers. Attachment is inseparable from its lineage,
+   summary branch, five fresh assignment ledgers, history and disposition rules.
+   The debit command keeps its exact six-row effect; no new primitive commandKind
+   or namespace/source acceptance is supplied by a helper label.
+3. **Complete membership and content separation.** Implement qualified forward/
+   reverse physical lookups under one header, with accepted 4,096-observation /
+   16 MiB cumulative discovery limits and independent command/row/source/control/
+   artifact pools. Do not materialize evaluation content before the proven debit.
+   Locators and the synthetic relation packet are not actual absence/index proofs.
+4. **Private worker and native/resource ownership.** Select and test the real
+   single worker/retained connection/lease/cancellation/disposition mechanism.
+   Honor the accepted queue, command, SQL-work/deadline/busy, main-file/journal/
+   scratch and stop/revocation constraints; PRAGMA defaults do not prove a hard
+   journal/scratch ceiling or native durability. Existing session-store patterns
+   may inform design but qualify no hierarchy owner automatically. No lock through
+   SQL/fsync, replacement worker or silent VFS construction is approved here.
+5. **Direct proof recovery and accounting.** Validate latest and all directly
+   required origin/receipt/checkpoint/expected/predecessor joins with the accepted
+   format-4 domains; do not demand a full recursively retained sequence chain.
+   Missing required proof/body/index/zero row is unavailable, never repaired.
+   Source/control retained pools keep reserved="0" and preserve immutable history;
+   exact mutable control-byte deltas are distinct from lifetime debit/receipt work.
+   Ordinary end, resume and namespace change restore no allowance or authority.
+
+No selected source/control/membership acceptance needs repeating. Closing these
+remaining mechanisms may require new scoped architecture/compatibility/native
+choices; they cannot be hidden inside this pure validation unit. #1184 current
+read-work ordering, actual launch/source participation, full old/new transaction
+witnesses and #740's separately qualified role/adapter eligibility stay distinct.
+#1183/#1176 remain open; #740 research stays closed.
+
+## Plan review and handoff
+
+Scope and clarity: the deletion of generic SQL journal/DDL instructions resolves
+the catalog/command ambiguity without inventing another format-4 profile. The
+first unit has one pure interface, accepted byte oracles, explicit denials and
+no persisted state. It is useful independently as the next storage-owner codec
+prerequisite. This is a material reduction of #1337's proposed first deliverable,
+not an approval or claim of implementation.
+
+First-unit risk: dependencies 3 (shared byte helpers and accepted source/report
+contracts), blast radius 2 (crate-private dormant module; root behavior preserved),
+state changes 1 (no I/O/persisted state), reversibility 1 (code-only local revert),
+uncertainty 3 (Rust/independent-byte parity still unimplemented); sum 10. SQL kernel
+risk remains dependencies 4, blast radius 4, state changes 3, reversibility Unknown,
+uncertainty 4; sum incomplete. Scores are not approval thresholds.
+
+Disposition: **Revise addressed for the first pure unit; Ready for its scoped
+owner decision. SQL kernel remains Investigate.** Approval of this revised first
+unit authorizes only its dormant Rust byte implementation and verification, not
+SQLite/store creation, DDL, generic journal commands, migration, production wiring,
+native/model probes or new configuration/authority eligibility.
+
+One bounded read-only correctness/coverage review of this changed plan precedes
+handoff: root owns edits, two Luna reviewers maximum, three active including root.
+Review unchanged accepted schemas once; do not reopen them. Implementation uses
+an isolated owned branch and a PR, and must not reuse another owner's worktree.
+
+
+### Independent review disposition
+
+One bounded pair of read-only Luna reviewers checked the reconciled draft against
+the accepted source/control/membership/storage contracts and original #1337 plan.
+The correctness reviewer reported no material findings, including the 33-family
+arithmetic and command/recovery/quota caveats. The builder/coverage reviewer found
+no important interface/scope/test gap for the first pure unit. These reviews are
+not execution approval and supply no actual source/store/native evidence. Root
+remained the sole writer; no second round or foreign-worktree change occurred.
+The concrete coding handoff is #1345; its execution gate remains pending.

@@ -236,6 +236,24 @@ implementation is introduced by this handoff. Root is the only writer; the propo
 bounded read-only correctness/builder review round with maximum three active
 including root.
 
+### Storage execution-plan reconciliation — 2026-11-03
+
+Review of the merged #1337 plan against the separately accepted source/control/
+membership packages found an incomplete catalog, unspecified generic format-4
+journal commands, overbroad recovery-chain requirements and a misidentified
+JSON/mutex precedent. The [reconciled plan](2026-11-02-hierarchy-storage-kernel.md)
+retires that SQL execution instruction. It proposes one pure dormant Rust
+child-source byte-validation unit for scoped owner approval, using the accepted
+independent source packet and preserving the existing root validator.
+
+No SQLite file, DDL, header/manifest, fresh owner, producer transition, consumer
+index, grant or source-valid prestate follows from that unit. The full SQL kernel
+stays Investigate until its catalog, exact commands/effects, physical worker/
+resource/current-authority and direct-proof recovery mechanisms close. This
+review does not adopt or alter another owner's kernel worktree or authorize its
+implementation. Earlier source/control/membership choices stay accepted; only
+the revised concrete first coding unit needs its execution decision.
+
 ## Gate C — complete fresh preparation/publication witnesses
 
 - [ ] Only when preceding source/authority choices and owners are closed, generate

@@ -722,3 +722,15 @@ is selected synthetic component evidence; actual complete physical indexes,
 producer/current-authority/consumer and complete-state qualification remain open.
 #1183/#1176 stay open, #740 stays closed. No storage-kernel or runtime plan is
 approved by this codec/discovery decision.
+
+
+## Storage-kernel plan reconciliation — 2026-11-03
+
+The [reconciled execution plan](../plans/2026-11-02-hierarchy-storage-kernel.md)
+replaces #1337's partial-catalog/generic-journal handoff. Accepted controls,
+consumer discovery and historical debit/proof retention remain mandatory for the
+single fresh format-4 catalog; their absence cannot define a smaller writable
+profile. The proposed first coding unit is pure dormant child-source byte
+validation, under scoped owner review. It creates no store or source transition.
+Actual catalog/command/producer/worker/native/index and complete-state gates
+remain open; no persistence rule or new source/domain choice is approved here.
