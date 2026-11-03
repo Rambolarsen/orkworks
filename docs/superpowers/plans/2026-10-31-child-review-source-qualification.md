@@ -202,6 +202,35 @@ historical replacement input/plan, actual CAS/authentication, direct proof or
 complete full-state budget case. Keep this broader qualification item open;
 component-byte acceptance must not turn partial fixtures into producer evidence.
 
+### Consumer membership proposal — 2026-11-03
+
+The [consumer-membership contract](../specs/2026-11-03-child-consumer-membership-design.md)
+closes proposed logical locations/targets, original object/direct-metadata/debit/
+proof registry and both lookup directions for the accepted source/control slice.
+It selects no new persisted graph, ObjectRef purpose or quota resource and
+preserves the exact six-row debit command. Proposed complete coherent discovery
+uses one header, no read-time repair, and a stricter 4,096-observation / 16 MiB
+cumulative canonical discovery bound. Those new query/representation choices
+need one scoped owner decision before dependent membership fixtures.
+
+- [ ] Obtain scoped owner acceptance/revisions for this concrete registry,
+  logical index ownership and bounded discovery profile. Reuse source/control
+  acceptance; no repeated decision on unchanged codecs/pools is required.
+- [ ] After acceptance, independently derive and pin selected forward/reverse,
+  historical source/control-origin/proof/debit memberships and missing/extra/
+  changed-header/cycle/overflow denials, explicitly as component evidence only.
+- [ ] Qualify actual complete physical indexes, coherent metadata-only artifact
+  precharge, source/ordinary-lifecycle producers, current authority and all owning
+  freshness/summary/ledger effects before source-valid complete transactions.
+
+The separate storage-kernel plan in #1337 is not adopted or approved here.
+#1183's complete consumer/authority checkbox remains open: this proposal is a
+logical contract, not a running owner, absence proof or source-valid prestate.
+No fixture/native/model probe, database/migration or runtime implementation is
+introduced by this handoff. Root is the only writer; the proposal records one
+bounded read-only correctness/builder review round with maximum three active
+including root.
+
 ## Gate C — complete fresh preparation/publication witnesses
 
 - [ ] Only when preceding source/authority choices and owners are closed, generate

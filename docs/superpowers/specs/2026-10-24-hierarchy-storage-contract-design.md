@@ -708,3 +708,15 @@ synthetic byte/reference and conditional logical checks. No active grant is
 persisted, and frozen assignment identity is unchanged. Actual source/control/
 native/consumer and complete-transaction/runtime gates remain independent;
 #1183/#1176 stay open and #740 stays closed.
+
+
+## Proposed consumer-discovery contract — 2026-11-03
+
+The [consumer membership proposal](2026-11-03-child-consumer-membership-design.md)
+spells out the selected object, direct metadata/source-group, historical debit
+and direct-proof lookup registry, complete coherent membership reads and finite
+discovery bounds. It changes no accepted source/control/domain/debit effects and
+adds no generic persisted graph, ObjectRef purpose or quota resource. Its new
+logical lookup/discovery choices require scoped owner acceptance before dependent
+membership fixtures. Actual physical indexes, producer/authority/consumer and
+complete-state qualification remain open; #1183/#1176 stay open, #740 stays closed.
