@@ -719,13 +719,15 @@ separate; no model call, launch, database or migration is authorized here. Keep
 #1183 open through the remaining source/preparation/consumer criteria.
 
 
-## Proposed consumer-discovery contract — 2026-11-03
+## Accepted consumer-discovery contract — 2026-11-03
 
-The [consumer membership proposal](2026-11-03-child-consumer-membership-design.md)
-spells out the selected object, direct metadata/source-group, historical debit
-and direct-proof lookup registry, complete coherent membership reads and finite
-discovery bounds. It changes no accepted source/control/domain/debit effects and
-adds no generic persisted graph, ObjectRef purpose or quota resource. Its new
-logical lookup/discovery choices require scoped owner acceptance before dependent
-membership fixtures. Actual physical indexes, producer/authority/consumer and
-complete-state qualification remain open; #1183/#1176 stay open, #740 stays closed.
+The [consumer membership contract](2026-11-03-child-consumer-membership-design.md#scoped-owner-acceptance-and-component-handoff--2026-11-03)
+has separate scoped owner acceptance for its typed logical locations/targets,
+object/direct-metadata/control-origin/debit/proof recipes, coherent forward/reverse
+lookup ownership and finite discovery profile. It changes no source/control/
+domain/debit effect and adds no generic persisted graph, ObjectRef purpose or
+quota resource. The [membership packet](../../validation/child-membership-components.md)
+is selected synthetic component evidence; actual complete physical indexes,
+producer/current-authority/consumer and complete-state qualification remain open.
+#1183/#1176 stay open, #740 stays closed. No storage-kernel or runtime plan is
+approved by this codec/discovery decision.

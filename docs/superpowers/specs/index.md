@@ -236,4 +236,4 @@ Dated design records; these do not establish current product behavior.
 
 - [Selected child launch control and recovery records](2026-11-02-child-launch-control-design.md) — Accepted scoped direct-execution control/input/lifecycle/recovery codecs and finite accounting; component and actual-owner qualification remain separate.
 
-- [Retained child source and control consumer membership](2026-11-03-child-consumer-membership-design.md) — Proposed closed typed consumer registry, coherent discovery and finite observation/byte bounds; owner review required.
+- [Retained child source and control consumer membership](2026-11-03-child-consumer-membership-design.md) — Accepted scoped typed consumer registry and finite discovery bounds; component evidence and actual physical-owner qualification remain separate.
