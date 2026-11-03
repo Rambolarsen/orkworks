@@ -2,9 +2,9 @@
 //! fresh-preparation establishment (used="0", reserved="0"), charged by
 //! checked-u64 deltas, fenced on missing/ambiguous rows, and rejected at the
 //! accepted inclusive caps (8 MiB per run / 64 MiB per workspace) with the
-//! complete old state preserved. Every journal command is one transaction.
+//! complete old state preserved. Every command is one transaction.
 
-use super::connection::Connection;
+use super::connection::{CommandBuild, Connection, RowChange, RowMode};
 use super::rows::{quota_key, RETAINED_BYTES_RESOURCE};
 use super::{ensure, HierarchyStorageError, Result};
 use serde_json::{json, Value};
@@ -37,20 +37,30 @@ pub(crate) fn establish_resource(
     ensure(resource == RETAINED_BYTES_RESOURCE, "resource")?;
     let key = key_for(owner)?;
     let value = json!({"reserved": "0", "used": "0"});
-    store.journal_rows(
-        super::JOURNAL_COMMAND,
-        vec![super::connection::RowChange {
+    store.journal_command(super::JOURNAL_COMMAND, "quota row", |transaction| {
+        use rusqlite::OptionalExtension;
+        let existing: Option<Vec<u8>> = transaction
+            .query_row(
+                "SELECT value FROM quota_usage WHERE key = ?1",
+                rusqlite::params![super::canonical(&key)?],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|_| HierarchyStorageError("physical database"))?;
+        if existing.is_some() {
+            return Err(HierarchyStorageError("quota row"));
+        }
+        Ok(CommandBuild::Rows(vec![RowChange {
             table: "quota_usage",
-            mode: super::connection::RowMode::InsertStrict,
-            key: key.clone(),
+            mode: RowMode::InsertStrict,
+            key,
             value,
-        }],
-        "quota row",
-    )?;
+        }]))
+    })?;
     read_used(store, owner)
 }
 
-fn owner_cap(owner: &Value) -> Result<u64> {
+pub(crate) fn owner_cap_for(owner: &Value) -> Result<u64> {
     match owner["kind"].as_str() {
         Some("run") => Ok(QUOTA_RUN_CAP),
         Some("workspace") => Ok(QUOTA_WORKSPACE_CAP),
@@ -58,46 +68,57 @@ fn owner_cap(owner: &Value) -> Result<u64> {
     }
 }
 
-/// Apply one signed delta with checked Counter arithmetic; refuses on a
-/// missing row (fence), a nonzero `reserved` field, underflow (no-refund)
-/// and an inclusive cap overflow, preserving the complete old state.
+/// Apply one signed delta with checked Counter arithmetic inside one
+/// transaction; refuses on a missing row (fence), a nonzero `reserved`
+/// field, underflow (no-refund) and an inclusive cap overflow, preserving
+/// the complete old state. An exact no-delta command is a no-op.
 pub(crate) fn apply_delta(store: &Connection, owner: &Value, delta: i128) -> Result<Value> {
     let key = key_for(owner)?;
-    let cap = owner_cap(owner)?;
-    let current = read_used(store, owner)?;
-    ensure(
-        current["reserved"] == json!("0"),
-        "reserved row state is ambiguous",
-    )?;
-    let used = match current.get("used").and_then(|value| value.as_str()) {
-        Some(value) => value
-            .parse::<u64>()
-            .map_err(|_| HierarchyStorageError("quota row"))?,
-        None => return Err(HierarchyStorageError("quota row")),
-    };
-    // Checked nonzero-allowed counter arithmetic in i128 space.
-    let candidate = used as i128 + delta;
-    ensure(candidate >= 0, "quota delta")?;
-    let candidate = candidate as u64;
-    ensure(candidate <= cap, "quota capacity")?;
-    let value = json!({"reserved": "0", "used": candidate.to_string()});
-    store.journal_rows(
-        super::JOURNAL_COMMAND,
-        vec![super::connection::RowChange {
+    let cap = owner_cap_for(owner)?;
+    store.journal_command(super::JOURNAL_COMMAND, "quota row", |transaction| {
+        use rusqlite::OptionalExtension;
+        let existing: Option<Vec<u8>> = transaction
+            .query_row(
+                "SELECT value FROM quota_usage WHERE key = ?1",
+                rusqlite::params![super::canonical(&key)?],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|_| HierarchyStorageError("physical database"))?;
+        let stored: Value = existing
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .ok_or(HierarchyStorageError("quota row"))?;
+        ensure(
+            stored["reserved"] == json!("0"),
+            "reserved row state is ambiguous",
+        )?;
+        let used = stored["used"]
+            .as_str()
+            .and_then(|value| value.parse::<u64>().ok())
+            .ok_or(HierarchyStorageError("quota row"))?;
+        // Checked nonzero-allowed counter arithmetic in i128 space; the
+        // cap comparison stays in i128 so no cast can truncate.
+        let candidate = used as i128 + delta;
+        ensure(candidate >= 0, "quota delta")?;
+        ensure(candidate <= i128::from(cap), "quota capacity")?;
+        let candidate = candidate as u64;
+        if candidate == used {
+            return Ok(CommandBuild::NoOp);
+        }
+        let value = json!({"reserved": "0", "used": candidate.to_string()});
+        Ok(CommandBuild::Rows(vec![RowChange {
             table: "quota_usage",
-            mode: super::connection::RowMode::Replace,
+            mode: RowMode::Replace,
             key,
             value,
-        }],
-        "quota row",
-    )?;
+        }]))
+    })?;
     read_used(store, owner)
 }
 
 /// Read the current quota row value (used/reserved), refusing missing rows.
 pub(crate) fn read_used(store: &Connection, owner: &Value) -> Result<Value> {
     let key = key_for(owner)?;
-    ensure(store.find_row("quota_usage", &key)?.is_some(), "quota row")?;
     store
         .find_row("quota_usage", &key)?
         .ok_or(HierarchyStorageError("quota row"))

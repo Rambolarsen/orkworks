@@ -188,12 +188,15 @@ fn sealed(x: &Value, field: &str, domain: &str) -> Result<()> {
 /// nonzero digit followed by up to 19 digits, at most `18446744073709551615`.
 pub(crate) fn counter(x: &Value, positive: bool) -> Result<u64> {
     let text_value = s(x).map_err(|_| HierarchyStorageError("counter"))?;
-    let ok = (if positive {
-        !text_value.starts_with('0')
+    // Canonical decimal TEXT: "0" where zero is permitted, otherwise a
+    // nonzero digit followed by up to 19 digits, at most u64::MAX — both
+    // modes enforce the same canonical shape.
+    let canonical_form = if text_value == "0" {
+        !positive
     } else {
-        true
-    }) && !text_value.is_empty()
-        && text_value.len() <= 20
+        !text_value.is_empty() && text_value.len() <= 20 && !text_value.starts_with('0')
+    };
+    let ok = canonical_form
         && text_value.bytes().all(|b| b.is_ascii_digit())
         && text_value.parse::<u64>().is_ok();
     ensure(ok, "counter")?;

@@ -172,6 +172,89 @@ fn golden_metadata_wrapper_rows_verify_and_fit_the_cap() {
 /// The metadata intake cap refuses over-16 KiB records before any shape
 /// check; the four accepted golden wrappers each measure under the cap.
 #[test]
+fn corrupted_reserved_field_refuses_the_delta() {
+    let root = tempdir().unwrap();
+    let path = root.path().join("reserved.sqlite");
+    let store = Connection::open(&path, "workspace-1").unwrap();
+    establish_pool(&store);
+    drop(store);
+    // Corrupt one quota row's reserved field directly; the primitive path
+    // must refuse before any reload.
+    let raw = rusqlite::Connection::open(&path).unwrap();
+    let value: Vec<u8> = raw
+        .query_row("SELECT value FROM quota_usage LIMIT 1", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    let mut corrupted: Value = serde_json::from_slice(&value).unwrap();
+    corrupted["reserved"] = json!("64");
+    raw.execute(
+        "UPDATE quota_usage SET value = ?1",
+        rusqlite::params![super::canonical(&corrupted).unwrap()],
+    )
+    .unwrap();
+    let store = Connection::open(&path, "workspace-1").unwrap();
+    assert_eq!(
+        quota::apply_delta(&store, &run_owner(), 4096)
+            .err()
+            .map(|e| e.0),
+        Some("unavailable"),
+        "ambiguous rows fence reload, and fenced stores refuse writes"
+    );
+}
+
+#[test]
+fn large_valid_source_body_over_16kib_is_an_acceptance_case() {
+    // The 16 KiB wrapper cap applies to child metadata rows only; a valid
+    // >16 KiB child configuration body (from its 32 KiB retained rule
+    // content) is admitted and journaled, never rejected at the object row.
+    let bytes = modified("worker-configuration", |value| {
+        let content = format!(
+            "{}{}",
+            "Synthetic retained rule content. ",
+            "x".repeat(32 * 1024)
+        );
+        let rule_id = value["rules"][0]["id"].clone();
+        let rule = &mut value["rules"][0];
+        rule["content"] = json!(content);
+        rule["contentDigest"] = json!(super::sha256_hex(content.as_bytes()));
+        // The requirement manifest binds that named source digest.
+        for manifest in value["requirementManifests"].as_array_mut().unwrap() {
+            if manifest["sourceId"] == rule_id {
+                manifest["sourceDigest"] = json!(super::sha256_hex(content.as_bytes()));
+            }
+        }
+        let mut body = value.clone();
+        body.as_object_mut()
+            .expect("configuration object")
+            .remove("configurationDigest");
+        let resealed = super::domain_digest(
+            "orkworks.assignment-configuration.v3",
+            &super::canonical(&body).unwrap(),
+        );
+        value["configurationDigest"] = json!(resealed);
+    });
+    assert!(
+        bytes.len() > 16 * 1024,
+        "the acceptance case is above 16 KiB"
+    );
+    let root = tempdir().unwrap();
+    let path = root.path().join("large_configuration.sqlite");
+    let store = Connection::open(&path, "workspace-1").unwrap();
+    establish_pool(&store);
+    publication::journal_object(&store, ObjectKind::Configuration, &source_context(), &bytes)
+        .unwrap();
+    drop(store);
+    assert_eq!(
+        Connection::open(&path, "workspace-1")
+            .unwrap()
+            .unavailable_reason(),
+        None,
+        "a valid >16 KiB source body is not a rejection"
+    );
+}
+
+#[test]
 fn oversized_metadata_intake_is_rejected() {
     let filler = vec![b'x'; 16 * 1024 + 1];
     let rejection = admit_meta_record(MetaKind::Attachment, &filler)
@@ -512,9 +595,9 @@ fn golden_worker_source_chain_journals_row_by_row() {
         &golden("worker-plan"),
     )
     .unwrap();
-    // Establishes and pool charges land as separate commands before the
-    // plan's row commit (init, 2 establishes, 2 charges, then the row).
-    assert_eq!(plan.commit().sequence, 6);
+    // Establishes land as commands first; the plan's row journal carries its
+    // two quota charges in the same transaction (init, 2 establishes, row).
+    assert_eq!(plan.commit().sequence, 4);
     // The same body journals as an exact retry with no new commit.
     let retry = publication::journal_object(
         &store,
@@ -639,7 +722,7 @@ fn mid_command_failure_rolls_back_every_row() {
             row.get(0)
         })
         .unwrap();
-    assert_eq!(proof_head, 6, "no proof past the pre-failure head");
+    assert_eq!(proof_head, 4, "no proof past the pre-failure head");
 }
 
 #[test]
@@ -655,7 +738,7 @@ fn provenance_edges_journal_with_retained_join() {
         &golden("worker-configuration"),
     )
     .unwrap();
-    let evidence = publication::journal_object(
+    let _evidence = publication::journal_object(
         &store,
         ObjectKind::Evidence,
         &source_context(),
@@ -717,8 +800,8 @@ fn format_four_manifest_digest_recomputes_from_stored_proof() {
         )
         .unwrap();
     assert_eq!(
-        sequence, 6,
-        "init + two establishes + two charges + the plan row"
+        sequence, 4,
+        "init + two establishes + the row command carrying both charges"
     );
     // Exact recomputation: the change domain over the manifest bytes.
     let recomputed = super::domain_digest(super::CHANGE_DOMAIN, &body);

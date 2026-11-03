@@ -23,8 +23,8 @@ mod tests;
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct HierarchyStorageError(pub &'static str);
 
-/// Test-only journal seam (cfg(test)); production builds have no arm.
-/// Thread-local so parallel tests never arm each other.
+// Test-only journal seam (cfg(test)); production builds have no arm.
+// Thread-local so parallel tests never arm each other.
 #[cfg(test)]
 thread_local!(pub(crate) static TEST_SEAM: std::sync::atomic::AtomicBool =
     const { std::sync::atomic::AtomicBool::new(false) });

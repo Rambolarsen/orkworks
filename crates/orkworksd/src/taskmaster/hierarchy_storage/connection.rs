@@ -63,16 +63,17 @@ impl Connection {
         self.unavailable
     }
 
-    /// One-transaction journal of changed rows (each `value` carries no
-    /// `lastCommit`): builds the format-4 change manifest over the format-4
-    /// domains, writes the proof row and replaces `header.latest` in the same
-    /// transaction. Any failure rolls back before persistence. An exact
-    /// retry of an identical Replace body is a no-op: nothing changes.
-    pub(crate) fn journal_rows(
+    /// One-transaction journal command: `build` runs inside the transaction
+    /// and returns the changed rows (each `value` carries no `lastCommit`);
+    /// the format-4 change manifest, the proof row and `header.latest` are
+    /// written in the same transaction. Any failure rolls back before
+    /// persistence; a `NoOp` outcome commits an empty transaction and
+    /// returns the unchanged current commit.
+    pub(crate) fn journal_command(
         &self,
         command_kind: &str,
-        changes: Vec<RowChange>,
         conflict_reason: &'static str,
+        build: impl FnOnce(&rusqlite::Transaction<'_>) -> Result<CommandBuild>,
     ) -> Result<RowJournalCommit> {
         ensure(self.unavailable.is_none(), "unavailable")?;
         let mut database = self
@@ -96,6 +97,15 @@ impl Connection {
             serde_json::from_slice(&bytes).map_err(|_| HierarchyStorageError("header"))?
         };
         let latest = super::rows::commit_ref(&latest_value)?;
+        let changes = match build(&transaction)? {
+            CommandBuild::NoOp => {
+                transaction
+                    .commit()
+                    .map_err(|_| HierarchyStorageError("physical database"))?;
+                return Ok(RowJournalCommit { commit: latest });
+            }
+            CommandBuild::Rows(changes) => changes,
+        };
         // Monotonic commit sequence; exhaustion fences instead of wrapping,
         // well before the INTEGER lookup index overflows.
         let sequence = latest
@@ -126,32 +136,34 @@ impl Connection {
                 .optional()
                 .map_err(|_| HierarchyStorageError("physical database"))?;
             let before_digest = match (mode, &existing) {
-                (super::connection::RowMode::Insert, Some(_)) => {
+                (super::connection::RowMode::InsertStrict, Some(_)) => {
+                    return Err(HierarchyStorageError(conflict_reason));
+                }
+                (super::connection::RowMode::Insert, Some(stored_bytes)) => {
                     // An exact retry of identical stored content is a no-op:
                     // the committed chain and row links stay as they are.
-                    let stored: Value =
-                        serde_json::from_slice(existing.as_deref().expect("existing row"))
-                            .map_err(|_| HierarchyStorageError("physical database"))?;
+                    let stored: Value = serde_json::from_slice(stored_bytes)
+                        .map_err(|_| HierarchyStorageError("physical database"))?;
                     let body = super::rows::without_field(&stored, "lastCommit");
                     if canonical(&body)? == canonical(value)? {
-                        transaction.commit().ok();
-                        return Ok(RowJournalCommit {
-                            commit: latest.clone(),
-                        });
+                        transaction
+                            .commit()
+                            .map_err(|_| HierarchyStorageError("physical database"))?;
+                        return Ok(RowJournalCommit { commit: latest });
                     }
                     return Err(HierarchyStorageError(conflict_reason));
                 }
-                (super::connection::RowMode::Replace, Some(bytes)) => {
-                    let stored: Value = serde_json::from_slice(bytes)
+                (super::connection::RowMode::Replace, Some(stored_bytes)) => {
+                    let stored: Value = serde_json::from_slice(stored_bytes)
                         .map_err(|_| HierarchyStorageError("physical database"))?;
                     let body = super::rows::without_field(&stored, "lastCommit");
                     // An exact retry (identical body) changes nothing: the
                     // committed chain and row links stay as they are.
                     if canonical(&body)? == canonical(value)? {
-                        transaction.commit().ok();
-                        return Ok(RowJournalCommit {
-                            commit: latest.clone(),
-                        });
+                        transaction
+                            .commit()
+                            .map_err(|_| HierarchyStorageError("physical database"))?;
+                        return Ok(RowJournalCommit { commit: latest });
                     }
                     serde_json::from_value(json!(super::rows::row_digest(table, key, &body)?))
                         .map_err(|_| HierarchyStorageError("row digest"))?
@@ -171,6 +183,7 @@ impl Connection {
         }
         entries.sort_by_key(|(table, key, _)| (table.clone(), key.clone()));
         let changes_list: Vec<Value> = entries.into_iter().map(|(_, _, entry)| entry).collect();
+        ensure(!changes_list.is_empty(), "empty command")?;
         let manifest = serde_json::json!({
             "changes": changes_list,
             "commandKind": command_kind,
@@ -195,6 +208,7 @@ impl Connection {
             value,
         } in &changes
         {
+            ensure(value.is_object(), "row envelope")?;
             let key_bytes = canonical(key)?;
             let mut value_with_commit = value.clone();
             value_with_commit["lastCommit"] = serde_json::from_slice(&commit_bytes)
@@ -222,6 +236,13 @@ impl Connection {
                     _ => HierarchyStorageError("physical database"),
                 })?;
         }
+        // Test-only mid-command failure seam: rolls back every row (the
+        // object row, its quota charges and the proof) inside the single
+        // transaction; production builds have no seam.
+        #[cfg(test)]
+        if test_seam_armed() {
+            return Err(HierarchyStorageError("seam"));
+        }
         transaction
             .execute(
                 "INSERT INTO commit_proof (sequence, body, change_digest) VALUES (?1, ?2, ?3)",
@@ -234,12 +255,6 @@ impl Connection {
                 rusqlite::params![commit_bytes],
             )
             .map_err(|_| HierarchyStorageError("physical database"))?;
-        // Test-only mid-command failure seam: rolls back every row before the
-        // proof insert; production builds have no seam.
-        #[cfg(test)]
-        if test_seam_armed() {
-            return Err(HierarchyStorageError("seam"));
-        }
         transaction
             .commit()
             .map_err(|_| HierarchyStorageError("physical database"))?;
@@ -464,6 +479,13 @@ pub(crate) enum RowMode {
     InsertStrict,
     /// Mutable-row replacement with beforeDigest tracking.
     Replace,
+}
+
+/// The outcome of a command builder: either the changed rows for one
+/// transaction, or a no-op that leaves the committed chain untouched.
+pub(crate) enum CommandBuild {
+    Rows(Vec<RowChange>),
+    NoOp,
 }
 
 /// One changed logical row for the journal: the canonical key and the

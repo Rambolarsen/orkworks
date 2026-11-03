@@ -85,7 +85,7 @@ pub(super) fn verify_chain(
     // Manifest envelopes: canonical bytes; exact closure; per-proof digest
     // equations; closed command kinds; predecessor linkage; changes sorted
     // uniquely by UTF-8 table name then canonical key bytes.
-    let mut manifests: Vec<(u64, Value)> = Vec::with_capacity(proofs.len());
+    let mut manifests: Vec<(u64, Value, String)> = Vec::with_capacity(proofs.len());
     for (index, (sequence, body, change_digest)) in proofs.iter().enumerate() {
         let manifest: Value =
             serde_json::from_slice(body).map_err(|_| HierarchyStorageError("chain"))?;
@@ -95,7 +95,7 @@ pub(super) fn verify_chain(
         ensure(expected == *change_digest, "chain")?;
         if index > 0 {
             // Predecessor == the canonical prior CommitRef.
-            let (previous_sequence, previous) = &manifests[index - 1];
+            let (previous_sequence, previous, _previous_digest) = &manifests[index - 1];
             let prior_commit = json!({
                 "changeDigest": super::domain_digest(super::CHANGE_DOMAIN, super::canonical(previous)?.as_slice()),
                 "commitSequence": previous_sequence.to_string(),
@@ -125,7 +125,7 @@ pub(super) fn verify_chain(
         sorted.sort();
         sorted.dedup();
         ensure(ordering == sorted, "chain")?;
-        manifests.push((u64::try_from(*sequence).unwrap_or(0), manifest));
+        manifests.push((u64::try_from(*sequence).unwrap_or(0), manifest, expected));
     }
     // 2. Header/latest resolves to the final retained proof by epoch,
     //    sequence and the recomputed manifest digest.
@@ -152,7 +152,9 @@ pub(super) fn verify_chain(
         "chain",
     )?;
     // 3. Every retained row re-derives its own commitment against the
-    //    manifest whose sequence its lastCommit names.
+    //    manifest whose sequence its lastCommit names. Proof digests travel
+    //    with the manifests so the stored lastCommit changeDigest is checked
+    //    against the proof it names.
     for table in ROW_TABLES {
         reverify_rows(database, table, epoch, &manifests)?;
     }
@@ -211,7 +213,7 @@ fn reverify_rows(
     database: &rusqlite::Connection,
     table: &str,
     epoch: &str,
-    manifests: &[(u64, Value)],
+    manifests: &[(u64, Value, String)],
 ) -> Result<()> {
     // Proof lookup by sequence: change entries for (table, canonical key).
     let entry_for = |sequence: u64, key_bytes: &[u8]| -> Result<Value> {
@@ -230,6 +232,14 @@ fn reverify_rows(
             .cloned()
             .ok_or(HierarchyStorageError("rows"))?;
         Ok(matching)
+    };
+    // Digest cross-check helper: the proof at `sequence` must own the
+    // stored `lastCommit` changeDigest byte-for-byte.
+    let proof_digest = |sequence: u64| -> Result<&String> {
+        let index = manifests
+            .binary_search_by(|probe| probe.0.cmp(&sequence))
+            .map_err(|_| HierarchyStorageError("chain"))?;
+        Ok(&manifests[index].2)
     };
     let mut statement = database
         .prepare(&format!(
@@ -270,6 +280,7 @@ fn reverify_rows(
         let commit = rows::commit_ref(&commit_value)?;
         ensure(commit.storage_epoch == epoch, "epoch")?;
         ensure(commit.sequence == sequence, "chain")?;
+        ensure(commit.change_digest == *proof_digest(sequence)?, "rows")?;
         // The row's digest inside that proof's manifest of the changed set.
         let entry: Value = entry_for(sequence, &key_bytes)?;
         let recomputed = rows::row_digest(table, &key, &body)?;
