@@ -1,10 +1,10 @@
 ---
 type: Design Proposal
 title: Retained child source and control consumer membership
-description: Proposed closed reference-discovery registry, historical retention and bounded coherent membership reads for the accepted child source/control slice; no storage implementation or complete-state qualification.
+description: Accepted scoped reference-discovery registry, historical retention and bounded coherent membership reads for the accepted child source/control slice; no storage implementation or complete-state qualification.
 tags: [orkworks, hierarchy, child-sources, consumers, custody, storage]
 status: draft
-workflow_status: owner-review-required
+workflow_status: owner-accepted-component-qualification
 ---
 
 # Retained child source and control consumer membership
@@ -17,9 +17,10 @@ Contracts: [accepted child sources](2026-10-31-child-review-source-preparation-d
 [accepted selected controls](2026-11-02-child-launch-control-design.md#scoped-owner-acceptance-and-component-handoff--2026-11-02),
 [artifact custody](2026-10-30-evaluation-artifact-producer-design.md#custody-edges-and-registry-versioning),
 [historical debit retention](2026-10-31-artifact-read-debit-proof-design.md#recovery-accounting-completeness-and-retention).
-**Proposed for scoped owner review.** No dependent fixture, new table, database,
-DDL/migration, producer implementation, native/model probe or current authority is
-supplied by this document. Merging it records a proposal, not acceptance.
+**Scoped choices accepted for bounded component qualification on 2026-11-03.**
+No new table, database, DDL/migration, producer implementation, native/model probe
+or current authority is supplied by this document. The original #1341 merge
+recorded a proposal; the separate owner acceptance is recorded below.
 
 ## Decision and boundary
 
@@ -357,7 +358,7 @@ limits remain separately unqualified. Do not promise all declared maxima fit.
 
 ## Owner decisions and bounded handoff
 
-Approve/revise these selected choices as one package: the exact typed lookup
+The scoped accepted package is: the exact typed lookup
 locations/targets and closed registry; forward/reverse metadata/proof projections
 owned atomically by the existing rows without a new logical graph table; coherent
 header-bound complete discovery with no read-time repair; and the stricter
@@ -371,7 +372,8 @@ extra/historical/overflow denials. Keep those components explicitly synthetic.
 Actual complete physical indexes, producer and ordinary lifecycle publication,
 source-owned currentness/absence, authentication/revocation/native ordering and
 complete consumer/CAS/full-state/packing witnesses remain separate qualification
-work. No dependent fixtures or executable implementation are authorized here.
+work. Acceptance permits the bounded component packet below, not complete-state
+fixtures or executable implementation.
 #1183/#1176 remain open, and #740 remains closed.
 
 Review routing: root owns all edits; one read-only Luna correctness reviewer
@@ -393,6 +395,27 @@ recipes above (including compact proof/precondition/receipt expansion, exact
 summary-material references and bounded direct proof retention), and defined
 separate returned occurrence/owning record/page/miss observations. These are
 author-applied clarifications from one round, not an independent second post-edit
-review. They remain part of the owner-pending registry/budget package; actual
+review. They were part of the registry/budget package subsequently accepted below; actual
 physical index completeness, metadata/content separation and native behavior are
 UNVERIFIED. No extra reader schema or persisted graph was introduced.
+
+
+## Scoped owner acceptance and component handoff — 2026-11-03
+
+After [#1341](https://github.com/Rambolarsen/orkworks/pull/1341), reviewed head
+`f00c26a6bc0619129b562ca4ea243712aa33eb2d`, the owner answered “go ahead” to
+the exact approval request for this registry, logical lookup ownership and
+4,096-observation / 16 MiB cumulative discovery limits before bounded membership
+fixtures. This accepts the closed typed locations/targets/reference recipes,
+coherent forward/reverse physical lookup ownership without a new logical graph,
+header-bound complete discovery with no read-time repair and the explicit budget
+units. Unchanged source/control/debit fields, pools and effects need no repeated
+approval. The separate #1337 storage-kernel plan is not adopted or approved.
+
+The [membership component packet](../../validation/child-membership-components.md)
+pins selected source/control, historical control-origin/proof, reciprocal artifact
+and debit retention relations, plus conditional discovery traces. Its alternative
+cases are not one coherent store. It supplies no actual physical-index completeness,
+metadata-only precharge, proof/native/CAS/producer authority or source-valid full
+transaction. Existing subject/receipt/claim/summary storage and complete owner
+qualification remain independent gates; #1183/#1176 stay open, #740 stays closed.
