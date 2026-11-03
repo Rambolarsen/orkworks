@@ -3,7 +3,29 @@
 //! the owning contracts. Wired only here — the module has no production caller.
 
 use super::connection::Connection;
+use serde_json::{json, Value};
 use tempfile::tempdir;
+
+/// Golden fixture of record: merged child-source component vectors.
+const VECTORS: &str = include_str!("../../../../../docs/validation/child-source-vectors.json");
+
+fn fixture() -> &'static Value {
+    use std::sync::OnceLock;
+    static FIXTURE: OnceLock<Value> = OnceLock::new();
+    FIXTURE.get_or_init(|| serde_json::from_str(VECTORS).expect("fixture parses"))
+}
+
+/// Canonical bytes of one pinned vector, e.g. (`"worker-plan"`).
+fn golden(id: &str) -> Vec<u8> {
+    let vectors = fixture()["vectors"].as_array().expect("vectors array");
+    let chosen = vectors
+        .iter()
+        .find(|v| v["id"] == id)
+        .unwrap_or_else(|| panic!("vector {id}"));
+    let canonical = chosen["canonical"].as_str().expect("canonical bytes");
+    assert_eq!(canonical.len(), chosen["bytes"].as_u64().unwrap() as usize);
+    canonical.as_bytes().to_vec()
+}
 
 #[test]
 fn complete_catalog_column_shape_verifies() {
@@ -87,6 +109,311 @@ fn unknown_schema_version_is_unavailable() {
         store.unavailable_reason(),
         Some("schema version"),
         "unknown format versions fence the store; nothing is migrated"
+    );
+}
+
+// Metadata rows: source-record admission plus the complete 16 KiB wrapper.
+
+// Row admission (scope 3): the nine golden row kinds from the packet.
+// ---------------------------------------------------------------------------
+
+use super::rows::{admit_meta_record, check_metadata_row, MetaKind};
+
+#[test]
+fn golden_metadata_records_admit_with_reconstructed_keys() {
+    let approval = admit_meta_record(MetaKind::PlanApproval, &golden("worker-approval")).unwrap();
+    assert_eq!(approval.key["approvalId"], "worker-approval");
+    assert_eq!(
+        approval.digest, "49159f1dc4b63168f2440b43ba890f9c746de7455681b1817b456b07bb1f21a8",
+        "approval source digest is the child-source-plan-approval domain"
+    );
+    let reservation =
+        admit_meta_record(MetaKind::Reservation, &golden("worker-reservation")).unwrap();
+    assert_eq!(reservation.key["taskId"], "worker-task");
+    let allocation = admit_meta_record(MetaKind::Allocation, &golden("worker-allocation")).unwrap();
+    assert_eq!(allocation.key["allocationId"], "worker-allocation");
+    let attachment = admit_meta_record(MetaKind::Attachment, &golden("worker-attachment")).unwrap();
+    assert_eq!(
+        attachment.key,
+        json!("worker-session"),
+        "attachment key is the reserved childSessionId"
+    );
+}
+
+/// The packet's exact metadata wrapper rows: approved source + receipt, then
+/// the reservation/allocation/attachment records with the frozen commit.
+#[test]
+fn golden_metadata_wrapper_rows_verify_and_fit_the_cap() {
+    let approval = admit_meta_record(MetaKind::PlanApproval, &golden("worker-approval")).unwrap();
+    let receipt: Value = serde_json::from_slice(&golden("worker-receipt")).unwrap();
+    let mut approval_value = approval.value_base.clone();
+    approval_value["digest"] = json!(approval.digest);
+    approval_value["receipt"] = receipt.clone();
+    approval_value["lastCommit"] = receipt["commit"].clone();
+    let row = check_metadata_row(MetaKind::PlanApproval, &approval.key, &approval_value).unwrap();
+    assert_eq!(row.table, "child_plan_approvals");
+    for kind in [
+        MetaKind::Reservation,
+        MetaKind::Allocation,
+        MetaKind::Attachment,
+    ] {
+        let record = match kind {
+            MetaKind::Reservation => "worker-reservation",
+            MetaKind::Allocation => "worker-allocation",
+            _ => "worker-attachment",
+        };
+        let admitted = admit_meta_record(kind, &golden(record)).unwrap();
+        let mut value = admitted.value_base.clone();
+        value["lastCommit"] = receipt["commit"].clone();
+        check_metadata_row(kind, &admitted.key, &value).unwrap();
+    }
+}
+
+/// The metadata intake cap refuses over-16 KiB records before any shape
+/// check; the four accepted golden wrappers each measure under the cap.
+#[test]
+fn oversized_metadata_intake_is_rejected() {
+    let filler = vec![b'x'; 16 * 1024 + 1];
+    let rejection = admit_meta_record(MetaKind::Attachment, &filler)
+        .err()
+        .map(|e| e.0);
+    assert_eq!(rejection, Some("bytes"), "over-cap intake refuses first");
+}
+
+// Rejection classes (scope 3): every class refuses before persistence.
+
+/// Canonical bytes of a modified golden record.
+fn modified(record: &str, mutate: fn(&mut Value)) -> Vec<u8> {
+    let mut value: Value = serde_json::from_slice(&golden(record)).unwrap();
+    mutate(&mut value);
+    super::canonical(&value).expect("canonical modification")
+}
+
+#[test]
+fn extra_field_rejects_plan_admission() {
+    let bytes = {
+        let mut value: Value = serde_json::from_slice(&golden("worker-plan")).unwrap();
+        value["extra"] = json!(1);
+        super::canonical(&value).unwrap()
+    };
+    let rejection = rows::admit_source_object(ObjectKind::Plan, &source_context(), &bytes)
+        .err()
+        .map(|e| e.0);
+    assert_eq!(rejection, Some("closed fields"));
+}
+
+#[test]
+fn duplicate_object_fields_reject_decode() {
+    let bytes = b"{\"a\":1,\"a\":1}";
+    let rejection = rows::admit_source_object(ObjectKind::Plan, &source_context(), bytes)
+        .err()
+        .map(|e| e.0);
+    assert_eq!(
+        rejection,
+        Some("canonical wire"),
+        "duplicate keys are noncanonical stored bytes"
+    );
+}
+
+#[test]
+fn wrong_kind_root_substitution_rejects() {
+    let bytes = modified("worker-source", |value| {
+        value["assignmentIdentity"]["kind"] = json!("root");
+    });
+    let rejection =
+        rows::admit_source_object(ObjectKind::AssignmentSource, &source_context(), &bytes)
+            .err()
+            .map(|e| e.0);
+    assert_eq!(rejection, Some("child identity"));
+}
+
+#[test]
+fn invalid_counter_text_rejects() {
+    for bad in ["00", "+1", "1.0", "1e0", " 1", "18446744073709551616"] {
+        let rejection = rows::counter(&json!(bad), true).err().map(|e| e.0);
+        assert_eq!(rejection, Some("counter"), "{bad} is not a Counter");
+    }
+    let top = json!("18446744073709551615");
+    assert_eq!(rows::counter(&top, true).unwrap(), u64::MAX);
+    assert_eq!(rows::counter(&json!("0"), false).unwrap(), 0);
+    assert_eq!(
+        rows::counter(&json!("0"), true).err().map(|e| e.0),
+        Some("counter")
+    );
+}
+
+#[test]
+fn counter_must_be_text_not_number() {
+    let rejection = rows::counter(&json!(1_u64), true).err().map(|e| e.0);
+    assert_eq!(rejection, Some("counter"), "storage Counters are TEXT");
+}
+
+#[test]
+fn digest_mismatch_rejects_sealed_plan() {
+    let bytes = modified("worker-plan", |value| {
+        value["scopeText"] = json!("Changed without re-signing.");
+    });
+    let rejection = rows::admit_source_object(ObjectKind::Plan, &source_context(), &bytes)
+        .err()
+        .map(|e| e.0);
+    assert_eq!(rejection, Some("sealed digest"));
+}
+
+#[test]
+fn broken_evidence_content_join_rejects() {
+    let bytes = modified("worker-evidence-0", |value| {
+        let content_digest = value["contentDigest"].as_str().unwrap().to_string();
+        let flipped = format!(
+            "{}{}",
+            if content_digest.starts_with('a') {
+                'b'
+            } else {
+                'a'
+            },
+            &content_digest[1..]
+        );
+        value["contentDigest"] = json!(flipped);
+    });
+    let rejection = rows::admit_source_object(ObjectKind::Evidence, &source_context(), &bytes)
+        .err()
+        .map(|e| e.0);
+    assert_eq!(rejection, Some("evidence content digest"));
+}
+
+#[test]
+fn broken_source_plan_join_rejects() {
+    let bytes = modified("worker-source", |value| {
+        value["plan"]["runId"] =
+            json!("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-1");
+    });
+    let rejection =
+        rows::admit_source_object(ObjectKind::AssignmentSource, &source_context(), &bytes)
+            .err()
+            .map(|e| e.0);
+    assert_eq!(rejection, Some("source plan projection"));
+}
+
+#[test]
+fn noncanonical_stored_bytes_reject() {
+    let canonical_bytes = golden("worker-plan");
+    let mut spaced = b"{ \"schemaVersion\"".to_vec();
+    spaced.extend_from_slice(&canonical_bytes["{\"schemaVersion\"".len()..]);
+    let rejection = rows::admit_source_object(ObjectKind::Plan, &source_context(), &spaced)
+        .err()
+        .map(|e| e.0);
+    assert_eq!(rejection, Some("canonical wire"));
+}
+
+/// The store/journal admission context from the packet's golden identifiers.
+fn source_context() -> super::rows::SourceContext<'static> {
+    super::rows::SourceContext {
+        workspace: "workspace-1",
+        run_id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+    }
+}
+
+use super::rows::{self, ObjectKind};
+
+#[test]
+fn golden_plan_row_parses_reconstructs_key_and_sealed_digest() {
+    let admitted =
+        rows::admit_source_object(ObjectKind::Plan, &source_context(), &golden("worker-plan"))
+            .unwrap();
+    let identity = &admitted.key["identity"];
+    assert_eq!(identity["planId"], "worker-plan");
+    assert_eq!(identity["planRevision"], 1);
+    assert_eq!(
+        identity["planDefinitionDigest"],
+        "c17753cc252897208b1288ced09bdd8c353c00988f32b49a660a36a3fc778008"
+    );
+    assert_eq!(identity["workspaceId"], "workspace-1");
+    assert_eq!(
+        identity["runId"],
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+    );
+}
+
+#[test]
+fn golden_configuration_row_parses_reconstructs_key_and_sealed_digest() {
+    let admitted = rows::admit_source_object(
+        ObjectKind::Configuration,
+        &source_context(),
+        &golden("worker-configuration"),
+    )
+    .unwrap();
+    let identity = &admitted.key["identity"];
+    assert_eq!(identity["configurationId"], "worker-configuration");
+    assert_eq!(
+        identity["configurationDigest"],
+        "08d017be21a687f290d084ac99eaca328ea8478fb477eedf82fde4170a04b00f"
+    );
+    assert_eq!(identity["task"]["taskId"], "worker-task");
+}
+
+#[test]
+fn golden_review_input_row_parses_and_reconstructs_key() {
+    let fixture_digest = fixture()["snapshot"]["inputDigest"]
+        .as_str()
+        .expect("snapshot inputDigest")
+        .to_string();
+    let admitted = rows::admit_source_object(
+        ObjectKind::ReviewInput,
+        &source_context(),
+        &golden("review-snapshot"),
+    )
+    .unwrap();
+    let identity = &admitted.key["identity"];
+    assert_eq!(identity["inputDigest"], fixture_digest);
+    assert_eq!(identity["task"]["taskId"], "reviewer-task");
+    assert_eq!(identity["task"]["workspaceId"], "workspace-1");
+}
+
+#[test]
+fn golden_evidence_rows_parse_and_verify_raw_content_digest() {
+    let vectors = fixture()["vectors"].as_array().expect("vectors array");
+    for id in [
+        "worker-evidence-0",
+        "worker-evidence-1",
+        "worker-evidence-2",
+        "worker-evidence-3",
+    ] {
+        let vector = vectors
+            .iter()
+            .find(|v| v["id"] == id)
+            .expect("evidence vector");
+        let admitted =
+            rows::admit_source_object(ObjectKind::Evidence, &source_context(), &golden(id))
+                .unwrap();
+        let identity = &admitted.key["identity"];
+        let body: Value = serde_json::from_str(vector["canonical"].as_str().unwrap()).unwrap();
+        assert_eq!(
+            identity["contentDigest"], body["contentDigest"],
+            "evidence key carries the raw content digest"
+        );
+        assert_eq!(
+            admitted.digest,
+            vector["domainDigest"].as_str().expect("domainDigest"),
+            "source digest is the child-source-evidence domain over the body"
+        );
+    }
+}
+
+#[test]
+fn golden_assignment_source_row_parses_and_reconstructs_identity() {
+    let admitted = rows::admit_source_object(
+        ObjectKind::AssignmentSource,
+        &source_context(),
+        &golden("worker-source"),
+    )
+    .unwrap();
+    let identity = &admitted.key["identity"];
+    assert_eq!(identity["kind"], "child");
+    assert_eq!(identity["taskId"], "worker-task");
+    assert_eq!(identity["taskVersion"], 2);
+    assert_eq!(identity["childSessionId"], "worker-session");
+    assert_eq!(
+        admitted.digest, "970838d0a405e008900b866d37ed0f0a31d7723288559eb85576ff9886cafbac",
+        "source digest is the whole-body domain digest"
     );
 }
 
