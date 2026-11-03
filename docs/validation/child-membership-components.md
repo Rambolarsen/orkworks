@@ -129,3 +129,12 @@ this docs-only worktree has no desktop dependencies installed. It did not run
 runtime suites. Documentation build/CI and review dispositions are recorded with
 the PR. Existing VitePress circular/large-chunk warnings concern unchanged site
 bundling rather than these relations.
+
+Both independent read-only Luna reviewers inspected code head
+`e9008a8eb5c7816498eefca33da3e58a3cff8b8c` and reported no material findings.
+Correctness covered source/control/debit/proof identity and discovery accounting;
+coverage reviewed the independent expectations, negative cases and stated limits.
+No second review round was needed. Node 22 documentation build passed all 1,202
+checks, including the 130 new tests, with metadata/index/site validation complete.
+Diff, documentation and worktree checks passed; a foreign merged worktree warning
+was left to its owner. These results establish no actual index or runtime behavior.
