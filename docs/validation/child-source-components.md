@@ -172,3 +172,10 @@ review pair cleared the final code; coverage feedback added direct vector and
 byte/accounting boundary regressions. The coding PR records the reviewed head.
 The user-doc advisory needs no edit for this dormant module; the worktree
 advisory concerns a foreign branch and does not authorize its cleanup.
+
+PR CI additionally checks literal embedded-input routing and caught the new
+child catalog missing from the Rust path filter. The routing now includes that
+catalog and every dynamic parity-bridge dependency. A local regression reproduced
+both the catalog and bridge omissions before the fix; all six routing cases and
+the complete 42-case documentation/tooling contract suite pass after it. This
+changes CI selection only; the reviewed Rust codec and source bytes are unchanged.
