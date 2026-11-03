@@ -4,6 +4,8 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 ## Documents
 
+- [Qualify shared harness workspace signals](2026-11-03-harness-workspace-signals.md) — Bounded diagnostic probe, per-harness evidence and native activation gates for #1347.
+
 - [Shared branch design and implementation documents](2026-11-01-branch-plan-documents.md) — Approved delivery and checks for shared two-step document discovery.
 
 - [M4: Session Metadata Protocol — Implementation Plan](2026-06-16-m4-session-metadata-protocol.md) — Implementation plan: M4: Session Metadata Protocol — Implementation Plan.
