@@ -573,4 +573,12 @@ if [ "$session_source" = "codex_hook" ] && [ "$event" = "SessionStart" ]; then
   else
     python3 "$metadata_helper" worktree-instructions
   fi
+elif [ "$session_source" = "claude_hook" ] && [ "$event" = "SessionStart" ]; then
+  # Only the narrow location instructions are qualified for these adapters.
+  python3 "$(dirname -- "${BASH_SOURCE[0]}")/session-metadata.py" worktree-instructions
+elif [ "$session_source" = "copilot_hook" ] && [ "$event" = "sessionStart" ]; then
+  # Copilot consumes additionalContext at the root, unlike Claude/Codex.
+  python3 "$(dirname -- "${BASH_SOURCE[0]}")/session-metadata.py" worktree-instructions |
+    python3 -c 'import json,sys; raw=sys.stdin.read(); data=json.loads(raw) if raw else None
+if data: print(json.dumps({"additionalContext":data["hookSpecificOutput"]["additionalContext"]},separators=(",",":")))'
 fi

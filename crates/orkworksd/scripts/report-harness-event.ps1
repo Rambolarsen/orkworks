@@ -556,4 +556,13 @@ if ($sessionSource -eq "codex_hook" -and $HOME) {
 if ($sessionSource -eq "codex_hook" -and $Event -eq "SessionStart") {
     $instructionMode = if ($env:ORKWORKS_SESSION_METADATA_API_VERSION -ceq "1" -or (Test-Path Env:ORKWORKS_SESSION_STORAGE_PROTOCOL)) { "instructions" } else { "worktree-instructions" }
     & python3 (Join-Path $PSScriptRoot "session-metadata.py") $instructionMode
+} elseif ($sessionSource -eq "claude_hook" -and $Event -eq "SessionStart") {
+    & python3 (Join-Path $PSScriptRoot "session-metadata.py") "worktree-instructions"
+} elseif ($sessionSource -eq "copilot_hook" -and $Event -eq "sessionStart") {
+    # Copilot consumes additionalContext at the root; do not grant general metadata instructions.
+    $worktreeContext = & python3 (Join-Path $PSScriptRoot "session-metadata.py") "worktree-instructions"
+    if ($worktreeContext) {
+        $context = $worktreeContext | ConvertFrom-Json
+        @{ additionalContext = $context.hookSpecificOutput.additionalContext } | ConvertTo-Json -Compress
+    }
 }

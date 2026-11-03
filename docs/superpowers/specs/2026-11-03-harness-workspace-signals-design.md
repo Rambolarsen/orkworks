@@ -52,7 +52,8 @@ explicit binding and recorded A/main. The installed helper successfully reported
 this session's owned worktree B through the qualified managed relay, returning
 B's canonical root and common directory. No inherited credentials were logged.
 This proves reporting access in this environment, not automatic discovery or
-live rendered Changes behavior. No other coding harness was launched.
+live rendered Changes behavior. Disposable harness fixtures were subsequently authorized by the owner; their
+results and remaining limits are recorded in the [qualification evidence](../../validation/harness-workspace-signals.md).
 
 ## Three meanings of directory
 
@@ -87,7 +88,7 @@ qualified; no vendor name is special-cased in the shared resolution policy.
 | Harness | Candidate signal | Current evidence and activation boundary |
 | --- | --- | --- |
 | Claude Code | Main-conversation `CwdChanged.new_cwd`; existing hook `cwd`; explicit owner report | [Hooks reference](https://code.claude.com/docs/en/hooks#cwdchanged) documents `old_cwd`/`new_cwd`. Qualify installed-version event semantics, identity and temporary navigation before using it for session fallback. `WorktreeCreate` replaces creation and must not be installed as passive observation. |
-| Codex | Common hook `cwd`; tool arguments for diagnosis; explicit owner report | [Hooks reference](https://learn.chatgpt.com/docs/hooks) describes common `cwd` as session directory. Tool input shape varies by tool. Observe supported shell, patch and nested/code-mode calls before declaring coverage; no command-string parsing. Child hooks can share the parent ID, so ID equality alone cannot authorize a new location signal. Existing narrow helper instructions are Codex-specific delivery today. |
+| Codex | Common hook `cwd`; tool arguments for diagnosis; explicit owner report | [Hooks reference](https://learn.chatgpt.com/docs/hooks) describes common `cwd` as session directory. Tool input shape varies by tool. Observe supported shell, patch and nested/code-mode calls before declaring coverage; no command-string parsing. Child hooks can share the parent ID, so ID equality alone cannot authorize a new location signal. The initial source only delivered narrow helper instructions to Codex; the source follow-up also delivers them through Claude/Copilot startup envelopes. |
 | GitHub Copilot | Existing hook `cwd`; qualified session/tool events; explicit owner report | [Hooks reference](https://docs.github.com/en/copilot/reference/hooks-reference) supplies `cwd`, native identity and timestamps. Existing forwarding is not proof that `cwd` follows a task selected through a per-tool directory. Qualify root identity, timestamp ordering and installed version. |
 | OpenCode 2 | Exact captured session state or a scoped plugin event; explicit owner report | [Server plugin reference](https://opencode.ai/v2/docs/build/plugins/server) says `ctx.location` belongs to the plugin instance, not every session. Pin a session-specific directory schema and root identity before enabling updates; do not use V1 plugin assumptions. |
 | Aider | Explicit owner report where invocable; process/launch fallback | [Notifications](https://aider.chat/docs/usage/notifications.html) describes response completion, without a structured location payload. Do not infer workspace from callback invocation alone. No automatic location qualification. |
@@ -95,8 +96,8 @@ qualified; no vendor name is special-cased in the shared resolution policy.
 | Generic shell | Existing process directory, then launch | Preserve existing process tracking. This is shell cwd, not a claim that a coding tool's subprocess cwd follows its task. |
 | Gemini, retired | Historical facts and existing fallback | Preserve readable history. Do not activate a retired client or install new hooks. |
 
-These are documentation/source findings, not live payload qualification for any
-new hook. Unsupported adapters must not fabricate a signal or silently choose
+These rows describe candidate sources; the linked qualification record separates
+subsequent live observations from documentation and synthetic coverage. Unsupported adapters must not fabricate a signal or silently choose
 another checkout.
 
 ## Shared acceptance rules
@@ -234,7 +235,9 @@ only prove classification and privacy; they do not qualify native hooks.
 The standalone probe passes synthetic subprocess fixtures for Claude, Codex,
 Copilot, OpenCode and unknown/hookless payloads, including invalid, oversized,
 duplicate-key and privacy cases. CI runs these probe tests in the existing
-Documentation site job. No new native source has live root-identity, directory
-and ordering evidence. Therefore no adapter is enabled by this change. The only
-live transport result is this owning session's successful explicit B report;
-rendered Git and native-hook qualification remain outstanding under #1347.
+Documentation site job. No new native source has complete live root-identity, directory
+and ordering evidence. Therefore no automatic location adapter is enabled.
+The [follow-up evidence](../../validation/harness-workspace-signals.md) records
+Claude directory semantics and source context delivery, Codex hook-execution
+gaps, Copilot budget limits and the narrow startup-delivery extension.
+Rendered Git and full native-hook qualification remain outstanding under #1347.

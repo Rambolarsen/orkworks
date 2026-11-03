@@ -8,6 +8,8 @@ Capability research, validation results, and evidence fixtures.
 
 ## Documents
 
+- [Harness workspace signal qualification](harness-workspace-signals.md) — Live directory and startup-context evidence, platform checks and remaining coverage gaps for #1347.
+
 - [Coding-tool role capabilities](agent-role-capabilities.md) — Validation evidence and context: Coding-tool role capabilities.
 - [Claude Code role capability evidence](claude-code-role-capability-evidence.md) — Version-bound static evidence and outstanding probe gates for Claude Code role profiles.
 - [Copilot 1.0.90 runtime and receipt qualification](copilot-native-receipt-qualification.md) — Validation evidence and context: Copilot 1.0.90 runtime and receipt qualification.

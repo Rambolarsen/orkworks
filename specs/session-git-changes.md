@@ -234,3 +234,12 @@ without changing launch/resume CWD. Details and Changes prefer that durable
 binding over hook/process/launch fallback, revalidate its repository membership,
 and report unavailable if it disappears. Source labels disclose fallback use.
 See [ADR 0094](../docs/adr/0094-explicit-session-worktree-binding.md).
+
+
+The shared worktree helper's source startup instructions cover Codex, Claude
+Code and GitHub Copilot through their native hook output formats. This extends
+cooperative delivery, not automatic worktree discovery or general metadata
+authority. Other harnesses retain explicit invocation and labeled fallback until
+their instruction channels qualify. See the [cross-harness evidence](../docs/validation/harness-workspace-signals.md).
+Installed reporters require normal integration reconciliation; source support
+does not update older running or published installations by itself.

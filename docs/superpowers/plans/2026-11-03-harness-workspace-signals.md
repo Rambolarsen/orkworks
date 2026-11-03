@@ -75,3 +75,36 @@ Verification on 2026-11-03: probe suite 11/11; existing Python script discovery
 its Node prerequisite: this tool context has Node 26.13.0 rather than pinned
 Node 22. No product Rust or desktop code changed. Build emitted the existing
 large/circular chunk warnings; no changed bundling claim depends on them.
+
+
+## Approved delivery follow-up
+
+After the owner authorized continuing with disposable qualification sessions,
+Claude 2.1.309 verified native directory semantics and actual startup-context
+delivery. A bounded source change extends the existing worktree-only context to
+Claude/Copilot SessionStart through their documented envelopes on POSIX and
+PowerShell. No new metadata protocol, location authority or persisted schema is
+added. Codex general metadata gates remain unchanged. See the
+[qualification record](../../validation/harness-workspace-signals.md).
+
+Affected files are `report-harness-event.sh`, `report-harness-event.ps1`,
+`session-metadata.test.py` and the cross-platform CI route. The new POSIX
+behavior test failed specifically because Claude/Copilot emitted no context,
+then passed after delivery was extended. Native PowerShell behavior is routed
+to Windows CI and skipped locally. Scope/risk review: this is the design's
+existing instruction-delivery step, with unchanged binding semantics; native
+automation remains deferred. Review disposition: Ready for code review and
+platform verification, without another architecture approval.
+
+
+Follow-up scoped checks: the complete metadata helper suite passes 45 tests,
+with the native Windows test skipped on macOS; the POSIX reporter suite and
+11 probe regressions pass. Pinned Node 22 was found under the local Homebrew
+installation, locked desktop dependencies were installed in the owned worktree,
+and the full repository verifier is now running with the pinned toolchain.
+
+
+Documentation currency warning reviewed: README's existing worktree paragraph
+already describes generic cooperative reports, source precedence and unchanged
+launch/resume cwd correctly. The delivery detail is recorded in the canonical
+integration contract and validation record, so no README claim needs changing.

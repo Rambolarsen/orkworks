@@ -40,6 +40,24 @@ jobs:
           python-version: '3.9'
       - run: python scripts/sonar_test.py
 
+  workspace-reporting:
+    name: Workspace reporting (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test native startup context formats and capability gates
+        run: >-
+          python crates/orkworksd/scripts/session-metadata.test.py
+          ProducerTests.test_session_start_delivers_narrow_worktree_context_across_hook_formats
+          ProducerTests.test_unrelated_and_capabilityless_starts_do_not_emit_worktree_context
+          ProducerTests.test_powershell_session_start_uses_each_native_context_envelope
+
   native-session-app-windows:
     needs: changes
     if: needs.changes.outputs.native_session_app_changed == 'true'

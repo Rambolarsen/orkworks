@@ -180,6 +180,97 @@ class ProducerTests(unittest.TestCase):
             ("GET", target), ("PATCH", target + "?validateOnly=true"), ("GET", target)])
         self.assertNotIn(TOKEN, result.stdout + result.stderr)
 
+    @unittest.skipIf(os.name == "nt", "POSIX reporter fixture")
+    def test_session_start_delivers_narrow_worktree_context_across_hook_formats(self):
+        for harness, event in (("codex", "SessionStart"), ("claude-code", "SessionStart"),
+                               ("copilot", "sessionStart")):
+            with self.subTest(harness=harness), tempfile.TemporaryDirectory() as folder:
+                binary = Path(folder) / "bin"
+                binary.mkdir()
+                curl = binary / "curl"
+                curl.write_text("#!/bin/sh\nexit 0\n")
+                curl.chmod(0o755)
+                env = {key: value for key, value in os.environ.items()
+                       if not key.startswith("ORKWORKS_")}
+                env.update(ORKWORKS_SESSION_ID="fixture-session", ORKWORKS_PORT="1",
+                           ORKWORKS_REPORT_TOKEN=TOKEN, HOME=folder,
+                           PATH=str(binary) + os.pathsep + os.environ["PATH"])
+                if harness != "codex":
+                    # These adapters must not opt into general metadata authority.
+                    env["ORKWORKS_SESSION_METADATA_API_VERSION"] = "1"
+                result = subprocess.run(["bash", str(SCRIPT.with_name("report-harness-event.sh")),
+                    "--marker", "orkworks:harness-integration:v2:" + harness, "--event", event],
+                    input="{}", text=True, capture_output=True, env=env, timeout=15)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(result.stdout.strip(), "SessionStart must deliver worktree context")
+                output = json.loads(result.stdout)
+                if harness == "copilot":
+                    self.assertEqual(set(output), {"additionalContext"})
+                    context = output["additionalContext"]
+                else:
+                    self.assertEqual(output["hookSpecificOutput"]["hookEventName"], "SessionStart")
+                    context = output["hookSpecificOutput"]["additionalContext"]
+                self.assertIn("worktree ABSOLUTE_PATH", context)
+                self.assertIn("Temporary read-only commands", context)
+                self.assertNotIn("bootstrap", context)
+                self.assertNotIn(TOKEN, result.stdout + result.stderr)
+
+    @unittest.skipIf(os.name == "nt", "POSIX reporter fixture")
+    def test_unrelated_and_capabilityless_starts_do_not_emit_worktree_context(self):
+        for harness, event in (("claude-code", "PreToolUse"), ("copilot", "notification"),
+                               ("aider", "SessionStart"), ("claude-code", "SessionStart"),
+                               ("copilot", "sessionStart")):
+            with self.subTest(harness=harness, event=event), tempfile.TemporaryDirectory() as folder:
+                env = {key: value for key, value in os.environ.items()
+                       if not key.startswith("ORKWORKS_")}
+                env["HOME"] = folder
+                result = subprocess.run(["bash", str(SCRIPT.with_name("report-harness-event.sh")),
+                    "--marker", "orkworks:harness-integration:v2:" + harness, "--event", event],
+                    input="{}", text=True, capture_output=True, env=env, timeout=15)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.strip(), "")
+                self.assertEqual(result.stderr.strip(), "")
+
+    @unittest.skipUnless(os.name == "nt", "native Windows PowerShell fixture")
+    def test_powershell_session_start_uses_each_native_context_envelope(self):
+        for harness, event in (("codex", "SessionStart"), ("claude-code", "SessionStart"),
+                               ("copilot", "sessionStart")):
+            for capability in (True, False):
+                with self.subTest(harness=harness, capability=capability), tempfile.TemporaryDirectory() as folder:
+                    wrapper = Path(folder) / "run reporter.ps1"
+                    wrapper.write_text("function python3 { & $env:ORKWORKS_FIXTURE_PYTHON @args }\n"
+                        "& $env:ORKWORKS_FIXTURE_REPORTER -Marker $env:ORKWORKS_FIXTURE_MARKER -Event $env:ORKWORKS_FIXTURE_EVENT\n")
+                    env = {key: value for key, value in os.environ.items()
+                           if not key.startswith("ORKWORKS_")}
+                    env.update(HOME=folder, USERPROFILE=folder,
+                        ORKWORKS_FIXTURE_PYTHON=sys.executable,
+                        ORKWORKS_FIXTURE_REPORTER=str(SCRIPT.with_name("report-harness-event.ps1")),
+                        ORKWORKS_FIXTURE_MARKER="orkworks:harness-integration:v2:" + harness,
+                        ORKWORKS_FIXTURE_EVENT=event)
+                    if capability:
+                        env.update(ORKWORKS_SESSION_ID="fixture-session", ORKWORKS_PORT="1",
+                                   ORKWORKS_REPORT_TOKEN=TOKEN)
+                        if harness != "codex":
+                            env["ORKWORKS_SESSION_METADATA_API_VERSION"] = "1"
+                    result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive",
+                        "-File", str(wrapper)], input="{}", text=True, capture_output=True,
+                        env=env, timeout=20)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertNotIn(TOKEN, result.stdout + result.stderr)
+                    if not capability:
+                        self.assertEqual(result.stdout.strip(), "")
+                        continue
+                    self.assertTrue(result.stdout.strip(), "SessionStart must deliver worktree context")
+                    output = json.loads(result.stdout)
+                    if harness == "copilot":
+                        self.assertEqual(set(output), {"additionalContext"})
+                        context = output["additionalContext"]
+                    else:
+                        self.assertEqual(output["hookSpecificOutput"]["hookEventName"], "SessionStart")
+                        context = output["hookSpecificOutput"]["additionalContext"]
+                    self.assertIn("worktree ABSOLUTE_PATH", context)
+                    self.assertNotIn("bootstrap", context)
+
     def test_worktree_command_without_general_marker_sends_only_narrow_patch(self):
         for proxy in (False, True):
             for path in ("/task/feature", "--clear"):
