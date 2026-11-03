@@ -265,6 +265,29 @@ fn large_valid_source_body_over_16kib_is_an_acceptance_case() {
 }
 
 #[test]
+fn deleted_change_entry_row_fences_reopen() {
+    // Reload sweep: every change entry across the chain must still have its
+    // stored row; deleting an established quota row behind the journal fences.
+    let root = tempdir().unwrap();
+    let path = root.path().join("deleted_row.sqlite");
+    let store = Connection::open(&path, "workspace-1").unwrap();
+    establish_pool(&store);
+    drop(store);
+    {
+        let raw = rusqlite::Connection::open(&path).unwrap();
+        raw.execute_batch("DELETE FROM quota_usage;").unwrap();
+    }
+    let mutated = store_bytes(&path);
+    let store = Connection::open(&path, "workspace-1").unwrap();
+    assert_eq!(
+        store.unavailable_reason(),
+        Some("rows"),
+        "a missing committed change row cannot be repaired"
+    );
+    assert_eq!(store_bytes(&path), mutated, "bytes stay untouched");
+}
+
+#[test]
 fn review_snapshot_binds_the_retained_result() {
     // The snapshot's embedded result is validated: identity, revision and
     // the source-domain digest bind it to the target.

@@ -690,11 +690,6 @@ fn rules_skills_resources(c: &Value, task_id: &str) -> Result<()> {
     let mut roles_sources: Vec<&Value> = Vec::with_capacity(rules.len() + 1);
     roles_sources.extend(rules.iter());
     roles_sources.push(role);
-    let mut id_order: Vec<String> = Vec::with_capacity(roles_sources.len());
-    for source in &roles_sources {
-        id_order.push(s(&source["id"])?.to_string());
-    }
-    id_order.sort();
     roles_sources.sort_by_key(|source| {
         s(&source["id"])
             .map(|id| id.to_string())
@@ -1555,6 +1550,10 @@ fn retained_result(x: &Value, target: &Value) -> Result<()> {
     let mut sorted_keys = keys.clone();
     sorted_keys.sort();
     ensure(keys == sorted_keys, "sorted unique set")?;
+    ensure(
+        keys.windows(2).all(|window| window[0] < window[1]),
+        "sorted unique set",
+    )?;
     for entry in entries {
         ensure(canonical(entry)?.len() <= 512, "time-cost evidence bound")?;
         if entry["kind"] == "elapsed" {
