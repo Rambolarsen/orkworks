@@ -321,3 +321,177 @@ this is dormant source validation. The merged `harness-workspace-signals`
 worktree advisory names another owner's branch, which remains untouched.
 The full SQL kernel and every native/runtime qualification gate above remain
 open; this unit authorizes no next implementation task.
+
+## Post-codec storage prerequisite review — 2026-11-03
+
+Review base: `b9af416b3d72a397833d248700dfff771820f9b6`, after
+[#1349](https://github.com/Rambolarsen/orkworks/pull/1349) completed #1345.
+This review resolves the previously unexpanded family inventory against the
+accepted owner contracts. It changes no source codec, quota, command kind,
+compatibility policy or execution approval. The first unit is complete; its
+pure-byte result supplies neither an admitted store nor an actual event owner.
+Tracking remains #1183/#1176 under #738; neither parent issue closes here.
+
+### Required family inventory
+
+The selected contracts already name **33 distinct mandatory logical table families**:
+11 base + 2 compact-proof additions + 5 root-preparation families + 4 child-source
+families + 9 child-control families + 1 artifact stream + 1 read debit.
+This expands the previously listed 33 families; it does not prove that unclosed
+upstream owners need no further family or variant. Any required addition needs
+explicit catalog/version compatibility review, not an implicit format-4 table
+addition. Executable DDL and the entire catalog remain unqualified. Each reader must support the whole reconciled catalog even when a family
+is empty. Physical indexes are not additional logical table families/manifest
+changes, and these names do not authorize a generic row writer.
+
+The following keys are logical identities; use the owning codec's exact canonical
+representation. In particular, mutation_lookup's physical key is 64 ASCII bytes,
+while its manifest key is the digest JSON string. Storage Counter remains checked
+u64 TEXT; source JSON revisions/sizes retain their own encodings. Apply accepted
+format-4 header/manifest/row domains and the later row variants, rather than
+copying the historical base header/manifest schemaVersion 1 or converting
+format-3 history. Source and owning row-wrapper schemaVersion values remain
+their accepted values; format 4 does not rewrite them.
+
+Base rows originate in the
+[storage representation](../specs/2026-10-24-hierarchy-storage-contract-design.md#proposed-strict-storage-representation),
+with later [compact proof/slot/lookup](../specs/2026-10-25-hierarchy-compact-bindings-design.md#three-closed-claimed-mutation-metadata-rows),
+[reserved/finalization slots](../specs/2026-10-25-hierarchy-slot-finalization-design.md)
+and [candidate command](../specs/2026-10-25-hierarchy-candidate-command-manifests-design.md#exact-state-lookup-and-index-contract)
+variants. The accepted
+[membership recipes](../specs/2026-11-03-child-consumer-membership-design.md#existing-subject-proof-and-control-families)
+resolve their retained source/proof references without changing those codecs.
+
+| Family | Exact logical key | Owning row or variant |
+| --- | --- | --- |
+| store_header | singleton 1 | Format-4 workspace/epoch/latest control; validate latest's exact proof separately |
+| objects | ObjectKey | Closed source kind/identity, complete canonical body, source digest and lastCommit |
+| payloads | AssignmentIdentity, resultRevision, declarationId | Original result/declaration-bound bytes; raw size/digest, separate occurrence accounting |
+| heads | HeadKey | Exact report, result or evaluation stream; retained target ObjectRef, no maximum election |
+| dependencies | consumer ObjectRef, target ObjectRef, purpose | Exact typed edge and owning proof; complete lookup in both directions |
+| summary_state | AssignmentIdentity | Accepted row/checkpoint/admission variants; no initialization from missing history |
+| pending_material | AssignmentIdentity, assignedRevision | Both complete before/after materials and direct origin proof |
+| receipt_slots | AssignmentIdentity, slotId | Distinct reserved, consumed claimed-mutation and internal-finalization codecs; no fabricated claim |
+| candidate_work | candidate ObjectRef | Conservative rehash reservation, consumed passes, terminal state and outcome slot |
+| quota_usage | exact owner, resource | Closed assignment/run/workspace resource scope; checked used/reserved and owning proof |
+| commit_proof | positive commitSequence | Full format-4 manifest/digest; header/new-proof control equations remain separate |
+| claim_proofs | ClaimIdentity | ClaimProofV2, its proof digest and original commit; original source/action joins |
+| mutation_lookup | RetryKeyDigestV1 | Compact claim reference and subject slot; reconstruct full original retry key |
+
+The five root families are owned by
+[root admission](../specs/2026-10-25-root-preparation-producer-design.md#storage-membership-and-atomic-effects)
+and [initial effects](../specs/2026-10-28-root-preparation-effects-design.md#closed-initial-registry-additions).
+The selected control package adds the explicit
+[attached parent variant](../specs/2026-11-02-child-launch-control-design.md#shared-types-and-bounds)
+to parent_attachments; this is not another table and does not mutate the immutable
+initial run-state seed into a current run control.
+
+| Family | Exact logical key | Owning row or variant |
+| --- | --- | --- |
+| root_drafts | workspaceId | One pending RootPreparationDraftV1 and lastCommit; consumed by exact admission |
+| root_preparations | workspaceId, runId | Original bootstrap/run/approval/receipt source and direct owning links |
+| run_states | workspaceId, runId | Immutable InitialInputV1 and initial assessing/null-runtime state |
+| parent_attachments | parentSessionId | Reserved or selected attached ParentAttachmentV1; attached generation resolves immutable runtime history |
+| preparation_artifacts | workspaceId, runId, referenceId | Exact cited Base64/raw-size/digest occurrence; equal bytes under distinct references stay separately charged |
+
+The four child source families use the accepted
+[source registry](../specs/2026-10-31-child-review-source-preparation-design.md#closed-format-4-source-registry-and-commitment).
+Each complete metadata key/value wrapper is at most 16 KiB, independently of
+nested source/command limits. Frozen assignmentTaskVersion and original approval/
+reservation/allocation/attachment identities remain distinct from live controls.
+
+| Family | Exact logical key | Owning row or variant |
+| --- | --- | --- |
+| child_plan_approvals | plan: PlanRef, approvalId | Original approval source, digest, receipt and lastCommit |
+| child_reservations | TaskKey | Immutable ChildReservationSourceV1 and lastCommit |
+| child_allocations | ReservationRef | Immutable ChildAllocationSourceV1 and lastCommit |
+| child_attachments | childSessionId | Immutable ChildAttachmentSourceV1 and lastCommit; exact unique reserved identity |
+
+The nine control families use the accepted
+[control catalog](../specs/2026-11-02-child-launch-control-design.md#closed-storage-catalog-and-finite-accounting).
+Its complete wrapper ceilings and immutable/mutable distinctions apply unchanged;
+all nine contribute to the separate run/workspace control-retained resource.
+
+| Family | Exact logical key | Owning row or variant |
+| --- | --- | --- |
+| child_control_inputs | PreparedInputRef without inputDigest | PreparedChildInputV1, original producer RuntimeRef and lastCommit; 64 KiB wrapper |
+| child_runtime_attachments | RuntimeKey | Immutable parent/child RuntimeAttachmentV1, digest and lastCommit; 4 KiB wrapper |
+| child_run_controls | workspaceId, runId | Mutable ChildRunControlV1 and lastCommit; 1 MiB wrapper |
+| child_plan_controls | PlanRef | Mutable ChildPlanControlV1 and lastCommit; 16 KiB wrapper |
+| child_task_controls | TaskKey | Mutable ChildTaskControlV1 and lastCommit; 16 KiB wrapper |
+| child_launch_controls | TaskKey | Mutable ChildLaunchControlV1 and lastCommit; 32 KiB wrapper |
+| child_session_states | TaskKey | Mutable ChildSessionStateV1 and lastCommit; 16 KiB wrapper |
+| child_coordination_receipts | TaskKey | Original request/requestDigest/CoordinationReceiptV1 and lastCommit; 16 KiB wrapper |
+| child_recovery_decisions | task: TaskKey, recoveryId | Immutable RecoveryDecisionV1, digest, receipt and lastCommit; 2 MiB wrapper |
+
+The final two families are owned by the accepted artifact producer and debit
+contracts. Their source/custody/authority joins remain mandatory even though no
+new evaluation-content BLOB is introduced.
+
+| Family | Exact logical key | Owning row or variant |
+| --- | --- | --- |
+| evaluation_artifact_streams | producerAssignment, declarationId | [Immutable stream mapping](../specs/2026-10-30-evaluation-artifact-producer-design.md#immutable-producer-stream-mapping): artifactId, target ResultRef and lastCommit; 8 KiB complete wrapper |
+| artifact_read_debits | DebitIdentityV1 | [Exact retained debit](../specs/2026-10-31-artifact-read-debit-proof-design.md#one-retained-row-and-exact-six-row-effect): body, digest and lastCommit; 16 KiB complete wrapper |
+
+### What the inventory does and does not close
+
+The selected object dependency registry names twelve source kinds: the six base
+candidate/result/evaluation/disposition/evidence-source/report kinds, five child
+plan/configuration/input/evidence/assignment-source kinds, and the evaluation
+artifact kind. Resolve their exact identities/bodies through the
+[closed object recipes](../specs/2026-11-03-child-consumer-membership-design.md#closed-object-dependency-registry)
+and owning source definitions. Root bootstrap/run bytes are retained by the root
+metadata source, not invented additional ObjectKey kinds. No generic proposal,
+learning object or arbitrary event is selected by this inventory.
+
+The six retained dependency purposes are the base review-input,
+evaluation-evidence and proposal-input, the two
+[artifact custody purposes](../specs/2026-10-30-evaluation-artifact-producer-design.md#custody-edges-and-registry-versioning),
+and [child-source-provenance](../specs/2026-10-31-child-review-source-preparation-design.md#consumer-membership-and-retention).
+The existing report/source mapping reuses evaluation-evidence. A registered
+purpose does not make an unsupported producer codec eligible; in particular,
+proposal-input supplies no generic proposal schema. Direct metadata/source-group
+membership is additional typed retention, not another dependency purpose/table.
+
+| Remaining prerequisite | Concrete evidence still needed before SQL execution |
+| --- | --- |
+| Complete catalog and command selection | Reconcile all supported row/object/purpose/resource variants into one fresh format-4 definition. Map each selected child source/control producer to an exact reviewed command and complete effects; a source record/action name alone is no ChangeManifest commandKind |
+| Fresh preparation and atomic publication | Exact original-to-final source/control/summary/lineage/receipt/claim/lookup/quota changes for every selected command, including all required fresh zero ledgers. Preserve the accepted debit's four listed changes plus header/new-proof controls; no extra logical index row |
+| Metadata-only physical membership | Reviewed forward/reverse physical layout under one header, complete incoming/outgoing/source-group membership and accepted cumulative discovery bounds. Prove artifact/evaluation metadata resolution does not fetch/hash/copy evaluation content before debit; a generic eager objects loader is insufficient |
+| One private worker and hard resources | Concrete retained connection/OS lease/queue/latch/cancellation/disposition design and enforcement mechanism for every accepted main-file/journal/scratch/work bound. Existing rusqlite availability and PRAGMA settings do not qualify these mechanisms |
+| Direct recovery and compatibility | Exact sparse directly required proof/receipt/checkpoint/expected/origin joins and complete old/new disposition. No recursive all-history retention, missing-row repair, old-store import or second format-4 subset |
+
+The family inventory is now explicit. The whole-catalog and execution gates remain
+open because logical family coverage is not source-owned command closure, a
+physical index, native authority or bounded recovery evidence. Existing selected
+codec/authority approvals remain valid; only genuinely new choices need a scoped
+owner decision. This review does not re-review or reopen those choices.
+
+### Next bounded task and pass condition
+
+Next: close the selected child source/control **durable command and preparation
+mapping** under #1183. Reuse the accepted
+[transition owners](../specs/2026-10-31-child-review-source-preparation-design.md#transition-ownership-and-preparation-effects--2026-11-02),
+[control transitions](../specs/2026-11-02-child-launch-control-design.md#transition-and-recovery-rules)
+and [initial root recipes](../specs/2026-10-28-root-preparation-effects-design.md#exact-command-effects).
+For each supported producer, name its command codec/tag, complete read/CAS set,
+original-to-final logical effects, all fresh preparation/accounting effects and
+its direct recovery witness. Explicitly list unsupported transitions rather than
+admitting them through a generic writer. New command/catalog choices require
+scoped acceptance before dependent complete-state fixtures or implementation.
+
+Pass condition: every selected publication has one exact effect recipe and an
+accounted command/manifest/row envelope, with any new choices accepted. A named
+unresolved owner decision keeps that publication Investigate and blocks its
+dependent fixtures/implementation; it is not a completed recipe. There is no
+unnamed generic SQL mutation path. Keep physical metadata-only
+lookups and worker/resource qualification separately visible. Do not create a
+store, DDL, migration, runtime route, native/model probe or another dormant codec
+as part of this mapping task.
+
+Review disposition: **Ready as an inventory of accepted contracts; Investigate
+for SQL execution.** No new architecture/protocol decision is made here. The
+existing SQL risk assessment remains incomplete because reversibility and native
+resource/disposition evidence remain unresolved. Verification for this docs-only
+review is source-to-inventory key/variant reconciliation, 33-family uniqueness,
+documentation checks/build and diff/worktree checks; it makes no runtime claim.
