@@ -275,3 +275,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Qualify selective Rust CodeQL scanning](2026-11-02-codeql-scan-routing.md) — Proposed staged comparison, activation and rollback checks for #1312.
 
 - [Hierarchy storage readiness and first source-codec unit](2026-11-02-hierarchy-storage-kernel.md) — Reconciled SQL prerequisites and proposed dormant Rust child-source byte validator; first-unit owner review required, SQL kernel remains Investigate.
+
+- [SQL lifecycle write reservations](2026-11-03-sql-lifecycle-reservations.md) — Dormant lifecycle metadata joins the shared application lane; production lifecycle and external effects remain gated.

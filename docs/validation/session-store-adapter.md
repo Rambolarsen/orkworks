@@ -743,3 +743,42 @@ lifecycle and metadata writers need shared application reservations before movin
 those writes outside guards; merely spawning this transaction would not qualify
 that scheduling. SQL selection, producer qualification, migration/recovery, native
 eligibility and measured performance gates remain open.
+
+
+## Dormant lifecycle application lane
+
+The source-only `SessionWrites::lifecycle` boundary admits typed transition and
+finalization metadata using the same worker/session lane as Peon and native
+writes. It captures the original live runtime/control, creation, harness,
+resume context, phase/status, attention token and metadata source/provenance.
+Workspace lease and exact
+metadata-reader identity must remain current. Capture, execution claim and
+committed publication are memory-only guarded operations; admission, lane waits
+and SQL run outside those guards.
+
+The existing mutation byte/slot budget and original two-second deadline cover
+lane and worker waits. Before execution, cancellation prevents a write. After
+claim, a detached definitive owner retains lane, lease and result through
+publication even if its HTTP/task waiter disappears. Stale publication returns
+committed-detached rather than claiming rollback. Repeated ending transitions
+remain true no-ops; finalization preserves the committed pending terminal status.
+
+Close-intent organization reservations remain separate: a Close/Archive/Delete
+request waits for the physical runtime finalizer while holding its own action
+reservation. The finalizer must not acquire that action reservation. The short
+metadata lane is shared by conflicting writes, not held around a wait for
+process exit or another operation that needs the lane.
+
+Real-worker regressions cover transition/finalization fields, unchanged legacy
+JSON, stale owners before execution, runtime replacement during execution,
+queued cancellation, definitive completion after caller cancellation, lane
+expiry, independent session lanes and rejected/unavailable writes. Guards and a
+single Tokio worker remain available during a paused SQL execution.
+
+This is a dormant metadata boundary, not production lifecycle qualification.
+JSON transition/finalization methods retain live-first process observation and
+failure cleanup. Replay-size/event ordering, resume/spawn admission,
+close-first archive/deletion and all other conflicting writers still need their
+existing owners joined before production routing. No method here requests exit,
+spawns/resumes a process, appends external events or makes replay size durable.
+SQL selection, migration, native eligibility and measured performance remain gated.

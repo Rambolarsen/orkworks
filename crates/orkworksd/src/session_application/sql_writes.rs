@@ -19,6 +19,7 @@ pub(crate) struct SessionWrites {
     store: Arc<SessionStore>,
     workspace: RecommendationDeliveryWorkspace,
     hook_observations: Arc<metadata::hook_observation::Store>,
+    reader: Arc<metadata::session_reader::SessionReader>,
     #[cfg(test)]
     before_callback: std::sync::Mutex<Option<oneshot::Sender<()>>>,
     #[cfg(test)]
@@ -43,7 +44,7 @@ impl SessionWrites {
         state: Arc<AppState>,
         store: Arc<SessionStore>,
     ) -> Result<Arc<Self>, StoreError> {
-        let (workspace, hook_observations) = {
+        let (workspace, hook_observations, reader) = {
             let guard = state.workspace.lock().unwrap();
             let ws = guard.as_ref().ok_or(StoreError::Conflict)?;
             if ws.lease.is_none() {
@@ -56,6 +57,7 @@ impl SessionWrites {
             (
                 RecommendationDeliveryWorkspace::capture(ws),
                 ws.metadata.hook_observation_owner(),
+                ws.metadata.session_reader(),
             )
         };
         Ok(Arc::new(Self {
@@ -63,6 +65,7 @@ impl SessionWrites {
             store,
             workspace,
             hook_observations,
+            reader,
             #[cfg(test)]
             before_callback: std::sync::Mutex::new(None),
             #[cfg(test)]
@@ -345,3 +348,5 @@ pub(crate) mod testing {
 pub(crate) use native::identity::{NativeIdentityReport, SqlIdentityOutcome};
 
 pub(crate) use native::label::{NativeLabelRefresh, SqlLabelOutcome};
+
+pub(crate) mod lifecycle;

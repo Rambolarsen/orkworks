@@ -17,7 +17,7 @@ type Fixture = (
     Arc<AtomicBool>,
     tokio::sync::mpsc::Receiver<crate::runtime::session_runtime::RuntimeCommand>,
 );
-async fn fixture() -> Fixture {
+pub(super) async fn fixture() -> Fixture {
     fixture_with_hold(false).await
 }
 async fn fixture_with_hold(user_hold: bool) -> Fixture {
