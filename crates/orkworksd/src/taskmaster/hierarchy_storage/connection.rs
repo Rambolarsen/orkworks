@@ -62,6 +62,206 @@ impl Connection {
         self.unavailable
     }
 
+    /// One-transaction journal of changed rows (each `value` carries no
+    /// `lastCommit`): builds the format-4 change manifest over the format-4
+    /// domains, writes the proof row and replaces `header.latest` in the same
+    /// transaction. Any failure rolls back before persistence. An exact
+    /// retry of an identical Replace body is a no-op: nothing changes.
+    pub(crate) fn journal_rows(
+        &self,
+        command_kind: &str,
+        changes: Vec<RowChange>,
+        conflict_reason: &'static str,
+    ) -> Result<RowJournalCommit> {
+        ensure(self.unavailable.is_none(), "unavailable")?;
+        let mut database = self
+            .database
+            .lock()
+            .map_err(|_| HierarchyStorageError("locked store"))?;
+        let transaction = database
+            .transaction()
+            .map_err(|_| HierarchyStorageError("physical database"))?;
+        let latest_value: Value = {
+            let bytes: Vec<u8> = transaction
+                .query_row(
+                    "SELECT latest FROM store_header WHERE singleton = 1",
+                    [],
+                    |row| row.get(0),
+                )
+                .map_err(|error| match error {
+                    rusqlite::Error::QueryReturnedNoRows => HierarchyStorageError("header"),
+                    _ => HierarchyStorageError("physical database"),
+                })?;
+            serde_json::from_slice(&bytes).map_err(|_| HierarchyStorageError("header"))?
+        };
+        let latest = super::rows::commit_ref(&latest_value)?;
+        // Monotonic commit sequence; exhaustion fences instead of wrapping,
+        // well before the INTEGER lookup index overflows.
+        let sequence = latest
+            .sequence
+            .checked_add(1)
+            .ok_or(HierarchyStorageError("exhausted"))?;
+        ensure(latest.storage_epoch == self.epoch, "epoch")?;
+        // Change entries, sorted uniquely by UTF-8 table name then canonical
+        // key bytes. The header and the new proof are control effects and are
+        // excluded from the list, validated through the chain equations.
+        let mut entries: Vec<(Vec<u8>, Vec<u8>, Value)> = Vec::new();
+        for RowChange {
+            table,
+            mode,
+            key,
+            value,
+        } in &changes
+        {
+            let key_bytes = canonical(key)?;
+            let row_digest_after = super::rows::row_digest(table, key, value)?;
+            use rusqlite::OptionalExtension;
+            let existing: Option<Vec<u8>> = transaction
+                .query_row(
+                    &format!("SELECT value FROM {table} WHERE key = ?1"),
+                    rusqlite::params![key_bytes],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|_| HierarchyStorageError("physical database"))?;
+            let before_digest = match (mode, &existing) {
+                (super::connection::RowMode::Insert, Some(_)) => {
+                    return Err(HierarchyStorageError(conflict_reason));
+                }
+                (super::connection::RowMode::Replace, Some(bytes)) => {
+                    let stored: Value = serde_json::from_slice(bytes)
+                        .map_err(|_| HierarchyStorageError("physical database"))?;
+                    let body = super::rows::without_field(&stored, "lastCommit");
+                    // An exact retry (identical body) changes nothing: the
+                    // committed chain and row links stay as they are.
+                    if canonical(&body)? == canonical(value)? {
+                        transaction.commit().ok();
+                        return Ok(RowJournalCommit {
+                            commit: latest.clone(),
+                        });
+                    }
+                    serde_json::from_value(json!(super::rows::row_digest(table, key, &body)?))
+                        .map_err(|_| HierarchyStorageError("row digest"))?
+                }
+                _ => Value::Null,
+            };
+            entries.push((
+                table.as_bytes().to_vec(),
+                key_bytes,
+                serde_json::json!({
+                    "afterDigest": row_digest_after,
+                    "beforeDigest": before_digest,
+                    "key": key,
+                    "table": table,
+                }),
+            ));
+        }
+        entries.sort_by_key(|(table, key, _)| (table.clone(), key.clone()));
+        let changes_list: Vec<Value> = entries.into_iter().map(|(_, _, entry)| entry).collect();
+        let manifest = serde_json::json!({
+            "changes": changes_list,
+            "commandKind": command_kind,
+            "commitSequence": sequence.to_string(),
+            "predecessor": latest_value,
+            "schemaVersion": super::STORE_SCHEMA_VERSION,
+            "storageEpoch": self.epoch,
+            "workspaceId": self.workspace_id,
+        });
+        let manifest_bytes = canonical(&manifest)?;
+        let change_digest = super::domain_digest(super::CHANGE_DOMAIN, &manifest_bytes);
+        let commit = super::rows::CommitRef {
+            storage_epoch: self.epoch.clone(),
+            sequence,
+            change_digest: change_digest.clone(),
+        };
+        let commit_bytes = super::rows::commit_ref_bytes(&commit)?;
+        for RowChange {
+            table,
+            mode,
+            key,
+            value,
+        } in &changes
+        {
+            let key_bytes = canonical(key)?;
+            let mut value_with_commit = value.clone();
+            value_with_commit["lastCommit"] = serde_json::from_slice(&commit_bytes)
+                .map_err(|_| HierarchyStorageError("header"))?;
+            let value_bytes = canonical(&value_with_commit)?;
+            let statement = match mode {
+                super::connection::RowMode::Insert => format!(
+                    "INSERT INTO {table} (key, value, last_commit, sequence) VALUES (?1, ?2, ?3, ?4)"
+                ),
+                super::connection::RowMode::Replace => format!(
+                    "INSERT OR REPLACE INTO {table} (key, value, last_commit, sequence) VALUES (?1, ?2, ?3, ?4)"
+                ),
+            };
+            transaction
+                .execute(
+                    &statement,
+                    rusqlite::params![key_bytes, value_bytes, commit_bytes, sequence],
+                )
+                .map_err(|error| match error {
+                    rusqlite::Error::SqliteFailure(failure, _)
+                        if failure.code == rusqlite::ErrorCode::ConstraintViolation =>
+                    {
+                        HierarchyStorageError(conflict_reason)
+                    }
+                    _ => HierarchyStorageError("physical database"),
+                })?;
+        }
+        transaction
+            .execute(
+                "INSERT INTO commit_proof (sequence, body, change_digest) VALUES (?1, ?2, ?3)",
+                rusqlite::params![sequence, manifest_bytes, change_digest],
+            )
+            .map_err(|_| HierarchyStorageError("physical database"))?;
+        transaction
+            .execute(
+                "UPDATE store_header SET latest = ?1 WHERE singleton = 1",
+                rusqlite::params![commit_bytes],
+            )
+            .map_err(|_| HierarchyStorageError("physical database"))?;
+        transaction
+            .commit()
+            .map_err(|_| HierarchyStorageError("physical database"))?;
+        Ok(RowJournalCommit { commit })
+    }
+
+    /// Canonical stored row for a key; refused when it is absent.
+    pub(crate) fn read_row(&self, table: &str, key: &Value, reason: &'static str) -> Result<Value> {
+        ensure(self.unavailable.is_none(), "unavailable")?;
+        let key_bytes = canonical(key)?;
+        let database = self
+            .database
+            .lock()
+            .map_err(|_| HierarchyStorageError("locked store"))?;
+        let bytes: Vec<u8> = database
+            .query_row(
+                &format!("SELECT value FROM {table} WHERE key = ?1"),
+                rusqlite::params![key_bytes],
+                |row| row.get(0),
+            )
+            .map_err(|_| HierarchyStorageError(reason))?;
+        serde_json::from_slice(&bytes).map_err(|_| HierarchyStorageError(reason))
+    }
+
+    /// Read the current `header.latest` CommitRef of an available store.
+    pub(crate) fn read_latest(&self) -> Result<Value> {
+        ensure(self.unavailable.is_none(), "unavailable")?;
+        let database = self
+            .database
+            .lock()
+            .map_err(|_| HierarchyStorageError("locked store"))?;
+        let bytes: Vec<u8> = database
+            .query_row(
+                "SELECT latest FROM store_header WHERE singleton = 1",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|_| HierarchyStorageError("header"))?;
+        serde_json::from_slice(&bytes).map_err(|_| HierarchyStorageError("header"))
+    }
+
     pub(crate) fn workspace_id(&self) -> &str {
         &self.workspace_id
     }
@@ -216,4 +416,28 @@ fn init_manifest(workspace_id: &str, epoch: &str) -> Value {
         "storageEpoch": epoch,
         "workspaceId": workspace_id,
     })
+}
+
+/// Row write mode: immutable rows insert-only; quota rows replace with
+/// `beforeDigest` tracking (replacements must differ from the stored body).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RowMode {
+    Insert,
+    Replace,
+}
+
+/// One changed logical row for the journal: the canonical key and the
+/// value WITHOUT its `lastCommit` link (excluded from row commitments).
+#[derive(Clone, Debug)]
+pub(crate) struct RowChange {
+    pub table: &'static str,
+    pub mode: RowMode,
+    pub key: Value,
+    pub value: Value,
+}
+
+/// The CommitRef backing the journaled rows.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RowJournalCommit {
+    pub commit: super::rows::CommitRef,
 }

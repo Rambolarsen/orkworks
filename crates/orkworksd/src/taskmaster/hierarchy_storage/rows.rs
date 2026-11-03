@@ -5,7 +5,7 @@
 //! Noncanonical, unknown, oversized or digest-mismatched state is rejected
 //! before persistence; nothing is normalized on read.
 
-use super::{canonical, ensure, sha256_hex, HierarchyStorageError, Result};
+use super::{canonical, ensure, sha256_hex, HierarchyStorageError, Result, ROW_DOMAIN};
 use serde_json::{json, Value};
 
 /// Accepted child-source object kinds; anything else is outside the closed
@@ -224,6 +224,11 @@ pub(crate) fn commit_ref_value(commit: &CommitRef) -> Value {
         "commitSequence": commit.sequence.to_string(),
         "storageEpoch": commit.storage_epoch,
     })
+}
+
+/// Canonical CommitRef serialization as bytes.
+pub(crate) fn commit_ref_bytes(commit: &CommitRef) -> Result<Vec<u8>> {
+    canonical(&commit_ref_value(commit))
 }
 
 /// `runId` is `admissionEpoch` + `-` + positive canonical run sequence.
@@ -1697,6 +1702,15 @@ pub(crate) const EVIDENCE_DOMAIN: &str = "orkworks.child-source-evidence.v1";
 pub(crate) const ASSIGNMENT_SOURCE_DOMAIN: &str = "orkworks.child-assignment-source.v1";
 pub(crate) const REVIEW_INPUT_DOMAIN: &str = "orkworks.child-review-input.v1";
 pub(crate) const REQUEST_DOMAIN: &str = "orkworks.child-source-plan-request.v1";
+
+/// Row commitment digest: the format-4 row domain over the canonical
+/// `{body, key, table}` envelope; `value` carries no `lastCommit` link.
+pub(crate) fn row_digest(table: &str, key: &Value, value: &Value) -> Result<String> {
+    let envelope = canonical(&json!({"body": value, "key": key, "table": table}))?;
+    Ok(sha256_hex(
+        &[ROW_DOMAIN.as_bytes(), b"\n", envelope.as_slice()].concat(),
+    ))
+}
 
 /// Admission of one child metadata source record.
 pub(crate) fn admit_meta_record(kind: MetaKind, bytes: &[u8]) -> Result<AdmittedMeta> {

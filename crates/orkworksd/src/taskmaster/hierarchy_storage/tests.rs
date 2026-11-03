@@ -304,6 +304,153 @@ fn noncanonical_stored_bytes_reject() {
     assert_eq!(rejection, Some("canonical wire"));
 }
 
+// Quota (scope 6): child-source-retained-bytes counters.
+
+use super::quota;
+
+/// The run-owner quota key from the accepted owner codecs.
+fn run_owner() -> Value {
+    json!({
+        "kind": "run",
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+    })
+}
+
+fn workspace_owner() -> Value {
+    json!({"kind": "workspace", "workspaceId": "workspace-1"})
+}
+
+#[test]
+fn quota_delta_applies_checked_counters() {
+    let root = tempdir().unwrap();
+    let path = root.path().join("delta.sqlite");
+    let store = Connection::open(&path, "workspace-1").unwrap();
+    quota::establish(&store, &run_owner()).unwrap();
+    let used = quota::apply_delta(&store, &run_owner(), 4096).unwrap();
+    assert_eq!(used["used"], "4096");
+    // No-refund semantics: a delta below current used is refused.
+    assert_eq!(
+        quota::apply_delta(&store, &run_owner(), -4097)
+            .err()
+            .map(|e| e.0),
+        Some("quota delta"),
+        "negative deltas cannot underflow the counter"
+    );
+    let released = quota::apply_delta(&store, &run_owner(), -4096).unwrap();
+    assert_eq!(released["used"], "0", "exact release reverts to zero");
+}
+
+#[test]
+fn quota_run_cap_rejects_with_complete_old_state() {
+    let root = tempdir().unwrap();
+    let path = root.path().join("runcap.sqlite");
+    let store = Connection::open(&path, "workspace-1").unwrap();
+    quota::establish(&store, &run_owner()).unwrap();
+    let before = json!({"reserved": "0", "used": "0"});
+    // Two-step: one increment to the cap boundary is accepted...
+    quota::apply_delta(&store, &run_owner(), 8 * 1024 * 1024).unwrap();
+    // ...a second increment rejects at the accepted 8 MiB run cap.
+    let rejection = quota::apply_delta(&store, &run_owner(), 1)
+        .err()
+        .map(|e| e.0);
+    assert_eq!(
+        rejection,
+        Some("quota capacity"),
+        "8 MiB run cap is inclusive"
+    );
+    let after = quota::read_used(&store, &run_owner()).unwrap();
+    assert_eq!(
+        after["used"],
+        json!((8 * 1024 * 1024).to_string()),
+        "old state complete"
+    );
+    let _ = before;
+}
+
+#[test]
+fn quota_workspace_cap_rejects_with_complete_old_state() {
+    let root = tempdir().unwrap();
+    let path = root.path().join("wscap.sqlite");
+    let store = Connection::open(&path, "workspace-1").unwrap();
+    quota::establish(&store, &workspace_owner()).unwrap();
+    quota::apply_delta(&store, &workspace_owner(), 64 * 1024 * 1024).unwrap();
+    assert_eq!(
+        quota::apply_delta(&store, &workspace_owner(), 1)
+            .err()
+            .map(|e| e.0),
+        Some("quota capacity"),
+        "64 MiB workspace cap is inclusive"
+    );
+}
+
+#[test]
+fn missing_quota_row_fences_the_delta() {
+    let root = tempdir().unwrap();
+    let path = root.path().join("fence.sqlite");
+    let store = Connection::open(&path, "workspace-1").unwrap();
+    assert_eq!(
+        quota::apply_delta(&store, &run_owner(), 1)
+            .err()
+            .map(|e| e.0),
+        Some("quota row"),
+        "missing rows fence writes; nothing is autofixed"
+    );
+    // The refused write left no row behind.
+    assert_eq!(
+        quota::read_used(&store, &run_owner()).err().map(|e| e.0),
+        Some("quota row")
+    );
+}
+
+#[test]
+fn assignment_scope_rows_are_not_part_of_the_retained_pool() {
+    let root = tempdir().unwrap();
+    let path = root.path().join("scope.sqlite");
+    let store = Connection::open(&path, "workspace-1").unwrap();
+    let assignment_owner = json!({"assignmentIdentity": {"childSessionId": "worker-session", "configurationDigest": "08d017be21a687f290d084ac99eaca328ea8478fb477eedf82fde4170a04b00f", "configurationId": "worker-configuration", "kind": "child", "parentSessionId": "parent-1", "planId": "worker-plan", "planRevision": 1, "reservationId": "worker-reservation", "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1", "taskId": "worker-task", "taskVersion": 2, "workspaceId": "workspace-1"}, "kind": "assignment"});
+    assert_eq!(
+        quota::establish(&store, &assignment_owner)
+            .err()
+            .map(|e| e.0),
+        Some("resource_scope"),
+        "child-source-retained-bytes defines no assignment pool"
+    );
+}
+
+#[test]
+fn unknown_resource_rejects() {
+    let root = tempdir().unwrap();
+    let path = root.path().join("unknown_resource.sqlite");
+    let store = Connection::open(&path, "workspace-1").unwrap();
+    assert_eq!(
+        quota::establish_resource(&store, &run_owner(), "reporting-receipt-bytes")
+            .err()
+            .map(|e| e.0),
+        Some("resource"),
+        "this kernel admits child-source-retained-bytes only"
+    );
+}
+
+#[test]
+fn fresh_quota_row_establishes_zero() {
+    let root = tempdir().unwrap();
+    let path = root.path().join("quota.sqlite");
+    let store = Connection::open(&path, "workspace-1").unwrap();
+    let first = quota::establish(&store, &run_owner()).unwrap();
+    assert_eq!(
+        first["used"], "0",
+        "fresh establishment initializes used to canonical zero"
+    );
+    assert_eq!(first["reserved"], "0");
+    // A second establishment is refused, not idempotent-overwritten.
+    assert_eq!(
+        quota::establish(&store, &run_owner()).err().map(|e| e.0),
+        Some("quota row"),
+        "establishment never rewrites an existing row"
+    );
+}
+
 /// The store/journal admission context from the packet's golden identifiers.
 fn source_context() -> super::rows::SourceContext<'static> {
     super::rows::SourceContext {
