@@ -338,8 +338,15 @@ pub(crate) fn dispatch_terminal_message(msg: &serde_json::Value) -> TerminalActi
             TerminalAction::Input(data)
         }
         Some("resize") => {
-            let rows = msg["rows"].as_u64().unwrap_or(24) as u16;
-            let cols = msg["cols"].as_u64().unwrap_or(80) as u16;
+            let (Ok(rows), Ok(cols)) = (
+                u16::try_from(msg["rows"].as_u64().unwrap_or(24)),
+                u16::try_from(msg["cols"].as_u64().unwrap_or(80)),
+            ) else {
+                return TerminalAction::Noop;
+            };
+            if rows == 0 || cols == 0 {
+                return TerminalAction::Noop;
+            }
             TerminalAction::Resize { rows, cols }
         }
         Some("kill") => TerminalAction::Kill,
@@ -1470,12 +1477,17 @@ pub(crate) async fn finalize_session_ending(
         crate::taskmaster::evaluator::schedule_evaluation(state.clone());
     }
 
-    crate::session_application::SessionApplication::new(state.clone()).complete_session_ending(
-        &id,
-        generation,
-        final_snapshot,
-        &fallback_terminal_status,
-    );
+    if let Err(error) = crate::session_application::SessionApplication::new(state.clone())
+        .finish_session_ending(
+            id.clone(),
+            generation,
+            final_snapshot,
+            fallback_terminal_status,
+        )
+        .await
+    {
+        tracing::error!(session_id = %id, %error, "session ending persistence completion is unknown");
+    }
 }
 
 pub(crate) fn schedule_session_ending_finalization(
@@ -4195,6 +4207,27 @@ mod tests {
                 cols: 120
             }
         );
+    }
+
+    #[test]
+    fn terminal_message_ignores_zero_or_unrenderable_resize_dimensions() {
+        for (rows, cols) in [(0, 80), (24, 0), (65536, 80), (24, 65536)] {
+            assert!(matches!(
+                dispatch_terminal_message(
+                    &serde_json::json!({"type":"resize","rows":rows,"cols":cols})
+                ),
+                TerminalAction::Noop
+            ));
+        }
+        assert!(matches!(
+            dispatch_terminal_message(
+                &serde_json::json!({"type":"resize","rows":65535,"cols":65535})
+            ),
+            TerminalAction::Resize {
+                rows: 65535,
+                cols: 65535
+            }
+        ));
     }
 
     #[test]

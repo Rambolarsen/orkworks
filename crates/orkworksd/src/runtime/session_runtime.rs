@@ -1077,6 +1077,9 @@ pub(crate) async fn apply_runtime_size_without_waiting_for_persistence(
     rows: u16,
     cols: u16,
 ) -> Result<(), ()> {
+    if rows == 0 || cols == 0 {
+        return Err(());
+    }
     let tx = {
         let sessions = state.sessions.lock().unwrap();
         let handle = sessions.get(id).ok_or(())?;
@@ -4072,7 +4075,7 @@ mod tests {
             .unwrap(),
             lease: None,
         });
-        let meta = crate::test_support::test_session_metadata(
+        let mut meta = crate::test_support::test_session_metadata(
             &id,
             "Probe deletion",
             dir.path().display().to_string(),
@@ -4080,6 +4083,7 @@ mod tests {
             "now",
             "now",
         );
+        meta.harness = "codex".into();
         state
             .workspace
             .lock()

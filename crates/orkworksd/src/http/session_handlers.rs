@@ -4389,6 +4389,7 @@ mod tests {
         let state = test_app_state_with_workspace(dir.path());
         let session_id = "resume-ending-finalization";
         let mut ending_handle = attention_test_handle(session_id, dir.path());
+        ending_handle.info.created_at = "before".into();
         ending_handle.info.lifecycle_phase = "ending".into();
         ending_handle.info.lifecycle = "stopping".into();
         state

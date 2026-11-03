@@ -1,5 +1,10 @@
+pub(crate) mod ending_completion;
 pub(crate) mod hook_observation;
 pub(crate) mod identity_completion;
+
+#[cfg(test)]
+#[path = "session_application/ending_history_tests.rs"]
+mod ending_history_tests;
 
 #[path = "branch_documents_application.rs"]
 mod branch_documents_application;
@@ -3626,106 +3631,6 @@ impl SessionApplication {
             },
         )
         .unwrap_or(false)
-    }
-
-    /// Completes an ending session after the runtime has collected its final
-    /// observed-status snapshot. The sessions/workspace/sessions lock order is
-    /// deliberate: the initial generation guard prevents stale runtimes from
-    /// finalizing a replacement, while the final guard prevents a replacement
-    /// from being overwritten after persisted finalization.
-    pub(crate) fn complete_session_ending(
-        &self,
-        id: &str,
-        generation: crate::runtime::session_runtime::RuntimeGeneration,
-        final_snapshot: metadata::ObservedStatusSnapshotMetadata,
-        fallback_terminal_status: &str,
-    ) -> bool {
-        {
-            let sessions = self.state.sessions.lock().unwrap();
-            if !sessions.get(id).is_some_and(|handle| {
-                handle.runtime.run_generation() == generation
-                    && handle.info.lifecycle_phase == "ending"
-            }) {
-                return false;
-            }
-        }
-
-        // Make the final replay grid durable before writing the ended session
-        // record and event. This work stays on the finalizer task, not the PTY
-        // driver, and serializes with deferred live-resize writes.
-        self.persist_terminal_size(id, true);
-
-        let now = iso_now();
-        let mut final_status: Option<String> = None;
-
-        {
-            let ws_guard = self.state.workspace.lock().unwrap();
-            if let Some(ref ws) = *ws_guard {
-                let result =
-                    ws.metadata
-                        .mutate_session_optional(id, WriteScope::ATTENTION, |meta| {
-                            Ok(metadata::lifecycle_mutations::LifecycleMutation::Finalize {
-                                snapshot: final_snapshot.clone(),
-                                fallback_status: fallback_terminal_status.into(),
-                                timestamp: now.clone(),
-                            }
-                            .apply(meta)
-                            .is_some())
-                        });
-                match result {
-                    Ok(Some(record)) => {
-                        let pending = record.metadata.status;
-                        ws.metadata.append_event(
-                            id,
-                            &metadata::Event {
-                                event_type: "session.status".into(),
-                                timestamp: now.clone(),
-                                status: pending.clone(),
-                                observed_status: final_snapshot.value.clone(),
-                                confidence: final_snapshot.confidence,
-                                summary: None,
-                                source: None,
-                                recommendation_id: None,
-                            },
-                        );
-                        final_status = Some(pending);
-                    }
-                    Ok(None) => return false,
-                    Err(SessionTransactionError::Io(error))
-                        if error.kind() == std::io::ErrorKind::NotFound =>
-                    {
-                        // A physical runtime may have no persisted record (for
-                        // example diagnostic fixtures). Absence cannot keep a
-                        // known-ended process alive in the runtime mirror.
-                        final_status = Some(fallback_terminal_status.into());
-                    }
-                    Err(_) => return false,
-                }
-            }
-        }
-
-        let pending = final_status.unwrap_or_else(|| fallback_terminal_status.into());
-        let mut sessions = self.state.sessions.lock().unwrap();
-        if let Some(handle) = sessions.get_mut(id) {
-            if handle.runtime.run_generation() != generation
-                || handle.info.lifecycle_phase == "ended"
-            {
-                return false;
-            }
-            handle.runtime.attention_owner.accepted_write();
-            handle.info.status = pending.clone();
-            handle.info.lifecycle_phase = "ended".into();
-            handle.info.lifecycle = "dead".into();
-            handle.info.attention = None;
-            handle.info.connectivity = Some(connectivity_for_status(&pending).to_string());
-            handle.info.terminal_outcome = terminal_outcome_for_status(&pending);
-            handle.info.observed_status = None;
-            handle.info.final_observed_status = final_snapshot.value.clone();
-            handle.info.last_activity_at = Some(now);
-            handle.resume_in_progress = false;
-            return true;
-        }
-        false
     }
 
     #[cfg(test)]
@@ -8010,7 +7915,7 @@ mod tests {
         );
     }
 
-    fn attention_test_handle(id: &str, cwd: &std::path::Path) -> SessionHandle {
+    pub(super) fn attention_test_handle(id: &str, cwd: &std::path::Path) -> SessionHandle {
         let (kill_tx, _) = tokio::sync::watch::channel(false);
         SessionHandle {
             info: crate::test_support::test_session_info(
@@ -9408,6 +9313,7 @@ mod tests {
             .write_session(&metadata);
 
         let mut handle = attention_test_handle(id, root.path());
+        handle.info.created_at = metadata.created_at.clone();
         handle.info.lifecycle_phase = "ending".into();
         handle.resume_in_progress = true;
         let generation = handle.runtime.run_generation();
@@ -9486,6 +9392,7 @@ mod tests {
             store.sessions_dir()
         };
         let mut handle = attention_test_handle(id, root.path());
+        handle.info.created_at = meta.created_at.clone();
         handle.info.lifecycle = "stopping".into();
         handle.info.lifecycle_phase = "ending".into();
         let generation = handle.runtime.run_generation();

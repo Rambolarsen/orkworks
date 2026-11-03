@@ -782,3 +782,48 @@ close-first archive/deletion and all other conflicting writers still need their
 existing owners joined before production routing. No method here requests exit,
 spawns/resumes a process, appends external events or makes replay size durable.
 SQL selection, migration, native eligibility and measured performance remain gated.
+
+
+## Legacy ending history ordering
+
+The existing JSON finalizer now confirms the selected runtime's final replay
+grid before committing an existing ending record. It uses the existing terminal
+size serialization gate and metadata transaction/event-cache owners. After the
+record commits, its status event is appended before the live ended mirror.
+Original workspace/lease/reader, runtime/control/creation and harness identities
+are captured before blocking-job dispatch and replay-gate admission, then
+rechecked at the effect
+cutoff and live publication. Record creation/harness are checked before the grid
+write and again inside the metadata transaction.
+
+A private completion reports each stage as not attempted, absent, written or
+failed, separately from live publication. Replay failure for an existing record
+and metadata failure preserve ending state and leave no terminal status event;
+repair followed by a freshly validated attempt can complete them. Event append
+failure cannot undo committed metadata: the record/live completion remains known
+and the failed event stage is reported explicitly. An uncertain append is not
+retried blindly. Absent metadata or workspace retains the existing known physical
+runtime fallback without claiming durable metadata/events; a missing record can
+therefore complete its runtime even when replay is unavailable.
+
+The terminal resize decoder ignores zero and out-of-range dimensions; runtime
+admission independently rejects zero before enqueueing a native resize. This
+prevents startup capture from replacing a valid grid with an unrenderable one.
+Valid positive `u16` grids and omitted-field defaults remain compatible.
+
+The runtime invokes this owner as a retained blocking job. Its completion and
+failure logging survive cancellation of the async waiter; a JoinError reports
+unknown completion, never inferred rollback. Real-file tests pause before
+history effects, between grid/record/event stages and before live publication.
+They exercise failed grid/metadata writes and repair, committed event failure,
+corrupt/missing records, replacement workspaces/readers/leases and runtime/
+control/creation/harness owners. A real runtime finalizer test keeps a single
+Tokio worker progressing while persistence is paused; a cancelled waiter still
+leaves the definitive job to finish.
+
+This qualifies ordering and honest partial results on the legacy owner. JSON
+I/O still occurs under its existing shared guards; it does not qualify terminal
+input latency during those stalls. The dormant SQL lifecycle boundary has not
+acquired replay/event responsibilities, and complete conflicting-writer,
+resume/spawn, close-first, producer and migration gates remain open. No new
+format, cross-file atomicity, retention policy or installed-harness claim is made.
