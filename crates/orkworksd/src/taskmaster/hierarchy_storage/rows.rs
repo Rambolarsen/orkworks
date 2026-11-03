@@ -79,7 +79,7 @@ pub(super) fn decode(bytes: &[u8], limit: usize) -> Result<Value> {
     Ok(x)
 }
 
-fn exact(x: &Value, fields: &str) -> Result<()> {
+pub(super) fn exact(x: &Value, fields: &str) -> Result<()> {
     let map = x
         .as_object()
         .ok_or(HierarchyStorageError("closed fields"))?;
@@ -90,7 +90,7 @@ fn exact(x: &Value, fields: &str) -> Result<()> {
     )
 }
 
-fn as_object(x: &Value) -> Result<&serde_json::Map<String, Value>> {
+pub(super) fn as_object(x: &Value) -> Result<&serde_json::Map<String, Value>> {
     x.as_object().ok_or(HierarchyStorageError("closed fields"))
 }
 fn s(x: &Value) -> Result<&str> {
@@ -1728,6 +1728,69 @@ pub(crate) fn row_digest(table: &str, key: &Value, value: &Value) -> Result<Stri
     Ok(sha256_hex(
         &[ROW_DOMAIN.as_bytes(), b"\n", envelope.as_slice()].concat(),
     ))
+}
+
+/// Owner derivation: the accepted `child-source-retained-bytes` owner keys
+/// (`run` and `workspace` scopes) for one admitted child row, taken from the
+/// row's own stored bytes (scalar-key tables read the run identity from the
+/// body). Used by journal charging and by the reload recompute.
+pub(crate) fn owner_keys(table: &str, key: &Value, value: &Value) -> Result<Vec<Value>> {
+    // Child metadata rows keep their record under the value's `body`; object
+    // rows derive from their canonical identity key.
+    let record = if table.starts_with("child_") {
+        &value["body"]
+    } else {
+        value
+    };
+    let run_holder = match table {
+        "child_attachments" => {
+            let identity = &record["assignmentIdentity"];
+            json!({
+                "kind": "run",
+                "runId": identity["runId"],
+                "workspaceId": identity["workspaceId"],
+            })
+        }
+        "child_allocations" => {
+            let task = &key["reservation"]["task"];
+            json!({
+                "kind": "run",
+                "runId": task["runId"],
+                "workspaceId": task["workspaceId"],
+            })
+        }
+        "child_plan_approvals" => json!({
+            "kind": "run",
+            "runId": key["plan"]["runId"],
+            "workspaceId": key["plan"]["workspaceId"],
+        }),
+        "child_reservations" => json!({
+            "kind": "run",
+            "runId": key["runId"],
+            "workspaceId": key["workspaceId"],
+        }),
+        "objects" => {
+            let identity = &key["identity"];
+            match identity.get("task") {
+                Some(task) => json!({
+                    "kind": "run",
+                    "runId": task["runId"],
+                    "workspaceId": task["workspaceId"],
+                }),
+                None => json!({
+                    "kind": "run",
+                    "runId": identity["runId"],
+                    "workspaceId": identity["workspaceId"],
+                }),
+            }
+        }
+        _ => return Ok(Vec::new()),
+    };
+    let workspace_holder = json!({
+        "kind": "workspace",
+        "workspaceId": run_holder["workspaceId"],
+    });
+    Ok(vec![run_holder, workspace_holder])
 }
 
 /// Admission of one child metadata source record.

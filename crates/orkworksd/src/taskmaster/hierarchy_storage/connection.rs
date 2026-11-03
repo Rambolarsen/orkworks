@@ -8,6 +8,7 @@ use super::{
     canonical, domain_digest, ensure, schema, HierarchyStorageError, Result, CHANGE_DOMAIN,
     INITIALIZE_COMMAND, STORE_SCHEMA_VERSION,
 };
+use rusqlite::OptionalExtension;
 use serde_json::{json, Value};
 use std::path::Path;
 use std::sync::Mutex;
@@ -245,22 +246,28 @@ impl Connection {
         Ok(RowJournalCommit { commit })
     }
 
-    /// Canonical stored row for a key; refused when it is absent.
-    pub(crate) fn read_row(&self, table: &str, key: &Value, reason: &'static str) -> Result<Value> {
+    /// Canonical stored row for a key; `None` when it is absent.
+    pub(crate) fn find_row(&self, table: &str, key: &Value) -> Result<Option<Value>> {
         ensure(self.unavailable.is_none(), "unavailable")?;
         let key_bytes = canonical(key)?;
         let database = self
             .database
             .lock()
             .map_err(|_| HierarchyStorageError("locked store"))?;
-        let bytes: Vec<u8> = database
+        let bytes: Option<Vec<u8>> = database
             .query_row(
                 &format!("SELECT value FROM {table} WHERE key = ?1"),
                 rusqlite::params![key_bytes],
                 |row| row.get(0),
             )
-            .map_err(|_| HierarchyStorageError(reason))?;
-        serde_json::from_slice(&bytes).map_err(|_| HierarchyStorageError(reason))
+            .optional()
+            .map_err(|_| HierarchyStorageError("physical database"))?;
+        match bytes {
+            Some(bytes) => serde_json::from_slice(&bytes)
+                .map(Some)
+                .map_err(|_| HierarchyStorageError("physical database")),
+            None => Ok(None),
+        }
     }
 
     /// Test access to the retained connection (cfg(test) only).
@@ -362,7 +369,12 @@ impl Connection {
             apply_session_settings(&database).map_err(|e| e.0)?;
             verify_physical(&database).map_err(|e| e.0)?;
             verify_catalog(&database).map_err(|e| e.0)?;
-            self.read_header(&database).map_err(|e| e.0)
+            let epoch = self.read_header(&database).map_err(|e| e.0)?;
+            // Sweep 2: full chain/row/quota revalidation. Corruption,
+            // missing proofs or ambiguous rows fence the store; nothing
+            // is repaired or rewritten.
+            super::reload::verify_chain(&database, &self.workspace_id, &epoch).map_err(|e| e.0)?;
+            Ok(epoch)
         })();
         // Nothing is repaired: the first unavailable step fences the store.
         match verified {

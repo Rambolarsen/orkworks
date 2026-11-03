@@ -42,7 +42,7 @@ pub(crate) fn establish_resource(
         vec![super::connection::RowChange {
             table: "quota_usage",
             mode: super::connection::RowMode::InsertStrict,
-            key,
+            key: key.clone(),
             value,
         }],
         "quota row",
@@ -97,5 +97,8 @@ pub(crate) fn apply_delta(store: &Connection, owner: &Value, delta: i128) -> Res
 /// Read the current quota row value (used/reserved), refusing missing rows.
 pub(crate) fn read_used(store: &Connection, owner: &Value) -> Result<Value> {
     let key = key_for(owner)?;
-    store.read_row("quota_usage", &key, "quota row")
+    ensure(store.find_row("quota_usage", &key)?.is_some(), "quota row")?;
+    store
+        .find_row("quota_usage", &key)?
+        .ok_or(HierarchyStorageError("quota row"))
 }

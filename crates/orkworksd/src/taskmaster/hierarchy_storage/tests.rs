@@ -180,7 +180,193 @@ fn oversized_metadata_intake_is_rejected() {
     assert_eq!(rejection, Some("bytes"), "over-cap intake refuses first");
 }
 
-// Rejection classes (scope 3): every class refuses before persistence.
+// Reload/recovery (scope 5): reopen revalidates; corruption fences.
+
+fn store_bytes(path: &std::path::Path) -> Vec<u8> {
+    std::fs::read(path).expect("store bytes")
+}
+
+#[test]
+fn reopen_after_full_chain_verifies_and_continues() {
+    let root = tempdir().unwrap();
+    let path = root.path().join("chain.sqlite");
+    let store = Connection::open(&path, "workspace-1").unwrap();
+    establish_pool(&store);
+    publication::journal_object(
+        &store,
+        ObjectKind::Plan,
+        &source_context(),
+        &golden("worker-plan"),
+    )
+    .unwrap();
+    publication::journal_object(
+        &store,
+        ObjectKind::Configuration,
+        &source_context(),
+        &golden("worker-configuration"),
+    )
+    .unwrap();
+    let consumer_ref = {
+        let admitted = super::rows::admit_source_object(
+            ObjectKind::Configuration,
+            &source_context(),
+            &golden("worker-configuration"),
+        )
+        .unwrap();
+        json!({"digest": admitted.digest, "key": admitted.key})
+    };
+    let target_ref = {
+        // The evidence target must itself be retained before the edge can
+        // be journaled (broken joins refuse).
+        let admitted = super::rows::admit_source_object(
+            ObjectKind::Evidence,
+            &source_context(),
+            &golden("worker-evidence-0"),
+        )
+        .unwrap();
+        publication::journal_object(
+            &store,
+            ObjectKind::Evidence,
+            &source_context(),
+            &golden("worker-evidence-0"),
+        )
+        .unwrap();
+        json!({"digest": admitted.digest, "key": admitted.key})
+    };
+    publication::journal_dependency(&store, &consumer_ref, &target_ref).unwrap();
+    drop(store);
+    let reopened = Connection::open(&path, "workspace-1").unwrap();
+    assert_eq!(reopened.unavailable_reason(), None);
+    assert_eq!(reopened.workspace_id(), "workspace-1");
+    assert!(!reopened.epoch().is_empty());
+}
+
+#[test]
+fn deleted_commit_proof_opens_unavailable_and_leaves_bytes() {
+    let root = tempdir().unwrap();
+    let path = root.path().join("missing_proof.sqlite");
+    let store = Connection::open(&path, "workspace-1").unwrap();
+    establish_pool(&store);
+    publication::journal_object(
+        &store,
+        ObjectKind::Plan,
+        &source_context(),
+        &golden("worker-plan"),
+    )
+    .unwrap();
+    drop(store);
+    {
+        let raw = rusqlite::Connection::open(&path).unwrap();
+        raw.execute_batch("DELETE FROM commit_proof WHERE sequence = 2;")
+            .unwrap();
+    }
+    let before = store_bytes(&path);
+    let store = Connection::open(&path, "workspace-1").unwrap();
+    assert_eq!(
+        store.unavailable_reason(),
+        Some("chain"),
+        "a missing proof cannot be repaired or re-derived"
+    );
+    assert_eq!(store_bytes(&path), before, "recovery never rewrites bytes");
+}
+
+#[test]
+fn mutated_proof_body_opens_unavailable_and_leaves_bytes() {
+    let root = tempdir().unwrap();
+    let path = root.path().join("mutated_manifest.sqlite");
+    let store = Connection::open(&path, "workspace-1").unwrap();
+    establish_pool(&store);
+    publication::journal_object(
+        &store,
+        ObjectKind::Plan,
+        &source_context(),
+        &golden("worker-plan"),
+    )
+    .unwrap();
+    drop(store);
+    {
+        let raw = rusqlite::Connection::open(&path).unwrap();
+        let body: Vec<u8> = raw
+            .query_row(
+                "SELECT body FROM commit_proof WHERE sequence = 2",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let mut mutated = body.clone();
+        let last = mutated.last_mut().expect("non-empty manifest body");
+        *last = if *last == b'\n' { b'x' } else { b'\n' };
+        raw.execute(
+            "UPDATE commit_proof SET body = ?1 WHERE sequence = 2",
+            rusqlite::params![mutated],
+        )
+        .unwrap();
+    }
+    let before = store_bytes(&path);
+    let store = Connection::open(&path, "workspace-1").unwrap();
+    assert_eq!(
+        store.unavailable_reason(),
+        Some("chain"),
+        "a mutated manifest body fails its digest"
+    );
+    assert_eq!(store_bytes(&path), before, "bytes stay untouched");
+}
+
+#[test]
+fn mutated_row_body_opens_unavailable() {
+    let root = tempdir().unwrap();
+    let path = root.path().join("mutated_row.sqlite");
+    let store = Connection::open(&path, "workspace-1").unwrap();
+    establish_pool(&store);
+    drop(store);
+    {
+        let raw = rusqlite::Connection::open(&path).unwrap();
+        let body: Vec<u8> = raw
+            .query_row("SELECT value FROM quota_usage", [], |row| row.get(0))
+            .unwrap();
+        let value: Value = serde_json::from_slice(&body).unwrap();
+        let mut corrupted = value.clone();
+        corrupted["used"] = json!("4096");
+        raw.execute(
+            "UPDATE quota_usage SET value = ?1",
+            rusqlite::params![super::canonical(&corrupted).unwrap()],
+        )
+        .unwrap();
+    }
+    let before = store_bytes(&path);
+    let store = Connection::open(&path, "workspace-1").unwrap();
+    assert_eq!(
+        store.unavailable_reason(),
+        Some("rows"),
+        "a stored row body must match its committed row digest"
+    );
+    assert_eq!(store_bytes(&path), before, "bytes stay untouched");
+}
+
+#[test]
+fn mismatched_epoch_opens_unavailable() {
+    let root = tempdir().unwrap();
+    let path = root.path().join("epoch.sqlite");
+    let store = Connection::open(&path, "workspace-1").unwrap();
+    establish_pool(&store);
+    publication::journal_object(
+        &store,
+        ObjectKind::Plan,
+        &source_context(),
+        &golden("worker-plan"),
+    )
+    .unwrap();
+    drop(store);
+    {
+        let raw = rusqlite::Connection::open(&path).unwrap();
+        raw.execute_batch(
+            "UPDATE store_header SET storage_epoch = 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff';",
+        )
+        .unwrap();
+    }
+    let store = Connection::open(&path, "workspace-1").unwrap();
+    assert_eq!(store.unavailable_reason(), Some("epoch"));
+}
 
 /// Canonical bytes of a modified golden record.
 fn modified(record: &str, mutate: fn(&mut Value)) -> Vec<u8> {
@@ -317,6 +503,7 @@ fn golden_worker_source_chain_journals_row_by_row() {
     let root = tempdir().unwrap();
     let path = root.path().join("journals.sqlite");
     let store = Connection::open(&path, "workspace-1").unwrap();
+    establish_pool(&store);
     // The plan first: the run identity comes from the plan binding itself.
     let plan = publication::journal_object(
         &store,
@@ -325,11 +512,9 @@ fn golden_worker_source_chain_journals_row_by_row() {
         &golden("worker-plan"),
     )
     .unwrap();
-    assert_eq!(
-        plan.commit().sequence,
-        2,
-        "first journal after initialization"
-    );
+    // Establishes and pool charges land as separate commands before the
+    // plan's row commit (init, 2 establishes, 2 charges, then the row).
+    assert_eq!(plan.commit().sequence, 6);
     // The same body journals as an exact retry with no new commit.
     let retry = publication::journal_object(
         &store,
@@ -379,6 +564,7 @@ fn established_child_metadata_conflicts_on_same_key_change() {
     let root = tempdir().unwrap();
     let path = root.path().join("immutable_row.sqlite");
     let store = Connection::open(&path, "workspace-1").unwrap();
+    establish_pool(&store);
     let admitted = super::rows::admit_meta_record(
         super::rows::MetaKind::Attachment,
         &golden("worker-attachment"),
@@ -427,6 +613,7 @@ fn mid_command_failure_rolls_back_every_row() {
     let root = tempdir().unwrap();
     let path = root.path().join("rollback.sqlite");
     let store = Connection::open(&path, "workspace-1").unwrap();
+    establish_pool(&store);
     let _ = publication::journal_object(
         &store,
         ObjectKind::Plan,
@@ -452,7 +639,7 @@ fn mid_command_failure_rolls_back_every_row() {
             row.get(0)
         })
         .unwrap();
-    assert_eq!(proof_head, 2, "no proof at the failed sequence");
+    assert_eq!(proof_head, 6, "no proof past the pre-failure head");
 }
 
 #[test]
@@ -460,6 +647,7 @@ fn provenance_edges_journal_with_retained_join() {
     let root = tempdir().unwrap();
     let path = root.path().join("edges.sqlite");
     let store = Connection::open(&path, "workspace-1").unwrap();
+    establish_pool(&store);
     let configuration = publication::journal_object(
         &store,
         ObjectKind::Configuration,
@@ -512,6 +700,7 @@ fn format_four_manifest_digest_recomputes_from_stored_proof() {
     let root = tempdir().unwrap();
     let path = root.path().join("manifest.sqlite");
     let store = Connection::open(&path, "workspace-1").unwrap();
+    establish_pool(&store);
     publication::journal_object(
         &store,
         ObjectKind::Plan,
@@ -527,13 +716,23 @@ fn format_four_manifest_digest_recomputes_from_stored_proof() {
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .unwrap();
-    assert_eq!(sequence, 2);
+    assert_eq!(
+        sequence, 6,
+        "init + two establishes + two charges + the plan row"
+    );
     // Exact recomputation: the change domain over the manifest bytes.
     let recomputed = super::domain_digest(super::CHANGE_DOMAIN, &body);
     assert_eq!(recomputed, change_digest);
     // Canonical manifest bytes: re-serializing the parsed value is identical.
     let manifest: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(super::canonical(&manifest).unwrap(), body);
+}
+
+/// The run/workspace quota rows must be established before any producer
+/// journal: missing rows fence the accepted preparation order.
+fn establish_pool(store: &Connection) {
+    quota::establish(store, &run_owner()).unwrap();
+    quota::establish(store, &workspace_owner()).unwrap();
 }
 
 /// The run-owner quota key from the accepted owner codecs.
