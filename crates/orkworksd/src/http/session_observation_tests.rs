@@ -2,7 +2,7 @@ use super::*;
 use crate::test_support::{test_app_state_with_workspace, test_session_metadata};
 use std::time::Duration;
 
-fn fixture() -> (tempfile::TempDir, Arc<AppState>) {
+pub(super) fn fixture() -> (tempfile::TempDir, Arc<AppState>) {
     let dir = tempfile::tempdir().unwrap();
     let state = test_app_state_with_workspace(dir.path());
     let mut meta = test_session_metadata(
@@ -26,7 +26,7 @@ fn fixture() -> (tempfile::TempDir, Arc<AppState>) {
     }
     (dir, state)
 }
-fn request() -> HarnessSessionReportRequest {
+pub(super) fn request() -> HarnessSessionReportRequest {
     HarnessSessionReportRequest {
         harness_session_id: "native-observation".into(),
         source: "codex_hook".into(),
@@ -96,7 +96,7 @@ async fn json_observation_stalled_write_does_not_hold_application_guards() {
     );
 }
 
-fn add_runtime(
+pub(super) fn add_runtime(
     state: &Arc<AppState>,
 ) -> (
     u64,

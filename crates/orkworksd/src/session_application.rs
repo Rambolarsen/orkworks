@@ -1,4 +1,5 @@
 pub(crate) mod hook_observation;
+pub(crate) mod identity_completion;
 
 #[path = "branch_documents_application.rs"]
 mod branch_documents_application;
@@ -4001,77 +4002,68 @@ impl SessionApplication {
         session_start_event: Option<&str>,
         report_authenticated: bool,
     ) -> Result<metadata::HarnessSessionMergeResult, SessionError> {
+        self.report_harness_session_with_completion(
+            id,
+            report,
+            session_start_source,
+            session_start_event,
+            report_authenticated,
+            None,
+        )
+        .map(|completion| completion.result)
+    }
+
+    pub(crate) fn report_harness_session_with_completion(
+        &self,
+        id: &str,
+        report: metadata::HarnessSessionReport,
+        session_start_source: Option<&str>,
+        session_start_event: Option<&str>,
+        report_authenticated: bool,
+        report_token: Option<&str>,
+    ) -> Result<identity_completion::Completion, SessionError> {
         if !metadata::valid_harness_session_report_context(
             &report,
             session_start_source,
             session_start_event,
         ) {
-            return Ok(metadata::HarnessSessionMergeResult::Invalid);
+            return Ok(identity_completion::Completion::new(
+                metadata::HarnessSessionMerge::status(metadata::HarnessSessionMergeResult::Invalid),
+                None,
+            ));
         }
         let now = iso_now();
-        let result = {
-            let workspace = self.state.workspace.lock().unwrap();
-            let Some(workspace) = workspace.as_ref() else {
-                return Err(SessionError::Conflict);
-            };
-            let allow_codex_identity_replacement = report_authenticated
-                && session_start_source == Some("clear")
-                && session_start_event == Some("SessionStart")
-                && workspace
-                    .metadata
-                    .read_session(id)
-                    .filter(|metadata| metadata.harness == "codex")
-                    .and_then(|metadata| {
-                        metadata.resume.and_then(|resume| resume.harness_session_id)
-                    })
-                    .is_some_and(|previous_id| {
-                        crate::codex_session_store::native_identity_reset_is_authorized(
-                            id,
-                            &previous_id,
-                        )
-                    });
-            workspace
+        let workspace = self.state.workspace.lock().unwrap();
+        let workspace = workspace.as_ref().ok_or(SessionError::Conflict)?;
+        let context = identity_completion::Context::capture(
+            &self.state,
+            workspace,
+            id,
+            report_authenticated,
+            report_token,
+        );
+        let allow_codex_identity_replacement = report_authenticated
+            && session_start_source == Some("clear")
+            && session_start_event == Some("SessionStart")
+            && workspace
                 .metadata
-                .merge_harness_session_report_with_identity_replacement(
-                    id,
-                    &report,
-                    &now,
-                    allow_codex_identity_replacement,
-                )
-        };
-
-        if matches!(
-            result,
-            metadata::HarnessSessionMergeResult::Accepted
-                | metadata::HarnessSessionMergeResult::IgnoredUnchanged
-        ) {
-            let updated_resume = {
-                let workspace = self.state.workspace.lock().unwrap();
-                workspace
-                    .as_ref()
-                    .and_then(|workspace| workspace.metadata.read_session(id))
-                    .and_then(|meta| meta.resume)
-            };
-            if let Some(updated_resume) = updated_resume {
-                let mut sessions = self.state.sessions.lock().unwrap();
-                if let Some(handle) = sessions.get_mut(id) {
-                    if handle
-                        .info
-                        .resume
-                        .as_ref()
-                        .and_then(|r| r.harness_session_id.as_ref())
-                        != updated_resume.harness_session_id.as_ref()
-                    {
-                        if let Some(tracker) = handle.runtime.native_approval.as_mut() {
-                            tracker.identity_changed();
-                        }
-                    }
-                    handle.info.resume = Some(updated_resume);
-                }
-            }
-        }
-
-        Ok(result)
+                .read_session(id)
+                .filter(|meta| meta.harness == "codex")
+                .and_then(|meta| meta.resume.and_then(|resume| resume.harness_session_id))
+                .is_some_and(|previous| {
+                    crate::codex_session_store::native_identity_reset_is_authorized(id, &previous)
+                });
+        let merged = workspace.metadata.merge_harness_session_identity(
+            id,
+            &report,
+            &now,
+            allow_codex_identity_replacement,
+        );
+        let completion = identity_completion::Completion::new(merged, Some(context));
+        #[cfg(test)]
+        identity_completion::testing::before_publication(&workspace.metadata.root_path());
+        completion.publish(&self.state, workspace, id);
+        Ok(completion)
     }
 
     /// Applies one normalized attention signal while holding the workspace
@@ -9914,6 +9906,7 @@ mod tests {
             .metadata
             .write_session(&metadata);
         let mut handle = attention_test_handle(id, root.path());
+        handle.info.created_at = metadata.created_at.clone();
         handle.info.resume = metadata.resume.clone();
         state.sessions.lock().unwrap().insert(id.into(), handle);
 

@@ -691,7 +691,55 @@ workspace/reader/lease/runtime/control/creation, runtime adoption/removal, cance
 read ownership, bounded overload, fresh-report recovery and relay retry after clear.
 Corrupt-file tests preserve a repaired valid record and prove quarantine and
 replacement serialize in the same existing transaction lane.
-The transactional JSON identity merge, its later validation reads, label reservation
-reads and other metadata writers are still synchronous and unqualified. This is
-source scheduling evidence, not complete legacy producer qualification, SQL
-activation, migration, installed-harness/native proof or measured history latency.
+The transactional JSON identity merge, reset/observation validation reads and other
+metadata writers are still synchronous and unqualified. Resume publication and label
+reservation now consume the [transaction identity completion](#transaction-identity-completion)
+without rereading JSON. This is source scheduling evidence, not complete legacy
+producer qualification, SQL activation, migration, installed-harness/native proof
+or measured history latency.
+
+## Transaction identity completion
+
+The legacy metadata identity transaction returns its disposition plus the exact
+committed identity fields (ID, creation, harness, resume memory and label source).
+Accepted and unchanged reports carry that private result; unchanged reports retain
+the existing last-seen update and do not append an extra capture event. Ignored,
+missing, invalid and failed writes grant no publication result. Enum-returning
+callers and HTTP status mapping stay compatible; no result is serialized or stored
+as a new capability.
+
+`SessionApplication` captures original application/workspace/reader/lease and optional
+runtime identity, control channel, creation and harness before the existing
+synchronous transaction. Resume publication checks that context and the committed
+creation against the current handle. A durable result may remain accepted while
+publication is detached; it neither adopts a replacement runtime nor implies
+rollback. Publication uses the transaction's resume value rather than a second
+JSON read.
+
+The optional Codex label reservation also consumes this private result without
+reading JSON under its refresh/workspace guards. It checks original context,
+current live native ID, authenticated report class and the original bearer inside
+the reservation gate, retaining the existing cooldown. Automatic-title eligibility
+uses the committed label source. If a user claims the title before reservation, a
+refresh can still be scheduled; final persistence rejects that overwrite. The
+regression test explicitly reserves that stale snapshot and verifies rejection.
+Only an authenticated completion retains that original bearer in private memory;
+a later caller cannot substitute a replacement token. It is never logged,
+persisted or serialized.
+If a user title arrives after the captured transaction, the later label persistence
+owner still checks the latest record and rejects that overwrite; a cached snapshot
+cannot grant title ownership. Native label enrichment remains display-only.
+
+Regression coverage exercises exact accepted/unchanged/ignored records and events,
+failed staging and recovery, replaced runtime/control/creation/harness, adoption
+or removal, stale label workspace/reader/lease/native context, wrong/revoked tokens,
+revocation during a reservation wait, and a later manual title. Independent read
+pauses prove resume publication and label reservation do not reread JSON.
+
+This is publication/interface preparation for the accepted storage plan, not an
+async JSON mutation worker. The transaction, reset-authorization read and final
+observation validation still have their existing synchronous owners. Conflicting
+lifecycle and metadata writers need shared application reservations before moving
+those writes outside guards; merely spawning this transaction would not qualify
+that scheduling. SQL selection, producer qualification, migration/recovery, native
+eligibility and measured performance gates remain open.

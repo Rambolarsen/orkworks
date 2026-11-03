@@ -24,7 +24,10 @@ impl SessionReader {
         self.admission.clone().try_acquire_owned().ok()
     }
     pub(crate) fn read(&self, id: &str) -> Option<SessionMetadata> {
-        self.read_path(&self.root.join("sessions").join(format!("{id}.json")))
+        let path = self.root.join("sessions").join(format!("{id}.json"));
+        #[cfg(test)]
+        testing::before_read(&path);
+        self.read_path(&path)
     }
     pub(super) fn read_path(&self, path: &Path) -> Option<SessionMetadata> {
         MetadataStore::load_session_file(path, |data, error| {
@@ -90,12 +93,13 @@ pub(crate) mod testing {
     use std::path::{Path, PathBuf};
     use std::sync::{LazyLock, Mutex};
     use tokio::sync::oneshot;
-    type Gate = (oneshot::Sender<()>, std::sync::mpsc::Receiver<()>);
+    type Gate = (usize, oneshot::Sender<()>, std::sync::mpsc::Receiver<()>);
     static GATES: LazyLock<Mutex<HashMap<PathBuf, Gate>>> =
         LazyLock::new(|| Mutex::new(HashMap::new()));
     pub(crate) struct Pause {
         entered: Option<oneshot::Receiver<()>>,
         release: Option<std::sync::mpsc::Sender<()>>,
+        key: PathBuf,
     }
     impl Pause {
         pub(crate) async fn entered(&mut self) {
@@ -104,19 +108,35 @@ pub(crate) mod testing {
     }
     impl Drop for Pause {
         fn drop(&mut self) {
+            GATES.lock().unwrap().remove(&self.key);
             if let Some(tx) = self.release.take() {
                 let _ = tx.send(());
             }
         }
     }
     pub(crate) fn hold_next_quarantine(path: PathBuf) -> Pause {
+        hold(path, 0)
+    }
+    fn hold(path: PathBuf, skip: usize) -> Pause {
         let (tx, entered) = oneshot::channel();
         let (release, rx) = std::sync::mpsc::channel();
-        assert!(GATES.lock().unwrap().insert(path, (tx, rx)).is_none());
+        assert!(GATES
+            .lock()
+            .unwrap()
+            .insert(path.clone(), (skip, tx, rx))
+            .is_none());
         Pause {
             entered: Some(entered),
             release: Some(release),
+            key: path,
         }
+    }
+    pub(crate) fn hold_nth_read(path: &Path, nth: usize) -> Pause {
+        assert!(nth > 0);
+        hold(path.with_extension("json.before-read"), nth - 1)
+    }
+    pub(super) fn before_read(path: &Path) {
+        before_quarantine(&path.with_extension("json.before-read"));
     }
     pub(crate) fn hold_next_rename(path: &Path) -> Pause {
         hold_next_quarantine(path.with_extension("json.before-quarantine-rename"))
@@ -125,8 +145,17 @@ pub(crate) mod testing {
         before_quarantine(&path.with_extension("json.before-quarantine-rename"));
     }
     pub(crate) fn before_quarantine(path: &Path) {
-        let held = GATES.lock().unwrap().remove(path);
-        if let Some((entered, release)) = held {
+        let held = {
+            let mut gates = GATES.lock().unwrap();
+            if let Some((skip, _, _)) = gates.get_mut(path) {
+                if *skip > 0 {
+                    *skip -= 1;
+                    return;
+                }
+            }
+            gates.remove(path)
+        };
+        if let Some((_, entered, release)) = held {
             let _ = entered.send(());
             let _ = release.recv();
         }

@@ -112,3 +112,11 @@ and rejects stale workspace/reader/runtime results before continuation. The
 transactional JSON merge and later identity reads remain synchronous; the
 [validation record](../validation/session-store-adapter.md#owned-json-identity-target-lookup)
 bounds this source qualification explicitly.
+
+Identity follow-ups now consume the transaction's exact identity result instead
+of rereading JSON for live resume publication or label reservation. A private
+completion retains original application/workspace/reader/runtime context, and label
+reservation revalidates its original bearer inside the existing memory gate.
+The mutating transaction retains its synchronous owner until conflicting lifecycle
+and metadata reservations are qualified; this does not introduce a second JSON
+worker. See [transaction identity completion](../validation/session-store-adapter.md#transaction-identity-completion).

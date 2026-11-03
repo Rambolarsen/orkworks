@@ -903,8 +903,14 @@ its slot and lease until completion after waiter cancellation. The continuation
 rejects a replaced workspace, reader, lease or runtime before identity handling;
 admission overload returns a retryable 503, and local relays retain the original
 packet/clear receipt rather than unlinking it. This qualifies only the first target
-lookup: later identity validation, transactional merging and label reservations
-still retain their existing synchronous owners.
+lookup. Transactional merging and remaining reset/observation validation reads
+retain their existing synchronous owners. The merge now returns its exact committed
+identity fields; live resume publication and Codex label reservation consume that
+result without rereading session JSON. Their private completion binds the original
+application, workspace/reader/lease, runtime/control and creation before the existing
+transaction. Detached results cannot update a replacement runtime or reserve its
+label work. The original bearer is checked again inside the label reservation
+gate; latest native-ID and manual-title checks still apply at label persistence.
 The legacy JSON identity route now captures that external owner's original clear
 epoch before its first metadata lookup. After identity merging it rechecks exact
 workspace/lease/file owner, creation and optional runtime/control identity, plus
