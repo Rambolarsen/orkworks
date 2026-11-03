@@ -314,6 +314,18 @@ operation may attach a sidecar-owned, allowlisted compatibility profile stored
 outside the editable custom definition; the profile derives an existing closed
 binding and cannot contain user-supplied code, paths, or handler selection.
 
+Resume identity delivery safeguards (#1340) preserve the existing exact-ID
+contract. OpenCode identity reports retry transient failures with bounded requests;
+a failed delivery remains pending for later events, and attention is withheld
+until identity delivery succeeds. Claude startup reports retain all existing
+authorization checks; an authenticated report arriving before runtime activation
+receives a retryable response and the reporter retries it within a bounded window.
+Exact OpenCode resume must verify its native conversation in the CLI-selected
+local store before dispatch. Missing or unverifiable data fails explicitly without
+selecting latest. This is a read-only availability check, not an atomic lock against
+independent native-store deletion, an OrkWorks storage migration, or authority to
+resume live sessions.
+
 OpenCode adapter repair (#1331): the built-in `opencode` harness and
 `open-code` integration use `opencode --standalone` for interactive launches
 (with the existing model arguments) and `opencode --standalone --session <id>`

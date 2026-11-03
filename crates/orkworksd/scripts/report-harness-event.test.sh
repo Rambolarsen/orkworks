@@ -50,7 +50,14 @@ fi
 if [ -n "${TEST_CURL_CONFIGS_FILE:-}" ]; then
   printf '%s\n---\n' "$config_stdin" >> "$TEST_CURL_CONFIGS_FILE"
 fi
-printf '%s' "${TEST_HTTP_STATUS:-204}"
+if [ -n "${TEST_CURL_SEQUENCE_FILE:-}" ]; then
+  response_status=$(head -n 1 "$TEST_CURL_SEQUENCE_FILE")
+  sed '1d' "$TEST_CURL_SEQUENCE_FILE" > "$TEST_CURL_SEQUENCE_FILE.next"
+  mv "$TEST_CURL_SEQUENCE_FILE.next" "$TEST_CURL_SEQUENCE_FILE"
+  printf '%s' "$response_status"
+else
+  printf '%s' "${TEST_HTTP_STATUS:-204}"
+fi
 if [ "${TEST_CURL_EXIT:-0}" -ne 0 ]; then
   printf '%s\n' "${TEST_CURL_STDERR:-curl fixture failure}" >&2
 fi
@@ -490,3 +497,30 @@ bodies=[json.loads(l) for l in pathlib.Path(sys.argv[2]).read_text().splitlines(
 for event,status in (('Stop','idle'),('UserPromptSubmit','working')):
     assert any(b.get('event') == event and b.get('status') == status for b in bodies)
 NATIVE
+
+
+# A startup-busy response must preserve the exact report and retry it.
+printf '503\n503\n200\n' > "$temp_dir/startup-responses"
+printf '%s' '{"session_id":"claude-startup-id"}' |
+  TEST_CURL_SEQUENCE_FILE="$temp_dir/startup-responses" TEST_CURL_BODIES_FILE="$temp_dir/startup-bodies" run_reporter SessionStart claude-code
+python3 - "$temp_dir/startup-bodies" <<'RETRY'
+import json,pathlib,sys
+reports=[json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text().splitlines()]
+assert len(reports) == 3, reports
+assert reports[0] == reports[1] == reports[2]
+assert reports[0]['harnessSessionId'] == 'claude-startup-id'
+RETRY
+
+# Rejected authority is permanent; do not retry it as startup.
+printf '400\n200\n' > "$temp_dir/rejected-responses"
+printf '%s' '{"session_id":"claude-startup-id"}' |
+  TEST_CURL_SEQUENCE_FILE="$temp_dir/rejected-responses" TEST_CURL_BODIES_FILE="$temp_dir/rejected-bodies" run_reporter SessionStart claude-code
+[ "$(wc -l < "$temp_dir/rejected-bodies" | tr -d ' ')" = 1 ]
+
+
+# Exhausted startup retries stay bounded, with no false successful identity.
+printf '503\n503\n503\n503\n' > "$temp_dir/exhausted-responses"
+printf '%s' '{"session_id":"claude-startup-id"}' |
+  TEST_CURL_SEQUENCE_FILE="$temp_dir/exhausted-responses" TEST_CURL_BODIES_FILE="$temp_dir/exhausted-bodies" run_reporter SessionStart claude-code
+[ "$(wc -l < "$temp_dir/exhausted-bodies" | tr -d ' ')" = 3 ]
+[ "$(wc -l < "$temp_dir/exhausted-responses" | tr -d ' ')" = 1 ]

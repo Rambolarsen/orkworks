@@ -67,7 +67,7 @@ function makeSubscription() {
   };
 }
 
-async function withReporter(run) {
+async function withReporter(run, identityStatuses = []) {
   const posts = [];
   const server = createServer(async (request, response) => {
     const chunks = [];
@@ -77,7 +77,8 @@ async function withReporter(run) {
       authorization: request.headers.authorization,
       body: JSON.parse(Buffer.concat(chunks).toString()),
     });
-    response.writeHead(204).end();
+    const status = request.url.endsWith('/harness-session') ? (identityStatuses.shift() ?? 204) : 204;
+    response.writeHead(status).end();
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   process.env.ORKWORKS_PORT = String(server.address().port);
@@ -352,3 +353,36 @@ test('the setup cleanup aborts the subscription', async () => {
 // sequentially (`await handleEvent` before the next pull), so that
 // interleaving is impossible by construction; monotonicity across
 // same-millisecond and backward-stepping clocks is covered above.
+
+
+test('identity delivery retries a transient failure before publishing attention', async () => {
+  await withReporter(async ({ push, posts }) => {
+    await push(sessionEvent('session.step.started'));
+    assert.equal(harnessPosts(posts).length, 2);
+    assert.deepEqual(posts.slice(0, 2).map(p => p.path), [
+      '/sessions/ork_1/harness-session', '/sessions/ork_1/harness-session',
+    ]);
+    assert.equal(attention(posts).at(-1).status, 'working');
+  }, [503, 204]);
+});
+
+test('failed identity stays pending and a later event can recover it', async () => {
+  await withReporter(async ({ push, posts }) => {
+    await push(sessionEvent('session.step.started'));
+    assert.equal(harnessPosts(posts).length, 3);
+    assert.equal(attention(posts).length, 0);
+    await push(sessionEvent('session.execution.succeeded'));
+    assert.equal(harnessPosts(posts).length, 4);
+    assert.equal(attention(posts).at(-1).status, 'idle');
+  }, [503, 503, 503, 204]);
+});
+
+test('identity rejection never publishes attention or retries another native ID', async () => {
+  await withReporter(async ({ push, posts }) => {
+    await push(sessionEvent('session.step.started'));
+    assert.equal(harnessPosts(posts).length, 1);
+    assert.equal(attention(posts).length, 0);
+    await push({ type: 'session.step.started', data: { sessionID: 'ses_foreign' } });
+    assert.equal(harnessPosts(posts).length, 1);
+  }, [400]);
+});

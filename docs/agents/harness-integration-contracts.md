@@ -53,6 +53,46 @@ claim. Existing sessions must be relaunched through the updated source;
 records without captured identity cannot be repaired by guessing a native ID.
 Custom or explicitly overridden command arrays retain their chosen arguments.
 
+### Resume identity delivery and availability
+
+Source safeguards from #1340 retry OpenCode identity delivery up to three times
+for transport errors, 429 and server failures. Each request has a two-second
+deadline; reporter cleanup cancels it. Failed capture remains pending for later
+matching-session events. Attention is withheld until identity delivery succeeds;
+permanent HTTP rejection does not receive an immediate retry. These changes
+require normal Settings reconciliation of the owned reporter and a new launch.
+
+Claude identity registration retains bearer, launch-generation, harness and
+active-runtime checks. A valid report for a Claude runtime still in `creating`
+returns 503 without binding identity or changing attention. Both reporter platforms
+retry `SessionStart` identity transport failures/503 up to three times, with
+two-second requests and short delays. Rejected authority and ended runtimes keep
+their existing rejection. Exhausting the retry budget leaves identity unknown;
+a later ordinary hook can still capture it. This is bounded startup recovery,
+not durable delivery through an indefinite sidecar outage.
+
+Exact OpenCode resume now asks the configured executable for `debug paths db`
+without OrkWorks capabilities, with a three-second deadline and 8 KiB per output
+stream. The [documented path selector](https://opencode.ai/v2/docs/cli/#paths)
+respects channel and `OPENCODE_DB`, does not start a server and does not open the
+database. Read-only inspection on installed OpenCode 2.2.5/macOS arm64 found
+`session_v2` with a `TEXT` primary-key `id`. The source checks that table/key shape
+and exact ID using a read-only connection with a 100 ms busy timeout. Missing,
+unreadable, corrupt, in-memory or unsupported stores reject launch; legacy-only
+`session` rows do not prove V2 availability. Remote/custom resume argument shapes
+cannot be verified by this local probe and fail explicitly. Normal list polling
+does not run this executable probe; explicit resume revalidates the target after it.
+
+This is bounded native availability evidence, not an OrkWorks SQLite migration
+or a live resume qualification on every tool version/platform. The native CLI
+still creates missing IDs, so an independent deletion after the preflight check
+remains a native-store race; this change does not own a native deletion lock or issue SQL writes.
+No historical IDs are inferred and no live session is restarted or resumed.
+Read-only here means no SQL writes or native conversation-data changes. SQLite
+may create/use its normal WAL coordination files; this is not a promise of zero
+filesystem or shared-memory activity. Immutable mode is unsuitable for a native
+store that another OpenCode process may still change.
+
 ### Codex terminal status
 
 The sidecar reads live OSC 7501 frames for Codex sessions (ADR 0093). Once a

@@ -28,6 +28,7 @@ mod http;
 mod image_context;
 mod metadata;
 mod migration;
+mod opencode_session_store;
 mod peon;
 mod plan_handoff;
 mod procfs;
