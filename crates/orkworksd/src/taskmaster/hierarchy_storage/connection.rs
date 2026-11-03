@@ -3,9 +3,9 @@
 //! connection, no caller SQL, no ATTACH and no extension loading, and
 //! unavailable reasons instead of repairs.
 
-use super::schema;
+use super::schema::{apply_session_settings, verify_catalog, verify_physical};
 use super::{
-    canonical, domain_digest, ensure, HierarchyStorageError, Result, CHANGE_DOMAIN,
+    canonical, domain_digest, ensure, schema, HierarchyStorageError, Result, CHANGE_DOMAIN,
     INITIALIZE_COMMAND, STORE_SCHEMA_VERSION,
 };
 use serde_json::{json, Value};
@@ -133,13 +133,11 @@ impl Connection {
         // after it is released.
         let verified = (|| {
             let database = self.database.lock().map_err(|_| "locked store")?;
-            for step in [
-                schema::configure_physical(&database).map_err(|e| e.0),
-                schema::verify_journal(&database).map_err(|e| e.0),
-                schema::verify_catalog(&database).map_err(|e| e.0),
-            ] {
-                step?;
-            }
+            // Nothing is repaired: session settings first (they mutate no
+            // bytes), then only read-only persisted-state verification.
+            apply_session_settings(&database).map_err(|e| e.0)?;
+            verify_physical(&database).map_err(|e| e.0)?;
+            verify_catalog(&database).map_err(|e| e.0)?;
             self.read_header(&database).map_err(|e| e.0)
         })();
         // Nothing is repaired: the first unavailable step fences the store.
