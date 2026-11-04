@@ -502,6 +502,7 @@ async fn sql_history_validates_sql_identity_without_json_fallback() {
     }
 }
 
+#[cfg(unix)]
 #[tokio::test(flavor = "current_thread")]
 async fn sql_history_file_stall_leaves_tokio_sql_guards_and_real_pty_input_available() {
     use crate::runtime::session_runtime::RuntimeCommand;
