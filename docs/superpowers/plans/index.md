@@ -285,3 +285,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [SQL finalization history ordering](2026-11-04-sql-finalization-history.md) — Dormant SQL finalization replay/event stages.
 
 - [Runtime ending persistence boundary](2026-11-04-runtime-ending-persistence.md) — Captured SQL ownership at runtime history completion.
+
+- [Non-I/O evaluation authority core](2026-11-04-evaluation-authority-core.md) — Approved bounded first-unit plan for private in-memory claim/close/response ordering and deterministic tests.

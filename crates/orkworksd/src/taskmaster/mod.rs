@@ -27,6 +27,7 @@ pub(crate) mod inference_trust;
 pub(crate) mod knowledge;
 pub(crate) mod proposed_change;
 pub(crate) mod provider_catalog;
+mod publication_authority;
 pub(crate) mod readiness;
 pub(crate) mod readiness_focus;
 pub(crate) mod readiness_model;
