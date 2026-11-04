@@ -13,6 +13,12 @@ pub(crate) enum LifecycleWrite {
         fallback_status: String,
     },
 }
+#[derive(Clone, Copy)]
+enum Access {
+    Async,
+    // Only while driven by Handle::block_on on the retained blocking job.
+    BlockingOwner,
+}
 struct Snapshot {
     runtime: RuntimeIdentity,
     control: tokio::sync::mpsc::Sender<RuntimeCommand>,
@@ -114,35 +120,51 @@ impl SessionWrites {
         runtime: RuntimeIdentity,
         snapshot: Option<Arc<Snapshot>>,
         completion: Option<crate::session_store::InternalCompletion>,
+        access: Access,
         apply: impl FnOnce(&WorkspaceState, &mut crate::SessionHandle) -> T + Send + 'static,
     ) -> Result<Option<T>, StoreError> {
-        let owner = self.clone();
-        tokio::task::spawn_blocking(move || {
-            let _completion = completion;
-            let _projection = owner.state.projection_lock.lock().unwrap();
-            let Ok(_transition) = crate::runtime::prompt_authority::transition_lock().try_lock()
-            else {
-                return None;
-            };
-            let workspace = owner.state.workspace.lock().unwrap();
-            let ws = workspace.as_ref()?;
-            if !owner.workspace.matches(ws)
-                || !Arc::ptr_eq(&owner.reader, &ws.metadata.session_reader())
-            {
-                return None;
+        match access {
+            Access::Async => {
+                let owner = self.clone();
+                tokio::task::spawn_blocking(move || {
+                    let _completion = completion;
+                    owner.lifecycle_current(&id, &runtime, snapshot.as_deref(), apply)
+                })
+                .await
+                .map_err(|_| StoreError::Unavailable)
             }
-            let mut sessions = owner.state.sessions.lock().unwrap();
-            let h = sessions.get_mut(&id)?;
-            if h.info.id != id
-                || runtime != h.runtime.identity()
-                || snapshot.as_ref().is_some_and(|s| !s.matches(h))
-            {
-                return None;
+            Access::BlockingOwner => {
+                let _completion = completion;
+                Ok(self.lifecycle_current(&id, &runtime, snapshot.as_deref(), apply))
             }
-            Some(apply(ws, h))
-        })
-        .await
-        .map_err(|_| StoreError::Unavailable)
+        }
+    }
+    fn lifecycle_current<T>(
+        &self,
+        id: &str,
+        runtime: &RuntimeIdentity,
+        snapshot: Option<&Snapshot>,
+        apply: impl FnOnce(&WorkspaceState, &mut crate::SessionHandle) -> T,
+    ) -> Option<T> {
+        let _projection = self.state.projection_lock.lock().unwrap();
+        let _transition = crate::runtime::prompt_authority::transition_lock()
+            .try_lock()
+            .ok()?;
+        let workspace = self.state.workspace.lock().unwrap();
+        let ws = workspace.as_ref()?;
+        if !self.workspace.matches(ws) || !Arc::ptr_eq(&self.reader, &ws.metadata.session_reader())
+        {
+            return None;
+        }
+        let mut sessions = self.state.sessions.lock().unwrap();
+        let h = sessions.get_mut(id)?;
+        if h.info.id != id
+            || *runtime != h.runtime.identity()
+            || snapshot.is_some_and(|s| !s.matches(h))
+        {
+            return None;
+        }
+        Some(apply(ws, h))
     }
     /// Metadata only: does not request process exit, persist replay size, append events or spawn.
     pub(crate) async fn lifecycle(
@@ -152,13 +174,20 @@ impl SessionWrites {
         intent: LifecycleWrite,
     ) -> Result<Outcome, StoreError> {
         let (snapshot, lease, intent) = self
-            .lifecycle_access(id.clone(), runtime.clone(), None, None, move |ws, h| {
-                Ok::<_, StoreError>((
-                    Snapshot::capture(h).ok_or(StoreError::Conflict)?,
-                    ws.lease.clone().ok_or(StoreError::Conflict)?,
-                    intent.intent(h)?,
-                ))
-            })
+            .lifecycle_access(
+                id.clone(),
+                runtime.clone(),
+                None,
+                None,
+                Access::Async,
+                move |ws, h| {
+                    Ok::<_, StoreError>((
+                        Snapshot::capture(h).ok_or(StoreError::Conflict)?,
+                        ws.lease.clone().ok_or(StoreError::Conflict)?,
+                        intent.intent(h)?,
+                    ))
+                },
+            )
             .await?
             .ok_or(StoreError::Conflict)??;
         let snapshot = Arc::new(snapshot);
@@ -179,40 +208,89 @@ impl SessionWrites {
                     lane = tokio::time::timeout_at(prepared.deadline().into(), lane.lock_owned()) =>
                         lane.map_err(|_| StoreError::Expired)?,
                 };
-                let (ticket, ready) = prepared.enqueue(RuntimeWriteResources::new(lane, Some(lease)))?;
-                let mut finished = Box::pin(ticket.finish());
-                let mut delivered = None;
-                let request = tokio::select! {
-                    biased;
-                    _ = result.closed() => return Err(StoreError::Expired),
-                    completion = &mut finished => { delivered = Some(completion); None },
-                    ready = ready => ready.ok(),
-                };
-                if let Some(request) = request {
-                    // Expiry can beat a blocked memory validation. Consume the
-                    // definitive result concurrently so cancelled work retires.
-                    tokio::select! {
-                        biased;
-                        completion = &mut finished => delivered = Some(completion),
-                        claimed = owner.lifecycle_access(id.clone(), runtime.clone(), Some(snapshot.clone()), None,
-                            move |_, _| request.grant()) => {
-                            if let Some(Ok(grant)) = claimed? { let _ = grant.execute(); }
-                        }
-                    }
+                let completion = owner
+                    .execute_lifecycle(
+                        &id,
+                        &runtime,
+                        &snapshot,
+                        prepared,
+                        RuntimeWriteResources::new(lane, Some(lease)),
+                        &mut result,
+                        Access::Async,
+                    )
+                    .await?;
+                owner
+                    .publish_lifecycle(id, runtime, snapshot, completion, Access::Async)
+                    .await
+            }
+            .await;
+            let _ = result.send(execution);
+        });
+        received.await.map_err(|_| StoreError::Unavailable)?
+    }
+    async fn execute_lifecycle<T>(
+        self: &Arc<Self>,
+        id: &str,
+        runtime: &RuntimeIdentity,
+        snapshot: &Arc<Snapshot>,
+        prepared: crate::session_store::PreparedInternalMutation,
+        resources: RuntimeWriteResources,
+        result: &mut oneshot::Sender<T>,
+        access: Access,
+    ) -> Result<crate::session_store::InternalCompletion, StoreError> {
+        let (ticket, ready) = prepared.enqueue(resources)?;
+        let mut finished = Box::pin(ticket.finish());
+        let mut delivered = None;
+        let request = tokio::select! {
+            biased;
+            _ = result.closed() => return Err(StoreError::Expired),
+            completion = &mut finished => { delivered = Some(completion); None },
+            ready = ready => ready.ok(),
+        };
+        if let Some(request) = request {
+            // Expiry can beat a blocked memory validation. Consume the
+            // definitive result concurrently so cancelled work retires.
+            tokio::select! {
+                biased;
+                completion = &mut finished => delivered = Some(completion),
+                claimed = self.lifecycle_access(id.to_owned(), runtime.clone(), Some(snapshot.clone()), None, access,
+                    move |_, _| request.grant()) => {
+                    if let Some(Ok(grant)) = claimed? { let _ = grant.execute(); }
                 }
-                let completion = match delivered {
-                    Some(completion) => completion?,
-                    None => finished.await?,
-                };
-                let Some(document) = completion.outcome.document.as_ref() else {
-                    return Ok(Outcome::Noop { permanent_hold: false });
-                };
-                let stored: metadata::SessionMetadata = match serde_json::from_value(document.clone()) {
-                    Ok(stored) => stored,
-                    Err(_) => return Ok(Outcome::CommittedDetached),
-                };
-                let scope = completion.outcome.decision.scope;
-                let published = owner.lifecycle_access(id, runtime, Some(snapshot), Some(completion), move |_, h| {
+            }
+        }
+        let completion = match delivered {
+            Some(completion) => completion?,
+            None => finished.await?,
+        };
+        Ok(completion)
+    }
+    async fn publish_lifecycle(
+        self: &Arc<Self>,
+        id: String,
+        runtime: RuntimeIdentity,
+        snapshot: Arc<Snapshot>,
+        completion: crate::session_store::InternalCompletion,
+        access: Access,
+    ) -> Result<Outcome, StoreError> {
+        let Some(document) = completion.outcome.document.as_ref() else {
+            return Ok(Outcome::Noop {
+                permanent_hold: false,
+            });
+        };
+        let stored: metadata::SessionMetadata = match serde_json::from_value(document.clone()) {
+            Ok(stored) => stored,
+            Err(_) => return Ok(Outcome::CommittedDetached),
+        };
+        let scope = completion.outcome.decision.scope;
+        let published = self
+            .lifecycle_access(
+                id,
+                runtime,
+                Some(snapshot),
+                Some(completion),
+                access,
+                move |_, h| {
                     if scope.is_some_and(|scope| scope.attention) {
                         h.runtime.attention_owner.accepted_write();
                     }
@@ -223,16 +301,29 @@ impl SessionWrites {
                     h.info.connectivity = Some(stored.connectivity);
                     h.info.terminal_outcome = stored.terminal_outcome;
                     h.info.observed_status = stored.observed_status;
-                    h.info.final_observed_status = stored.final_observed_status_snapshot.and_then(|snapshot| snapshot.value);
+                    h.info.final_observed_status = stored
+                        .final_observed_status_snapshot
+                        .and_then(|snapshot| snapshot.value);
                     h.info.last_activity_at = Some(stored.last_activity);
                     h.info.provenance = stored.provenance;
-                    if h.info.lifecycle_phase == "ended" { h.resume_in_progress = false; }
-                }).await.is_ok_and(|published| published.is_some());
-                if published { owner.state.updates.sessions_changed(); }
-                Ok(if published { Outcome::Committed } else { Outcome::CommittedDetached })
-            }.await;
-            let _ = result.send(execution);
-        });
-        received.await.map_err(|_| StoreError::Unavailable)?
+                    if h.info.lifecycle_phase == "ended" {
+                        h.resume_in_progress = false;
+                    }
+                },
+            )
+            .await
+            .is_ok_and(|published| published.is_some());
+        if published {
+            self.state.updates.sessions_changed();
+        }
+        Ok(if published {
+            Outcome::Committed
+        } else {
+            Outcome::CommittedDetached
+        })
     }
 }
+
+mod history;
+
+pub(crate) use history::{Finalization, MetadataResult};
