@@ -1268,4 +1268,70 @@ fn foreign_table_is_unavailable() {
     );
 }
 
-// Public admission must stay unavailable while only the partial mechanics exist.
+#[test]
+fn superseded_quota_row_opens_unavailable_without_repair() {
+    let root = tempdir().unwrap();
+    let path = root.path().join("superseded_quota.sqlite");
+    let store = Connection::open(&path, "workspace-1").unwrap();
+    quota::establish(&store, &run_owner()).unwrap();
+    let original: (Vec<u8>, Vec<u8>, i64) = store
+        .raw()
+        .query_row(
+            "SELECT value, last_commit, sequence FROM quota_usage",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    // The final byte total is zero again, so quota recomputation alone
+    // cannot distinguish the original row from the committed current row.
+    quota::apply_delta(&store, &run_owner(), 1).unwrap();
+    quota::apply_delta(&store, &run_owner(), -1).unwrap();
+    let latest = store.read_latest().unwrap();
+    drop(store);
+    let store = Connection::open(&path, "workspace-1").unwrap();
+    assert_eq!(store.unavailable_reason(), None);
+    assert_eq!(store.read_latest().unwrap(), latest);
+    store
+        .raw()
+        .execute(
+            "UPDATE quota_usage SET value = ?1, last_commit = ?2, sequence = ?3",
+            rusqlite::params![original.0, original.1, original.2],
+        )
+        .unwrap();
+    drop(store);
+    let before = store_bytes(&path);
+    let store = Connection::open(&path, "workspace-1").unwrap();
+    assert_eq!(store.unavailable_reason(), Some("rows"));
+    assert_eq!(
+        store_bytes(&path),
+        before,
+        "recovery never repairs stale rows"
+    );
+    assert_eq!(
+        quota::apply_delta(&store, &run_owner(), 0)
+            .err()
+            .map(|e| e.0),
+        Some("unavailable")
+    );
+}
+
+#[test]
+fn extreme_quota_deltas_refuse_without_mutation_or_poisoning() {
+    let root = tempdir().unwrap();
+    let path = root.path().join("extreme_quota.sqlite");
+    let store = Connection::open(&path, "workspace-1").unwrap();
+    quota::establish(&store, &run_owner()).unwrap();
+    quota::apply_delta(&store, &run_owner(), 1).unwrap();
+    let before = store_bytes(&path);
+    let latest = store.read_latest().unwrap();
+    for delta in [i128::MAX, i128::MIN] {
+        assert!(quota::apply_delta(&store, &run_owner(), delta).is_err());
+        assert_eq!(quota::read_used(&store, &run_owner()).unwrap()["used"], "1");
+        assert_eq!(store.read_latest().unwrap(), latest);
+        assert_eq!(store_bytes(&path), before);
+    }
+    assert_eq!(
+        quota::apply_delta(&store, &run_owner(), 1).unwrap()["used"],
+        "2"
+    );
+}

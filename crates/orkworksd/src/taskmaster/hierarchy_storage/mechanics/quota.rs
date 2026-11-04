@@ -98,7 +98,9 @@ pub(crate) fn apply_delta(store: &Connection, owner: &Value, delta: i128) -> Res
             .ok_or(HierarchyStorageError("quota row"))?;
         // Checked nonzero-allowed counter arithmetic in i128 space; the
         // cap comparison stays in i128 so no cast can truncate.
-        let candidate = used as i128 + delta;
+        let candidate = i128::from(used)
+            .checked_add(delta)
+            .ok_or(HierarchyStorageError("quota delta"))?;
         ensure(candidate >= 0, "quota delta")?;
         ensure(candidate <= i128::from(cap), "quota capacity")?;
         let candidate = candidate as u64;
