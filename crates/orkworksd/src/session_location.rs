@@ -152,3 +152,6 @@ fn git_changes_root(cwd: &std::path::Path) -> Result<PathBuf, String> {
         .canonicalize()
         .map_err(|_| "Worktree unavailable.".into())
 }
+
+#[cfg(all(test, unix))]
+mod lifecycle_tests;
