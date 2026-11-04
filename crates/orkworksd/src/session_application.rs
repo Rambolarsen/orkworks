@@ -3690,10 +3690,28 @@ impl SessionApplication {
         &self,
         identity: WorkspaceIdentity,
     ) -> Result<WorkspaceSnapshot, SessionError> {
-        if self.state.projection_lock.is_poisoned() {
-            tracing::error!("workspace update blocked by poisoned projection lock");
-            return Err(SessionError::Internal("application operation failed"));
-        }
+        self.open_workspace_inner(
+            identity,
+            #[cfg(test)]
+            None,
+        )
+    }
+
+    fn open_workspace_inner(
+        &self,
+        identity: WorkspaceIdentity,
+        #[cfg(test)] after_harness_snapshot: Option<&dyn Fn()>,
+    ) -> Result<WorkspaceSnapshot, SessionError> {
+        // Retired resources outlive projection admission on success and errors.
+        let before;
+        let revocation;
+        let retired;
+        // Harness snapshot publication and all preparation share the same fence
+        // as catalog mutations. The HTTP boundary delegates this single owner.
+        let projection = self.state.projection_lock.lock().map_err(|error| {
+            tracing::error!(%error, "workspace update blocked by poisoned projection lock");
+            SessionError::Internal("application operation failed")
+        })?;
         let path = identity.canonical_path().to_path_buf();
         let global_dir =
             orkworks_global_dir(&path).ok_or(SessionError::Internal("no home directory"))?;
@@ -3751,6 +3769,10 @@ impl SessionApplication {
             );
             SessionError::Internal("failed to load harness configuration")
         })?;
+        #[cfg(test)]
+        if let Some(observe) = after_harness_snapshot {
+            observe();
+        }
         *self
             .state
             .harness_catalog
@@ -3788,8 +3810,8 @@ impl SessionApplication {
         let active_harness_revision = memory.active_harness_revision;
 
         // Ordinary store open may recover/rewrite graph files. Keep its existing
-        // writer fence during preflight, then release it BEFORE projection and
-        // evaluation close. Refresh the cached workflow store at final adoption:
+        // writer fence during preflight, then release it BEFORE evaluation
+        // close. Refresh the cached workflow store at final adoption:
         // writers may accept observations while the evaluation cutoff waits.
         let preparing_workspace = self.state.workspace.lock().unwrap();
         crate::workflow_observations::WorkflowObservationStore::open(global_dir.clone())
@@ -3816,14 +3838,6 @@ impl SessionApplication {
             ));
         }
         drop(preparing_workspace);
-        // Retired resources outlive every ordinary guard, including error tails.
-        let before;
-        let revocation;
-        let retired;
-        let projection = self.state.projection_lock.lock().map_err(|error| {
-            tracing::error!(%error, "workspace update blocked by poisoned projection lock");
-            SessionError::Internal("application operation failed")
-        })?;
         (before, revocation) = {
             let workspace = self.state.workspace.lock().unwrap();
             (

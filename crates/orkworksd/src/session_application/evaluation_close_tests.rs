@@ -717,3 +717,79 @@ fn evaluation_close_workspace_reload_preserves_observation_recorded_during_cutof
         matches!(next.unwrap(), RecordOutcome::Accepted(observation) if observation.sequence > first.sequence)
     );
 }
+
+#[test]
+fn evaluation_close_workspace_snapshot_cannot_overwrite_acknowledged_harness_mutation() {
+    let (root, state, _authority, _) = fixture();
+    let home = tempfile::tempdir().unwrap();
+    let fake_home = crate::test_support::FakeHome::set(home.path());
+    let identity = WorkspaceIdentity::resolve(root.path()).unwrap();
+    let (loaded_tx, loaded_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let opening_state = state.clone();
+    let opening = std::thread::spawn(move || {
+        SessionApplication::new(opening_state).open_workspace_inner(
+            identity,
+            Some(&|| {
+                loaded_tx.send(()).unwrap();
+                release_rx
+                    .recv_timeout(std::time::Duration::from_secs(5))
+                    .unwrap();
+            }),
+        )
+    });
+    loaded_rx
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap();
+    let mutation_state = state.clone();
+    let mutate = move || {
+        let revision = mutation_state
+            .harness_store
+            .snapshot()
+            .unwrap()
+            .document_revision;
+        mutation_state
+            .harness_store
+            .mutate_at(&mutation_state.harness_catalog, revision, |document| {
+                document.overrides.entry("codex".into()).or_default().name =
+                    Some("Acknowledged edit".into());
+                Ok(())
+            })
+            .unwrap();
+    };
+    // If admission is available, complete the mutation before releasing the
+    // stale snapshot. Otherwise the real mutation waits behind adoption.
+    // Both schedules must preserve the acknowledged edit in the live catalog.
+    let mutation = match state.projection_lock.try_lock() {
+        Ok(_projection) => {
+            mutate();
+            None
+        }
+        Err(std::sync::TryLockError::WouldBlock) => {
+            let mutation_state = state.clone();
+            Some(std::thread::spawn(move || {
+                let _projection = mutation_state.projection_lock.lock().unwrap();
+                mutate();
+            }))
+        }
+        Err(std::sync::TryLockError::Poisoned(_)) => panic!("projection must be healthy"),
+    };
+    release_tx.send(()).unwrap();
+    let opened = opening.join().unwrap();
+    if let Some(mutation) = mutation {
+        mutation.join().unwrap();
+    }
+    let persisted = state.harness_store.snapshot().unwrap();
+    let catalog = state.harness_catalog.read().unwrap().clone();
+    drop(fake_home);
+    opened.unwrap();
+    assert_eq!(
+        persisted.registry.get("codex").unwrap().definition.name,
+        "Acknowledged edit"
+    );
+    assert_eq!(
+        catalog.get("codex").unwrap().definition.name,
+        "Acknowledged edit",
+        "workspace snapshot must not overwrite an acknowledged harness mutation"
+    );
+}

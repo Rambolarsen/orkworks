@@ -279,3 +279,40 @@ compiler warnings remain unrelated. Documentation currency was assessed: the
 correction preserves observation retention during reload, with no new UI,
 schema, onboarding or published capability claim. Required CI and current-head
 Codex review are checked on the correction commit before merge.
+
+
+### Review correction: harness publication admission
+
+The next Codex pass identified preparation running before projection admission:
+workspace open could load an old harness snapshot, overlap an acknowledged
+projection-serialized harness mutation, then publish its stale registry. A
+per-invocation test-only barrier now pauses the actual snapshot-to-publication
+seam. With late admission the real mutation persists its edit, but workspace
+open overwrites the live catalog with the old name; the regression fails on that
+observable mismatch. No sleeps or global hooks establish the schedule.
+
+Projection admission now starts before workspace preparation, restoring the
+former HTTP outer fence while keeping the application its sole owner. The
+reader/lease and retired-resource declarations precede the guard, so their Drop
+tails remain outside it. Workspace writer locks are still released before the
+publication cutoff, and the workflow snapshot is still refreshed immediately
+before adoption because observation recording does not acquire projection.
+This supersedes earlier descriptions of acquiring projection after preparation;
+there is one early poison-aware acquisition and no nested HTTP acquisition.
+
+
+The exact harness overwrite regression and all 33 focused lifecycle tests pass.
+Independent `/code-review low` approved this correction against head7c84b31b,
+reviewing source blobs2b860e09cd4fc567cc471b29f9789bb73ba00b08 and
+1be00cc5e22e28b1b5af416da29ab8f2983d91dd. The reviewer checked writer lock order,
+sole projection ownership, drop ordering and the deterministic mutation schedule;
+the parent ran tests. Full repository verification is rerun before commit.
+
+
+Full `bash scripts/verify-repo.sh` passed after the harness correction:
+2,916 Rust unit tests passed (17 existing ignored) plus integrations, 20 reporter
+tests, desktop type/native/tests/build (1,691 passed, three existing skipped),
+1,202 docs tests/site build and all fmt/diff/doc/worktree checks. Currency
+warnings were assessed: the restored catalog serialization changes no UI/schema,
+onboarding or published capability claim. The actual source hashes still match
+the approved correction. Current-head PR checks/review remain delivery gates.
