@@ -769,7 +769,13 @@ impl SessionProjection {
         }
         let live_sessions: Vec<_> = sessions
             .values()
-            .map(|handle| (handle.info.clone(), handle.capacity.clone()))
+            .map(|handle| {
+                (
+                    handle.info.clone(),
+                    handle.capacity.clone(),
+                    handle.runtime.usage_limit_latched_at,
+                )
+            })
             .collect();
         let durable_harnesses: HashMap<String, String> = projected_infos
             .iter()
@@ -791,7 +797,7 @@ impl SessionProjection {
         let mut pending_transitions: Vec<(String, bool)> = Vec::new();
         let capacity_infos: Vec<SessionInfo> = live_sessions
             .into_iter()
-            .map(|(info, capacity)| {
+            .map(|(info, capacity, latched_at)| {
                 let id = info.id.clone();
                 let live_harness_id = info.harness_id.clone();
                 let mut merged = projected_infos
@@ -829,6 +835,15 @@ impl SessionProjection {
                     merged.usage_limit_reset_hint = detected_reset_hint;
                 }
                 merged.capacity_check_pending = capacity.rendered_check_pending();
+                // Projected only for this session's own latch (issue #1082:
+                // the aged "Capped · detected <time> ago" display needs the
+                // detection time; inherited peer displays deliberately have
+                // no own latch timestamp to age).
+                merged.usage_limit_latched_at = if merged.at_usage_limit == Some(true) {
+                    latched_at.map(|timestamp| timestamp.to_rfc3339())
+                } else {
+                    None
+                };
 
                 let scanned = prepared
                     .get(&id)
@@ -856,6 +871,7 @@ impl SessionProjection {
             info.at_usage_limit = capacity_info.at_usage_limit;
             info.capacity_check_pending = capacity_info.capacity_check_pending;
             info.usage_limit_reset_hint = capacity_info.usage_limit_reset_hint.clone();
+            info.usage_limit_latched_at = capacity_info.usage_limit_latched_at.clone();
             if capacity_info.at_usage_limit == Some(true) && info.lifecycle == "alive" {
                 info.attention = capacity_info.attention.clone();
             }
@@ -1484,6 +1500,17 @@ mod tests {
         assert_eq!(peer.at_usage_limit, Some(true));
         assert_eq!(peer.attention.as_deref(), Some("capped"));
         assert_eq!(peer.usage_limit_inherited, Some(true));
+
+        // The next projection carries the detecting session's own latch
+        // timestamp for the aged display; the peer has no own latch to age.
+        let again = projection.list().unwrap();
+        let source = again.iter().find(|info| info.id == "lag-test").unwrap();
+        let peer = again.iter().find(|info| info.id == "cap-peer").unwrap();
+        assert!(source.usage_limit_latched_at.is_some());
+        assert_eq!(
+            peer.usage_limit_latched_at, None,
+            "inherited display carries no own latch timestamp to age"
+        );
 
         // The source recovers on accepted input plus fresh clean output; the
         // peer's displayed state must clear with it.
