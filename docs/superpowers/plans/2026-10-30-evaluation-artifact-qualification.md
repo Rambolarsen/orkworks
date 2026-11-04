@@ -321,3 +321,20 @@ error, missing accepted obligation or invented decision. The inspection remains
 bounded rather than an exhaustive writer census, database/index qualification or
 native result; its negative searches are not impossibility proofs. No unchanged
 technical artifact or accepted choice was reopened.
+
+
+## Authority core complete; close-only proposal — 2026-11-04
+
+The owner accepted the bounded first unit; [PR #1379](https://github.com/Rambolarsen/orkworks/pull/1379)
+merged the private non-I/O authority core and 23 deterministic tests, closing
+#1376. Earlier pending-owner wording above is historical for that first unit.
+No production source/runtime/storage integration or complete profile follows.
+
+[#1380](https://github.com/Rambolarsen/orkworks/issues/1380) now proposes
+[optional close-only lifecycle plumbing](../specs/2026-11-04-evaluation-publication-authority-design.md#close-only-lifecycle-proposal--2026-11-04)
+with a source-backed terminal-root inventory and conditional coupled plan.
+Every production carrier would remain None, with no constructor or attachment;
+this requests a new scoped decision for call-site routing/tests only. Actual
+source/ordinary bridge, resource/catalog/native and active adoption gates remain.
+Gate 2 stays Investigate; #1176 stays open. #740 itself is completed research,
+with its downstream evidence limitations preserved rather than reopened.

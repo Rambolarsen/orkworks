@@ -289,3 +289,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Captured ending provider context](2026-11-04-ending-provider-writes.md) — Scoped SQL provider writes from the original final-scan owner.
 
 - [Non-I/O evaluation authority core](2026-11-04-evaluation-authority-core.md) — Approved bounded first-unit plan for private in-memory claim/close/response ordering and deterministic tests.
+
+- [Dormant evaluation lifecycle close plumbing](2026-11-04-evaluation-lifecycle-close-plumbing.md) — Conditional next-unit plan for exact optional revocation carriers and ordinary lifecycle close routing; owner acceptance pending.
