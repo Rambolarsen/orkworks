@@ -329,3 +329,5 @@ impl Authority {
 }
 #[cfg(test)]
 mod tests;
+
+pub(crate) mod lifecycle;

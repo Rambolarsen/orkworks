@@ -502,8 +502,47 @@ impl RuntimePromptKind {
     }
 }
 
+#[cfg(test)]
+#[derive(Debug)]
+enum EvaluationWriterFault {
+    Panic,
+    Reject,
+}
+#[cfg(test)]
+struct EvaluationWriterFaultConfig {
+    kind: EvaluationWriterFault,
+    retained: Arc<Mutex<Option<Box<dyn Write + Send>>>>,
+}
+#[cfg(test)]
+impl std::fmt::Debug for EvaluationWriterFaultConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("EvaluationWriterFaultConfig")
+            .field(&self.kind)
+            .finish()
+    }
+}
+
+#[cfg(test)]
+impl Write for EvaluationWriterFault {
+    fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+        match self {
+            Self::Panic => panic!("synthetic PTY writer panic"),
+            Self::Reject => Ok(0),
+        }
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct SessionRuntime {
+    #[cfg(test)]
+    evaluation_driver_abort: Option<tokio::task::AbortHandle>,
+    #[cfg(test)]
+    evaluation_writer_fault: Option<EvaluationWriterFaultConfig>,
+    pub(crate) evaluation_revocation:
+        Option<crate::taskmaster::publication_lifecycle::RuntimeRevocation>,
     pub(crate) runtime_instance_id: String,
     run_generation: RuntimeGeneration,
     startup_spawned: bool,
@@ -558,6 +597,11 @@ impl SessionRuntime {
         let (output_tx, _) = broadcast::channel(256);
         (
             Self {
+                #[cfg(test)]
+                evaluation_driver_abort: None,
+                #[cfg(test)]
+                evaluation_writer_fault: None,
+                evaluation_revocation: None,
                 runtime_instance_id: uuid::Uuid::new_v4().to_string(),
                 run_generation: next_runtime_generation(),
                 startup_spawned: false,
@@ -609,6 +653,9 @@ impl SessionRuntime {
         let (control_tx, _control_rx) = mpsc::channel(CONTROL_CHANNEL_CAPACITY);
         let (output_tx, _) = broadcast::channel(256);
         Self {
+            evaluation_driver_abort: None,
+            evaluation_writer_fault: None,
+            evaluation_revocation: None,
             runtime_instance_id: uuid::Uuid::new_v4().to_string(),
             run_generation: next_runtime_generation(),
             startup_spawned: false,
@@ -887,19 +934,85 @@ pub(crate) fn release_attachment(state: &Arc<AppState>, id: &str, generation: u6
     }
 }
 
+/// An exact ordinary stop snapshot; it never creates or opens evaluation authority.
+pub(crate) struct CapturedRuntimeStop {
+    pub(crate) identity: RuntimeIdentity,
+    revocation: Option<crate::taskmaster::publication_lifecycle::RuntimeRevocation>,
+    kill: tokio::sync::watch::Sender<bool>,
+}
+impl CapturedRuntimeStop {
+    pub(crate) fn capture(handle: &crate::SessionHandle) -> Self {
+        Self {
+            identity: handle.runtime.identity(),
+            revocation: handle.runtime.evaluation_revocation.clone(),
+            kill: handle.kill_tx.clone(),
+        }
+    }
+    pub(crate) fn close(&self) {
+        if let Some(handle) = &self.revocation {
+            handle.close();
+        }
+    }
+    pub(crate) fn signal(&self, state: &AppState, id: &str) -> Result<(), ()> {
+        let sessions = state.sessions.lock().unwrap();
+        if !sessions
+            .get(id)
+            .is_some_and(|h| h.runtime.matches_identity(&self.identity))
+        {
+            return Err(());
+        }
+        self.kill.send_replace(true);
+        Ok(())
+    }
+}
+
+pub(crate) fn send_runtime_kill(
+    state: &AppState,
+    id: &str,
+    expected: Option<&RuntimeIdentity>,
+) -> Result<(), ()> {
+    // As before, terminal kill does not wait for unrelated workspace I/O.
+    // Exact identity is revalidated under sessions after the separate cutoff.
+    let captured = {
+        let sessions = state.sessions.lock().unwrap();
+        let handle = sessions.get(id).ok_or(())?;
+        if expected.is_some_and(|identity| !handle.runtime.matches_identity(identity)) {
+            return Err(());
+        }
+        CapturedRuntimeStop::capture(handle)
+    };
+    captured.close();
+    captured.signal(state, id)
+}
+
+/// Backstop only; primary runtime owners retain their exact carrier across awaits.
+pub(crate) fn close_runtime_generation(
+    state: &AppState,
+    id: &str,
+    expected: Option<RuntimeGeneration>,
+) -> Option<RuntimeIdentity> {
+    let captured = {
+        let sessions = state.sessions.lock().unwrap();
+        let handle = sessions
+            .get(id)
+            .filter(|h| expected.is_none_or(|g| h.runtime.run_generation() == g))?;
+        CapturedRuntimeStop::capture(handle)
+    };
+    captured.close();
+    Some(captured.identity)
+}
+
 pub(crate) async fn send_runtime_command(
     state: &Arc<AppState>,
     id: &str,
     command: RuntimeCommand,
 ) -> Result<(), ()> {
+    if matches!(command, RuntimeCommand::Kill) {
+        return send_runtime_kill(state, id, None);
+    }
     let tx = {
         let sessions = state.sessions.lock().unwrap();
-        let handle = sessions.get(id).ok_or(())?;
-        if matches!(command, RuntimeCommand::Kill) {
-            handle.kill_tx.send_replace(true);
-            return Ok(());
-        }
-        handle.runtime.control_tx.clone()
+        sessions.get(id).ok_or(())?.runtime.control_tx.clone()
     };
     tx.send(command).await.map_err(|_| ())
 }
@@ -1184,6 +1297,7 @@ pub(crate) async fn handle_runtime_exit(
     generation: RuntimeGeneration,
     status: &str,
 ) -> bool {
+    close_runtime_generation(state, id, Some(generation));
     state.updates.sessions_changed();
     let owns_generation = state
         .sessions
@@ -1328,6 +1442,7 @@ fn abort_post_spawn_startup(
     generation: RuntimeGeneration,
     child: &mut dyn portable_pty::Child,
 ) -> bool {
+    close_runtime_generation(state, id, Some(generation));
     let _ = child.kill();
     let _ = child.wait();
 
@@ -1934,7 +2049,7 @@ fn complete_initial_editor_prompt(
     false
 }
 
-pub(crate) async fn start_session_runtime(
+pub(crate) fn start_session_runtime(
     state: Arc<AppState>,
     id: String,
     command: harness::CommandSpec,
@@ -1943,7 +2058,7 @@ pub(crate) async fn start_session_runtime(
     output_tx: broadcast::Sender<RuntimeEvent>,
     kill_rx: tokio::sync::watch::Receiver<bool>,
     initial_size: PtySize,
-) -> Result<(), String> {
+) -> impl std::future::Future<Output = Result<(), String>> {
     start_session_runtime_inner(
         state,
         id,
@@ -1957,10 +2072,66 @@ pub(crate) async fn start_session_runtime(
         #[cfg(test)]
         None,
     )
-    .await
 }
 
-async fn start_session_runtime_inner(
+struct RuntimeStartup {
+    run_generation: RuntimeGeneration,
+    is_codex_session: bool,
+    has_initial_editor: bool,
+    initial_editor_harness: Option<String>,
+    revocation: crate::taskmaster::publication_lifecycle::TaskRevocationGuard,
+}
+
+fn start_session_runtime_inner(
+    state: Arc<AppState>,
+    id: String,
+    command: harness::CommandSpec,
+    initial_prompt: Option<String>,
+    control_rx: mpsc::Receiver<RuntimeCommand>,
+    output_tx: broadcast::Sender<RuntimeEvent>,
+    kill_rx: tokio::sync::watch::Receiver<bool>,
+    initial_size: PtySize,
+    exit_observed_tx: Option<tokio::sync::mpsc::UnboundedSender<()>>,
+    #[cfg(test)] _native_fixture: Option<(
+        super::codex_native::NativeLaunchPlan,
+        Vec<(String, String)>,
+    )>,
+) -> impl std::future::Future<Output = Result<(), String>> {
+    // Captured synchronously; dropping the returned unpolled future revokes this exact owner.
+    let captured = state.sessions.lock().unwrap().get(&id).map(|handle| {
+        let harness = handle
+            .info
+            .harness_id
+            .as_deref()
+            .or(handle.info.harness.as_deref());
+        RuntimeStartup {
+            run_generation: handle.runtime.run_generation(),
+            is_codex_session: handle.info.harness.as_deref() == Some("codex")
+                || handle.info.harness_id.as_deref() == Some("codex"),
+            has_initial_editor: matches!(harness, Some("codex" | "opencode" | "claude-code")),
+            initial_editor_harness: harness.map(str::to_string),
+            revocation: crate::taskmaster::publication_lifecycle::TaskRevocationGuard(
+                handle.runtime.evaluation_revocation.clone(),
+            ),
+        }
+    });
+    run_session_runtime(
+        state,
+        id,
+        command,
+        initial_prompt,
+        control_rx,
+        output_tx,
+        kill_rx,
+        initial_size,
+        exit_observed_tx,
+        captured,
+        #[cfg(test)]
+        _native_fixture,
+    )
+}
+
+async fn run_session_runtime(
     state: Arc<AppState>,
     id: String,
     mut command: harness::CommandSpec,
@@ -1970,31 +2141,19 @@ async fn start_session_runtime_inner(
     mut kill_rx: tokio::sync::watch::Receiver<bool>,
     initial_size: PtySize,
     mut exit_observed_tx: Option<tokio::sync::mpsc::UnboundedSender<()>>,
+    captured: Option<RuntimeStartup>,
     #[cfg(test)] _native_fixture: Option<(
         super::codex_native::NativeLaunchPlan,
         Vec<(String, String)>,
     )>,
 ) -> Result<(), String> {
-    let (run_generation, is_codex_session, has_initial_editor, initial_editor_harness) = state
-        .sessions
-        .lock()
-        .unwrap()
-        .get(&id)
-        .map(|handle| {
-            let harness = handle
-                .info
-                .harness_id
-                .as_deref()
-                .or(handle.info.harness.as_deref());
-            (
-                handle.runtime.run_generation(),
-                handle.info.harness.as_deref() == Some("codex")
-                    || handle.info.harness_id.as_deref() == Some("codex"),
-                matches!(harness, Some("codex" | "opencode" | "claude-code")),
-                harness.map(str::to_string),
-            )
-        })
-        .ok_or_else(|| "session runtime handle is not installed".to_string())?;
+    let RuntimeStartup {
+        run_generation,
+        is_codex_session,
+        has_initial_editor,
+        initial_editor_harness,
+        revocation,
+    } = captured.ok_or_else(|| "session runtime handle is not installed".to_string())?;
     if *kill_rx.borrow() || startup_generation_is_ending(&state, &id, run_generation) {
         return Err("session runtime was deleted during startup".into());
     }
@@ -2087,13 +2246,13 @@ async fn start_session_runtime_inner(
     // before the child is spawned rather than ever hand out an empty or
     // predictable token.
     let report_token = new_workflow_report_token().map_err(|error| {
-        tracing::error!(
-            session_id = %id,
-            %error,
-            "failed to generate a workflow-observation reporting capability; aborting session startup"
-        );
-        "failed to generate a secure workflow-observation reporting capability".to_string()
-    })?;
+    tracing::error!(
+        session_id = %id,
+        %error,
+        "failed to generate a workflow-observation reporting capability; aborting session startup"
+    );
+    "failed to generate a secure workflow-observation reporting capability".to_string()
+})?;
     let codex_hook_report_relay = if is_codex_session {
         match super::codex_hook_report_relay::CodexHookReportRelay::new() {
             Ok(relay) => {
@@ -2132,6 +2291,7 @@ async fn start_session_runtime_inner(
     set_workflow_report_token(&id, report_token.clone());
     let mut native = if let Some(plan) = native_plan {
         if *kill_rx.borrow() || startup_generation_is_ending(&state, &id, run_generation) {
+            revocation.close();
             clear_workflow_report_token_if_matches(&id, &report_token);
             return Err("session runtime was replaced before native startup".into());
         }
@@ -2139,12 +2299,15 @@ async fn start_session_runtime_inner(
         let mut owned = match plan.start(&execution_env).await {
             Ok(owned) => owned,
             Err(error) => {
+                revocation.close();
                 clear_workflow_report_token_if_matches(&id, &report_token);
                 return Err(error);
             }
         };
         if *kill_rx.borrow() || startup_generation_is_ending(&state, &id, run_generation) {
+            revocation.close();
             owned.shutdown().await;
+            revocation.close();
             clear_workflow_report_token_if_matches(&id, &report_token);
             return Err("session runtime was deleted during native startup".into());
         }
@@ -2164,6 +2327,7 @@ async fn start_session_runtime_inner(
     if native.is_some()
         && (*kill_rx.borrow() || startup_generation_is_ending(&state, &id, run_generation))
     {
+        revocation.close();
         stop_native_startup(&mut native).await;
         clear_workflow_report_token_if_matches(&id, &report_token);
         return Err("session runtime was replaced before native PTY spawn".into());
@@ -2171,6 +2335,7 @@ async fn start_session_runtime_inner(
     // Revalidate at the actual native PTY spawn, after every awaited step.
     if let Some(owned) = native.as_ref() {
         if let Err(error) = owned.revalidate_tui_executable() {
+            revocation.close();
             stop_native_startup(&mut native).await;
             clear_workflow_report_token_if_matches(&id, &report_token);
             return Err(error);
@@ -2179,6 +2344,7 @@ async fn start_session_runtime_inner(
     let mut child = match pair.slave.spawn_command(cmd) {
         Ok(child) => child,
         Err(error) => {
+            revocation.close();
             stop_native_startup(&mut native).await;
             clear_workflow_report_token_if_matches(&id, &report_token);
             if let Some((_, generation)) = &prompt_generation {
@@ -2200,6 +2366,7 @@ async fn start_session_runtime_inner(
         .map(|handle| handle.runtime.mark_startup_spawned())
         .is_some();
     if !owns_spawned_generation {
+        revocation.close();
         stop_native_startup(&mut native).await;
         let _ = child.kill();
         let _ = child.wait();
@@ -2216,6 +2383,7 @@ async fn start_session_runtime_inner(
     // The PTY has spawned, so the lifecycle is alive before either background
     // task can observe and classify its first output chunk.
     if startup_generation_is_ending(&state, &id, run_generation) {
+        revocation.close();
         stop_native_startup(&mut native).await;
         abort_post_spawn_startup(&state, &id, run_generation, child.as_mut());
         return Err("session runtime was deleted during startup".into());
@@ -2223,6 +2391,7 @@ async fn start_session_runtime_inner(
     #[cfg(test)]
     wait_at_startup_ending_check(&id).await;
     if !set_session_status_for_generation(&state, &id, run_generation, "running").await {
+        revocation.close();
         stop_native_startup(&mut native).await;
         let _ = abort_post_spawn_startup(&state, &id, run_generation, child.as_mut());
         return Err("session runtime was replaced during startup".into());
@@ -2231,6 +2400,7 @@ async fn start_session_runtime_inner(
     let mut reader = match pair.master.try_clone_reader() {
         Ok(reader) => reader,
         Err(error) => {
+            revocation.close();
             stop_native_startup(&mut native).await;
             let _ = abort_post_spawn_startup(&state, &id, run_generation, child.as_mut());
             return Err(error.to_string());
@@ -2250,11 +2420,32 @@ async fn start_session_runtime_inner(
     let writer = match pair.master.take_writer() {
         Ok(writer) => writer,
         Err(error) => {
+            revocation.close();
             stop_native_startup(&mut native).await;
             let _ = abort_post_spawn_startup(&state, &id, run_generation, child.as_mut());
             return Err(error.to_string());
         }
     };
+    #[cfg(test)]
+    let writer = {
+        let fault = {
+            let mut sessions = state.sessions.lock().unwrap();
+            sessions
+                .get_mut(&id)
+                .filter(|h| h.runtime.run_generation() == run_generation)
+                .and_then(|h| h.runtime.evaluation_writer_fault.take())
+        };
+        match fault {
+            Some(fault) => {
+                // portable-pty's writer Drop sends newline/EOF. The test owner
+                // retains it so fault injection cannot terminate the child first.
+                *fault.retained.lock().unwrap() = Some(writer);
+                Box::new(fault.kind) as Box<dyn Write + Send>
+            }
+            None => writer,
+        }
+    };
+
     let master = Arc::new(Mutex::new(pair.master));
     let killer = Arc::new(Mutex::new(child.clone_killer()));
 
@@ -2379,7 +2570,7 @@ async fn start_session_runtime_inner(
     let driver_id = id.clone();
     let driver_output_tx = output_tx.clone();
     let driver_killer = killer.clone();
-    tokio::spawn(async move {
+    let driver_task = tokio::spawn(async move {
         let mut native_observer = native_observer;
         let mut native_failure_handled = false;
         let mut native_server_failed = false;
@@ -2441,6 +2632,7 @@ async fn start_session_runtime_inner(
                 if let Some(write) = &pending_write {
                     write.cancel();
                 }
+                revocation.close();
                 let _ = driver_killer.lock().unwrap().kill();
             }
             if child_exit.is_none() && kill_requested {
@@ -2513,6 +2705,7 @@ async fn start_session_runtime_inner(
                         }
                         RuntimeCommand::Kill => {
                             kill_requested = true;
+                            revocation.close();
                             let _ = driver_killer.lock().unwrap().kill();
                             continue;
                         }
@@ -2534,7 +2727,8 @@ async fn start_session_runtime_inner(
                         Some(NativeObserverFailure::ServerExited)
                     );
                     kill_requested = true;
-                    let _ = driver_killer.lock().unwrap().kill();
+                    revocation.close();
+                let _ = driver_killer.lock().unwrap().kill();
                 }
                 result = async { (&mut pending_write.as_mut().expect("pending write").task).await }, if pending_write.is_some() => {
                     pending_write = None;
@@ -2547,7 +2741,8 @@ async fn start_session_runtime_inner(
                                 {
                                     initial_prompt_failed = true;
                                     kill_requested = true;
-                                    let _ = driver_killer.lock().unwrap().kill();
+                                    revocation.close();
+                let _ = driver_killer.lock().unwrap().kill();
                                 }
                             }
                             if initial_editor.as_ref().is_some_and(|initial| !initial.pending()) {
@@ -2564,7 +2759,8 @@ async fn start_session_runtime_inner(
                             if child_exit.is_none() {
                                 tracing::warn!(session_id = %driver_id, %error, "PTY writer task failed");
                                 kill_requested = true;
-                                let _ = driver_killer.lock().unwrap().kill();
+                                revocation.close();
+                let _ = driver_killer.lock().unwrap().kill();
                             }
                         }
                     }
@@ -2605,13 +2801,15 @@ async fn start_session_runtime_inner(
                         Ok(()) if *kill_rx.borrow() => {
                             kill_requested = true;
                             if let Some(write) = &pending_write { write.cancel(); }
-                            let _ = driver_killer.lock().unwrap().kill();
+                            revocation.close();
+                let _ = driver_killer.lock().unwrap().kill();
                         }
                         Ok(()) => {}
-                        Err(_) => break,
+                        Err(_) => { revocation.close(); break; },
                     }
                 }
                 exit = child_exit_rx.recv(), if child_exit.is_none() => {
+                    revocation.close();
                     child_exit = Some(exit.unwrap_or_else(|| Err("child wait task ended without an exit result".into())));
                     if let Some(handle) = driver_state
                         .sessions
@@ -2822,7 +3020,7 @@ async fn start_session_runtime_inner(
                     }
 
                 }
-                else => break,
+                else => { revocation.close(); break; },
             }
 
             if should_finalize_driver_exit(
@@ -2967,6 +3165,18 @@ async fn start_session_runtime_inner(
             }
         }
     });
+
+    #[cfg(test)]
+    {
+        let mut sessions = state.sessions.lock().unwrap();
+        if let Some(handle) = sessions
+            .get_mut(&id)
+            .filter(|h| h.runtime.run_generation() == run_generation)
+        {
+            handle.runtime.evaluation_driver_abort = Some(driver_task.abort_handle());
+        }
+    }
+    drop(driver_task); // Dropping JoinHandle detaches; only tests retain an abort handle.
 
     // Give request-cancellation regressions a deterministic post-spawn window
     // after the child and driver are established but before the caller commits
@@ -3751,7 +3961,9 @@ mod tests {
                     .lock()
                     .unwrap()
                     .take();
-            let (runtime, control_rx) = SessionRuntime::live(24, 80);
+            let authority = crate::taskmaster::publication_lifecycle::testing::Fixture::new();
+            let (mut runtime, control_rx) = SessionRuntime::live(24, 80);
+            runtime.evaluation_revocation = Some(authority.runtime.clone());
             let output = runtime.output_tx.clone();
             let mut events = output.subscribe();
             let (kill_tx, kill_rx) = tokio::sync::watch::channel(false);
@@ -3921,6 +4133,10 @@ mod tests {
                 tokio::time::sleep(std::time::Duration::from_millis(20)).await;
             }
             assert!(!super::super::terminal_runtime::has_workflow_report_capability(&id));
+            assert!(
+                !authority.can_respond(),
+                "synthetic native exit/failure must close its exact binding"
+            );
         }
     }
 
@@ -4063,6 +4279,7 @@ mod tests {
         let state = test_state_with_runtime_session(&id);
         let metadata_root = dir.path().join("metadata");
         *state.workspace.lock().unwrap() = Some(crate::WorkspaceState {
+            evaluation_revocation: None,
             path: dir.path().into(),
             metadata: crate::metadata::MetadataStore::new(&metadata_root),
             workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
@@ -5269,6 +5486,7 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
         let state = test_state_with_runtime_session(session_id);
         let metadata_root = dir.path().join(".orkworks-test");
         *state.workspace.lock().unwrap() = Some(crate::WorkspaceState {
+            evaluation_revocation: None,
             path: dir.path().to_path_buf(),
             metadata: crate::metadata::MetadataStore::new(&metadata_root),
             workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
@@ -5440,6 +5658,7 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
     fn ingestion_test_workspace(state: &Arc<crate::AppState>, dir: &tempfile::TempDir) {
         let metadata_root = dir.path().join(".orkworks-test");
         *state.workspace.lock().unwrap() = Some(crate::WorkspaceState {
+            evaluation_revocation: None,
             path: dir.path().to_path_buf(),
             metadata: crate::metadata::MetadataStore::new(&metadata_root),
             workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
@@ -6113,6 +6332,7 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
         let state = test_state_with_runtime_session(session_id);
         let metadata_root = dir.path().join(".orkworks-test");
         *state.workspace.lock().unwrap() = Some(crate::WorkspaceState {
+            evaluation_revocation: None,
             path: dir.path().to_path_buf(),
             metadata: crate::metadata::MetadataStore::new(&metadata_root),
             workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
@@ -6197,6 +6417,7 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
         let state = test_state_with_runtime_session(session_id);
         let metadata_root = dir.path().join(".orkworks-test");
         *state.workspace.lock().unwrap() = Some(crate::WorkspaceState {
+            evaluation_revocation: None,
             path: dir.path().to_path_buf(),
             metadata: crate::metadata::MetadataStore::new(&metadata_root),
             workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
@@ -6369,6 +6590,7 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
         let state = test_state_with_runtime_session(session_id);
         let metadata_root = dir.path().join(".orkworks-test");
         *state.workspace.lock().unwrap() = Some(crate::WorkspaceState {
+            evaluation_revocation: None,
             path: dir.path().to_path_buf(),
             metadata: crate::metadata::MetadataStore::new(&metadata_root),
             workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
@@ -7721,6 +7943,7 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
         let state = test_state_with_runtime_session(session_id);
         let metadata_root = dir.path().join(".orkworks-test");
         *state.workspace.lock().unwrap() = Some(crate::WorkspaceState {
+            evaluation_revocation: None,
             path: dir.path().to_path_buf(),
             metadata: crate::metadata::MetadataStore::new(&metadata_root),
             workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
@@ -8151,3 +8374,432 @@ mod native_diagnostic;
 
 #[cfg(test)]
 mod sql_observer_driver_tests;
+
+#[cfg(all(test, unix))]
+mod evaluation_close_driver_tests {
+    use super::*;
+    use crate::taskmaster::publication_lifecycle::testing::Fixture;
+    fn runtime_fixture() -> (
+        tempfile::TempDir,
+        Arc<AppState>,
+        Fixture,
+        mpsc::Receiver<RuntimeCommand>,
+        broadcast::Sender<RuntimeEvent>,
+        tokio::sync::watch::Receiver<bool>,
+    ) {
+        let (root, state, authority, _) =
+            crate::session_application::evaluation_close_tests::fixture();
+        let (mut runtime, control) = SessionRuntime::live(24, 80);
+        runtime.evaluation_revocation = Some(authority.runtime.clone());
+        let output = runtime.output_tx.clone();
+        let kill = {
+            let mut sessions = state.sessions.lock().unwrap();
+            let h = sessions.get_mut("evaluation-close").unwrap();
+            h.runtime = runtime;
+            h.kill_tx.subscribe()
+        };
+        (root, state, authority, control, output, kill)
+    }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn evaluation_close_natural_exit_cutoff_precedes_exit_notification_and_finalization() {
+        let (root, state, authority, control, output, kill) = runtime_fixture();
+        let mut events = output.subscribe();
+        let entered = authority.observe_close();
+        let held = authority.hold_latch();
+        let (observed, mut observation) = mpsc::unbounded_channel();
+        start_session_runtime_inner(
+            state.clone(),
+            "evaluation-close".into(),
+            harness::CommandSpec {
+                program: "/bin/sh".into(),
+                args: vec!["-c".into(), "exit 0".into()],
+                cwd: root.path().display().to_string(),
+            },
+            None,
+            control,
+            output,
+            kill,
+            PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+            Some(observed),
+            None,
+        )
+        .await
+        .unwrap();
+        tokio::task::spawn_blocking(move || {
+            entered.recv_timeout(std::time::Duration::from_secs(3))
+        })
+        .await
+        .unwrap()
+        .unwrap();
+        let notification_waits = observation.try_recv().is_err();
+        let ordinary_locks_free =
+            state.sessions.try_lock().is_ok() && state.workspace.try_lock().is_ok();
+        drop(held);
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                if matches!(events.recv().await.unwrap(), RuntimeEvent::Ended { .. }) {
+                    break;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert!(
+            notification_waits,
+            "exit notification must not precede the close cutoff"
+        );
+        assert!(ordinary_locks_free);
+        assert!(!authority.can_respond());
+    }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn evaluation_close_driver_task_abort_closes_retained_binding() {
+        let (root, state, authority, control, output, kill) = runtime_fixture();
+        start_session_runtime(
+            state.clone(),
+            "evaluation-close".into(),
+            harness::CommandSpec {
+                program: "/bin/sh".into(),
+                args: vec!["-c".into(), "read line".into()],
+                cwd: root.path().display().to_string(),
+            },
+            None,
+            control,
+            output,
+            kill,
+            PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+        )
+        .await
+        .unwrap();
+        let pid = state.session_pids.lock().unwrap()["evaluation-close"];
+        struct OwnedFixturePid(u32);
+        impl Drop for OwnedFixturePid {
+            fn drop(&mut self) {
+                unsafe {
+                    libc::kill(self.0 as i32, libc::SIGKILL);
+                }
+            }
+        }
+        let _cleanup = OwnedFixturePid(pid);
+        assert!(
+            authority.can_respond(),
+            "successful startup transfers rather than drops its guard"
+        );
+        let abort = state.sessions.lock().unwrap()["evaluation-close"]
+            .runtime
+            .evaluation_driver_abort
+            .clone()
+            .unwrap();
+        abort.abort();
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            while !abort.is_finished() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(!authority.can_respond());
+    }
+}
+
+#[cfg(all(test, unix))]
+mod evaluation_close_post_spawn_tests {
+    use super::*;
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn evaluation_close_post_spawn_abort_closes_before_killing_old_child() {
+        let (root, state, old, _) = crate::session_application::evaluation_close_tests::fixture();
+        let id = format!("evaluation-post-spawn-{}", uuid::Uuid::new_v4());
+        let (mut runtime, control) = SessionRuntime::live(24, 80);
+        runtime.evaluation_revocation = Some(old.runtime.clone());
+        let output = runtime.output_tx.clone();
+        let kill = {
+            let mut sessions = state.sessions.lock().unwrap();
+            let mut handle = sessions.remove("evaluation-close").unwrap();
+            handle.info.id = id.clone();
+            handle.runtime = runtime;
+            let kill = handle.kill_tx.subscribe();
+            sessions.insert(id.clone(), handle);
+            kill
+        };
+        let (checked, resume) = pause_startup_after_ending_check(id.clone());
+        let started = tokio::spawn(start_session_runtime(
+            state.clone(),
+            id.clone(),
+            harness::CommandSpec {
+                program: "/bin/sh".into(),
+                args: vec!["-c".into(), "read line".into()],
+                cwd: root.path().display().to_string(),
+            },
+            None,
+            control,
+            output,
+            kill,
+            PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+        ));
+        tokio::time::timeout(std::time::Duration::from_secs(3), checked)
+            .await
+            .unwrap()
+            .unwrap();
+        let pid = state.session_pids.lock().unwrap()[&id];
+        struct OwnedPid(u32);
+        impl Drop for OwnedPid {
+            fn drop(&mut self) {
+                unsafe {
+                    libc::kill(self.0 as i32, libc::SIGKILL);
+                }
+            }
+        }
+        let _cleanup = OwnedPid(pid);
+        let next = crate::taskmaster::publication_lifecycle::testing::Fixture::new();
+        let entered = old.observe_close();
+        let held = old.hold_latch();
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let h = sessions.get_mut(&id).unwrap();
+            h.runtime = SessionRuntime::detached(24, 80);
+            h.runtime.evaluation_revocation = Some(next.runtime.clone());
+        }
+        resume.send(()).unwrap();
+        tokio::task::spawn_blocking(move || {
+            entered.recv_timeout(std::time::Duration::from_secs(3))
+        })
+        .await
+        .unwrap()
+        .unwrap();
+        let child_still_alive = unsafe { libc::kill(pid as i32, 0) } == 0;
+        let sessions_free = state.sessions.try_lock().is_ok();
+        drop(held);
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_secs(5), started)
+                .await
+                .unwrap()
+                .unwrap()
+                .is_err()
+        );
+        assert!(
+            child_still_alive && sessions_free,
+            "cutoff must precede owned-child kill outside session locks"
+        );
+        assert!(!old.can_respond());
+        assert!(next.can_respond());
+    }
+}
+
+#[cfg(all(test, unix))]
+mod evaluation_close_write_failure_tests {
+    use super::*;
+    async fn run_failure(editor: bool) {
+        let (root, state, authority, _) =
+            crate::session_application::evaluation_close_tests::fixture();
+        let (mut runtime, control) = SessionRuntime::live(24, 80);
+        runtime.evaluation_revocation = Some(authority.runtime.clone());
+        let retained = Arc::new(Mutex::new(None));
+        runtime.evaluation_writer_fault = Some(EvaluationWriterFaultConfig {
+            kind: if editor {
+                EvaluationWriterFault::Reject
+            } else {
+                EvaluationWriterFault::Panic
+            },
+            retained: retained.clone(),
+        });
+        let output = runtime.output_tx.clone();
+        let mut events = output.subscribe();
+        let kill = {
+            let mut sessions = state.sessions.lock().unwrap();
+            let h = sessions.get_mut("evaluation-close").unwrap();
+            h.runtime = runtime;
+            if editor {
+                h.info.harness_id = Some("opencode".into());
+            }
+            h.kill_tx.subscribe()
+        };
+        let entered = authority.observe_close();
+        let held = authority.hold_latch();
+        start_session_runtime(
+            state.clone(),
+            "evaluation-close".into(),
+            harness::CommandSpec {
+                program: "/bin/sh".into(),
+                args: vec!["-c".into(), r"printf '\033[?2004h'; read line".into()],
+                cwd: root.path().display().to_string(),
+            },
+            Some("synthetic prompt".into()),
+            control,
+            output,
+            kill,
+            PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+        )
+        .await
+        .unwrap();
+        let pid = state.session_pids.lock().unwrap()["evaluation-close"];
+        struct OwnedPid(u32);
+        impl Drop for OwnedPid {
+            fn drop(&mut self) {
+                unsafe {
+                    libc::kill(self.0 as i32, libc::SIGKILL);
+                }
+            }
+        }
+        let _cleanup = OwnedPid(pid);
+        tokio::task::spawn_blocking(move || {
+            entered.recv_timeout(std::time::Duration::from_secs(10))
+        })
+        .await
+        .unwrap()
+        .unwrap();
+        let alive_before_cutoff = unsafe { libc::kill(pid as i32, 0) } == 0;
+        let ordinary_locks_free =
+            state.sessions.try_lock().is_ok() && state.workspace.try_lock().is_ok();
+        drop(held);
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                if matches!(
+                    events.recv().await.unwrap(),
+                    RuntimeEvent::Ended { .. } | RuntimeEvent::Error { .. }
+                ) {
+                    break;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert!(
+            alive_before_cutoff && ordinary_locks_free,
+            "editor={editor}, child_alive={alive_before_cutoff}, locks_free={ordinary_locks_free}"
+        );
+        assert!(!authority.can_respond());
+    }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn evaluation_close_writer_failure_precedes_owned_child_kill() {
+        run_failure(false).await;
+    }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn evaluation_close_initial_editor_failure_precedes_owned_child_kill() {
+        run_failure(true).await;
+    }
+}
+
+#[cfg(all(test, unix))]
+mod evaluation_close_native_failure_tests {
+    use super::*;
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn evaluation_close_native_observer_failure_precedes_owned_tui_kill() {
+        let (root, state, authority, _) =
+            crate::session_application::evaluation_close_tests::fixture();
+        let id = format!("evaluation-native-failure-{}", uuid::Uuid::new_v4());
+        let (mut runtime, control) = SessionRuntime::live(24, 80);
+        runtime.evaluation_revocation = Some(authority.runtime.clone());
+        let output = runtime.output_tx.clone();
+        let mut events = output.subscribe();
+        let kill = {
+            let mut sessions = state.sessions.lock().unwrap();
+            let mut h = sessions.remove("evaluation-close").unwrap();
+            h.info.id = id.clone();
+            h.info.harness = Some("codex".into());
+            h.runtime = runtime;
+            let kill = h.kill_tx.subscribe();
+            sessions.insert(id.clone(), h);
+            kill
+        };
+        let (plan, environment) = super::super::codex_native::fixture_plan_and_env(
+            root.path(),
+            &state.integration_probe_cache,
+            true,
+        );
+        start_session_runtime_inner(
+            state.clone(),
+            id.clone(),
+            harness::CommandSpec {
+                program: "/bin/echo".into(),
+                args: vec!["no-fallback".into()],
+                cwd: root.path().display().to_string(),
+            },
+            None,
+            control,
+            output,
+            kill,
+            PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+            None,
+            Some((plan, environment)),
+        )
+        .await
+        .unwrap();
+        let (server, tui): (i32, i32) =
+            tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                loop {
+                    if let (Ok(server), Ok(tui)) = (
+                        std::fs::read_to_string(root.path().join("pid")),
+                        std::fs::read_to_string(root.path().join("tui-pid")),
+                    ) {
+                        if let (Ok(server), Ok(tui)) = (server.trim().parse(), tui.trim().parse()) {
+                            break (server, tui);
+                        }
+                    }
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+        struct OwnedPids(i32, i32);
+        impl Drop for OwnedPids {
+            fn drop(&mut self) {
+                unsafe {
+                    libc::kill(self.0, libc::SIGKILL);
+                    libc::kill(self.1, libc::SIGKILL);
+                }
+            }
+        }
+        let _cleanup = OwnedPids(server, tui);
+        let entered = authority.observe_close();
+        let held = authority.hold_latch();
+        assert_eq!(unsafe { libc::kill(server, libc::SIGTERM) }, 0);
+        tokio::task::spawn_blocking(move || {
+            entered.recv_timeout(std::time::Duration::from_secs(5))
+        })
+        .await
+        .unwrap()
+        .unwrap();
+        let tui_alive_at_cutoff = unsafe { libc::kill(tui, 0) } == 0;
+        let ordinary_locks_free =
+            state.sessions.try_lock().is_ok() && state.workspace.try_lock().is_ok();
+        drop(held);
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                if matches!(
+                    events.recv().await.unwrap(),
+                    RuntimeEvent::Error { .. } | RuntimeEvent::Ended { .. }
+                ) {
+                    break;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert!(tui_alive_at_cutoff && ordinary_locks_free);
+        assert!(!authority.can_respond());
+    }
+}

@@ -1669,6 +1669,7 @@ mod tests {
                         match change {
                             "workspace" => {
                                 *mutation.workspace.lock().unwrap() = Some(crate::WorkspaceState {
+            evaluation_revocation: None,
                                 path: dir.path().to_owned(),
                                 metadata: crate::metadata::MetadataStore::new(
                                     &dir.path().join(".orkworks"),

@@ -107,6 +107,7 @@ struct SessionHandle {
 }
 
 struct WorkspaceState {
+    evaluation_revocation: Option<taskmaster::publication_lifecycle::WorkspaceRevocation>,
     path: PathBuf,
     metadata: metadata::MetadataStore,
     workflow_observations: workflow_observations::WorkflowObservationStore,
@@ -715,6 +716,7 @@ pub(crate) mod test_support {
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(WorkspaceState {
+                evaluation_revocation: None,
                 path: path.to_path_buf(),
                 metadata: metadata::MetadataStore::new(&metadata_root),
                 workflow_observations: workflow_observations::WorkflowObservationStore::open(
@@ -757,6 +759,7 @@ pub(crate) mod test_support {
     pub(crate) fn swap_workspace(state: &AppState, path: &std::path::Path) {
         let metadata_root = path.join(".orkworks-test");
         *state.workspace.lock().unwrap() = Some(WorkspaceState {
+            evaluation_revocation: None,
             path: path.to_path_buf(),
             metadata: metadata::MetadataStore::new(&metadata_root),
             workflow_observations: workflow_observations::WorkflowObservationStore::open(

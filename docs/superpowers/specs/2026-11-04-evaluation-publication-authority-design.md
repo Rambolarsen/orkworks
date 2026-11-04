@@ -392,3 +392,22 @@ workspace-locked tail, then projection-serialized capture/close/revalidation, is
 feasible and preserves the existing admission order. No material builder question
 or lock-order contradiction remains. This is written-design review, not runtime
 or native verification. Disposition: **Ready for scoped owner decision.**
+
+
+### Close-only scoped owner acceptance — 2026-11-04
+
+After PR #1386 merged, the owner answered “go ahead” to the concrete close-only
+inline implementation request. This accepts the optional exact carriers,
+capture/close/revalidate tails, originating terminal identity, cancellation guard
+and coupled tests described above. The approved plan and ADR 0090 amendment
+record provenance; implementation is tracked by #1389. Earlier pending-owner
+wording is superseded for this dormant unit only. No production attachment,
+source/claim/publication, AppState initialization or storage activation follows.
+
+
+Implementation refinement: ordinary store opening/recovery retains its existing
+workspace writer fence during preparation, then releases it before projection
+admission and the authority cutoff. RecommendationStore opening can migrate and
+recover graph files; removing that fence could race same-path writes. The
+execution plan records this source-backed lock-lifetime ruling. The no-ordinary-
+locks-under-publication-latch contract and every activation gate are unchanged.

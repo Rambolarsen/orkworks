@@ -392,15 +392,13 @@ fn spawn_command_future(
             .await
             .map_err(|_| TerminalCommandFailure::Rejected)
         })),
-        TerminalAction::Kill => Some(Box::pin(async move {
-            crate::runtime::session_runtime::send_runtime_command(
-                &state,
-                &id,
-                crate::runtime::session_runtime::RuntimeCommand::Kill,
-            )
-            .await
-            .map_err(|_| TerminalCommandFailure::Rejected)
-        })),
+        TerminalAction::Kill => {
+            let identity = identity.clone();
+            Some(Box::pin(async move {
+                crate::runtime::session_runtime::send_runtime_kill(&state, &id, Some(&identity))
+                    .map_err(|_| TerminalCommandFailure::Rejected)
+            }))
+        }
         TerminalAction::Noop => None,
     }
 }
@@ -2491,6 +2489,7 @@ mod tests {
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
+                evaluation_revocation: None,
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
                 workflow_observations:
@@ -4832,6 +4831,7 @@ mod tests {
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
+                evaluation_revocation: None,
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
                 workflow_observations:
@@ -4987,6 +4987,7 @@ mod tests {
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
+                evaluation_revocation: None,
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
                 workflow_observations:
@@ -5178,6 +5179,7 @@ mod tests {
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
+                evaluation_revocation: None,
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
                 workflow_observations:
@@ -5418,6 +5420,7 @@ mod tests {
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
+                evaluation_revocation: None,
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
                 workflow_observations:
@@ -6054,3 +6057,36 @@ mod tests {
 }
 
 pub(crate) mod ending_persistence;
+
+#[cfg(test)]
+mod evaluation_close_tests {
+    use super::*;
+    #[tokio::test]
+    async fn evaluation_close_delayed_attachment_kill_cannot_signal_replacement() {
+        let (root, state, old, _) = crate::session_application::evaluation_close_tests::fixture();
+        let identity = state.sessions.lock().unwrap()["evaluation-close"]
+            .runtime
+            .identity();
+        let future = spawn_command_future(
+            state.clone(),
+            "evaluation-close".into(),
+            TerminalAction::Kill,
+            &identity,
+        )
+        .unwrap();
+        let next = crate::taskmaster::publication_lifecycle::testing::Fixture::new();
+        let (kill, killed) = tokio::sync::watch::channel(false);
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let h = sessions.get_mut("evaluation-close").unwrap();
+            h.runtime = crate::runtime::session_runtime::SessionRuntime::detached(24, 80);
+            h.runtime.evaluation_revocation = Some(next.runtime.clone());
+            h.kill_tx = kill;
+        }
+        assert!(future.await.is_err());
+        assert!(!*killed.borrow());
+        assert!(next.can_respond());
+        assert!(old.can_respond());
+        drop(root);
+    }
+}
