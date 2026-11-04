@@ -119,6 +119,16 @@ pub(crate) struct SessionInfo {
         skip_serializing_if = "Option::is_none"
     )]
     pub(crate) usage_limit_reset_hint: Option<String>,
+    /// Some(true) only when the projected Capped state comes from the
+    /// harness-wide capacity aggregation (a sibling session of the same
+    /// harness detected the limit) instead of this session's own scan or
+    /// provider evidence. Absent means the displayed capacity state, if any,
+    /// is this session's own evidence. Projection-only; never persisted.
+    #[serde(
+        rename = "usageLimitInherited",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub(crate) usage_limit_inherited: Option<bool>,
     #[serde(rename = "metadataSource")]
     pub(crate) metadata_source: Option<String>,
     #[serde(rename = "metadataConfidence")]
@@ -249,6 +259,7 @@ impl SessionInfo {
             at_usage_limit: None,
             capacity_check_pending: None,
             usage_limit_reset_hint: None,
+            usage_limit_inherited: None,
             metadata_source: None,
             metadata_confidence: None,
             repo_root: None,
@@ -363,6 +374,7 @@ mod tests {
             at_usage_limit: None,
             capacity_check_pending: None,
             usage_limit_reset_hint: None,
+            usage_limit_inherited: None,
             metadata_source: None,
             metadata_confidence: None,
             repo_root: None,

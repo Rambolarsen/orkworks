@@ -126,6 +126,9 @@ const SessionListRow = memo(function SessionListRow({
           {attention && (
             <span className="session-row-attention" data-attention={tone}>
               {attentionLabel(attn)}
+              {attn === "capped" && s.usageLimitInherited === true
+                ? " · inherited"
+                : null}
             </span>
           )}
           <span className="session-row-meta">

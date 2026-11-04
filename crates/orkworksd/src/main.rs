@@ -821,6 +821,7 @@ pub(crate) mod test_support {
             at_usage_limit: None,
             capacity_check_pending: None,
             usage_limit_reset_hint: None,
+            usage_limit_inherited: None,
             metadata_source: None,
             metadata_confidence: None,
             repo_root: None,

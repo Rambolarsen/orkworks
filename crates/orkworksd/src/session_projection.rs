@@ -860,6 +860,19 @@ impl SessionProjection {
                 info.attention = capacity_info.attention.clone();
             }
         }
+        // This session's own capacity evidence, captured before the
+        // harness-wide aggregation below overrides it for display. The
+        // in-memory latch write-back must use only this own evidence: a peer
+        // that never detected a limit must not acquire a sticky latch of its
+        // own from a sibling's detection (issue #1083, incident #465).
+        let own_capped: HashMap<String, Option<bool>> = infos
+            .iter()
+            .map(|info| (info.id.clone(), info.at_usage_limit))
+            .collect();
+        let own_reset_hints: HashMap<String, Option<String>> = infos
+            .iter()
+            .map(|info| (info.id.clone(), info.usage_limit_reset_hint.clone()))
+            .collect();
 
         let mut harness_capped: HashMap<String, bool> = HashMap::new();
         let mut harness_reset_hint: HashMap<String, String> = HashMap::new();
@@ -885,7 +898,18 @@ impl SessionProjection {
             }
             if let Some(hid) = &info.harness_id {
                 if let Some(&capped) = harness_capped.get(hid) {
+                    let inherited = capped && info.at_usage_limit != Some(true);
                     info.at_usage_limit = Some(capped);
+                    if inherited {
+                        // Display-only inheritance: the sibling's detection is
+                        // projected onto this session's row for the cycles it
+                        // holds, but it is badged as inherited so it cannot be
+                        // mistaken for this session's own evidence. The latch
+                        // write-back below keeps using this session's own
+                        // evidence, so the displayed state clears as soon as
+                        // the detecting session does.
+                        info.usage_limit_inherited = Some(true);
+                    }
                     if capped && info.lifecycle == "alive" {
                         info.attention = Some("capped".into());
                     }
@@ -906,13 +930,21 @@ impl SessionProjection {
                 write_back_snapshot_ids.insert(info.id.clone());
                 let scoped_observation = observations.get(&info.id);
                 let final_observation = crate::capacity_state::CapacityObservation {
-                    at_usage_limit: info.at_usage_limit == Some(true),
+                    at_usage_limit: observations
+                        .get(&info.id)
+                        .map(|observation| observation.at_usage_limit)
+                        .or_else(|| own_capped.get(&info.id).copied().flatten())
+                        .unwrap_or(false),
                     reset_hint: None,
                     origin_update: scoped_observation.and_then(|o| o.origin_update),
                     clear_latch: scoped_observation.is_some_and(|o| o.clear_latch),
                 };
                 let newly_latched = handle.capacity.apply_observation(&final_observation);
-                handle.info.usage_limit_reset_hint = info.usage_limit_reset_hint.clone();
+                // Only this session's own hint (from its own scan or its
+                // retained state) is durable; a hint borrowed from a harness
+                // sibling for display is never written back (issue #1083).
+                handle.info.usage_limit_reset_hint =
+                    own_reset_hints.get(&info.id).cloned().flatten();
                 if newly_latched {
                     handle.runtime.usage_limit_latched_at = prepared
                         .get(&info.id)
@@ -1380,6 +1412,102 @@ mod tests {
                 "hook_clear={hook_clear}"
             );
         }
+    }
+
+    #[test]
+    fn harness_wide_capped_display_never_latches_the_peers() {
+        let (_dir, state, _receiver) = input_fixture();
+        let (peer_runtime, _peer_rx) =
+            crate::runtime::session_runtime::SessionRuntime::live(24, 80);
+        let peer_info = {
+            let mut info = crate::test_support::test_session_info(
+                "cap-peer",
+                "Peer",
+                _dir.path().display().to_string(),
+                "running",
+                "now",
+            );
+            info.harness_id = Some("opencode".into());
+            info.harness = Some("opencode".into());
+            info.attention = Some("working".into());
+            info
+        };
+        state.sessions.lock().unwrap().insert(
+            "cap-peer".into(),
+            crate::SessionHandle {
+                info: peer_info,
+                runtime: peer_runtime,
+                kill_tx: tokio::sync::watch::channel(false).0,
+                active_work_hook: false,
+                output_buffer: crate::peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                terminal_attached: false,
+                resume_in_progress: false,
+                capacity: Default::default(),
+            },
+        );
+        let projection = SessionProjection::new(state.clone());
+
+        // Sibling "lag-test" (same harness from the fixture) detects a usage
+        // limit on its own terminal scan; "cap-peer" has produced no output.
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut("lag-test").unwrap();
+            handle.info.harness_id = Some("opencode".into());
+            handle.info.harness = Some("opencode".into());
+            handle.output_buffer.push("usage limit reached".into());
+            handle.capacity.record_output(1, 20);
+        }
+        let infos = projection.list().unwrap();
+        let source = infos.iter().find(|info| info.id == "lag-test").unwrap();
+        let peer = infos.iter().find(|info| info.id == "cap-peer").unwrap();
+        assert_eq!(source.at_usage_limit, Some(true));
+        assert_eq!(source.attention.as_deref(), Some("capped"));
+        assert_eq!(
+            source.usage_limit_inherited, None,
+            "own detection is not inherited"
+        );
+        let sessions = state.sessions.lock().unwrap();
+        assert!(sessions["lag-test"].capacity.at_usage_limit_latched);
+        assert!(
+            !sessions["cap-peer"].capacity.at_usage_limit_latched,
+            "a harness sibling's detection must not write a sticky latch into a peer"
+        );
+        assert!(sessions["cap-peer"]
+            .runtime
+            .usage_limit_latched_at
+            .is_none());
+        drop(sessions);
+        // Display-only inheritance: the peer shows the harness-wide capped
+        // state, but badged as inherited from the detecting sibling.
+        assert_eq!(peer.at_usage_limit, Some(true));
+        assert_eq!(peer.attention.as_deref(), Some("capped"));
+        assert_eq!(peer.usage_limit_inherited, Some(true));
+
+        // The source recovers on accepted input plus fresh clean output; the
+        // peer's displayed state must clear with it.
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut("lag-test").unwrap();
+            handle.capacity.accepted_input();
+            handle.output_buffer.push("ordinary fresh output".into());
+            handle.capacity.record_output(1, 20);
+        }
+        let recovered = projection.list().unwrap();
+        let source = recovered.iter().find(|info| info.id == "lag-test").unwrap();
+        let peer = recovered.iter().find(|info| info.id == "cap-peer").unwrap();
+        assert_eq!(source.at_usage_limit, Some(false));
+        assert_eq!(peer.at_usage_limit, Some(false));
+        assert_eq!(
+            peer.usage_limit_inherited, None,
+            "inherited state clears with the detecting sibling"
+        );
+        let sessions = state.sessions.lock().unwrap();
+        assert!(
+            !sessions["cap-peer"].capacity.at_usage_limit_latched,
+            "the peer still holds no latch after the sibling recovers"
+        );
     }
 
     #[test]

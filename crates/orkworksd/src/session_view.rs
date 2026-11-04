@@ -369,6 +369,7 @@ pub(crate) fn project_session_info(
         // from source on every poll), but preserves this carried value for a
         // debug-injected hint that has no real terminal output to detect.
         usage_limit_reset_hint: info.usage_limit_reset_hint,
+        usage_limit_inherited: info.usage_limit_inherited,
         metadata_source: meta
             .map(|m| m.metadata_source.clone())
             .or(info.metadata_source),
@@ -536,6 +537,7 @@ mod tests {
             at_usage_limit: None,
             capacity_check_pending: None,
             usage_limit_reset_hint: None,
+            usage_limit_inherited: None,
             metadata_source: None,
             metadata_confidence: None,
             repo_root: None,
