@@ -283,3 +283,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Lifecycle replay and event ordering](2026-11-03-lifecycle-history-ordering.md) — Confirm final replay grids and expose actual partial finalization results while preserving existing storage owners.
 
 - [SQL finalization history ordering](2026-11-04-sql-finalization-history.md) — Dormant SQL finalization replay/event stages.
+
+- [Runtime ending persistence boundary](2026-11-04-runtime-ending-persistence.md) — Captured SQL ownership at runtime history completion.

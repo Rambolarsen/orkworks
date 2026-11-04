@@ -29,17 +29,28 @@ impl Finalization {
         }
     }
 }
+/// Immutable authority captured before a runtime's final-scan wait.
+/// Dropping it before completion releases the lease without any file/SQL effect.
+#[must_use]
+pub(crate) struct CapturedEnding {
+    owner: Arc<SessionWrites>,
+    id: String,
+    runtime: RuntimeIdentity,
+    snapshot: Arc<Snapshot>,
+    lease: Arc<crate::workspace_runtime::WorkspaceLease>,
+    root: std::path::PathBuf,
+}
 impl SessionWrites {
-    /// Explicit source-only operation; does not request or prove physical exit.
-    /// Errors before file effects return Err. Later errors preserve each stage.
-    pub(crate) async fn finalize_with_history(
+    pub(crate) async fn capture_ending_history(
         self: &Arc<Self>,
+        state: &Arc<AppState>,
         id: String,
         runtime: RuntimeIdentity,
-        final_snapshot: metadata::ObservedStatusSnapshotMetadata,
-        fallback_status: String,
-    ) -> Result<Finalization, StoreError> {
-        let (snapshot, lease, root, intent) = self
+    ) -> Result<CapturedEnding, StoreError> {
+        if !Arc::ptr_eq(state, &self.state) {
+            return Err(StoreError::Conflict);
+        }
+        let (snapshot, lease, root) = self
             .lifecycle_access(
                 id.clone(),
                 runtime.clone(),
@@ -47,22 +58,65 @@ impl SessionWrites {
                 None,
                 Access::Async,
                 move |ws, h| {
+                    if h.info.lifecycle_phase != "ending" {
+                        return Err(StoreError::Conflict);
+                    }
                     Ok::<_, StoreError>((
                         Snapshot::capture(h).ok_or(StoreError::Conflict)?,
                         ws.lease.clone().ok_or(StoreError::Conflict)?,
                         ws.metadata.root_path(),
-                        LifecycleWrite::Finalize {
-                            snapshot: final_snapshot,
-                            fallback_status,
-                        }
-                        .intent(h)?,
                     ))
                 },
             )
             .await?
             .ok_or(StoreError::Conflict)??;
-        let snapshot = Arc::new(snapshot);
-        let prepared = self.store.prepare_internal(
+        Ok(CapturedEnding {
+            owner: self.clone(),
+            id,
+            runtime,
+            snapshot: Arc::new(snapshot),
+            lease,
+            root,
+        })
+    }
+    /// Direct source-only callers capture and immediately consume the same owner.
+    pub(crate) async fn finalize_with_history(
+        self: &Arc<Self>,
+        id: String,
+        runtime: RuntimeIdentity,
+        final_snapshot: metadata::ObservedStatusSnapshotMetadata,
+        fallback_status: String,
+    ) -> Result<Finalization, StoreError> {
+        self.capture_ending_history(&self.state, id, runtime)
+            .await?
+            .complete(final_snapshot, fallback_status)
+            .await
+    }
+}
+impl CapturedEnding {
+    /// Consume original authority; completion never captures a replacement owner.
+    pub(crate) async fn complete(
+        self,
+        final_snapshot: metadata::ObservedStatusSnapshotMetadata,
+        fallback_status: String,
+    ) -> Result<Finalization, StoreError> {
+        let Self {
+            owner,
+            id,
+            runtime,
+            snapshot,
+            lease,
+            root,
+        } = self;
+        let intent = LifecycleMutation::Finalize {
+            snapshot: final_snapshot,
+            fallback_status,
+            timestamp: iso_now(),
+        };
+        if !intent.valid() {
+            return Err(StoreError::Invalid("invalid lifecycle intent".into()));
+        }
+        let prepared = owner.store.prepare_internal(
             id.clone(),
             snapshot.created.clone(),
             InternalMutation::Lifecycle(intent),
@@ -71,7 +125,6 @@ impl SessionWrites {
         // The retained file job may already have confirmed a grid at that point.
         let _cancellation = prepared.cancellation();
         let lane = prepared.lane()?;
-        let owner = self.clone();
         let handle = tokio::runtime::Handle::current();
         let (mut result, received) = oneshot::channel();
         tokio::task::spawn_blocking(move || {

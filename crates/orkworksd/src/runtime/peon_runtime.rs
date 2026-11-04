@@ -6441,3 +6441,6 @@ mod sql_reservation_tests;
 mod sql_finalization_history_tests;
 #[cfg(test)]
 mod sql_lifecycle_reservation_tests;
+
+#[cfg(test)]
+mod sql_runtime_ending_tests;

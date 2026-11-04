@@ -864,3 +864,40 @@ checks directly instead of recursively waiting on the same blocking pool.
 This evidence does not qualify all conflicting producers, process exit/cleanup,
 resume/spawn, close-first archive/deletion, installed helpers, migration or numeric
 large-history responsiveness budgets. No cross-file atomicity is promised.
+
+## Runtime history completion boundary
+
+`runtime/terminal_runtime/ending_persistence.rs` connects the runtime's history
+completion stage to typed JSON and explicit captured SQL owners. The default
+runtime selects JSON and retains its prior final-scan behavior and unknown
+JoinError diagnostic. This is not a selector for the entire SQL runtime pipeline:
+`persist_final_peon_scan` still owns synchronous JSON provider context and
+workflow-observation file effects. Those owners remain a prerequisite before a
+full SQL scan/finalizer can be selected. No production SQL activation occurs.
+
+The SQL constructor captures the original runtime generation outside the Tokio
+worker, then obtains an immutable application-bound `CapturedEnding` from
+`SessionWrites`. It retains exact workspace/reader/lease, runtime/control,
+creation, phase/resume and attention/source/provenance through a scan wait. The
+consumable handle has private fields and cannot renew its ownership at completion.
+The existing direct SQL history operation captures and immediately consumes the
+same handle. No mutation lane or SQL queue slot spans provider inference; the
+existing command budget/deadline starts with metadata preparation. This boundary
+neither schedules provider work nor changes its existing limits.
+
+Runtime completion preserves the complete backend result: JSON stage results or
+unknown JoinError, and SQL typed StoreError/per-stage results. A grid failure,
+committed metadata plus failed event, detached commit and unavailable completion
+cannot collapse into one boolean success. Existing lane/cancellation/lease and
+publication fences continue to own definitive admitted work. Dropping an unused
+capture has no file/SQL effects and releases its original lease.
+
+Tests in `sql_runtime_ending_tests.rs` exercise early capture across control,
+workspace/reader/lease, runtime/creation, phase and attention/source replacement;
+wrong application/generation/phase; explicit SQL completion without reading or
+repairing invalid legacy JSON; unchanged JSON routing; typed unavailable and
+partial file failures; cancelled waiters; lease release and a single-Tokio-worker
+capture stall with an independent OS watchdog. The existing close-first
+`runtime_closed` predicate still requires PID/control-channel cleanup after
+metadata completion; tests do not qualify SQL Archive/Delete or process adoption.
+The original JSON runtime/final-scan and SQL history suites remain applicable.

@@ -955,6 +955,17 @@ rollback or blind retries. This does not route production lifecycle or own proce
 exit/cleanup, resume/spawn or close-first archive/deletion. See the
 [lifecycle boundary evidence](../validation/session-store-adapter.md#dormant-lifecycle-application-lane)
 and [SQL history stages](../validation/session-store-adapter.md#dormant-sql-finalization-history).
+The runtime history-completion boundary now returns the backend's typed result.
+Its explicit SQL capture retains original application/workspace/runtime/control,
+creation and source authority before a final-scan wait, then consumes that owner
+without recapturing a replacement. Direct SQL callers use the same capture and
+immediate completion. The production runtime still selects JSON, including its
+existing unknown-JoinError diagnostic. Full SQL final-scan routing remains gated:
+JSON provider-context and workflow-observation side effects need their own
+qualification first. This completion alone does not prove physical cleanup or
+satisfy close-first organization. See the
+[runtime completion evidence](../validation/session-store-adapter.md#runtime-history-completion-boundary).
+
 
 The versioned agent API uses `metadata/session_transactions.rs`: checked, durable
 revisions are stored in the canonical session JSON, and scoped mutations hold the

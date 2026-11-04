@@ -1477,14 +1477,10 @@ pub(crate) async fn finalize_session_ending(
         crate::taskmaster::evaluator::schedule_evaluation(state.clone());
     }
 
-    if let Err(error) = crate::session_application::SessionApplication::new(state.clone())
-        .finish_session_ending(
-            id.clone(),
-            generation,
-            final_snapshot,
-            fallback_terminal_status,
-        )
-        .await
+    if let ending_persistence::EndingCompletion::Json(Err(error)) =
+        ending_persistence::EndingPersistence::json(state.clone(), id.clone(), generation)
+            .complete(final_snapshot, fallback_terminal_status)
+            .await
     {
         tracing::error!(session_id = %id, %error, "session ending persistence completion is unknown");
     }
@@ -6056,3 +6052,5 @@ mod tests {
         ));
     }
 }
+
+pub(crate) mod ending_persistence;
