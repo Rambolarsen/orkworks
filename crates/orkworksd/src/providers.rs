@@ -4849,6 +4849,13 @@ exit 17
                     }
                 }
             };
+            // Accepted sockets inherit nonblocking mode on macOS; the reads below
+            // need blocking I/O so their explicit timeouts can wait for headers.
+            stream.set_nonblocking(false).map_err(|error| {
+                OllamaTestServerError::Failure(format!(
+                    "Ollama test server failed to set blocking mode: {error}"
+                ))
+            })?;
             stream
                 .set_read_timeout(Some(Duration::from_secs(2)))
                 .map_err(|error| {
