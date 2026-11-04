@@ -241,3 +241,5 @@ Dated design records; these do not establish current product behavior.
 - [Retained child source and control consumer membership](2026-11-03-child-consumer-membership-design.md) — Accepted scoped typed consumer registry and finite discovery bounds; component evidence and actual physical-owner qualification remain separate.
 
 - [Initial evaluation publication authority owner](2026-11-04-evaluation-publication-authority-design.md) — Proposed private claim/revoke owner, concrete lifecycle seams and bounded non-I/O first unit for scoped review.
+
+- [Captured final-scan workflow evidence](2026-11-04-ending-workflow-evidence.md) — Proposed retained file owner, deletion fence and qualification checks.
