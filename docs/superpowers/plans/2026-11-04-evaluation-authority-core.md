@@ -128,3 +128,58 @@ The parent ran tests/build; the reviewer inspected the diff/tests and source
 boundary. Final code blobs are checked against that reviewed tree before commit;
 only this documentation result record changes afterward. No source/native/store
 qualification or actual ordinary stop-latency claim follows.
+
+
+## Namespace response-fence correction — 2026-11-04
+
+Tracking: [#1384](https://github.com/Rambolarsen/orkworks/issues/1384), after the
+first unit merged in #1379. A deterministic probe found that closing namespace
+N1 with a pending claim still allowed a prepared response in N2 under the same
+workspace. The response cutoff compares workspace but not namespace ancestry.
+This violates the [accepted namespace-rotation requirement](../specs/2026-10-24-hierarchy-authority-ordering-design.md#lifecycle-and-ownership-decisions);
+it is a bounded correction within the approved non-I/O unit, not a new policy.
+
+Root owns this coupled fix in publication_authority.rs and its tests:
+
+- Add a regression that denies N2 responses until N1's claim reaches proven
+  commit or rollback, with new claims still blocked by the sole pending slot.
+  Preserve same-namespace ready responses, including from a sibling run, and
+  the existing uncertain-disposition fence.
+- Compare exact immutable namespace ancestry at the current response cutoff,
+  alongside the existing workspace check. Use the fixed-depth scope structure;
+  perform no allocation, content work, callback or destruction under the latch.
+- Run focused authority tests, required full repository verification and a
+  fresh current-diff manual review at medium effort for authority ordering.
+  No production caller/factory, AppState/lifecycle, SQL, native or source grant
+  is added; the storage admission fence stays unchanged.
+
+Plan delta reviewed once: scope and checks cover the reproduced response gap
+and preserve sibling-run behavior without changing claim/settlement semantics.
+Dependencies 1 (existing scope ancestry); blast radius 1 (private dormant core);
+durable state changes 1 (none); reversibility 1 (local code revert); uncertainty
+2 (reproduced, qualified only as in-memory ordering). Sum 6. Ready for this bounded
+correction; actual source/native/runtime adoption remains outside its approval.
+
+
+### Correction execution evidence
+
+The repository regression first failed at the rotated-namespace unavailable
+assertion (24 passed, one failed), then all 25 focused authority tests passed.
+Independent current-diff `/code-review medium` found no actionable issues;
+reviewed Rust blobs are `d6f94d7a4807a0d66775b9c45991a304a711099d` and
+`60fbf8c8aabcdc5b686c6d08164405cef484f214`, unchanged after review.
+
+Required `bash scripts/verify-repo.sh` passed: Rust formatting/build, 2,864 unit
+tests (17 ignored), seven integration tests, 20 reporter tests, desktop type
+check, native Electron test, 1,689 desktop tests (three skipped), desktop build,
+1,202 docs tests, docs build, diff, documentation and worktree checks.
+The first attempt was interrupted after stack inspection identified an existing
+Peon fixture guard/shutdown deadlock, tracked separately in
+[#1387](https://github.com/Rambolarsen/orkworks/issues/1387). That fixture passed
+alone and in the successful full retry; the initial attempt is not passing evidence.
+
+Documentation warnings need no public edit: this dormant private core changes
+no user/API/installer claim. The pre-commit worktree warning reflects the owned
+branch still sharing its base commit; cleanup follows this PR's terminal state.
+Existing compiler, Node color and bundle warnings are unrelated to this diff.
+No production caller or runtime/source/native/store qualification was added.

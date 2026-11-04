@@ -429,3 +429,60 @@ fn simultaneous_requests_install_only_one_claim_and_consume_one_sequence() {
         2
     );
 }
+
+#[test]
+fn rotated_namespace_response_waits_for_old_claim_disposition() {
+    for outcome in [Disposition::Committed, Disposition::RolledBack] {
+        let (o, old, old_binding) = opened();
+        let claim = o.try_claim(request(&old_binding, "old namespace")).unwrap();
+        o.close_scope(&old[1]).unwrap();
+        let namespace = scope(&o, Some(&old[0]));
+        let run = scope(&o, Some(&namespace));
+        let new_binding = binding(&run);
+        o.register_source_binding(&new_binding).unwrap();
+        assert_eq!(
+            o.try_claim(request(&new_binding, "new")).err(),
+            Some(Error::Busy)
+        );
+        assert_eq!(
+            o.commit_response(response(&new_binding)).err(),
+            Some(Error::Unavailable)
+        );
+        assert_eq!(
+            o.commit_response(response(&old_binding)).err(),
+            Some(Error::Closed)
+        );
+        o.settle(&claim, outcome).unwrap();
+        assert_eq!(
+            o.commit_response(response(&new_binding)).unwrap().bytes(),
+            b"original bounded receipt"
+        );
+        assert_eq!(
+            o.try_claim(request(&new_binding, "new"))
+                .unwrap()
+                .identity()
+                .sequence,
+            2
+        );
+    }
+}
+
+#[test]
+fn pending_claim_allows_ready_response_in_sibling_run_of_same_namespace() {
+    let (o, scopes, b) = opened();
+    let claim = o.try_claim(request(&b, "pending")).unwrap();
+    let sibling_run = scope(&o, Some(&scopes[1]));
+    let sibling = binding(&sibling_run);
+    o.register_source_binding(&sibling).unwrap();
+    assert_eq!(
+        o.commit_response(response(&sibling)).unwrap().bytes(),
+        b"original bounded receipt"
+    );
+    o.settle(&claim, Disposition::Unknown).unwrap();
+    assert_eq!(
+        o.commit_response(response(&sibling)).err(),
+        Some(Error::Unavailable)
+    );
+    o.settle(&claim, Disposition::RolledBack).unwrap();
+    assert!(o.commit_response(response(&sibling)).is_ok());
+}
