@@ -1,16 +1,16 @@
 ---
 type: Design
 title: Captured final-scan workflow evidence
-description: Proposed retained file-store ownership and deletion fencing for delayed SQL final scans.
+description: Approved retained file-store ownership and deletion fencing for delayed SQL final scans.
 tags: [orkworks, sessions, sqlite, workflow, concurrency]
-status: draft
-workflow_status: proposed
+status: stable
+workflow_status: accepted
 ---
 
 # Captured final-scan workflow evidence
 
 Tracking: [#1243](https://github.com/Rambolarsen/orkworks/issues/1243).
-Status: proposed ownership refinement; owner approval required before implementation.
+Status: approved by the owner on 2026-11-04 with “go ahead”.
 This document does not authorize live SQL activation.
 
 ## Outcome and existing authority
@@ -25,7 +25,7 @@ The accepted [session-storage contract](../../../specs/session-storage.md)
 keeps workflow observations outside SQLite, with their existing owner.
 [ADR 0042](../../adr/0042-workflow-observations-replace-summary-checkpoints.md)
 and its [observation design](2026-08-14-workflow-observation-feedback-loop-design.md)
-remain authoritative for content and file format. This proposal refines the
+remain authoritative for content and file format. This design refines the
 in-process lifetime and deletion boundary of that owner. It does not change
 [ADR 0104](../../adr/0104-peon-scheduling-deletion-fence.md)'s synchronous Peon
 scheduling fence or qualify the legacy recording paths for lock-free I/O.
@@ -47,7 +47,7 @@ They do not own workflow files. Merely copying a path or using `spawn_blocking`
 with the workspace guard retained would not satisfy the accepted storage contract.
 A retained store alone also permits a delayed append after file deletion.
 
-## Proposed owner
+## Approved owner
 
 Make the existing workflow store an owned, cheaply cloned handle to one shared
 in-process state. Share its instance identity, directory, mutex-protected state
@@ -63,7 +63,9 @@ registry holds weak references and removes expired entries so it does not grow
 with historical sessions. A permit is memory-only authority, not a durable
 session record, deletion job or restart tombstone.
 
-Register the permit before the provider inference wait. Capturing it may wait
+Compose `CapturedEnding::with_workflow_evidence` before the provider inference
+wait. History-only capture keeps its existing behavior; the evidence refinement
+registers a permit without renewing the original snapshot. Capturing it may wait
 on the evidence mutex, so do that outside input-critical guards, then revalidate
 the immutable original application/workspace/reader/lease, runtime/control,
 creation, phase and source snapshot. Check authoritative SQL identity and ending
@@ -137,10 +139,12 @@ that error currently conflates counter, append and compaction failures. Existing
 legacy retry behavior remains unchanged. A deliberate later replay uses the same
 keys and exposes the resulting duplicate/conflict/error receipts.
 
-Only accepted new observations request evaluator scheduling, and scheduling must
+Only accepted new observations request deterministic workflow evaluator scheduling, and scheduling must
 recheck the original active workspace/lease/store before touching live state.
 Duplicates, revoked permits and detached receipts cannot schedule work for a
-replacement. SQL metadata success and evidence success remain separate; no
+replacement. Delayed deterministic refresh revalidates store/lease/generation
+inside the same workspace guard as refresh. Model-analysis dispatch remains
+with its existing independently gated scheduler and is not added by this adapter. SQL metadata success and evidence success remain separate; no
 cross-file transaction, compensating deletion or automatic full-batch retry is
 introduced. Evidence failure remains visible and does not impersonate successful
 metadata finalization.
@@ -154,7 +158,7 @@ metadata finalization.
   a queued append and the append can recreate its segment.
 - Move observations into SQLite: outside the accepted storage scope.
 
-This proposal adds private in-memory ownership and admission, with no schema,
+This design adds private in-memory ownership and admission, with no schema,
 file-format, HTTP, producer-installation or retention-default change. Legacy JSON
 routing stays selected. The initial implementation qualifies this owner and its
 captured SQL adapter in fixtures; full runtime final-scan routing is a subsequent
@@ -175,4 +179,5 @@ actionable issues or unanswered consequential questions. They checked this
 proposal against the source owner and accepted storage boundaries; they did not
 run race tests or qualify runtime behavior. Self-review made application-wide
 capacity, the cancellation/admission claim and no automatic `PersistFailed` retry
-explicit. The next gate is owner approval, followed by the plan's real fixtures.
+explicit. The owner subsequently approved this design on 2026-11-04; implementation
+now follows the plan's real fixtures.

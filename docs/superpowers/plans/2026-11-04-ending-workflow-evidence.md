@@ -1,34 +1,34 @@
 ---
 type: Implementation Plan
 title: Captured workflow evidence ownership
-description: Proposed implementation and qualification of retained final-scan workflow file writes.
+description: Implementation and qualification of retained final-scan workflow file writes.
 tags: [orkworks, sessions, workflow, sqlite]
-status: draft
-workflow_status: awaiting-approval
+status: stable
+workflow_status: implementation-complete
 ---
 
 # Captured workflow evidence ownership
 
 Tracking: [#1243](https://github.com/Rambolarsen/orkworks/issues/1243).
-Spec: [proposed owner design](../specs/2026-11-04-ending-workflow-evidence.md),
+Spec: [approved owner design](../specs/2026-11-04-ending-workflow-evidence.md),
 under the accepted [storage design](../specs/2026-11-01-sqlite-session-storage-design.md).
-Owner approval of the proposed refinement is required before product-code edits.
+The owner approved the refinement on 2026-11-04 with “go ahead”; execute inline.
 
 ## Deliverables
 
-- [ ] Refine the existing workflow owner into a shared handle in
+- [x] Refine the existing workflow owner into a shared handle in
   `workflow_observations.rs` (focused private submodules permitted). Preserve one
   instance identity, evaluation generation, mutex, sequence and cache across all
   handles. Add identity-bound weak-registry permits and revoke them on deletion
   before destructive effects. Record the approved refinement in ADR 0042 before
   implementation, preserving its decision and file format.
-- [ ] Extend immutable `CapturedEnding` acquisition to retain that exact store,
+- [x] Extend immutable `CapturedEnding` acquisition to retain that exact store,
   permit and original lease before inference, with off-guard registration and
   post-registration authoritative SQL/original-memory checks. Add a bounded
   application-wide file-job admission owner and captured batch method under
   `session_application/sql_writes/lifecycle/history/`. Keep capacity separate
   from SQL worker commands and keep original candidate indexes/keys.
-- [ ] Return explicit admission and ordered per-candidate receipts, preserve
+- [x] Return explicit admission and ordered per-candidate receipts, preserve
   partial/unknown failures without automatically retrying `PersistFailed` and log definitive results after waiter cancellation.
   Recheck original ownership for receipt/evaluator scheduling. Leave production
   routing JSON and full SQL scan selection gated.
@@ -79,6 +79,5 @@ revert before activation), uncertainty 3 (new deletion/admission interleavings),
 total 13. Per-session weak permits avoid a history-sized tombstone map. Existing
 close-first deletion remains a qualification gate, not an implied completed task.
 
-Disposition: ready for design review and owner approval; implementation blocked
-on that concrete ownership decision. The builder may choose private type names
+Disposition: approved for inline execution after design and builder reviews. The builder may choose private type names
 and file splits, but may not alter the admission, deletion or failure contract.

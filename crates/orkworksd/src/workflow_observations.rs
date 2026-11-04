@@ -35,7 +35,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, Weak};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -330,6 +330,9 @@ struct SessionCache {
 }
 
 struct StoreInner {
+    permits: HashMap<(String, String), Weak<std::sync::atomic::AtomicBool>>,
+    #[cfg(test)]
+    capture_gate: Option<Arc<captured::testing::Gate>>,
     last_issued_sequence: u64,
     degraded: bool,
     idempotency: HashMap<(String, String), IdempotencyEntry>,
@@ -349,17 +352,53 @@ fn current_time(_inner: &StoreInner) -> DateTime<Utc> {
     Utc::now()
 }
 
+fn validate_candidate(
+    origin: ObservationOrigin,
+    candidate: &ObservationCandidate,
+) -> Result<(ObservationSource, f64), RecordError> {
+    if candidate.description.trim().is_empty() {
+        return Err(RecordError::EmptyDescription);
+    }
+    if candidate.description.chars().count() > MAX_DESCRIPTION_CHARS {
+        return Err(RecordError::DescriptionTooLong);
+    }
+    if candidate.evidence.trim().is_empty() {
+        return Err(RecordError::EmptyEvidence);
+    }
+    if candidate.evidence.chars().count() > MAX_EVIDENCE_CHARS {
+        return Err(RecordError::EvidenceTooLong);
+    }
+
+    let (source, confidence) = match origin {
+        ObservationOrigin::Agent => (ObservationSource::Agent, AGENT_CONFIDENCE),
+        ObservationOrigin::Peon => {
+            let c = candidate.confidence.ok_or(RecordError::MissingConfidence)?;
+            if !(0.0..=1.0).contains(&c) {
+                return Err(RecordError::ConfidenceOutOfRange);
+            }
+            (ObservationSource::Peon, c)
+        }
+    };
+
+    candidate
+        .problem_area
+        .as_deref()
+        .map(canonicalize_problem_area)
+        .transpose()?;
+    Ok((source, confidence))
+}
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
 
 static NEXT_STORE_INSTANCE: AtomicU64 = AtomicU64::new(1);
 
+#[derive(Clone)]
 pub(crate) struct WorkflowObservationStore {
     instance_id: u64,
-    dir: PathBuf,
-    inner: Mutex<StoreInner>,
-    evaluation_generation: AtomicU64,
+    dir: Arc<PathBuf>,
+    inner: Arc<Mutex<StoreInner>>,
+    evaluation_generation: Arc<AtomicU64>,
 }
 
 impl WorkflowObservationStore {
@@ -469,8 +508,11 @@ impl WorkflowObservationStore {
 
         Ok(Self {
             instance_id: NEXT_STORE_INSTANCE.fetch_add(1, Ordering::Relaxed),
-            dir,
-            inner: Mutex::new(StoreInner {
+            dir: Arc::new(dir),
+            inner: Arc::new(Mutex::new(StoreInner {
+                permits: HashMap::new(),
+                #[cfg(test)]
+                capture_gate: None,
                 last_issued_sequence,
                 degraded,
                 idempotency,
@@ -478,13 +520,25 @@ impl WorkflowObservationStore {
                 session_cache,
                 #[cfg(test)]
                 clock_override: None,
-            }),
-            evaluation_generation: AtomicU64::new(0),
+            })),
+            evaluation_generation: Arc::new(AtomicU64::new(0)),
         })
     }
 
     pub(crate) fn record_observation(
         &self,
+        session_id: &str,
+        origin: ObservationOrigin,
+        idempotency_key: &str,
+        candidate: ObservationCandidate,
+    ) -> Result<RecordOutcome, RecordError> {
+        let mut inner = self.inner.lock().unwrap();
+        self.record_locked(&mut inner, session_id, origin, idempotency_key, candidate)
+    }
+
+    fn record_locked(
+        &self,
+        inner: &mut StoreInner,
         session_id: &str,
         origin: ObservationOrigin,
         idempotency_key: &str,
@@ -496,29 +550,7 @@ impl WorkflowObservationStore {
         if idempotency_key.is_empty() {
             return Err(RecordError::EmptyIdempotencyKey);
         }
-        if candidate.description.trim().is_empty() {
-            return Err(RecordError::EmptyDescription);
-        }
-        if candidate.description.chars().count() > MAX_DESCRIPTION_CHARS {
-            return Err(RecordError::DescriptionTooLong);
-        }
-        if candidate.evidence.trim().is_empty() {
-            return Err(RecordError::EmptyEvidence);
-        }
-        if candidate.evidence.chars().count() > MAX_EVIDENCE_CHARS {
-            return Err(RecordError::EvidenceTooLong);
-        }
-
-        let (source, confidence) = match origin {
-            ObservationOrigin::Agent => (ObservationSource::Agent, AGENT_CONFIDENCE),
-            ObservationOrigin::Peon => {
-                let c = candidate.confidence.ok_or(RecordError::MissingConfidence)?;
-                if !(0.0..=1.0).contains(&c) {
-                    return Err(RecordError::ConfidenceOutOfRange);
-                }
-                (ObservationSource::Peon, c)
-            }
-        };
+        let (source, confidence) = validate_candidate(origin, &candidate)?;
 
         let canonical_problem_area = candidate
             .problem_area
@@ -542,7 +574,6 @@ impl WorkflowObservationStore {
             canonical_problem_area.as_deref(),
         );
 
-        let mut inner = self.inner.lock().unwrap();
         if inner.degraded {
             return Err(RecordError::Degraded);
         }
@@ -609,7 +640,7 @@ impl WorkflowObservationStore {
             payload_hash: payload_hash.clone(),
         };
 
-        self.append_or_rewrite(&mut inner, session_id, stored, now)
+        self.append_or_rewrite(inner, session_id, stored, now)
             .map_err(|_| RecordError::PersistFailed)?;
 
         inner.idempotency.insert(
@@ -675,6 +706,16 @@ impl WorkflowObservationStore {
 
     pub(crate) fn delete_session_observations(&self, session_id: &str) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
+        inner.permits.retain(|(id, _), permit| {
+            if id == session_id {
+                if let Some(permit) = permit.upgrade() {
+                    permit.store(false, Ordering::SeqCst);
+                }
+                false
+            } else {
+                permit.strong_count() > 0
+            }
+        });
         let path = self.segment_path(session_id);
         match fs::remove_file(&path) {
             Ok(()) => {}
@@ -3276,5 +3317,41 @@ mod tests {
             )
             .unwrap();
         assert!(matches!(outcome, RecordOutcome::Accepted(_)));
+    }
+}
+
+#[cfg(test)]
+mod captured_owner_tests {
+    use super::*;
+    #[test]
+    fn final_scan_writer_must_not_recreate_deleted_evidence() {
+        let root = tempfile::tempdir().unwrap();
+        let store = WorkflowObservationStore::open(root.path().into()).unwrap();
+        let candidate = ObservationCandidate {
+            kind: ObservationKind::Obstacle,
+            description: "blocked".into(),
+            evidence: "failure".into(),
+            problem_area: None,
+            reported_impact: Impact::Low,
+            confidence: Some(0.8),
+        };
+        let writer = store.capture_writer("session".into(), "created".into());
+        store.delete_session_observations("session").unwrap();
+        let claim = captured::FileClaim::new();
+        let result = writer.record_batch(&claim, 1, vec![(0, candidate)]);
+        assert!(
+            result.is_err(),
+            "a delayed final scan recreated deleted evidence"
+        );
+    }
+}
+
+mod captured;
+#[cfg(test)]
+pub(crate) use captured::testing as captured_testing;
+pub(crate) use captured::{CapturedWriter, FileClaim};
+impl ObservationCandidate {
+    pub(crate) fn validate_peon(&self) -> Result<(), RecordError> {
+        validate_candidate(ObservationOrigin::Peon, self).map(|_| ())
     }
 }

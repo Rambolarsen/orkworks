@@ -2448,3 +2448,35 @@ mod tests {
         assert_eq!(prompt["knowledgePages"][0]["id"], "page8.md");
     }
 }
+
+/// New captured file receipts cannot schedule against a replacement store/lease.
+pub(crate) fn schedule_captured_evaluation(
+    state: Arc<AppState>,
+    instance: u64,
+    lease: &Arc<crate::workspace_runtime::WorkspaceLease>,
+) -> bool {
+    let generation = {
+        let workspace = state.workspace.lock().unwrap();
+        let Some(ws) = workspace.as_ref() else {
+            return false;
+        };
+        if ws.workflow_observations.instance_id() != instance
+            || !ws.lease.as_ref().is_some_and(|l| Arc::ptr_eq(l, lease))
+        {
+            return false;
+        }
+        ws.workflow_observations.next_evaluation_generation()
+    };
+    let lease = Arc::downgrade(lease);
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        if let Some(lease) = lease.upgrade() {
+            let _ = tokio::task::spawn_blocking(move || {
+                SessionApplication::new(state)
+                    .refresh_captured_workflow_recommendations(instance, generation, lease);
+            })
+            .await;
+        }
+    });
+    true
+}

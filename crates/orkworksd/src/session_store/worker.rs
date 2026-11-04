@@ -492,19 +492,7 @@ impl PreparedInternalMutation {
     }
 
     pub(crate) fn lane(&self) -> Result<Arc<tokio::sync::Mutex<()>>> {
-        let mut lanes = self
-            .prepared
-            .shared
-            .lanes
-            .lock()
-            .map_err(|_| StoreError::Unavailable)?;
-        lanes.retain(|_, lane| lane.strong_count() > 0);
-        if let Some(lane) = lanes.get(&self.id).and_then(std::sync::Weak::upgrade) {
-            return Ok(lane);
-        }
-        let lane = Arc::new(tokio::sync::Mutex::new(()));
-        lanes.insert(self.id.clone(), Arc::downgrade(&lane));
-        Ok(lane)
+        SessionStore::shared_lane(&self.prepared.shared, &self.id)
     }
     pub(crate) fn deadline(&self) -> Instant {
         self.prepared.ticket.deadline
@@ -543,6 +531,20 @@ pub(crate) struct SessionStore {
     workspace: String,
 }
 impl SessionStore {
+    /// Same per-session lane as metadata mutations; no SQL command reservation.
+    pub(crate) fn runtime_lane(&self, id: &str) -> Result<Arc<tokio::sync::Mutex<()>>> {
+        Self::shared_lane(&self.shared, id)
+    }
+    fn shared_lane(shared: &Shared, id: &str) -> Result<Arc<tokio::sync::Mutex<()>>> {
+        let mut lanes = shared.lanes.lock().map_err(|_| StoreError::Unavailable)?;
+        lanes.retain(|_, lane| lane.strong_count() > 0);
+        if let Some(lane) = lanes.get(id).and_then(std::sync::Weak::upgrade) {
+            return Ok(lane);
+        }
+        let lane = Arc::new(tokio::sync::Mutex::new(()));
+        lanes.insert(id.to_owned(), Arc::downgrade(&lane));
+        Ok(lane)
+    }
     pub(crate) async fn initialize(root: PathBuf, workspace: String) -> Result<Self> {
         Self::start(root, workspace, true).await
     }

@@ -939,3 +939,53 @@ provider write through its current JSON owner. Evidence recording retains a
 separate file store with deletion, sequence and idempotency state; its qualification
 is a prerequisite before the full captured SQL final-scan pipeline can be selected.
 No workflow-store redesign, migration, activation or measured speedup is claimed.
+
+## Captured workflow evidence
+
+`CapturedEnding::with_workflow_evidence` composes the original history capture
+with the existing workflow file owner before inference. History-only capture
+remains memory-only and now retains a cheap clone of its original workflow
+store, so later evidence composition cannot adopt a replaced store. Evidence registration shares store instance, directory,
+cache, sequence, evaluation generation and mutex; it never reopens a path. A
+weak permit registry binds session/creation and is pruned on capture/deletion.
+SQL identity/ending phase and original memory/store fences are checked after
+registration and again before evidence execution; valid JSON cannot substitute
+for missing/unavailable/replaced SQL. Registration can expire after two seconds;
+its memory-only blocking job retains capacity/lease until it drains.
+
+The captured batch limits five candidates and a complete encoded intent to one
+MiB, counting without allocating an oversized serialization. One process-wide
+budget (shared across application/workspace owners) permits 32 jobs and 32 MiB,
+separate from SQL admission. The existing session mutation lane serializes the
+file job with lifecycle writes. All lane, SQL and filesystem waits occur outside
+application guards and the Tokio executor. No lane spans provider inference.
+
+Grounding retains original indexes and final-scan keys. Shared validation keeps
+legacy confidence/content/fingerprint rules. Under the workflow mutex, permit
+validation and an atomic pre-admission cancellation/expiry claim precede sequence
+or file effects. An admitted batch finishes before deletion removes its segment
+and forgets duplicate keys; delete-first rejects the old permit, including after
+a failed removal. The counter and ordinary recording/deletion behavior otherwise
+stay unchanged. No application callback runs under the evidence mutex.
+
+Ordered candidate receipts distinguish ungrounded, rejected, accepted, duplicate
+and typed record errors. File persistence errors can have partial/unknown durable
+effects and are never automatically retried by this adapter. An admitted job
+retains lane/lease/capacity through its definitive result, even without a caller.
+Replacement produces a detached receipt and cannot request evaluation. Current
+newly accepted observations request deterministic evaluation only; delayed refresh
+checks the original store/lease/generation while holding its workspace guard.
+This does not start model analysis or qualify existing recommendation I/O.
+
+Tests in `workflow_observations/captured.rs` and
+`runtime/peon_runtime/sql_ending_evidence_tests.rs` cover shared sequence/reopen/
+duplicate state, registry cleanup, deletion and failed deletion, cancellation,
+expiry, original-owner replacement, missing/ended/reused SQL, original-index
+receipts, partial persistence errors and same-capture history completion. Budget
+tests pin exact job/encoded-byte boundaries. The input fixture stalls an admitted
+file batch with an independent OS watchdog on one Tokio worker, checks guards
+and SQL availability, and acknowledges approved input at a separate runtime
+receiver. It is a controlled admission stall, not a physical fsync-stall or new
+PTY/numeric-latency qualification. A one-blocking-thread case checks nested-wait
+independence. Runtime final-scan routing, close-first SQL Archive/Delete, migration,
+activation and larger-history measurements remain unqualified; production stays JSON.

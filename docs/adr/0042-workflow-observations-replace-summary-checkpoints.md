@@ -138,3 +138,13 @@ decisions and replaces the durable-summary-checkpoint mechanism:
   going forward.
 - Existing NDJSON event logs and terminal replay files require no migration;
   only new checkpoint writes and the summary-log route are removed.
+
+## Amendment — 2026-11-04: retained final-scan evidence ownership
+
+The owner approved the [captured evidence design](../superpowers/specs/2026-11-04-ending-workflow-evidence.md)
+on 2026-11-04. The existing workflow file owner gains shared in-process handles,
+identity-bound revocable permits and bounded retained file jobs so delayed SQL
+final scans can release application guards before file I/O without resurrecting
+deleted evidence. Sequence, idempotency, retention, format and logical ownership
+stay with this module. Implementation/qualification follows the linked plan;
+this amendment does not activate SQL or qualify legacy lock-held producers.
