@@ -897,14 +897,15 @@ an unrelated source tag or #744 claim as an implementation convenience.
 
 #1351 is merged and dormant. This review does not infer instructions or approval
 from its former worktree or review its entire implementation. The relevant merged
-seams at the review base are concrete:
+seams at the review base are concrete. #1356 subsequently isolates these
+implementations behind `cfg(test)`; the links below follow their test-only location:
 
 | Merged seam | What it supplies | Why it is not one of the recipes above |
 | --- | --- | --- |
-| [publication.rs](../../../crates/orkworksd/src/taskmaster/hierarchy_storage/publication.rs) journal_object/journal_child_metadata/journal_dependency | One object, metadata row or provenance edge, with some source-pool charges and header/proof transaction | Each call is a separate hierarchy-storage-journal command. It cannot atomically publish the complete proposal, grant/reservation/control outcome or attachment/lineage/summary/five-ledger union |
-| [quota.rs](../../../crates/orkworksd/src/taskmaster/hierarchy_storage/quota.rs) establish_resource | One child-source-retained-bytes run/workspace zero row | No complete fresh profile/preparation history, control pool or five assignment resources; row absence alone is not initial preparation proof |
-| [schema.rs](../../../crates/orkworksd/src/taskmaster/hierarchy_storage/schema.rs) CATALOG | 17 declared families | Missing 16 of the [33 already named mandatory families](../plans/2026-11-02-hierarchy-storage-kernel.md#required-family-inventory); row emptiness does not select another format-4 profile |
-| [reload.rs](../../../crates/orkworksd/src/taskmaster/hierarchy_storage/reload.rs) predecessor loop | Requires each retained proof's predecessor to be the previous retained sequence | Not the accepted sparse direct-proof retention rule. Required origin/receipt/checkpoint/expected joins must be validated without requiring every unrelated intermediate predecessor |
+| [publication.rs](../../../crates/orkworksd/src/taskmaster/hierarchy_storage/mechanics/publication.rs) journal_object/journal_child_metadata/journal_dependency | One object, metadata row or provenance edge, with some source-pool charges and header/proof transaction | Each call is a separate hierarchy-storage-journal command. It cannot atomically publish the complete proposal, grant/reservation/control outcome or attachment/lineage/summary/five-ledger union |
+| [quota.rs](../../../crates/orkworksd/src/taskmaster/hierarchy_storage/mechanics/quota.rs) establish_resource | One child-source-retained-bytes run/workspace zero row | No complete fresh profile/preparation history, control pool or five assignment resources; row absence alone is not initial preparation proof |
+| [schema.rs](../../../crates/orkworksd/src/taskmaster/hierarchy_storage/mechanics/schema.rs) CATALOG | 17 declared families | Missing 16 of the [33 already named mandatory families](../plans/2026-11-02-hierarchy-storage-kernel.md#required-family-inventory); row emptiness does not select another format-4 profile |
+| [reload.rs](../../../crates/orkworksd/src/taskmaster/hierarchy_storage/mechanics/reload.rs) predecessor loop | Requires each retained proof's predecessor to be the previous retained sequence | Not the accepted sparse direct-proof retention rule. Required origin/receipt/checkpoint/expected joins must be validated without requiring every unrelated intermediate predecessor |
 
 The missing families are claim_proofs, mutation_lookup, root_drafts,
 root_preparations, run_states, parent_attachments, preparation_artifacts and all

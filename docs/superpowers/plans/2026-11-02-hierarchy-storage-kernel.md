@@ -523,3 +523,18 @@ The next bounded stabilization item is
 dormant profile from accepted format-4 admission/publication. It is not a request
 to fill the entire catalog or activate producers. No code for that item is
 implemented by this command-map documentation task.
+
+### Incomplete-profile fence — 2026-11-04
+
+[#1356](https://github.com/Rambolarsen/orkworks/issues/1356) makes the production
+opener return `unqualified profile` before directory creation, path inspection or
+SQLite access. It exposes no reload or publication methods. The entire previous
+kernel, including its partial catalog and generic journal, is compiled only as
+unit-test mechanics under `hierarchy_storage/mechanics/`; those tests remain active.
+Regression tests cover fresh paths, a pre-existing partial database, empty and
+unknown files, retained journal bytes and unrelated files, with byte-for-byte
+preservation on refusal. This is a fence, not a second admitted storage profile.
+
+The 33-family catalog, source-owned command closure, physical membership and
+native resource/recovery qualification remain open under #1176. No new schema,
+version, domain, runtime activation or native/model probe is introduced.

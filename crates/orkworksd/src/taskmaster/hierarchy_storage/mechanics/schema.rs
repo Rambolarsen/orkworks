@@ -1,12 +1,9 @@
-//! DDL-free store opener pieces: accepted physical configuration, the
-//! complete accepted format-4 catalog, and structural catalog verification.
-//! Unknown objects make the store unavailable; nothing here repairs.
+//! Test-only physical configuration and partial mechanical catalog checks.
+//! This 17-family fixture is not an admitted format-4 storage profile.
 
 use super::{ensure, Result, MAX_PAGE_COUNT, PAGE_SIZE};
 
-/// The complete accepted format-4 catalog: every contract table (including
-/// out-of-scope tables created empty, per the whole-catalog rule) plus the
-/// accepted child additions and the artifact-producer additions.
+/// Partial 17-family mechanical fixture; the accepted profile requires 33.
 pub(super) const CATALOG: &[&str] = &[
     "artifact_read_debits",
     "candidate_work",
@@ -45,7 +42,7 @@ pub(super) const OUT_OF_SCOPE: &[&str] = &[
 /// denormalized integer lookup index derived from that CommitRef.
 const ROW_TABLE_DDL: &str = "CREATE TABLE {} (\n  key BLOB PRIMARY KEY,\n  value BLOB NOT NULL,\n  last_commit BLOB NOT NULL,\n  sequence INTEGER NOT NULL\n) WITHOUT ROWID;";
 
-/// Exact accepted column contract per catalog table: `(name, type, pk)`.
+/// Declared mechanical column shape per fixture table: `(name, type, pk)`.
 fn expected_columns(table: &str) -> &'static [(&'static str, &'static str, usize)] {
     const ROW_COLUMNS: &[(&str, &str, usize)] = &[
         ("key", "BLOB", 1),
@@ -152,7 +149,7 @@ pub(crate) fn verify_physical(database: &rusqlite::Connection) -> Result<()> {
     verify_journal(database)
 }
 
-/// Create the complete catalog on a fresh, physically configured connection.
+/// Create the partial mechanical fixture on a fresh test connection.
 pub(crate) fn create_catalog(database: &rusqlite::Connection) -> Result<()> {
     let mut batch = String::from(
         "CREATE TABLE store_header (\n  singleton INTEGER PRIMARY KEY CHECK (singleton = 1),\n  schema_version INTEGER NOT NULL,\n  workspace_id TEXT NOT NULL,\n  storage_epoch TEXT NOT NULL,\n  latest BLOB NOT NULL\n);\n",
