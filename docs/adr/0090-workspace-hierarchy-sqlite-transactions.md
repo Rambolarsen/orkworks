@@ -79,3 +79,23 @@ remain proposed pending enforcement proof and separate acceptance. In particular
 payload bytes must fit with all metadata under the eventual complete-command
 budget. No profile, probe, runtime plan, migration or implementation is approved.
 The qualification register and #740/#744/#745/#746 gates remain binding.
+
+
+## Amendment — dormant lifecycle revocation routing, 2026-11-04
+
+After reviewed [PR #1386](https://github.com/Rambolarsen/orkworks/pull/1386), head
+`f4775d3032ff78f29efae0386bc0894bb5a2ede0`, merged
+`9d67ee0f6ae6898c9dd7b6b33ce06156cdb32551`, the owner answered “go ahead” to
+inline implementation of the [close-only lifecycle plan](../superpowers/plans/2026-11-04-evaluation-lifecycle-close-plumbing.md).
+[#1389](https://github.com/Rambolarsen/orkworks/issues/1389) tracks optional exact
+revocation carriers, ordinary close routing and synthetic integration tests.
+Every production carrier remains None; no production construction/attachment,
+AppState authority initialization, source registration, claim/publication or
+SQL/store activation is authorized. A separate task-owned cancellation guard
+closes an exact retained carrier; cloning/dropping record fields does not.
+
+The SQLite/private-worker direction and ADR status stand. This operationalizes
+ordinary-writer fencing without qualifying active lifecycle adoption, native
+ownership, source custody, physical recovery or a complete production profile.
+All activation gates remain; #1176 stays open. No migration or new wire/schema
+representation follows from this amendment.

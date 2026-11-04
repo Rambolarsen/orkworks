@@ -1170,6 +1170,15 @@ splits later work into reviewable units. Scope is accepted in PR #747;
 component review and version-specific coding-tool permission/delivery/event evidence must pass
 before scoped execution plans authorize code.
 
+The source also carries dormant optional evaluation-revocation slots on ordinary
+runtime/workspace records. Exact runtime snapshots close before kill or terminal
+cleanup; a task-owned guard retains the cutoff across startup/driver cancellation,
+and terminal Kill retains its originating attachment identity. Every production
+slot is None, with no production attachment, authority-owner initialization,
+source registration, claim/publication or storage activation. The
+[close-only implementation plan](../superpowers/plans/2026-11-04-evaluation-lifecycle-close-plumbing.md)
+records the synthetic integration evidence and remaining activation gates.
+
 ## Rust sidecar (`crates/orkworksd/src/`)
 
 Single binary. Top-level modules:

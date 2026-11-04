@@ -2303,6 +2303,17 @@ impl SessionApplication {
         expected_generation: Option<crate::runtime::session_runtime::RuntimeGeneration>,
         status: &str,
     ) -> bool {
+        let captured = if matches!(status, "killed" | "ended" | "error") {
+            crate::runtime::session_runtime::close_runtime_generation(
+                &self.state,
+                id,
+                expected_generation,
+            )
+        } else {
+            None
+        };
+        let expected_generation =
+            expected_generation.or(captured.map(|identity| identity.run_generation));
         let state = self.state.clone();
         let task_state = state.clone();
         let task_id = id.to_string();
@@ -3516,6 +3527,11 @@ impl SessionApplication {
         id: &str,
         runtime_identity: Option<&crate::runtime::session_runtime::RuntimeIdentity>,
     ) {
+        crate::runtime::session_runtime::close_runtime_generation(
+            &self.state,
+            id,
+            runtime_identity.map(|identity| identity.run_generation),
+        );
         // Do not hold sessions while invalidation waits for in_flight. Peon
         // scans take in_flight before sessions when selecting work.
         let owns_runtime_diagnostics = self
@@ -3674,6 +3690,28 @@ impl SessionApplication {
         &self,
         identity: WorkspaceIdentity,
     ) -> Result<WorkspaceSnapshot, SessionError> {
+        self.open_workspace_inner(
+            identity,
+            #[cfg(test)]
+            None,
+        )
+    }
+
+    fn open_workspace_inner(
+        &self,
+        identity: WorkspaceIdentity,
+        #[cfg(test)] after_harness_snapshot: Option<&dyn Fn()>,
+    ) -> Result<WorkspaceSnapshot, SessionError> {
+        // Retired resources outlive projection admission on success and errors.
+        let before;
+        let revocation;
+        let retired;
+        // Harness snapshot publication and all preparation share the same fence
+        // as catalog mutations. The HTTP boundary delegates this single owner.
+        let projection = self.state.projection_lock.lock().map_err(|error| {
+            tracing::error!(%error, "workspace update blocked by poisoned projection lock");
+            SessionError::Internal("application operation failed")
+        })?;
         let path = identity.canonical_path().to_path_buf();
         let global_dir =
             orkworks_global_dir(&path).ok_or(SessionError::Internal("no home directory"))?;
@@ -3731,6 +3769,10 @@ impl SessionApplication {
             );
             SessionError::Internal("failed to load harness configuration")
         })?;
+        #[cfg(test)]
+        if let Some(observe) = after_harness_snapshot {
+            observe();
+        }
         *self
             .state
             .harness_catalog
@@ -3767,10 +3809,12 @@ impl SessionApplication {
         let active_harness_ids = memory.active_harness_ids;
         let active_harness_revision = memory.active_harness_revision;
 
-        let mut workspace = self.state.workspace.lock().unwrap();
-        let workflow_observations = crate::workflow_observations::WorkflowObservationStore::open(
-            global_dir.clone(),
-        )
+        // Ordinary store open may recover/rewrite graph files. Keep its existing
+        // writer fence during preflight, then release it BEFORE evaluation
+        // close. Refresh the cached workflow store at final adoption:
+        // writers may accept observations while the evaluation cutoff waits.
+        let preparing_workspace = self.state.workspace.lock().unwrap();
+        crate::workflow_observations::WorkflowObservationStore::open(global_dir.clone())
         .map_err(|error| {
             tracing::error!(path = %global_dir.display(), %error, "failed to open workflow observation store");
             SessionError::Internal("failed to open workflow observation store")
@@ -3793,7 +3837,48 @@ impl SessionApplication {
                 "failed to scrub orphaned recommendations",
             ));
         }
-        *workspace = Some(WorkspaceState {
+        drop(preparing_workspace);
+        (before, revocation) = {
+            let workspace = self.state.workspace.lock().unwrap();
+            (
+                workspace
+                    .as_ref()
+                    .map(|ws| (ws.metadata.session_reader(), ws.lease.clone())),
+                workspace
+                    .as_ref()
+                    .and_then(|ws| ws.evaluation_revocation.clone()),
+            )
+        };
+        if let Some(handle) = &revocation {
+            handle.close();
+        }
+        let mut workspace = self.state.workspace.lock().unwrap();
+        let unchanged = match (&before, workspace.as_ref()) {
+            (None, None) => true,
+            (Some((reader, lease)), Some(ws)) => {
+                Arc::ptr_eq(reader, &ws.metadata.session_reader())
+                    && match (lease, &ws.lease) {
+                        (None, None) => true,
+                        (Some(old), Some(current)) => Arc::ptr_eq(old, current),
+                        _ => false,
+                    }
+            }
+            _ => false,
+        };
+        if !unchanged {
+            return Err(SessionError::Conflict);
+        }
+        // The preflight snapshot predates the lock-free evaluation close. Open
+        // again under the writer fence so accepted observations, idempotency
+        // entries and sequence counters cannot be lost at the exchange.
+        let workflow_observations =
+            crate::workflow_observations::WorkflowObservationStore::open(global_dir.clone())
+                .map_err(|error| {
+                    tracing::error!(path = %global_dir.display(), %error, "failed to refresh workflow observation store");
+                    SessionError::Internal("failed to open workflow observation store")
+                })?;
+        retired = workspace.replace(WorkspaceState {
+            evaluation_revocation: None,
             path: path.clone(),
             metadata: store,
             workflow_observations,
@@ -3893,6 +3978,9 @@ impl SessionApplication {
             }
         }
         let git_context = git::detect(&path);
+        // Preserve the former HTTP admission fence through ordinary recovery.
+        drop(projection);
+        drop(retired);
         Ok(WorkspaceSnapshot {
             canonical_path: path.display().to_string(),
             repo_root: git_context.repo_root,
@@ -5480,17 +5568,26 @@ impl SessionApplication {
     pub(crate) async fn delete_session(&self, id: &str) -> Result<(), SessionError> {
         let (_reservation, generation) = {
             let _projection = self.state.projection_lock.lock().unwrap();
-            let workspace = self.state.workspace.lock().unwrap();
-            let ws = workspace.as_ref().ok_or(SessionError::Conflict)?;
-            let reservation = ws
-                .metadata
-                .organization
-                .reserve(id)
-                .ok_or(SessionError::Conflict)?;
-            let sessions = self.state.sessions.lock().unwrap();
-            let handle = sessions.get(id).ok_or(SessionError::NotFound)?;
-            handle.kill_tx.send_replace(true);
-            (reservation, handle.runtime.run_generation())
+            let (reservation, captured) = {
+                let workspace = self.state.workspace.lock().unwrap();
+                let ws = workspace.as_ref().ok_or(SessionError::Conflict)?;
+                let reservation = ws
+                    .metadata
+                    .organization
+                    .reserve(id)
+                    .ok_or(SessionError::Conflict)?;
+                let sessions = self.state.sessions.lock().unwrap();
+                let handle = sessions.get(id).ok_or(SessionError::NotFound)?;
+                (
+                    reservation,
+                    crate::runtime::session_runtime::CapturedRuntimeStop::capture(handle),
+                )
+            };
+            captured.close();
+            captured
+                .signal(&self.state, id)
+                .map_err(|_| SessionError::Conflict)?;
+            (reservation, captured.identity.run_generation)
         };
         crate::runtime::terminal_runtime::set_session_status_for_generation(
             &self.state,
@@ -5678,8 +5775,23 @@ impl Drop for ResumeAdmission {
             return;
         }
 
+        let mut retired = None;
         let restored_generation = {
             let _projection = self.state.projection_lock.lock().unwrap();
+            let revocation = {
+                let sessions = self.state.sessions.lock().unwrap();
+                sessions
+                    .get(&self.id)
+                    .filter(|h| {
+                        h.runtime.run_generation() == self.generation
+                            && h.resume_in_progress
+                            && !h.runtime.startup_spawned()
+                    })
+                    .and_then(|h| h.runtime.evaluation_revocation.clone())
+            };
+            if let Some(handle) = &revocation {
+                handle.close();
+            }
             let mut sessions = self.state.sessions.lock().unwrap();
             if !sessions.get(&self.id).is_some_and(|handle| {
                 handle.runtime.run_generation() == self.generation
@@ -5691,16 +5803,17 @@ impl Drop for ResumeAdmission {
                 match self.previous_handle.take() {
                     Some(previous) => {
                         let generation = previous.runtime.run_generation();
-                        sessions.insert(self.id.clone(), previous);
+                        retired = sessions.insert(self.id.clone(), previous);
                         Some(Some(generation))
                     }
                     None => {
-                        sessions.remove(&self.id);
+                        retired = sessions.remove(&self.id);
                         Some(None)
                     }
                 }
             }
         };
+        drop(retired);
         let Some(restored_generation) = restored_generation else {
             return;
         };
@@ -5814,6 +5927,32 @@ pub(crate) fn try_install_claimed_resume_handle(
         return Err(());
     }
 
+    let before = sessions.get(id).map(|h| h.runtime.identity());
+    let revocation = sessions
+        .get(id)
+        .and_then(|h| h.runtime.evaluation_revocation.clone());
+    let reader = ws.metadata.session_reader();
+    drop(sessions);
+    drop(workspace);
+    if let Some(handle) = &revocation {
+        handle.close();
+    }
+    let workspace = state.workspace.lock().unwrap();
+    if !workspace
+        .as_ref()
+        .is_some_and(|ws| Arc::ptr_eq(&reader, &ws.metadata.session_reader()))
+    {
+        return Err(());
+    }
+    let mut sessions = state.sessions.lock().unwrap();
+    if sessions.get(id).map(|h| h.runtime.identity()) != before
+        || state.session_pids.lock().unwrap().contains_key(id)
+        || sessions
+            .get(id)
+            .is_some_and(|h| resume_handle_conflicts(h, metadata_ended, false))
+    {
+        return Err(());
+    }
     replacement.resume_in_progress = true;
     let generation = replacement.runtime.run_generation();
     let previous_handle = sessions.insert(id.to_string(), replacement);
@@ -6153,6 +6292,21 @@ async fn resume_session_workflow(
     let startup_id = id.clone();
     let startup_harness_id = meta.harness.clone();
     let startup_executable = command.program.clone();
+    let runtime_future = crate::runtime::session_runtime::start_session_runtime(
+        startup_state.clone(),
+        startup_id.clone(),
+        command,
+        None,
+        control_rx,
+        output_tx,
+        kill_tx.subscribe(),
+        PtySize {
+            rows: crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+            cols: crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+            pixel_width: 0,
+            pixel_height: 0,
+        },
+    );
     let startup_task = tokio::spawn(async move {
         let start_result = match prepare_prompt_authority_generation(
             &startup_state,
@@ -6161,25 +6315,11 @@ async fn resume_session_workflow(
             &startup_executable,
             resume_native_session_id.as_deref(),
         ) {
-            Ok(()) => {
-                crate::runtime::session_runtime::start_session_runtime(
-                    startup_state.clone(),
-                    startup_id.clone(),
-                    command,
-                    None,
-                    control_rx,
-                    output_tx,
-                    kill_tx.subscribe(),
-                    PtySize {
-                        rows: crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
-                        cols: crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
-                        pixel_width: 0,
-                        pixel_height: 0,
-                    },
-                )
-                .await
+            Ok(()) => runtime_future.await,
+            Err(error) => {
+                drop(runtime_future);
+                Err(error)
             }
-            Err(error) => Err(error),
         };
 
         if let Err(error) = &start_result {
@@ -6696,6 +6836,9 @@ async fn create_session_workflow(
         },
     );
 
+    #[cfg(test)]
+    evaluation_close_tests::attach_creation(&state, &id);
+
     // Persist the creating record before the PTY reader exists. The runtime
     // promotes it to alive immediately after spawn, before it can classify
     // output, so the first output cannot be lost between memory and metadata.
@@ -6774,7 +6917,24 @@ async fn create_session_workflow(
             };
             if let Err(error) = ws.metadata.try_write_session(&record) {
                 tracing::error!(session_id = %id, %error, "new session persistence failed");
-                state.sessions.lock().unwrap().remove(&id);
+                drop(creation_workspace);
+                crate::runtime::session_runtime::close_runtime_generation(
+                    &state,
+                    &id,
+                    Some(run_generation),
+                );
+                let retired = {
+                    let mut sessions = state.sessions.lock().unwrap();
+                    if sessions
+                        .get(&id)
+                        .is_some_and(|h| h.runtime.run_generation() == run_generation)
+                    {
+                        sessions.remove(&id)
+                    } else {
+                        None
+                    }
+                };
+                drop(retired);
                 return Err(SessionError::Internal(
                     "Cannot save the new session. Check storage access and retry.",
                 ));
@@ -6807,6 +6967,21 @@ async fn create_session_workflow(
     let startup_id = id.clone();
     let startup_harness_id = resolved_launch.session_harness_id.clone();
     let startup_executable = command.program.clone();
+    let runtime_future = crate::runtime::session_runtime::start_session_runtime(
+        startup_state.clone(),
+        startup_id.clone(),
+        command,
+        runtime_initial_prompt,
+        control_rx,
+        output_tx,
+        kill_tx.subscribe(),
+        PtySize {
+            rows: crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+            cols: crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+            pixel_width: 0,
+            pixel_height: 0,
+        },
+    );
     tokio::spawn(async move {
         let start_result = prepare_prompt_authority_generation(
             &startup_state,
@@ -6817,25 +6992,11 @@ async fn create_session_workflow(
         )
         .and_then(|()| Ok(()));
         let start_result = match start_result {
-            Ok(()) => {
-                crate::runtime::session_runtime::start_session_runtime(
-                    startup_state.clone(),
-                    startup_id.clone(),
-                    command,
-                    runtime_initial_prompt,
-                    control_rx,
-                    output_tx,
-                    kill_tx.subscribe(),
-                    PtySize {
-                        rows: crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
-                        cols: crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
-                        pixel_width: 0,
-                        pixel_height: 0,
-                    },
-                )
-                .await
+            Ok(()) => runtime_future.await,
+            Err(error) => {
+                drop(runtime_future);
+                Err(error)
             }
-            Err(error) => Err(error),
         };
         match start_result {
             Ok(()) => {
@@ -19388,3 +19549,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
         );
     }
 }
+
+#[cfg(test)]
+#[path = "session_application/evaluation_close_tests.rs"]
+pub(crate) mod evaluation_close_tests;

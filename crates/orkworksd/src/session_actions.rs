@@ -74,9 +74,9 @@ impl SessionApplication {
         request: SessionActionRequest,
         wait: Duration,
     ) -> Result<(), SessionError> {
-        let (captured, _reservation, kill) =
-            {
-                let _projection = self.state.projection_lock.lock().unwrap();
+        let (captured, _reservation, kill) = {
+            let _projection = self.state.projection_lock.lock().unwrap();
+            let (captured, reservation, kill) = {
                 let workspace = self.state.workspace.lock().unwrap();
                 let ws = workspace.as_ref().ok_or(SessionError::Conflict)?;
                 let meta = ws
@@ -131,9 +131,7 @@ impl SessionApplication {
                 )?;
                 let kill = if current == SessionState::Active {
                     let handle = handle.unwrap();
-                    // Send under the same admission guard that validated the token.
-                    handle.kill_tx.send_replace(true);
-                    Some(handle.runtime.run_generation())
+                    Some(crate::runtime::session_runtime::CapturedRuntimeStop::capture(handle))
                 } else {
                     None
                 };
@@ -148,6 +146,17 @@ impl SessionApplication {
                     kill,
                 )
             };
+            if let Some(stop) = &kill {
+                stop.close();
+                stop.signal(&self.state, id)
+                    .map_err(|_| SessionError::Conflict)?;
+            }
+            (
+                captured,
+                reservation,
+                kill.map(|stop| stop.identity.run_generation),
+            )
+        };
         if kill.is_some() {
             // The runtime driver owns finalization. A request to stop is not proof
             // that it has drained output, cleaned up, and persisted its ending.

@@ -275,16 +275,9 @@ async fn set_workspace_inner(
         )
             .into_response();
     }
-    let open_result = {
-        let _projection = match state.projection_lock.lock() {
-            Ok(guard) => guard,
-            Err(error) => {
-                tracing::error!(error = %error, "workspace update blocked by poisoned projection lock");
-                return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
-            }
-        };
-        SessionApplication::new(state.clone()).open_workspace_with_identity(identity)
-    };
+    // The application owns projection admission for every caller; do not
+    // reenter that non-reentrant mutex at the HTTP boundary.
+    let open_result = SessionApplication::new(state.clone()).open_workspace_with_identity(identity);
     match open_result {
         Ok(snapshot) => {
             let cleanup_keys = snapshot.integration_cleanup_keys.clone();
@@ -7826,6 +7819,7 @@ mod tests {
             git_context_cache: Default::default(),
             session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(Some(WorkspaceState {
+                evaluation_revocation: None,
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
                 workflow_observations:
@@ -9249,6 +9243,7 @@ mod tests {
             git_context_cache: Default::default(),
             session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(Some(WorkspaceState {
+                evaluation_revocation: None,
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
                 workflow_observations:
@@ -10053,3 +10048,76 @@ mod observation_tests;
 #[cfg(test)]
 #[path = "identity_completion_tests.rs"]
 mod identity_completion_tests;
+
+#[cfg(test)]
+mod evaluation_close_http_tests {
+    use super::*;
+    #[test]
+    fn evaluation_close_http_workspace_adoption_has_one_projection_owner() {
+        let home = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let home_guard = crate::test_support::FakeHome::set(home.path());
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let path = root.path().display().to_string();
+        let identity = root.path().canonicalize().unwrap().display().to_string();
+        let (done, result) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let status = runtime
+                .block_on(set_workspace(
+                    State(state),
+                    Json(WorkspaceRequest {
+                        path,
+                        workspace_identity: identity,
+                    }),
+                ))
+                .status();
+            let _ = done.send(status);
+        });
+        let status = result.recv_timeout(std::time::Duration::from_secs(5));
+        drop(home_guard);
+        assert_eq!(
+            status,
+            Ok(axum::http::StatusCode::OK),
+            "HTTP admission must not reacquire its own projection mutex"
+        );
+        worker.join().unwrap();
+    }
+}
+
+#[cfg(test)]
+mod evaluation_close_poisoned_workspace_tests {
+    use super::*;
+    #[tokio::test]
+    async fn evaluation_close_http_poisoned_projection_returns_500_without_preparation() {
+        let home = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let home_guard = crate::test_support::FakeHome::set(home.path());
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let poison_state = state.clone();
+        let _ = std::thread::spawn(move || {
+            let _guard = poison_state.projection_lock.lock().unwrap();
+            panic!("injected ordinary projection poison");
+        })
+        .join();
+        let global =
+            crate::workspace_runtime::orkworks_global_dir(&root.path().canonicalize().unwrap())
+                .unwrap();
+        let response = set_workspace(
+            State(state),
+            Json(WorkspaceRequest {
+                path: root.path().display().to_string(),
+                workspace_identity: root.path().canonicalize().unwrap().display().to_string(),
+            }),
+        )
+        .await;
+        let status = response.status();
+        let untouched = !global.exists();
+        drop(home_guard);
+        assert_eq!(status, axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(untouched);
+    }
+}

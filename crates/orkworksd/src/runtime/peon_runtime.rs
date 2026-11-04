@@ -3639,6 +3639,7 @@ mod tests {
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
+            evaluation_revocation: None,
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
                 workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
@@ -3797,6 +3798,7 @@ mod tests {
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
+                evaluation_revocation: None,
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
                 workflow_observations:
@@ -3946,6 +3948,7 @@ mod tests {
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
+            evaluation_revocation: None,
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
                 workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
@@ -4113,6 +4116,7 @@ mod tests {
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
+                evaluation_revocation: None,
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
                 workflow_observations:
@@ -4336,6 +4340,7 @@ mod tests {
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
+                evaluation_revocation: None,
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
                 workflow_observations:
@@ -4459,6 +4464,7 @@ mod tests {
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
+            evaluation_revocation: None,
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
                 workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
@@ -4697,6 +4703,7 @@ mod tests {
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
+                evaluation_revocation: None,
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
                 workflow_observations:
@@ -4875,6 +4882,7 @@ mod tests {
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
+                evaluation_revocation: None,
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
                 workflow_observations:
@@ -5071,6 +5079,7 @@ mod tests {
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
+                evaluation_revocation: None,
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
                 workflow_observations:
@@ -5243,6 +5252,7 @@ mod tests {
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
+                evaluation_revocation: None,
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
                 workflow_observations:
@@ -5413,6 +5423,7 @@ mod tests {
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
+                evaluation_revocation: None,
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
                 workflow_observations:
@@ -5588,6 +5599,7 @@ mod tests {
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
+                evaluation_revocation: None,
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
                 workflow_observations:
@@ -5762,6 +5774,7 @@ mod tests {
             git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Some(crate::WorkspaceState {
+                evaluation_revocation: None,
                 path: dir.path().to_path_buf(),
                 metadata: metadata::MetadataStore::new(&orkworks),
                 workflow_observations:

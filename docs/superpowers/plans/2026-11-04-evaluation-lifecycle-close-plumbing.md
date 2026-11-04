@@ -4,7 +4,7 @@ title: Dormant evaluation lifecycle close plumbing
 description: Conditional plan for exact optional revocation carriers and ordinary lifecycle close ordering without production binding attachment or storage activation.
 tags: [orkworks, hierarchy, evaluation, lifecycle, authority]
 status: draft
-workflow_status: proposed
+workflow_status: active
 ---
 
 # Dormant evaluation lifecycle close plumbing
@@ -21,9 +21,13 @@ runtime or rearm an old carrier. All production carriers remain None, and no
 production creator, attachment, registration, response/claim/publication or store
 path is added. Current ordinary-session behavior remains available.
 
-**Owner acceptance of this concrete scope is pending. Do not execute.** Earlier
-approval was for the merged non-I/O core only. The conditional plan below does
-not relax active source/native/resource or complete-profile qualification.
+The owner answered “go ahead” to the exact inline implementation request after
+merged PR #1386 (head f4775d3032ff78f29efae0386bc0894bb5a2ede0; merge
+9d67ee0f6ae6898c9dd7b6b33ce06156cdb32551). This approves this close-only unit,
+tracked by [#1389](https://github.com/Rambolarsen/orkworks/issues/1389), with
+[ADR 0090's dated amendment](../../adr/0090-workspace-hierarchy-sqlite-transactions.md#amendment--dormant-lifecycle-revocation-routing-2026-11-04)
+recorded before runtime code. Active source/native/resource and complete-profile
+qualification remain unchanged.
 
 ## One coupled implementation unit
 
@@ -57,40 +61,40 @@ inside the publication latch.
 
 ## Behavioral oracles and execution
 
-- [ ] After scoped owner acceptance, record its exact design/plan revision and
+- [x] After scoped owner acceptance, record its exact design/plan revision and
   amend ADR 0090 in a dated section before runtime code: the private-worker/storage
   direction and active-qualification gates remain unchanged; this authorizes only
   dormant revocation routing. Follow the existing ADR lifecycle, not a status
   change or implied approval of a production adapter.
 
-- [ ] Write failing entry-point tests for delete, row Close/Archive/Delete and
+- [x] Write failing entry-point tests for delete, row Close/Archive/Delete and
   terminal Kill. Propagate the originating attachment identity through delayed
   terminal dispatch. A channel/barrier records close before kill; stale identity
   rejects signaling a replacement. Test both present and None carriers.
-- [ ] Add failing pre-spawn cancellation/failure, post-spawn abort, native observer,
+- [x] Add failing pre-spawn cancellation/failure, post-spawn abort, native observer,
   writer/editor failure and natural exit tests. Verify close precedes kill or
   drain/finalization waits even while the ordinary metadata transition is parked.
   Cover duplicate callbacks, driver channel closure/select exhaustion, cancellation
   before first poll and during startup/driver waits, and exit before any possible
   test registration. A task guard closes on teardown outside ordinary guards;
   dropping a cloned carrier alone must not close authority.
-- [ ] Add failing resume admission/rollback and creating-record failure tests:
+- [x] Add failing resume admission/rollback and creating-record failure tests:
   old binding closes before exchange; abandoned replacement closes before removal;
   restoring an ordinary handle never reopens it; stale rollback leaves a newer
   runtime unchanged. No restored test binding may register after its close.
-- [ ] Add failing workspace race tests: close-before-exchange, exact instance
+- [x] Add failing workspace race tests: close-before-exchange, exact instance
   revalidation, same-path reload, failed adoption, two concurrent adopters and
   old unsettled claim retention. Neither stale completion nor failed ordinary
   persistence clears a newer fence. No Arc/lease destruction under close latch.
-- [ ] Implement the smallest facade/carriers and capture→close→revalidate tails
+- [x] Implement the smallest facade/carriers and capture→close→revalidate tails
   until those tests pass. Never acquire the latch with sessions/workspace/prompt
   locks held. Reuse accepted projection→publication order where atomic admission
   needs it; keep full metadata and store construction outside the close latch.
-- [ ] Prove poisoned-owner denial does not disable ordinary stop/cleanup. Re-run
+- [x] Prove poisoned-owner denial does not disable ordinary stop/cleanup. Re-run
   the 23 core tests and assert no production constructor/attachment/open/claim
   caller by source inventory and compile privacy boundaries. Every production
   field initializer is None; no entropy/backend/source route is activated.
-- [ ] Run focused tests, Rust fmt/build/tests and `bash scripts/verify-repo.sh`
+- [x] Run focused tests, Rust fmt/build/tests and `bash scripts/verify-repo.sh`
   with frozen dependencies/required Node ABI; docs/worktree checks. Inspect all
   changed lock lifetimes and the complete source-root table against final diff.
 - [ ] Complete current-code `/code-review medium` for this cross-cutting lifecycle
@@ -131,3 +135,184 @@ chunk warnings do not concern changed content. Worktree warnings include foreign
 branches, which are untouched; this owned uncommitted branch initially appeared
 merged because it still pointed at the base before its first commit.
 
+
+
+## Execution evidence — 2026-11-04
+
+Implementation base: f11e325f6c442f4bf17b1b7e35c76a14d6587d74; preserve its
+namespace-response fence fix. One inline owner; every production runtime/workspace
+initializer remains None and all source factories/attachment are cfg(test).
+
+Observed RED→GREEN: initial 7 tests had 5 behavioral failures/2 controls passed;
+expanded 11 had 8 failures/3 controls. Exact stop/row/terminal snapshots, workspace
+and resume tails made all 11 pass. Actual startup cancellation before first poll,
+during wait and failed spawn then failed, as did a delayed attachment under an
+ID-only kill mutation; restored exact identity/owned-future capture made 15 pass.
+Further deterministic tests cover held-latch lock release, stale workspace tail,
+retained old claim, unissued late registration and creating-record failure.
+Three deliberate missing-close/lock-order mutations failed exactly their three
+oracles and were restored. Exact retained-lease replacement exposed a real
+reader-only revalidation gap; the fixed snapshot compares both reader and lease
+Arc identities without claiming physical lease qualification.
+
+The local PTY fixtures exercise natural exit before notification/finalization,
+driver abort, post-spawn ownership loss, writer panic, initial-editor rejection
+and a synthetic native-server failure. Writer/editor and native omission
+mutations each failed their cutoff-before-kill oracle and were restored. Fixtures
+disable background inference; generated local processes are explicitly cleaned.
+These are unit/integration tests, not hosted calls or native platform/profile
+qualification. Existing core claim/settlement semantics are unchanged.
+
+Ruling: preserve the ordinary workspace guard while opening/recovering stores,
+then release it before projection and the publication cutoff. RecommendationStore
+open recovers/migrates files; moving that work outside existing writer fencing
+could introduce same-path recovery/write races. This changes the draft's proposed
+preparation lock lifetime, preserving existing I/O fencing while keeping every
+publication latch outside workspace/sessions/prompt guards. Cost if wrong is the
+existing workspace-preparation I/O responsiveness, not new authority. Actual
+selected workspace capture occurs under projection after preparation, allowing
+concurrent prepared adopters to serialize their exchange.
+
+Full repository verification and current-code manual review are recorded below
+when complete; no success is inferred from this execution ledger.
+
+
+Focused final result: **28 passed, none ignored**. A writer fixture was corrected
+because portable-pty 0.8.1 writer Drop sends newline/EOF; it now retains the real
+writer until test cleanup. With that correction, omitting either writer/editor
+cutoff again produces exactly its two expected failures. Restored source SHA-256
+matches the 28-pass source bytes before full verification. The synthetic native
+failure omission likewise failed its dedicated first-cutoff test. No mutation
+remains in the implementation.
+
+
+Independent whole-branch `/code-review medium` completed: **APPROVE, no findings**.
+Reviewed base f11e325f6c442f4bf17b1b7e35c76a14d6587d74 and staged tree
+c46c5a686aad454148cbb4bee88764f346946d8d in a fresh read-only Luna context.
+The reviewer inspected actual code/tests and relevant caller edges; tests/build
+were not rerun independently. Parent focused tests passed 28/28; full repository
+verification is still pending at this review checkpoint. Production source/
+attachment, claim/response/publication and run/shutdown/native capability gates
+were explicitly left outside this dormant unit, as approved. No optional or
+minor findings were deferred.
+
+
+Full-suite correction: the first repository run passed fmt/build but exposed an
+HTTP deadlock: set_workspace_inner already held projection while the new
+application adoption tail reacquired it. A bounded real HTTP regression failed
+at its five-second deadline. Application admission now owns that mutex exactly
+once; HTTP no longer wraps it. Early/final poison checks preserve HTTP 500 and
+prevent preparation on an already poisoned projection. The application retains
+the former HTTP fence through ordinary recovery, then releases it before retired
+resources are destroyed.
+
+A separate three-second channel regression proved terminal Kill was unnecessarily
+waiting on unrelated projection work. It retains its original no-projection
+control path: exact captured identity is rechecked under sessions after close.
+Delete/row/replacement operations keep their existing projection admission.
+These are fixes within the approved ordering/ordinary-availability contract.
+Focused result after both corrections: **31 passed, none ignored**. The original
+c46 review is historical for the earlier tree; the current delta and full suite
+are reviewed/verified again before commit or merge.
+
+
+Updated current-code `/code-review medium`: **APPROVE, no findings**, staged tree
+63a176d24b184622e5958dac3e8515df146876de. The fresh whole-branch reviewer then
+checked the four-file correction delta against c46 and its HTTP/workspace/terminal
+caller edges; all other reviewed Rust blobs are unchanged. The reviewer also
+checked the synchronous transition backstop against actual caller lock lifetimes
+and found no material executor-blocking risk. Tests/build were not independently
+rerun by the reviewer. The parent reruns the full repository check after the
+observed regression fixes; this current approval does not turn the interrupted
+first run into a passing result.
+
+
+Full `bash scripts/verify-repo.sh` passed on the corrected code: Rust fmt/build,
+2,895 Rust unit tests passed (17 existing ignored) plus all integration suites,
+20 OpenCode reporter tests, desktop type/native/tests/build (1,690 passed, three
+existing skipped), and 1,202 docs tests plus metadata/index/link/site build.
+Diff/doc/worktree checks pass. Baseline compiler/Node/VitePress warnings are
+unrelated. Doc-check's user/onboarding and README currency warnings require no
+additional edit: the UI/metadata schema/milestone and published capability claims
+are unchanged; source architecture documents dormant routing and exact terminal
+identity. No runtime/profile or installer activation is claimed.
+
+Code blobs remain identical to reviewed tree63; only documentation result records
+changed afterward. PR CI and owned branch/worktree cleanup remain delivery steps.
+
+
+### Review correction: workflow snapshot adoption
+
+Codex identified a same-workspace reload race after the initial verification:
+agent observation recording uses the workspace mutex and can accept an observation
+while the publication cutoff waits outside that mutex. Installing the earlier
+workflow-store snapshot loses its cached observation, idempotency entry and
+sequence advancement. A deterministic application-level test parks the cutoff,
+records an observation, then resumes reload; the original code fails with zero
+retained observations instead of one.
+
+The preparation fence above remains a preflight check. Its workflow snapshot is
+discarded, and the store is opened again under the final workspace writer guard,
+after exact reader/lease revalidation and immediately before exchange. This keeps
+the cutoff outside ordinary locks and preserves intervening accepted writes.
+RecommendationStore retains only its directory path, so it has no corresponding
+cached snapshot. The regression also checks duplicate detection and strictly
+advancing sequence numbers. This correction supersedes the earlier claim that
+preparation fencing alone preserved workflow writes through adoption. Current
+verification and review evidence are recorded in PR #1396 before merge.
+
+
+The correction passed all 32 focused lifecycle tests. Independent
+`/code-review low` approved the delta against head
+88f716cacf574981aac627766725db8c14edff2e with no findings; reviewed source blobs
+6d975fe904aaae7e68079382bb0d80f60cfc24c4 (application) and
+f566a9a74b3c714b14262b190a0d82f838824157 (regression). The reviewer inspected
+recording lock ownership and error tails; the parent ran tests. Full repository
+verification and current-head automated review remain delivery checks.
+
+
+Full `bash scripts/verify-repo.sh` passed again after the workflow correction:
+2,915 Rust unit tests passed (17 existing ignored) plus integrations, 20 reporter
+tests, desktop type/native/tests/build (1,691 passed, three existing skipped),
+1,202 docs tests and site build, fmt/diff/doc/worktree checks. Existing chunk and
+compiler warnings remain unrelated. Documentation currency was assessed: the
+correction preserves observation retention during reload, with no new UI,
+schema, onboarding or published capability claim. Required CI and current-head
+Codex review are checked on the correction commit before merge.
+
+
+### Review correction: harness publication admission
+
+The next Codex pass identified preparation running before projection admission:
+workspace open could load an old harness snapshot, overlap an acknowledged
+projection-serialized harness mutation, then publish its stale registry. A
+per-invocation test-only barrier now pauses the actual snapshot-to-publication
+seam. With late admission the real mutation persists its edit, but workspace
+open overwrites the live catalog with the old name; the regression fails on that
+observable mismatch. No sleeps or global hooks establish the schedule.
+
+Projection admission now starts before workspace preparation, restoring the
+former HTTP outer fence while keeping the application its sole owner. The
+reader/lease and retired-resource declarations precede the guard, so their Drop
+tails remain outside it. Workspace writer locks are still released before the
+publication cutoff, and the workflow snapshot is still refreshed immediately
+before adoption because observation recording does not acquire projection.
+This supersedes earlier descriptions of acquiring projection after preparation;
+there is one early poison-aware acquisition and no nested HTTP acquisition.
+
+
+The exact harness overwrite regression and all 33 focused lifecycle tests pass.
+Independent `/code-review low` approved this correction against head7c84b31b,
+reviewing source blobs2b860e09cd4fc567cc471b29f9789bb73ba00b08 and
+1be00cc5e22e28b1b5af416da29ab8f2983d91dd. The reviewer checked writer lock order,
+sole projection ownership, drop ordering and the deterministic mutation schedule;
+the parent ran tests. Full repository verification is rerun before commit.
+
+
+Full `bash scripts/verify-repo.sh` passed after the harness correction:
+2,916 Rust unit tests passed (17 existing ignored) plus integrations, 20 reporter
+tests, desktop type/native/tests/build (1,691 passed, three existing skipped),
+1,202 docs tests/site build and all fmt/diff/doc/worktree checks. Currency
+warnings were assessed: the restored catalog serialization changes no UI/schema,
+onboarding or published capability claim. The actual source hashes still match
+the approved correction. Current-head PR checks/review remain delivery gates.
