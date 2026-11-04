@@ -98,6 +98,9 @@ export interface SessionInfo {
   atUsageLimit?: boolean;
   capacityCheckPending?: boolean;
   usageLimitResetHint?: string;
+  /** True when the displayed Capped state comes from a sibling session of
+   *  the same harness, not from this session's own evidence. */
+  usageLimitInherited?: boolean;
   peonLastInference?: string;
   peonDiagnostics?: PeonDiagnostics | null;
   metadataSource?: string;

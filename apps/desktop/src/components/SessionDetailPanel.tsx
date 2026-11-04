@@ -144,8 +144,14 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSes
   const folder = active.cwd.split("/").pop() || active.cwd;
   const timeoutNotice = peonTimeoutNotice(active);
   const actionZone = detailActionZone(active, tone);
-  const badgeText =
-    attn === "capped" && active.usageLimitResetHint
+  // A harness-wide projected Capped state must not read as this session's
+  // own evidence (issue #1083): the badge says so explicitly.
+  const cappedInherited = attn === "capped" && active.usageLimitInherited === true;
+  const badgeText = cappedInherited
+    ? active.usageLimitResetHint
+      ? `Capped · ${active.usageLimitResetHint} · inherited from another session`
+      : "Capped · inherited from another session"
+    : attn === "capped" && active.usageLimitResetHint
       ? `Capped · ${active.usageLimitResetHint}`
       : attentionLabel(attn);
 

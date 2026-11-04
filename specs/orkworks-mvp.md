@@ -1023,6 +1023,15 @@ states (`healthy`, `degraded`, `capped`, `unknown`, `disabled`), cost tiers
 remain unchanged. Correctness and provenance fixes belong on those existing
 surfaces.
 
+When one session of a harness detects a usage limit, sibling live sessions of
+that harness display the projected harness-wide Capped state for as long as
+the detecting session holds it. That display is provenance-marked as inherited
+from another session (projection-only `usageLimitInherited` field) and never
+latches the sibling's own usage-limit state: a sibling that never detected a
+limit carries no sticky latch and clears with the detecting session. A reset
+hint borrowed from a sibling is display-only and is not retained by the
+sibling ([#1083](https://github.com/Rambolarsen/orkworks/issues/1083)).
+
 The standalone Capacity dashboard, manual dashboard controls, dedicated
 navigation and shortcut, capacity-file expansion and broader classification
 work are deferred. They are not active MVP deliverables. Revisit only for a
