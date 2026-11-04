@@ -227,3 +227,20 @@ that the parked-backend oracle concerns the owner close primitive, not proof of
 actual PTY stop latency. No new decision arose from that clarification. Source/
 native adoption and the four implementation choices remain unaccepted until the
 scoped owner decision above; this review is not their approval or qualification.
+
+
+## Scoped owner acceptance and first-unit execution — 2026-11-04
+
+After reviewed PR #1372 (head 67630684b00e514f2e8e6dc39cb8416138707d42,
+merged ae417f10f461f6fec5c0e11a7ef2b542a59a08fb), the owner answered “lets keep
+goin” to the concrete request approving this design and its first non-I/O unit.
+This accepts the separate private owner, two-phase exact close, fresh sidecar
+identity/checked sequence and opaque single-operation claim for the described
+unit. The [execution plan](../plans/2026-11-04-evaluation-authority-core.md), tracked
+by [#1376](https://github.com/Rambolarsen/orkworks/issues/1376), implements and tests
+only in-memory ordering. Earlier owner-pending wording is superseded for these
+choices and this bounded unit, not for actual lifecycle/source/native adoption.
+
+No AppState field, production source registration, ordinary lifecycle hook,
+SQL/store activation, serialization/limit/policy change or native/model probe is
+approved. The #1356 admission fence remains; #1176 qualification stays open.
