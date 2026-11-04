@@ -37,7 +37,7 @@ The probe keeps `rootScope: unverified` even when IDs compare equal.
 | Claude Code 2.1.309, source reporter | A separate no-tool run received the modified reporter's narrow SessionStart instructions and returned the exact requested acknowledgement. The reporter used fake capabilities and an offline curl stub; no real metadata report was attempted. | Live context delivery, not proof that future agents comply or that installed helpers have updated. |
 | Codex 0.166.0 | An ephemeral, read-only run completed exactly two shell calls with B then A as tool directories. Three item-completed and one turn-completed events were counted. No configured fixture hook records were received. | Hook execution/discovery/trust was not established. No trust bypass or persisted trust mutation was used. This result cannot qualify native directory semantics. Existing explicit helper reporting is independently observed in the owning session. |
 | Copilot CLI 1.0.90 | Capped fixtures produced no hook record. The owner subsequently approved exactly one no-tool request without the credit cap, bounded to 90 seconds; it exited 1 after 8.7 seconds with derived `401` and `quota` diagnostics and no hook record or acknowledgement. | Live delivery remains unverified pending external authentication/usage resolution. The one approved uncapped invocation was consumed; no credential change or further retry occurred. |
-| OpenCode 2.2.5 | A model-free private-server fixture read exact-session parent/location fields, moved root A→B and child A→C independently, and observed B/C after one restart. An instruction entry attached to the root after child creation was present only on the root. | Native session API evidence only. No hook event, model-context delivery, async ordering or automatic task-location signal is qualified. Plugin-instance location remains insufficient. |
+| OpenCode 2.2.5 | A model-free private-server fixture observed independent root B / child C locations and persistence. A separate fixture observed a root-only marker pass from the native context hook to the serialized request, with no child marker and zero transport attempts. | Context serialization is established only for an explicitly fixture-pinned root. Production root capture, native child-tool spawning, async ordering, model comprehension and automatic task-location authority remain unqualified. Plugin-instance location remains insufficient. |
 | Aider | Executable unavailable. | No live qualification. |
 | Antigravity 1.1.22 | Version available. | No qualified hook/schema was identified; no live location run. |
 | Generic shell / retired Gemini / custom | Existing fallback policy retained. | No new native source or universal hook claim. |
@@ -173,3 +173,57 @@ Windows behavior, or async event ordering. The probe's authority remains
 `diagnostic-only` with `rootScope: unverified`. No production adapter or new
 location authority was enabled; OpenCode agents still use explicit helper
 reporting where available and the existing fallback otherwise.
+
+
+## OpenCode context serialization fixture
+
+On 2026-11-04 the owner separately approved one native OpenCode 2.2.5 context
+fixture, bounded to 90 seconds, one private-server start and two fixture-only
+prompt admissions. The execution passed with four derived records and zero
+requests reaching its owned rejecting HTTP endpoint. All matching disposable
+fixture directories were absent after cleanup.
+
+The fixture reused isolated XDG storage, temporary Basic authentication and the
+strict inherited-environment allowlist from the session API fixture. It selected
+only a fake custom provider/model explicitly for both sessions. Its endpoint was
+an owned loopback HTTP stub, and its provider key was a fixed fake value. No
+inherited provider credential, reporting capability, account change or paid
+inference was involved. Warming was disabled, title generation was supplied
+locally, retries were vetoed, outgoing tools were removed and WebSocket dispatch
+was refused. Raw native output and serialized bodies were not retained.
+
+A disposable plugin used the documented
+[context and HTTP hooks](https://opencode.ai/v2/docs/build/plugins/server):
+
+- The native `context` hook read the exact session. Only the fixture-pinned
+  root with matching read-back identity and no parent received a harmless marker.
+  The root observation matched B/task; the child matched C/other and the expected
+  parent relation, and was ineligible for marker injection.
+- A separate native `http.request` hook examined the assembled primary request
+  before transport. The root request contained the marker; the child request
+  did not. Both targeted the owned loopback endpoint.
+- The HTTP hook intentionally threw before dispatch. No request reached even
+  the local stub, and no model response or successful model turn is claimed.
+- The retained records contain only stage/scope/location labels and booleans for
+  identity, parent relation, eligibility, request kind/target and marker
+  presence. Native IDs, prompts, serialized bodies and passwords were not printed.
+
+Offline checks separately exercised root/child/peer discrimination, mismatched
+read-back identity and parent refusal, serialized marker detection, dispatch
+stopping, wrong-target refusal, privacy and retry veto. Those
+checks are not substitutes for the native observations above.
+
+This establishes a version-specific text-injection path through OpenCode's
+request assembly for a root selected explicitly by the fixture. It does not
+establish actual agent comprehension, helper-command compliance, native
+child-tool spawning, pre-creation instruction inheritance, event ordering,
+Windows behavior, or production root-ID capture/admission. The fixture's scope
+is `fixture-pinned-only`, with `diagnostic-only` authority; it never selected a
+production session or enabled an adapter.
+
+The built-in source launch/resume templates already use a private server; see
+[OpenCode server isolation](../agents/harness-integration-contracts.md#opencode-server-isolation).
+Custom command arrays and existing sessions retain the limits recorded there.
+The production reporter's captured identity still needs its own correlation
+and child-exclusion evidence before this channel is connected to worktree
+instruction delivery. No automatic directory update is authorized by this run.
