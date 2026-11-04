@@ -199,6 +199,15 @@ completion does not clear a prompt or establish that the main session is idle.
 Update an existing Copilot integration through Settings to add the submission
 hook; published installers may have earlier behavior.
 
+When a coding tool hits its provider's usage limit, its session row shows
+**Capped**, and the detail panel adds any reset hint the tool printed. Sessions
+sharing one coding tool show a limit detected in any one of them as Capped with
+an "inherited" mark; the mark clears when the detecting session recovers. A
+resumed session whose limit status is not yet known shows a muted **Checking
+capacity** note instead of presenting its prior attention as verified; the
+note disappears when the state settles. Published installers may summarize or
+omit these marks.
+
 Use a signal such as waiting for input as a reason to inspect the session.
 An inferred summary can be wrong; it is not proof that tests passed or work
 is complete. Integration coverage varies by coding tool.

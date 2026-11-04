@@ -131,6 +131,9 @@ const SessionListRow = memo(function SessionListRow({
                 : null}
             </span>
           )}
+          {s.capacityCheckPending === true && (
+            <span className="session-row-checking">Checking capacity</span>
+          )}
           <span className="session-row-meta">
             <span className="session-row-tool" aria-hidden={!tool}>
               {tool && <HarnessIcon tool={tool} />}
