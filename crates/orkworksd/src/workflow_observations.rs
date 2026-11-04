@@ -399,6 +399,8 @@ pub(crate) struct WorkflowObservationStore {
     dir: Arc<PathBuf>,
     inner: Arc<Mutex<StoreInner>>,
     evaluation_generation: Arc<AtomicU64>,
+    #[cfg(test)]
+    registration_attempt: Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
 }
 
 impl WorkflowObservationStore {
@@ -522,6 +524,8 @@ impl WorkflowObservationStore {
                 clock_override: None,
             })),
             evaluation_generation: Arc::new(AtomicU64::new(0)),
+            #[cfg(test)]
+            registration_attempt: Arc::new(Mutex::new(None)),
         })
     }
 

@@ -70,6 +70,10 @@ pub(crate) struct CapturedWriter {
 impl WorkflowObservationStore {
     // Blocking-only. The caller validates authoritative creation after registration.
     pub(crate) fn capture_writer(&self, id: String, created: String) -> CapturedWriter {
+        #[cfg(test)]
+        if let Some(attempt) = self.registration_attempt.lock().unwrap().take() {
+            let _ = attempt.send(());
+        }
         let mut inner = self.inner.lock().unwrap();
         inner.permits.retain(|_, permit| permit.strong_count() > 0);
         let permit = inner.permits.entry((id.clone(), created)).or_default();
@@ -293,7 +297,10 @@ pub(crate) mod testing {
         Arc<Gate>,
         std::sync::mpsc::Sender<()>,
         std::thread::JoinHandle<()>,
+        tokio::sync::oneshot::Receiver<()>,
     ) {
+        let (attempt, reached) = tokio::sync::oneshot::channel();
+        *store.registration_attempt.lock().unwrap() = Some(attempt);
         let (release, rx) = std::sync::mpsc::channel();
         let gate = Arc::new(Gate {
             entered: tokio::sync::Notify::new(),
@@ -305,7 +312,7 @@ pub(crate) mod testing {
             let _guard = store.inner.lock().unwrap();
             held.enter();
         });
-        (gate, release, thread)
+        (gate, release, thread, reached)
     }
     impl Gate {
         pub(super) fn enter(&self) {

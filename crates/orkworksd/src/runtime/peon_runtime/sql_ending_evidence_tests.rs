@@ -632,13 +632,18 @@ async fn evidence_registration_preserves_original_owner_and_expires_outside_guar
             .await
             .unwrap();
         let old = evidence(&state);
-        let (gate, release, thread) =
+        let (gate, release, thread, registration_reached) =
             crate::workflow_observations::captured_testing::hold_registration(&old);
         tokio::time::timeout(Duration::from_secs(3), gate.entered())
             .await
             .unwrap();
         let job = tokio::spawn(async move { captured.with_workflow_evidence().await });
-        tokio::task::yield_now().await;
+        // Wait until initial bounded memory validation has released its guards.
+        // A scheduler yield alone can race that legitimate validation.
+        tokio::time::timeout(Duration::from_secs(3), registration_reached)
+            .await
+            .unwrap()
+            .unwrap();
         assert!(state.projection_lock.try_lock().is_ok());
         assert!(state.workspace.try_lock().is_ok());
         assert!(state.sessions.try_lock().is_ok());
