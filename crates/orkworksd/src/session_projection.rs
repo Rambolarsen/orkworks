@@ -1472,6 +1472,9 @@ mod tests {
             let handle = sessions.get_mut("lag-test").unwrap();
             handle.info.harness_id = Some("opencode".into());
             handle.info.harness = Some("opencode".into());
+            // The runtime latch stamp derives from this output timestamp
+            // (matching the production stamping source).
+            handle.info.last_output_at = Some("2026-11-04T20:00:00Z".into());
             handle.output_buffer.push("usage limit reached".into());
             handle.capacity.record_output(1, 20);
         }
