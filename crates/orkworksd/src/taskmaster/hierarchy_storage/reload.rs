@@ -161,7 +161,9 @@ pub(super) fn verify_chain(
     // 4. Missing committed state: every change entry across the chain must
     //    still have its stored row (this kernel never deletes rows), so a
     //    deleted dependency/quota/row after journaling fences the store.
-    for (_sequence, manifest, _digest) in &manifests {
+    //    Its verified commit link must also cover this effect or a later
+    //    update to the same key; an older valid row cannot satisfy it.
+    for (sequence, manifest, _digest) in &manifests {
         for entry in manifest["changes"]
             .as_array()
             .ok_or(HierarchyStorageError("chain"))?
@@ -172,8 +174,10 @@ pub(super) fn verify_chain(
             let key = canonical(&entry["key"])?;
             let exists: bool = database
                 .query_row(
-                    &format!("SELECT EXISTS(SELECT 1 FROM {table} WHERE key = ?1)"),
-                    rusqlite::params![key],
+                    &format!(
+                        "SELECT EXISTS(SELECT 1 FROM {table} WHERE key = ?1 AND sequence >= ?2)",
+                    ),
+                    rusqlite::params![key, sequence],
                     |row| row.get(0),
                 )
                 .map_err(|_| HierarchyStorageError("physical database"))?;
