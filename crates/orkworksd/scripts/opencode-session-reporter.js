@@ -23,6 +23,9 @@
 //     `permission.replied` carries `{ requestID, sessionID, reply }`
 //     (live fixture); `question.asked`/`question.replied`/
 //     `question.rejected` are handled with the same id/requestID shape
+// OpenCode 2.2.5 uses `form.created` with data.form.{id,sessionID}, and
+// `form.replied` / `form.cancelled` with data.{id,sessionID}, instead of
+// question.* (verified against the installed binary and official V2 API).
 //
 // Attention follows explicit permission and question request lifecycles.
 // A turn boundary without a pending request maps to plain idle. The
@@ -39,15 +42,17 @@ export default {
     let lastMicros = 0;
     const permissionIds = new Set();
     const questionIds = new Set();
+    const formIds = new Set();
 
     const effectiveAttention = () => {
-      if (permissionIds.size && questionIds.size) {
+      const needsAnswer = questionIds.size || formIds.size;
+      if (permissionIds.size && needsAnswer) {
         return { status: 'waiting_for_input', message: 'OpenCode needs an answer or permission decision' };
       }
       if (permissionIds.size) {
         return { status: 'waiting_for_input', message: 'OpenCode is asking for a permission decision' };
       }
-      if (questionIds.size) {
+      if (needsAnswer) {
         return { status: 'waiting_for_input', message: 'OpenCode is asking for an answer' };
       }
       return { status: turnStatus };
@@ -84,6 +89,7 @@ export default {
       turnStatus = 'idle';
       permissionIds.clear();
       questionIds.clear();
+      formIds.clear();
       lastReported = null;
     };
 
@@ -123,7 +129,9 @@ export default {
       const type = event?.type;
       const data = event?.data;
       if (typeof type !== 'string' || typeof data !== 'object' || data === null) return;
-      const sessionID = data.sessionID;
+      // OpenCode 2.2.5 replaced question.* with form.*. Creation nests
+      // ownership inside data.form; resolution uses data.sessionID/id.
+      const sessionID = type === 'form.created' ? data.form?.sessionID : data.sessionID;
       // An explicit session.created announcement re-captures (matching the
       // V1 behavior for a TUI hosting several sessions); otherwise the
       // first session-scoped event establishes the capture, because V2 run
@@ -179,6 +187,14 @@ export default {
         case 'question.asked':
           if (typeof id !== 'string' || !id) return;
           (type === 'permission.asked' ? permissionIds : questionIds).add(id);
+          break;
+        case 'form.created':
+          if (typeof data.form?.id !== 'string' || !data.form.id) return;
+          formIds.add(data.form.id);
+          break;
+        case 'form.replied':
+        case 'form.cancelled':
+          if (typeof id !== 'string' || !id || !formIds.delete(id)) return;
           break;
         case 'permission.replied':
         case 'question.replied':

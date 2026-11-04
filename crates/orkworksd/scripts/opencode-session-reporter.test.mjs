@@ -158,6 +158,77 @@ test('the capture-time identity POST is unauthenticated', async () => {
   });
 });
 
+// OpenCode 2.2.5 Form events: creation nests the session and request ID
+// under data.form; replies/cancellation carry data.id and data.sessionID.
+const formCreated = (id = 'frm_1', sessionID = 'ses_1') => ({
+  type: 'form.created',
+  data: { form: { id, sessionID, title: 'Confirm task', fields: [
+    { key: 'answer', type: 'boolean', title: 'Proceed?', required: true },
+  ] } },
+});
+
+for (const resolution of ['form.replied', 'form.cancelled']) {
+  test(`${resolution} resolves an explicit form and restores working`, async () => {
+    await withReporter(async ({ push, posts }) => {
+      await push(sessionEvent('session.step.started'));
+      await push(formCreated());
+      await push(sessionEvent(resolution, { id: 'frm_1', answer: { answer: true } }));
+      assert.deepEqual(attention(posts).map(({ status, event }) => [status, event]), [
+        ['idle', 'session.capture'], ['working', 'session.step.started'],
+        ['waiting_for_input', 'form.created'], ['working', resolution],
+      ]);
+    });
+  });
+}
+
+test('forms remain independent of overlapping questions and permissions through turn end', async () => {
+  await withReporter(async ({ push, posts }) => {
+    await push(sessionEvent('session.step.started'));
+    await push(formCreated('same'));
+    await push(formCreated('frm_2'));
+    await push(sessionEvent('question.asked', { id: 'same' }));
+    await push(sessionEvent('permission.asked', { id: 'same' }));
+    await push(sessionEvent('session.execution.succeeded'));
+    await push(sessionEvent('form.replied', { id: 'same' }));
+    await push(sessionEvent('question.replied', { requestID: 'same' }));
+    await push(sessionEvent('permission.replied', { requestID: 'same' }));
+    assert.equal(attention(posts).at(-1).status, 'waiting_for_input');
+    await push(sessionEvent('form.cancelled', { id: 'frm_2' }));
+    assert.deepEqual(attention(posts).map(({ status }) => status), [
+      'idle', 'working', 'waiting_for_input', 'waiting_for_input', 'waiting_for_input', 'idle',
+    ]);
+  });
+});
+
+test('malformed and foreign forms cannot open or resolve a captured prompt', async () => {
+  await withReporter(async ({ push, posts }) => {
+    await push(sessionEvent('session.step.started'));
+    for (const event of [
+      { type: 'form.created', data: {} },
+      { type: 'form.created', data: { form: null } },
+      formCreated('', 'ses_1'), formCreated(1, 'ses_1'), formCreated('frm_foreign', 'ses_2'),
+      // A misleading outer ID must not override the form owner.
+      { ...formCreated('frm_foreign', 'ses_2'), data: { ...formCreated('frm_foreign', 'ses_2').data, sessionID: 'ses_1' } },
+    ]) await push(event);
+    assert.equal(attention(posts).at(-1).status, 'working');
+    await push(formCreated());
+    for (const event of [
+      sessionEvent('form.replied', { id: 'frm_1', sessionID: 'ses_2' }),
+      sessionEvent('form.cancelled', { id: '' }),
+      sessionEvent('form.replied', { id: 1 }),
+      sessionEvent('form.replied', { id: 'unknown' }),
+      sessionEvent('form.replied', { requestID: 'frm_1' }),
+      sessionEvent('question.replied', { requestID: 'frm_1' }),
+      formCreated(),
+    ]) await push(event);
+    assert.deepEqual(attention(posts).map(({ status }) => status), ['idle', 'working', 'waiting_for_input']);
+    await push(sessionEvent('form.replied', { id: 'frm_1' }));
+    await push(sessionEvent('form.replied', { id: 'frm_1' }));
+    assert.equal(attention(posts).at(-1).status, 'working');
+    assert.equal(attention(posts).length, 4);
+  });
+});
+
 test('session.created still re-captures when OpenCode emits it', async () => {
   await withReporter(async ({ push, posts }) => {
     await push(created());
