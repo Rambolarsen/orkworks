@@ -151,3 +151,104 @@ by the policy decision. #1183 source/preparation/consumer/custody joins and actu
 native authority/lease/retirement remain unclosed. Gate 2 remains Investigate;
 dependent complete-state/manifest fixtures, database/native/model probes,
 migration and runtime work remain gated.
+
+
+## Current source-owner and membership audit — 2026-11-04
+
+[#1375](https://github.com/Rambolarsen/orkworks/issues/1375) revisits Gate 2 at
+`e89fdc4fedaee691297710d2e52547f5110e831e`, after the initial/correction/invalidation maps and production
+admission fence.
+This is a bounded source-to-obligation audit of the checked-in sidecar and desktop,
+not a native run, complete writer census or eligible publication result. The
+historical audit above remains evidence of its original base. Closed
+#1183/#1184/#1210/#1356 deliverables are not reopened.
+Here T and P denote the complete target and producing child AssignmentIdentity;
+result, reviewer stream and declaration bindings remain exact under the accepted
+publication maps linked below.
+
+### Actual seams and their evidence limits
+
+| Required owner | Current source evidence | What remains unqualified |
+| --- | --- | --- |
+| Retained child preparation/configuration/identity | [child_sources.rs](../../crates/orkworksd/src/taskmaster/child_sources.rs), validate_unverified_child_sources_v1, decodes supplied run/input and worker/reviewer bundles and checks snapshot, source, configuration and independence joins. Its classification is explicitly unverified-source-bytes-only; located calls are in child_sources_tests.rs | An actual source producer that commits preparation/approval/reservation/allocation/attachment, proves fresh run/workspace/assignment ledgers and registers a live binding. Supplied valid bytes do not establish those events or their custody |
+| Root preparation and source group | [root_bootstrap.rs](../../crates/orkworksd/src/taskmaster/root_bootstrap.rs), validate_unverified_root_bootstrap_v2, validates caller-supplied retained bytes and exposes the same unverified classification; located calls are in root_bootstrap_tests.rs | Original source-owned run/root admission, ordinary-session/control/runtime-history bridge and retained proof participation. A root validator does not admit a child reviewer |
+| Plan definitions and approval persistence | [coordinator_store.rs](../../crates/orkworksd/src/taskmaster/coordinator_store.rs), StoredPlan/CoordinatorStore, owns JSON plan/status/approval history and expressly no runtime authority | Exact accepted child-source records and current plan/run/runtime/grant participation in the artifact publication boundary. Durable approval data alone supplies no evaluation capability |
+| Current publication claim/revoke/response owner | [#1372's concrete proposal](../superpowers/specs/2026-11-04-evaluation-publication-authority-design.md#scoped-decision-requested) traces ordinary lifecycle/prompt/runtime/lease seams and proposes a separate owner and non-I/O first unit | Its new owner/two-phase close/identity/token choices still await scoped owner decision at this base. Even that first unit would supply synthetic ordering evidence, not source registration truth or physical commit/lease enforcement |
+| Source-owned hierarchy publication/store | [hierarchy_storage/mod.rs](../../crates/orkworksd/src/taskmaster/hierarchy_storage/mod.rs) compiles mechanics only under cfg(test); [connection.rs](../../crates/orkworksd/src/taskmaster/hierarchy_storage/connection.rs), Connection::open, returns unqualified profile before I/O | No eligible initial/correction/invalidation publisher or admitted format-4 store is exposed. The ten/nine/four-row minimum cores in the accepted maps are obligations, not existing commands |
+| Retained record/journal mechanics | Test-only [publication.rs](../../crates/orkworksd/src/taskmaster/hierarchy_storage/mechanics/publication.rs) journals one object/metadata row/edge, not an accepted source action; [schema.rs](../../crates/orkworksd/src/taskmaster/hierarchy_storage/mechanics/schema.rs) has a partial 17-family catalog; [connection.rs](../../crates/orkworksd/src/taskmaster/hierarchy_storage/mechanics/connection.rs), find_row, seeks one canonical key | Complete 33-family support, source-command atomic effects and coherent forward/reverse/direct metadata membership. One key lookup or matching returned object cannot prove complete retained membership or a valid absence |
+| Ordinary session persistence/runtime ownership | [session_store.rs](../../crates/orkworksd/src/session_store.rs) owns ordinary sessions, organization/search/deletion and their indexes. [SQL lifecycle](../../crates/orkworksd/src/session_application/sql_writes/lifecycle.rs) and [EndingPersistence](../../crates/orkworksd/src/runtime/terminal_runtime/ending_persistence.rs) capture ordinary runtime/history ownership | These are possible integration precedents only. Their schema, execution tickets, generation checks, replay/events and completion do not supply hierarchy AssignmentIdentity, evaluation claims, artifact custody or incoming-consumer indexes |
+
+The bounded call-site and symbol checks are reproducible from this inspection
+base (no database, model, native fixture or foreign worktree was read):
+
+```bash
+rtk proxy rg -n 'validate_unverified_child_sources_v1|validate_unverified_root_bootstrap_v2|hierarchy_storage' crates/orkworksd/src apps/desktop/src apps/desktop/electron
+rtk proxy rg -n 'AssignmentEvaluationCapability|AssignmentEvaluationDisposition|ClaimProofV2|evaluation-write|evaluation-invalidation|evaluation_artifact_streams|artifact_read_debits' crates/orkworksd/src apps/desktop/src apps/desktop/electron --glob '!**/hierarchy_storage/mechanics/**'
+rtk proxy rg -n 'CREATE TABLE|CREATE.*INDEX|ROW_TABLE_DDL|find_row' crates/orkworksd/src/session_store.rs crates/orkworksd/src/taskmaster/hierarchy_storage/mechanics/schema.rs crates/orkworksd/src/taskmaster/hierarchy_storage/mechanics/connection.rs
+```
+
+The first search locates only validator declarations/test calls and the hierarchy
+module declaration. The second has no matches outside excluded test mechanics at
+this base. The third distinguishes ordinary indexes from the partial fixture's
+canonical-key layout. These facts do not prove absence of differently named,
+external or future owners. The explicit no-I/O classifications, test-only module
+boundary and production admission refusal independently constrain what the
+located code can establish; no symbol absence is used as an impossibility proof.
+
+### Logical lookup closure required by the three recipes
+
+The [accepted membership contract](../superpowers/specs/2026-11-03-child-consumer-membership-design.md#coherent-discovery-and-publication)
+requires one storage owner to bind every forward/reverse/direct lookup and final
+read-set validation to the same workspace/storage epoch and exact header. The
+following are qualification obligations, not proposed SQL/index DDL or a new
+generic graph schema. Each physical implementation must return the owning typed
+record or qualified metadata projection and prove complete correspondence in both
+directions, including absent keys, historical consumers and direct proof links.
+
+| Lookup purpose | Required source-owned relation / closure evidence |
+| --- | --- |
+| Source/preparation and authority binding | Full T/P identities resolve original root/child source groups, plans, approvals, reservation/allocation/attachment, control/runtime/ordinary history and explicit owner preparation. A source digest or current session ID alone proves neither event custody nor fresh zero-ledger state |
+| Exact stream, artifact and frozen state | Resolve head by the exact result/reviewer stream, mapping by P/declaration, and every required version's artifact/evaluation/receipt/custody joins. Verify unique disposition/no prior disposition and no-head/mapping absence from complete retained history. No largest-version or surviving-receipt reconstruction |
+| Global child slots and original invalidation credit | Enumerate this exact target result's twelve possible child admissions across streams with their receipts/proofs. Distinguish global admission order from per-stream revision; resolve the stream's original first-write pair for invalidation. Current-head reserved credit alone is not spendability proof |
+| Exact retry and direct proofs | Retry lookup resolves original full scope, claim, consumed slot and canonical response/source. Header/latest and every retained row/receipt/checkpoint/origin resolve their own required proofs. Sparse retention is allowed; neither maximum-sequence election nor recursive predecessor replay may recover missing acceptance |
+| Shared retained accounting | Prove complete target record/receipt and producer artifact/read-work ownership under exact assignment/run/workspace resource keys, including retained old runs/epochs. Validate original preparation and charged occurrences; no missing row becomes zero and physical content sharing earns no discount |
+| Incoming consumers, affected material and custody | Expand both full ObjectRef endpoint directions and direct metadata/source/proof groups, including historical versions, receipt/claim/lookup, summaries/checkpoints/pending lineage and historical debit consumers. Preserve no-purge custody and derive actual source-currentness/material effects separately from retention membership |
+
+Initial publication additionally needs complete no-head/no-mapping and fresh
+source proofs; correction retains the original mapping, all prior versions and
+protected credits; invalidation retains the head/artifact history and uses only
+the first-write paired credit. The exact immutable body/source rules remain in
+[the three publication maps](../superpowers/specs/2026-10-30-evaluation-artifact-producer-design.md#initial-child-evaluation-publication-derivation--2026-11-04).
+Neither a row's own hash nor an empty result page proves that no additional
+consumer, prior stream, disposition or charge exists.
+
+All discovery observations, unsuccessful exact probes and returned metadata
+copies count against the accepted 4,096-observation / 16 MiB cumulative limits;
+complete-command rows/bytes are a separate bound. Finish every continuation
+within that admission or deny; do not truncate at a page boundary. Revalidate
+membership and the entire source read set before the owning atomic producer,
+physical lookup maintenance, Q,S,D,P,K and ordered snapshot publication. No
+later registration transaction may fill a custody/index gap.
+
+Artifact read-work retains its metadata-only boundary: a future adapter cannot
+copy/hash/materialize evaluation content to discover these relations before the
+proven B debit. The ordinary metadata/search index and a decoded test fixture
+are not qualified projections for that purpose. Publication-time source validation
+retains its separate owner rules and grants no uncharged read-request cache.
+Missing/corrupt/extra/ambiguous membership fences the profile; this audit selects
+no durable rebuild, missing-row repair, implicit migration or authority restoration.
+
+### Bounded next handoff
+
+| Work boundary | Evidence required before claiming closure |
+| --- | --- |
+| Proposed non-I/O authority core | Obtain the scoped decision on #1372 before its concise execution plan. Synthetic claim/revoke/response tests would close only their stated software-ordering invariant; no registration, source/index, lifecycle or native adoption follows |
+| Actual source-owner participation | Name a supported retained T/P prestate and each real preparation/result/approval/control/runtime publisher plus its ordinary-session bridge. Trace how source truth and original proofs enter and remain current at the same publication boundary; do not relabel a validator result or ordinary completion as that owner |
+| Physical membership/profile design | Supply the closed catalog and complete bounded metadata-only forward/reverse/direct lookup representation, its original owning writes and refusal/recovery proof under one header. Review any new physical/compatibility choice before dependent implementation; 33 empty table names or one matching edge are not closure |
+| Complete conditional command and native qualification | Proceed only when the applicable source/authority decisions and owners are closed. Independently prove full old/new rows, effects, counters, indexes, direct proofs and packing/denial; then use a separately approved bounded executable/native plan for actual lease/claim/retirement/durability and response disposition |
+
+No eligible production owner or complete physical membership mechanism was
+established by this bounded inspection. Gate 1's existing policy decisions stay
+accepted; Gate 2 remains Investigate and Gates 3–4 remain gated. Keep #1176 open.
+This audit changes no contract, format, codec, quota, authority or approval and
+authorizes no dependent fixture, SQL/database, runtime route or native/model probe.

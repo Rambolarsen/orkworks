@@ -295,3 +295,29 @@ would test exact claim/revoke/response/disposition ordering without AppState or
 lifecycle wiring, SQL, live authority issuance or storage activation. Prepare its
 concise execution plan only after the concrete decision. Source/native/index/
 complete-command and Gate 2–4 qualifications remain open; #1176 stays open.
+
+
+## Current source-owner and membership audit — 2026-11-04
+
+[#1375](https://github.com/Rambolarsen/orkworks/issues/1375) appends a
+[pinned source-owner/lookup audit](../../validation/evaluation-artifact-source-closure.md#current-source-owner-and-membership-audit--2026-11-04)
+after the three publication effect maps and #1372's pending authority proposal.
+It distinguishes supplied byte validation, isolated test mechanics and ordinary
+session ownership from an actual eligible hierarchy source/publication owner.
+It names the coherent header-bound stream/slot/retry/ledger/source/proof and
+forward/reverse consumer lookup obligations without selecting SQL/index DDL.
+
+The scoped owner decision on #1372 still precedes planning its proposed non-I/O
+core. Actual source producers and ordinary-session bridges, complete physical
+membership/profile, full old/new command/budget and native recovery/disposition
+remain separate closure work. Existing Gate 1 decisions and closed prerequisite
+issues are unchanged; Gate 2 stays Investigate and Gates 3–4 remain gated.
+No complete conditional fixture, database, runtime or native/model work follows.
+
+
+One bounded independent read-only Luna round checked the appended audit from
+source-correctness and builder-completeness perspectives. Both found no material
+error, missing accepted obligation or invented decision. The inspection remains
+bounded rather than an exhaustive writer census, database/index qualification or
+native result; its negative searches are not impossibility proofs. No unchanged
+technical artifact or accepted choice was reopened.
