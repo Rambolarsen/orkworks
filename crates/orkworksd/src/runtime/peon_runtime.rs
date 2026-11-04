@@ -6452,3 +6452,6 @@ mod sql_runtime_ending_tests;
 
 #[cfg(test)]
 mod sql_ending_provider_tests;
+
+#[cfg(test)]
+mod sql_ending_evidence_tests;

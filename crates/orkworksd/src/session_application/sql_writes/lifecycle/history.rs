@@ -39,6 +39,7 @@ pub(crate) struct CapturedEnding {
     snapshot: Arc<Snapshot>,
     lease: Arc<crate::workspace_runtime::WorkspaceLease>,
     root: std::path::PathBuf,
+    workflow: crate::workflow_observations::WorkflowObservationStore,
 }
 impl SessionWrites {
     pub(crate) async fn capture_ending_history(
@@ -50,7 +51,7 @@ impl SessionWrites {
         if !Arc::ptr_eq(state, &self.state) {
             return Err(StoreError::Conflict);
         }
-        let (snapshot, lease, root) = self
+        let (snapshot, lease, root, workflow) = self
             .lifecycle_access(
                 id.clone(),
                 runtime.clone(),
@@ -65,6 +66,7 @@ impl SessionWrites {
                         Snapshot::capture(h).ok_or(StoreError::Conflict)?,
                         ws.lease.clone().ok_or(StoreError::Conflict)?,
                         ws.metadata.root_path(),
+                        ws.workflow_observations.clone(),
                     ))
                 },
             )
@@ -77,6 +79,7 @@ impl SessionWrites {
             snapshot: Arc::new(snapshot),
             lease,
             root,
+            workflow,
         })
     }
     /// Direct source-only callers capture and immediately consume the same owner.
@@ -107,6 +110,7 @@ impl CapturedEnding {
             snapshot,
             lease,
             root,
+            workflow: _workflow,
         } = self;
         let intent = LifecycleMutation::Finalize {
             snapshot: final_snapshot,
@@ -284,3 +288,8 @@ impl CapturedEnding {
 
 mod provider;
 pub(crate) use provider::ProviderWrite;
+
+mod evidence;
+
+#[cfg(test)]
+pub(crate) use evidence::{CandidateResult, CapturedEndingEvidence};

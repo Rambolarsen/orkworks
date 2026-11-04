@@ -1471,3 +1471,19 @@ Collector version 3 prioritizes current documentation in bounded traversal and
 catalog selection before large generic skill trees. Version-2 manifests remain
 valid for historical display, but cannot restore as current version-3 inputs.
 This changes evidence selection, not privacy permissions or collector bounds.
+
+## Captured workflow evidence files
+
+The source-only SQL ending boundary composes `with_workflow_evidence` before
+inference. It retains the exact shared workflow store and a session/creation
+permit, registering outside application guards and revalidating original
+SQLite/runtime ownership. Evidence batches use the existing session lane and
+a separate bounded application-wide file-job budget. Record/delete serialize
+through the same store mutex; deletion revokes old permits even on removal
+failure. File admission races cancellation/expiry atomically, and admitted jobs
+retain the original lease, lane and definitive receipts after caller cancellation.
+Workflow content, sequence, idempotency and file format remain outside SQLite.
+See the [approved design](../superpowers/specs/2026-11-04-ending-workflow-evidence.md)
+and [validation boundary](../validation/session-store-adapter.md#captured-workflow-evidence).
+Production JSON routing and legacy recording/deletion locking remain unchanged;
+full SQL final-scan integration and close-first deletion need separate qualification.

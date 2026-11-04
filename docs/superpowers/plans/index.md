@@ -287,6 +287,7 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Runtime ending persistence boundary](2026-11-04-runtime-ending-persistence.md) — Captured SQL ownership at runtime history completion.
 
 - [Captured ending provider context](2026-11-04-ending-provider-writes.md) — Scoped SQL provider writes from the original final-scan owner.
+- [Captured workflow evidence ownership](2026-11-04-ending-workflow-evidence.md) — Approved retained file owner, deletion fence and qualification checks.
 
 - [Non-I/O evaluation authority core](2026-11-04-evaluation-authority-core.md) — Approved bounded first-unit plan for private in-memory claim/close/response ordering and deterministic tests.
 

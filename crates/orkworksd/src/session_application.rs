@@ -544,10 +544,39 @@ impl SessionApplication {
     /// Evaluates the current workspace's workflow evidence and persists the
     /// resulting recommendations while holding the workspace lock.
     pub(crate) fn refresh_workflow_recommendations(&self) {
+        self.refresh_workflow_recommendations_matching(None);
+    }
+
+    pub(crate) fn refresh_captured_workflow_recommendations(
+        &self,
+        instance: u64,
+        generation: u64,
+        lease: Arc<WorkspaceLease>,
+    ) {
+        self.refresh_workflow_recommendations_matching(Some((instance, generation, lease)));
+    }
+
+    fn refresh_workflow_recommendations_matching(
+        &self,
+        expected: Option<(u64, u64, Arc<WorkspaceLease>)>,
+    ) {
         let workspace_guard = self.state.workspace.lock().unwrap();
         let Some(workspace) = workspace_guard.as_ref() else {
             return;
         };
+        if expected
+            .as_ref()
+            .is_some_and(|(instance, generation, lease)| {
+                workspace.workflow_observations.instance_id() != *instance
+                    || workspace.workflow_observations.evaluation_generation() != *generation
+                    || !workspace
+                        .lease
+                        .as_ref()
+                        .is_some_and(|current| Arc::ptr_eq(current, lease))
+            })
+        {
+            return;
+        }
         let Ok(observations) = workspace.workflow_observations.workspace_observations() else {
             return;
         };

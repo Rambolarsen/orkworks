@@ -326,4 +326,6 @@ impl SessionWrites {
 
 mod history;
 
+#[cfg(test)]
+pub(crate) use history::{CandidateResult, CapturedEndingEvidence};
 pub(crate) use history::{CapturedEnding, Finalization, MetadataResult, ProviderWrite};
