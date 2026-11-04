@@ -8,7 +8,7 @@ status: draft
 
 # Harness workspace signal qualification
 
-Recorded 2026-11-03 for [#1347](https://github.com/Rambolarsen/orkworks/issues/1347)
+Recorded 2026-11-03 and updated 2026-11-04 for [#1347](https://github.com/Rambolarsen/orkworks/issues/1347)
 and the [approved design](../superpowers/specs/2026-11-03-harness-workspace-signals-design.md).
 The owner authorized continuing with disposable harness fixtures after the
 initial evidence-tooling PR. No production hook configuration, native identity,
@@ -36,7 +36,7 @@ The probe keeps `rootScope: unverified` even when IDs compare equal.
 | Claude Code 2.1.309 | Launch `SessionStart.cwd` and first `PreToolUse.cwd` classified as A. After `cd` into B, `PostToolUse.cwd` classified as B and `CwdChanged` supplied A-to-B `old_cwd`/`new_cwd`. The next three tool pairs remained B, including an absolute-path read of a file in A. | Confirms these directory semantics in a sequential root fixture. It does not qualify async ordering or child exclusion; no automatic location source is enabled. |
 | Claude Code 2.1.309, source reporter | A separate no-tool run received the modified reporter's narrow SessionStart instructions and returned the exact requested acknowledgement. The reporter used fake capabilities and an offline curl stub; no real metadata report was attempted. | Live context delivery, not proof that future agents comply or that installed helpers have updated. |
 | Codex 0.166.0 | An ephemeral, read-only run completed exactly two shell calls with B then A as tool directories. Three item-completed and one turn-completed events were counted. No configured fixture hook records were received. | Hook execution/discovery/trust was not established. No trust bypass or persisted trust mutation was used. This result cannot qualify native directory semantics. Existing explicit helper reporting is independently observed in the owning session. |
-| Copilot CLI 1.0.90 | The capped fixture exited before producing a hook record. A minimal capped no-tool run also failed; retained diagnostics identified a credit-related startup error without retaining raw messages. | Live behavior remains unverified. Automatic approval review rejected a retry without the original one-credit cap because that would introduce unbounded potential usage cost. No uncapped retry occurred. |
+| Copilot CLI 1.0.90 | Capped fixtures produced no hook record. The owner subsequently approved exactly one no-tool request without the credit cap, bounded to 90 seconds; it exited 1 after 8.7 seconds with derived `401` and `quota` diagnostics and no hook record or acknowledgement. | Live delivery remains unverified pending external authentication/usage resolution. The one approved uncapped invocation was consumed; no credential change or further retry occurred. |
 | OpenCode 2.2.5 | Installed version read successfully. | No live session/location run. Plugin-instance location remains insufficient under the native documentation. |
 | Aider | Executable unavailable. | No live qualification. |
 | Antigravity 1.1.22 | Version available. | No qualified hook/schema was identified; no live location run. |
@@ -86,5 +86,41 @@ macOS. Both new Workspace reporting CI jobs passed on Linux and Windows.
 The required `/code-review low` approved code SHA
 `2b86b4375694dc13d38b662cfb4121d1cdc6f671` against base `70d8e272` with no
 findings. A later documentation-only verification update does not change that
-reviewed code diff. The read-only native-app inspection timed out, so this record
-does not claim live rendered Git-view verification.
+reviewed code diff. The initial read-only native-app inspection timed out.
+The subsequent rebuilt-app check below supplies rendered Git-view evidence.
+
+
+## Rebuilt desktop verification
+
+On 2026-11-04 the rebuilt running desktop had the updated installed reporter.
+The owning Codex session explicitly reported a disposable linked worktree B
+through the installed helper from its actual tool context; launch checkout A
+remained unchanged. Native UI inspection verified:
+
+- Details displayed B's branch, dirty state and reported-task-worktree source.
+- Uncommitted changes displayed B's working edit; Branch changes displayed
+  only B's committed addition against the local `origin/main` ref.
+- Comparison details displayed B's absolute root and reported-task-worktree source.
+- A temporary read-only command in A left Changes on B after refresh.
+- Intentionally reporting A switched Changes to main and cleared B's old diff.
+
+The disposable worktree and branch were removed; the primary checkout stayed
+clean. This establishes rendered behavior for the owning Codex session, not
+universal harness startup delivery or automatic task-location discovery.
+
+## Source lifecycle qualification
+
+The isolated tests in
+`crates/orkworksd/src/session_location/lifecycle_tests.rs` reopen the persisted
+workspace into a fresh application state with no live runtime or reported cwd.
+They check the task branch and agent source, retained unavailable bindings,
+and resume through the shared application workflow using a fake executable.
+The fake process records its actual cwd so launch-directory preservation is
+checked independently of Git inspection. After ending that runtime, the tests
+reopen persisted state and inspect the same task binding again.
+
+This is source-level lifecycle coverage for format-1 metadata and the shared
+resume path. It does not launch an installed coding harness, test native
+conversation restoration, restart the production daemon, or qualify format-2
+storage activation. Native identity, ordering and remaining instruction channels
+retain the limits in the results table and tracking issue.
