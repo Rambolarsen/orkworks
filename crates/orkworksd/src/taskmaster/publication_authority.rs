@@ -49,6 +49,17 @@ struct Scope {
     workspace: Arc<ScopeState>,
     parents: [Option<Arc<ScopeState>>; 2],
 }
+impl Scope {
+    fn namespace(&self) -> Option<&Arc<ScopeState>> {
+        // Fixed ancestry: workspace, namespace, then run. A sibling run
+        // shares its namespace even though its own node is different.
+        match &self.parents {
+            [Some(namespace), Some(_)] => Some(namespace),
+            [Some(_), None] => Some(&self.node),
+            _ => None,
+        }
+    }
+}
 #[derive(Clone, Debug)]
 struct Binding {
     data: Arc<BindingData>,
@@ -307,6 +318,8 @@ impl Authority {
                     &p.binding.data.scope.workspace,
                     &response.binding.data.scope.workspace,
                 )
+                || p.binding.data.scope.namespace().map(Arc::as_ptr)
+                    != response.binding.data.scope.namespace().map(Arc::as_ptr)
         }) {
             return Err(Error::Unavailable);
         }
