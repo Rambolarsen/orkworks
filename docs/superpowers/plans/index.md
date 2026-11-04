@@ -291,3 +291,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Non-I/O evaluation authority core](2026-11-04-evaluation-authority-core.md) — Approved bounded first-unit plan for private in-memory claim/close/response ordering and deterministic tests.
 
 - [Dormant evaluation lifecycle close plumbing](2026-11-04-evaluation-lifecycle-close-plumbing.md) — Conditional next-unit plan for exact optional revocation carriers and ordinary lifecycle close routing; owner acceptance pending.
+
+- [Launch-scoped worktree instruction delivery](2026-11-04-launch-scoped-worktree-instructions.md) — Owner-gated scope preparation, bounded reporter delivery and actual-source qualification.

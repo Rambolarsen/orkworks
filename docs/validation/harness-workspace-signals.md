@@ -224,6 +224,48 @@ production session or enabled an adapter.
 The built-in source launch/resume templates already use a private server; see
 [OpenCode server isolation](../agents/harness-integration-contracts.md#opencode-server-isolation).
 Custom command arrays and existing sessions retain the limits recorded there.
-The production reporter's captured identity still needs its own correlation
-and child-exclusion evidence before this channel is connected to worktree
-instruction delivery. No automatic directory update is authorized by this run.
+Using the production reporter's captured identity to select a recipient would
+require separate correlation and child-exclusion evidence. The independent
+launch-selector proposal below avoids that dependency. No automatic directory
+update is authorized by this run.
+
+## OpenCode CLI-selected root and capture audit
+
+On 2026-11-04 the owner approved one further 90-second qualification with the
+normal interactive OpenCode 2.2.5 CLI, a fresh isolated native store, one private
+server start and one fixture-only startup prompt. Before launch the runner
+selected a fresh `ses_` plus 32 hex digits and supplied literal `--session <id>`.
+No API-created native session or preexisting conversation was substituted.
+
+The native context ID equaled that candidate. Exact-session read-back matched,
+parent was absent, location was task B, and the primary serialized request
+contained the fixture marker at the owned local endpoint. Two derived records
+were retained; no request reached the rejecting stub. Dispatch was deliberately
+stopped, with no real model response/inference. Raw PTY output was discarded.
+Cleanup left no matching native fixture directories. This proves the selected
+ID creation path in this version/platform, not an OrkWorks production adapter.
+
+A separate deterministic replay executed the unchanged production reporter with
+in-memory intercepted fetch and synthetic events; no native harness or sidecar
+mutation was involved. Its SHA256 was
+`8945a37e648fcd92c8fce6e5d62e74c8d388ba389fde192383c1ca8af5b07f20`,
+also matching fetched main `f11e325f6c442f4bf17b1b7e35c76a14d6587d74`:
+
+| Replay | Captured scopes | Parent API lookups |
+| --- | --- | --- |
+| Child step before root step | child | 0 |
+| Root step, then child `session.created` with parentID | root, child | 0 |
+| Root step, then peer `session.created` | root, peer | 0 |
+| Root step, then child step | root | 0 |
+
+These are source counterexamples to treating capture as proof of the intended
+root, not a claim that every event order was observed natively. Sidecar source
+inspection found the replacement refusal is Codex-only; equal-confidence OpenCode
+reports have no equivalent immutable-root fence. The current exact-resume native
+store check establishes ID existence, not parentage. Existing identity behavior
+is not qualified or repaired by the successful CLI/context fixtures.
+
+The proposed [instruction-only scope design](../superpowers/specs/2026-11-04-launch-scoped-worktree-instructions-design.md)
+uses independent launch intent for context delivery while preserving those
+existing identity/attention contracts. It requires owner review before runtime
+implementation. No source adapter or automatic directory authority is enabled.
