@@ -241,3 +241,5 @@ Dated design records; these do not establish current product behavior.
 - [Retained child source and control consumer membership](2026-11-03-child-consumer-membership-design.md) — Accepted scoped typed consumer registry and finite discovery bounds; component evidence and actual physical-owner qualification remain separate.
 
 - [Initial evaluation publication authority owner](2026-11-04-evaluation-publication-authority-design.md) — Proposed private claim/revoke owner, concrete lifecycle seams and bounded non-I/O first unit for scoped review.
+
+- [Launch-scoped worktree instructions](2026-11-04-launch-scoped-worktree-instructions-design.md) — Proposed run-local root selector for the shared helper context; native identity and attention remain independent.
