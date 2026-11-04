@@ -253,3 +253,32 @@ its owning contracts and found no factual mismatch or missing accepted obligatio
 The author clarified d as the declaration ID resolved through retained configuration;
 no new representation or decision resulted. This review qualifies the derivation,
 not any source, physical or native mechanism named by it.
+
+
+## Correction and invalidation effect derivation — 2026-11-04
+
+[#1368](https://github.com/Rambolarsen/orkworks/issues/1368) extends the
+[accepted-effect map](../specs/2026-10-30-evaluation-artifact-producer-design.md#correction-and-child-stream-invalidation-derivation--2026-11-04)
+to a same-child-stream correction and Electron-authorized invalidation of that
+stream. It derives exact current-head/predecessor/frozen/mapping reads, the
+nine-row correction and four-row invalidation minimum cores, global child
+admission ordinals versus per-stream revisions, and original first-write credit
+consumption with protected correction credits. Target record/receipt charges,
+producer artifact deltas, unchanged payload/read-work pools and complete
+membership/summary/proof obligations stay distinct.
+
+These are minimum cores and obligations, not full changed-set or packing
+witnesses. No accepted policy, codec, limit, command kind or authority changes.
+Gate 1 remains complete; Gate 2 remains Investigate; Gates 3–4 remain gated.
+Keep #1176 open for actual source/current authority, full physical membership,
+command/budget and native recovery/disposition qualification. The #1356 admission
+fence is unchanged; no dependent fixture, SQL, runtime or native/model probe is
+authorized by this derivation.
+
+
+One bounded independent read-only Luna round checked the new material from two
+perspectives: correctness against the accepted identity/CAS/slot/custody/ledger
+contracts, and completeness of the builder's obligations and qualification
+boundary. Both found no material mismatch or gap. The minimum core counts remain
+logical derivations, not evidence of physical query/index work, full changed-set
+size or packing fit. No unchanged artifact or accepted choice was reopened.

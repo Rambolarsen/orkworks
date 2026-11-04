@@ -689,3 +689,153 @@ This derivation passes none of those checks and changes none of their accepted
 policies. It authorizes no full-state fixture, database, adapter, model/native
 probe or runtime route. The next qualification work must name which of these
 obligations it closes, rather than treating this map as completed publication.
+
+
+## Correction and child-stream invalidation derivation — 2026-11-04
+
+[#1368](https://github.com/Rambolarsen/orkworks/issues/1368) derives the two
+follow-up writes from the accepted producer contract and the
+[initial publication map](#initial-child-evaluation-publication-derivation--2026-11-04).
+Reuse its T (target assignment), R (exact result), P (child producer), d (retained
+configuration declaration ID), H (captured header) and artifact mapping. This
+section concerns correction of that child's evaluation stream and user invalidation
+of that stream. User-authored evaluation creation/correction/replacement retains
+its separate #744 user-stream rules and produces no artifact through this profile.
+No new command kind, field, default, authority or storage profile is selected.
+
+### Reads, identity and serialization
+
+Resolve the complete original target/reviewer source groups, result, frozen
+configuration/declaration/typed input, approval/allocation/attachment and current
+source/health/lease state. Use the exact retained mapping `{producerAssignment:P,
+declarationId:d}` and its unchanged artifactId/target. Validate all retained versions
+and their original evaluation, receipt, claim/lookup, custody and direct-proof
+joins under the existing twelve-version bound. A hole, missing original slot,
+ledger or mapping is unavailable; never infer fresh capacity from absence.
+
+Authenticate the action before full-scope retry lookup. An authorized exact saved
+request returns its original canonical receipt before a new predecessor/frozen
+check; changed bytes under that key conflict. A genuinely new request revalidates
+its complete read-set and exact H inside the serialized source-owned transaction.
+Use the [accepted request/CAS rules](2026-10-04-assignment-evaluation-design.md#revisions-correction-and-invalidation)
+and [action-specific envelopes](2026-10-04-assignment-evaluation-design.md#action-specific-request-objects):
+
+- A child correction uses `orkworks.evaluation.submit.v1`, current exact
+  AssignmentEvaluationCapability and unchanged child provenance. Its predecessor
+  names the current evaluation revision v and digest; the new revision is v+1,
+  within both the per-stream artifact bound and shared target-result child budget.
+  Revalidate reviewer independence, frozen criteria/rubric, evidence and required
+  correction reason. A resumed grant never changes P, R, d or the artifactId, and
+  does not authorize replay of another generation's mutation receipt.
+- Invalidation uses `orkworks.user-evaluation.invalidate.v1`, with the complete
+  disposition plus the separate request resultDigest. Electron-authorized user
+  provenance is mandatory even when the child is inactive or revoked. The exact
+  current evaluation revision/digest is its CAS target. It creates one immutable
+  disposition with dispositionRevision 1, action invalidated and actor user, no
+  predecessor; the existing source contract permits at most one per stream.
+
+Correction and invalidation serialize against the same current head and frozen
+state. If correction wins, an invalidation naming the former head conflicts. If
+invalidation wins, a new correction is denied because the stream is permanently
+frozen. The user cannot correct a child's bytes or impersonate its reviewer;
+a separate user evaluation is a different stream, outside this artifact recipe.
+The existing scoped #744 claim/lease cutoff applies to these named writes only.
+It grants neither a read-work permit nor a new ordinary-session transition.
+
+### Same-stream correction core
+
+| Logical rows | Required effect |
+| --- | --- |
+| objects: evaluation | Insert the complete immutable next AssignmentEvaluation, exact predecessor, unchanged stream/result and evaluation-domain digest |
+| objects: artifact | Insert EvaluationArtifactV1 at the same P/d/artifactId and version v+1. Its EvaluationReference, raw canonical evaluation size/hash and artifact-domain digest join the new evaluation exactly |
+| heads | Replace only the exact evaluation stream head after predecessor CAS; retain its old target object and original proofs |
+| evaluation_artifact_streams | Read/verify the original immutable mapping; no mapping rewrite or artifactId allocation |
+| receipt_slots | Insert/consume one new child-evaluation write slot and insert its reserved paired child-invalidation slot under the next target-result-wide child ordinal |
+| claim_proofs / mutation_lookup | Insert the accepted evaluation-write ClaimProofV2 and full-scope retry lookup; decision/precondition, new record, original receipt and commit agree |
+| dependencies | Insert the two reciprocal new artifact/evaluation custody edges plus the new evaluation's exact evidence edges. Keep all old edges and version objects |
+
+This is a nine-changed-row minimum core before additional evidence edges and the
+complete Q,S,D,P,K union. The unchanged mapping contributes reads, validation and
+retained usage, not a new manifest change. Let j be the next child admission index
+for result revision r across all reviewer streams, not the correction's v. Use
+q=12(r−1)+j and write/invalidation slots 320+2q / 321+2q. Never reuse an ordinal
+or assume a stream's first revision had j=0. Both slots bind this exact child
+stream. The correction's new invalidation credit stays reserved and unspendable;
+it cannot replace or enlarge the original first-write credit.
+
+### User invalidation core and retained history
+
+| Logical rows | Required effect |
+| --- | --- |
+| objects: disposition | Insert the exact AssignmentEvaluationDisposition in the existing assignment-disposition registry. Its source-domain digest and joined full EvaluationReference resolve the current head/result; do not add resultDigest to the canonical disposition body |
+| receipt_slots | Replace only this stream's original first-write paired child-invalidation reservation with the consumed claimed-mutation variant and original canonical user-invalidation receipt |
+| claim_proofs / mutation_lookup | Insert the accepted user-invalidation ClaimProofV2 and full-scope retry lookup. Its authority is workspace-ui, precondition is the exact evaluation-head and record is the exact disposition |
+| heads / evaluation_artifact_streams / old objects and edges | Retain unchanged; no artifact version, replacement evaluation, head election, mapping rewrite or custody deletion |
+
+The minimum core is four changed rows before Q,S,D,P,K. The immutable disposition
+establishes the source-owned permanent stream freeze; this derivation invents no
+freeze table, head field or standalone freeze publisher. Complete physical lookup
+must prove the unique disposition/frozen state and original first-write credit,
+not simply observe that the current head's paired slot is reserved.
+
+Resolve the stream's initial accepted evaluation and its original consumed write
+slot/proof to identify q0. Consume 321+2q0, even when the current invalidated head
+is a later correction. Every correction-paired reserved slot remains protected
+and unspendable. No new user-write credit, replacement stream, reviewer artifact
+or allowance is created. Preserve every original evaluation/artifact version,
+receipt, proof and reciprocal custody edge. Invalidation excludes this stream
+from current results and learning, rather than changing its historical bytes.
+Read history remains subject to current exact read authority; a disposition or
+saved receipt neither grants nor revives that authority.
+
+### Charges, affected state and disposition
+
+Let b=16,384, Bnext be the next canonical evaluation length and Bdisp the canonical
+disposition length. Each target delta below applies at T, T's owner run and
+workspace; each producer delta applies separately at P, P's owner run and workspace.
+Shared run/workspace keys are coalesced per owner/resource without merging
+separate resources or discounting retained occurrences.
+
+| Resource | New correction | New child-stream invalidation |
+| --- | --- | --- |
+| assignment-record-bytes | used +Bnext; reserved unchanged at zero | used +Bdisp; reserved unchanged at zero |
+| reporting-receipt-bytes | used +b and reserved +b for the new pair | used +b and reserved −b for the original first-write pair; total unchanged |
+| evaluation-artifact-bytes | used +Bnext plus the full new artifact key/envelope without lastCommit; reserved remains zero. No mapping charge is repeated | No delta and no old-version refund |
+| result-payload-bytes / evaluation-artifact-read-bytes | No delta; neither payload acceptance nor artifact-read materialization occurs | No delta |
+
+These are the [accepted record/receipt rules](2026-10-25-hierarchy-candidate-command-manifests-design.md#closed-resource-ledger-subset),
+[protected slot rules](2026-10-25-hierarchy-slot-finalization-design.md#atomic-transitions-retry-and-retention)
+and artifact occurrence rules above. They are not the entire command cost.
+Include complete summary/checkpoint/pending, dependency, claim/lookup/receipt,
+index, proof/header and native costs under their own bounds. Invalidation's zero
+artifact delta does not bypass target record, protected receipt, affected-summary
+or complete-command capacity. Checked counter/revision overflow denies the write.
+An exact authorized retry charges nothing and consumes no new slot or ordinal.
+
+Discover all affected retained consumers through the accepted
+[membership recipes](2026-11-03-child-consumer-membership-design.md#existing-subject-proof-and-control-families),
+including historical versions, exact source/proof groups and both custody
+directions. Validate original and new evidence/dispute references; a dispute
+naming an old evaluation revision never carries silently to its correction.
+Recompute only the owning #744/#746 source-currentness/material transitions and
+include every actual changed subject/summary/lineage/ledger row. Membership is
+not itself an extra freshness event. A detail-only correction still invalidates
+affected detail/overview snapshots at ordered publication before new current
+reads, without manufacturing a material revision or rewriting an unchanged peer.
+Missing consumer/index/lineage support is unavailable, not a truncated affected set.
+
+Build the complete original-before/final-after Q,S,D,P,K union under format 4;
+keep unchanged rows' links and every directly required retained receipt/row/origin/
+checkpoint proof. Unrelated predecessor gaps alone are not corruption; no full
+recursive chain replay or historical-row resurrection is authorized. Recheck H,
+CAS, frozen/source state and each independent capacity before the source-owned
+commit. A lost response preserves the one exact receipt; uncertain durable or
+publication disposition retains the authoritative unavailable fence. Denial
+preserves complete old state without partial artifacts, credit release, eviction,
+automatic retry or a substitute generic journal command.
+
+This closes a written derivation only. Full physical catalog/index and command
+closure, actual source/current authority, native claim/lease/retirement, complete
+old/new bounds and sparse recovery/disposition remain qualification obligations.
+The #1356 production admission fence stays intact; no dependent complete-state
+fixture, SQL/database, adapter, native/model probe or runtime route follows.
