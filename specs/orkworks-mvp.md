@@ -1032,6 +1032,13 @@ limit carries no sticky latch and clears with the detecting session. A reset
 hint borrowed from a sibling is display-only and is not retained by the
 sibling ([#1083](https://github.com/Rambolarsen/orkworks/issues/1083)).
 
+While a resumed session's usage-limit determination is still open, the
+existing one-shot `capacityCheckPending` field is rendered as a "Checking
+capacity" indicator on the session row and detail badge, so the displayed
+attention is not read as a verified capacity status. The indicator clears
+when the sidecar's one-shot visibility semantics clear it.
+([#1081](https://github.com/Rambolarsen/orkworks/issues/1081))
+
 The standalone Capacity dashboard, manual dashboard controls, dedicated
 navigation and shortcut, capacity-file expansion and broader classification
 work are deferred. They are not active MVP deliverables. Revisit only for a
