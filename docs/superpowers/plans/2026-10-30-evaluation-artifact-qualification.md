@@ -223,3 +223,33 @@ membership are not supplied by accepting debit bytes. Continue from that existin
 source handoff before any complete conditional transaction packet. Gate 2 remains
 Investigate, Gates 3–4 gated; #740 and maximal-profile/executable-plan gates remain
 independent. No fixture/checker, database, probe, migration or runtime work follows.
+
+
+## Initial evaluation effect derivation — 2026-11-04
+
+[#1363](https://github.com/Rambolarsen/orkworks/issues/1363) derives one
+[initial child evaluation/artifact recipe](../specs/2026-10-30-evaluation-artifact-producer-design.md#initial-child-evaluation-publication-derivation--2026-11-04)
+from the accepted contracts. It names retained target/reviewer/no-head/mapping
+reads, the ten-row minimum core, global target-result child admission order,
+separate target record/receipt and producer artifact charges, and complete
+membership/summary/proof obligations. The core count is not a full transaction
+or maximum-profile witness. No new field, command codec/tag, limit or authority
+policy is selected, so existing decisions are reused without repeat approval.
+
+The live board has closed #1183/#1184/#1210 after their bounded deliverables;
+older unchecked handoff items above are historical and do not reopen them.
+Their closure and component evidence do not pass this plan's Gate 2. Current
+catalog work requires the complete 33-family profile and source-owned command
+closure; #1356 now makes the incomplete kernel test-only and refuses production
+admission before I/O. The logical recipe adds no exception to that fence.
+
+Gate 1 remains complete; Gate 2 remains Investigate; Gates 3–4 stay gated.
+Keep #1176 open for actual source/current authority, complete physical membership,
+command effects/bounds and native recovery/disposition qualification. No complete
+conditional packet or executable SQL/runtime plan is claimed by this update.
+
+One bounded independent read-only Luna review checked the added derivation against
+its owning contracts and found no factual mismatch or missing accepted obligation.
+The author clarified d as the declaration ID resolved through retained configuration;
+no new representation or decision resulted. This review qualifies the derivation,
+not any source, physical or native mechanism named by it.
