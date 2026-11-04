@@ -827,3 +827,40 @@ input latency during those stalls. The dormant SQL lifecycle boundary has not
 acquired replay/event responsibilities, and complete conflicting-writer,
 resume/spawn, close-first, producer and migration gates remain open. No new
 format, cross-file atomicity, retention policy or installed-harness claim is made.
+
+## Dormant SQL finalization history
+
+The explicit `SessionWrites::finalize_with_history` operation composes final-grid
+confirmation, lifecycle SQL commit, external status-event append and original live
+publication. `SessionWrites::lifecycle` remains a metadata-only primitive. The SQL
+worker never writes replay/events, and this source path is not production-selected.
+
+The operation captures the original workspace/reader/lease, runtime/control,
+creation, phase and source context before dispatch. Its prepared mutation reserves
+the existing bounded queue budget before waiting for the per-session lane. An exact
+SQL record read validates creation/harness and ending state before external effects;
+missing/corrupt SQL cannot fall back to valid session JSON. After the existing grid
+serialization gate is acquired, bounded memory checks revalidate the original owner.
+A retained blocking job owns file work and worker waits outside application guards
+and Tokio workers. The existing grid gate spans grid, SQL and event stages.
+
+Failed grid confirmation prevents SQL/event effects. A SQL error reports the
+confirmed grid and storage error without claiming rollback; an unavailable
+definitive result can leave commit status unknown. Failed event append preserves committed metadata and
+allows original live publication; it never implies rollback or an automatic retry.
+The event uses the exact committed status, timestamp and final observation. The
+completion retains the worker lane, lease and budget through event and publication;
+replacements cannot receive that publication. Caller cancellation before SQL claim
+can leave an already admitted grid-only effect; after claim, the original owner
+consumes the definitive result and logs partial failures even without a waiter.
+
+Real SQL/filesystem tests in `sql_finalization_history_tests.rs` cover failure and
+repair, ordered stage visibility, exact event content, missing/inconsistent records,
+replaced memory owners and cancellation on either side of SQL execution. The PTY
+case stalls external history with an independent OS watchdog on a single Tokio
+worker, checks SQL/guard availability and delivers actual input to another runtime.
+A one-blocking-thread case also proves the retained owner performs its short memory
+checks directly instead of recursively waiting on the same blocking pool.
+This evidence does not qualify all conflicting producers, process exit/cleanup,
+resume/spawn, close-first archive/deletion, installed helpers, migration or numeric
+large-history responsiveness budgets. No cross-file atomicity is promised.

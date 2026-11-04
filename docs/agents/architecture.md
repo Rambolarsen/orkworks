@@ -945,9 +945,16 @@ Dormant lifecycle transition/finalization metadata now uses that same lane throu
 runtime/control/creation, phase/resume and metadata source/provenance; claim and
 publication recheck those owners without holding application guards around SQL.
 The close-intent organization reservation remains separate so a waiting Close
-cannot block its own finalizer. This does not route production lifecycle or own
-process exit/cleanup, replay-size/event ordering, resume/spawn or close-first
-archive/deletion. See the [lifecycle boundary evidence](../validation/session-store-adapter.md#dormant-lifecycle-application-lane).
+cannot block its own finalizer. The explicit source-only
+`SessionWrites::finalize_with_history` operation additionally confirms the final
+grid before SQL, appends the exact committed status event and then publishes only
+to the original live owner. A retained blocking job keeps file I/O and worker waits
+outside application guards and Tokio workers; completion resources span the event
+and publication. Replay, SQL and event stages expose partial failures without
+rollback or blind retries. This does not route production lifecycle or own process
+exit/cleanup, resume/spawn or close-first archive/deletion. See the
+[lifecycle boundary evidence](../validation/session-store-adapter.md#dormant-lifecycle-application-lane)
+and [SQL history stages](../validation/session-store-adapter.md#dormant-sql-finalization-history).
 
 The versioned agent API uses `metadata/session_transactions.rs`: checked, durable
 revisions are stored in the canonical session JSON, and scoped mutations hold the
