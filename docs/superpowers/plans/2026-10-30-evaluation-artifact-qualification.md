@@ -282,3 +282,16 @@ contracts, and completeness of the builder's obligations and qualification
 boundary. Both found no material mismatch or gap. The minimum core counts remain
 logical derivations, not evidence of physical query/index work, full changed-set
 size or packing fit. No unchanged artifact or accepted choice was reopened.
+
+
+## Concrete authority-owner proposal — 2026-11-04
+
+[#1369](https://github.com/Rambolarsen/orkworks/issues/1369) prepares a
+[concrete initial-evaluation authority owner](../specs/2026-11-04-evaluation-publication-authority-design.md)
+against actual ordinary lifecycle/prompt/runtime/lease seams. Existing claim-first
+semantics remain accepted; separate owner/two-phase close/identity/token choices
+and the proposed non-I/O first unit are pending scoped owner decision. That unit
+would test exact claim/revoke/response/disposition ordering without AppState or
+lifecycle wiring, SQL, live authority issuance or storage activation. Prepare its
+concise execution plan only after the concrete decision. Source/native/index/
+complete-command and Gate 2–4 qualifications remain open; #1176 stays open.
