@@ -169,7 +169,7 @@ event for a queued question opening or resolving, so such prompts can be
 missed; [#632](https://github.com/Rambolarsen/orkworks/issues/632) tracks that
 signal gap.
 
-OpenCode's supported question and permission events carry `id` and
+OpenCode's older question and current permission events carry `id` and
 `sessionID` when asked, then `requestID` and `sessionID` when replied to or
 rejected (OpenCode 2 moves these fields from the V1 `properties` envelope to
 `data`; verified live against 2.0.32). The reporter tracks pending question
@@ -189,6 +189,24 @@ pair before activating that session's hook authority. An installed plugin
 alone does not activate it. Existing installations must reconcile the
 OpenCode integration through Settings to receive the new reporter bytes —
 the V1-shape file installed before OpenCode 2 stopped loading it.
+
+OpenCode 2.2.5 replaces `question.*` with the generic form lifecycle. On
+2026-11-04, the installed macOS binary's embedded schema and the
+[official V2 API](https://dev.opencode.ai/v2/docs/api) agreed on
+`form.created` carrying `data.form.{id, sessionID}` and `form.replied` /
+`form.cancelled` carrying `data.{id, sessionID}`. The source reporter now
+tracks form IDs separately from permission and older question IDs:
+creation reports `waiting_for_input`; matching reply/cancellation restores
+the remaining effective state. Only the nested form owner may open a form
+wait, and all resolutions remain scoped to the captured native session.
+This fixes the ignored form lifecycle behind
+[#1364](https://github.com/Rambolarsen/orkworks/issues/1364): the affected
+session had an outstanding question tool while OrkWorks retained `working`.
+Schema-backed reporter tests and sidecar matrix checks cover these events;
+this is not a captured live form event or end-to-end delivery qualification.
+Receiving the fix requires the updated sidecar and Settings reconciliation
+of the owned reporter, followed by a fresh launch or explicitly chosen
+resume. Reloading a reporter cannot recover a form opened before subscription.
 
 Before OpenCode activation, Peon may supply nonprompt status and descriptive
 fields. For Codex and OpenCode, a Peon-inferred chat question cannot create

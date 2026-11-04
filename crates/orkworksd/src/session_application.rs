@@ -335,8 +335,9 @@ fn opencode_event_allows_status(event: &str, status: &str) -> bool {
         "session.execution.succeeded"
         | "session.execution.failed"
         | "session.execution.interrupted" => status == "idle",
-        "permission.asked" | "question.asked" => status == "waiting_for_input",
-        "permission.replied" | "question.replied" | "question.rejected" => {
+        "permission.asked" | "question.asked" | "form.created" => status == "waiting_for_input",
+        "permission.replied" | "question.replied" | "question.rejected" | "form.replied"
+        | "form.cancelled" => {
             matches!(status, "waiting_for_input" | "working" | "idle")
         }
         _ => false,
@@ -8556,6 +8557,12 @@ mod tests {
             ("session.execution.interrupted", vec!["idle"]),
             ("permission.asked", vec!["waiting_for_input"]),
             ("question.asked", vec!["waiting_for_input"]),
+            ("form.created", vec!["waiting_for_input"]),
+            ("form.replied", vec!["waiting_for_input", "working", "idle"]),
+            (
+                "form.cancelled",
+                vec!["waiting_for_input", "working", "idle"],
+            ),
             (
                 "permission.replied",
                 vec!["waiting_for_input", "working", "idle"],
