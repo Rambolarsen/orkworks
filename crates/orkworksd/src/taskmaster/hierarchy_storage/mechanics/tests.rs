@@ -1,13 +1,11 @@
-//! Acceptance tests for the dormant hierarchy storage kernel. Golden inputs
-//! are the merged child-source component vectors; every rejection case mirrors
-//! the owning contracts. Wired only here — the module has no production caller.
-
+//! Tests of isolated, unqualified storage mechanics. Passing these tests
+//! does not qualify a catalog, source command or accepted production store.
 use super::connection::Connection;
 use serde_json::{json, Value};
 use tempfile::tempdir;
 
 /// Golden fixture of record: merged child-source component vectors.
-const VECTORS: &str = include_str!("../../../../../docs/validation/child-source-vectors.json");
+const VECTORS: &str = include_str!("../../../../../../docs/validation/child-source-vectors.json");
 
 fn fixture() -> &'static Value {
     use std::sync::OnceLock;
@@ -28,13 +26,14 @@ fn golden(id: &str) -> Vec<u8> {
 }
 
 #[test]
-fn complete_catalog_column_shape_verifies() {
+fn partial_mechanical_catalog_column_shape_verifies() {
     let root = tempdir().unwrap();
     let path = root.path().join("catalog.sqlite");
     let store = Connection::open(&path, "workspace-1").unwrap();
     assert_eq!(store.unavailable_reason(), None);
     drop(store);
-    super::schema::verify_catalog_shape(&path).expect("fresh catalog shape is complete");
+    super::schema::verify_catalog_shape(&path)
+        .expect("fresh catalog matches declared partial mechanical shape");
 }
 
 #[test]
