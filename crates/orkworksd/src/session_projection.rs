@@ -769,7 +769,13 @@ impl SessionProjection {
         }
         let live_sessions: Vec<_> = sessions
             .values()
-            .map(|handle| (handle.info.clone(), handle.capacity.clone()))
+            .map(|handle| {
+                (
+                    handle.info.clone(),
+                    handle.capacity.clone(),
+                    handle.runtime.usage_limit_latched_at,
+                )
+            })
             .collect();
         let durable_harnesses: HashMap<String, String> = projected_infos
             .iter()
@@ -791,7 +797,7 @@ impl SessionProjection {
         let mut pending_transitions: Vec<(String, bool)> = Vec::new();
         let capacity_infos: Vec<SessionInfo> = live_sessions
             .into_iter()
-            .map(|(info, capacity)| {
+            .map(|(info, capacity, latched_at)| {
                 let id = info.id.clone();
                 let live_harness_id = info.harness_id.clone();
                 let mut merged = projected_infos
@@ -829,6 +835,15 @@ impl SessionProjection {
                     merged.usage_limit_reset_hint = detected_reset_hint;
                 }
                 merged.capacity_check_pending = capacity.rendered_check_pending();
+                // Projected only for this session's own latch (issue #1082:
+                // the aged "Capped · detected <time> ago" display needs the
+                // detection time; inherited peer displays deliberately have
+                // no own latch timestamp to age).
+                merged.usage_limit_latched_at = if merged.at_usage_limit == Some(true) {
+                    latched_at.map(|timestamp| timestamp.to_rfc3339())
+                } else {
+                    None
+                };
 
                 let scanned = prepared
                     .get(&id)
@@ -856,6 +871,7 @@ impl SessionProjection {
             info.at_usage_limit = capacity_info.at_usage_limit;
             info.capacity_check_pending = capacity_info.capacity_check_pending;
             info.usage_limit_reset_hint = capacity_info.usage_limit_reset_hint.clone();
+            info.usage_limit_latched_at = capacity_info.usage_limit_latched_at.clone();
             if capacity_info.at_usage_limit == Some(true) && info.lifecycle == "alive" {
                 info.attention = capacity_info.attention.clone();
             }
@@ -922,6 +938,7 @@ impl SessionProjection {
             }
         }
         let mut write_back_snapshot_ids = HashSet::new();
+        let mut refreshed_stamps: HashMap<String, String> = HashMap::new();
         for info in &infos {
             if let Some(handle) = sessions.get_mut(&info.id) {
                 if !input_guards.contains_key(&info.id) {
@@ -945,14 +962,37 @@ impl SessionProjection {
                 // sibling for display is never written back (issue #1083).
                 handle.info.usage_limit_reset_hint =
                     own_reset_hints.get(&info.id).cloned().flatten();
-                if newly_latched {
-                    handle.runtime.usage_limit_latched_at = prepared
+                // A scoped fresh-output recheck that confirms the limit while
+                // the latch was already set (numbered issue #1082) is the most
+                // recent detection too: refresh the stamp so the aged display
+                // never frames fresh rejections with the older time. A
+                // baseline first detection already stamps via
+                // `newly_latched`; a clean recheck (clear_latch) never stamps.
+                let reconfirmed_by_recheck = !newly_latched
+                    && final_observation.origin_update.is_some()
+                    && final_observation.at_usage_limit
+                    && !final_observation.clear_latch;
+                if newly_latched || reconfirmed_by_recheck {
+                    let refreshed = prepared
                         .get(&info.id)
                         .and_then(|candidate| candidate.input.output_at.as_ref())
                         .as_deref()
                         .and_then(|raw| chrono::DateTime::parse_from_rfc3339(raw).ok())
                         .map(|timestamp| timestamp.with_timezone(&chrono::Utc));
+                    handle.runtime.usage_limit_latched_at = refreshed;
+                    if let Some(refreshed) = refreshed {
+                        refreshed_stamps.insert(info.id.clone(), refreshed.to_rfc3339());
+                    }
                 }
+            }
+        }
+        // Same-cycle consistency: the projection values above were built
+        // from the pre-write-back runtime stamp; a fresh detection (or the
+        // re-check confirmation above) is the detection time this very
+        // listing already displays.
+        for (id, value) in refreshed_stamps {
+            if let Some(entry) = infos.iter_mut().find(|info| info.id == id) {
+                entry.usage_limit_latched_at = Some(value);
             }
         }
         harness_capped.clear();
@@ -1456,6 +1496,9 @@ mod tests {
             let handle = sessions.get_mut("lag-test").unwrap();
             handle.info.harness_id = Some("opencode".into());
             handle.info.harness = Some("opencode".into());
+            // The runtime latch stamp derives from this output timestamp
+            // (matching the production stamping source).
+            handle.info.last_output_at = Some("2026-11-04T20:00:00Z".into());
             handle.output_buffer.push("usage limit reached".into());
             handle.capacity.record_output(1, 20);
         }
@@ -1484,6 +1527,59 @@ mod tests {
         assert_eq!(peer.at_usage_limit, Some(true));
         assert_eq!(peer.attention.as_deref(), Some("capped"));
         assert_eq!(peer.usage_limit_inherited, Some(true));
+
+        // The next projection carries the detecting session's own latch
+        // timestamp for the aged display; the peer has no own latch to age.
+        let again = projection.list().unwrap();
+        let source = again.iter().find(|info| info.id == "lag-test").unwrap();
+        let peer = again.iter().find(|info| info.id == "cap-peer").unwrap();
+        assert!(source.usage_limit_latched_at.is_some());
+        assert_eq!(
+            peer.usage_limit_latched_at, None,
+            "inherited display carries no own latch timestamp to age"
+        );
+
+        // A fresh-output recheck that confirms the limit without clearing the
+        // latch refreshes the stamp: the rejection just received is the most
+        // recent detection (issue #1082), so the aged display must not frame
+        // it with the old time. accepted_input mirrors the production retry
+        // flow, which is what arms the scoped recheck window.
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut("lag-test").unwrap();
+            handle.capacity.accepted_input();
+            handle.info.last_output_at = Some("2026-11-04T20:05:00Z".into());
+            handle.output_buffer.push("usage limit reached".into());
+            handle.capacity.record_output(1, 20);
+        }
+        let reconfirmed = projection.list().unwrap();
+        assert_eq!(
+            reconfirmed
+                .iter()
+                .find(|info| info.id == "lag-test")
+                .unwrap()
+                .at_usage_limit,
+            Some(true)
+        );
+        {
+            let sessions = state.sessions.lock().unwrap();
+            assert_eq!(
+                sessions["lag-test"]
+                    .runtime
+                    .usage_limit_latched_at
+                    .unwrap()
+                    .to_rfc3339(),
+                "2026-11-04T20:05:00+00:00"
+            );
+        }
+        let refreshed = reconfirmed
+            .iter()
+            .find(|info| info.id == "lag-test")
+            .unwrap()
+            .usage_limit_latched_at
+            .clone()
+            .unwrap();
+        assert!(refreshed.starts_with("2026-11-04T20:05:00"), "{refreshed}");
 
         // The source recovers on accepted input plus fresh clean output; the
         // peer's displayed state must clear with it.

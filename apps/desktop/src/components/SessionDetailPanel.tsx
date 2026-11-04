@@ -79,8 +79,11 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSes
     let nextRefresh = nextRelativeTimeRefreshMs(active.peonLastInference, currentNow);
     nextRefresh = minDelay(nextRefresh, nextRelativeTimeRefreshMs(active.lastActivityAt, currentNow));
     nextRefresh = minDelay(nextRefresh, nextRelativeTimeRefreshMs(active.created_at, currentNow));
+    // The aged Capped display (#1082) must advance at its own boundaries —
+    // an inactive capped session updates none of the other timestamps.
+    nextRefresh = minDelay(nextRefresh, nextRelativeTimeRefreshMs(active.usageLimitLatchedAt, currentNow));
     return nextRefresh;
-  }, [active?.id, active?.peonLastInference, active?.lastActivityAt, active?.created_at]));
+  }, [active?.id, active?.peonLastInference, active?.lastActivityAt, active?.created_at, active?.usageLimitLatchedAt]));
 
   // Reset synchronously (during render, not in an effect) so a session
   // switch never paints the previous session's task history under the new
@@ -147,13 +150,20 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSes
   // A harness-wide projected Capped state must not read as this session's
   // own evidence (issue #1083): the badge says so explicitly.
   const cappedInherited = attn === "capped" && active.usageLimitInherited === true;
+  // The latch is sticky until the next input/recheck; once its timestamp is
+  // old, the verbatim hint must not read as a present-tense fact (issue
+  // #1082): the badge reports when the limit was detected instead.
+  const cappedAge =
+    attn === "capped" ? relativeTime(active.usageLimitLatchedAt, now) : "";
+  const cappedHeader =
+    attn === "capped" && cappedAge ? `Capped · detected ${cappedAge}` : attentionLabel(attn);
   const cappedBadgeText = cappedInherited
     ? active.usageLimitResetHint
-      ? `Capped · ${active.usageLimitResetHint} · inherited from another session`
-      : "Capped · inherited from another session"
+      ? `${cappedHeader} · ${active.usageLimitResetHint} · inherited from another session`
+      : `${cappedHeader} · inherited from another session`
     : attn === "capped" && active.usageLimitResetHint
-      ? `Capped · ${active.usageLimitResetHint}`
-      : attentionLabel(attn);
+      ? `${cappedHeader} · ${active.usageLimitResetHint}`
+      : cappedHeader;
   // The sidecar holds a resumed session's usage-limit determination open;
   // until fresh output settles it, the displayed attention is unverified
   // (issue #1081). One-shot: the backend field stays true only until it was

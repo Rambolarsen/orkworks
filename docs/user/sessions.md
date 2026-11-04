@@ -200,7 +200,10 @@ Update an existing Copilot integration through Settings to add the submission
 hook; published installers may have earlier behavior.
 
 When a coding tool hits its provider's usage limit, its session row shows
-**Capped**, and the detail panel adds any reset hint the tool printed. Sessions
+**Capped**, and the detail panel adds any reset hint the tool printed. The
+badge is framed by when the limit was detected — **Capped · detected \<time\>
+ago** — so an old latch is never presented as a current fact, even after the
+printed reset time has passed. Sessions
 sharing one coding tool show a limit detected in any one of them as Capped with
 an "inherited" mark; the mark clears when the detecting session recovers. A
 resumed session whose limit status is not yet known shows a muted **Checking

@@ -129,6 +129,15 @@ pub(crate) struct SessionInfo {
         skip_serializing_if = "Option::is_none"
     )]
     pub(crate) usage_limit_inherited: Option<bool>,
+    /// RFC3339 time of this session's own most recent usage-limit detection,
+    /// projected only while the session's own `at_usage_limit` is true.
+    /// Powers the aged "Capped · detected <time> ago" display so a stale
+    /// latch is not presented as a current fact (issue #1082).
+    #[serde(
+        rename = "usageLimitLatchedAt",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub(crate) usage_limit_latched_at: Option<String>,
     #[serde(rename = "metadataSource")]
     pub(crate) metadata_source: Option<String>,
     #[serde(rename = "metadataConfidence")]
@@ -260,6 +269,7 @@ impl SessionInfo {
             capacity_check_pending: None,
             usage_limit_reset_hint: None,
             usage_limit_inherited: None,
+            usage_limit_latched_at: None,
             metadata_source: None,
             metadata_confidence: None,
             repo_root: None,
@@ -375,6 +385,7 @@ mod tests {
             capacity_check_pending: None,
             usage_limit_reset_hint: None,
             usage_limit_inherited: None,
+            usage_limit_latched_at: None,
             metadata_source: None,
             metadata_confidence: None,
             repo_root: None,

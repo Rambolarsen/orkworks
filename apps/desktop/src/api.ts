@@ -101,6 +101,9 @@ export interface SessionInfo {
   /** True when the displayed Capped state comes from a sibling session of
    *  the same harness, not from this session's own evidence. */
   usageLimitInherited?: boolean;
+  /** RFC3339 time of this session's own most recent usage-limit detection,
+   *  present only while its own atUsageLimit is true. */
+  usageLimitLatchedAt?: string;
   peonLastInference?: string;
   peonDiagnostics?: PeonDiagnostics | null;
   metadataSource?: string;

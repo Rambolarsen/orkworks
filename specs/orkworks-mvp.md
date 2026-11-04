@@ -1039,6 +1039,17 @@ attention is not read as a verified capacity status. The indicator clears
 when the sidecar's one-shot visibility semantics clear it.
 ([#1081](https://github.com/Rambolarsen/orkworks/issues/1081))
 
+The usage-limit latch remains sticky until the next accepted input/recheck,
+kill or resume, or explicit clear. Its display is aged instead of expiring:
+while a session's own `at_usage_limit` is true, its projected
+`usageLimitLatchedAt` timestamps the most recent own detection and the detail
+badge frames the state as `Capped · detected <time> ago`, so an old latch (in
+particular one whose recorded reset hint has passed) is never presented as a
+present-tense fact. Inherited sibling displays carry no own latch timestamp
+and keep their inherited framing; sessions without a projected timestamp
+fall back to the plain wording. The latch itself is not aged or cleared
+([#1082](https://github.com/Rambolarsen/orkworks/issues/1082)).
+
 The standalone Capacity dashboard, manual dashboard controls, dedicated
 navigation and shortcut, capacity-file expansion and broader classification
 work are deferred. They are not active MVP deliverables. Revisit only for a
