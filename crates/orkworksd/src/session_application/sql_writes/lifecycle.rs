@@ -326,4 +326,4 @@ impl SessionWrites {
 
 mod history;
 
-pub(crate) use history::{CapturedEnding, Finalization, MetadataResult};
+pub(crate) use history::{CapturedEnding, Finalization, MetadataResult, ProviderWrite};

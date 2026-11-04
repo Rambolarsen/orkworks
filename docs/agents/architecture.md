@@ -960,11 +960,20 @@ Its explicit SQL capture retains original application/workspace/runtime/control,
 creation and source authority before a final-scan wait, then consumes that owner
 without recapturing a replacement. Direct SQL callers use the same capture and
 immediate completion. The production runtime still selects JSON, including its
-existing unknown-JoinError diagnostic. Full SQL final-scan routing remains gated:
-JSON provider-context and workflow-observation side effects need their own
-qualification first. This completion alone does not prove physical cleanup or
+existing unknown-JoinError diagnostic. Full SQL final-scan routing remains gated: the current JSON provider-context
+and workflow-observation effects must first be routed through qualified owners. This completion alone does not prove physical cleanup or
 satisfy close-first organization. See the
 [runtime completion evidence](../validation/session-store-adapter.md#runtime-history-completion-boundary).
+A captured SQL ending owner can now persist final-scan provider context through
+an ending-scoped command in that same worker/session lane. The shared provider
+reducer changes only provider fields with no attention/activity/title projection;
+its transaction skips a record that is no longer ending. Typed receipts distinguish
+unchanged, committed-current and committed-detached outcomes; cancellation retains
+definitive work and the original lease. Default JSON provider writes remain on
+their existing owner, and workflow evidence still requires independent file-store
+deletion/idempotency qualification before full SQL final-scan routing. See the
+[captured provider evidence](../validation/session-store-adapter.md#captured-ending-provider-context).
+
 
 
 The versioned agent API uses `metadata/session_transactions.rs`: checked, durable

@@ -285,3 +285,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [SQL finalization history ordering](2026-11-04-sql-finalization-history.md) — Dormant SQL finalization replay/event stages.
 
 - [Runtime ending persistence boundary](2026-11-04-runtime-ending-persistence.md) — Captured SQL ownership at runtime history completion.
+
+- [Captured ending provider context](2026-11-04-ending-provider-writes.md) — Scoped SQL provider writes from the original final-scan owner.

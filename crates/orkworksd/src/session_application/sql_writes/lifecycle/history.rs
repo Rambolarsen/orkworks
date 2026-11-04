@@ -281,3 +281,6 @@ impl CapturedEnding {
         received.await.map_err(|_| StoreError::Unavailable)?
     }
 }
+
+mod provider;
+pub(crate) use provider::ProviderWrite;

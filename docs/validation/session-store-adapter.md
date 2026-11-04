@@ -872,8 +872,10 @@ completion stage to typed JSON and explicit captured SQL owners. The default
 runtime selects JSON and retains its prior final-scan behavior and unknown
 JoinError diagnostic. This is not a selector for the entire SQL runtime pipeline:
 `persist_final_peon_scan` still owns synchronous JSON provider context and
-workflow-observation file effects. Those owners remain a prerequisite before a
-full SQL scan/finalizer can be selected. No production SQL activation occurs.
+workflow-observation file effects. The captured SQL provider command is qualified below; the current scan still
+needs its provider branch routed through that owner and its workflow file effects
+qualified before a full SQL scan/finalizer can be selected. No production SQL
+activation occurs.
 
 The SQL constructor captures the original runtime generation outside the Tokio
 worker, then obtains an immutable application-bound `CapturedEnding` from
@@ -901,3 +903,39 @@ capture stall with an independent OS watchdog. The existing close-first
 `runtime_closed` predicate still requires PID/control-channel cleanup after
 metadata completion; tests do not qualify SQL Archive/Delete or process adoption.
 The original JSON runtime/final-scan and SQL history suites remain applicable.
+
+## Captured ending provider context
+
+`CapturedEnding::persist_provider_context` borrows the original SQL ending owner
+so provider metadata can precede history completion without renewing authority.
+`EndingProviderContext` reuses the existing provider reducer and NONE write scope,
+but checks the latest durable lifecycle phase inside the SQL transaction. A record
+that is already ended yields an unchanged receipt even when its live ending
+publication was detached. The generic provider command remains unchanged.
+
+The method prepares a bounded command before waiting for the existing session
+lane, carries the original deadline and cancellation claim, and checks the same
+application/workspace/reader/lease, runtime/control/creation and source snapshot at
+execution and receipt. An owned task retains definitive lane/lease/budget resources
+through receipt after caller cancellation. Replacement after commit is committed-
+detached, not rollback. Missing/queue/size/deadline/unavailable errors remain typed;
+unavailable completion cannot prove rollback and never authorizes blind retry or
+JSON fallback. Receipt currentness does not project live provider fields or prove
+process state. Provider-only changes preserve attention/activity/provenance/title
+clocks; each accepted write still advances metadata revision once, including repeat
+values. No events, workflow observations or provider processes are started here.
+
+Real SQL tests in `sql_ending_provider_tests.rs` cover the stored/live phase gap,
+exact provider fields and repeated revisions, preserved clocks, history completion
+with the same capture, owner replacement, creation conflict, missing data, queue and
+payload rejection, deadline/unavailable errors, cancellation before/after claim,
+and retained original resources. A single-Tokio-worker test stalls SQL behind an
+independent OS watchdog and delivers approved input to a separate runtime control
+receiver. That test acknowledges the command at the receiver; it is not a new PTY
+or numeric latency qualification. The existing real PTY/history tests still apply.
+
+Default production routing remains JSON. The legacy final scan still performs its
+provider write through its current JSON owner. Evidence recording retains a
+separate file store with deletion, sequence and idempotency state; its qualification
+is a prerequisite before the full captured SQL final-scan pipeline can be selected.
+No workflow-store redesign, migration, activation or measured speedup is claimed.
