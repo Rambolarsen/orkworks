@@ -4278,6 +4278,7 @@ mod tests {
         let (task, shutdown) = spawn_test_peon_loop(state.clone());
 
         // Wait for metadata to be updated (poll up to 10 seconds)
+        let mut inference_observed = false;
         for _ in 0..100 {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             let ws = state.workspace.lock().unwrap();
@@ -4302,15 +4303,19 @@ mod tests {
                         assert!(diagnostic.snapshot.last_successful_inference_at.is_some());
                         assert_eq!(diagnostic.snapshot.provider_id.as_deref(), Some("opencode"));
                         assert_eq!(diagnostic.snapshot.attempt_count, Some(1));
-                        drop(ws);
-                        stop_test_peon_loop(task, shutdown).await;
-                        return; // test passes
+                        inference_observed = true;
+                        break;
                     }
                 }
             }
         }
 
-        panic!("Peon did not update metadata within 10 seconds");
+        assert!(
+            inference_observed,
+            "Peon did not update metadata within 10 seconds"
+        );
+        // Leave the polling scope so workspace and diagnostics guards are gone.
+        stop_test_peon_loop(task, shutdown).await;
     }
 
     #[tokio::test]
