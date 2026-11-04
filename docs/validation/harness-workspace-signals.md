@@ -132,8 +132,10 @@ On 2026-11-04 the owner approved a disposable model-free OpenCode 2.2.5
 fixture, bounded to 90 seconds and one private-server restart. The first
 execution stopped during readiness; its client omitted required Basic
 authentication. It produced no session records. After the owner separately
-approved one corrected execution, the client used a fresh random password
-held only in memory for its own loopback server and the fixture completed.
+approved one corrected execution, the runner generated a fresh random password
+in memory for its private loopback server/client and the fixture completed.
+The runner did not print or persist that password; all native storage was
+disposable and removed afterward.
 See [standalone server authentication](https://opencode.ai/v2/docs/cli/web#authentication).
 Neither execution changed an existing server credential or security protection.
 
