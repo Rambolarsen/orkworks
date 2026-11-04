@@ -37,7 +37,7 @@ The probe keeps `rootScope: unverified` even when IDs compare equal.
 | Claude Code 2.1.309, source reporter | A separate no-tool run received the modified reporter's narrow SessionStart instructions and returned the exact requested acknowledgement. The reporter used fake capabilities and an offline curl stub; no real metadata report was attempted. | Live context delivery, not proof that future agents comply or that installed helpers have updated. |
 | Codex 0.166.0 | An ephemeral, read-only run completed exactly two shell calls with B then A as tool directories. Three item-completed and one turn-completed events were counted. No configured fixture hook records were received. | Hook execution/discovery/trust was not established. No trust bypass or persisted trust mutation was used. This result cannot qualify native directory semantics. Existing explicit helper reporting is independently observed in the owning session. |
 | Copilot CLI 1.0.90 | Capped fixtures produced no hook record. The owner subsequently approved exactly one no-tool request without the credit cap, bounded to 90 seconds; it exited 1 after 8.7 seconds with derived `401` and `quota` diagnostics and no hook record or acknowledgement. | Live delivery remains unverified pending external authentication/usage resolution. The one approved uncapped invocation was consumed; no credential change or further retry occurred. |
-| OpenCode 2.2.5 | Installed version read successfully. | No live session/location run. Plugin-instance location remains insufficient under the native documentation. |
+| OpenCode 2.2.5 | A model-free private-server fixture read exact-session parent/location fields, moved root A→B and child A→C independently, and observed B/C after one restart. An instruction entry attached to the root after child creation was present only on the root. | Native session API evidence only. No hook event, model-context delivery, async ordering or automatic task-location signal is qualified. Plugin-instance location remains insufficient. |
 | Aider | Executable unavailable. | No live qualification. |
 | Antigravity 1.1.22 | Version available. | No qualified hook/schema was identified; no live location run. |
 | Generic shell / retired Gemini / custom | Existing fallback policy retained. | No new native source or universal hook claim. |
@@ -124,3 +124,52 @@ resume path. It does not launch an installed coding harness, test native
 conversation restoration, restart the production daemon, or qualify format-2
 storage activation. Native identity, ordering and remaining instruction channels
 retain the limits in the results table and tracking issue.
+
+
+## OpenCode exact-session API fixture
+
+On 2026-11-04 the owner approved a disposable model-free OpenCode 2.2.5
+fixture, bounded to 90 seconds and one private-server restart. The first
+execution stopped during readiness; its client omitted required Basic
+authentication. It produced no session records. After the owner separately
+approved one corrected execution, the runner generated a fresh random password
+in memory for its private loopback server/client and the fixture completed.
+The runner did not print or persist that password; all native storage was
+disposable and removed afterward.
+See [standalone server authentication](https://opencode.ai/v2/docs/cli/web#authentication).
+Neither execution changed an existing server credential or security protection.
+
+The completed fixture used an independent temporary Git repository with linked
+A/launch, B/task and C/other worktrees. XDG configuration, data, cache and state
+were isolated beneath the disposable directory. No inherited OrkWorks capability,
+provider credential or proxy was forwarded. Warming was disabled; no prompt,
+generation, shell or tool endpoint was called. Raw server output was discarded.
+The runner retained nine derived records containing only step labels,
+identity/parent equality booleans, instruction-entry and timestamp-presence flags,
+and A/B/C classes.
+Native IDs, payloads and passwords were not printed or retained outside the
+removed native fixture storage. Cleanup left no matching fixture directories.
+
+Observed through the documented [session API](https://opencode.ai/v2/docs/api):
+
+- Exact root reads matched the requested identity, had no parent, and initially
+  reported A through `Session.Info.location.directory`.
+- The child had its own identity and matched the expected root through
+  `parentID`; it initially reported A.
+- Moving the root to B and the child to C produced independent locations. A
+  subsequent root read still reported B.
+- A fake instruction entry attached to the root after child creation appeared
+  in the root's instruction-entry list and was absent from that existing child.
+  This does not test whether instructions present before child creation inherit.
+- After stopping and restarting the private server against the same disposable
+  storage, exact reads retained root B, child C and the expected parent relation.
+- All seven retained session observations exposed an updated-time field. Presence alone does
+  not establish an ordering fence or distinguish delayed hook observations.
+
+These facts narrow installed-version session schema and persistence uncertainty.
+They do not qualify `ctx.location`, native root-hook correlation, model-request
+context injection, agent compliance, native model conversation restoration,
+Windows behavior, or async event ordering. The probe's authority remains
+`diagnostic-only` with `rootScope: unverified`. No production adapter or new
+location authority was enabled; OpenCode agents still use explicit helper
+reporting where available and the existing fallback otherwise.
