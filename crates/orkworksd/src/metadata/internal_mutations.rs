@@ -59,6 +59,7 @@ pub(crate) enum InternalMutation {
         label: String,
     },
     ProviderContext(crate::providers::ProviderObservation),
+    EndingProviderContext(crate::providers::ProviderObservation),
     UserTitle {
         title: Option<String>,
     },
@@ -158,6 +159,18 @@ impl InternalMutation {
                 allow_codex_identity_replacement,
             } => apply_harness_report(meta, report, timestamp, *allow_codex_identity_replacement),
             Self::CodexLabel { root, label } => apply_codex_label(meta, root, label),
+            Self::EndingProviderContext(provider) => {
+                let scope = if meta.lifecycle_phase == "ending" {
+                    apply_provider(meta, provider);
+                    Some(WriteScope::NONE)
+                } else {
+                    None
+                };
+                Ok(Decision {
+                    scope,
+                    disposition: Disposition::Applied,
+                })
+            }
             Self::ProviderContext(provider) => {
                 apply_provider(meta, provider);
                 Ok(Decision {
