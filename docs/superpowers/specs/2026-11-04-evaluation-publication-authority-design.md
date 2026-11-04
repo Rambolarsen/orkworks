@@ -244,3 +244,151 @@ choices and this bounded unit, not for actual lifecycle/source/native adoption.
 No AppState field, production source registration, ordinary lifecycle hook,
 SQL/store activation, serialization/limit/policy change or native/model probe is
 approved. The #1356 admission fence remains; #1176 qualification stays open.
+
+
+## Close-only lifecycle proposal — 2026-11-04
+
+Tracking: [#1380](https://github.com/Rambolarsen/orkworks/issues/1380), under #1176.
+Inspection base: `90bc6cb824cfe2125d235a2be406a7847ebb9c2d` (merged core PR #1379).
+Disposition: **Proposed scope amendment; owner acceptance pending.** The earlier
+first-unit approval covers the merged core, not the runtime changes below.
+
+### Outcome and finite boundary
+
+Make the ordinary lifecycle ready to revoke an exact future evaluation binding,
+without granting that binding. Propose one coupled **dormant close-only plumbing**
+unit: optional private revocation carriers in ordinary owning records, exact
+capture/close/revalidation at every root below, and deterministic integration
+tests using the existing synthetic test owner. All production carriers remain
+None. No production constructor, attachment operation, owner initialization,
+registration, readiness/response construction or claim/publication caller is
+introduced. Runtime code cannot manufacture a binding from a session ID, an
+eligibility flag, empty source bytes or persisted metadata.
+
+This is deliberately less than active lifecycle adoption. It proposes permission
+to add the optional carriers and close call sites only. The previously required
+source/ordinary bridge, complete catalog/resource/physical/native and executable
+activation gates remain prerequisites to any production attachment or opening.
+A later qualified source owner must supply the actual immutable source/runtime
+join and sole sidecar owner; synthetic integration tests cannot satisfy it.
+No database, capability, model/native probe or complete profile is enabled.
+
+### Source-backed root inventory
+
+Links point to the inspected source; names identify roots when line numbers move.
+The inventory covers ordinary sidecar lifetime roots for this proposed unit,
+not desktop/native process-ownership proof or future hierarchy writers.
+
+| Root | Observed behavior and integration obligation |
+| --- | --- |
+| [delete_session](../../../crates/orkworksd/src/session_application.rs) | Sends kill while projection/workspace/sessions guards remain in scope, then schedules generation-bound killed status. Close must precede that signal, outside workspace/sessions guards |
+| [session_action_with_timeout](../../../crates/orkworksd/src/session_actions.rs) | Active Close/Archive/Delete sends kill under exact row-token admission. Preserve its reservation/token and bounded wait; insert close before signal without widening a stale token |
+| [send_runtime_command / TerminalAction::Kill](../../../crates/orkworksd/src/runtime/session_runtime.rs) | Terminal kill bypasses delete_session. Propagate the originating attachment RuntimeIdentity from spawn_command_future, then capture its matching carrier/sender, close, revalidate and signal; never re-resolve a replacement by session ID alone |
+| [start_session_runtime](../../../crates/orkworksd/src/runtime/session_runtime.rs) | Pre-spawn cancellation/errors return before a driver exists; post-spawn abort kills/waits directly. Both close the captured Unissued carrier before error cleanup/kill; delayed registration must remain impossible |
+| [runtime driver](../../../crates/orkworksd/src/runtime/session_runtime.rs) | Watch/queued Kill, native-observer failure, initial-editor failure and writer-task failure kill directly. Child-exit receipt precedes drain/report work and the eventual handle_runtime_exit callback. Close on first observed termination, before those waits; retain an idempotent callback backstop |
+| [transition_session_status / clear_ended_session_tracking_for_runtime](../../../crates/orkworksd/src/session_application.rs) | Terminal transition acquires the global prompt-transition lock before sessions; cleanup invalidates diagnostics/reporting. These are backstops, not the first cutoff. Capture and close before entering those existing lock/wait sequences |
+| [try_install_claimed_resume_handle / ResumeAdmission::drop](../../../crates/orkworksd/src/session_application.rs) | Replacement uses projection/workspace/sessions; pre-spawn cancellation can restore the prior handle. Close old before installation, close abandoned replacement before restoration/removal; restoring ordinary metadata/handle must not reopen its carrier |
+| [create_session_workflow](../../../crates/orkworksd/src/session_application.rs) | Installs a runtime before creating-record persistence; persistence failure removes it. Close that exact carrier before removal; carry None on current ordinary creates/resumes |
+| [open_workspace_with_identity](../../../crates/orkworksd/src/session_application.rs) | Prepares stores/lease, then replaces WorkspaceState under workspace lock and reconciles metadata. Close the old optional workspace carrier before publishing replacement; no path-only equality shortcut or silent reopening on same-path reload |
+| [EndingPersistence / lifecycle_current](../../../crates/orkworksd/src/runtime/terminal_runtime/ending_persistence.rs) | JSON ending completion and dormant SQL completion are generation/workspace checked. SQL current-owner callbacks hold projection/prompt/workspace/sessions guards. Neither is a suitable first close point or hierarchy claim; do not wrap either callback with the latch |
+| [sidecar serve](../../../crates/orkworksd/src/main.rs) and [WorkspaceLease](../../../crates/orkworksd/src/workspace_runtime.rs) | Serve currently has no graceful-shutdown hook; advisory lease unlock occurs at Drop. Do not claim a reliable shutdown/lease-loss callback. This unit leaves production hierarchy admission impossible; active adoption still needs those owners and recovery evidence |
+
+### Proposed carrier and ordering choices
+
+Keep implementation ownership in a small private facade beside
+`taskmaster/publication_authority.rs`. Expose only opaque cloneable runtime and
+workspace revocation handles plus idempotent close to ordinary code. They retain
+exact core binding/scope references and their owner; no public constructor,
+serializer, registry lookup, source eligibility or settlement method. Only
+cfg(test) fixture construction/attachment exists in this unit. The core's
+synthetic source bytes remain test data and are never promoted into a production
+source representation. AppState need not gain or initialize an authority owner.
+
+`SessionRuntime` holds an optional runtime carrier, and `WorkspaceState` an
+optional workspace carrier, both None in every production construction path.
+The startup/driver closures capture the exact runtime carrier before asynchronous
+startup can lose registry ownership; the carrier outlives replacement/removal
+as needed. A separate non-Clone runtime-task guard is constructed before spawning
+or polling startup, then transferred to the driver on successful startup. Its
+Drop closes only that exact carrier on task cancellation/unwind or early channel
+teardown. Cloning/dropping the ordinary carrier never revokes authority. Arrange
+its lifetime outside ordinary guard scopes, so task teardown cannot acquire the
+publication latch while an ordinary guard remains held. It ignores close errors in Drop (poison remains fail-closed) and performs no kill,
+I/O, settlement or callback. Explicit first-observation closes still precede
+kills/drains; Drop is a cancellation backstop, not their substitute. Driver
+kill-channel closure and select exhaustion must close before breaking.
+No session-ID map, per-request allocation or historical close log.
+With None there is no latch acquisition, entropy request or changed permission.
+Additional production state is a fixed optional field per existing record;
+test-attached handles remain bounded by the explicit fixture. Production memory
+qualification for real attached bindings remains an activation gate.
+
+For admitted user stop/replacement operations, retain the existing projection
+serialization and organization reservation while making the two phases explicit:
+
+1. Validate current admission and capture exact carrier, runtime identity and
+   kill sender under the existing ordinary guards. Release workspace/sessions
+   guards, retaining only the admission reservation/projection guard as needed.
+2. Close the captured carrier under its owner latch. Release the latch before
+   acquiring any ordinary guard, sending kill or performing persistence.
+3. Revalidate the captured identity and admission under ordinary guards before
+   signaling/exchanging the handle. A mismatch rejects the ordinary action and
+   never signals or closes a newly resolved replacement. A failed ordinary tail
+   leaves the old carrier closed; it cannot roll back revocation.
+
+Projection may precede the latch under the accepted order; sessions/workspace/
+prompt guards must not. Native driver/exit callbacks already own a captured
+carrier and close it directly before kill/drain/metadata waits. Generation checks
+on their ordinary tail remain intact. No parent/run authority is inferred from
+RuntimeGeneration; existing run cancellation/finish and namespace/health owners
+remain absent and explicitly outside production qualification.
+
+Workspace adoption prepares fallible stores outside the close cutoff, then uses
+projection serialization for its capture/close/revalidate/exchange tail. Recheck
+an exact captured workspace instance/lease reference, not merely its path. Close
+the old carrier outside workspace lock before the replacement becomes visible;
+keep retired references alive until after all guards are released. A failed tail
+may leave the ordinary old workspace selected with a closed hierarchy carrier;
+there is no implicit rearm. Same-workspace reload is also replacement unless a
+future accepted source-admission contract explicitly proves identity continuity.
+No actual carrier is attached here, so no lease is newly retained by production.
+
+If a test-attached owner is poisoned/unavailable, publication stays denied while
+ordinary kill/cleanup remains available; close failure must not delay a kill
+awaiting a worker or claim settlement. An already claimed operation retains its
+existing exact disposition context; close/stop/drop is never rollback evidence.
+Do not add graceful shutdown, automatic native cleanup or physical lease-loss
+claims as incidental changes to this unit.
+
+### Verification and decision
+
+The [conditional execution plan](../plans/2026-11-04-evaluation-lifecycle-close-plumbing.md)
+names the coupled integration oracles. It is ready for review of this proposed
+scope, not execution authorization. Tests must exercise the actual ordinary
+entry points with injected handles, not just repeat core tests. They prove
+routing/order under deterministic scheduling, not real native stop latency.
+
+Investigated uncertainty: a single delete/status hook misses direct action and
+driver kills; post-exit finalization occurs after drain/report work; resume Drop
+restores an ordinary handle; same-path workspace adoption is not a hierarchy
+epoch proof. The inventory above resolves those assumptions. Full active source,
+shutdown/native/lease and publication writers remain unqualified; this proposal
+keeps them unreachable rather than certifying them by omission.
+
+Owner decision requested: accept only these optional close-only carriers and
+coupled ordinary call-site tests, with every production attachment/registration
+still absent. This is a new narrow scope decision, not a request to reapprove
+claim-first policy or the merged core. Keep #1176 open and the #1356 opener fenced.
+
+
+### Bounded builder review of the close-only proposal
+
+One fresh read-only Luna builder check found two material clarifications:
+propagate the originating terminal attachment identity through delayed Kill, and
+provide a separate non-Clone task guard for cancellation/unwind/early teardown.
+Both are now explicit in the proposal and conditional tests. The reviewer also
+checked actual workspace adoption: moving store preparation outside the current
+workspace-locked tail, then projection-serialized capture/close/revalidation, is
+feasible and preserves the existing admission order. No material builder question
+or lock-order contradiction remains. This is written-design review, not runtime
+or native verification. Disposition: **Ready for scoped owner decision.**
