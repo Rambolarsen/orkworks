@@ -531,3 +531,161 @@ consumer/preparation/custody and complete-state qualification work. Broader chil
 source/profile acceptance, native authority/lease/retirement, #740, maximal-profile
 and separately approved executable plans remain gates. No complete transaction
 fixture, database/migration, native/model probe or runtime implementation follows.
+
+
+## Initial child evaluation publication derivation — 2026-11-04
+
+Tracking: [#1363](https://github.com/Rambolarsen/orkworks/issues/1363), under
+[#1176](https://github.com/Rambolarsen/orkworks/issues/1176) / #738.
+This derives the first child evaluation/artifact publication from the accepted
+records and budgets above. It adds no command body, tag, codec, authority policy
+or limit. Correction, invalidation, artifact reads and reviewer result finalization
+retain their separate recipes. This is a logical obligation map, not a complete
+transaction witness or an executable storage plan.
+
+### Retained identities and read set
+
+Let T be the full child worker AssignmentIdentity, R its exact accepted ResultRef,
+P the distinct child reviewer AssignmentIdentity, and d the frozen evaluation
+output declaration ID, resolved through the full retained configuration. The selected producer/declaration is bound to R for its
+lifetime. Let E be the new evaluation ObjectRef at evaluationRevision 1, A its new
+artifact ObjectRef at version 1, and H the captured store_header.latest in the
+selected workspace/storage epoch. Names here abbreviate full existing identities;
+they are not new stored aliases or request fields.
+
+Before constructing a new write, the owner resolves these retained joins:
+
+| Read / precondition | Exact obligation |
+| --- | --- |
+| Target source | R resolves its complete canonical AssignmentResult, target assignment/configuration, approved criteria/rubric and required evidence/source history. Apply existing eligibility/freshness rules to this frozen target; never substitute the latest result |
+| Reviewer source | P resolves original plan, approval, reservation, allocation, attachment and child-assignment-source; its exact v3 configuration and retained review input agree on R, independence, scope and d. A session label, copied receipt or matching digest supplies none of this source authority |
+| New evaluation stream | The existing heads key is `{kind:"assignment-evaluation",identity:{assignmentIdentity:T,resultRevision:R.resultRevision,resultDigest:R.resultDigest,reviewerIdentity:{kind:"child",assignmentIdentity:P}}}`. The request uses the accepted no-head EvaluationPredecessor; absent head is a CAS precondition, not proof that history was never published |
+| New artifact stream | The complete `evaluation_artifact_streams` key `{producerAssignment:P,declarationId:d}` is absent under proven fresh preparation/history. No version, mapping, orphan artifact or original receipt may survive for this supposedly fresh stream. A missing head/mapping with contradictory history is unavailable, never reinitialization |
+| Admission and ledgers | Derive the next child admission ordinal from complete retained target-result slot/history membership across all reviewer streams. Verify every required target and producer assignment/run/workspace ledger against its retained inventory; absence is not zero |
+| Summary, consumers and proofs | Capture owning subject/summary/checkpoint/pending-lineage state, complete forward/reverse object and direct metadata/source-group membership, original receipt/claim joins and directly required proofs at H. Include read-only peers, not only rows expected to change |
+
+The [accepted child source map](2026-10-31-child-review-source-preparation-design.md#common-read-commit-and-retry-contract)
+and [coherent membership protocol](2026-11-03-child-consumer-membership-design.md#coherent-discovery-and-publication)
+govern header-bound discovery and source preparation. A caller cannot supply a
+consumer list, absence flag or completeness digest. Revalidate H and the full
+captured read set at the owning publication boundary; changed membership/source
+facts require a newly admitted intent, not a patched affected list.
+
+### One evaluation-write outcome
+
+Use the existing `orkworks.evaluation.submit.v1` request and `evaluation-write`
+manifest command kind. Authenticate/rate-check before exact retained retry lookup.
+The [claim contract](2026-10-25-hierarchy-claim-proof-design.md#strict-decision-and-committed-proof-shapes)
+and [compact proof representation](2026-10-25-hierarchy-compact-bindings-design.md#exact-proof-local-representation)
+remain authoritative: T owns the receipt/subject; current producer authority is
+P, with its actual admitted generation and exact no-head target/stream intent.
+ClaimProofV2 expands assignments[0] to T and assignments[1] to P; the proof is
+retained decision evidence, not independent proof that a claim preceded revocation.
+The existing claim-first exception applies only to the accepted evaluation
+publication and its inseparable artifact effects, not other source commands.
+
+For a genuinely new admitted publication, the following core is inseparable:
+
+| Family | Original-to-final effect |
+| --- | --- |
+| objects: E | Insert the exact canonical AssignmentEvaluation, with existing evaluation source digest, R and child reviewer P. Retain its declared evidence joins; no existing evaluation is overwritten |
+| objects: A | Insert EvaluationArtifactV1 with exact `{producerAssignment:P,declarationId:d,artifactId,version:1}`, E's complete EvaluationReference, and raw canonical evaluation size/hash. The artifact-domain digest differs from the evaluation-domain digest and raw content hash |
+| heads | Insert this exact evaluation stream's head pointing to E after no-head CAS |
+| evaluation_artifact_streams | Insert the immutable P/d mapping, sidecar-assigned artifactId and exact R. The artifactId agrees with A and the receipt descriptor; no global ID-only lookup or later retargeting |
+| receipt_slots | Insert one consumed child-evaluation slot with the exact mutation receipt and one reserved child-invalidation slot for T/R/P. Both belong to the newly admitted target-result ordinal below |
+| claim_proofs / mutation_lookup | Insert one accepted ClaimProofV2 and one full-scope retry lookup using the existing compact codecs. Manifest claim, consumed slot, response, request digest, E and committed proof agree; no null-claim fallback |
+| dependencies | Insert A → E with `evaluation-artifact-content` and E → A with `evaluation-artifact-origin`, plus exactly E's source-owned evaluation-evidence edges |
+
+Let r be R.resultRevision and j the next retained child evaluation admission index,
+0..11, for that result across **all** streams. Then q=12(r−1)+j; the consumed write
+slot is 320+2q and its reserved invalidation pair is 321+2q. These are the
+[existing slot rules](2026-10-25-hierarchy-slot-finalization-design.md#atomic-transitions-retry-and-retention).
+A new stream's evaluationRevision 1 does not imply j=0. Both rows bind the exact
+result and child reviewer; only this stream's first-write pair may later be
+consumed by an authorized invalidation. No counter reset or recycled ordinal is
+introduced by a new capability, run resume or artifactId.
+
+The core has ten distinct changed logical rows before additional evidence edges,
+quota/summary/lineage changes, other owning dependency effects and header/new
+proof controls. This is a minimum core count, not a complete changed set or an
+admission/packing proof. Derive the full Q,S,D,P,K union under the
+[existing effect definitions](2026-10-25-hierarchy-candidate-command-manifests-design.md#complete-command-effect-recipes):
+coalesce each changed key to its original before/final after commitment; unchanged
+rows keep their old links. Use format-4 header/manifest/row commitments with the
+unchanged source/proof codecs. Header replacement and new commit_proof insertion
+are separate control equations; they are not self-hashed manifest changes.
+The new commit has predecessor H and its checked successor sequence; overflow
+denies publication. Every inserted/changed row joins that commit under its
+existing link rules. Keep every directly required old receipt/checkpoint/row/origin
+proof. Do not
+require or delete unrelated intermediate proofs merely to make a contiguous
+history; any proof removal needs the existing same-transaction unreferenced proof.
+
+### Separate target and producer charges
+
+Write B for the canonical evaluation body length and C(x) for existing canonical
+UTF-8 bytes. The target's `assignment-record-bytes` used delta is B at T, T's
+owner run and workspace; reserved remains zero. The two target receipt rows add
+16,384 used and 16,384 reserved bytes to `reporting-receipt-bytes` at those same
+three scopes, regardless of their shorter actual encoded responses. No candidate
+user credit is borrowed. Apply the [accepted aggregate ownership rules](2026-10-29-assignment-aggregate-budgets-design.md#exact-charged-inventory-and-ownership).
+
+The producing P/run/workspace `evaluation-artifact-bytes` used delta is:
+
+```text
+B + len(C(A.key)) + len(C({body: artifactBody, digest: A.digest}))
+  + len(C({producerAssignment:P, declarationId:d}))
+  + len(C({schemaVersion:1, artifactId, target:R}))
+```
+
+This is the existing full raw-content occurrence plus artifact key/envelope and
+first mapping key/value, excluding only lastCommit. Artifact reserved stays zero.
+The raw evaluation content is stored once but charged to both distinct resources
+under their respective owners; physical sharing earns no discount. Shared run or
+workspace ownership does not merge different resource keys. Sum every actual
+same-owner/resource delta before replacing that quota row once.
+
+There is no result-payload or artifact-read-work charge: this write creates no
+accepted reviewer result payload and performs no artifact-read materialization.
+It creates neither read-work debit nor a future capacity reservation. Custody
+edges, claim/lookup/receipt metadata, summaries, indexes, proofs and command/store
+costs still count under their own accepted bounds; they are not paid solely by B.
+Validate the 512 KiB evaluation-content, 16 KiB artifact-body, 8 KiB complete
+mapping pair, slot/claim/lookup and all lower existing bounds independently.
+No single-record fit proves complete-command fit.
+
+### Affected publication, retry and qualification
+
+Discover all retained consumers from the accepted registry, including historical
+artifact/evaluation versions and direct mapping/source groups. New custody edges
+and physical lookup maintenance must become visible atomically with their owning
+rows. Apply the owning #744/#746 subjectRevision/summary/lineage transitions;
+membership alone creates no freshness event or extra revision. Compute actual
+material changes and detail-only effects separately. Fence and invalidate every
+affected current detail/overview snapshot at the source-owned publication boundary
+before a new current projection is readable. Do not manufacture a material
+revision to invalidate a detail view or rewrite an unchanged peer summary.
+
+| Outcome | Required disposition |
+| --- | --- |
+| Authorized exact retained retry | Return the original canonical receipt/descriptor after required current authentication, without a new artifactId, row, ordinal, claim, charge or snapshot transition. Full but valid pools do not deny this saved outcome |
+| Same scoped key with changed bytes, existing head or incompatible mapping | Conflict under the owning request/CAS rules; no alternate stream, new ID or user provenance to bypass the failed write |
+| Missing/corrupt source, ledger, consumer/index or original disposition | Unavailable; no missing-row initialization, mapping reconstruction, largest-version election or partial publisher |
+| New write exceeds a target/producer/receipt/summary/discovery/command/store bound | Deny with the existing reason precedence and complete old state. Preserve protected credits, old history and ordinary session responsiveness; no quality failure, eviction or automatic retry |
+| Claimed outcome or response disposition unresolved | Preserve the authoritative unavailable fence until complete old/new disposition is established. Emit the receipt only under the existing durable outcome and authorized response-commitment rules |
+
+The accepted discovery bound (4,096 observations / 16 MiB cumulative canonical
+bytes) is separate from the complete-command bound (4,096 changed rows / 16 MiB).
+Neither a ten-row core nor named Q,S,D,P,K proves that full inventories, physical
+indexes, worker/memory or old/new manifest costs fit. Each supported profile must
+close those actual bounds and deny overflow without a second worker or fallback.
+
+Remaining qualification is concrete: actual retained target/reviewer preparation
+and producer/current-authority participation; complete physical catalog and
+coherent indexes; exact executable command representation and full source-owned
+old/new effects; sparse direct-proof recovery; native claim/lease/retirement,
+durability and response disposition. The #1356 production opener stays fenced.
+This derivation passes none of those checks and changes none of their accepted
+policies. It authorizes no full-state fixture, database, adapter, model/native
+probe or runtime route. The next qualification work must name which of these
+obligations it closes, rather than treating this map as completed publication.
