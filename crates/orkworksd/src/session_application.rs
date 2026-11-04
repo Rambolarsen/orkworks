@@ -3788,12 +3788,11 @@ impl SessionApplication {
         let active_harness_revision = memory.active_harness_revision;
 
         // Ordinary store open may recover/rewrite graph files. Keep its existing
-        // writer fence during preparation, then release it BEFORE projection and
-        // evaluation close. In particular a same-path reload must not race writes.
+        // writer fence during preflight, then release it BEFORE projection and
+        // evaluation close. Refresh the cached workflow store at final adoption:
+        // writers may accept observations while the evaluation cutoff waits.
         let preparing_workspace = self.state.workspace.lock().unwrap();
-        let workflow_observations = crate::workflow_observations::WorkflowObservationStore::open(
-            global_dir.clone(),
-        )
+        crate::workflow_observations::WorkflowObservationStore::open(global_dir.clone())
         .map_err(|error| {
             tracing::error!(path = %global_dir.display(), %error, "failed to open workflow observation store");
             SessionError::Internal("failed to open workflow observation store")
@@ -3855,6 +3854,15 @@ impl SessionApplication {
         if !unchanged {
             return Err(SessionError::Conflict);
         }
+        // The preflight snapshot predates the lock-free evaluation close. Open
+        // again under the writer fence so accepted observations, idempotency
+        // entries and sequence counters cannot be lost at the exchange.
+        let workflow_observations =
+            crate::workflow_observations::WorkflowObservationStore::open(global_dir.clone())
+                .map_err(|error| {
+                    tracing::error!(path = %global_dir.display(), %error, "failed to refresh workflow observation store");
+                    SessionError::Internal("failed to open workflow observation store")
+                })?;
         retired = workspace.replace(WorkspaceState {
             evaluation_revocation: None,
             path: path.clone(),

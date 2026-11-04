@@ -239,3 +239,43 @@ identity. No runtime/profile or installer activation is claimed.
 
 Code blobs remain identical to reviewed tree63; only documentation result records
 changed afterward. PR CI and owned branch/worktree cleanup remain delivery steps.
+
+
+### Review correction: workflow snapshot adoption
+
+Codex identified a same-workspace reload race after the initial verification:
+agent observation recording uses the workspace mutex and can accept an observation
+while the publication cutoff waits outside that mutex. Installing the earlier
+workflow-store snapshot loses its cached observation, idempotency entry and
+sequence advancement. A deterministic application-level test parks the cutoff,
+records an observation, then resumes reload; the original code fails with zero
+retained observations instead of one.
+
+The preparation fence above remains a preflight check. Its workflow snapshot is
+discarded, and the store is opened again under the final workspace writer guard,
+after exact reader/lease revalidation and immediately before exchange. This keeps
+the cutoff outside ordinary locks and preserves intervening accepted writes.
+RecommendationStore retains only its directory path, so it has no corresponding
+cached snapshot. The regression also checks duplicate detection and strictly
+advancing sequence numbers. This correction supersedes the earlier claim that
+preparation fencing alone preserved workflow writes through adoption. Current
+verification and review evidence are recorded in PR #1396 before merge.
+
+
+The correction passed all 32 focused lifecycle tests. Independent
+`/code-review low` approved the delta against head
+88f716cacf574981aac627766725db8c14edff2e with no findings; reviewed source blobs
+6d975fe904aaae7e68079382bb0d80f60cfc24c4 (application) and
+f566a9a74b3c714b14262b190a0d82f838824157 (regression). The reviewer inspected
+recording lock ownership and error tails; the parent ran tests. Full repository
+verification and current-head automated review remain delivery checks.
+
+
+Full `bash scripts/verify-repo.sh` passed again after the workflow correction:
+2,915 Rust unit tests passed (17 existing ignored) plus integrations, 20 reporter
+tests, desktop type/native/tests/build (1,691 passed, three existing skipped),
+1,202 docs tests and site build, fmt/diff/doc/worktree checks. Existing chunk and
+compiler warnings remain unrelated. Documentation currency was assessed: the
+correction preserves observation retention during reload, with no new UI,
+schema, onboarding or published capability claim. Required CI and current-head
+Codex review are checked on the correction commit before merge.

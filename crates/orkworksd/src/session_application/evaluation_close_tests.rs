@@ -626,3 +626,94 @@ fn evaluation_close_terminal_kill_does_not_wait_for_unrelated_projection_work() 
     assert!(*kill.borrow());
     assert!(!authority.can_respond());
 }
+
+#[test]
+fn evaluation_close_workspace_reload_preserves_observation_recorded_during_cutoff() {
+    use crate::workflow_observations::{
+        Impact, ObservationCandidate, ObservationKind, RecordOutcome,
+    };
+    let (root, state, authority, _) = fixture();
+    let home = tempfile::tempdir().unwrap();
+    let fake_home = crate::test_support::FakeHome::set(home.path());
+    let application = SessionApplication::new(state.clone());
+    application
+        .open_workspace(root.path().to_path_buf())
+        .unwrap();
+    {
+        let mut workspace = state.workspace.lock().unwrap();
+        let workspace = workspace.as_mut().unwrap();
+        workspace
+            .metadata
+            .write_session(&crate::test_support::test_session_metadata(
+                "evaluation-close",
+                "Observation race",
+                &root.path().display().to_string(),
+                "running",
+                "before",
+                "before",
+            ));
+        workspace.evaluation_revocation = Some(authority.workspace.clone());
+    }
+    let candidate = ObservationCandidate {
+        kind: ObservationKind::Obstacle,
+        description: "Retry required while workspace reload was pending".into(),
+        evidence: "Synthetic observation during the parked cutoff".into(),
+        problem_area: None,
+        reported_impact: Impact::Medium,
+        confidence: None,
+    };
+    let entered = authority.observe_close();
+    let held = authority.hold_latch();
+    let opening_state = state.clone();
+    let target = root.path().to_path_buf();
+    let opening =
+        std::thread::spawn(move || SessionApplication::new(opening_state).open_workspace(target));
+    entered
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap();
+    let first = match application
+        .record_agent_workflow_observation("evaluation-close", "during-cutoff", candidate.clone())
+        .unwrap()
+    {
+        RecordOutcome::Accepted(observation) => observation,
+        other => panic!("expected accepted observation, got {other:?}"),
+    };
+    drop(held);
+    let opened = opening.join().unwrap();
+    let retained = state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .workflow_observations
+        .session_observations("evaluation-close")
+        .unwrap();
+    let duplicate = application.record_agent_workflow_observation(
+        "evaluation-close",
+        "during-cutoff",
+        candidate.clone(),
+    );
+    let next = application.record_agent_workflow_observation(
+        "evaluation-close",
+        "after-cutoff",
+        ObservationCandidate {
+            description: "A distinct later obstacle".into(),
+            ..candidate
+        },
+    );
+    drop(fake_home);
+    opened.unwrap();
+    assert_eq!(
+        retained.len(),
+        1,
+        "reload must retain the observation accepted during cutoff"
+    );
+    assert_eq!(retained[0].id, first.id);
+    assert!(
+        matches!(duplicate.unwrap(), RecordOutcome::Duplicate { sequence, .. } if sequence == first.sequence)
+    );
+    assert!(
+        matches!(next.unwrap(), RecordOutcome::Accepted(observation) if observation.sequence > first.sequence)
+    );
+}
