@@ -2512,8 +2512,6 @@ html, body, #root {
 .review-actions button, .shell-toolbar button, .shell-region-header button, .shell-sidebar-heading > button, .shell-sidebar-navigation button, .shell-sidebar-footer button, .shell-navigation-menu summary { display: inline-flex; align-items: center; gap: var(--space-2); padding: 7px 9px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); font: inherit; font-size: var(--text-sm); cursor: pointer; }
 .review-actions button:hover, .shell-toolbar button:hover, .shell-region-header button:hover, .shell-sidebar-heading > button:hover, .shell-sidebar-navigation button:hover, .shell-sidebar-footer button:hover, .shell-navigation-menu summary:hover { background: var(--surface-3); color: var(--text-primary); }
 .shell-toolbar button[aria-expanded="true"], .shell-sidebar-navigation button[aria-expanded="true"] { background: var(--surface-3); color: var(--text-primary); }
-.shell-toolbar .shell-resume-button { flex-shrink: 0; background: var(--accent-bg); color: var(--text-on-accent); font-weight: var(--weight-medium); }
-.shell-toolbar .shell-resume-button:hover { background: var(--accent-bg-hover); color: var(--text-on-accent); }
 .shell-context { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .shell-context h1 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--text-primary); }
 .shell-context-scope { font-size: var(--text-xs); color: var(--text-muted); }
@@ -3369,9 +3367,12 @@ html, body, #root {
 
 
 .resume-menu { position: relative; flex-shrink: 0; }
-.resume-split-button { display: flex; align-items: stretch; }
+.resume-split-button { display: inline-flex; align-items: stretch; }
+.resume-split-button > button { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; gap: var(--space-2); padding: 7px 9px; border: 1px solid transparent; border-radius: var(--radius-sm); background: var(--accent-bg); color: var(--text-on-accent); font: inherit; font-size: var(--text-sm); font-weight: var(--weight-medium); cursor: pointer; }
+.resume-split-button > button:hover:not(:disabled), .resume-split-button > button[aria-expanded="true"] { background: var(--accent-bg-hover); color: var(--text-on-accent); }
+.resume-split-button > button:disabled { opacity: .6; cursor: not-allowed; }
 .resume-split-button > button:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-.resume-split-button > .resume-menu-arrow { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 0; padding-inline: 7px; }
+.resume-split-button > .resume-menu-arrow { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 1px solid color-mix(in srgb, var(--text-on-accent) 25%, transparent); padding-inline: 7px; }
 .resume-menu-popover { position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; width: min(320px, calc(100vw - 24px)); padding: 6px; border: 1px solid var(--border-default); border-radius: 8px; background: var(--surface-2); box-shadow: 0 6px 24px #0005; }
 .resume-menu-popover .resume-option { width: 100%; text-align: left; white-space: normal; padding: 10px; height: auto; }
 .resume-menu-popover .resume-option:disabled { opacity: .55; cursor: default; }

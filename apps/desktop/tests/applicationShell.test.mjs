@@ -1455,6 +1455,16 @@ if (process.versions.electron) {
           assert.equal(await evaluate('!!document.querySelector("[data-shell-resume]")'),false,'live sessions have no resume action');
           await evaluate('fixture.setSessionState({lifecycle:"dead",status:"ended",memoryState:"resumable",resumeStrategy:"exact",resumeOptions:[{strategy:"exact",available:true,label:"Exact",preferred:true},{strategy:"latest_cwd",available:true,label:"Latest in folder"},{strategy:"latest_repo",available:false,label:"Latest in repo",reason:"Not supported"}]})');
           await waitFor('document.querySelector("[data-shell-resume]")');
+          assert.ok(await evaluate(`(() => {
+            const main = document.querySelector('[data-shell-resume]');
+            const arrow = document.querySelector('.shell-toolbar [data-resume-toggle]');
+            const primary = getComputedStyle(main), dropdown = getComputedStyle(arrow);
+            return primary.backgroundColor === dropdown.backgroundColor
+              && primary.color === dropdown.color
+              && dropdown.borderLeftStyle !== 'none' && parseFloat(dropdown.borderLeftWidth) > 0
+              && parseFloat(dropdown.borderTopRightRadius) > 0
+              && main.getBoundingClientRect().right === arrow.getBoundingClientRect().left;
+          })()`), 'Resume and its options form one accent split button with a divider and rounded outer edge');
           await evaluate('document.querySelector("[data-shell-resume]").click()');
           assert.deepEqual(await evaluate('fixture.resumed'),[{id:'coding',strategy:'exact'}],'main button resumes the preferred exact session');
           await evaluate('fixture.setResuming(["coding"])');
