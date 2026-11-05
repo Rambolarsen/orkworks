@@ -32,9 +32,89 @@
 // capture attention POST carries the normalized event name
 // `session.capture` (not the triggering OpenCode event) so the sidecar's
 // event/status matrix stays a small exact allow-list.
+import { readFileSync, lstatSync } from 'node:fs';
+import { isAbsolute } from 'node:path';
+import { createHash } from 'node:crypto';
+import { execFile } from 'node:child_process';
+
+// Protocol 1 is tied to this owned reporter/helper set. Incompatible changes
+// must bump the protocol; inherited selectors are stripped by the runtime.
+const WORKTREE_HELPER_SHA256 = '5a8a588e60831a6ddd64bc1f60612aa67cb47659b9a83f088731b20c14eb1755';
+function instructionSelector() {
+  const env = process.env;
+  const id = env.ORKWORKS_WORKTREE_INSTRUCTION_ROOT_ID;
+  const helper = env.ORKWORKS_WORKTREE_INSTRUCTION_HELPER;
+  if (env.ORKWORKS_WORKTREE_INSTRUCTION_PROTOCOL !== '1' ||
+      typeof id !== 'string' || (!/^ses_[A-Za-z0-9_-]{1,252}$/.test(id) || id !== id.trim()) ||
+      typeof helper !== 'string' || !isAbsolute(helper) || helper.length > 4096 ||
+      /[\x00-\x1f\x7f]/.test(helper) ||
+      !env.ORKWORKS_SESSION_ID || !env.ORKWORKS_PORT || !env.ORKWORKS_REPORT_TOKEN) return null;
+  return {id, helper, env:{...env}};
+}
+function helperMatches(path) {
+  try {
+    const stat = lstatSync(path);
+    return stat.isFile() && stat.size <= 1024 * 1024 &&
+      createHash('sha256').update(readFileSync(path)).digest('hex') === WORKTREE_HELPER_SHA256;
+  } catch { return false; }
+}
+function boundedLookup(promise, signal) {
+  return new Promise(resolve => {
+    const finish = value => {clearTimeout(timer); signal.removeEventListener('abort', aborted); resolve(value);};
+    const aborted = () => finish(null);
+    const timer = setTimeout(() => finish(null), 2000);
+    signal.addEventListener('abort', aborted, {once:true});
+    if (signal.aborted) aborted();
+    promise.then(finish, () => finish(null));
+  });
+}
+async function renderWorktreeContext(selector, signal) {
+  if (signal.aborted || !helperMatches(selector.helper)) return null;
+  return new Promise(resolve => {
+    execFile('python3', [selector.helper, 'worktree-instructions'], {
+      env:selector.env, timeout:2000, maxBuffer:64 * 1024, encoding:'utf8', signal,
+    }, (error, stdout) => {
+      if (error || signal.aborted) return resolve(null);
+      try {
+        const output = JSON.parse(stdout);
+        const narrow = output?.hookSpecificOutput;
+        const text = narrow?.additionalContext;
+        if (Object.keys(output).length !== 1 || !narrow ||
+            Object.keys(narrow).some(key => !['hookEventName','additionalContext'].includes(key)) ||
+            narrow.hookEventName !== 'SessionStart' || typeof text !== 'string' ||
+            !text.trim() || Buffer.byteLength(text, 'utf8') > 16 * 1024) return resolve(null);
+        resolve(text);
+      } catch { resolve(null); }
+    });
+  });
+}
+
 export default {
   id: 'orkworks.session-reporter',
   setup: async (ctx) => {
+    const controller = new AbortController();
+    const selector = instructionSelector();
+    let lookupPending = false;
+    if (selector && typeof ctx.session?.hook === 'function') {
+      try {
+      await ctx.session.hook('context', async event => {
+        if (controller.signal.aborted || event.sessionID !== selector.id || lookupPending ||
+            !Array.isArray(event.system) || typeof ctx.session.get !== 'function') return;
+        lookupPending = true;
+        let lookup;
+        try {
+          lookup = Promise.resolve(ctx.session.get({sessionID:selector.id}));
+        } catch { lookupPending = false; return; }
+        // A timed-out SDK call stays outstanding until it settles; do not
+        // accumulate more reads behind an unresponsive native API.
+        const tracked = lookup.finally(() => {lookupPending = false;});
+        const info = await boundedLookup(tracked, controller.signal);
+        if (controller.signal.aborted || !info || info.id !== selector.id || info.parentID != null) return;
+        const text = await renderWorktreeContext(selector, controller.signal);
+        if (!controller.signal.aborted && text) event.system.push({type:'text', text});
+      });
+      } catch { /* Optional context delivery must not disable legacy reporting. */ }
+    }
     let openCodeSessionId = null;
     let identityDelivered = false;
     let turnStatus = 'idle';
@@ -208,7 +288,6 @@ export default {
       await postAttention(type);
     };
 
-    const controller = new AbortController();
     void (async () => {
       try {
         for await (const event of ctx.event.subscribe({ signal: controller.signal })) {

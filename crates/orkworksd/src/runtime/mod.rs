@@ -19,3 +19,5 @@ pub(crate) mod terminal_runtime;
 pub(crate) mod workspace_gc;
 
 pub(crate) mod codex_terminal_status;
+
+pub(crate) mod worktree_instructions;

@@ -24,6 +24,10 @@ impl IntegrationHandler for OpenCodeHandler {
 
     fn install(&self, ctx: &IntegrationContext<'_>) -> Result<IntegrationStatus, IntegrationError> {
         let (transaction, bytes) = load(ctx)?;
+        if content_state(&bytes) == FragmentState::Ambiguous {
+            return Err(IntegrationError::OwnershipAmbiguous);
+        }
+        ctx.reporter_assets.reconcile("session-metadata.py")?;
         match content_state(&bytes) {
             FragmentState::Installed => return Ok(status_from_bytes(ctx, &bytes)),
             FragmentState::Ambiguous => return Err(IntegrationError::OwnershipAmbiguous),
@@ -221,9 +225,37 @@ mod tests {
 
     fn resolver(workspace: &Path) -> ReporterAssetResolver {
         ReporterAssetResolver {
-            source_dir: workspace.join("unused-source"),
+            source_dir: {
+                let source = workspace.join("fixture-assets");
+                fs::create_dir_all(&source).unwrap();
+                fs::write(
+                    source.join("session-metadata.py"),
+                    include_bytes!("../../../scripts/session-metadata.py"),
+                )
+                .unwrap();
+                source
+            },
             stable_dir: workspace.join("unused-stable"),
         }
+    }
+
+    #[test]
+    fn install_reconciles_shared_worktree_helper_even_when_plugin_is_current() {
+        let workspace = gitignored_workspace();
+        let resolver = resolver(workspace.path());
+        let ctx = context(workspace.path(), &resolver);
+        HANDLER.install(&ctx).unwrap();
+        let helper = resolver.stable_dir.join("session-metadata.py");
+        assert_eq!(
+            fs::read(&helper).unwrap(),
+            include_bytes!("../../../scripts/session-metadata.py")
+        );
+        fs::write(&helper, "outdated").unwrap();
+        HANDLER.install(&ctx).unwrap();
+        assert_eq!(
+            fs::read(&helper).unwrap(),
+            include_bytes!("../../../scripts/session-metadata.py")
+        );
     }
 
     #[test]

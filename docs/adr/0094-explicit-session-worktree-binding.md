@@ -39,3 +39,20 @@ The [transport design amendment](../superpowers/specs/2026-10-24-sandbox-metadat
 defines the trusted runtime marker/URL pair, strict validation and failure rules.
 This operationalizes cooperative reporting inside the managed sandbox; it does
 not discover directories, change CWD, or enable broader metadata commands.
+
+## Amendment — launch-scoped instruction delivery, 2026-11-05
+
+The owner approved the [launch-scoped instruction design](../superpowers/specs/2026-11-04-launch-scoped-worktree-instructions-design.md) and its implementation plan on 2026-11-05.
+A private run-local selector may target the shared helper text to a qualified
+OpenCode root independently of legacy native identity capture. New launches use
+an OS-random CLI-selected ID; exact resume selects its requested ID; native
+read-back must match with no parent before delivery. Children and peers receive
+none. Only current owned assets and the qualified source-owned private-server
+profile may participate. Asset checks are cooperative compatibility checks, not
+an atomic native-loader or malicious local replacement fence.
+
+The bounded context hook renders only `worktree-instructions`; the agent still
+reports from its own tool context through the shared authenticated transport.
+This adds no persisted identity, attention authority, Git resolver or automatic
+location discovery. Initial activation remains disabled until separately
+authorized qualification of the actual changed reporter/helper and launch scope.

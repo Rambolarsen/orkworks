@@ -12,9 +12,12 @@ pub(super) const CREATED: &str = "2026-01-01T00:00:00Z";
 // Run the real case in a fresh process instead of changing native try-locks or
 // accepting a contention result where this case requires an exact outcome.
 async fn isolated_case(case: &str) -> bool {
-    const CHILD: &str = "ORKWORKS_NATIVE_SQL_TEST_CASE";
     let module = module_path!().split_once("::").unwrap().1;
-    let test = format!("{module}::{case}");
+    isolated_test(format!("{module}::{case}")).await
+}
+
+pub(super) async fn isolated_test(test: String) -> bool {
+    const CHILD: &str = "ORKWORKS_NATIVE_SQL_TEST_CASE";
     let marker = format!("isolated native SQL case: {test}");
     if std::env::var(CHILD).as_deref() == Ok(test.as_str()) {
         println!("{marker}");

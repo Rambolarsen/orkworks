@@ -6213,10 +6213,28 @@ async fn resume_session_workflow(
         provider_state: meta.provider_state.clone(),
     };
 
-    let (runtime, control_rx) = crate::runtime::session_runtime::SessionRuntime::live(
+    let (mut runtime, control_rx) = crate::runtime::session_runtime::SessionRuntime::live(
         crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
         crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
     );
+    if let (Some(native_id), Some(harness)) = (
+        resume_native_session_id.as_ref(),
+        registry.get(&meta.harness),
+    ) {
+        let enabled = harness
+            .integration_launch_enabled(Some(&resume_root))
+            .unwrap_or(false);
+        runtime.worktree_instruction_request =
+            crate::runtime::worktree_instructions::LaunchRequest::new(
+                harness,
+                crate::runtime::worktree_instructions::InstructionIntent::ExactResume(
+                    native_id.clone(),
+                ),
+                enabled,
+                &command,
+                (!meta.model.is_empty()).then_some(meta.model.as_str()),
+            );
+    }
     let output_tx = runtime.output_tx.clone();
 
     let replacement = SessionHandle {
@@ -6791,10 +6809,24 @@ async fn create_session_workflow(
         info.label = label_line.clone();
     }
 
-    let (runtime, control_rx) = crate::runtime::session_runtime::SessionRuntime::live(
+    let (mut runtime, control_rx) = crate::runtime::session_runtime::SessionRuntime::live(
         crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
         crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
     );
+    if let Some(harness) = resolved_launch
+        .session_harness_id
+        .as_deref()
+        .and_then(|id| registry.get(id))
+    {
+        runtime.worktree_instruction_request =
+            crate::runtime::worktree_instructions::LaunchRequest::new(
+                harness,
+                crate::runtime::worktree_instructions::InstructionIntent::NewSession,
+                integration_enabled,
+                &resolved_launch.command,
+                resolved_launch.model.as_deref(),
+            );
+    }
     let run_generation = runtime.run_generation();
     let output_tx = runtime.output_tx.clone();
     // All scans precede admission and hold no workspace lock. Normally the
