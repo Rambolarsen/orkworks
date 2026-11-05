@@ -255,3 +255,5 @@ Dated design records; these do not establish current product behavior.
 - [Original child preparation authorization evidence](2026-11-05-child-preparation-authorization-design.md) — Proposed exact permit intent/snapshots, immutable recovery row and fresh-format commitments; policy accepted, representation pending.
 
 - [Physical paired membership and indexes](2026-11-05-paired-membership-index-design.md) — Proposed derived forward/reverse/direct lookup, full-key uniqueness and metadata-only artifact projection.
+
+- [Fresh pair initialization and original child preparation contract](2026-11-05-fresh-pair-preparation-design.md) — Proposed complete fresh resource seeding and exact original preparation path with explicit producer gates.
