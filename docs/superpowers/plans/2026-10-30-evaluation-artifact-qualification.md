@@ -464,3 +464,21 @@ source cutoffs for other writers, ordinary activation and feasible hard native/
 recovery/resource evidence remain prerequisites. No SQL, code, fixture, native/model
 probe, executable plan, live registration or activation follows from this decision.
 #1176 stays open; #740 stays closed research.
+
+
+## Registry ordering accepted; implementation readiness — 2026-11-05
+
+The owner [accepted the existing RegistryRoot compare-and-close mechanism](../specs/2026-11-05-source-publisher-execution-design.md#scoped-registryroot-acceptance-and-readiness--2026-11-05)
+for further qualification, recorded by ADR0109 and [#1434](https://github.com/Rambolarsen/orkworks/issues/1434).
+Earlier RegistryRoot-pending wording is historical for this exact mechanism.
+No accepted policy/representation/ordering choice needs another approval-only task.
+
+Gate2 remains Investigate. The canonical readiness checklist separates those
+settled decisions from exact fresh initializer/source/control event contracts,
+actual ordinary/source/runtime publisher participation, physical authority and
+feasible hard resource/recovery evidence. The next finite specification work is
+the complete fresh-pair initializer and supported original-attach path, naming
+its real prestate-producing events rather than inventing an admitted fixture.
+No code, SQL/database/schema/migration, fixture, executable/native plan, probe,
+source registration or activation follows. Gates3–4 remain gated; #1176 stays
+open and #740 stays closed research.

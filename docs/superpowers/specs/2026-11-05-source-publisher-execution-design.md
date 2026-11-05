@@ -1,10 +1,10 @@
 ---
 type: Execution Design
 title: Source publisher execution and qualification boundary
-description: Proposed writer participation and exact registry ordering for the source publisher, reusing the accepted joint-preparation direction and preserving physical authority gates.
+description: Accepted RegistryRoot ordering for further qualification, with actual source publishers and physical authority/resource gates still unresolved.
 tags: [taskmaster, hierarchy, sources, sessions, qualification]
 status: draft
-workflow_status: owner-review-pending
+workflow_status: registry-ordering-accepted-implementation-prerequisites-pending
 ---
 
 # Source publisher execution and qualification boundary
@@ -331,3 +331,62 @@ this status update neither accepts it nor requests a new version. After its own
 decision, actual closed initializer/source/control/ordinary event ownership and
 bounded native/resource/recovery evidence still precede a coupled executable
 publisher plan. #1176 remains open, #740 closed research. Tracking: [#1431](https://github.com/Rambolarsen/orkworks/issues/1431).
+
+
+## Scoped RegistryRoot acceptance and readiness — 2026-11-05
+
+After [PR #1432](https://github.com/Rambolarsen/orkworks/pull/1432) recorded the
+separate physical-design acceptance, the owner answered “go ahead” to approval
+of this existing reviewed RegistryRoot mechanism for further qualification.
+The mechanism was reviewed in [PR #1414](https://github.com/Rambolarsen/orkworks/pull/1414),
+head `77b05e9f1b60a753762261dd14fb607d1906bf53`, merged
+`260f84cd07cd3a58919eb2c12c5d797a732e5cbe`; the substantive review artifact
+`57a1f02d7783ae9159335f97bf636f7a6cab8b07` remains recorded above.
+[#1434](https://github.com/Rambolarsen/orkworks/issues/1434) and
+[ADR 0109](../../adr/0109-retained-source-registry-ordering.md) record this scoped
+acceptance without changing the mechanism.
+
+Accept the retained immutable RegistryRoot reference, prebuilt replacement/closure
+plans, compare of root and source-fence identity under the shared short latch,
+atomic registration-versus-begin ordering, terminal close and out-of-latch
+retirement exactly as specified above. A registration after discovery makes the
+prepared begin stale; it cannot leave an undiscovered dependent binding open.
+All insertion/removal replaces the root; retained old roots prevent address reuse
+from impersonating equality. Immediate close uses the retained exact handle/scope
+without waiting for discovery. Earlier owner-pending wording is historical for
+this exact mechanism; do not ask again for this unchanged decision.
+
+The conservative denial and retained-root/copy costs are accepted for further
+qualification, not proven to fit. No new counter, serialized codec, bearer,
+allowance or source-write permit is introduced. Registry ordering proves neither
+durable membership nor current source authority at physical commit. Other source
+commands retain their strict cutoffs; only the separately accepted exact original
+preparation permit has its narrow late-save/no-spawn exception. No implementation,
+executable plan, SQL/database/migration, fixture, source registration, native/model
+probe or activation is authorized by this record.
+
+### Finite implementation-readiness checklist
+
+Inspection base: `93eefefa1dc2856c576bde7663a82dd4400704f4`. The incoming #1427
+change concerns ordinary captured replay cleanup; it changes neither the hierarchy
+production opener nor publication_authority. The checks below are bounded source
+and contract comparisons, not native qualification or an exhaustive absence proof.
+
+| Prerequisite | Current evidence / remaining deliverable |
+| --- | --- |
+| Architecture and ordering choices | Broker/lineage/tombstones, original preparation policy/evidence, physical membership and now RegistryRoot have their scoped decisions. Reuse them; no new approval-only or catalog-count task is needed for unchanged choices |
+| Closed initializer and event commands | The [existing command/event inventory](2026-10-31-child-review-source-preparation-design.md#control-events-not-given-a-publisher-by-these-five-tags) still identifies initializer, parent/runtime/bridge/control and allocation phase representations without complete durable-command owners. Close exact typed input/prestate/effects/disposition and participating writes; a success source codec or generic journal cannot fill these omissions |
+| Actual source/ordinary admission | [publication_authority](../../../crates/orkworksd/src/taskmaster/publication_authority.rs) remains documented dormant in-memory mechanics with test-only binding/readiness factories, not RegistryRoot/source evidence construction. [lifecycle](../../../crates/orkworksd/src/taskmaster/publication_authority/lifecycle.rs) supplies close-only integration. Map each real source/ordinary producer and original runtime proof to the accepted interface; a synthetic binding is no production witness |
+| Storage and full membership | [production Connection::open](../../../crates/orkworksd/src/taskmaster/hierarchy_storage/connection.rs) still refuses the profile before I/O. The accepted 35-family and physical contracts are design obligations, not implemented catalog/index/absence proofs. A fresh initializer and complete source-owned transaction must establish them together |
+| Authority, resources and recovery | Qualify actual lease/source cutoffs for the selected commands, all lower queue/retained-root/command/main-file/journal/scratch bounds and complete paired old/new recovery. RegistryRoot supplies no physical commit interlock or content-bearing recovery budget. Ordinary stop/input stays independent |
+
+The next finite contract work is the closed fresh-pair initializer and supported
+original-attach command/preparation path, with exact owning source/control event
+inputs, prestate, all original-to-final effects and unknown disposition. It must
+identify which earlier required events establish its admitted prestate; no fixture
+may assume those original owners from an empty table or a fabricated proof. This
+is a specification prerequisite, not permission to write the coupled publisher.
+Complete fixtures and an executable/native plan remain behind the named actual
+owner, authority, membership and resource evidence gates. #1176 stays open and
+#740 stays closed research. No new technical review round or native result is
+claimed for recording the unchanged acceptance.
