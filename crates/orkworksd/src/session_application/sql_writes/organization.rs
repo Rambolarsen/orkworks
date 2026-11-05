@@ -210,7 +210,7 @@ impl CapturedOrganization {
         }
         let active = self.state == SessionState::Active;
         let id = self.id.clone();
-        let (reservation, lease) = self
+        let (reservation, lease, stop) = self
             .owner
             .organization_access(
                 self.id.clone(),
@@ -224,14 +224,41 @@ impl CapturedOrganization {
                         .organization
                         .reserve(&id)
                         .ok_or(StoreError::Conflict)?;
-                    if active {
-                        h.ok_or(StoreError::Conflict)?.kill_tx.send_replace(true);
-                    }
-                    Ok::<_, StoreError>((reservation, lease))
+                    let stop = if active {
+                        Some(
+                            crate::runtime::session_runtime::CapturedRuntimeStop::capture(
+                                h.ok_or(StoreError::Conflict)?,
+                            ),
+                        )
+                    } else {
+                        None
+                    };
+                    Ok::<_, StoreError>((reservation, lease, stop))
                 },
             )
             .await?
             .ok_or(StoreError::Conflict)??;
+        let (reservation, lease) = if let Some(stop) = stop {
+            let owner = self.owner.clone();
+            let id = self.id.clone();
+            let memory = self.memory.clone();
+            tokio::task::spawn_blocking(move || {
+                // The exact carrier may wait on its authority latch. Keep this
+                // admitted stop and its resources outside every application guard.
+                stop.close();
+                owner
+                    .organization_current(&id, Some(&memory), true, |_, h, _| {
+                        stop.signal_current(h.ok_or(StoreError::Conflict)?)
+                            .map_err(|_| StoreError::Conflict)
+                    })
+                    .ok_or(StoreError::Conflict)??;
+                Ok::<_, StoreError>((reservation, lease))
+            })
+            .await
+            .map_err(|_| StoreError::Unavailable)??
+        } else {
+            (reservation, lease)
+        };
         let deadline = active.then(|| Instant::now() + wait);
         let (mut sent, received) = oneshot::channel();
         tokio::spawn(async move {

@@ -1048,3 +1048,141 @@ async fn sql_organization_does_not_depend_on_unrelated_prompt_transition() {
     assert!(result.is_ok_and(|receipt| matches!(receipt.outcome, Outcome::Committed)));
     store.close().await.unwrap();
 }
+
+#[tokio::test]
+async fn sql_archive_revokes_captured_evaluation_before_its_stop_signal() {
+    let _serial = crate::runtime::peon_runtime::diagnostic_test_guard();
+    let (_dir, state, store, writes, mut killed, _commands) = fixture().await;
+    let authority = crate::taskmaster::publication_lifecycle::testing::Fixture::new();
+    state
+        .sessions
+        .lock()
+        .unwrap()
+        .get_mut(ID)
+        .unwrap()
+        .runtime
+        .evaluation_revocation = Some(authority.runtime.clone());
+    let view = writes.capture_organization(ID.into()).await.unwrap();
+    let action = tokio::spawn(view.apply_with_timeout(SessionAction::Archive, Duration::ZERO));
+    tokio::time::timeout(Duration::from_secs(3), killed.changed())
+        .await
+        .unwrap()
+        .unwrap();
+    let denied = !authority.can_respond();
+    assert!(matches!(action.await.unwrap(), Err(StoreError::Expired)));
+    assert!(
+        denied,
+        "Archive signalled stop before captured evaluation authority was closed"
+    );
+    store.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn sql_archive_blocked_revocation_keeps_guards_free_and_rejects_replacement_signal() {
+    let _serial = crate::runtime::peon_runtime::diagnostic_test_guard();
+    let (_dir, state, store, writes, killed, _commands) = fixture().await;
+    let old = crate::taskmaster::publication_lifecycle::testing::Fixture::new();
+    let next = crate::taskmaster::publication_lifecycle::testing::Fixture::new();
+    state
+        .sessions
+        .lock()
+        .unwrap()
+        .get_mut(ID)
+        .unwrap()
+        .runtime
+        .evaluation_revocation = Some(old.runtime.clone());
+    let view = writes.capture_organization(ID.into()).await.unwrap();
+    let reached = old.observe_close();
+    let latch = old.hold_latch();
+    let action = tokio::spawn(view.apply_with_timeout(SessionAction::Archive, Duration::ZERO));
+    tokio::task::spawn_blocking(move || reached.recv_timeout(Duration::from_secs(3)))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(state.projection_lock.try_lock().is_ok());
+    assert!(state.workspace.try_lock().is_ok());
+    assert!(state.sessions.try_lock().is_ok());
+    assert!(state.session_pids.try_lock().is_ok());
+    assert!(!*killed.borrow());
+    assert!(organization(&state).pending(ID));
+    assert!(store.runtime_lane(ID).unwrap().try_lock_owned().is_ok());
+    let (kill, new_killed) = tokio::sync::watch::channel(false);
+    {
+        let mut sessions = state.sessions.lock().unwrap();
+        let h = sessions.get_mut(ID).unwrap();
+        h.runtime.control_tx = tokio::sync::mpsc::channel(2).0;
+        h.kill_tx = kill;
+        h.runtime.evaluation_revocation = Some(next.runtime.clone());
+    }
+    drop(latch);
+    assert!(matches!(action.await.unwrap(), Err(StoreError::Conflict)));
+    assert!(!old.can_respond());
+    assert!(next.can_respond());
+    assert!(!*killed.borrow());
+    assert!(!*new_killed.borrow());
+    assert_eq!(
+        store
+            .organization_state(ID.into())
+            .await
+            .unwrap()
+            .unwrap()
+            .organization_revision,
+        "0"
+    );
+    assert!(!organization(&state).pending(ID));
+    store.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn sql_archive_cancel_during_revocation_retains_stop_but_never_archives() {
+    let _serial = crate::runtime::peon_runtime::diagnostic_test_guard();
+    let (_dir, state, store, writes, mut killed, _commands) = fixture().await;
+    let authority = crate::taskmaster::publication_lifecycle::testing::Fixture::new();
+    state
+        .sessions
+        .lock()
+        .unwrap()
+        .get_mut(ID)
+        .unwrap()
+        .runtime
+        .evaluation_revocation = Some(authority.runtime.clone());
+    let view = writes.capture_organization(ID.into()).await.unwrap();
+    let original = organization(&state);
+    let reached = authority.observe_close();
+    let latch = authority.hold_latch();
+    let action = tokio::spawn(view.apply(SessionAction::Archive));
+    tokio::task::spawn_blocking(move || reached.recv_timeout(Duration::from_secs(3)))
+        .await
+        .unwrap()
+        .unwrap();
+    action.abort();
+    assert!(action.await.unwrap_err().is_cancelled());
+    assert!(original.pending(ID));
+    assert!(!*killed.borrow());
+    drop(latch);
+    tokio::time::timeout(Duration::from_secs(3), killed.changed())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!authority.can_respond());
+    pending(&original, false).await;
+    assert_eq!(
+        store
+            .organization_state(ID.into())
+            .await
+            .unwrap()
+            .unwrap()
+            .state,
+        "active"
+    );
+    assert_eq!(
+        store
+            .organization_state(ID.into())
+            .await
+            .unwrap()
+            .unwrap()
+            .organization_revision,
+        "0"
+    );
+    store.close().await.unwrap();
+}

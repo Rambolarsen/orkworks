@@ -1070,7 +1070,13 @@ or a production projection registry.
 
 Consuming the view permits Archive from Active/Closed and Restore from Archived.
 A fresh SQL preflight and original-memory check precede the action reservation
-and any stop signal. Active Archive signals only its captured runtime, waits up to
+and any stop signal. Active Archive captures the existing `CapturedRuntimeStop`,
+closes its exact optional evaluation carrier outside all application guards, then
+rechecks original workspace/runtime ownership before signaling its captured sender.
+The blocking close job retains the reservation and lease even if the request is
+cancelled; such cancellation never proceeds to a SQL organization write. A blocked
+cutoff cannot signal a replacement. No carrier factory/attachment/activation is
+introduced; production carriers remain None. Active Archive then waits up to
 the existing 15-second close budget at 25-ms intervals, and leaves the finalizer's
 SQL lane free. Persisted ending alone is insufficient: the original runtime must
 also have no PID, no receiver, no resume and no terminal attachment, with dead/ended

@@ -37,7 +37,12 @@ resume/spawn selection, migration and activation remain separate gates.
 - Consuming `CapturedOrganization::apply` permits Archive from Active/Closed and
   Restore from Archived. Re-read current SQL identity/organization revision and
   recheck original memory before acquiring the existing organization reservation
-  or sending the original runtime kill signal. Unsupported actions reject.
+  or capturing its existing `CapturedRuntimeStop`. Close its exact optional
+  evaluation carrier outside all application guards, retain the reservation/lease
+  through that blocking job and recheck original ownership before signaling the
+  captured sender. Preserve the already approved dormant close-only facade;
+  production carriers remain None and no attachment/authority factory is added.
+  Unsupported actions reject.
 - Active Archive waits at most the existing 15 seconds, polling every 25 ms,
   for the exact original runtime to satisfy `runtime_closed`, including no PID,
   receiver closure, ended/dead, no resume and no terminal attachment. Never hold

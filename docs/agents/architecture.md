@@ -1520,6 +1520,11 @@ The source-only SQL organization owner composes the existing action reservation,
 physical `runtime_closed` predicate and bounded worker execution grant. An exact
 transactional organization read and immutable typed view preserve original
 workspace/reader/creation/runtime/control authority before any stop signal. Active
+Archive retains the ordinary captured-stop facade: close the exact optional
+evaluation carrier off all application guards, then revalidate the original owner
+before signaling its captured sender. The retained blocking close job keeps the
+action reservation/lease through cancellation; it cannot signal a replacement or
+proceed to SQL after its caller disappears. All production carriers remain None.
 Archive leaves the SQL lane free while the exact runtime finalizes and releases
 PID/control/attachment/resume ownership. Queued SQL rechecks closure and authority;
 its existing transaction checks canonical finalization and organization revision.
