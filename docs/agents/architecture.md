@@ -1592,3 +1592,31 @@ effects and retryable tombstone. This stage always preserves the SQL row/job and
 other evidence/image/settings/recommendation owners. No production selection or
 background recovery scheduler is enabled. See the
 [stage evidence](../validation/session-store-adapter.md#captured-sql-replay-cleanup).
+
+## Captured SQL workflow evidence cleanup
+
+The private `CapturedDeletion::remove_workflow_evidence` stage shares replay
+cleanup's bounded retained runner and captures the original shared workflow store
+without reopening it. Admission rechecks its exact instance as well as the
+existing workspace/reader/lease/runtime and physical-close fences. The admitted
+job retains the session lane, organization reservation, lease and file capacity
+while waiting for the workflow mutex and doing file/SQL work outside application
+guards. Caller loss retains completion; a replaced evidence owner yields a
+detached receipt without publishing current-owner success.
+
+The workflow owner's narrow durable deletion variant revokes every captured
+writer for that session under the existing mutex before attempting unlink. On
+Unix it retains no-follow workspace/workflow directory handles from shared-store
+opening, so renamed/replaced paths cannot redirect deletion. Anchor-open errors
+disable only this durable path, preserving legacy opening behavior. It removes only the
+validated exact NDJSON basename, and synchronizes both directories before
+forgetting cached observations, duplicate keys and diagnostics. The sequence and
+other sessions remain unchanged. Retries repeat synchronization after absent
+files; unsupported platforms fail before effects. Legacy synchronous deletion
+keeps its prior behavior through shared revocation/cache helpers.
+
+Only file success permits `progress | 0x02`, with `complete=false`. File and SQL
+failures remain distinct and leave the tombstone/job pending. This source-only
+stage adds no production SQL routing or live migration; remaining external
+owners and final deletion completion are subsequent prerequisites. See the
+[stage validation](../validation/session-store-adapter.md#captured-sql-workflow-evidence-cleanup).

@@ -397,6 +397,8 @@ static NEXT_STORE_INSTANCE: AtomicU64 = AtomicU64::new(1);
 pub(crate) struct WorkflowObservationStore {
     instance_id: u64,
     dir: Arc<PathBuf>,
+    #[cfg(unix)]
+    cleanup_anchor: Arc<std::io::Result<deletion::Anchor>>,
     inner: Arc<Mutex<StoreInner>>,
     evaluation_generation: Arc<AtomicU64>,
     #[cfg(test)]
@@ -410,6 +412,8 @@ impl WorkflowObservationStore {
     pub(crate) fn open(root: PathBuf) -> Result<Self, StoreError> {
         let dir = root.join("workflow-observations");
         fs::create_dir_all(&dir)?;
+        #[cfg(unix)]
+        let cleanup_anchor = Arc::new(deletion::Anchor::open(&root));
 
         let mut session_cache: HashMap<String, SessionCache> = HashMap::new();
         let mut diagnostics: HashMap<String, Vec<ObservationDiagnostic>> = HashMap::new();
@@ -511,6 +515,8 @@ impl WorkflowObservationStore {
         Ok(Self {
             instance_id: NEXT_STORE_INSTANCE.fetch_add(1, Ordering::Relaxed),
             dir: Arc::new(dir),
+            #[cfg(unix)]
+            cleanup_anchor,
             inner: Arc::new(Mutex::new(StoreInner {
                 permits: HashMap::new(),
                 #[cfg(test)]
@@ -710,25 +716,14 @@ impl WorkflowObservationStore {
 
     pub(crate) fn delete_session_observations(&self, session_id: &str) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
-        inner.permits.retain(|(id, _), permit| {
-            if id == session_id {
-                if let Some(permit) = permit.upgrade() {
-                    permit.store(false, Ordering::SeqCst);
-                }
-                false
-            } else {
-                permit.strong_count() > 0
-            }
-        });
+        revoke_session(&mut inner, session_id);
         let path = self.segment_path(session_id);
         match fs::remove_file(&path) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(StoreError::Io(e)),
         }
-        inner.session_cache.remove(session_id);
-        inner.idempotency.retain(|(sid, _), _| sid != session_id);
-        inner.diagnostics.remove(session_id);
+        forget_session(&mut inner, session_id);
         Ok(())
     }
 
@@ -3358,4 +3353,25 @@ impl ObservationCandidate {
     pub(crate) fn validate_peon(&self) -> Result<(), RecordError> {
         validate_candidate(ObservationOrigin::Peon, self).map(|_| ())
     }
+}
+
+mod deletion;
+
+fn revoke_session(inner: &mut StoreInner, session_id: &str) {
+    inner.permits.retain(|(id, _), permit| {
+        if id == session_id {
+            if let Some(permit) = permit.upgrade() {
+                permit.store(false, Ordering::SeqCst);
+            }
+            false
+        } else {
+            permit.strong_count() > 0
+        }
+    });
+}
+
+fn forget_session(inner: &mut StoreInner, session_id: &str) {
+    inner.session_cache.remove(session_id);
+    inner.idempotency.retain(|(sid, _), _| sid != session_id);
+    inner.diagnostics.remove(session_id);
 }

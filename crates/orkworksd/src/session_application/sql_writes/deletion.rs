@@ -1,18 +1,57 @@
-//! One captured replay stage. A tombstone survives all file/progress failures.
+//! Captured external cleanup stages retain a tombstone on every partial failure.
 use super::*;
 use crate::session_application::sql_writes::file_budget;
 use std::sync::atomic::{AtomicU8, Ordering};
 
-const REPLAY_REMOVED: u8 = 0x01;
+#[derive(Clone, Copy)]
+enum Stage {
+    Replay,
+    Workflow,
+}
+impl Stage {
+    fn bit(self) -> u8 {
+        match self {
+            Self::Replay => 0x01,
+            Self::Workflow => 0x02,
+        }
+    }
+    fn name(self) -> &'static str {
+        match self {
+            Self::Replay => "replay",
+            Self::Workflow => "workflow",
+        }
+    }
+    fn current(
+        self,
+        captured: &crate::workflow_observations::WorkflowObservationStore,
+        ws: &WorkspaceState,
+    ) -> bool {
+        matches!(self, Self::Replay)
+            || captured.instance_id() == ws.workflow_observations.instance_id()
+    }
+}
+enum Files {
+    Replay(crate::metadata::replay_cleanup::ReplayCleanup),
+    Workflow(crate::workflow_observations::WorkflowObservationStore),
+}
+impl Files {
+    fn remove(self, id: &str) -> std::io::Result<()> {
+        match self {
+            Self::Replay(files) => files.remove(),
+            Self::Workflow(files) => files.delete_session_observations_durable(id),
+        }
+    }
+}
 pub(crate) struct CapturedDeletion {
     owner: Arc<SessionWrites>,
     id: String,
     created: String,
     memory: Arc<Memory>,
+    workflow: crate::workflow_observations::WorkflowObservationStore,
 }
 #[derive(Debug)]
 #[must_use]
-pub(crate) struct ReplayCleanupResult {
+pub(crate) struct DeletionCleanupResult {
     pub(crate) files: Result<(), std::io::Error>,
     pub(crate) progress: Option<Result<u8, StoreError>>,
     pub(crate) detached: bool,
@@ -50,13 +89,15 @@ impl SessionWrites {
         id: String,
         created: String,
     ) -> Result<CapturedDeletion, StoreError> {
-        let memory = Arc::new(
-            self.organization_access(id.clone(), None, true, None, |ws, h, pid| {
-                Memory::capture(ws, h.as_deref(), pid)
+        let (memory, workflow) = self
+            .organization_access(id.clone(), None, true, None, |ws, h, pid| {
+                (
+                    Arc::new(Memory::capture(ws, h.as_deref(), pid)),
+                    ws.workflow_observations.clone(),
+                )
             })
             .await?
-            .ok_or(StoreError::Conflict)?,
-        );
+            .ok_or(StoreError::Conflict)?;
         if !memory.closed
             || memory
                 .runtime
@@ -77,11 +118,20 @@ impl SessionWrites {
             id,
             created,
             memory,
+            workflow,
         })
     }
 }
 impl CapturedDeletion {
-    pub(crate) async fn remove_replay(self) -> Result<ReplayCleanupResult, StoreError> {
+    pub(crate) async fn remove_replay(self) -> Result<DeletionCleanupResult, StoreError> {
+        self.remove(Stage::Replay).await
+    }
+    pub(crate) async fn remove_workflow_evidence(
+        self,
+    ) -> Result<DeletionCleanupResult, StoreError> {
+        self.remove(Stage::Workflow).await
+    }
+    async fn remove(self, stage: Stage) -> Result<DeletionCleanupResult, StoreError> {
         let capacity =
             file_budget::reserve(file_budget::intent_bytes(&(&self.id, &self.created))?)?;
         let claim = Arc::new(Claim {
@@ -114,7 +164,9 @@ impl CapturedDeletion {
                 let (_reservation, _lease, files) = self
                     .owner
                     .organization_current(&self.id, Some(&self.memory), true, |ws, h, pid| {
-                        if !session_actions::runtime_closed(h.as_deref(), pid) {
+                        if !session_actions::runtime_closed(h.as_deref(), pid)
+                            || !stage.current(&self.workflow, ws)
+                        {
                             return Err(StoreError::Conflict);
                         }
                         let lease = ws.lease.clone().ok_or(StoreError::Conflict)?;
@@ -123,18 +175,23 @@ impl CapturedDeletion {
                             .organization
                             .reserve(&self.id)
                             .ok_or(StoreError::Conflict)?;
-                        let files = ws.metadata.capture_replay_cleanup(&self.id)?;
+                        let files = match stage {
+                            Stage::Replay => {
+                                Files::Replay(ws.metadata.capture_replay_cleanup(&self.id)?)
+                            }
+                            Stage::Workflow => Files::Workflow(self.workflow.clone()),
+                        };
                         job_claim.admit()?;
                         Ok::<_, StoreError>((reservation, lease, files))
                     })
                     .ok_or(StoreError::Conflict)??;
                 #[cfg(test)]
                 enter_replay_gate(&self.owner.replay_admitted);
-                let files = files.remove();
+                let files = files.remove(&self.id);
                 #[cfg(test)]
                 enter_replay_gate(&self.owner.replay_removed);
                 let progress = if files.is_ok() {
-                    let next = record.job.progress | REPLAY_REMOVED;
+                    let next = record.job.progress | stage.bit();
                     Some(
                         handle
                             .block_on(self.owner.store.deletion_progress(
@@ -152,12 +209,15 @@ impl CapturedDeletion {
                     &self.id,
                     Some(&self.memory),
                     true,
-                    |_, h, pid| session_actions::runtime_closed(h.as_deref(), pid),
+                    |ws, h, pid| {
+                        session_actions::runtime_closed(h.as_deref(), pid)
+                            && stage.current(&self.workflow, ws)
+                    },
                 ) != Some(true);
                 if !detached {
                     self.owner.state.updates.sessions_changed();
                 }
-                Ok(ReplayCleanupResult {
+                Ok(DeletionCleanupResult {
                     files,
                     progress,
                     detached,
@@ -165,14 +225,14 @@ impl CapturedDeletion {
             })();
             if let Ok(receipt) = &result {
                 if let Err(error) = &receipt.files {
-                    tracing::warn!(session_id=%self.id,created=%self.created,%error,"replay cleanup incomplete; job remains pending");
+                    tracing::warn!(session_id=%self.id,created=%self.created, cleanup_stage=stage.name(),%error,"external cleanup incomplete; job remains pending");
                 }
                 if let Some(Err(error)) = &receipt.progress {
-                    tracing::warn!(session_id=%self.id,created=%self.created,%error,"replay removed but cleanup progress not recorded");
+                    tracing::warn!(session_id=%self.id,created=%self.created, cleanup_stage=stage.name(),%error,"external files removed but cleanup progress not recorded");
                 }
             }
             if sent.send(result).is_err() {
-                tracing::info!(session_id=%self.id,created=%self.created,"retained replay cleanup finished without caller; pending job remains");
+                tracing::info!(session_id=%self.id,created=%self.created, cleanup_stage=stage.name(),"retained external cleanup finished without caller; pending job remains");
             }
         });
         tokio::select! { biased;

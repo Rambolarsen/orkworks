@@ -300,3 +300,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Dormant evaluation lifecycle close plumbing](2026-11-04-evaluation-lifecycle-close-plumbing.md) — Conditional next-unit plan for exact optional revocation carriers and ordinary lifecycle close routing; owner acceptance pending.
 
 - [Launch-scoped worktree instruction delivery](2026-11-04-launch-scoped-worktree-instructions.md) — Approved scope preparation and bounded reporter delivery; actual-source native qualification passed and the qualified source profile is enabled.
+
+- [Captured SQL workflow evidence cleanup](2026-11-05-sql-evidence-cleanup.md) — Original-owner revocation, durable segment removal and pending-job progress.
