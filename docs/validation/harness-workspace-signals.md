@@ -318,8 +318,16 @@ not a retained raw output from the failed probe.
 
 The corrective regression now admits the exact pinned plain/SGR banner while
 continuing to refuse prereleases, build suffixes, other versions, unrelated
-command names and additional log text. The corrected fixture retains at most4KiB of derived preparation checkpoints
-(platform, executable/assets, version availability/match/counts and scope readiness),
-without raw native output or credentials. Its strict offline parser rejects
-unknown fields, incorrect types, counts and ordering; early refusal is now distinguishable. Actual native qualification and activation
-remain pending a corrected, reviewed fixture and a new bounded exception.
+command names and additional log text.
+
+The corrected fixture retains at most 4 KiB of derived checkpoints: preflight
+qualification booleans, version availability/match/counts and a final scope
+readiness boolean. Its strict offline parser rejects unknown fields, incorrect
+types, counts and ordering. No raw native output or credentials are retained.
+
+These facts distinguish preparation phases, not every rejection reason. A final
+`scopePrepared: false` does not separate post-probe asset and executable drift;
+an error return can stop before the final record. The last checkpoint is progress
+evidence, not a unique diagnosis or a successful native qualification.
+Actual native qualification and activation remain pending a corrected, reviewed
+fixture and a new bounded exception.
