@@ -243,7 +243,7 @@ Dated design records; these do not establish current product behavior.
 
 - [Initial evaluation publication authority owner](2026-11-04-evaluation-publication-authority-design.md) — Proposed private claim/revoke owner, concrete lifecycle seams and bounded non-I/O first unit for scoped review.
 
-- [Launch-scoped worktree instructions](2026-11-04-launch-scoped-worktree-instructions-design.md) — Accepted run-local root selector for the shared helper context; source prepared, native activation gated.
+- [Launch-scoped worktree instructions](2026-11-04-launch-scoped-worktree-instructions-design.md) — Accepted run-local root selector for the shared helper context; actual-source qualification passed for OpenCode 2.2.5/macOS arm64 and that source profile is enabled.
 
 - [Evaluation source-to-runtime admission](2026-11-05-evaluation-source-admission-design.md) — Proposed original-source/runtime admission, source-writer freshness and exact registration interface; no activation.
 

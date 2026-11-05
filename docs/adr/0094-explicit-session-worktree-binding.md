@@ -54,5 +54,8 @@ an atomic native-loader or malicious local replacement fence.
 The bounded context hook renders only `worktree-instructions`; the agent still
 reports from its own tool context through the shared authenticated transport.
 This adds no persisted identity, attention authority, Git resolver or automatic
-location discovery. Initial activation remains disabled until separately
-authorized qualification of the actual changed reporter/helper and launch scope.
+location discovery. Separately owner-authorized qualification of the actual
+changed reporter/helper and prepared launch scope passed on 2026-11-05 for
+OpenCode 2.2.5/macOS arm64; source preparation is enabled for that profile.
+The [evidence record](../validation/harness-workspace-signals.md#actual-source-native-qualification-2026-11-05)
+does not establish installer deployment or agent compliance with the delivered text.

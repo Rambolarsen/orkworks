@@ -4,7 +4,7 @@ title: Launch-scoped worktree instruction delivery
 description: Gated delivery of the shared worktree helper context to a launch-selected OpenCode root.
 tags: [sessions, harnesses, git, worktrees, plan]
 status: stable
-workflow_status: implementing
+workflow_status: completed
 ---
 
 # Launch-scoped worktree instruction delivery
@@ -12,8 +12,8 @@ workflow_status: implementing
 Outcome: the eligible owning OpenCode root receives the shared helper context;
 children/peers and uncertain profiles receive none. Tracking: [#1347](https://github.com/Rambolarsen/orkworks/issues/1347).
 Contract: [approved design](../specs/2026-11-04-launch-scoped-worktree-instructions-design.md).
-This is instruction delivery, not a native identity/attention fix. The owner approved the concrete protocol on 2026-11-05. Native activation
-qualification remains separately gated.
+This is instruction delivery, not a native identity/attention fix. The owner approved the concrete protocol on 2026-11-05. The separately authorized actual-source native qualification passed on 2026-11-05;
+source preparation is enabled only for the qualified profile.
 
 ## Boundaries and ownership
 
@@ -65,11 +65,11 @@ command-template qualification; the shared runtime owns generation/lifetime.
 - [x] Verify normal owned install/probe/reconcile/uninstall and helper asset
   drift behavior, without changing foreign files or running-session env. Verify
   API-only/general metadata and other harness instruction channels are unchanged.
-- [ ] Run scoped suites and `bash scripts/verify-repo.sh`; complete current-code
+- [x] Run scoped suites and `bash scripts/verify-repo.sh`; complete current-code
   `/code-review low`. Prepare one concrete actual-source zero-inference native
   fixture, obtain its separate bounded run exception, and record root/child/peer
   facts and zero transport. Activation stays disabled until this gate passes.
-- [ ] Record qualified platform/version and source-vs-installed limits. Follow
+- [x] Record qualified platform/version and source-vs-installed limits. Follow
   the branch/PR/comment/check workflow through terminal state; use guarded cleanup.
 
 ## Review focus and failure treatment
@@ -101,3 +101,18 @@ reversibility 2 (disable preparation; ordinary native IDs remain valid),
 uncertainty 3 (actual changed reporter qualification still required). Total 11/25
 is a review aid, not implementation or activation approval. Native Windows and
 other versions remain off. Review revisions only for material contract changes.
+
+## Qualification outcome, 2026-11-05
+
+The corrected actual-source fixture passed once under a fresh bounded owner
+exception: prepared selector, exact root/child/peer identity and parent checks,
+root-only serialized helper text, zero provider transport, and zero remaining
+native fixture directories. See the [canonical evidence](../../validation/harness-workspace-signals.md#actual-source-native-qualification-2026-11-05).
+The temporary blanket preparation gate is removed; all profile, version, platform,
+asset and context checks remain. Published installers and existing environments
+are not updated by this source change. The single-run exception is consumed.
+
+Full activation verification passed: 2,980 Rust unit tests / 18 ignored plus
+integration binaries, 31 reporter tests, 1,691 desktop tests / 3 skipped, 1,202
+documentation tests and all builds. Manual low review approved the unchanged
+nine-line gate/assertion removal after stale index summaries were corrected.

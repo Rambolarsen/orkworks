@@ -331,3 +331,51 @@ an error return can stop before the final record. The last checkpoint is progres
 evidence, not a unique diagnosis or a successful native qualification.
 Actual native qualification and activation remain pending a corrected, reviewed
 fixture and a new bounded exception.
+
+
+## Actual-source native qualification, 2026-11-05
+
+After the version-banner correction in [#1409](https://github.com/Rambolarsen/orkworks/pull/1409),
+the owner separately approved one corrected fixture run, bounded to 90 seconds
+including cleanup, one private interactive CLI start and three fake prompts.
+Exactly one run completed successfully with OpenCode 2.2.5 on macOS arm64.
+The frozen Rust exporter was compiled at `d76159d41271132d39fdd66b9e1972dda6b95e6c`;
+its preparation module and actual reporter/helper bytes match the merged
+`dbf9bd7ecd29bf85cacfa52e869632b9ff087dd5` source.
+
+The bounded derived preparation facts reported all five preflight checks true
+(platform, installed tool, native executable, current owned reporter and helper),
+a returned qualified version (16 bytes, one line), and a prepared scope. The CLI
+used the actual exported argv/env; no fixture text was inserted by the guard.
+Six retained context/serialization records established:
+
+- Selected root: exact native identity, expected absent parent and task B location;
+  its primary request targeted the owned endpoint and serialized the helper text.
+- Child: exact native identity, expected parent and other C location; its primary
+  owned-target request omitted the helper text.
+- Parentless peer: exact native identity, expected absent parent and other C
+  location; its primary owned-target request omitted the helper text.
+
+No provider transport requests reached the owned rejecting endpoint. Eight legacy
+report requests were discarded by the fixture receiver; this does not qualify
+legacy identity or attention behavior. The guard supplied title generation,
+removed outgoing tools, refused retries/WebSockets and stopped before provider
+transport. No real inference, successful model turn, model comprehension or actual
+agent worktree-reporting compliance is claimed.
+
+The fixture stripped inherited credentials/capabilities and used private XDG/Git
+stores, dummy credentials and an in-memory private-server password. Raw exporter
+stderr, PTY and model bodies were discarded. Cleanup inspection found zero
+remaining native fixture directories. This single-run exception is consumed;
+no further native launch or retry is authorized by it.
+
+This passes the approved instruction-channel activation gate. Source preparation
+is enabled only for source-owned new/exact OpenCode 2.2.5/macOS arm64 commands
+with matching owned assets. Exact-resume argv and root-parent refusal are covered
+by source tests; this native run exercised new launch, not a native exact resume.
+Other versions/platforms, custom/latest profiles and native TUI root switches
+remain unqualified. Normal rebuild and integration reconciliation are needed to
+install the changed source; existing session environments receive no selector
+retroactively. The shared helper, authenticated explicit worktree report and Git
+resolver remain generic; no automatic task-directory inference or native
+identity/attention repair follows from this result.

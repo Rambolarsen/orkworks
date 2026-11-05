@@ -9,7 +9,7 @@ workflow_status: approved
 
 # Launch-scoped worktree instructions
 
-Owner-approved on 2026-11-05; source implementation prepared; native activation qualification pending. Tracking: [#1347](https://github.com/Rambolarsen/orkworks/issues/1347).
+Owner-approved on 2026-11-05; actual-source native qualification passed and the qualified source profile is enabled. Tracking: [#1347](https://github.com/Rambolarsen/orkworks/issues/1347).
 This narrows the [approved generic direction](2026-11-03-harness-workspace-signals-design.md)
 using the [native evidence](../../validation/harness-workspace-signals.md).
 The [implementation plan](../plans/2026-11-04-launch-scoped-worktree-instructions.md)
