@@ -143,3 +143,5 @@ Decision records and their original rationale and consequences.
 - [Original child preparation permit](0107-original-child-preparation-permit.md) — Accepted exact late-saving/no-spawn policy for further design; representation and implementation gated.
 
 - [Paired membership indexes](0108-paired-membership-indexes.md) — Accepted source-derived physical membership, artifact metadata and sparse recovery direction for further qualification.
+
+- [Retained source registry ordering](0109-retained-source-registry-ordering.md) — Accepted immutable RegistryRoot compare-and-close ordering for further qualification; actual publishers/native evidence remain gated.
