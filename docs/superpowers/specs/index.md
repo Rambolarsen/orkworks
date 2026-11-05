@@ -252,4 +252,6 @@ Dated design records; these do not establish current product behavior.
 
 - [Source publisher execution and qualification boundary](2026-11-05-source-publisher-execution-design.md) — Proposed writer integration and retained-registry ordering, with explicit linked-profile and native-cutoff gates.
 
-- [Original child preparation authorization evidence](2026-11-05-child-preparation-authorization-design.md) — Proposed exact permit intent/snapshots, immutable recovery row and fresh-format commitments; policy accepted, representation pending.
+- [Original child preparation authorization evidence](2026-11-05-child-preparation-authorization-design.md) — Accepted representation for further qualification; physical membership/index contract pending.
+
+- [Format-6 physical paired membership and index contract](2026-11-05-paired-membership-index-design.md) — Proposed exact lookup layout, full-key uniqueness, bounded absence and sparse direct-origin recovery at one H/G; scoped review only.
