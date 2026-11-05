@@ -269,3 +269,26 @@ The proposed [instruction-only scope design](../superpowers/specs/2026-11-04-lau
 uses independent launch intent for context delivery while preserving those
 existing identity/attention contracts. It requires owner review before runtime
 implementation. No source adapter or automatic directory authority is enabled.
+
+## Launch-scoped source preparation, 2026-11-05
+
+The owner approved the [instruction-only design](../superpowers/specs/2026-11-04-launch-scoped-worktree-instructions-design.md)
+and implementation plan. Source now carries explicit new/exact intent through
+one runtime generation, qualifies source-owned commands and current confined
+assets, and applies the CLI ID and selector env together before spawn. Inherited
+selector names are filtered for every harness. Normal OpenCode reconciliation
+also installs the shared helper; foreign plugin ownership remains a refusal.
+
+The real reporter has an independent bounded context hook. Its subprocess suite
+verifies actual narrow helper output for the selected root, child/peer exclusion,
+read-back mismatch/parent refusal, capture-order independence, cleanup, one
+unresolved lookup, helper drift/output/timeout failures and hook-registration
+failure without disabling legacy reporting. Private Rust tests cover argv/env
+coherence, exact resume, explicit models, profile/version/platform refusal, asset
+ownership/drift and randomness failure.
+
+Production preparation remains disabled pending actual-source native
+qualification. An ignored diagnostic can export the actual prepared argv/env
+for a disposable native fixture; normal tests do not select it. No live run of
+this changed reporter/helper is claimed here. Existing sessions and published
+installations retain the previously recorded limits.

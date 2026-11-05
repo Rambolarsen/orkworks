@@ -1260,7 +1260,10 @@ fn metadata_protocol_marker_cannot_be_inherited_from_the_parent() {
 }
 
 pub(crate) fn should_forward_terminal_env(key: &str) -> bool {
-    key != "NODE_OPTIONS"
+    !key.eq_ignore_ascii_case("ORKWORKS_WORKTREE_INSTRUCTION_PROTOCOL")
+        && !key.eq_ignore_ascii_case("ORKWORKS_WORKTREE_INSTRUCTION_ROOT_ID")
+        && !key.eq_ignore_ascii_case("ORKWORKS_WORKTREE_INSTRUCTION_HELPER")
+        && key != "NODE_OPTIONS"
         && key != "VSCODE_INSPECTOR_OPTIONS"
         && !key.starts_with("VSCODE_")
         && !key.starts_with("ELECTRON_")
@@ -6064,3 +6067,16 @@ mod evaluation_close_tests {
 }
 
 pub(crate) mod final_scan;
+
+#[cfg(test)]
+#[test]
+fn worktree_instruction_markers_cannot_be_inherited() {
+    for name in [
+        "ORKWORKS_WORKTREE_INSTRUCTION_PROTOCOL",
+        "ORKWORKS_WORKTREE_INSTRUCTION_ROOT_ID",
+        "ORKWORKS_WORKTREE_INSTRUCTION_HELPER",
+    ] {
+        assert!(!should_forward_terminal_env(name));
+        assert!(!should_forward_terminal_env(&name.to_ascii_lowercase()));
+    }
+}

@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createServer } from 'node:http';
 import { after, test } from 'node:test';
 
@@ -456,4 +458,144 @@ test('identity rejection never publishes attention or retries another native ID'
     await push({ type: 'session.step.started', data: { sessionID: 'ses_foreign' } });
     assert.equal(harnessPosts(posts).length, 1);
   }, [400]);
+});
+
+const scopeKeys = ['ORKWORKS_WORKTREE_INSTRUCTION_PROTOCOL', 'ORKWORKS_WORKTREE_INSTRUCTION_ROOT_ID',
+  'ORKWORKS_WORKTREE_INSTRUCTION_HELPER'];
+const helperSource = await readFile(new URL('./session-metadata.py', import.meta.url));
+async function withContext(run, overrides = {}, options = {}) {
+  const directory = await mkdtemp(join(tmpdir(), 'orkworks-context-test-'));
+  const helper = join(directory, 'session-metadata.py');
+  await writeFile(helper, helperSource);
+  const keys = ['PATH', ...scopeKeys, 'ORKWORKS_PORT', 'ORKWORKS_SESSION_ID', 'ORKWORKS_REPORT_TOKEN'];
+  const old = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+  Object.assign(process.env, {ORKWORKS_WORKTREE_INSTRUCTION_PROTOCOL: '1',
+    ORKWORKS_WORKTREE_INSTRUCTION_ROOT_ID: 'ses_root', ORKWORKS_WORKTREE_INSTRUCTION_HELPER: helper,
+    ORKWORKS_PORT: '1', ORKWORKS_SESSION_ID: 'fixture-session', ORKWORKS_REPORT_TOKEN: 'fixture-only'});
+  Object.assign(process.env, overrides);
+  const subscription = makeSubscription();
+  let hook;
+  let calls = 0;
+  let get = async ({sessionID}) => ({id:sessionID});
+  const cleanup = await reporter.setup({event:{subscribe:({signal}) => {
+    signal.addEventListener('abort', subscription.abort); return subscription.generator();
+  }}, session:{hook:async (name, callback) => {if(options.rejectHook) throw new Error('hook unavailable'); if(name === 'context') hook = callback;},
+    get: args => {calls++; return get(args);}}});
+  const event = (sessionID = 'ses_root') => ({sessionID, system:[], tools:{keep:true}, options:{keep:true}});
+  try {
+    await run({event, context: e => hook?.(e), helper, cleanup,
+      get calls(){return calls;}, setGet: value => {get=value;}, push: async e => {
+        await subscription.push(e); await subscription.push(SENTINEL);
+      }});
+  } finally {
+    cleanup(); subscription.abort();
+    for(const [key,value] of Object.entries(old)) {
+      if(value === undefined) delete process.env[key]; else process.env[key]=value;
+    }
+    await rm(directory,{recursive:true,force:true});
+  }
+}
+
+test('launch-selected root gets actual narrow helper text without metadata side effects', async () => {
+  await withContext(async ({event, context}) => {
+    const e=event(); await context(e);
+    assert.equal(e.system.length,1);
+    assert.match(e.system[0].text,/worktree/);
+    assert.doesNotMatch(e.system[0].text,/session-metadata\.py (?:bootstrap|get|patch)/);
+    assert.deepEqual(e.tools,{keep:true}); assert.deepEqual(e.options,{keep:true});
+  });
+});
+
+test('child and peer context never trigger native lookups or instructions', async () => {
+  await withContext(async x => {
+    for(const id of ['ses_child','ses_peer']) {const e=x.event(id); await x.context(e); assert.deepEqual(e.system,[]);}
+    assert.equal(x.calls,0);
+  });
+});
+
+test('read-back mismatch, parent, and malformed response refuse root instructions', async () => {
+  await withContext(async x => {
+    for(const info of [null,{}, {id:'ses_other'}, {id:'ses_root',parentID:'ses_parent'}, {id:'ses_root',parentID:42}]) {
+      x.setGet(async () => info); const e=x.event(); await x.context(e); assert.deepEqual(e.system,[]);
+    }
+  });
+});
+
+test('helper replaced after setup refuses delivery', async () => {
+  await withContext(async x => {
+    await writeFile(x.helper,'raise RuntimeError("must not execute foreign helper")');
+    const e=x.event(); await x.context(e); assert.deepEqual(e.system,[]);
+  });
+});
+
+test('cleanup prevents an outstanding native lookup from injecting later', async () => {
+  await withContext(async x => {
+    let resolve; x.setGet(() => new Promise(r => {resolve=r;}));
+    const e=x.event(); const pending=x.context(e); await Promise.resolve();
+    assert.equal(x.calls,1); x.cleanup(); resolve({id:'ses_root'}); await pending;
+    assert.deepEqual(e.system,[]);
+  });
+});
+
+test('unresolved native lookup is bounded and suppresses overlapping lookups', async () => {
+  await withContext(async x => {
+    let resolve; x.setGet(() => new Promise(r => {resolve=r;}));
+    const e=x.event(); const pending=x.context(e); await Promise.resolve();
+    const second=x.event(); await x.context(second); assert.equal(x.calls,1);
+    await pending; assert.deepEqual(e.system,[]);
+    await x.context(x.event()); assert.equal(x.calls,1);
+    resolve({id:'ses_root'}); await Promise.resolve();
+  });
+});
+
+test('missing or unsupported instruction environment yields no context', async () => {
+  for(const overrides of [
+    {ORKWORKS_WORKTREE_INSTRUCTION_PROTOCOL:''}, {ORKWORKS_WORKTREE_INSTRUCTION_PROTOCOL:'2'},
+    {ORKWORKS_WORKTREE_INSTRUCTION_ROOT_ID:'bad\nID'}, {ORKWORKS_WORKTREE_INSTRUCTION_ROOT_ID:'ses_root\n'}, {ORKWORKS_WORKTREE_INSTRUCTION_HELPER:'relative.py'},
+    {ORKWORKS_REPORT_TOKEN:''},
+  ]) await withContext(async x => {const e=x.event(overrides.ORKWORKS_WORKTREE_INSTRUCTION_ROOT_ID || 'ses_root'); await x.context(e); assert.deepEqual(e.system,[]); assert.equal(x.calls,0);},overrides);
+});
+
+
+test('legacy capture ordering cannot change the selected context recipient', async () => {
+  const previous = globalThis.fetch;
+  const posts=[];
+  globalThis.fetch=async (url, options) => {posts.push({url,options}); return {ok:true,status:204};};
+  try {
+    await withContext(async x => {
+      await x.push({type:'session.step.started',data:{sessionID:'ses_child'}});
+      await x.push(created('ses_peer'));
+      const before=posts.length;
+      const root=x.event(); await x.context(root); assert.equal(root.system.length,1);
+      for(const id of ['ses_child','ses_peer']) {const e=x.event(id); await x.context(e); assert.deepEqual(e.system,[]);}
+      assert.equal(posts.length,before);
+    });
+  } finally {globalThis.fetch=previous;}
+});
+
+test('native lookup rejection cannot reject model context dispatch', async () => {
+  await withContext(async x => {
+    x.setGet(async () => {throw new Error('unavailable');});
+    const e=x.event(); await x.context(e); assert.deepEqual(e.system,[]);
+  });
+});
+
+test('helper process malformed output, large output and timeout emit no context', async () => {
+  const directory=await mkdtemp(join(tmpdir(),'orkworks-python-fixture-'));
+  try {
+    for(const script of [
+      '#!/bin/sh\nprintf \'{"additionalContext":"wrong format"}\'\n',
+      '#!/bin/sh\n/usr/bin/yes x\n',
+      '#!/bin/sh\n/bin/sleep 3\n',
+    ]) {
+      await writeFile(join(directory,'python3'),script,{mode:0o700});
+      await withContext(async x => {const e=x.event(); await x.context(e); assert.deepEqual(e.system,[]);}, {PATH:directory});
+    }
+  } finally {await rm(directory,{recursive:true,force:true});}
+});
+
+test('context hook registration failure preserves reporter setup and cleanup', async () => {
+  await withContext(async x => {
+    const e=x.event(); await x.context(e); assert.deepEqual(e.system,[]); x.cleanup();
+  },{}, {rejectHook:true});
 });

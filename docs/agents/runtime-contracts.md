@@ -150,3 +150,17 @@ or missing bound worktrees are unavailable; launch `cwd` never changes. The
 narrow `session-metadata.py worktree` command and worktree-only startup context
 for Codex, Claude Code and Copilot are independent of the general API-only marker. This does not enable
 general metadata commands, native observers, or completion authority.
+
+### Launch-scoped instruction delivery (accepted; activation gated)
+
+Owner approval on 2026-11-05 covers the [concrete design](../superpowers/specs/2026-11-04-launch-scoped-worktree-instructions-design.md).
+A private launch selector admits only source-owned OpenCode commands with current
+owned assets and qualified 2.2.5/macOS arm64 evidence. Its context hook checks the
+selected ID and absent parent through exact native read-back, then renders the
+shared narrow helper with fixed argv and bounded time/output. New-launch argv
+and env select the same OS-random ID; exact resume preserves its requested argv;
+latest/custom/unqualified launches remain unscoped. Inherited selector names
+are stripped case-insensitively. Legacy identity/attention capture, public APIs,
+durable metadata and Git fallback contracts remain unchanged. Actual-source
+native qualification is required before activation; source changes alone do not
+update installed assets or existing session environments.

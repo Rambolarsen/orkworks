@@ -546,6 +546,7 @@ pub(crate) struct SessionRuntime {
     pub(crate) runtime_instance_id: String,
     run_generation: RuntimeGeneration,
     startup_spawned: bool,
+    pub(crate) worktree_instruction_request: Option<super::worktree_instructions::LaunchRequest>,
     pub(crate) native_approval: Option<super::codex_approval_application::NativeApprovalState>,
     #[cfg(test)]
     pub(crate) native_diagnostic: Option<super::codex_approval_application::DiagnosticSink>,
@@ -605,6 +606,7 @@ impl SessionRuntime {
                 runtime_instance_id: uuid::Uuid::new_v4().to_string(),
                 run_generation: next_runtime_generation(),
                 startup_spawned: false,
+                worktree_instruction_request: None,
                 attention_owner: super::observed_status::AttentionOwner::default(),
                 codex_terminal_status_active: false,
                 native_approval: None,
@@ -659,6 +661,7 @@ impl SessionRuntime {
             runtime_instance_id: uuid::Uuid::new_v4().to_string(),
             run_generation: next_runtime_generation(),
             startup_spawned: false,
+            worktree_instruction_request: None,
             attention_owner: super::observed_status::AttentionOwner::default(),
             codex_terminal_status_active: false,
             native_approval: None,
@@ -2075,6 +2078,7 @@ pub(crate) fn start_session_runtime(
 }
 
 struct RuntimeStartup {
+    worktree_instruction_request: Option<super::worktree_instructions::LaunchRequest>,
     run_generation: RuntimeGeneration,
     is_codex_session: bool,
     has_initial_editor: bool,
@@ -2105,6 +2109,7 @@ fn start_session_runtime_inner(
             .as_deref()
             .or(handle.info.harness.as_deref());
         RuntimeStartup {
+            worktree_instruction_request: handle.runtime.worktree_instruction_request.clone(),
             run_generation: handle.runtime.run_generation(),
             is_codex_session: handle.info.harness.as_deref() == Some("codex")
                 || handle.info.harness_id.as_deref() == Some("codex"),
@@ -2148,6 +2153,7 @@ async fn run_session_runtime(
     )>,
 ) -> Result<(), String> {
     let RuntimeStartup {
+        worktree_instruction_request,
         run_generation,
         is_codex_session,
         has_initial_editor,
@@ -2157,6 +2163,8 @@ async fn run_session_runtime(
     if *kill_rx.borrow() || startup_generation_is_ending(&state, &id, run_generation) {
         return Err("session runtime was deleted during startup".into());
     }
+    let instruction_scope =
+        super::worktree_instructions::prepare(worktree_instruction_request).await?;
     let native_plan = if is_codex_session {
         super::codex_native::eligible(&command, &state.integration_probe_cache).await?
     } else {
@@ -2340,6 +2348,16 @@ async fn run_session_runtime(
             clear_workflow_report_token_if_matches(&id, &report_token);
             return Err(error);
         }
+    }
+    // No await between final qualification/selection and PTY spawn. Scope and
+    // argv are applied together, so asset drift retains the original command.
+    if let Some(scope) = instruction_scope.as_ref() {
+        if *kill_rx.borrow() || startup_generation_is_ending(&state, &id, run_generation) {
+            revocation.close();
+            clear_workflow_report_token_if_matches(&id, &report_token);
+            return Err("session runtime was replaced before instruction-scoped spawn".into());
+        }
+        scope.apply(&mut cmd, &command);
     }
     let mut child = match pair.slave.spawn_command(cmd) {
         Ok(child) => child,

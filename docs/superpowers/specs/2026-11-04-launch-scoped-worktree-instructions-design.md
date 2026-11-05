@@ -1,19 +1,19 @@
 ---
 type: Design
 title: Launch-scoped worktree instructions
-description: Proposed run-local recipient selection for OpenCode delivery of the shared worktree helper instructions.
+description: Accepted run-local recipient selection for OpenCode delivery of the shared worktree helper instructions.
 tags: [sessions, harnesses, git, worktrees, instructions]
-status: draft
-workflow_status: owner-review
+status: stable
+workflow_status: approved
 ---
 
 # Launch-scoped worktree instructions
 
-Proposed, not owner-approved or implemented. Tracking: [#1347](https://github.com/Rambolarsen/orkworks/issues/1347).
+Owner-approved on 2026-11-05; source implementation prepared; native activation qualification pending. Tracking: [#1347](https://github.com/Rambolarsen/orkworks/issues/1347).
 This narrows the [approved generic direction](2026-11-03-harness-workspace-signals-design.md)
 using the [native evidence](../../validation/harness-workspace-signals.md).
 The [implementation plan](../plans/2026-11-04-launch-scoped-worktree-instructions.md)
-remains gated on owner approval of this concrete protocol.
+records the approved concrete protocol and remaining activation gate.
 
 ## Outcome and boundary
 

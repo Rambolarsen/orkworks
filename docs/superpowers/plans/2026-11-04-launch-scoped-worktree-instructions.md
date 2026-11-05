@@ -3,17 +3,17 @@ type: Implementation Plan
 title: Launch-scoped worktree instruction delivery
 description: Gated delivery of the shared worktree helper context to a launch-selected OpenCode root.
 tags: [sessions, harnesses, git, worktrees, plan]
-status: draft
-workflow_status: awaiting-owner-approval
+status: stable
+workflow_status: implementing
 ---
 
 # Launch-scoped worktree instruction delivery
 
 Outcome: the eligible owning OpenCode root receives the shared helper context;
 children/peers and uncertain profiles receive none. Tracking: [#1347](https://github.com/Rambolarsen/orkworks/issues/1347).
-Contract: [proposed design](../specs/2026-11-04-launch-scoped-worktree-instructions-design.md).
-This is instruction delivery, not a native identity/attention fix. Owner approval
-of the concrete protocol is required before dependent runtime implementation.
+Contract: [approved design](../specs/2026-11-04-launch-scoped-worktree-instructions-design.md).
+This is instruction delivery, not a native identity/attention fix. The owner approved the concrete protocol on 2026-11-05. Native activation
+qualification remains separately gated.
 
 ## Boundaries and ownership
 
@@ -43,17 +43,17 @@ command-template qualification; the shared runtime owns generation/lifetime.
 
 ## Deliverables and checks
 
-- [ ] Record owner approval. Amend the session Git specification, harness
+- [x] Record owner approval. Amend the session Git specification, harness
   integration concept and ADR 0094 before runtime code. Preserve the documented
   legacy identity-capture limitation instead of implying this proposal fixes it.
-- [ ] Add failing launch/runtime regressions before implementation. Cover a new
+- [x] Add failing launch/runtime regressions before implementation. Cover a new
   root's argv/env equality; exact-resume unchanged argv; latest/custom/unsupported
   profiles unscoped; ambient markers stripped; missing/drifted assets; failed
   randomness; cancellation/generation changes during version/asset preparation.
   Compare full installed bytes against bundled assets initially and again without
   an intervening await before spawn; drift discards scope and its argv adjustment.
   Implement the smallest private scope preparation seam needed by those cases.
-- [ ] Add failing real-reporter subprocess/context tests. Root context must
+- [x] Add failing real-reporter subprocess/context tests. Root context must
   receive actual helper-generated narrow text; child, peer, wrong/missing API
   parent/ID and misleading plugin cwd must not. Reorder legacy capture events
   without changing instruction eligibility. Exercise cleanup, delayed reads,
@@ -62,7 +62,7 @@ command-template qualification; the shared runtime owns generation/lifetime.
   must suppress delivery. Keep the documented cooperative loader-race boundary.
   Assert context delivery generates no identity or attention HTTP effects and
   preserves tools/settings. Implement the bounded context hook to pass them.
-- [ ] Verify normal owned install/probe/reconcile/uninstall and helper asset
+- [x] Verify normal owned install/probe/reconcile/uninstall and helper asset
   drift behavior, without changing foreign files or running-session env. Verify
   API-only/general metadata and other harness instruction channels are unchanged.
 - [ ] Run scoped suites and `bash scripts/verify-repo.sh`; complete current-code
@@ -90,7 +90,7 @@ creation of a fallback location or an identity/attention update.
 
 ## Plan review
 
-Disposition: Ready for owner review, not execution. Scope is bounded to one
+Disposition: Owner-approved for implementation on 2026-11-05. Scope is bounded to one
 instruction channel and its run-local selector. The failed capture audit is
 resolved by not depending on that mutable state; identity-store fencing and
 resume-root migrations are outside this delivery and remain separately tracked.
