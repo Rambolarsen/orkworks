@@ -1537,3 +1537,13 @@ external cleanup or production selector is introduced. The HTTP action route,
 projection and action-token protocol remain JSON; SQL Delete/recovery and SQL
 projection/token integration remain separately gated. See the
 [organization boundary evidence](../validation/session-store-adapter.md#captured-sql-close-first-organization).
+
+
+The private SQLite worker also provides bounded deletion-job discovery and exact
+selected tombstone reads. Store-bound keyset continuation survives job completion;
+new passes discover insertions behind the cursor. These reads return coherent
+persisted identity/progress without granting external cleanup authority. Normal
+session reads keep tombstones hidden, and inconsistent jobs fail explicitly.
+See [recovery discovery evidence](../validation/session-store-adapter.md#sql-deletion-recovery-discovery).
+External cleanup, close-first SQL Delete orchestration and production activation
+remain gated.

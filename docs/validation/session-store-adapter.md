@@ -1119,3 +1119,34 @@ stage/receiver evidence, not physical PTY/fsync or numeric latency proof.
 The HTTP action route and production projection remain JSON. SQL Delete and its
 recoverable external-file cleanup, producer/installation selection, migration,
 activation and measured 10k/100k release budgets remain separate gates.
+
+## SQL deletion recovery discovery
+
+The private worker exposes lightweight pending-deletion pages (1–100 jobs,
+256 KiB maximum response) and a selected tombstone read by exact session ID and
+creation identity (canonical record plus at most 4 KiB envelope). Both consume
+existing read admission and result-byte reservations; SQLite work remains on the
+worker connection, under its read deadline. The page seeks the deletion-job ID
+index and loads no canonical session payloads. Selected reads validate canonical
+identity/revision and return progress with metadata from one transaction.
+
+Continuation is bound to the database epoch and workspace. It is a changing
+keyset traversal, independent of history generation: completing earlier jobs
+must not invalidate later pages. Start a new pass from the beginning to discover
+jobs inserted behind the cursor. Pages and selected records are discovery only;
+they carry no lease, runtime authority, cleanup reservation or permission to
+remove external content. A stale creation identity cannot read a replacement.
+Unhidden or orphaned jobs and inconsistent canonical metadata fail explicitly;
+ordinary detail/history/existence/retention continue to exclude tombstones.
+
+Real SQLite regressions cover progress across reopen, completion during paging,
+insertion behind a cursor with a new discovery pass, foreign-store cursors,
+invalid limits, reused identity, corruption and exclusive
+lock failure without an empty-success fallback. Maximum escaped identities and a
+near-limit selected payload fit the declared response reservations. Query-plan
+checks cover indexed seeks, an SQLite authorizer rejects canonical payload reads
+during page discovery, and worker tests cover the shared eight-read admission
+limit, byte accounting and release. These are correctness/boundary checks, not
+measured latency or physical crash qualification. External cleanup stage owners,
+close-first SQL Delete integration/recovery scheduling and qualified activation
+remain follow-ups. Production continues using JSON.

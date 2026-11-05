@@ -6,7 +6,10 @@ mod internal_mutations;
 pub(crate) use conditional_attention::AttentionProof;
 #[allow(unused_imports)] // Internal API becomes a production path only at qualified cutover.
 pub(crate) use internal_mutations::InternalMutationResult;
+mod deletion_recovery;
 mod queries;
+#[allow(unused_imports)] // Source-only recovery interface until qualified cutover.
+pub(crate) use deletion_recovery::{DeletionCursor, DeletionPage, DeletionRecord};
 mod worker;
 #[allow(unused_imports)] // Query DTOs are consumed by the later format-2 adapter.
 pub(crate) use queries::{Cursor, HistoryQuery, Page, Summary};
