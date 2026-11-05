@@ -1,4 +1,4 @@
-//! Runtime history completion only. Full SQL final-scan routing remains gated.
+//! Runtime history completion. Full scan composition lives in `final_scan`.
 use crate::runtime::session_runtime::RuntimeGeneration;
 use crate::session_application::{
     ending_completion::Completion,
@@ -34,8 +34,8 @@ impl EndingPersistence {
             generation,
         }
     }
-    /// Source-only capture BEFORE final-scan waits. The full SQL scan still needs
-    /// its provider-context and workflow-observation owners qualified separately.
+    /// Source-only history capture BEFORE final-scan waits. Full SQL scans compose
+    /// provider/evidence through `final_scan`; production stays JSON.
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) async fn sql(
         state: Arc<AppState>,

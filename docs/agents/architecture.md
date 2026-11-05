@@ -960,8 +960,8 @@ Its explicit SQL capture retains original application/workspace/runtime/control,
 creation and source authority before a final-scan wait, then consumes that owner
 without recapturing a replacement. Direct SQL callers use the same capture and
 immediate completion. The production runtime still selects JSON, including its
-existing unknown-JoinError diagnostic. Full SQL final-scan routing remains gated: the current JSON provider-context
-and workflow-observation effects must first be routed through qualified owners. This completion alone does not prove physical cleanup or
+existing unknown-JoinError diagnostic. Full production SQL selection remains gated; the explicit source-only final-scan
+composition now routes provider/evidence/history through qualified owners. This completion alone does not prove physical cleanup or
 satisfy close-first organization. See the
 [runtime completion evidence](../validation/session-store-adapter.md#runtime-history-completion-boundary).
 A captured SQL ending owner can now persist final-scan provider context through
@@ -970,8 +970,8 @@ reducer changes only provider fields with no attention/activity/title projection
 its transaction skips a record that is no longer ending. Typed receipts distinguish
 unchanged, committed-current and committed-detached outcomes; cancellation retains
 definitive work and the original lease. Default JSON provider writes remain on
-their existing owner, and workflow evidence still requires independent file-store
-deletion/idempotency qualification before full SQL final-scan routing. See the
+their existing owner, and workflow evidence retains its independently qualified file-store
+deletion/idempotency owner. See the
 [captured provider evidence](../validation/session-store-adapter.md#captured-ending-provider-context).
 
 
@@ -1495,4 +1495,20 @@ Workflow content, sequence, idempotency and file format remain outside SQLite.
 See the [approved design](../superpowers/specs/2026-11-04-ending-workflow-evidence.md)
 and [validation boundary](../validation/session-store-adapter.md#captured-workflow-evidence).
 Production JSON routing and legacy recording/deletion locking remain unchanged;
-full SQL final-scan integration and close-first deletion need separate qualification.
+the explicit SQL final-scan composition is qualified separately below, while
+production selection and close-first SQL deletion remain gated.
+
+## SQL final-scan runtime composition
+
+The runtime's `final_scan` module captures the original SQL ending/evidence owner
+before provider waits and composes provider metadata, workflow evidence and
+history completion with separate typed results. It checks the captured owner for
+output and authoritative SQL fallback, preserves inference/fallback precedence,
+and never uses legacy JSON to recover SQL failures. Independent partial failures
+remain observable; cancellation retains admitted stage work without admitting
+later stages automatically. Both runtime entries share one runner; the normal
+entry explicitly selects JSON and the SQL entry remains source-only. JSON scan
+decision/file effects stay together on a blocking job with legacy guard ownership.
+See the [runtime composition evidence](../validation/session-store-adapter.md#sql-final-scan-runtime-composition).
+No physical cleanup, close-first SQL Archive/Delete, migration, activation or
+measured responsiveness qualification follows from this composition alone.

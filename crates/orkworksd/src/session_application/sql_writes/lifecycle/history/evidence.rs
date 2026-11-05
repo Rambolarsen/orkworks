@@ -82,6 +82,9 @@ impl CapturedEnding {
         })
     }
     async fn validate_evidence_record(&self) -> Result<(), StoreError> {
+        self.read_evidence_record().await.map(|_| ())
+    }
+    async fn read_evidence_record(&self) -> Result<metadata::SessionMetadata, StoreError> {
         let record = self
             .owner
             .store
@@ -100,10 +103,60 @@ impl CapturedEnding {
         {
             return Err(StoreError::Conflict);
         }
-        Ok(())
+        Ok(stored)
     }
 }
 impl CapturedEndingEvidence {
+    pub(crate) fn run_generation(&self) -> u64 {
+        self.ending.runtime.run_generation
+    }
+
+    /// Authoritative fallback data, without renewing the original authority snapshot.
+    pub(crate) async fn ending_metadata(&self) -> Result<metadata::SessionMetadata, StoreError> {
+        let metadata = self.ending.read_evidence_record().await?;
+        let instance = self.writer.instance_id();
+        let current = self
+            .ending
+            .owner
+            .lifecycle_access(
+                self.ending.id.clone(),
+                self.ending.runtime.clone(),
+                Some(self.ending.snapshot.clone()),
+                None,
+                Access::Async,
+                move |ws, _| ws.workflow_observations.instance_id() == instance,
+            )
+            .await?
+            .unwrap_or(false);
+        if !current {
+            return Err(StoreError::Conflict);
+        }
+        Ok(metadata)
+    }
+    /// Capture bounded physical output under original memory fences; rejoin off-guard.
+    pub(crate) async fn final_scan_output(&self) -> Result<Vec<String>, StoreError> {
+        let instance = self.writer.instance_id();
+        let (output, cols) = self
+            .ending
+            .owner
+            .lifecycle_access(
+                self.ending.id.clone(),
+                self.ending.runtime.clone(),
+                Some(self.ending.snapshot.clone()),
+                None,
+                Access::Async,
+                move |ws, h| {
+                    (ws.workflow_observations.instance_id() == instance)
+                        .then(|| (h.output_buffer.snapshot(), h.runtime.last_cols))
+                },
+            )
+            .await?
+            .flatten()
+            .ok_or(StoreError::Conflict)?;
+        tokio::task::spawn_blocking(move || peon::rejoin_hard_wrapped_lines(&output, cols))
+            .await
+            .map_err(|_| StoreError::Unavailable)
+    }
     pub(crate) async fn persist_provider_context(
         &self,
         provider: crate::providers::ProviderObservation,

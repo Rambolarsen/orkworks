@@ -989,3 +989,56 @@ receiver. It is a controlled admission stall, not a physical fsync-stall or new
 PTY/numeric-latency qualification. A one-blocking-thread case checks nested-wait
 independence. Runtime final-scan routing, close-first SQL Archive/Delete, migration,
 activation and larger-history measurements remain unqualified; production stays JSON.
+
+## SQL final-scan runtime composition
+
+`terminal_runtime/final_scan.rs` composes the qualified provider, workflow evidence
+and history owners. The explicit SQL constructor captures the original runtime
+through `EndingPersistence::sql`, then registers its evidence permit before any
+inference wait. Output capture checks that immutable owner and exact store;
+reassembly runs outside application guards. The normal runtime entry explicitly
+selects JSON, while a separate source-only SQL entry uses the same runner. No
+workspace format selector, migration or activation is introduced.
+
+The runner keeps the existing empty-output rule and provider final-scan timeout.
+After inference, SQL fallback comes from an authoritative identity/ending-phase
+read and original memory/store check. Missing, ended, corrupt or unavailable SQL
+rejects persistence without reading valid legacy JSON. It does not reacquire a
+replacement owner after the wait. Provider metadata precedes workflow evidence,
+which precedes the original history completion. Their existing lanes, budgets,
+expiry/cancellation claims, file serialization and definitive receipts still own
+each stage; no lane or queue reservation spans inference.
+
+The result is a stage report, not a boolean durable-success acknowledgment. An
+outer SQL error rejects the original owner/preflight; an outer successful report
+retains optional provider/evidence results plus the complete history result.
+Evidence receipts retain per-candidate failures and history retains partial
+grid/metadata/event results. An independent stage failure may coexist with later
+history completion, matching legacy best-effort progression, without claiming
+rollback or automatically retrying a partial/unknown write. Cancelled inference
+releases the unused capture. Cancellation after stage admission lets that owner
+consume its definitive result, but does not automatically admit later stages.
+
+Inference snapshot precedence, frozen ending fallback, existing final fallback
+and null recovery use the existing helpers. JSON keeps its generation/phase
+checks and synchronous scan decision/file effects together on one blocking job,
+followed by its qualified history owner. This moves its waits off the Tokio
+worker without qualifying the legacy workspace guard held during JSON file I/O.
+JSON keeps existing evaluator scheduling; SQL relies on its evidence owner's
+scoped deterministic scheduling only, so duplicates do not schedule a second
+evaluation and model analysis stays with its existing scheduler.
+
+`sql_final_scan_tests.rs` covers full provider/evidence/history ordering, exact
+fields and snapshots, duplicate identities, original owners changed across a
+controlled inference wait, pre-dispatch stale capture, SQL loss/ending/unavailable
+state with valid JSON, provider/evidence/grid/event partial failures, empty and
+missing-inference fallback, cancellation before/after stage admission and both
+explicit runtime entries. An independent OS watchdog stalls the real SQL provider
+stage on one Tokio worker while approved input is acknowledged by another runtime
+receiver and application guards stay available. This is receiver/stage evidence,
+not a new physical PTY/fsync or numeric-latency qualification. A one-blocking-worker
+case checks that composition does not introduce nested pool waits.
+
+This qualifies the source-only final-scan composition. Physical exit cleanup,
+close-first SQL Archive/Delete, installation/producer selection, migration, live
+activation and 10k/100k performance evidence remain separate gates.

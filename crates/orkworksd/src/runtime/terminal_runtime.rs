@@ -1403,84 +1403,56 @@ pub(crate) async fn finalize_session_ending(
     generation: crate::runtime::session_runtime::RuntimeGeneration,
     fallback_terminal_status: String,
 ) {
-    let output_snapshot = {
-        let sessions = state.sessions.lock().unwrap();
-        match sessions.get(&id) {
-            Some(handle)
-                if handle.runtime.run_generation() == generation
-                    && handle.info.lifecycle_phase == "ending" =>
-            {
-                peon::rejoin_hard_wrapped_lines(
-                    &handle.output_buffer.snapshot(),
-                    handle.runtime.last_cols,
-                )
-            }
-            _ => return,
-        }
-    };
-
-    let scan_result = if output_snapshot.is_empty() {
-        None
-    } else {
-        let timeout_secs = state.peon.config.final_scan_timeout_secs;
-        let state_clone = state.clone();
-        let output_clone = output_snapshot.clone();
-        match tokio::task::spawn_blocking(move || {
-            state_clone
-                .providers
-                .run_inference_with_timeout(&output_clone, Some(timeout_secs))
+    let provider_state = state.clone();
+    let provider_id = id.clone();
+    let completed = final_scan::FinalScanPersistence::json(state, id.clone(), generation)
+        .run(fallback_terminal_status, move |output| {
+            run_final_inference(provider_state, provider_id, output)
         })
-        .await
-        {
-            Ok(result) => Some(result),
-            Err(error) => {
-                tracing::warn!(session_id = %id, %error, "final peon scan task failed");
-                None
-            }
-        }
-    };
+        .await;
+    completed.log_failures(&id);
+}
 
-    let now = iso_now();
+/// Source-only explicit SQL runtime path; no production backend selection occurs.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) async fn finalize_session_ending_sql(
+    state: Arc<AppState>,
+    writes: Arc<crate::session_application::sql_writes::SessionWrites>,
+    id: String,
+    generation: u64,
+    fallback_terminal_status: String,
+) -> Result<final_scan::FinalScanCompletion, crate::session_store::StoreError> {
+    let persistence =
+        final_scan::FinalScanPersistence::sql(state.clone(), writes, id.clone(), generation)
+            .await?;
+    let provider_id = id.clone();
+    let completed = persistence
+        .run(fallback_terminal_status, move |output| {
+            run_final_inference(state, provider_id, output)
+        })
+        .await;
+    completed.log_failures(&id);
+    Ok(completed)
+}
 
+async fn run_final_inference(
+    state: Arc<AppState>,
+    id: String,
+    output: Vec<String>,
+) -> Option<crate::providers::ProviderRunResult> {
+    let timeout_secs = state.peon.config.final_scan_timeout_secs;
+    match tokio::task::spawn_blocking(move || {
+        state
+            .providers
+            .run_inference_with_timeout(&output, Some(timeout_secs))
+    })
+    .await
     {
-        let sessions = state.sessions.lock().unwrap();
-        if !sessions.get(&id).is_some_and(|handle| {
-            handle.runtime.run_generation() == generation && handle.info.lifecycle_phase == "ending"
-        }) {
-            return;
+        Ok(result) => Some(result),
+        Err(error) => {
+            tracing::warn!(session_id=%id,%error,"final peon scan task failed");
+            None
         }
-    }
-
-    let final_scan = crate::session_application::SessionApplication::new(state.clone())
-        .persist_final_peon_scan(&id, generation, scan_result.as_ref(), &output_snapshot);
-    if !final_scan.should_finalize {
-        return;
-    }
-
-    let final_observation_accepted = final_scan.observation_accepted;
-    let inferred_snapshot = final_snapshot_from_inference(
-        scan_result
-            .as_ref()
-            .and_then(|result| result.inference.as_ref()),
-        &now,
-    );
-    let final_snapshot = inferred_snapshot.unwrap_or_else(|| match final_scan.metadata.as_ref() {
-        Some(meta) => fallback_final_snapshot(meta, &now),
-        // Metadata unavailable: still complete the ending so the in-memory
-        // session does not stay stuck in the "ending" phase.
-        None => metadata::canonical_null_snapshot("recovery", Some(now.clone())),
-    });
-
-    if final_observation_accepted {
-        crate::taskmaster::evaluator::schedule_evaluation(state.clone());
-    }
-
-    if let ending_persistence::EndingCompletion::Json(Err(error)) =
-        ending_persistence::EndingPersistence::json(state.clone(), id.clone(), generation)
-            .complete(final_snapshot, fallback_terminal_status)
-            .await
-    {
-        tracing::error!(session_id = %id, %error, "session ending persistence completion is unknown");
     }
 }
 
@@ -6090,3 +6062,5 @@ mod evaluation_close_tests {
         drop(root);
     }
 }
+
+pub(crate) mod final_scan;
