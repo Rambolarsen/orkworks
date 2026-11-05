@@ -566,8 +566,13 @@ pub(crate) struct PreparedOrganization {
 pub(crate) struct OrganizationTicket {
     ticket: Ticket,
 }
+#[derive(Clone, Debug)]
+pub(crate) enum OrganizationChange {
+    Revision(String),
+    DeletionAdmitted,
+}
 pub(crate) struct OrganizationCompletion {
-    pub(crate) revision: String,
+    pub(crate) change: OrganizationChange,
     _resources: Option<RuntimeWriteResources>,
     _permit: Reservation,
 }
@@ -600,14 +605,16 @@ impl OrganizationTicket {
             _permit,
             resources,
         } = receive_delivery(self.ticket).await?;
-        match result? {
-            Reply::Revision(revision) => Ok(OrganizationCompletion {
-                revision,
-                _resources: resources,
-                _permit,
-            }),
-            _ => Err(StoreError::Unavailable),
-        }
+        let change = match result? {
+            Reply::Revision(revision) => OrganizationChange::Revision(revision),
+            Reply::Unit => OrganizationChange::DeletionAdmitted,
+            _ => return Err(StoreError::Unavailable),
+        };
+        Ok(OrganizationCompletion {
+            change,
+            _resources: resources,
+            _permit,
+        })
     }
 }
 pub(crate) struct SessionStore {
@@ -959,6 +966,31 @@ impl SessionStore {
             _ => Err(StoreError::Unavailable),
         }
     }
+    pub(crate) fn prepare_delete(
+        &self,
+        id: String,
+        created: String,
+        revision: String,
+        organization_revision: String,
+    ) -> Result<PreparedOrganization> {
+        if id.is_empty()
+            || id.len() > 256
+            || created.is_empty()
+            || created.len() > 256
+            || !id
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || b"-_".contains(&c))
+        {
+            return Err(StoreError::Invalid("invalid creation identity".into()));
+        }
+        let prepared = self.prepare(Command::BeginDelete {
+            id: id.clone(),
+            created,
+            revision,
+            organization_revision,
+        })?;
+        Ok(PreparedOrganization { prepared, id })
+    }
     pub(crate) async fn begin_delete(
         &self,
         id: String,
@@ -1080,7 +1112,7 @@ fn execute_command(_shared: &Shared, command: Command, db: &mut Database) -> Res
         }
         let gate = {
             let mut gate = _shared.after_claim.lock().unwrap();
-            if matches!(&command, Command::Internal { id, .. } | Command::Organization { id, .. } if gate.as_ref().is_some_and(|(expected, ..)| expected == id))
+            if matches!(&command, Command::Internal { id, .. } | Command::Organization { id, .. } | Command::BeginDelete { id, .. } if gate.as_ref().is_some_and(|(expected, ..)| expected == id))
             {
                 gate.take()
             } else {
@@ -1134,7 +1166,7 @@ pub(crate) mod testing {
         tokio::time::timeout(Duration::from_secs(1), async {
             loop {
                 let queued = store.shared.queue.lock().unwrap().mutations.iter().any(
-                    |job| matches!(&job.command,Command::Organization{id:queued,..} if queued==id),
+                    |job| matches!(&job.command,Command::Organization{id:queued,..} | Command::BeginDelete{id:queued,..} if queued==id),
                 );
                 if queued {
                     return;

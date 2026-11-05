@@ -3,10 +3,10 @@ use crate::runtime::session_runtime::{RuntimeCommand, SessionRuntime};
 use crate::session_application::session_actions::SessionAction;
 use crate::session_archive::SessionState;
 use std::time::Duration;
-const ID: &str = "organization-runtime";
-const CREATED: &str = "2026-01-01T00:00:00Z";
+pub(super) const ID: &str = "organization-runtime";
+pub(super) const CREATED: &str = "2026-01-01T00:00:00Z";
 
-async fn fixture() -> (
+pub(super) async fn fixture() -> (
     tempfile::TempDir,
     Arc<AppState>,
     Arc<SessionStore>,
@@ -78,7 +78,7 @@ async fn fixture() -> (
 // Model the runtime driver's finalization with the real worker lifecycle
 // reducers and the same session lane. Organization tests control the live
 // cleanup flags; unrelated prompt-authority publication is qualified elsewhere.
-async fn finalize(state: &Arc<AppState>, writes: &Arc<SessionWrites>) {
+pub(super) async fn finalize(state: &Arc<AppState>, writes: &Arc<SessionWrites>) {
     use crate::metadata::{
         internal_mutations::InternalMutation, lifecycle_mutations::LifecycleMutation,
     };
@@ -140,7 +140,7 @@ async fn finalize(state: &Arc<AppState>, writes: &Arc<SessionWrites>) {
     h.resume_in_progress = false;
 }
 
-fn root(state: &Arc<AppState>) -> PathBuf {
+pub(super) fn root(state: &Arc<AppState>) -> PathBuf {
     state
         .workspace
         .lock()
@@ -225,7 +225,9 @@ async fn sql_archive_waits_for_exact_runtime_cleanup_and_does_not_block_its_fina
     store.close().await.unwrap();
 }
 
-fn organization(state: &Arc<AppState>) -> Arc<crate::session_archive::OrganizationStore> {
+pub(super) fn organization(
+    state: &Arc<AppState>,
+) -> Arc<crate::session_archive::OrganizationStore> {
     state
         .workspace
         .lock()
@@ -236,7 +238,7 @@ fn organization(state: &Arc<AppState>) -> Arc<crate::session_archive::Organizati
         .organization
         .clone()
 }
-async fn pending(store: &Arc<crate::session_archive::OrganizationStore>, value: bool) {
+pub(super) async fn pending(store: &Arc<crate::session_archive::OrganizationStore>, value: bool) {
     tokio::time::timeout(Duration::from_secs(2), async {
         while store.pending(ID) != value {
             tokio::task::yield_now().await;
@@ -802,6 +804,9 @@ async fn sql_organization_remembered_closed_row_needs_no_runtime_and_preserves_m
 
 #[tokio::test(flavor = "current_thread")]
 async fn sql_organization_stall_keeps_guards_and_another_runtime_input_receiver_available() {
+    stalled_organization_keeps_input_available(false).await;
+}
+pub(super) async fn stalled_organization_keeps_input_available(delete: bool) {
     let _serial = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (dir, state, store, writes, _killed, commands) = fixture().await;
     finalize(&state, &writes).await;
@@ -868,7 +873,13 @@ async fn sql_organization_stall_keeps_guards_and_another_runtime_input_receiver_
         drop(pause);
         progressed
     });
-    let writer = tokio::spawn(view.apply(SessionAction::Archive));
+    let writer = tokio::spawn(async move {
+        if delete {
+            view.begin_delete().await.map(|_| ())
+        } else {
+            view.apply(SessionAction::Archive).await.map(|_| ())
+        }
+    });
     entered.await.unwrap();
     assert!(state.projection_lock.try_lock().is_ok());
     assert!(state.workspace.try_lock().is_ok());
@@ -904,6 +915,12 @@ async fn sql_organization_stall_keeps_guards_and_another_runtime_input_receiver_
     delivery_result.unwrap().unwrap();
     assert_eq!(delivered.unwrap(), Ok(()));
     writer.await.unwrap().unwrap();
+    if delete {
+        assert_eq!(
+            store.pending_deletions(None, 100).await.unwrap().jobs.len(),
+            1
+        );
+    }
     store.close().await.unwrap();
 }
 

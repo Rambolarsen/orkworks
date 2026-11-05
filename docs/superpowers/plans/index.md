@@ -4,6 +4,8 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 ## Documents
 
+- [Captured SQL close-first Delete admission](2026-11-05-sql-delete-admission.md) — Original-owner close, bounded tombstone admission and recoverable pending-cleanup receipts.
+
 - [Qualify shared harness workspace signals](2026-11-03-harness-workspace-signals.md) — Bounded diagnostic probe, per-harness evidence and native activation gates for #1347.
 
 - [Shared branch design and implementation documents](2026-11-01-branch-plan-documents.md) — Approved delivery and checks for shared two-step document discovery.

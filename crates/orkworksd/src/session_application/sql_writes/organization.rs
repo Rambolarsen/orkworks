@@ -4,7 +4,7 @@ use super::*;
 use crate::runtime::session_runtime::{RuntimeCommand, RuntimeIdentity};
 use crate::session_application::session_actions::{self, SessionAction};
 use crate::session_archive::{OrganizationStore, Reservation, SessionState};
-use crate::session_store::{OrganizationCompletion, OrganizationRecord};
+use crate::session_store::{OrganizationChange, OrganizationCompletion, OrganizationRecord};
 use std::time::{Duration, Instant};
 
 type Control = tokio::sync::mpsc::Sender<RuntimeCommand>;
@@ -70,6 +70,19 @@ pub(crate) struct CapturedOrganization {
 pub(crate) struct OrganizationWrite {
     pub(crate) revision: String,
     pub(crate) outcome: Outcome,
+}
+
+/// Only the tombstone/job committed. External cleanup remains pending and this
+/// receipt carries no lease or authority to remove payloads/evidence.
+#[derive(Debug)]
+pub(crate) struct DeletionAdmission {
+    pub(crate) id: String,
+    pub(crate) created_at: String,
+    pub(crate) outcome: Outcome,
+}
+struct ActionWrite {
+    change: OrganizationChange,
+    outcome: Outcome,
 }
 
 impl SessionWrites {
@@ -185,12 +198,56 @@ impl CapturedOrganization {
         action: SessionAction,
         wait: Duration,
     ) -> Result<OrganizationWrite, StoreError> {
+        if !matches!(action, SessionAction::Archive | SessionAction::Restore) {
+            return Err(StoreError::Conflict);
+        }
+        let result = self.execute(action, wait).await?;
+        match result.change {
+            OrganizationChange::Revision(revision) => Ok(OrganizationWrite {
+                revision,
+                outcome: result.outcome,
+            }),
+            _ => Err(StoreError::Unavailable),
+        }
+    }
+    pub(crate) async fn begin_delete(self) -> Result<DeletionAdmission, StoreError> {
+        self.begin_delete_with_timeout(Duration::from_secs(15))
+            .await
+    }
+    pub(super) async fn begin_delete_with_timeout(
+        self,
+        wait: Duration,
+    ) -> Result<DeletionAdmission, StoreError> {
+        let id = self.id.clone();
+        let created_at = self.record.document["createdAt"]
+            .as_str()
+            .ok_or(StoreError::Corrupt)?
+            .to_owned();
+        let result = self.execute(SessionAction::Delete, wait).await?;
+        match result.change {
+            OrganizationChange::DeletionAdmitted => Ok(DeletionAdmission {
+                id,
+                created_at,
+                outcome: result.outcome,
+            }),
+            _ => Err(StoreError::Unavailable),
+        }
+    }
+    async fn execute(
+        self,
+        action: SessionAction,
+        wait: Duration,
+    ) -> Result<ActionWrite, StoreError> {
         if !matches!(
             (self.state, action),
             (
                 SessionState::Active | SessionState::Closed,
                 SessionAction::Archive
             ) | (SessionState::Archived, SessionAction::Restore)
+                | (
+                    SessionState::Active | SessionState::Closed | SessionState::Archived,
+                    SessionAction::Delete
+                )
         ) {
             return Err(StoreError::Conflict);
         }
@@ -275,8 +332,8 @@ impl CapturedOrganization {
         reservation: Reservation,
         lease: Arc<WorkspaceLease>,
         close_deadline: Option<Instant>,
-        sent: &mut oneshot::Sender<Result<OrganizationWrite, StoreError>>,
-    ) -> Result<OrganizationWrite, StoreError> {
+        sent: &mut oneshot::Sender<Result<ActionWrite, StoreError>>,
+    ) -> Result<ActionWrite, StoreError> {
         loop {
             if sent.is_closed() || close_deadline.is_some_and(|d| Instant::now() >= d) {
                 return Err(StoreError::Expired);
@@ -308,12 +365,37 @@ impl CapturedOrganization {
             .as_str()
             .ok_or(StoreError::Corrupt)?
             .to_owned();
-        let prepared = self.owner.store.prepare_organization(
-            self.id.clone(),
-            created,
-            self.record.organization_revision.clone(),
-            choice.into(),
-        )?;
+        let prepared = if action == SessionAction::Delete {
+            // Finalization legitimately advanced metadata revision. Capture the
+            // latest canonical revision outside guards, preserving the original
+            // creation/organization view. Any subsequent write conflicts in SQL.
+            let current = self
+                .owner
+                .store
+                .organization_state(self.id.clone())
+                .await?
+                .ok_or(StoreError::Missing)?;
+            if current.document["createdAt"] != self.record.document["createdAt"]
+                || current.organization_revision != self.record.organization_revision
+            {
+                return Err(StoreError::Conflict);
+            }
+            let record: crate::metadata::session_transactions::RevisionedSession =
+                serde_json::from_value(current.document)?;
+            self.owner.store.prepare_delete(
+                self.id.clone(),
+                created,
+                record.revision.into(),
+                self.record.organization_revision.clone(),
+            )?
+        } else {
+            self.owner.store.prepare_organization(
+                self.id.clone(),
+                created,
+                self.record.organization_revision.clone(),
+                choice.into(),
+            )?
+        };
         let cancellation = prepared.cancellation();
         let deadline = close_deadline.map_or(prepared.deadline(), |d| d.min(prepared.deadline()));
         let lane = prepared.lane()?;
@@ -382,11 +464,8 @@ impl CapturedOrganization {
         grant.execute()?;
         self.publish(finished.await?).await
     }
-    async fn publish(
-        self,
-        completion: OrganizationCompletion,
-    ) -> Result<OrganizationWrite, StoreError> {
-        let revision = completion.revision.clone();
+    async fn publish(self, completion: OrganizationCompletion) -> Result<ActionWrite, StoreError> {
+        let change = completion.change.clone();
         let published = self
             .owner
             .organization_access(
@@ -401,8 +480,8 @@ impl CapturedOrganization {
         if published {
             self.owner.state.updates.sessions_changed();
         }
-        Ok(OrganizationWrite {
-            revision,
+        Ok(ActionWrite {
+            change,
             outcome: if published {
                 Outcome::Committed
             } else {

@@ -1116,8 +1116,8 @@ and same worker lane, then controls its live cleanup flags; the separately quali
 lifecycle application/publication owner is not requalified here. This is
 stage/receiver evidence, not physical PTY/fsync or numeric latency proof.
 
-The HTTP action route and production projection remain JSON. SQL Delete and its
-recoverable external-file cleanup, producer/installation selection, migration,
+The HTTP action route and production projection remain JSON. Complete SQL Delete
+and recoverable external-file cleanup, producer/installation selection, migration,
 activation and measured 10k/100k release budgets remain separate gates.
 
 ## SQL deletion recovery discovery
@@ -1148,5 +1148,46 @@ checks cover indexed seeks, an SQLite authorizer rejects canonical payload reads
 during page discovery, and worker tests cover the shared eight-read admission
 limit, byte accounting and release. These are correctness/boundary checks, not
 measured latency or physical crash qualification. External cleanup stage owners,
-close-first SQL Delete integration/recovery scheduling and qualified activation
+complete SQL Delete integration/recovery scheduling and qualified activation
 remain follow-ups. Production continues using JSON.
+
+## Captured SQL Delete admission
+
+The source-only captured organization owner has an explicit `begin_delete`
+operation returning `DeletionAdmission`: exact session/creation and committed or
+committed-detached status. It commits only a non-displayable tombstone and its
+progress-zero recovery job. The existing `apply` API still permits Archive and
+Restore only; admission cannot be mistaken for complete external Delete success.
+The worker's prepared organization-action result distinguishes a revision change
+from deletion admission without inventing a revision for the latter.
+
+Delete shares the existing reservation, captured-stop revocation, physical-close
+wait, original-owner validation, bounded SQL queue/grant and retained completion
+path. It leaves the SQL lane free for the runtime finalizer. After closure it
+rereads canonical SQL metadata outside guards, preserving original creation and
+organization revision while taking the finalizer's latest metadata revision.
+The original transaction rechecks both revisions and canonical finalization.
+Later changes conflict without a job; a valid JSON copy never recovers failed
+SQL. Pre-grant cancellation/expiry prevents admission; successful atomic grants
+retain completion through late delivery, caller cancellation or deadline expiry.
+
+Real runtime/store tests cover Active, Closed, Archived and history-only rows,
+physical-close/finalizer independence, progress and exact identity across reopen,
+retained replay/JSON files, stale memory and durable views, metadata/organization/
+creation races, canonical lifecycle regressions beneath closed index state,
+missing/unreadable/unavailable SQL, queue-full/busy errors and queued expiry.
+Admitted tests hold the original lease/lane/action reservation until definitive
+completion and distinguish replacement-runtime detachment. Successful-grant
+cancellation/deadline tests cover the grant-delivery gap. Delete and Archive
+share a controlled single-Tokio-worker stall fixture with an independent OS
+watchdog and another runtime's acknowledged approved-input receiver.
+
+The finalizer fixture uses real SQL lifecycle reducers and the same lane while
+controlling live cleanup flags; this does not requalify the separate lifecycle
+application publisher. Receiver/stage evidence is not physical PTY latency,
+fsync/crash qualification or measured 10k/100k performance. No external payload,
+workflow evidence, recommendation, legacy metadata or organization file is
+removed. After admission resources release normally; the durable job remains
+pending. Recovery discovery/receipts grant no destructive authority. Captured
+cleanup owners, idempotent stage definitions/scheduling, production routing,
+migration and activation remain prerequisites. Production remains JSON.
