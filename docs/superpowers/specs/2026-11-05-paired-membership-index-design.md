@@ -1,10 +1,10 @@
 ---
 type: Design Proposal
 title: Physical paired membership and index contract
-description: Proposed derived physical indexes for complete metadata membership, exact uniqueness and sparse recovery in the accepted paired format6 profile.
+description: Accepted physical membership/index direction for further qualification, with actual producers and bounded native recovery still gated.
 tags: [orkworks, hierarchy, membership, storage, qualification]
 status: draft
-workflow_status: physical-representation-owner-review-pending
+workflow_status: physical-representation-accepted-qualification-pending
 ---
 
 # Physical paired membership and index contract
@@ -296,3 +296,29 @@ effects, paired H/G and fail-closed sparse recovery. It establishes no actual
 producer participation, feasible recovery/native resource budget, physical
 implementation, SQL/DDL, eligible profile or activation. New physical choices
 remain owner-pending; no additional review round or native test is claimed.
+
+
+## Scoped physical-design acceptance — 2026-11-05
+
+After [PR #1430](https://github.com/Rambolarsen/orkworks/pull/1430), reviewed head
+`b12837e2114106031a6166b15a0b4aaf48d3b886`, merged
+`866ed60d85a90946269cd99b6a7a347374a174ad`, the owner answered “keep going”
+to approval of the proposed physical index layout, artifact metadata projection
+and recovery rules **for further qualification**. [#1431](https://github.com/Rambolarsen/orkworks/issues/1431)
+records this unchanged scoped decision; [ADR 0108](../../adr/0108-paired-membership-indexes.md)
+records the persistence direction.
+
+This accepts the exact derived owner stamps/edge relation/reverse index,
+identity bindings/contributors, artifact_read_metadata projection, physical V2
+locator extensions and H/G correspondence/absence, sparse recovery and fresh-pair
+compatibility choices above. Earlier proposed/owner-pending wording is historical
+for those exact choices. Existing bounded correctness/builder reviews remain the
+technical review evidence; no new review round or qualification result follows.
+Do not ask again for this unchanged physical design or earlier accepted decisions.
+
+This is not acceptance of RegistryRoot, actual source/ordinary publishers, feasible
+recovery scans or hard resource/native enforcement. It authorizes no code, SQL/
+DDL/database/schema/migration, fixture, executable/native plan, model probe, live
+registration or activation. The [source-publisher handoff](2026-11-05-source-publisher-execution-design.md#physical-index-acceptance-and-source-owner-handoff--2026-11-05)
+now distinguishes that separate registry choice from the accepted storage layout.
+#1176 stays open; #740 stays closed research.

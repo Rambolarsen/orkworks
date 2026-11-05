@@ -297,3 +297,37 @@ representation choices remain owner-pending. The accepted broker/schema-2/format
 architecture and source-admission interface are unchanged; RegistryRoot remains
 a separate proposal. No fixture, SQL/schema/migration, native/model experiment,
 live source issuance or runtime activation is authorized.
+
+
+## Physical-index acceptance and source-owner handoff — 2026-11-05
+
+The [authorization representation](2026-11-05-child-preparation-authorization-design.md#scoped-representation-acceptance--2026-11-05)
+and [physical membership/index design](2026-11-05-paired-membership-index-design.md#scoped-physical-design-acceptance--2026-11-05)
+now have scoped owner acceptance for further qualification. Earlier format5/
+representation/index-pending wording above is historical for this selected next
+format6/schema2 direction: the full 35-family logical inventory is reconciled and
+the exact derived physical layout is selected. Neither is an implemented profile,
+actual producer, feasible maximum or native/recovery qualification result.
+
+Reuse the accepted original-preparation-only late-save/no-spawn policy and its
+exact authorization row; the stricter source-authority conditions above still
+apply to other commands. Complete source/H/G/read-set/lease/health/resource checks
+remain required. Existing source-admission and broker/lineage/tombstone decisions
+need no repeat approval. No product code, SQL/database/schema/migration, fixture,
+executable/native plan or live capability is authorized.
+
+The retained RegistryRoot compare-and-close mechanism above is still separately
+proposed. Its purpose is precise: a new live binding registered after affected-set
+discovery must cause stale source begin to deny, rather than remain open through
+an allowed source mutation. Every insertion/removal replaces the retained root;
+begin compares it and the source fence under the same short latch. It adds no
+counter/bearer/serialized codec/allowance, but may conservatively deny after any
+registry change and must retain/budget old roots/copies. Immediate close uses its
+exact handle/scope without waiting for that discovery. This mechanism does not
+supply a source physical-commit cutoff, actual writer or membership index.
+
+That existing reviewed mechanism is the remaining scoped design decision here;
+this status update neither accepts it nor requests a new version. After its own
+decision, actual closed initializer/source/control/ordinary event ownership and
+bounded native/resource/recovery evidence still precede a coupled executable
+publisher plan. #1176 remains open, #740 closed research. Tracking: [#1431](https://github.com/Rambolarsen/orkworks/issues/1431).

@@ -141,3 +141,5 @@ Decision records and their original rationale and consequences.
 - [Joint child preparation transaction broker](0106-joint-child-preparation.md) — Accepted linked-profile architecture; partially supersedes ADRs 0090/0103. The later one-action source cutoff is recorded by [0107](0107-original-child-preparation-permit.md).
 
 - [Original child preparation permit](0107-original-child-preparation-permit.md) — Accepted exact late-saving/no-spawn policy for further design; representation and implementation gated.
+
+- [Paired membership indexes](0108-paired-membership-indexes.md) — Accepted source-derived physical membership, artifact metadata and sparse recovery direction for further qualification.

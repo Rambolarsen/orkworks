@@ -186,3 +186,13 @@ stays closed research; no runtime activation follows from this audit.
 Its new layout, projection/locator and recovery/compatibility choices remain
 owner-pending. The logical inventory and prior decisions are unchanged; no
 physical/index/producer/native qualification is inferred from the proposal.
+
+
+## Physical design accepted; actual qualification pending — 2026-11-05
+
+The owner [accepted #1430's reviewed physical layout/projection and recovery rules](../superpowers/specs/2026-11-05-paired-membership-index-design.md#scoped-physical-design-acceptance--2026-11-05)
+for further qualification. Earlier owner-pending routing is historical for those
+choices only. ADR0108 records the unchanged persistence direction. This does not
+alter the 35-family audit or establish actual membership, producers, feasible
+recovery/native resources or activation. RegistryRoot remains separately proposed;
+no repeat logical inventory or physical-design approval is required.
