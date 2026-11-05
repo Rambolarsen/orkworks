@@ -24,6 +24,8 @@ function harnessLabel(name: string, state: string | undefined): string {
 const LS_HARNESS_KEY = "orkworks-new-session-harnessId";
 const LS_MODEL_KEY = "orkworks-new-session-model";
 const LS_MODEL_CUSTOM_KEY = "orkworks-new-session-model-custom";
+const MORE_MODELS_VALUE = "__more_models__";
+const CLAUDE_MAIN_MODELS = new Set(["fable", "best", "opus", "sonnet", "haiku"]);
 
 function getSavedDraft(): NewSessionDraft | null {
   const savedHarnessId = localStorage.getItem(LS_HARNESS_KEY);
@@ -75,6 +77,10 @@ export default function NewSessionDialog({ workspacePath = "", harnesses, provid
   const fileInput = useRef<HTMLInputElement>(null);
   const [modelCatalog, setModelCatalog] = useState<(ProviderModelsResponse & { harnessId: string }) | null>(null);
   const models = modelCatalog?.harnessId === draft.harnessId ? modelCatalog.models : [];
+  const [moreModels, setMoreModels] = useState(false);
+  const visibleModels = draft.harnessId === "claude-code" && !moreModels
+    ? models.filter(model => CLAUDE_MAIN_MODELS.has(model) || model === draft.model)
+    : models;
   const [customModelRequested, setCustomModelRequested] = useState(() => localStorage.getItem(LS_MODEL_CUSTOM_KEY) === "1");
   const modelChoice = resolveModelChoice(models, draft.model, customModelRequested);
   const selectedModel = models.includes(draft.model) ? draft.model : "";
@@ -176,6 +182,7 @@ export default function NewSessionDialog({ workspacePath = "", harnesses, provid
   }, [draft.harnessId]);
 
   function handleHarnessChange(id: string) {
+    setMoreModels(false);
     setReasoningEffort("");
     setCustomModelRequested(false);
     const h = selectable.find((h) => h.id === id);
@@ -303,6 +310,10 @@ export default function NewSessionDialog({ workspacePath = "", harnesses, provid
                 disabled={confirmBusy || models.length === 0}
                 value={modelChoice.selectValue}
                 onChange={(e) => {
+                  if (e.target.value === MORE_MODELS_VALUE) {
+                    setMoreModels(true);
+                    return;
+                  }
                   setReasoningEffort("");
                   if (e.target.value === CUSTOM_MODEL_VALUE) {
                     setCustomModelRequested(true);
@@ -315,9 +326,10 @@ export default function NewSessionDialog({ workspacePath = "", harnesses, provid
                 }}
               >
                 <option value="">{!draft.harnessId || draft.harnessId === "generic-shell" ? "default settings" : "my default model"}</option>
-                {models.map((model) => (
+                {visibleModels.map((model) => (
                   <option key={model} value={model}>{model}</option>
                 ))}
+                {visibleModels.length < models.length && <option value={MORE_MODELS_VALUE}>More options…</option>}
                 {models.length > 0 && <option value={CUSTOM_MODEL_VALUE}>Custom model…</option>}
               </select>
               <ChevronDown size={16} aria-hidden="true" />

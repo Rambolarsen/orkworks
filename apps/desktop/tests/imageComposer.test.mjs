@@ -49,6 +49,30 @@ if (process.versions.electron) {
       await wait('document.querySelector("#nsd-model").options.length===1');
       await evaluate('fixture.choose("#nsd-harness","codex")');
       await wait('document.querySelector("#nsd-model").options.length===4');
+      // Claude starts with family aliases; advanced choices never change the model just by expanding.
+      await evaluate('fixture.choose("#nsd-harness","claude-code")');
+      await wait('!document.querySelector("#nsd-model").disabled');
+      assert.deepEqual(await evaluate('Array.from(document.querySelector("#nsd-model").options, option=>option.textContent)'),
+        ['my default model','fable','best','opus','sonnet','haiku','More options…','Custom model…']);
+      await evaluate('fixture.choose("#nsd-model","opus")');
+      await evaluate('fixture.choose("#nsd-model",Array.from(document.querySelector("#nsd-model").options).find(option=>option.textContent==="More options…").value)');
+      await wait('Array.from(document.querySelector("#nsd-model").options).some(option=>option.value==="opus[1m]")');
+      assert.equal(await evaluate('document.querySelector("#nsd-model").value'),'opus','expanding is presentation-only');
+      await evaluate('fixture.choose("#nsd-model","claude-opus-5-5");document.querySelector(".new-session-confirm").click()');
+      await wait('fixture.submitted.length===1');
+      assert.equal(await evaluate('fixture.submitted.pop().model'),'claude-opus-5-5');
+      await evaluate('fixture.hide()');
+      await wait('!document.querySelector(".new-session-composer")');
+      await evaluate('fixture.show()');
+      await wait('document.querySelector("#nsd-model")?.value==="claude-opus-5-5"');
+      assert.equal(await evaluate('Array.from(document.querySelector("#nsd-model").options).some(option=>option.value==="opusplan")'),false,'a saved version remains visible without expanding all modes');
+      await evaluate('document.querySelector(".new-session-confirm").click()');
+      await wait('fixture.submitted.length===1');
+      assert.equal(await evaluate('fixture.submitted.pop().model'),'claude-opus-5-5','restored selection keeps the exact launch ID');
+      await evaluate('fixture.choose("#nsd-model","__custom__")');
+      await wait('!!document.querySelector("input[aria-label=\\"Custom model id\\"]")');
+      await evaluate('fixture.choose("#nsd-harness","codex")');
+      await wait('document.querySelector("#nsd-model").options.length===4');
       // A failed fresh preflight must explain the rejection without replacing
       // the selected coding tool or losing the editable launch draft.
       await evaluate('fixture.choose("#nsd-model","codex-fast");fixture.paste(fixture.file("preflight.png"),"keep this launch draft")');
@@ -154,14 +178,14 @@ if (process.versions.electron) {
         fixture.choose=(selector,value)=>{const select=document.querySelector(selector);select.value=value;select.dispatchEvent(new Event('change',{bubbles:true}))};
         window.addEventListener('error',event=>fixture.errors.push(event.message));
         const originalRevoke=URL.revokeObjectURL.bind(URL);URL.revokeObjectURL=url=>{fixture.revoked++;originalRevoke(url)};
-        window.orkworks={getBackendUrl:async()=>'http://fixture',getProviderModels:async id=>{if(id==='codex')return {models:['codex-fast','codex-review'],modelOptions:[{id:'codex-fast',reasoningEfforts:[{id:'low',description:'Fast'},{id:'high',description:'Deep'}]}]};if(id==='other'){if(fixture.failModels)throw new Error('offline');return new Promise(resolve=>fixture.finishOther=resolve)}return {models:[]}},getHarnessIntegrationStatus:async()=>{if(fixture.detectionFailure==='throw')throw new Error('detection transport failed');if(fixture.detectionFailure==='error')return {ok:false,error:'detection unavailable'};return {ok:true,status:{toolDetected:fixture.detectionFailure!=='missing'}}}};
+        window.orkworks={getBackendUrl:async()=>'http://fixture',getProviderModels:async id=>{if(id==='codex')return {models:['codex-fast','codex-review'],modelOptions:[{id:'codex-fast',reasoningEfforts:[{id:'low',description:'Fast'},{id:'high',description:'Deep'}]}]};if(id==='claude-code')return {models:['fable','best','opus','sonnet','haiku','opusplan','opus[1m]','sonnet[1m]','claude-opus-5-5']};if(id==='other'){if(fixture.failModels)throw new Error('offline');return new Promise(resolve=>fixture.finishOther=resolve)}return {models:[]}},getHarnessIntegrationStatus:async()=>{if(fixture.detectionFailure==='throw')throw new Error('detection transport failed');if(fixture.detectionFailure==='error')return {ok:false,error:'detection unavailable'};return {ok:true,status:{toolDetected:fixture.detectionFailure!=='missing'}}}};
         window.fetch=async()=>new Response(JSON.stringify({version:1,supportedHarnesses:['codex']}));
         fixture.file=name=>new File([Uint8Array.from(atob(fixture.png),char=>char.charCodeAt(0))],name,{type:'image/png'});
         fixture.drop=files=>{const data=new DataTransfer();files.forEach(file=>data.items.add(file));document.querySelector('.new-session-composer').dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:data}))};
         fixture.paste=(file,text)=>{const data=new DataTransfer();data.items.add(file);if(text)data.setData('text/plain',text);const prompt=document.querySelector('#nsd-prompt');prompt.focus();const event=new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:data});prompt.dispatchEvent(event);return event.defaultPrevented};
         fixture.picker=files=>{const data=new DataTransfer();files.forEach(file=>data.items.add(file));const input=document.querySelector('input[type=file]');input.files=data.files;input.dispatchEvent(new Event('change',{bubbles:true}))};
         fixture.delayedDrop=()=>{const file=fixture.file('late.png');const read=file.arrayBuffer.bind(file);file.arrayBuffer=()=>new Promise(resolve=>{fixture.finishRead=async()=>resolve(await read())});fixture.drop([file])};
-        function App(){const[visible,setVisible]=useState(true);const[generation,setGeneration]=useState(0);fixture.hide=()=>setVisible(false);fixture.show=()=>{setGeneration(n=>n+1);setVisible(true)};return visible?<Composer key={generation} workspacePath='/tmp/image-workspace' harnesses={[{id:'codex',name:'Codex',launch:{command:'codex',args:[]}},{id:'other',name:'Other',defaultModel:'unlisted-default',launch:{command:'other',args:[]}},{id:'generic-shell',name:'Shell',launch:{command:'sh',args:[]}}]} providerRuntime={null} onCancel={()=>setVisible(false)} onConfirm={async options=>{if(fixture.fail)throw new Error('fixture creation failed');fixture.submitted.push(options)}}/>:<p>Closed</p>}
+        function App(){const[visible,setVisible]=useState(true);const[generation,setGeneration]=useState(0);fixture.hide=()=>setVisible(false);fixture.show=()=>{setGeneration(n=>n+1);setVisible(true)};return visible?<Composer key={generation} workspacePath='/tmp/image-workspace' harnesses={[{id:'codex',name:'Codex',launch:{command:'codex',args:[]}},{id:'claude-code',name:'Claude Code',command:'claude',args:[]},{id:'other',name:'Other',defaultModel:'unlisted-default',launch:{command:'other',args:[]}},{id:'generic-shell',name:'Shell',launch:{command:'sh',args:[]}}]} providerRuntime={null} onCancel={()=>setVisible(false)} onConfirm={async options=>{if(fixture.fail)throw new Error('fixture creation failed');fixture.submitted.push(options)}}/>:<p>Closed</p>}
         createRoot(document.getElementById('root')).render(<App/>);
       `},bundle:true,write:false,outdir:directory,format:'iife',platform:'browser',define:{'process.env.NODE_ENV':'"development"'}});
       // Exercise the shipped CSP: an attachment row alone does not prove its thumbnail loaded.

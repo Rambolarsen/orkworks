@@ -21,6 +21,11 @@ automatically; no session starts until you choose **Start session**. **Cancel** 
 to the previous view. Existing sessions keep running while you compose.
 Published installers may still show the earlier creation popup.
 
+In current source builds, Claude Code's model dropdown shows the main model
+aliases first. Choose **More options…** to reveal explicit versions, long-context
+variants and special modes, or **Custom model…** to enter a model ID. A saved
+catalog selection remains visible and keeps its exact model ID.
+
 Current source builds recheck the chosen coding tool when you press **Start
 session**. If the check fails or the tool cannot be found, the composer explains
 the problem and keeps your tool, model, prompt and attachments. Check the tool
