@@ -292,4 +292,5 @@ pub(crate) use provider::ProviderWrite;
 mod evidence;
 
 #[cfg(test)]
-pub(crate) use evidence::{CandidateResult, CapturedEndingEvidence};
+pub(crate) use evidence::CandidateResult;
+pub(crate) use evidence::{CapturedEndingEvidence, EvidenceWrite};

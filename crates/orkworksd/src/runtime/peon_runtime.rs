@@ -6468,3 +6468,6 @@ mod sql_ending_provider_tests;
 
 #[cfg(test)]
 mod sql_ending_evidence_tests;
+
+#[cfg(test)]
+mod sql_final_scan_tests;
