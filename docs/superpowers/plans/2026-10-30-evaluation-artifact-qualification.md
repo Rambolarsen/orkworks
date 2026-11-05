@@ -448,3 +448,16 @@ These are prerequisites to complete paired fixtures and any separately approved
 executable/native work. Gates 3–4 remain gated; no runtime/SQL/schema/migration,
 live capability, native/model probe or new numerical allowance is authorized.
 #1176 remains open; #740 remains closed research.
+
+
+## Format6 catalog reconciliation — 2026-11-05
+
+The [bounded catalog audit](../../validation/format6-catalog-reconciliation.md)
+reconciles all 35 accepted logical families and the original paired preparation
+effect obligations. It distinguishes standalone root drafts from retained child
+consumers, identifies the accepted lineage/authorization/plan-origin dispatch
+integration still required, and compares the partial 17-family test fixture
+without treating empty table creation as qualification. Gate 2 stays Investigate;
+complete physical membership, actual ordinary/source owners, resource/native
+evidence and separately approved fixture/executable plans remain outstanding.
+No accepted codec, domain, quota or authority rule changes.

@@ -391,3 +391,14 @@ format or limit require a scoped decision for that change only. Once the closed
 contracts and prerequisites are established, independently generated complete
 old/new/manifest/packing fixtures and any executable/native plan retain their
 existing separate gates. #1176 stays open; #740 stays closed research.
+
+
+## Catalog reconciliation handoff — 2026-11-05
+
+The [format6 catalog audit](../../validation/format6-catalog-reconciliation.md)
+reconciles the 35-family logical inventory and original paired effect obligations.
+It records the closed membership dispatch integration for the accepted lineage/
+authorization additions and plan-control origins as remaining work. This supplies
+no physical profile, complete old/new transaction witness or actual source permit
+owner. The scoped representation acceptance remains unchanged; qualification and
+implementation gates above still apply.

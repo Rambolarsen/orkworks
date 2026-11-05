@@ -92,3 +92,5 @@ Capability research, validation results, and evidence fixtures.
 - [Retained child membership component relations](child-membership-components.md) — Independent selected forward/reverse, historical recovery/debit and conditional discovery-boundary fixtures; no actual index or complete-store qualification.
 
 - [Original child preparation commit authority](child-preparation-commit-authority.md) — Accepted one-command late-saving/no-spawn policy for further design; authorization representation and native qualification remain gated.
+
+- [Format6 catalog and original preparation reconciliation](format6-catalog-reconciliation.md) — Complete logical inventory, membership composition gaps and paired-effect qualification obligations.
