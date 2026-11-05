@@ -4,7 +4,7 @@ title: Evaluation source-to-runtime admission
 description: Proposed private source admission and mutation participation for exact child-reviewer evaluation bindings, without production activation.
 tags: [taskmaster, hierarchy, evaluation, authority, sources]
 status: draft
-workflow_status: owner-review-pending
+workflow_status: accepted-for-further-design
 ---
 
 # Evaluation source-to-runtime admission
@@ -305,3 +305,20 @@ ordinary-lineage/index, format-5 commitment and retained-tombstone choices. Thes
 are new owner-pending amendments, not acceptance or implementation of this
 admission interface. The original source authority-at-commit, complete
 catalog/membership and native gates remain; atomic SQL supplies no source permit.
+
+
+## Scoped owner acceptance for further design — 2026-11-05
+
+After the read-only review of PR #1398, the owner answered “go ahead” to the
+recommendation accepting the shared admission cutoff, retained-fence invalidation,
+exact source-derived dependency closure and registration after proven preparation/
+actual runtime attachment, then writing the source-publisher execution design.
+This accepts those interface/ordering choices for further design/qualification.
+It grants no production constructor, adapter, source command, native experiment,
+storage activation or exemption from current source authority at physical commit.
+
+The [execution design](2026-11-05-source-publisher-execution-design.md) reuses the
+separately accepted joint original preparation direction and makes the live
+registry race explicit. Its new registry mechanism remains owner-pending; the
+joint architecture's later scoped acceptance is recorded in its own document.
+Existing implementation/profile/resource/native gates and #1176 remain open.

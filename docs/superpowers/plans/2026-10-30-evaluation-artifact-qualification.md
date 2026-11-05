@@ -387,3 +387,19 @@ accepted extension of an evaluation/debit claim or permission to spawn.
 No runtime, SQL/schema/migration, new proof/format/quota/bearer or native/model
 probe follows. Source-admission choices from #1398 remain independently proposed.
 Gate 2 stays Investigate; Gates 3–4 stay gated; #1176 remains open and #740 closed.
+
+
+## Source publisher execution handoff — 2026-11-05
+
+The owner accepted #1398's interface/ordering choices for further design and
+requested the [source-publisher execution design](../specs/2026-11-05-source-publisher-execution-design.md),
+tracked in [#1411](https://github.com/Rambolarsen/orkworks/issues/1411). It reuses
+the separately accepted joint-profile direction, maps actual writers and proposes
+retained live-registry comparison before affected-binding closure. Earlier
+pending wording for #1398 is historical for that separate scoped acceptance.
+
+Disposition remains Investigate before implementation. The new registry choice
+and #1410's source-permission alternative await their scoped decisions; complete
+catalog/paired membership, source authority and native/resource qualification
+remain gates. No repeat joint-architecture decision is requested. No production
+factory, database, migration or native experiment is authorized. Keep #1176 open.
