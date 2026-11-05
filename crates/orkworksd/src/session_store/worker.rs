@@ -28,6 +28,8 @@ enum Command {
     },
     Get(String),
     OrganizationState(String),
+    PendingDeletions(Option<DeletionCursor>, usize),
+    DeletionRecord(String, String),
     OwnedAttention {
         id: String,
         created: String,
@@ -88,6 +90,8 @@ impl Command {
         match self {
             Self::Get(_)
             | Self::OrganizationState(_)
+            | Self::PendingDeletions(..)
+            | Self::DeletionRecord(..)
             | Self::OwnedAttention { .. }
             | Self::History(_)
             | Self::Live(_)
@@ -114,7 +118,8 @@ impl Command {
     fn result_bound(&self) -> usize {
         match self {
             Self::Get(_) | Self::Patch { .. } => MAX_RECORD,
-            Self::OrganizationState(_) => MAX_RECORD + 4096,
+            Self::OrganizationState(_) | Self::DeletionRecord(..) => MAX_RECORD + 4096,
+            Self::PendingDeletions(..) => 256 * 1024,
             // Canonical record plus JSON-escaped creation/session proof and decision.
             Self::Internal { .. } | Self::OwnedAttention { .. } => MAX_RECORD + 4096,
             Self::History(_) => 256 * 1024,
@@ -150,6 +155,12 @@ impl Command {
             Self::Get(id) => Ok(Reply::Detail(db.get(&id)?)),
             Self::OrganizationState(id) => {
                 Ok(Reply::OrganizationState(db.organization_state(&id)?))
+            }
+            Self::PendingDeletions(after, limit) => {
+                Ok(Reply::DeletionPage(db.pending_deletions(after, limit)?))
+            }
+            Self::DeletionRecord(id, created) => {
+                Ok(Reply::DeletionRecord(db.deletion_record(&id, &created)?))
             }
             Self::History(query) => Ok(Reply::Page(db.history(query)?)),
             Self::Live(ids) => Ok(Reply::Rows(db.live(&ids)?)),
@@ -215,6 +226,8 @@ enum Reply {
     OwnedAttention(Option<(serde_json::Value, super::AttentionProof)>),
     Detail(Option<serde_json::Value>),
     OrganizationState(Option<super::OrganizationRecord>),
+    DeletionPage(DeletionPage),
+    DeletionRecord(Option<DeletionRecord>),
     Page(Page),
     Rows(Vec<Summary>),
     Ids(Vec<String>),
@@ -963,6 +976,29 @@ impl SessionStore {
             .await?
         {
             Reply::Unit => Ok(()),
+            _ => Err(StoreError::Unavailable),
+        }
+    }
+    pub(crate) async fn pending_deletions(
+        &self,
+        after: Option<DeletionCursor>,
+        limit: usize,
+    ) -> Result<DeletionPage> {
+        match self
+            .request(Command::PendingDeletions(after, limit))
+            .await?
+        {
+            Reply::DeletionPage(page) => Ok(page),
+            _ => Err(StoreError::Unavailable),
+        }
+    }
+    pub(crate) async fn deletion_record(
+        &self,
+        id: String,
+        created: String,
+    ) -> Result<Option<DeletionRecord>> {
+        match self.request(Command::DeletionRecord(id, created)).await? {
+            Reply::DeletionRecord(record) => Ok(record),
             _ => Err(StoreError::Unavailable),
         }
     }
@@ -2067,5 +2103,55 @@ mod tests {
             "one"
         );
         assert!(!dir.path().join("sessions").exists());
+    }
+    #[tokio::test]
+    async fn recovery_commands_use_read_admission_and_reserve_complete_results() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::initialize(dir.path().into(), "/workspace".into())
+            .await
+            .unwrap();
+        let mut held = Vec::new();
+        let mut bytes = 0;
+        for n in 0..8 {
+            let command = if n % 2 == 0 {
+                Command::PendingDeletions(None, 100)
+            } else {
+                Command::DeletionRecord("pending".into(), "created".into())
+            };
+            assert!(command.is_read());
+            assert_eq!(
+                command.result_bound(),
+                if n % 2 == 0 {
+                    256 * 1024
+                } else {
+                    MAX_RECORD + 4096
+                }
+            );
+            bytes += command.size().unwrap() + command.result_bound();
+            held.push(store.prepare(command).unwrap());
+        }
+        assert_eq!(store.shared.queue.lock().unwrap().bytes, bytes);
+        assert!(matches!(
+            store.prepare(Command::PendingDeletions(None, 100)),
+            Err(StoreError::QueueFull)
+        ));
+        assert!(matches!(
+            store.prepare(Command::DeletionRecord("pending".into(), "created".into())),
+            Err(StoreError::QueueFull)
+        ));
+        drop(
+            store
+                .prepare(Command::Create(document("independent-mutation")))
+                .unwrap(),
+        );
+        drop(held);
+        assert_eq!(store.shared.queue.lock().unwrap().bytes, 0);
+        assert!(store
+            .pending_deletions(None, 100)
+            .await
+            .unwrap()
+            .jobs
+            .is_empty());
+        store.close().await.unwrap();
     }
 }
