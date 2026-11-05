@@ -19,8 +19,9 @@ use std::{path::Path, time::Duration};
 pub(crate) use worker::testing as test_worker;
 #[allow(unused_imports)] // Format selection is intentionally not enabled here.
 pub(crate) use worker::{
-    ExecutionRequest, InternalCompletion, InternalMutationTicket, OrganizationCompletion,
-    PreparedInternalMutation, PreparedOrganization, RuntimeWriteResources, SessionStore,
+    ExecutionRequest, InternalCompletion, InternalMutationTicket, OrganizationChange,
+    OrganizationCompletion, PreparedInternalMutation, PreparedOrganization, RuntimeWriteResources,
+    SessionStore,
 };
 
 #[derive(Debug)]

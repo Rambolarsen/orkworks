@@ -1496,7 +1496,7 @@ See the [approved design](../superpowers/specs/2026-11-04-ending-workflow-eviden
 and [validation boundary](../validation/session-store-adapter.md#captured-workflow-evidence).
 Production JSON routing and legacy recording/deletion locking remain unchanged;
 the explicit SQL final-scan composition is qualified separately below, while
-production selection and close-first SQL deletion remain gated.
+production selection and complete SQL deletion remain gated.
 
 ## SQL final-scan runtime composition
 
@@ -1534,8 +1534,8 @@ budget through definitive completion and original-owner view invalidation.
 Pre-grant cancellation prevents the organization write; admitted cancellation
 retains completion and stale publication is committed-detached. No JSON mirror,
 external cleanup or production selector is introduced. The HTTP action route,
-projection and action-token protocol remain JSON; SQL Delete/recovery and SQL
-projection/token integration remain separately gated. See the
+projection and action-token protocol remain JSON; external SQL Delete cleanup,
+recovery scheduling and SQL projection/token integration remain separately gated. See the
 [organization boundary evidence](../validation/session-store-adapter.md#captured-sql-close-first-organization).
 
 
@@ -1545,5 +1545,24 @@ new passes discover insertions behind the cursor. These reads return coherent
 persisted identity/progress without granting external cleanup authority. Normal
 session reads keep tombstones hidden, and inconsistent jobs fail explicitly.
 See [recovery discovery evidence](../validation/session-store-adapter.md#sql-deletion-recovery-discovery).
-External cleanup, close-first SQL Delete orchestration and production activation
+External cleanup, complete SQL Delete orchestration and production activation
 remain gated.
+
+
+## Captured SQL Delete admission
+
+`CapturedOrganization::begin_delete` reuses the close-first organization owner
+and bounded prepared action ticket. It preserves original workspace/reader,
+lease, organization reservation, creation/runtime/control and physical closure
+through revocation, stop, finalization and SQL grant. After closure it rereads
+the latest canonical revision outside guards; finalization may have advanced it.
+The existing Delete transaction checks exact creation, both revisions and
+canonical finalization before committing the tombstone/progress-zero job.
+
+The typed admission receipt means external cleanup is pending. Original-owner
+view invalidation and committed-detached results use the same retained resource
+and cancellation boundary as Archive/Restore. The receipt grants no cleanup
+authority and removes no files/evidence; the row/job remains for recovery
+reads. Complete cleanup needs its own exact captured owners and idempotent
+stages. No production selector or HTTP Delete behavior changes. See the
+[admission validation](../validation/session-store-adapter.md#captured-sql-delete-admission).
