@@ -244,7 +244,7 @@ their instruction channels qualify. See the [cross-harness evidence](../docs/val
 Installed reporters require normal integration reconciliation; source support
 does not update older running or published installations by itself.
 
-### Launch-scoped instruction delivery (accepted; activation gated)
+### Launch-scoped instruction delivery (qualified source)
 
 Owner approval on 2026-11-05 covers the [concrete design](../docs/superpowers/specs/2026-11-04-launch-scoped-worktree-instructions-design.md).
 A private launch selector admits only source-owned OpenCode commands with current
@@ -254,6 +254,8 @@ shared narrow helper with fixed argv and bounded time/output. New-launch argv
 and env select the same OS-random ID; exact resume preserves its requested argv;
 latest/custom/unqualified launches remain unscoped. Inherited selector names
 are stripped case-insensitively. Legacy identity/attention capture, public APIs,
-durable metadata and Git fallback contracts remain unchanged. Actual-source
-native qualification is required before activation; source changes alone do not
-update installed assets or existing session environments.
+durable metadata and Git fallback contracts remain unchanged. The separately
+owner-authorized actual-source fixture passed on 2026-11-05;
+source preparation is enabled for this qualified profile. See the
+[qualification record](../docs/validation/harness-workspace-signals.md#actual-source-native-qualification-2026-11-05).
+Source changes alone do not update installed assets or existing session environments.

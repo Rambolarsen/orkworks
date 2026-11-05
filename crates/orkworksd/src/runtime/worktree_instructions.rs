@@ -8,8 +8,6 @@ use crate::harness::{
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-// Remains off until a separately authorized actual-source native fixture passes.
-const NATIVE_QUALIFIED: bool = false;
 const REPORTER: &[u8] = include_bytes!("../../scripts/opencode-session-reporter.js");
 const HELPER: &[u8] = include_bytes!("../../scripts/session-metadata.py");
 const REPORTER_PATH: &str = ".opencode/plugins/orkworks-session-reporter.js";
@@ -229,9 +227,6 @@ impl PreparedScope {
 pub(crate) async fn prepare(
     request: Option<LaunchRequest>,
 ) -> Result<Option<PreparedScope>, String> {
-    if !NATIVE_QUALIFIED {
-        return Ok(None);
-    }
     let Some(helper) =
         dirs::home_dir().map(|home| home.join(".orkworks/hook-scripts/session-metadata.py"))
     else {
@@ -571,10 +566,6 @@ mod tests {
             || Err("OS randomness unavailable".into())
         )
         .is_err());
-    }
-    #[test]
-    fn production_remains_disabled_before_actual_source_native_qualification() {
-        assert!(!NATIVE_QUALIFIED);
     }
     // Fixture-only diagnostics retain static labels, booleans and counts.
     // Raw native output, paths, IDs, environment and credentials are excluded.
