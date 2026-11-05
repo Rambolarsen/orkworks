@@ -567,3 +567,90 @@ mod tests {
         .unwrap();
     }
 }
+
+#[cfg(all(test, unix))]
+pub(super) mod testing {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+    #[derive(Debug)]
+    pub(crate) struct SpawnSnapshot {
+        pub argv: Vec<std::ffi::OsString>,
+        pub selector: Option<String>,
+    }
+    pub(crate) struct RuntimeFixture {
+        pub entered: tokio::sync::Notify,
+        pub release: tokio::sync::Notify,
+        scope: Mutex<Option<PreparedScope>>,
+        pub snapshot: Mutex<Option<SpawnSnapshot>>,
+        pub reporter: PathBuf,
+    }
+    impl std::fmt::Debug for RuntimeFixture {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("RuntimeFixture")
+        }
+    }
+    impl RuntimeFixture {
+        pub fn new(root: &Path) -> (Arc<Self>, CommandSpec) {
+            let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+            let registry = crate::harness::registry::resolve_document(
+                &builtins,
+                &crate::harness::definition::HarnessUserDocument::default(),
+            )
+            .unwrap();
+            let harness = registry.get("opencode").unwrap();
+            let mut command = harness.build_launch(root.to_str().unwrap(), None);
+            let mut request =
+                LaunchRequest::new(harness, InstructionIntent::NewSession, true, &command, None)
+                    .unwrap();
+            git2::Repository::init(root).unwrap();
+            std::fs::write(root.join(".gitignore"), format!("{REPORTER_PATH}\n")).unwrap();
+            let reporter = root.join(REPORTER_PATH);
+            std::fs::create_dir_all(reporter.parent().unwrap()).unwrap();
+            std::fs::write(&reporter, REPORTER).unwrap();
+            let helper = root.join("session-metadata.py");
+            std::fs::write(&helper, HELPER).unwrap();
+            let executable = root.join("fixture-never-executed");
+            std::fs::write(&executable, [0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0, 0, 1]).unwrap();
+            // Safe even while the preparation seam is absent: this fixture
+            // file is never executable and cannot launch a coding harness.
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o600)).unwrap();
+            command.program = executable.to_str().unwrap().to_string();
+            request.command = command.clone();
+            let scope = PreparedScope::from_evidence(
+                request,
+                reporter.clone(),
+                helper,
+                executable,
+                "2.2.5",
+                true,
+                || Ok("0123456789abcdef0123456789abcdef".into()),
+            )
+            .unwrap()
+            .unwrap();
+            (
+                Arc::new(Self {
+                    entered: tokio::sync::Notify::new(),
+                    release: tokio::sync::Notify::new(),
+                    scope: Mutex::new(Some(scope)),
+                    snapshot: Mutex::new(None),
+                    reporter,
+                }),
+                command,
+            )
+        }
+        pub async fn prepare(&self) -> Option<PreparedScope> {
+            self.entered.notify_one();
+            self.release.notified().await;
+            self.scope.lock().unwrap().take()
+        }
+        pub fn capture(&self, command: &portable_pty::CommandBuilder) {
+            *self.snapshot.lock().unwrap() = Some(SpawnSnapshot {
+                argv: command.get_argv().clone(),
+                selector: command
+                    .get_env("ORKWORKS_WORKTREE_INSTRUCTION_ROOT_ID")
+                    .map(|value| value.to_str().unwrap().to_string()),
+            });
+        }
+    }
+}

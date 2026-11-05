@@ -546,6 +546,8 @@ pub(crate) struct SessionRuntime {
     pub(crate) runtime_instance_id: String,
     run_generation: RuntimeGeneration,
     startup_spawned: bool,
+    #[cfg(all(test, unix))]
+    instruction_fixture: Option<Arc<super::worktree_instructions::testing::RuntimeFixture>>,
     pub(crate) worktree_instruction_request: Option<super::worktree_instructions::LaunchRequest>,
     pub(crate) native_approval: Option<super::codex_approval_application::NativeApprovalState>,
     #[cfg(test)]
@@ -606,6 +608,8 @@ impl SessionRuntime {
                 runtime_instance_id: uuid::Uuid::new_v4().to_string(),
                 run_generation: next_runtime_generation(),
                 startup_spawned: false,
+                #[cfg(all(test, unix))]
+                instruction_fixture: None,
                 worktree_instruction_request: None,
                 attention_owner: super::observed_status::AttentionOwner::default(),
                 codex_terminal_status_active: false,
@@ -661,6 +665,8 @@ impl SessionRuntime {
             runtime_instance_id: uuid::Uuid::new_v4().to_string(),
             run_generation: next_runtime_generation(),
             startup_spawned: false,
+            #[cfg(all(test, unix))]
+            instruction_fixture: None,
             worktree_instruction_request: None,
             attention_owner: super::observed_status::AttentionOwner::default(),
             codex_terminal_status_active: false,
@@ -2078,6 +2084,8 @@ pub(crate) fn start_session_runtime(
 }
 
 struct RuntimeStartup {
+    #[cfg(all(test, unix))]
+    instruction_fixture: Option<Arc<super::worktree_instructions::testing::RuntimeFixture>>,
     worktree_instruction_request: Option<super::worktree_instructions::LaunchRequest>,
     run_generation: RuntimeGeneration,
     is_codex_session: bool,
@@ -2109,6 +2117,8 @@ fn start_session_runtime_inner(
             .as_deref()
             .or(handle.info.harness.as_deref());
         RuntimeStartup {
+            #[cfg(all(test, unix))]
+            instruction_fixture: handle.runtime.instruction_fixture.clone(),
             worktree_instruction_request: handle.runtime.worktree_instruction_request.clone(),
             run_generation: handle.runtime.run_generation(),
             is_codex_session: handle.info.harness.as_deref() == Some("codex")
@@ -2153,6 +2163,8 @@ async fn run_session_runtime(
     )>,
 ) -> Result<(), String> {
     let RuntimeStartup {
+        #[cfg(all(test, unix))]
+        instruction_fixture,
         worktree_instruction_request,
         run_generation,
         is_codex_session,
@@ -2165,6 +2177,12 @@ async fn run_session_runtime(
     }
     let instruction_scope =
         super::worktree_instructions::prepare(worktree_instruction_request).await?;
+    #[cfg(all(test, unix))]
+    let instruction_scope = if let Some(fixture) = instruction_fixture.as_ref() {
+        fixture.prepare().await
+    } else {
+        instruction_scope
+    };
     let native_plan = if is_codex_session {
         super::codex_native::eligible(&command, &state.integration_probe_cache).await?
     } else {
@@ -2358,6 +2376,12 @@ async fn run_session_runtime(
             return Err("session runtime was replaced before instruction-scoped spawn".into());
         }
         scope.apply(&mut cmd, &command);
+    }
+    #[cfg(all(test, unix))]
+    if let Some(fixture) = instruction_fixture.as_ref() {
+        fixture.capture(&cmd);
+        clear_workflow_report_token_if_matches(&id, &report_token);
+        return Err("instruction fixture stopped at PTY spawn boundary".into());
     }
     let mut child = match pair.slave.spawn_command(cmd) {
         Ok(child) => child,
@@ -4241,7 +4265,7 @@ mod tests {
         assert!(pending.is_empty());
     }
 
-    fn test_state_with_runtime_session(id: &str) -> Arc<crate::AppState> {
+    pub(super) fn test_state_with_runtime_session(id: &str) -> Arc<crate::AppState> {
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
             projection_lock: Mutex::new(()),
@@ -8819,5 +8843,113 @@ mod evaluation_close_native_failure_tests {
         .unwrap();
         assert!(tui_alive_at_cutoff && ordinary_locks_free);
         assert!(!authority.can_respond());
+    }
+}
+
+#[cfg(all(test, unix))]
+mod worktree_instruction_startup_tests {
+    use super::*;
+    use std::time::Duration;
+    async fn exercise(mode: &str) {
+        let root = tempfile::tempdir().unwrap();
+        let id = format!("instruction-startup-{mode}-{}", uuid::Uuid::new_v4());
+        let state = super::tests::test_state_with_runtime_session(&id);
+        let (fixture, command) =
+            super::super::worktree_instructions::testing::RuntimeFixture::new(root.path());
+        let (mut runtime, control) = SessionRuntime::live(24, 80);
+        runtime.instruction_fixture = Some(fixture.clone());
+        let output = runtime.output_tx.clone();
+        let (kill_tx, kill_rx) = tokio::sync::watch::channel(false);
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(&id).unwrap();
+            handle.runtime = runtime;
+            handle.kill_tx = kill_tx.clone();
+        }
+        let start = tokio::spawn(start_session_runtime(
+            state.clone(),
+            id.clone(),
+            command.clone(),
+            None,
+            control,
+            output,
+            kill_rx,
+            PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+        ));
+        tokio::time::timeout(Duration::from_secs(2), fixture.entered.notified())
+            .await
+            .expect("startup must await instruction preparation");
+        match mode {
+            "cancel" => {
+                kill_tx.send(true).unwrap();
+            }
+            "replace" => {
+                state.sessions.lock().unwrap().get_mut(&id).unwrap().runtime =
+                    SessionRuntime::detached(24, 80);
+            }
+            "drift" => {
+                std::fs::write(&fixture.reporter, "drift").unwrap();
+            }
+            _ => {}
+        }
+        fixture.release.notify_one();
+        let result = tokio::time::timeout(Duration::from_secs(3), start)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(result.is_err()); // test fixture stops at the exact spawn boundary
+        let snapshot = fixture.snapshot.lock().unwrap();
+        if matches!(mode, "cancel" | "replace") {
+            assert!(
+                snapshot.is_none(),
+                "cancelled/replaced startup must never reach spawn"
+            );
+        } else {
+            let capture = snapshot
+                .as_ref()
+                .expect("startup must reach the pre-spawn boundary");
+            if mode == "drift" {
+                assert!(capture.selector.is_none());
+                assert_eq!(
+                    capture.argv,
+                    std::iter::once(&command.program)
+                        .chain(command.args.iter())
+                        .map(std::ffi::OsString::from)
+                        .collect::<Vec<_>>()
+                );
+            } else {
+                assert_eq!(
+                    capture.selector.as_deref(),
+                    Some("ses_0123456789abcdef0123456789abcdef")
+                );
+                assert_eq!(
+                    capture.argv.last().unwrap(),
+                    "ses_0123456789abcdef0123456789abcdef"
+                );
+                assert_eq!(capture.argv[capture.argv.len() - 2], "--session");
+            }
+        }
+        assert!(!state.session_pids.lock().unwrap().contains_key(&id));
+    }
+    #[tokio::test]
+    async fn worktree_instruction_cancel_during_preparation_never_spawns() {
+        exercise("cancel").await;
+    }
+    #[tokio::test]
+    async fn worktree_instruction_replacement_during_preparation_never_spawns() {
+        exercise("replace").await;
+    }
+    #[tokio::test]
+    async fn worktree_instruction_success_reaches_spawn_with_coherent_scope() {
+        exercise("success").await;
+    }
+    #[tokio::test]
+    async fn worktree_instruction_drift_before_spawn_keeps_original_command() {
+        exercise("drift").await;
     }
 }

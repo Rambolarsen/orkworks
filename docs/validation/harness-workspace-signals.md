@@ -285,7 +285,10 @@ read-back mismatch/parent refusal, capture-order independence, cleanup, one
 unresolved lookup, helper drift/output/timeout failures and hook-registration
 failure without disabling legacy reporting. Private Rust tests cover argv/env
 coherence, exact resume, explicit models, profile/version/platform refusal, asset
-ownership/drift and randomness failure.
+ownership/drift and randomness failure. Runtime-startup tests additionally hold
+preparation pending, cancel or replace the generation, and assert no spawn
+boundary is reached; success and drift exercise actual pre-spawn argv/env selection.
+Their non-executable fixture stops before any child launch.
 
 Production preparation remains disabled pending actual-source native
 qualification. An ignored diagnostic can export the actual prepared argv/env
