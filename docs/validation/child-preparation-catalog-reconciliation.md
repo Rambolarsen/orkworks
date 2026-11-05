@@ -177,3 +177,12 @@ qualification remain parallel prerequisites, not facts an index design can
 supply. RegistryRoot is independently pending. Complete transaction fixtures and
 any executable/native plan retain their existing gates. #1176 stays open, #740
 stays closed research; no runtime activation follows from this audit.
+
+
+## Physical design follow-up — 2026-11-05
+
+[#1428](https://github.com/Rambolarsen/orkworks/issues/1428) supplies the
+[physical paired membership/index proposal](../superpowers/specs/2026-11-05-paired-membership-index-design.md).
+Its new layout, projection/locator and recovery/compatibility choices remain
+owner-pending. The logical inventory and prior decisions are unchanged; no
+physical/index/producer/native qualification is inferred from the proposal.
