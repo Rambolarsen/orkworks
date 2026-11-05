@@ -408,3 +408,20 @@ activation and physical source authority remain unqualified.
 [original preparation commit/revocation cutoff](../../validation/child-preparation-commit-authority.md).
 Its possible one-command source-permission alternative is a separate proposal;
 none of the accepted architecture choices widens the current source cutoff.
+
+
+## Source-admission decision and execution routing — 2026-11-05
+
+The owner separately accepted #1398's interface/ordering choices for further
+design, as recorded in the [source-admission decision](2026-11-05-evaluation-source-admission-design.md#scoped-owner-acceptance-for-further-design--2026-11-05).
+Earlier pending wording for those choices describes the original inspection
+context. The joint architecture acceptance above independently settles its three
+broker/schema/profile/retention choices for further qualification; neither scoped
+decision supplies source permission or implementation/native qualification.
+
+The [source-publisher execution design](2026-11-05-source-publisher-execution-design.md)
+reuses this accepted direction and proposes retained live-registry ordering.
+That new registry choice remains owner-pending. It preserves the separate
+[preparation authority investigation](../../validation/child-preparation-commit-authority.md)
+and its still-pending one-command alternative; no implementation follows from
+routing these documents together.
