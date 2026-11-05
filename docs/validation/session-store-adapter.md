@@ -55,6 +55,19 @@ and invalidate history on entry to or exit from history. Creating and ending
 records remain active in the index; an explicit Closed choice does not hide a
 later active transition, while Archived remains protected.
 
+Organization changes and deletion-tombstone admission independently validate the
+latest canonical finalization inside their SQL transaction: terminal status,
+`dead` lifecycle and `ended` phase, with matching stored identity/revision. An
+Archived index choice alone is insufficient because it intentionally survives
+producer lifecycle changes. Unfinished, unreadable or inconsistent canonical
+metadata blocks the action before organization/history/search/tombstone effects.
+Real-store regressions cover creating/active/ending metadata beneath Archived,
+reopen, unchanged rejection and successful retry after finalization, plus invalid
+canonical shape/identity/creation/revision. This is a metadata prerequisite; the
+application must still prove physical runtime closure and retain its exact action
+reservation. It does not qualify SQL Archive/Delete runtime routing or external
+cleanup/recovery.
+
 Conditional Codex hook wait/completion commands require an opaque process-local
 attention proof from this exact worker/session/creation identity and the current
 matching root/source/status tuple. They edit the latest record, preserving newer

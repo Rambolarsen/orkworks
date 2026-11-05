@@ -237,6 +237,7 @@ impl Database {
         if !matches!(state.as_deref(), Some("closed" | "archived")) {
             return Err(StoreError::Conflict);
         }
+        require_finalized_session(&tx, id, created)?;
         let current: String = tx
             .query_row("SELECT revision FROM organization WHERE id=?1", [id], |r| {
                 r.get(0)
@@ -293,6 +294,7 @@ impl Database {
         {
             return Err(StoreError::Conflict);
         }
+        require_finalized_session(&tx, id, created)?;
         tx.execute(
             "INSERT INTO deletion_jobs VALUES(?1,?2,0)",
             rusqlite::params![id, created],
@@ -464,6 +466,18 @@ fn read_document(conn: &Connection, id: &str, deleted: bool) -> Result<Option<se
         Ok(document)
     })
     .transpose()
+}
+// Archived is an independent organization choice and can outlive a producer's
+// lifecycle regression. Validate canonical finalization inside the mutation's
+// transaction; an indexed history state is not proof of a completed close.
+fn require_finalized_session(conn: &Connection, id: &str, created: &str) -> Result<()> {
+    let document = read_document(conn, id, false)?.ok_or(StoreError::Conflict)?;
+    let record: crate::metadata::session_transactions::RevisionedSession =
+        serde_json::from_value(document)?;
+    if record.metadata.created_at != created || recorded_state(&record.metadata) != "closed" {
+        return Err(StoreError::Conflict);
+    }
+    Ok(())
 }
 fn recorded_state(meta: &crate::metadata::SessionMetadata) -> &'static str {
     if matches!(meta.status.as_str(), "ended" | "killed" | "error")
@@ -926,3 +940,6 @@ mod tests {
         assert!(!dir.path().join("sessions").exists());
     }
 }
+
+#[cfg(test)]
+mod close_first_tests;
