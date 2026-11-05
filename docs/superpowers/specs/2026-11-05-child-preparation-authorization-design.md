@@ -391,3 +391,16 @@ format or limit require a scoped decision for that change only. Once the closed
 contracts and prerequisites are established, independently generated complete
 old/new/manifest/packing fixtures and any executable/native plan retain their
 existing separate gates. #1176 stays open; #740 stays closed research.
+
+
+## Catalog reconciliation handoff — 2026-11-05
+
+The [source-backed catalog/effect audit](../../validation/child-preparation-catalog-reconciliation.md)
+reconciles all 35 selected logical families, exact key owners, original-attach
+read/write obligations and current implementation seams. It closes the bounded
+name/key inventory comparison, not physical catalog/membership or a complete
+transaction witness. Existing accepted choices are unchanged. The concrete next
+deliverable is the physical paired membership/index contract with complete bounded
+lookup/absence, atomic maintenance, full-key uniqueness and sparse direct-proof
+recovery under H/G; actual producers/native/resources remain separate gates.
+Tracking: [#1423](https://github.com/Rambolarsen/orkworks/issues/1423).
