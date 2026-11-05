@@ -113,7 +113,7 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 
 | [0089](./0089-new-session-image-context.md) | New sessions own bounded local image context | accepted; implementation in progress |
 
-| [0090](./0090-workspace-hierarchy-sqlite-transactions.md) | Workspace hierarchy transactions use one SQLite store | architecture direction accepted for design/qualification; detailed defaults, native evidence and runtime approval gated |
+| [0090](./0090-workspace-hierarchy-sqlite-transactions.md) | Workspace hierarchy transactions use one SQLite store | architecture direction accepted; linked-profile worker separation superseded in part by [0106](0106-joint-child-preparation.md); qualification/runtime gates remain |
 
 - [Read-only selected-session Git changes](0091-read-only-session-git-changes.md) — Bounded authenticated inspection with distinct worktree and branch comparisons.
 
@@ -139,8 +139,10 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 
 - [ADR 0102 — Slow terminal projections compute outside the input fence](0102-terminal-projection-input-fence.md) — Accepted; scoped implementation approved.
 
-- [ADR 0103: Ordinary sessions use SQLite with bounded history reads](0103-sqlite-session-storage.md) — Accepted session storage/migration decision; implementation and qualification pending.
+- [ADR 0103: Ordinary sessions use SQLite with bounded history reads](0103-sqlite-session-storage.md) — Accepted session storage/migration; linked-profile worker separation superseded in part by [0106](0106-joint-child-preparation.md); implementation/qualification pending.
 
 - [Peon admission shares the session deletion fence](0104-peon-scheduling-deletion-fence.md) — Accepted synchronous admission/timer fence; provider execution remains independent.
 
 - [APM capability compatibility](0105-apm-capability-compatibility.md) — Accepted capability admission and automated behavioral evidence.
+
+- [Joint child preparation transaction broker](0106-joint-child-preparation.md) — Accepted linked-profile worker/lineage/tombstone direction for qualification; partially supersedes ADRs 0090 and 0103.

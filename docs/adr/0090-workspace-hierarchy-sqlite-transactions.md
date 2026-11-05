@@ -8,7 +8,7 @@ status: draft
 
 # Workspace hierarchy transactions use one SQLite store
 
-- Status: accepted architecture direction only; detailed design and numeric limits remain proposed
+- Status: superseded in part by [ADR 0106](0106-joint-child-preparation.md) for linked-profile connection/worker separation only; all other decisions and gates remain
 - Deciders: owner, scoped acceptance on 2026-10-24
 - Date: 2026-10-23
 - Tracking: [#746](https://github.com/Rambolarsen/orkworks/issues/746), [#744](https://github.com/Rambolarsen/orkworks/issues/744)
@@ -99,3 +99,12 @@ ordinary-writer fencing without qualifying active lifecycle adoption, native
 ownership, source custody, physical recovery or a complete production profile.
 All activation gates remain; #1176 stays open. No migration or new wire/schema
 representation follows from this amendment.
+
+
+## Linked preparation decision — 2026-11-05
+
+[ADR 0106](0106-joint-child-preparation.md) records the owner-approved linked
+transaction broker, versioned lineage and retained-tombstone direction for
+further qualification. Its partial supersession changes only that linked-profile
+connection/worker arrangement; this record's other authority, recovery, retention
+and activation decisions remain. No implementation or source permission follows.

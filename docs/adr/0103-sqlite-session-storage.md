@@ -8,7 +8,7 @@ status: stable
 
 # Ordinary sessions use SQLite with bounded history reads
 
-- Status: accepted; implementation and qualification pending
+- Status: accepted; linked-profile worker separation superseded by [ADR 0106](0106-joint-child-preparation.md); implementation and qualification pending
 - Deciders: repository owner; approved the concrete design on 2026-11-01
 - Date: 2026-11-01
 - Tracking: [#1241](https://github.com/Rambolarsen/orkworks/issues/1241)
@@ -60,3 +60,12 @@ durability behavior, and handle external payload recovery explicitly.
 Implementation follows the [reviewed delivery plan](../superpowers/plans/2026-11-01-sqlite-session-storage.md).
 Acceptance supplies no runtime code, live migration, destructive retention, native
 enablement or platform qualification.
+
+
+## Linked preparation decision — 2026-11-05
+
+[ADR 0106](0106-joint-child-preparation.md) records the owner-approved linked
+transaction broker, versioned lineage and retained-tombstone direction for
+further qualification. Its partial supersession changes only that linked-profile
+connection/worker arrangement; this record's other authority, recovery, retention
+and activation decisions remain. No implementation or source permission follows.

@@ -90,3 +90,5 @@ Capability research, validation results, and evidence fixtures.
 - [Selected child control component bytes](child-control-components.md) — Independent synthetic control, lifecycle, coordination and recovery vectors with conditional logical checks; actual owner and complete-state qualification remain open.
 
 - [Retained child membership component relations](child-membership-components.md) — Independent selected forward/reverse, historical recovery/debit and conditional discovery-boundary fixtures; no actual index or complete-store qualification.
+
+- [Original child preparation commit authority](child-preparation-commit-authority.md) — Source-backed cutoff gap and owner-pending one-command late-saving/no-spawn alternative; no native qualification.

@@ -446,3 +446,14 @@ protected hidden tombstone participation. It explicitly discloses the new SQL
 availability and physical-purge costs. These are owner-pending choices; this
 accepted ordinary contract and its rollout/producer/backup gates are unchanged.
 No schema upgrade, connection attachment or linked-profile eligibility is added.
+
+
+## Linked architecture qualification decision — 2026-11-05
+
+The owner [accepted the exact three joint-preparation architecture choices](2026-11-05-joint-child-preparation-design.md#scoped-architecture-acceptance--2026-11-05)
+for further qualification. [ADR 0106](../../adr/0106-joint-child-preparation.md)
+records the scoped linked-profile worker separation replacement, versioned
+lineage and hidden-tombstone costs. No ordinary schema/migration/activation or
+source-permission implementation is approved; the source commit/revocation
+cutoff remains separate. Unlinked ordinary behavior and other accepted session
+storage/producer/backup/recovery decisions remain unchanged.

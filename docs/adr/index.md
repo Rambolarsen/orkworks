@@ -106,7 +106,7 @@ Decision records and their original rationale and consequences.
 
 - [New sessions own bounded local image context](0089-new-session-image-context.md) — Proposed ingestion, storage, and evidence-gated delivery.
 
-- [Workspace hierarchy SQLite transactions](0090-workspace-hierarchy-sqlite-transactions.md) — Proposed transaction owner and storage qualification gates.
+- [Workspace hierarchy SQLite transactions](0090-workspace-hierarchy-sqlite-transactions.md) — Accepted direction and qualification gates; linked-profile worker separation superseded in part by [0106](0106-joint-child-preparation.md).
 
 - [Read-only selected-session Git changes](0091-read-only-session-git-changes.md) — Bounded authenticated inspection with distinct worktree and branch comparisons.
 
@@ -132,8 +132,10 @@ Decision records and their original rationale and consequences.
 
 - [Slow terminal projections compute outside the input fence](0102-terminal-projection-input-fence.md) — Accepted capacity/input fence separation with stale-result rejection.
 
-- [Ordinary sessions use SQLite with bounded history reads](0103-sqlite-session-storage.md) — Accepted ordinary-session database, bounded history and maintenance-only migration; implementation pending.
+- [Ordinary sessions use SQLite with bounded history reads](0103-sqlite-session-storage.md) — Accepted ordinary-session database/history/migration; linked-profile worker separation superseded in part by [0106](0106-joint-child-preparation.md).
 
 - [Peon admission shares the session deletion fence](0104-peon-scheduling-deletion-fence.md) — Accepted synchronous admission/timer fence; provider execution remains independent.
 
 - [APM capability compatibility](0105-apm-capability-compatibility.md) — Accepted capability admission and automated behavioral evidence.
+
+- [Joint child preparation transaction broker](0106-joint-child-preparation.md) — Accepted linked-profile worker/lineage/tombstone direction for qualification; partially supersedes ADRs 0090 and 0103.
