@@ -138,4 +138,6 @@ Decision records and their original rationale and consequences.
 
 - [APM capability compatibility](0105-apm-capability-compatibility.md) — Accepted capability admission and automated behavioral evidence.
 
-- [Joint child preparation transaction broker](0106-joint-child-preparation.md) — Accepted linked-profile worker/lineage/tombstone direction for qualification; partially supersedes ADRs 0090 and 0103.
+- [Joint child preparation transaction broker](0106-joint-child-preparation.md) — Accepted linked-profile architecture; partially supersedes ADRs 0090/0103. The later one-action source cutoff is recorded by [0107](0107-original-child-preparation-permit.md).
+
+- [Original child preparation permit](0107-original-child-preparation-permit.md) — Accepted exact late-saving/no-spawn policy for further design; representation and implementation gated.

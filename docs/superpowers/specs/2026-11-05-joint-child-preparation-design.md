@@ -441,3 +441,15 @@ preparation can retain history, charges and capacity. [#1415](https://github.com
 closes the separately proposed authorization-evidence/compatibility representation;
 no schema/format or proof placement is selected here. Existing architecture
 acceptance and all physical/producer/native/activation gates remain unchanged.
+
+
+## Authorization-evidence representation proposed — 2026-11-05
+
+[ADR 0107](../../adr/0107-original-child-preparation-permit.md) records the accepted scoped policy.
+The [authorization-evidence proposal](2026-11-05-child-preparation-authorization-design.md)
+for #1415 adds original control snapshots, one immutable P-keyed recovery row
+and new-store-only format-6 commitments under existing source budgets. These
+representation choices remain owner-pending. The accepted broker/schema-2/format-5
+architecture and source-admission interface are unchanged; RegistryRoot remains
+a separate proposal. No fixture, SQL/schema/migration, native/model experiment,
+live source issuance or runtime activation is authorized.

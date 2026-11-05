@@ -285,3 +285,15 @@ commitment/lookup, accounting/retention and compatibility proposal. No interim
 synthetic permit or callback proof is authorized. The RegistryRoot mechanism
 remains owner-pending; complete source/profile/native/resource gates remain.
 No implementation, source registration or experiment follows from this record.
+
+
+## Authorization-evidence representation proposed — 2026-11-05
+
+[ADR 0107](../../adr/0107-original-child-preparation-permit.md) records the accepted scoped policy.
+The [authorization-evidence proposal](2026-11-05-child-preparation-authorization-design.md)
+for #1415 adds original control snapshots, one immutable P-keyed recovery row
+and new-store-only format-6 commitments under existing source budgets. These
+representation choices remain owner-pending. The accepted broker/schema-2/format-5
+architecture and source-admission interface are unchanged; RegistryRoot remains
+a separate proposal. No fixture, SQL/schema/migration, native/model experiment,
+live source issuance or runtime activation is authorized.
