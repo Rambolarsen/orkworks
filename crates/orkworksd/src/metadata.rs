@@ -1305,7 +1305,7 @@ pub struct MetadataStore {
     root: PathBuf,
     session_writes: Mutex<HashMap<String, crate::runtime::observed_status::AttentionOwner>>,
     session_write_locks: session_reader::SessionWriteLocks,
-    summary_checkpoints: Mutex<HashMap<String, SummaryCheckpointCacheEntry>>,
+    summary_checkpoints: Arc<Mutex<HashMap<String, SummaryCheckpointCacheEntry>>>,
     #[cfg(test)]
     after_event_write: Mutex<Option<Box<dyn Fn(&Path) + Send>>>,
 }
@@ -1321,7 +1321,7 @@ impl MetadataStore {
             organization: Arc::new(crate::session_archive::OrganizationStore::new(root)),
             session_writes: Mutex::new(HashMap::new()),
             session_write_locks,
-            summary_checkpoints: Mutex::new(HashMap::new()),
+            summary_checkpoints: Arc::new(Mutex::new(HashMap::new())),
             #[cfg(test)]
             after_event_write: Mutex::new(None),
         }
@@ -6742,3 +6742,5 @@ mod tests {
         assert!(store.read_events("peon-fail").is_empty());
     }
 }
+
+pub(crate) mod replay_cleanup;

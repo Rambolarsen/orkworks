@@ -130,7 +130,9 @@ impl Database {
             return Err(StoreError::Corrupt);
         }
         let document = read_document(&tx, id, true)?.ok_or(StoreError::Corrupt)?;
-        if document["createdAt"].as_str() != Some(created) {
+        let record: crate::metadata::session_transactions::RevisionedSession =
+            serde_json::from_value(document.clone())?;
+        if record.metadata.created_at != created || recorded_state(&record.metadata) != "closed" {
             return Err(StoreError::Corrupt);
         }
         tx.commit()?;

@@ -29,6 +29,12 @@ pub(crate) struct SessionWrites {
     #[cfg(test)]
     after_organization_grant:
         std::sync::Mutex<Option<(oneshot::Sender<()>, oneshot::Receiver<()>)>>,
+    #[cfg(test)]
+    replay_before: ReplayGate,
+    #[cfg(test)]
+    replay_admitted: ReplayGate,
+    #[cfg(test)]
+    replay_removed: ReplayGate,
 }
 struct Capture {
     created: String,
@@ -79,6 +85,12 @@ impl SessionWrites {
             before_organization_lane: std::sync::Mutex::new(None),
             #[cfg(test)]
             after_organization_grant: std::sync::Mutex::new(None),
+            #[cfg(test)]
+            replay_before: std::sync::Mutex::new(None),
+            #[cfg(test)]
+            replay_admitted: std::sync::Mutex::new(None),
+            #[cfg(test)]
+            replay_removed: std::sync::Mutex::new(None),
         }))
     }
     pub(crate) fn native_observation_stamp(&self) -> metadata::hook_observation::Stamp {
@@ -363,7 +375,24 @@ pub(crate) mod lifecycle;
 #[cfg(test)]
 mod organization_tests;
 
+mod file_budget;
 mod organization;
 
 #[cfg(test)]
 mod delete_admission_tests;
+
+#[cfg(all(test, unix))]
+mod delete_replay_tests;
+
+#[cfg(test)]
+type ReplayGate = std::sync::Mutex<Option<(oneshot::Sender<()>, std::sync::mpsc::Receiver<()>)>>;
+#[cfg(test)]
+fn enter_replay_gate(gate: &ReplayGate) {
+    let gate = gate.lock().unwrap().take();
+    if let Some((entered, release)) = gate {
+        let _ = entered.send(());
+        release
+            .recv_timeout(std::time::Duration::from_secs(15))
+            .expect("replay gate was not released");
+    }
+}

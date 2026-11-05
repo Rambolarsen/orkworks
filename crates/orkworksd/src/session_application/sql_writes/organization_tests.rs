@@ -812,49 +812,7 @@ pub(super) async fn stalled_organization_keeps_input_available(delete: bool) {
     finalize(&state, &writes).await;
     drop(commands);
     let view = writes.capture_organization(ID.into()).await.unwrap();
-    let input_id = "organization-input";
-    let (runtime, mut input_commands) = SessionRuntime::live(24, 80);
-    let mut info = crate::test_support::test_session_info(
-        input_id,
-        "Input",
-        dir.path().display().to_string(),
-        "running",
-        CREATED,
-    );
-    info.lifecycle = "alive".into();
-    info.lifecycle_phase = "active".into();
-    state.sessions.lock().unwrap().insert(
-        input_id.into(),
-        crate::SessionHandle {
-            info,
-            runtime,
-            kill_tx: tokio::sync::watch::channel(false).0,
-            output_buffer: crate::peon::RingBuffer::new(200),
-            scan_buf: String::new(),
-            pending_work_signal: None,
-            terminal_attached: false,
-            resume_in_progress: false,
-            capacity: Default::default(),
-            active_work_hook: false,
-        },
-    );
-    let meta = crate::test_support::test_session_metadata(
-        input_id,
-        "Input",
-        dir.path().display().to_string(),
-        "running",
-        CREATED,
-        "2026-01-02T00:00:00Z",
-    );
-    state
-        .workspace
-        .lock()
-        .unwrap()
-        .as_ref()
-        .unwrap()
-        .metadata
-        .try_write_session(&meta)
-        .unwrap();
+    let (input_id, mut input_commands) = input_runtime(&state, dir.path());
     let mut pause = crate::session_store::test_worker::hold_next_organization(&store, ID);
     let (entered_sent, entered) = oneshot::channel();
     let (progress_sent, progress) = oneshot::channel();
@@ -1202,4 +1160,54 @@ async fn sql_archive_cancel_during_revocation_retains_stop_but_never_archives() 
         "0"
     );
     store.close().await.unwrap();
+}
+
+pub(super) fn input_runtime(
+    state: &Arc<AppState>,
+    directory: &std::path::Path,
+) -> (&'static str, tokio::sync::mpsc::Receiver<RuntimeCommand>) {
+    let input_id = "organization-input";
+    let (runtime, input_commands) = SessionRuntime::live(24, 80);
+    let mut info = crate::test_support::test_session_info(
+        input_id,
+        "Input",
+        directory.display().to_string(),
+        "running",
+        CREATED,
+    );
+    info.lifecycle = "alive".into();
+    info.lifecycle_phase = "active".into();
+    state.sessions.lock().unwrap().insert(
+        input_id.into(),
+        crate::SessionHandle {
+            info,
+            runtime,
+            kill_tx: tokio::sync::watch::channel(false).0,
+            output_buffer: crate::peon::RingBuffer::new(200),
+            scan_buf: String::new(),
+            pending_work_signal: None,
+            terminal_attached: false,
+            resume_in_progress: false,
+            capacity: Default::default(),
+            active_work_hook: false,
+        },
+    );
+    let meta = crate::test_support::test_session_metadata(
+        input_id,
+        "Input",
+        directory.display().to_string(),
+        "running",
+        CREATED,
+        "2026-01-02T00:00:00Z",
+    );
+    state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .metadata
+        .try_write_session(&meta)
+        .unwrap();
+    (input_id, input_commands)
 }
