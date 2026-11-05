@@ -8,7 +8,7 @@ status: draft
 
 # Joint child preparation uses a private attached transaction broker
 
-- Status: accepted architecture for further qualification; implementation gated
+- Status: accepted architecture; original-preparation cutoff superseded in part by [ADR 0107](0107-original-child-preparation-permit.md); implementation gated
 - Deciders: owner, scoped “keep going” on 2026-11-05
 - Date: 2026-11-05
 - Tracking: [#1410](https://github.com/Rambolarsen/orkworks/issues/1410), [#1176](https://github.com/Rambolarsen/orkworks/issues/1176)
@@ -58,3 +58,12 @@ physical-commit rule is unchanged and unresolved; atomicity is no permission to
 write after revocation. No new source permit, executable plan, database/SQL,
 migration, registration, live capability or probe is accepted. The three
 architecture choices need no repeated approval within this scope.
+
+
+## Original preparation policy decision — 2026-11-05
+
+[ADR 0107](0107-original-child-preparation-permit.md) records the later owner
+acceptance of one exact original-preparation permit for further design. The
+historical no-new-source-permit exclusion above described this ADR's earlier
+architecture-only scope; it is superseded only for that one command. All broker,
+lineage/profile/retention and other source/native/activation decisions remain.

@@ -251,3 +251,5 @@ Dated design records; these do not establish current product behavior.
 - [Joint original child preparation publisher](2026-11-05-joint-child-preparation-design.md) — Proposed atomic ordinary/hierarchy publisher, shared-worker tradeoff and versioned lineage commitments; owner-pending.
 
 - [Source publisher execution and qualification boundary](2026-11-05-source-publisher-execution-design.md) — Proposed writer integration and retained-registry ordering, with explicit linked-profile and native-cutoff gates.
+
+- [Original child preparation authorization evidence](2026-11-05-child-preparation-authorization-design.md) — Proposed exact permit intent/snapshots, immutable recovery row and fresh-format commitments; policy accepted, representation pending.

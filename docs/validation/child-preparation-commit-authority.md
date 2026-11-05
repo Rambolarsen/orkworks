@@ -1,7 +1,7 @@
 ---
 type: Authority Investigation
 title: Original child preparation commit authority
-description: Source-backed original preparation commit/revocation gap and owner-pending one-command alternative, separate from accepted broker architecture.
+description: Accepted scoped original-preparation late-saving policy for further design, with representation and native qualification gated.
 tags: [orkworks, hierarchy, preparation, authority, qualification]
 status: draft
 workflow_status: policy-accepted-evidence-design-pending
@@ -299,3 +299,14 @@ production registration, a verified profile or activation. Complete catalog/
 physical membership, ordinary producer/cutover, all other source/runtime writers,
 resource/native evidence and separately approved executable plans remain gated.
 RegistryRoot remains a separate proposed mechanism; #1176 stays open.
+
+
+## Authorization-evidence proposal — 2026-11-05
+
+[ADR 0107](../adr/0107-original-child-preparation-permit.md) aligns the scoped policy
+with the earlier ADR. The [authorization-evidence proposal](../superpowers/specs/2026-11-05-child-preparation-authorization-design.md)
+defines the original control snapshots, exact immutable intent, one retained
+P-keyed recovery row and fresh format-6 placement under existing source budgets.
+These representation choices remain owner-pending; no implementation or native
+qualification follows. The source-admission interface was separately accepted
+through #1414; RegistryRoot remains proposed. #1176 stays open; #740 stays closed.
