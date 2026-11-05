@@ -247,3 +247,5 @@ Dated design records; these do not establish current product behavior.
 
 - [Evaluation source-to-runtime admission](2026-11-05-evaluation-source-admission-design.md) — Proposed original-source/runtime admission, source-writer freshness and exact registration interface; no activation.
 
+
+- [Joint original child preparation publisher](2026-11-05-joint-child-preparation-design.md) — Proposed atomic ordinary/hierarchy publisher, shared-worker tradeoff and versioned lineage commitments; owner-pending.

@@ -435,3 +435,14 @@ behavior, platform durability and large-history performance remain unverified.
 The [reviewed implementation plan](../plans/2026-11-01-sqlite-session-storage.md)
 preserves those qualification and live-cutover gates. No repeat architecture
 approval is needed for implementation that stays within this contract.
+
+
+## Proposed hierarchy preparation participation — 2026-11-05
+
+The [joint child preparation proposal](2026-11-05-joint-child-preparation-design.md),
+tracked by [#1406](https://github.com/Rambolarsen/orkworks/issues/1406), proposes a
+linked-profile transaction broker, ordinary schema-2 lineage index/member and
+protected hidden tombstone participation. It explicitly discloses the new SQL
+availability and physical-purge costs. These are owner-pending choices; this
+accepted ordinary contract and its rollout/producer/backup gates are unchanged.
+No schema upgrade, connection attachment or linked-profile eligibility is added.
