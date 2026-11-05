@@ -419,3 +419,32 @@ cases are not one coherent store. It supplies no actual physical-index completen
 metadata-only precharge, proof/native/CAS/producer authority or source-valid full
 transaction. Existing subject/receipt/claim/summary storage and complete owner
 qualification remain independent gates; #1183/#1176 stay open, #740 stays closed.
+
+
+## Scoped derived-index exception — 2026-11-05
+
+After reviewing [PR #1430](https://github.com/Rambolarsen/orkworks/pull/1430), the
+owner explicitly answered “go ahead” to the narrow exception for fixed derived
+indexes maintained atomically with their authoritative records, and to that
+physical representation **for further qualification**.
+[#1433](https://github.com/Rambolarsen/orkworks/issues/1433) records this explicit
+policy clarification, separate from #1432's already recorded layout acceptance.
+
+This qualifies only the earlier “Do not add a generic persisted consumer graph”
+prohibition for the exact closed source-derived physical representation in the
+[paired membership design](2026-11-05-paired-membership-index-design.md#scoped-derived-index-exception--2026-11-05).
+It permits that design's membership owner stamps, fixed full-endpoint relation
+and reverse index as derived lookup storage. Authoritative source records and
+the accepted logical reference recipes remain distinct and unchanged. It permits
+no arbitrary caller graph, independently committed graph state, consumer
+registration command, new logical family/manifest change/ObjectRef purpose,
+reference-count quota or authority supplied by an index. Every original owning
+transaction must maintain the exact derived correspondence; discrepancy fences
+admission rather than authorizing rebuild or repair.
+
+[ADR 0108's dated amendment](../../adr/0108-paired-membership-indexes.md#amendment-explicit-derived-index-exception--2026-11-05)
+records this clarification of its accepted persistence direction. All other
+registry/discovery/retention/precharge rules remain binding. No implementation,
+SQL/DDL/database/schema/migration, recovery scan, dependent fixture, executable/
+native plan, model probe or activation follows. RegistryRoot remains independently
+proposed; actual source/ordinary ownership and resource/native proof remain gates.
