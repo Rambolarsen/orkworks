@@ -1055,3 +1055,67 @@ case checks that composition does not introduce nested pool waits.
 This qualifies the source-only final-scan composition. Physical exit cleanup,
 close-first SQL Archive/Delete, installation/producer selection, migration, live
 activation and 10k/100k performance evidence remain separate gates.
+
+
+## Captured SQL close-first organization
+
+`SessionWrites::capture_organization` supplies a source-only typed action view.
+Its coherent exact-row worker read contains validated canonical metadata, indexed
+organization state and organization revision in one transaction, bounded by the
+existing read/queue budgets. The capture retains the original workspace lease,
+reader, organization store, creation identity and optional runtime/control owner;
+memory checks bracket the SQL read. It holds no action reservation or session lane
+during display. This is an internal stale-action precondition, not an HTTP token
+or a production projection registry.
+
+Consuming the view permits Archive from Active/Closed and Restore from Archived.
+A fresh SQL preflight and original-memory check precede the action reservation
+and any stop signal. Active Archive captures the existing `CapturedRuntimeStop`,
+closes its exact optional evaluation carrier outside all application guards, then
+rechecks original workspace/runtime ownership before signaling its captured sender.
+The blocking close job retains the reservation and lease even if the request is
+cancelled; such cancellation never proceeds to a SQL organization write. A blocked
+cutoff cannot signal a replacement. No carrier factory/attachment/activation is
+introduced; production carriers remain None. Active Archive then waits up to
+the existing 15-second close budget at 25-ms intervals, and leaves the finalizer's
+SQL lane free. Persisted ending alone is insufficient: the original runtime must
+also have no PID, no receiver, no resume and no terminal attachment, with dead/ended
+live state. Remembered finalized rows require no runtime. Unsupported actions,
+unknown/corrupt/missing/unavailable SQL and stale owners cannot fall back to JSON.
+
+A typed prepared organization command shares the existing per-session worker lane,
+32-write/two-second admission budget and atomic execution grant. Original authority,
+physical closure and any close deadline are rechecked under short memory guards;
+SQL starts only after those guards are released. The transaction independently
+checks canonical finalization, creation and organization revision. It changes
+organization/history generation while preserving canonical metadata, native
+identity and activity. No external file or JSON organization write is added.
+
+Lane, lease, action reservation, queue budget and definitive receipt remain owned
+through SQL completion and a blocking publication check. Cancellation before the
+grant prevents the organization write and releases pending resources, even behind
+a stalled worker; an already sent stop signal is not rolled back. After the grant,
+caller cancellation retains completion, including a successful grant still in
+transit from its blocking validator. Cancellation/expiry competes on that exact
+grant CAS; losing cannot discard its result. Organization validation does not
+depend on the unrelated global prompt-authority transition lock. The receipt includes the new revision and
+committed/committed-detached status; replacement authority receives no projection
+publication. A current original owner only emits its session-view invalidation.
+SQL projection/HTTP token selection remains a subsequent integration gate.
+
+Real-store/runtime tests cover stale capture and preflight views, control/runtime/
+creation/lease/reader/organization replacement, every physical-close predicate,
+finalizer-lane independence, close timeout, cancellation on both sides of admission,
+lane and actual worker-queue expiry, retained resources, detached completion,
+remembered rows and unchanged legacy files. A single-Tokio-worker test stalls the
+real SQL organization stage behind an independent OS watchdog while application
+guards and approved input acknowledged at another runtime receiver remain
+available. A one-blocking-worker fixture checks composition without nested waits.
+The fixture models the driver's finalization using the real SQL lifecycle reducers
+and same worker lane, then controls its live cleanup flags; the separately qualified
+lifecycle application/publication owner is not requalified here. This is
+stage/receiver evidence, not physical PTY/fsync or numeric latency proof.
+
+The HTTP action route and production projection remain JSON. SQL Delete and its
+recoverable external-file cleanup, producer/installation selection, migration,
+activation and measured 10k/100k release budgets remain separate gates.

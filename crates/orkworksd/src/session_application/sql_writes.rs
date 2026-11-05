@@ -24,6 +24,11 @@ pub(crate) struct SessionWrites {
     before_callback: std::sync::Mutex<Option<oneshot::Sender<()>>>,
     #[cfg(test)]
     before_hook_lane: std::sync::Mutex<Option<oneshot::Sender<()>>>,
+    #[cfg(test)]
+    before_organization_lane: std::sync::Mutex<Option<oneshot::Sender<()>>>,
+    #[cfg(test)]
+    after_organization_grant:
+        std::sync::Mutex<Option<(oneshot::Sender<()>, oneshot::Receiver<()>)>>,
 }
 struct Capture {
     created: String,
@@ -70,6 +75,10 @@ impl SessionWrites {
             before_callback: std::sync::Mutex::new(None),
             #[cfg(test)]
             before_hook_lane: std::sync::Mutex::new(None),
+            #[cfg(test)]
+            before_organization_lane: std::sync::Mutex::new(None),
+            #[cfg(test)]
+            after_organization_grant: std::sync::Mutex::new(None),
         }))
     }
     pub(crate) fn native_observation_stamp(&self) -> metadata::hook_observation::Stamp {
@@ -350,3 +359,8 @@ pub(crate) use native::identity::{NativeIdentityReport, SqlIdentityOutcome};
 pub(crate) use native::label::{NativeLabelRefresh, SqlLabelOutcome};
 
 pub(crate) mod lifecycle;
+
+#[cfg(test)]
+mod organization_tests;
+
+mod organization;

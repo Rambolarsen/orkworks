@@ -289,6 +289,7 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Captured ending provider context](2026-11-04-ending-provider-writes.md) — Scoped SQL provider writes from the original final-scan owner.
 - [Captured workflow evidence ownership](2026-11-04-ending-workflow-evidence.md) — Approved retained file owner, deletion fence and qualification checks.
 - [SQL final-scan runtime composition](2026-11-05-sql-final-scan.md) — Original captured SQL provider, evidence and history runtime integration.
+- [Captured SQL organization actions](2026-11-05-sql-organization-actions.md) — Source-only close-first Archive/Restore admission and retained completion.
 
 - [Non-I/O evaluation authority core](2026-11-04-evaluation-authority-core.md) — Approved bounded first-unit plan for private in-memory claim/close/response ordering and deterministic tests.
 

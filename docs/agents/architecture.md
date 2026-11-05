@@ -1512,3 +1512,28 @@ decision/file effects stay together on a blocking job with legacy guard ownershi
 See the [runtime composition evidence](../validation/session-store-adapter.md#sql-final-scan-runtime-composition).
 No physical cleanup, close-first SQL Archive/Delete, migration, activation or
 measured responsiveness qualification follows from this composition alone.
+
+
+## Captured SQL close-first organization
+
+The source-only SQL organization owner composes the existing action reservation,
+physical `runtime_closed` predicate and bounded worker execution grant. An exact
+transactional organization read and immutable typed view preserve original
+workspace/reader/creation/runtime/control authority before any stop signal. Active
+Archive retains the ordinary captured-stop facade: close the exact optional
+evaluation carrier off all application guards, then revalidate the original owner
+before signaling its captured sender. The retained blocking close job keeps the
+action reservation/lease through cancellation; it cannot signal a replacement or
+proceed to SQL after its caller disappears. All production carriers remain None.
+Archive leaves the SQL lane free while the exact runtime finalizes and releases
+PID/control/attachment/resume ownership. Queued SQL rechecks closure and authority;
+its existing transaction checks canonical finalization and organization revision.
+
+The prepared organization receipt retains lane, lease, action reservation and
+budget through definitive completion and original-owner view invalidation.
+Pre-grant cancellation prevents the organization write; admitted cancellation
+retains completion and stale publication is committed-detached. No JSON mirror,
+external cleanup or production selector is introduced. The HTTP action route,
+projection and action-token protocol remain JSON; SQL Delete/recovery and SQL
+projection/token integration remain separately gated. See the
+[organization boundary evidence](../validation/session-store-adapter.md#captured-sql-close-first-organization).

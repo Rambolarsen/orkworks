@@ -962,16 +962,18 @@ impl CapturedRuntimeStop {
             handle.close();
         }
     }
-    pub(crate) fn signal(&self, state: &AppState, id: &str) -> Result<(), ()> {
-        let sessions = state.sessions.lock().unwrap();
-        if !sessions
-            .get(id)
-            .is_some_and(|h| h.runtime.matches_identity(&self.identity))
-        {
+    /// Signal the captured sender after the caller has revalidated its handle
+    /// under the sessions guard. Revocation must already be closed off-guard.
+    pub(crate) fn signal_current(&self, handle: &crate::SessionHandle) -> Result<(), ()> {
+        if !handle.runtime.matches_identity(&self.identity) {
             return Err(());
         }
         self.kill.send_replace(true);
         Ok(())
+    }
+    pub(crate) fn signal(&self, state: &AppState, id: &str) -> Result<(), ()> {
+        let sessions = state.sessions.lock().unwrap();
+        self.signal_current(sessions.get(id).ok_or(())?)
     }
 }
 
