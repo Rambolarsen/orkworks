@@ -390,3 +390,13 @@ Complete fixtures and an executable/native plan remain behind the named actual
 owner, authority, membership and resource evidence gates. #1176 stays open and
 #740 stays closed research. No new technical review round or native result is
 claimed for recording the unchanged acceptance.
+
+
+## Fresh-pair contract proposal — 2026-11-05
+
+The [fresh-pair preparation proposal](2026-11-05-fresh-pair-preparation-design.md)
+for [#1438](https://github.com/Rambolarsen/orkworks/issues/1438) supplies the next
+reviewable seed schedule and original root/parent/allocated-child/attachment path.
+Its new initialization and original parent-attach classification remain proposed.
+It grants no implementation, source owner, native cutoff, database, fixture or
+resource/recovery qualification; earlier accepted decisions remain unchanged.
