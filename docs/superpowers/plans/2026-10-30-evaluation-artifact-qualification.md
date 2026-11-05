@@ -448,3 +448,19 @@ These are prerequisites to complete paired fixtures and any separately approved
 executable/native work. Gates 3–4 remain gated; no runtime/SQL/schema/migration,
 live capability, native/model probe or new numerical allowance is authorized.
 #1176 remains open; #740 remains closed research.
+
+
+## Physical membership decision recorded — 2026-11-05
+
+The owner [accepted the reviewed physical membership/index representation](../specs/2026-11-05-paired-membership-index-design.md#scoped-physical-design-acceptance--2026-11-05)
+for further qualification, recorded by ADR0108 and [#1431](https://github.com/Rambolarsen/orkworks/issues/1431).
+Earlier pending status is historical for that exact layout/projection/recovery
+contract; the accepted policy and logical representations remain unchanged.
+
+Gate2 remains Investigate and Gates3–4 gated. The existing source-publisher design
+now [separates its still-proposed RegistryRoot ordering](../specs/2026-11-05-source-publisher-execution-design.md#physical-index-acceptance-and-source-owner-handoff--2026-11-05)
+from the accepted format6/schema2 indexes. Actual producer/initializer participation,
+source cutoffs for other writers, ordinary activation and feasible hard native/
+recovery/resource evidence remain prerequisites. No SQL, code, fixture, native/model
+probe, executable plan, live registration or activation follows from this decision.
+#1176 stays open; #740 stays closed research.
