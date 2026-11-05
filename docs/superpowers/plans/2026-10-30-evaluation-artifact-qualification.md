@@ -354,3 +354,20 @@ remain gated: original source/ordinary preparation atomicity, complete physical
 membership/profile, resource bounds, source authority at commit and native
 recovery still require their qualified mechanisms. Keep #1176 open and #740
 closed; no new fixture, code, database, adapter or probe is authorized here.
+
+
+## Joint original preparation proposal — 2026-11-05
+
+[#1406](https://github.com/Rambolarsen/orkworks/issues/1406) prepares the
+[concrete original publisher architecture](../specs/2026-11-05-joint-child-preparation-design.md):
+one qualified rollback transaction across ordinary and hierarchy databases,
+private typed source/ordinary owners, complete preparation before spawn and a
+versioned ordinary-lineage commitment. The no-ATTACH/worker, schema/profile and
+retention changes are proposed explicitly, with SQL availability coupling.
+Neither this proposal nor the prior admission proposal is accepted by continued
+drafting or merge. Existing accepted contracts remain in force.
+
+Gate 2 stays Investigate; Gates 3–4 remain gated. No source claim-first exception,
+actual source publisher, full catalog/physical membership, source commit cutoff,
+resource/native qualification, database/migration or runtime activation follows.
+Keep #1176 open and #740 closed research.

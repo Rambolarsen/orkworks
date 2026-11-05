@@ -293,3 +293,15 @@ of the same owner-pending interface, not an already accepted implementation or
 an independently re-reviewed physical mechanism. No extra review round, numeric
 allowance, durable codec or production construction was introduced. Acceptance
 of these proposed choices remains a single scoped owner decision.
+
+
+## Concrete original publisher proposal — 2026-11-05
+
+[#1406](https://github.com/Rambolarsen/orkworks/issues/1406) supplies the
+[joint original preparation publisher design](2026-11-05-joint-child-preparation-design.md).
+It proposes a single attached rollback transaction for ordinary creation plus
+complete child-source-attach, with explicit shared-worker availability,
+ordinary-lineage/index, format-5 commitment and retained-tombstone choices. These
+are new owner-pending amendments, not acceptance or implementation of this
+admission interface. The original source authority-at-commit, complete
+catalog/membership and native gates remain; atomic SQL supplies no source permit.
