@@ -322,3 +322,26 @@ DDL/database/schema/migration, fixture, executable/native plan, model probe, liv
 registration or activation. The [source-publisher handoff](2026-11-05-source-publisher-execution-design.md#physical-index-acceptance-and-source-owner-handoff--2026-11-05)
 now distinguishes that separate registry choice from the accepted storage layout.
 #1176 stays open; #740 stays closed research.
+
+
+## Scoped derived-index exception — 2026-11-05
+
+A subsequent read-only review of #1430 identified that the earlier
+[consumer registry](2026-11-03-child-consumer-membership-design.md#decision-and-boundary)
+expressly prohibited a generic persisted consumer graph. The owner then answered
+“go ahead” to the explicit narrow exception for these fixed derived indexes,
+maintained atomically with authoritative records, and to this exact physical
+representation for further qualification. This decision is tracked by
+[#1433](https://github.com/Rambolarsen/orkworks/issues/1433).
+
+The [dated registry exception](2026-11-03-child-consumer-membership-design.md#scoped-derived-index-exception--2026-11-05)
+and [ADR 0108 amendment](../../adr/0108-paired-membership-indexes.md#amendment-explicit-derived-index-exception--2026-11-05)
+make that policy relationship explicit. #1432's physical-layout acceptance and
+all reviewed technical definitions remain unchanged. This permits only the
+closed source-derived physical layout above, never independent graph writes,
+caller-supplied edges, new logical commitments, quotas or authority.
+
+This clarification supplies no new technical/native qualification evidence. All
+implementation, recovery-scan, executable/native-plan and activation gates remain
+in force. RegistryRoot stays independently proposed; #1176 stays open and #740
+stays closed research. No repeat approval of these unchanged decisions is needed.

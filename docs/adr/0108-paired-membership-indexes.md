@@ -53,3 +53,23 @@ This complements ADRs 0106/0107 and their accepted logical representations; it
 supersedes no earlier decision. RegistryRoot remains a separate proposal. No
 implementation, SQL/DDL/database/schema/migration, executable fixture/native plan,
 new quota/bearer, source registration, model probe or activation is authorized.
+
+
+## Amendment: explicit derived-index exception — 2026-11-05
+
+Following review of #1430, the owner answered “go ahead” to: “Approve that
+exception and #1430's physical representation for further qualification?”
+The review explicitly identified the earlier accepted registry's prohibition on
+a generic persisted consumer graph. [#1433](https://github.com/Rambolarsen/orkworks/issues/1433)
+tracks this later scoped decision.
+
+The [registry exception](../superpowers/specs/2026-11-03-child-consumer-membership-design.md#scoped-derived-index-exception--2026-11-05)
+permits only this ADR's already accepted fixed, source-derived physical owner/
+edge/reverse-index representation, maintained atomically with authoritative rows.
+It creates no independent graph authority or caller graph interface. The earlier
+“supersedes no earlier decision” sentence describes #1432's original record;
+this later explicit decision narrowly qualifies the registry's no-graph rule.
+It reverses no earlier ADR: this amendment clarifies the consequence of ADR 0108's
+existing persistence direction. All other logical contracts, limits and gates
+remain unchanged. It authorizes no implementation, recovery scan, native/model
+experiment or activation; independently proposed RegistryRoot is not accepted.
