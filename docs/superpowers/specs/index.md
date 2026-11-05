@@ -253,3 +253,5 @@ Dated design records; these do not establish current product behavior.
 - [Source publisher execution and qualification boundary](2026-11-05-source-publisher-execution-design.md) — Proposed writer integration and retained-registry ordering, with explicit linked-profile and native-cutoff gates.
 
 - [Original child preparation authorization evidence](2026-11-05-child-preparation-authorization-design.md) — Proposed exact permit intent/snapshots, immutable recovery row and fresh-format commitments; policy accepted, representation pending.
+
+- [Physical paired membership and indexes](2026-11-05-paired-membership-index-design.md) — Proposed derived forward/reverse/direct lookup, full-key uniqueness and metadata-only artifact projection.
