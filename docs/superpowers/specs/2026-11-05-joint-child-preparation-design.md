@@ -425,3 +425,19 @@ That new registry choice remains owner-pending. It preserves the separate
 [preparation authority investigation](../../validation/child-preparation-commit-authority.md)
 and its still-pending one-command alternative; no implementation follows from
 routing these documents together.
+
+
+## Separate preparation-permission acceptance — 2026-11-05
+
+The [scoped one-original-preparation policy decision](../../validation/child-preparation-commit-authority.md#scoped-original-preparation-policy-acceptance--2026-11-05)
+now permits an exact original preparation that wins its own short authority
+cutoff first to finish saving after later volatile revocation. The original
+permission section above describes the stronger pre-amendment rule; all other
+source actions retain that rule. Engine atomicity remains distinct from this
+permission, with source/H/G/membership/quota/health/ownership checks unchanged.
+
+No runtime/startup/spawn follows after cancellation, and the complete unstarted
+preparation can retain history, charges and capacity. [#1415](https://github.com/Rambolarsen/orkworks/issues/1415)
+closes the separately proposed authorization-evidence/compatibility representation;
+no schema/format or proof placement is selected here. Existing architecture
+acceptance and all physical/producer/native/activation gates remain unchanged.
