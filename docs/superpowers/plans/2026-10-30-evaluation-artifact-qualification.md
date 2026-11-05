@@ -371,3 +371,19 @@ Gate 2 stays Investigate; Gates 3–4 remain gated. No source claim-first except
 actual source publisher, full catalog/physical membership, source commit cutoff,
 resource/native qualification, database/migration or runtime activation follows.
 Keep #1176 open and #740 closed research.
+
+
+## Joint architecture accepted; source cutoff investigated — 2026-11-05
+
+The owner [accepted the three #1407 architecture choices](../specs/2026-11-05-joint-child-preparation-design.md#scoped-architecture-acceptance--2026-11-05)
+for further qualification: shared broker/SQL availability, versioned lineage and
+retained linked tombstones. Existing source/claim/debit/activation policy remains.
+[#1410](https://github.com/Rambolarsen/orkworks/issues/1410) supplies a bounded
+[original preparation commit-authority investigation](../../validation/child-preparation-commit-authority.md),
+distinguishing ordinary tickets/engine atomicity from the unclosed source cutoff.
+Its narrowly scoped preparation-permit alternative is owner-pending, not an
+accepted extension of an evaluation/debit claim or permission to spawn.
+
+No runtime, SQL/schema/migration, new proof/format/quota/bearer or native/model
+probe follows. Source-admission choices from #1398 remain independently proposed.
+Gate 2 stays Investigate; Gates 3–4 stay gated; #1176 remains open and #740 closed.

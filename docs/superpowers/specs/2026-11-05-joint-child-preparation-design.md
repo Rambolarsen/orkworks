@@ -4,7 +4,7 @@ title: Joint original child preparation publisher
 description: Proposed one-worker atomic ordinary-session and hierarchy preparation, with explicit compatibility and availability tradeoffs.
 tags: [taskmaster, hierarchy, sessions, storage, preparation]
 status: draft
-workflow_status: owner-review-pending
+workflow_status: architecture-accepted-qualification-required
 ---
 
 # Joint original child preparation publisher
@@ -376,3 +376,35 @@ later lifecycle integration unverified, as this proposal requires. No extra
 review round, new numeric allowance, SQL fixture or native test was introduced.
 The author clarifications are recorded here; merge does not accept the three
 architecture choices or authorize their implementation.
+
+
+## Scoped architecture acceptance — 2026-11-05
+
+After reviewed [PR #1407](https://github.com/Rambolarsen/orkworks/pull/1407), head
+`7b0cdae57d0489a12f057d7b65859dcc1df83a49`, merged
+`34f47bd771da99683020d6194ccc7810544213b3`, the owner answered “keep going” to
+the concrete question approving the shared SQL worker, versioned lineage profile
+and retained child tombstones **for further qualification**. This accepts:
+
+- The linked-workspace broker/one attached rollback transaction, with the
+  disclosed coupling of ordinary SQL history/metadata availability; ordinary
+  input/draining/immediate close remain independent.
+- The exact reserved lineage member/index and ordinary schema-2 direction,
+  new-store-only hierarchy format 5 / logical ordinary_child_lineage projection,
+  commit-link exclusion and unchanged source/claim/nested domains and budgets.
+- Retaining linked hidden ordinary tombstones as source consumers until qualified
+  joint purge, including possible retained metadata after user-visible Delete.
+
+Earlier owner-pending wording is superseded only for those three architecture
+choices. [ADR 0106](../../adr/0106-joint-child-preparation.md) records their scoped
+replacement of the old linked-profile worker separation. Do not request these
+unchanged choices again. This is no executable-plan, SQL/schema/migration,
+source registration, source-permission change, platform/native probe or runtime
+activation approval. #1398's separate source-admission choices are not silently
+accepted by this question. Complete catalog/membership/resources, ordinary
+activation and physical source authority remain unqualified.
+
+[#1410](https://github.com/Rambolarsen/orkworks/issues/1410) investigates the
+[original preparation commit/revocation cutoff](../../validation/child-preparation-commit-authority.md).
+Its possible one-command source-permission alternative is a separate proposal;
+none of the accepted architecture choices widens the current source cutoff.
