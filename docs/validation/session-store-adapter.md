@@ -1128,7 +1128,7 @@ creation identity (canonical record plus at most 4 KiB envelope). Both consume
 existing read admission and result-byte reservations; SQLite work remains on the
 worker connection, under its read deadline. The page seeks the deletion-job ID
 index and loads no canonical session payloads. Selected reads validate canonical
-identity/revision and return progress with metadata from one transaction.
+identity/revision/finalization and return progress with metadata from one transaction.
 
 Continuation is bound to the database epoch and workspace. It is a changing
 keyset traversal, independent of history generation: completing earlier jobs
@@ -1185,9 +1185,59 @@ watchdog and another runtime's acknowledged approved-input receiver.
 The finalizer fixture uses real SQL lifecycle reducers and the same lane while
 controlling live cleanup flags; this does not requalify the separate lifecycle
 application publisher. Receiver/stage evidence is not physical PTY latency,
-fsync/crash qualification or measured 10k/100k performance. No external payload,
-workflow evidence, recommendation, legacy metadata or organization file is
-removed. After admission resources release normally; the durable job remains
+fsync/crash qualification or measured 10k/100k performance. Admission itself removes no external payload,
+workflow evidence, recommendation, legacy metadata or organization file. After admission resources release normally; the durable job remains
 pending. Recovery discovery/receipts grant no destructive authority. Captured
 cleanup owners, idempotent stage definitions/scheduling, production routing,
 migration and activation remain prerequisites. Production remains JSON.
+
+## Captured SQL replay cleanup
+
+`capture_deletion(id, created)` binds an exact finalized tombstone to original
+workspace, lease, metadata reader, organization owner and optional closed runtime/
+control identity. It rechecks memory after SQL capture. `remove_replay` re-reads
+the exact job under the shared session lane, reserves the organization action,
+and atomically admits a blocking file job under original physical-close fences.
+The two-second pre-admission cancellation/expiry cannot cancel an admitted job;
+its original lease/lane/reservation and shared budget persist through definitive
+completion, including caller loss, late completion and switched-away owners.
+Validation/publication uses memory guards only; file/SQL waits hold none.
+
+The metadata facade captures the original checkpoint-cache owner without I/O.
+On Unix it opens root/events directory handles without following their final
+symlink, unlinks only `<id>.ndjson`, `<id>.terminal` and `<id>.terminal-size`, then
+syncs events and workspace directories. A missing events directory still syncs
+the workspace. Repeated calls sync again even after successful unlink followed
+by sync failure. Cache invalidation follows successful sync; unrelated payloads
+and symlink targets survive. Non-Unix cleanup returns Unsupported before effects
+until separately qualified; it cannot acknowledge false durable progress.
+
+After file success the worker records `progress | 0x01` with `complete=false`,
+preserving other stage bits. No row/job completion occurs. Must-use receipts
+separate file results, optional progress results and detached ownership. A file
+error can represent partial removal and never attempts progress. A SQL error
+after durable files remains explicit and retryable; neither case claims external
+rollback. Conflicting application writers must use the shared lane/reservation
+before production selection. Raw private store primitives are not an alternate
+application cleanup path.
+
+Real-store and filesystem tests cover reopen/retry, ordinary/wrong/reused/missing
+identities, canonical corruption, stale memory/lease/reader/control/organization,
+physical reopening, reservation conflicts, cancellation/expiry before admission,
+admitted cancellation/deadline/detachment with retained resources, partial unlink
+errors and SQL Busy after synced removal. Both directory sync failures are
+injected and retries repeat sync when files are absent. Symlink directory/target
+and invalid-ID boundaries are covered. Valid IDs up to 256 bytes remain supported:
+the live directory must report a positive component bound before unlinks.
+Longer exact basenames are absent and are never resolved as truncated aliases;
+unknown limits fail before effects. Directory sync still precedes progress. A single-Tokio-worker OS-watchdog test
+checks free application guards and another runtime's acknowledged approved input;
+a one-blocking-worker test checks absence of nested blocking waits. Workflow
+file jobs and cleanup use the existing shared 32-job/32-MiB intent budget and its
+unchanged boundary tests.
+
+This is source ordering and controlled receiver/failure evidence, not physical
+power-loss, filesystem/profile qualification or numeric latency proof. Legacy
+JSON deletion remains unchanged. Workflow evidence, images, last-active settings,
+recommendations, final row/job removal, scheduling, producer/selector integration,
+migration and activation remain follow-ups. Production remains JSON.

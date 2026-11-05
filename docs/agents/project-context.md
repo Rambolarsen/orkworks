@@ -63,7 +63,12 @@ GitHub Actions separates validation, releases, documentation and audits into wor
 - `.github/workflows/pr-ci.yml` validates pull requests targeting `main`.
   Its path-routed Rust job also runs the OpenCode session reporter's Node tests
   using the Node version pinned in `.nvmrc`, plus the POSIX harness reporter's
-  Bash diagnostics test.
+  Bash diagnostics test. The PR and main Rust jobs have a bounded 15-minute
+  budget for setup, compilation, the full suite and reporter diagnostics;
+  increasing that budget does not skip a validation step.
+  Its local-analysis helper keeps Python 3.9 compatibility coverage on
+  Ubuntu 24.04 and Windows; the Linux pin avoids unsupported Python artifacts
+  on newer `ubuntu-latest` images.
   Its focused Windows custom-inference job runs native fixture transport,
   approval-gated activation, and trust tests when Rust files, `rust-toolchain.toml`
   or the PR workflow change. It requires the targeted tests to be discoverable

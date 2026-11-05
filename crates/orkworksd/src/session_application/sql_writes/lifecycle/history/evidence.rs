@@ -1,8 +1,7 @@
 //! Captured workflow files stay outside the SQL worker and application guards.
 use super::*;
+use crate::session_application::sql_writes::file_budget as budget;
 use crate::workflow_observations::{CapturedWriter, FileClaim, RecordError, RecordOutcome};
-#[path = "evidence_budget.rs"]
-mod budget;
 #[derive(Debug)]
 pub(crate) enum CandidateResult {
     Ungrounded,

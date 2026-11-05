@@ -1487,7 +1487,8 @@ The source-only SQL ending boundary composes `with_workflow_evidence` before
 inference. It retains the exact shared workflow store and a session/creation
 permit, registering outside application guards and revalidating original
 SQLite/runtime ownership. Evidence batches use the existing session lane and
-a separate bounded application-wide file-job budget. Record/delete serialize
+a separate bounded application-wide file-job budget shared with captured replay
+cleanup. Record/delete serialize
 through the same store mutex; deletion revokes old permits even on removal
 failure. File admission races cancellation/expiry atomically, and admitted jobs
 retain the original lease, lane and definitive receipts after caller cancellation.
@@ -1566,3 +1567,28 @@ authority and removes no files/evidence; the row/job remains for recovery
 reads. Complete cleanup needs its own exact captured owners and idempotent
 stages. No production selector or HTTP Delete behavior changes. See the
 [admission validation](../validation/session-store-adapter.md#captured-sql-delete-admission).
+
+
+## Captured SQL replay cleanup
+
+The source-only `CapturedDeletion` owner captures and rechecks the original
+workspace/lease/reader, action organization owner and optional closed runtime.
+Exact selected tombstone reads additionally require canonical finalization.
+Replay removal holds the existing session lane and organization reservation,
+admitting one retained blocking file job under original memory fences. Before
+admission, cancellation/expiry prevents effects; after admission the job retains
+its lease/resources and definitive partial result through caller loss or switch.
+
+The metadata owner exposes a narrow replay facade sharing its checkpoint cache.
+On Unix, directory handles prevent final root/events symlink traversal; relative
+unlinks target only exact event/replay/size basenames. Events and workspace
+syncs precede progress bit `0x01`, including retries with already absent files.
+Other platforms fail before effects. Workflow evidence and cleanup share the
+unchanged 32-job/32-MiB intent budget in `sql_writes/file_budget.rs`.
+
+Receipts separate file results from SQL progress results and detachment. A file
+failure never records progress; a progress failure retains the completed file
+effects and retryable tombstone. This stage always preserves the SQL row/job and
+other evidence/image/settings/recommendation owners. No production selection or
+background recovery scheduler is enabled. See the
+[stage evidence](../validation/session-store-adapter.md#captured-sql-replay-cleanup).
