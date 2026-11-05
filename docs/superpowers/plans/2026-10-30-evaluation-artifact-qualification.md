@@ -403,3 +403,19 @@ and #1410's source-permission alternative await their scoped decisions; complete
 catalog/paired membership, source authority and native/resource qualification
 remain gates. No repeat joint-architecture decision is requested. No production
 factory, database, migration or native experiment is authorized. Keep #1176 open.
+
+
+## Original preparation policy accepted; exact proof pending — 2026-11-05
+
+The owner accepted the [one-original-preparation persistence exception](../../validation/child-preparation-commit-authority.md#scoped-original-preparation-policy-acceptance--2026-11-05)
+for further design/qualification, including its late-save/no-spawn and retained
+history/charge/capacity consequences. Other source/control cutoffs, existing
+#744/debit semantics, ownership/health checks and resource limits are unchanged.
+Earlier pending policy wording is historical for that limited decision.
+
+[#1415](https://github.com/Rambolarsen/orkworks/issues/1415) owns the exact evidence/
+commitment/lookup/accounting/compatibility proposal. Do not duplicate that work or
+infer acceptance of its future representation choices. RegistryRoot remains
+separately proposed; complete catalog/membership, ordinary activation, resource/
+native and executable-plan gates remain open. No code, store, migration, live
+capability or native/model experiment is authorized; #1176 stays open.

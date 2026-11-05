@@ -271,3 +271,17 @@ establish the missing physical source cutoff. During rebase, root reconciled
 incoming PR #1412's architecture acceptance and separate authority investigation;
 this changes decision status/routing, not the reviewed RegistryRoot mechanism.
 No additional physical qualification or review round is claimed.
+
+
+## Preparation policy accepted; representation handoff — 2026-11-05
+
+The owner subsequently accepted the [one-original-preparation persistence exception](../../validation/child-preparation-commit-authority.md#scoped-original-preparation-policy-acceptance--2026-11-05)
+for further design/qualification. Earlier pending-source-policy wording above is
+historical for that exception. It does not extend to spawn/runtime bridge or
+other source writers, whose current-authority obligations remain unqualified.
+
+[#1415](https://github.com/Rambolarsen/orkworks/issues/1415) owns its exact evidence,
+commitment/lookup, accounting/retention and compatibility proposal. No interim
+synthetic permit or callback proof is authorized. The RegistryRoot mechanism
+remains owner-pending; complete source/profile/native/resource gates remain.
+No implementation, source registration or experiment follows from this record.

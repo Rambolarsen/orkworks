@@ -4,7 +4,7 @@ title: Original child preparation commit authority
 description: Source-backed original preparation commit/revocation gap and owner-pending one-command alternative, separate from accepted broker architecture.
 tags: [orkworks, hierarchy, preparation, authority, qualification]
 status: draft
-workflow_status: source-policy-decision-pending
+workflow_status: policy-accepted-evidence-design-pending
 ---
 
 # Original child preparation commit authority
@@ -250,3 +250,52 @@ clarification naming source/run/runtime/namespace authorities in the late-commit
 oracle. Neither review established native behavior, a complete source owner or
 an eligible profile. No new review round, implementation, permit acceptance or
 native test result is claimed.
+
+
+## Scoped original-preparation policy acceptance — 2026-11-05
+
+After the read-only review of [PR #1412](https://github.com/Rambolarsen/orkworks/pull/1412),
+the owner answered “go ahead” to: “Approve this one-preparation persistence
+exception for further design and qualification?” The review explicitly disclosed
+that revoke-first denies; permit-first may retain the one already-authorized
+preparation after cancellation, including unstarted history, storage charges and
+held capacity, with no spawn, capability restoration or automatic retry.
+
+This accepts the one original child-source-attach persistence policy described
+above. Immediately before mutation, the sole private worker must win the same
+short cutoff as the applicable source revocations for that exact complete
+immutable ordinary/hierarchy intent. Revoke-first issues no permit or preparation
+write. Permit-first may reach proven joint commit/rollback after later volatile
+revocation. Durable acceptance remains the joint physical commit. This explicitly
+relaxes revocation-before-commit denial for that one original preparation, not
+for any other source action or a second SQL attempt.
+
+All source/control/header H, ordinary epoch/generation G, membership, quota,
+health, ownership and expected old/new checks still apply. Changed facts deny or
+roll back; a permit cannot refresh its intent, override actual lease loss or make
+an unsupported filesystem eligible. Source/run/runtime/namespace authorities stay
+revoked. Ordinary stop/input remains independent. Unknown disposition retains the
+same sole active-or-retiring position/resources until proven disposition.
+
+The complete prepared child replaces its unsettled reservation in derived
+capacity, counted once. Source/control/summary bytes and original lifetime history
+remain charged; cancellation supplies no refund, inferred rollback or cleanup.
+No new reservation/allocation/worktree/process, startup future, runtime/bridge
+update, registration, grant/read/response, recovery rewrite or purge is authorized.
+Fresh spawn admission and every other source writer retain their own rules.
+
+Earlier pending-decision wording is historical only for this precise policy.
+[#1415](https://github.com/Rambolarsen/orkworks/issues/1415) owns the separate exact
+authorization-evidence/intent/row/lookup/commitment/accounting/retention and
+compatibility proposal. Its new representation choices are not accepted here.
+No ClaimProofV2, debit permit, ordinary ExecutionGrant or saved record becomes
+this live permit; no codec/row/tag/version, bearer or numerical allowance is
+selected by this decision record. Align the corresponding ADR/closed profile
+before dependent implementation.
+
+This approval permits further design and qualification planning. It does not
+authorize product code, SQL/database/schema/migration, a native/model experiment,
+production registration, a verified profile or activation. Complete catalog/
+physical membership, ordinary producer/cutover, all other source/runtime writers,
+resource/native evidence and separately approved executable plans remain gated.
+RegistryRoot remains a separate proposed mechanism; #1176 stays open.

@@ -332,3 +332,21 @@ disposition, with no exception for actual lease loss or mutable source eligibili
 Exact command/proof codecs and native enforcement remain unqualified under
 [#1210](https://github.com/Rambolarsen/orkworks/issues/1210). No existing proof/domain
 is reinterpreted and no transaction, migration, native probe or runtime work follows.
+
+
+## Separate original-preparation policy accepted — 2026-11-05
+
+The owner separately accepted the [one-original-preparation persistence policy](../../validation/child-preparation-commit-authority.md#scoped-original-preparation-policy-acceptance--2026-11-05)
+for further design/qualification. Revoke-first denies; an exact original
+child-source-attach permit that wins first may reach complete joint commit/
+rollback after later volatile revocation, with retained unstarted history and
+charges but no child launch or restored authority. Full mutable source/H/G/
+membership/quota/health/ownership checks remain; actual lease loss is no exception.
+
+This is not an expansion of the #744 evaluation claim or artifact debit permit,
+and does not reuse ClaimProofV2. All other source/control events retain their
+stronger cutoffs. Existing sole-worker/retirement, unknown disposition, no-refund,
+no-automatic-retry, immediate-stop and current read/response rules remain. The
+separate [#1415 evidence proposal](https://github.com/Rambolarsen/orkworks/issues/1415)
+must close its representation/accounting/compatibility before dependent work;
+this decision changes no codec, format, numerical budget or production behavior.
