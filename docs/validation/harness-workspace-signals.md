@@ -295,3 +295,39 @@ qualification. An ignored diagnostic can export the actual prepared argv/env
 for a disposable native fixture; normal tests do not select it. No live run of
 this changed reporter/helper is claimed here. Existing sessions and published
 installations retain the previously recorded limits.
+
+## Actual-source preparation refusal, 2026-11-05
+
+The owner authorized one further 90-second actual-source fixture after #1401.
+Its frozen Rust exporter exited101 during preparation, before the interactive
+CLI start or any fixture prompt. No native context/serialized records were
+produced. The temporary fixture directory was removed; cleanup inspection found
+zero matching native fixture directories. The exception is consumed; production
+preparation remains disabled and no native retry has been performed.
+
+The runner discarded exporter stderr, so this result alone does not identify
+which precondition refused. Offline inspection found a concrete version-format
+mismatch: the adapter required bare `2.2.5`, while the pinned CLI uses Effect
+4.0.6's default `formatVersion`, which emits `opencode v2.2.5` with optional SGR.
+The installed binary contains the same formatter and `opencode` command name.
+Primary sources: [OpenCode v2.2.5 CLI runtime](https://github.com/anomalyco/opencode/blob/v2.2.5/packages/cli/src/framework/runtime.ts),
+[command definition](https://github.com/anomalyco/opencode/blob/v2.2.5/packages/cli/src/commands/commands.ts),
+and the published [Effect4.0.6 source artifact](https://registry.npmjs.org/effect/-/effect-4.0.6.tgz),
+`src/cli/GlobalFlag.ts` and `src/cli/CliOutput.ts`. This is source evidence,
+not a retained raw output from the failed probe.
+
+The corrective regression now admits the exact pinned plain/SGR banner while
+continuing to refuse prereleases, build suffixes, other versions, unrelated
+command names and additional log text.
+
+The corrected fixture retains at most 4 KiB of derived checkpoints: preflight
+qualification booleans, version availability/match/counts and a final scope
+readiness boolean. Its strict offline parser rejects unknown fields, incorrect
+types, counts and ordering. No raw native output or credentials are retained.
+
+These facts distinguish preparation phases, not every rejection reason. A final
+`scopePrepared: false` does not separate post-probe asset and executable drift;
+an error return can stop before the final record. The last checkpoint is progress
+evidence, not a unique diagnosis or a successful native qualification.
+Actual native qualification and activation remain pending a corrected, reviewed
+fixture and a new bounded exception.

@@ -75,6 +75,14 @@ impl LaunchRequest {
         })
     }
 }
+fn qualified_version(version: &str) -> bool {
+    // Effect 4.0.6, pinned by OpenCode 2.2.5, prints the CLI name and a v
+    // prefix. Normalize presentation only; never accept an arbitrary version
+    // token embedded in warnings, another command, or a prerelease banner.
+    let plain = crate::peon::strip_ansi(version);
+    matches!(plain.trim(), "2.2.5" | "opencode v2.2.5")
+}
+
 fn valid_id(id: &str) -> bool {
     id.len() > 4
         && id.len() <= 256
@@ -160,7 +168,7 @@ impl PreparedScope {
         random: impl FnOnce() -> Result<String, String>,
     ) -> Result<Option<Self>, String> {
         if !qualified_platform
-            || version.trim() != "2.2.5"
+            || !qualified_version(version)
             || !helper.is_absolute()
             || helper
                 .to_str()
@@ -252,7 +260,15 @@ async fn prepare_with_helper(
     if !reporter_matches(&request, &reporter) || !file_matches(&helper, HELPER) {
         return Ok(None);
     }
-    let Some(version) = crate::harness::detect::probe_tool_version(&before.path).await else {
+    let version = crate::harness::detect::probe_tool_version(&before.path).await;
+    #[cfg(test)]
+    tests::record_fixture_preparation(serde_json::json!({
+        "stage": "version", "returned": version.is_some(),
+        "qualified": version.as_deref().is_some_and(qualified_version),
+        "bytes": version.as_ref().map_or(0, String::len),
+        "lines": version.as_ref().map_or(0, |value| value.lines().count()),
+    }));
+    let Some(version) = version else {
         return Ok(None);
     };
     if ExecutableSnapshot::read(&tool.executable).as_ref() != Some(&before) {
@@ -361,6 +377,30 @@ mod tests {
         );
     }
     #[test]
+    fn pinned_cli_version_banner_qualifies_the_selected_root() {
+        // OpenCode v2.2.5 pins Effect 4.0.6: CliOutput.formatVersion renders
+        // the command name plus v-prefixed version, optionally with SGR.
+        for version in [
+            "opencode v2.2.5\n",
+            "\x1b[1mopencode\x1b[0m \x1b[2mv\x1b[0m\x1b[1m2.2.5\x1b[0m\n",
+        ] {
+            let (_dir, request, reporter, helper, exe) = fixture(InstructionIntent::NewSession);
+            let original = request.command.clone();
+            let scope = evidence(request, reporter, helper, exe, version)
+                .unwrap()
+                .expect("pinned CLI banner must qualify");
+            let mut cmd = portable_pty::CommandBuilder::new(&original.program);
+            cmd.args(&original.args);
+            assert!(scope.apply(&mut cmd, &original));
+            assert_eq!(
+                cmd.get_env("ORKWORKS_WORKTREE_INSTRUCTION_ROOT_ID")
+                    .unwrap(),
+                "ses_0123456789abcdef0123456789abcdef"
+            );
+        }
+    }
+
+    #[test]
     fn exact_resume_preserves_requested_argv() {
         let (_dir, request, reporter, helper, exe) =
             fixture(InstructionIntent::ExactResume("ses_requested".into()));
@@ -405,7 +445,18 @@ mod tests {
     #[test]
     fn unsupported_version_platform_assets_and_wrapper_stay_unscoped() {
         let (_dir, request, reporter, helper, exe) = fixture(InstructionIntent::NewSession);
-        for version in ["2.2.4", "2.2.5-beta", "2.2.6", ""] {
+        for version in [
+            "2.2.4",
+            "2.2.5-beta",
+            "2.2.6",
+            "",
+            "opencode v2.2.5-beta",
+            "opencode v2.2.5+custom",
+            "opencode v2.2.6",
+            "other v2.2.5",
+            "warning\nopencode v2.2.5",
+            "opencode v2.2.5 extra",
+        ] {
             assert!(evidence(
                 request.clone(),
                 reporter.clone(),
@@ -525,6 +576,27 @@ mod tests {
     fn production_remains_disabled_before_actual_source_native_qualification() {
         assert!(!NATIVE_QUALIFIED);
     }
+    // Fixture-only diagnostics retain static labels, booleans and counts.
+    // Raw native output, paths, IDs, environment and credentials are excluded.
+    pub(super) fn record_fixture_preparation(facts: serde_json::Value) {
+        use std::io::Write;
+        let Some(path) = std::env::var_os("ORKWORKS_FIXTURE_PREPARATION_FACTS") else {
+            return;
+        };
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .expect("fixture preparation facts must be writable");
+        let line = serde_json::to_vec(&facts).unwrap();
+        assert!(
+            file.metadata().unwrap().len() + line.len() as u64 + 1 <= 4096,
+            "fixture preparation facts bound"
+        );
+        file.write_all(&line).unwrap();
+        file.write_all(b"\n").unwrap();
+    }
+
     // Select only within the separately owner-authorized native fixture. This
     // exports selector argv/env only, never a reporting capability or server.
     #[tokio::test]
@@ -540,10 +612,20 @@ mod tests {
         let command = h.build_launch(&workspace, None);
         let request =
             LaunchRequest::new(&h, InstructionIntent::NewSession, true, &command, None).unwrap();
-        let prepared = prepare_with_helper(Some(request), helper)
-            .await
-            .unwrap()
-            .expect("qualified native fixture");
+        let tool = crate::harness::detect::probe_installed_tool(&command.program);
+        record_fixture_preparation(serde_json::json!({
+            "stage": "preflight",
+            "platformQualified": cfg!(all(target_os = "macos", target_arch = "aarch64")),
+            "toolFound": tool.is_some(),
+            "nativeExecutable": tool.as_ref().is_some_and(|tool| ExecutableSnapshot::read(&tool.executable).is_some()),
+            "reporterCurrentOwned": reporter_matches(&request, &Path::new(&workspace).join(REPORTER_PATH)),
+            "helperCurrent": file_matches(&helper, HELPER),
+        }));
+        let prepared = prepare_with_helper(Some(request), helper).await.unwrap();
+        record_fixture_preparation(
+            serde_json::json!({"stage": "prepared", "scopePrepared": prepared.is_some()}),
+        );
+        let prepared = prepared.expect("qualified native fixture");
         let mut cmd = portable_pty::CommandBuilder::new(&command.program);
         cmd.args(&command.args);
         assert!(prepared.apply(&mut cmd, &command));
