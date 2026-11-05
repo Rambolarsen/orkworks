@@ -27,6 +27,7 @@ enum Command {
         intent: Box<InternalMutation>,
     },
     Get(String),
+    OrganizationState(String),
     OwnedAttention {
         id: String,
         created: String,
@@ -86,6 +87,7 @@ impl Command {
     fn is_read(&self) -> bool {
         match self {
             Self::Get(_)
+            | Self::OrganizationState(_)
             | Self::OwnedAttention { .. }
             | Self::History(_)
             | Self::Live(_)
@@ -112,6 +114,7 @@ impl Command {
     fn result_bound(&self) -> usize {
         match self {
             Self::Get(_) | Self::Patch { .. } => MAX_RECORD,
+            Self::OrganizationState(_) => MAX_RECORD + 4096,
             // Canonical record plus JSON-escaped creation/session proof and decision.
             Self::Internal { .. } | Self::OwnedAttention { .. } => MAX_RECORD + 4096,
             Self::History(_) => 256 * 1024,
@@ -145,6 +148,9 @@ impl Command {
                 Ok(Reply::Unit)
             }
             Self::Get(id) => Ok(Reply::Detail(db.get(&id)?)),
+            Self::OrganizationState(id) => {
+                Ok(Reply::OrganizationState(db.organization_state(&id)?))
+            }
             Self::History(query) => Ok(Reply::Page(db.history(query)?)),
             Self::Live(ids) => Ok(Reply::Rows(db.live(&ids)?)),
             Self::Exists(ids) => Ok(Reply::Ids(db.exists(&ids)?)),
@@ -208,6 +214,7 @@ enum Reply {
     Internal(InternalMutationResult),
     OwnedAttention(Option<(serde_json::Value, super::AttentionProof)>),
     Detail(Option<serde_json::Value>),
+    OrganizationState(Option<super::OrganizationRecord>),
     Page(Page),
     Rows(Vec<Summary>),
     Ids(Vec<String>),
@@ -256,11 +263,17 @@ struct PreparedJob {
 pub(crate) struct MutationCancellation {
     state: Arc<AtomicU8>,
 }
+impl MutationCancellation {
+    /// Competes with the exact worker grant; false never asserts rollback.
+    pub(crate) fn cancel(&self) -> bool {
+        self.state
+            .compare_exchange(0, 2, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    }
+}
 impl Drop for MutationCancellation {
     fn drop(&mut self) {
-        let _ = self
-            .state
-            .compare_exchange(0, 2, Ordering::AcqRel, Ordering::Acquire);
+        let _ = self.cancel();
     }
 }
 pub(crate) struct ExecutionGrant {
@@ -467,8 +480,16 @@ pub(crate) struct InternalMutationTicket {
 pub(crate) struct RuntimeWriteResources {
     _lane: tokio::sync::OwnedMutexGuard<()>,
     _lease: Option<Arc<crate::workspace_runtime::WorkspaceLease>>,
+    _organization: Option<crate::session_archive::Reservation>,
 }
 impl RuntimeWriteResources {
+    pub(crate) fn with_organization(
+        mut self,
+        reservation: crate::session_archive::Reservation,
+    ) -> Self {
+        self._organization = Some(reservation);
+        self
+    }
     pub(crate) fn new(
         lane: tokio::sync::OwnedMutexGuard<()>,
         lease: Option<Arc<crate::workspace_runtime::WorkspaceLease>>,
@@ -476,6 +497,7 @@ impl RuntimeWriteResources {
         Self {
             _lane: lane,
             _lease: lease,
+            _organization: None,
         }
     }
 }
@@ -517,6 +539,57 @@ impl InternalMutationTicket {
         match result? {
             Reply::Internal(outcome) => Ok(InternalCompletion {
                 outcome,
+                _resources: resources,
+                _permit,
+            }),
+            _ => Err(StoreError::Unavailable),
+        }
+    }
+}
+pub(crate) struct PreparedOrganization {
+    prepared: PreparedJob,
+    id: String,
+}
+pub(crate) struct OrganizationTicket {
+    ticket: Ticket,
+}
+pub(crate) struct OrganizationCompletion {
+    pub(crate) revision: String,
+    _resources: Option<RuntimeWriteResources>,
+    _permit: Reservation,
+}
+impl PreparedOrganization {
+    pub(crate) fn cancellation(&self) -> MutationCancellation {
+        MutationCancellation {
+            state: self.prepared.ticket.state.clone(),
+        }
+    }
+    pub(crate) fn lane(&self) -> Result<Arc<tokio::sync::Mutex<()>>> {
+        SessionStore::shared_lane(&self.prepared.shared, &self.id)
+    }
+    pub(crate) fn deadline(&self) -> Instant {
+        self.prepared.ticket.deadline
+    }
+    pub(crate) fn enqueue(
+        mut self,
+        resources: RuntimeWriteResources,
+    ) -> Result<(OrganizationTicket, oneshot::Receiver<ExecutionRequest>)> {
+        let (ready, request) = oneshot::channel();
+        self.prepared.job.resources = Some(resources);
+        let ticket = self.prepared.enqueue(Some(ready))?;
+        Ok((OrganizationTicket { ticket }, request))
+    }
+}
+impl OrganizationTicket {
+    pub(crate) async fn finish(self) -> Result<OrganizationCompletion> {
+        let Delivered {
+            result,
+            _permit,
+            resources,
+        } = receive_delivery(self.ticket).await?;
+        match result? {
+            Reply::Revision(revision) => Ok(OrganizationCompletion {
+                revision,
                 _resources: resources,
                 _permit,
             }),
@@ -819,6 +892,40 @@ impl SessionStore {
             _ => Err(StoreError::Unavailable),
         }
     }
+    pub(crate) async fn organization_state(
+        &self,
+        id: String,
+    ) -> Result<Option<super::OrganizationRecord>> {
+        match self.request(Command::OrganizationState(id)).await? {
+            Reply::OrganizationState(value) => Ok(value),
+            _ => Err(StoreError::Unavailable),
+        }
+    }
+    pub(crate) fn prepare_organization(
+        &self,
+        id: String,
+        created: String,
+        revision: String,
+        choice: String,
+    ) -> Result<PreparedOrganization> {
+        if id.is_empty()
+            || id.len() > 256
+            || created.is_empty()
+            || created.len() > 256
+            || !id
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || b"-_".contains(&c))
+        {
+            return Err(StoreError::Invalid("invalid creation identity".into()));
+        }
+        let prepared = self.prepare(Command::Organization {
+            id: id.clone(),
+            created,
+            revision,
+            choice,
+        })?;
+        Ok(PreparedOrganization { prepared, id })
+    }
     pub(crate) async fn organize(
         &self,
         id: String,
@@ -912,7 +1019,11 @@ fn execute_command(_shared: &Shared, command: Command, db: &mut Database) -> Res
     {
         let read = {
             let mut gate = _shared.before_get.lock().unwrap();
-            if let (Command::Get(id), Some((expected, remaining, ..))) = (&command, gate.as_mut()) {
+            if let (
+                Command::Get(id) | Command::OrganizationState(id),
+                Some((expected, remaining, ..)),
+            ) = (&command, gate.as_mut())
+            {
                 if id == expected {
                     *remaining -= 1;
                     if *remaining == 0 {
@@ -933,7 +1044,7 @@ fn execute_command(_shared: &Shared, command: Command, db: &mut Database) -> Res
         }
         let gate = {
             let mut gate = _shared.after_claim.lock().unwrap();
-            if matches!(&command, Command::Internal { id, .. } if gate.as_ref().is_some_and(|(expected, ..)| expected == id))
+            if matches!(&command, Command::Internal { id, .. } | Command::Organization { id, .. } if gate.as_ref().is_some_and(|(expected, ..)| expected == id))
             {
                 gate.take()
             } else {
@@ -982,6 +1093,21 @@ pub(crate) mod testing {
                 tokio::task::yield_now().await;
             }
         }).await.expect("application mutation did not enter the worker queue");
+    }
+    pub(crate) async fn wait_for_organization(store: &SessionStore, id: &str) {
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let queued = store.shared.queue.lock().unwrap().mutations.iter().any(
+                    |job| matches!(&job.command,Command::Organization{id:queued,..} if queued==id),
+                );
+                if queued {
+                    return;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("organization did not enter the worker queue");
     }
     pub(crate) async fn wait_for_get(store: &SessionStore, id: &str) {
         tokio::time::timeout(Duration::from_secs(1), async {
@@ -1034,6 +1160,16 @@ pub(crate) mod testing {
             entered: Some(entered_rx),
             release: Some(release_tx),
         }
+    }
+    pub(crate) fn hold_nth_organization_state(
+        store: &SessionStore,
+        id: &str,
+        nth: usize,
+    ) -> ClaimPause {
+        hold_nth_get(store, id, nth)
+    }
+    pub(crate) fn hold_next_organization(store: &SessionStore, id: &str) -> ClaimPause {
+        hold_next_internal(store, id)
     }
     pub(crate) fn hold_next_internal(store: &SessionStore, id: &str) -> ClaimPause {
         let (entered_tx, entered_rx) = oneshot::channel();

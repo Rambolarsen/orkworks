@@ -16,8 +16,8 @@ use std::{path::Path, time::Duration};
 pub(crate) use worker::testing as test_worker;
 #[allow(unused_imports)] // Format selection is intentionally not enabled here.
 pub(crate) use worker::{
-    ExecutionRequest, InternalCompletion, InternalMutationTicket, PreparedInternalMutation,
-    RuntimeWriteResources, SessionStore,
+    ExecutionRequest, InternalCompletion, InternalMutationTicket, OrganizationCompletion,
+    PreparedInternalMutation, PreparedOrganization, RuntimeWriteResources, SessionStore,
 };
 
 #[derive(Debug)]
@@ -69,6 +69,13 @@ impl From<serde_json::Error> for StoreError {
 type Result<T> = std::result::Result<T, StoreError>;
 const APP_ID: i64 = 0x4f575353;
 const MAX_RECORD: usize = 1024 * 1024;
+
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct OrganizationRecord {
+    pub(crate) document: serde_json::Value,
+    pub(crate) state: String,
+    pub(crate) organization_revision: String,
+}
 
 struct Database {
     conn: Connection,
@@ -213,6 +220,30 @@ impl Database {
             self.accepted_attention(&record.metadata);
         }
         Ok(document)
+    }
+    fn organization_state(&self, id: &str) -> Result<Option<OrganizationRecord>> {
+        let _budget = queries::ReadBudget::new(&self.conn);
+        let tx = self.conn.unchecked_transaction()?;
+        let Some(document) = read_document(&tx, id, false)? else {
+            return Ok(None);
+        };
+        let (state, organization_revision): (String, String) = tx.query_row(
+            "SELECT s.state,coalesce(o.revision,'0') FROM sessions s LEFT JOIN organization o ON o.id=s.id AND o.created_at=s.created_at WHERE s.id=?1 AND s.deleted=0",
+            [id], |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        if !matches!(state.as_str(), "active" | "closed" | "archived" | "unknown") {
+            return Err(StoreError::Corrupt);
+        }
+        crate::metadata::session_transactions::MetadataRevision::try_from(
+            organization_revision.clone(),
+        )
+        .map_err(|_| StoreError::Corrupt)?;
+        tx.commit()?;
+        Ok(Some(OrganizationRecord {
+            document,
+            state,
+            organization_revision,
+        }))
     }
     fn organize(
         &mut self,
