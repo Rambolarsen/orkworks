@@ -1241,3 +1241,42 @@ power-loss, filesystem/profile qualification or numeric latency proof. Legacy
 JSON deletion remains unchanged. Workflow evidence, images, last-active settings,
 recommendations, final row/job removal, scheduling, producer/selector integration,
 migration and activation remain follow-ups. Production remains JSON.
+
+Replay directory handles are opened at execution time. Ordinary root/events
+replacement between capture and removal remains an unqualified ownership boundary
+tracked in [#1442](https://github.com/Rambolarsen/orkworks/issues/1442); the source
+fixture results above do not establish activation readiness for that case.
+
+## Captured SQL workflow evidence cleanup
+
+`workflow_observations/deletion.rs` adds a durable variant under the original
+shared mutex. Controlled directory-sync failures exercise unlink-success/sync-
+failure and already-absent retry: caches remain until synchronization succeeds,
+while old captured writer permits are revoked on every valid removal attempt.
+Invalid IDs are rejected before effects, exact overlong basenames are not
+resolved, root/workflow handles stay bound across directory replacement, and
+segment symlinks are unlinked
+without touching their targets. Other observations and the sequence survive;
+reopen sees only the intended deletion. Initial symlinked directories cannot
+obtain cleanup anchors; legacy opening still works but durable deletion fails.
+Non-Unix has a fail-closed fixture.
+
+`sql_writes/delete_evidence_tests.rs` exercises the real SQL tombstone/job and
+shared store: bit `0x02` survives reopen without final completion; replay/legacy
+metadata and unrelated evidence remain. Replaced store instances fail before
+revocation. Pre-admission cancellation/expiry preserve the original writer;
+admitted caller loss and owner replacement finish on the retained original
+store with a detached receipt. File errors do not attempt progress, SQL busy
+after successful removal reports the partial outcome, and retry preserves other
+bits. The existing replay suite exercises the unchanged shared runner's stale
+workspace/runtime/reader/lease checks, job/identity revalidation, lane/reservation
+and capacity boundaries, and completion with one blocking worker.
+
+A single-Tokio-worker fixture holds the actual evidence mutex on an OS thread
+while admitted deletion stalls. Projection/workspace/session/PID guards remain
+available and another runtime acknowledges input before the bounded watchdog
+releases the mutex. This is controlled concurrency evidence, not measured live
+latency or hardware power-loss qualification. Production remains JSON; no
+migration, automatic cleanup scheduling, retention change or platform activation
+is claimed. The [implementation plan](../superpowers/plans/2026-11-05-sql-evidence-cleanup.md)
+records scope and remaining gates.

@@ -1,7 +1,7 @@
 use super::organization_tests::{finalize, fixture, root, CREATED, ID};
 use super::*;
 
-async fn deleted() -> (
+pub(super) async fn deleted() -> (
     tempfile::TempDir,
     Arc<AppState>,
     Arc<SessionStore>,
@@ -108,12 +108,12 @@ async fn sql_replay_cleanup_rejects_ordinary_rows_and_wrong_creation_before_file
 }
 
 use std::time::Duration;
-struct Held {
+pub(super) struct Held {
     entered: Option<oneshot::Receiver<()>>,
     release: Option<std::sync::mpsc::Sender<()>>,
 }
 impl Held {
-    async fn entered(&mut self) {
+    pub(super) async fn entered(&mut self) {
         tokio::time::timeout(Duration::from_secs(5), self.entered.take().unwrap())
             .await
             .unwrap()
@@ -127,7 +127,7 @@ impl Drop for Held {
         }
     }
 }
-fn hold(gate: &ReplayGate) -> Held {
+pub(super) fn hold(gate: &ReplayGate) -> Held {
     let (ready, entered) = oneshot::channel();
     let (release, wait) = std::sync::mpsc::channel();
     *gate.lock().unwrap() = Some((ready, wait));
@@ -139,7 +139,7 @@ fn hold(gate: &ReplayGate) -> Held {
 fn replay_exists(state: &Arc<AppState>) -> bool {
     root(state).join(format!("events/{ID}.terminal")).exists()
 }
-async fn progress(store: &Arc<SessionStore>) -> u8 {
+pub(super) async fn progress(store: &Arc<SessionStore>) -> u8 {
     store
         .deletion_record(ID.into(), CREATED.into())
         .await

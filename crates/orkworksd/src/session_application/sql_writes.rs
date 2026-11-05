@@ -396,3 +396,6 @@ fn enter_replay_gate(gate: &ReplayGate) {
             .expect("replay gate was not released");
     }
 }
+
+#[cfg(all(test, unix))]
+mod delete_evidence_tests;

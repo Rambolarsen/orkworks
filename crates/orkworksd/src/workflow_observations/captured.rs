@@ -241,6 +241,35 @@ mod tests {
         assert!(store.inner.lock().unwrap().permits.len() <= 2);
     }
     #[test]
+    #[cfg(unix)]
+    fn durable_delete_revokes_writer_and_preserves_other_evidence_and_sequence() {
+        let root = tempfile::tempdir().unwrap();
+        let store = WorkflowObservationStore::open(root.path().into()).unwrap();
+        let writer = store.capture_writer("s".into(), "creation".into());
+        writer
+            .record_batch(&FileClaim::new(), 1, vec![(0, candidate())])
+            .unwrap();
+        store
+            .record_observation("other", ObservationOrigin::Peon, "other", candidate())
+            .unwrap();
+        let sequence = fs::read(store.dir.join("sequence")).unwrap();
+        let other = fs::read(store.segment_path("other")).unwrap();
+        store.delete_session_observations_durable("s").unwrap();
+        assert!(!store.segment_path("s").exists());
+        assert_eq!(store.session_observation_count("s").unwrap(), 0);
+        assert!(matches!(
+            writer.record_batch(&FileClaim::new(), 2, vec![(0, candidate())]),
+            Err(AdmissionError::Conflict)
+        ));
+        assert_eq!(fs::read(store.segment_path("other")).unwrap(), other);
+        assert_eq!(fs::read(store.dir.join("sequence")).unwrap(), sequence);
+        store.delete_session_observations_durable("s").unwrap();
+        let reopened = WorkflowObservationStore::open(root.path().into()).unwrap();
+        assert_eq!(reopened.session_observation_count("s").unwrap(), 0);
+        assert_eq!(reopened.session_observation_count("other").unwrap(), 1);
+    }
+
+    #[test]
     fn cancellation_and_expiry_cannot_claim_or_change_sequence() {
         let root = tempfile::tempdir().unwrap();
         let store = WorkflowObservationStore::open(root.path().into()).unwrap();
