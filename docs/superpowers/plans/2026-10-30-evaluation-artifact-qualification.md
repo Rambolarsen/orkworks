@@ -431,3 +431,20 @@ representation choices remain owner-pending. The accepted broker/schema-2/format
 architecture and source-admission interface are unchanged; RegistryRoot remains
 a separate proposal. No fixture, SQL/schema/migration, native/model experiment,
 live source issuance or runtime activation is authorized.
+
+
+## Preparation representation accepted; closure handoff — 2026-11-05
+
+The owner accepted [#1420's exact authorization representation](../specs/2026-11-05-child-preparation-authorization-design.md#scoped-representation-acceptance--2026-11-05)
+for further qualification. [#1421](https://github.com/Rambolarsen/orkworks/issues/1421)
+records the unchanged decision and ADR0107 amendment. Earlier representation-
+pending wording is historical only for these choices; no repeat policy or
+representation approval is needed. RegistryRoot remains separately proposed.
+
+Gate 2 remains Investigate. The canonical representation's finite exit criteria
+require full 35-family/key/index/consumer and paired effect reconciliation,
+actual ordinary/source owner closure, and physical ownership/resource evidence.
+These are prerequisites to complete paired fixtures and any separately approved
+executable/native work. Gates 3–4 remain gated; no runtime/SQL/schema/migration,
+live capability, native/model probe or new numerical allowance is authorized.
+#1176 remains open; #740 remains closed research.

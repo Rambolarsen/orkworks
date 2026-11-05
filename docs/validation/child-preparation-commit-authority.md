@@ -4,7 +4,7 @@ title: Original child preparation commit authority
 description: Accepted scoped original-preparation late-saving policy for further design, with representation and native qualification gated.
 tags: [orkworks, hierarchy, preparation, authority, qualification]
 status: draft
-workflow_status: policy-accepted-evidence-design-pending
+workflow_status: policy-and-representation-accepted-qualification-pending
 ---
 
 # Original child preparation commit authority
@@ -310,3 +310,16 @@ P-keyed recovery row and fresh format-6 placement under existing source budgets.
 These representation choices remain owner-pending; no implementation or native
 qualification follows. The source-admission interface was separately accepted
 through #1414; RegistryRoot remains proposed. #1176 stays open; #740 stays closed.
+
+
+## Representation accepted; qualification remains — 2026-11-05
+
+The owner [accepted the reviewed authorization record, immutable recovery row and
+format-6 placement](../superpowers/specs/2026-11-05-child-preparation-authorization-design.md#scoped-representation-acceptance--2026-11-05)
+for further qualification after #1420. Earlier representation-pending wording is
+historical for those unchanged choices; the original investigation and scoped
+policy stand. ADR0107's dated amendment records this without a new policy.
+The canonical proposal now lists finite catalog/membership, ordinary producer,
+actual source-owner and physical/resource evidence obligations. No native result,
+SQL/database/migration, fixture, executable plan or activation follows from this
+acceptance. RegistryRoot remains independently proposed; #1176 remains open.

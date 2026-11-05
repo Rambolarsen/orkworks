@@ -1,10 +1,10 @@
 ---
 type: Design Proposal
 title: Original child preparation authorization evidence
-description: Proposed canonical permit decision, original control snapshots and immutable recovery row for the accepted late-saving/no-spawn policy.
+description: Accepted authorization evidence representation for further qualification, with physical source and native activation gates remaining.
 tags: [taskmaster, hierarchy, preparation, authority, recovery]
 status: draft
-workflow_status: representation-owner-review-pending
+workflow_status: representation-accepted-qualification-pending
 ---
 
 # Original child preparation authorization evidence
@@ -339,3 +339,55 @@ The physical exact-permit index, full membership/catalog, actual source owner,
 ordinary activation and native ordering/resources remain unverified downstream
 gates, not results supplied by the review. No extra review round, fixture, code,
 proof acceptance or runtime qualification is claimed.
+
+
+## Scoped representation acceptance — 2026-11-05
+
+After [PR #1420](https://github.com/Rambolarsen/orkworks/pull/1420), reviewed head
+`8a63849ac23d4bf09dca7f93e6e418b898c96306`, merged
+`8e885c5bcd7d59184f032a1e3c9ee3e7da74ee8d`, the owner answered “keep going”
+to approval of the proposed authorization record, recovery row and format-6
+placement for further qualification. [#1421](https://github.com/Rambolarsen/orkworks/issues/1421)
+records that decision. This accepts exactly the representation above:
+
+- The separate checked preparation identity, closed original intent and original
+  typed control snapshots, including candidate compare-and-consume ordering.
+- One immutable P-keyed authorization row, exact permit uniqueness, direct proof
+  retention and fixed typed historical consumer placement.
+- New-store-only hierarchy format6 with the specified domains/link exclusions and
+  charging under existing source/global/lower limits; ordinary schema2 and all
+  existing source/request/receipt/claim/debit domains remain unchanged.
+
+Earlier owner-pending/proposed wording is historical for these exact choices.
+The bounded correctness/builder review remains the review evidence for the
+unchanged representation; this acceptance adds no new technical review or native
+result. [ADR 0107](../../adr/0107-original-child-preparation-permit.md#amendment-authorization-evidence-accepted--2026-11-05)
+records the operational clarification. Do not ask again for unchanged policy,
+broker/lineage/tombstone architecture or this representation.
+
+This is acceptance for further qualification, not implementation or activation.
+RegistryRoot remains independently proposed. It grants no database/SQL/schema/
+migration, dependent full transaction fixture, executable/native plan, model
+probe, source registration, new bearer/allowance or live runtime capability.
+
+### Finite qualification exit criteria
+
+The next prerequisite is a closed-profile reconciliation against this accepted
+representation, not another representation design. Existing contracts require
+these evidence obligations before complete paired fixtures or executable work:
+
+| Obligation | Required closure | Completion evidence |
+| --- | --- | --- |
+| Catalog and paired membership | Enumerate the inherited 33 families plus ordinary lineage and authorization, every actual key/index/typed consumer, and complete original source-attach effects; preserve the existing row/domain exclusions | One exact full inventory and independently checkable old/new effect accounting; a count of 35 alone is insufficient |
+| Ordinary producer and activation | Resolve the actual SessionStore worker/connection owner, original metadata normalization, ordinary schema2 lineage/index ownership and qualified peer lifecycle | Trace every participating ordinary writer to the accepted joint boundary; keep [session-storage producer qualification #1242](https://github.com/Rambolarsen/orkworks/issues/1242) separate from inferred availability |
+| Source and revocation owners | Resolve the actual original parent/source owner, short permit/revoke cutoff, retained candidate state and all other participating writers without promoting a historical proof into authority | Source-backed construction/transition/disposition ownership and denial paths; separately decide any new mechanism such as RegistryRoot before dependent implementation |
+| Physical ownership and resources | Reconcile complete membership/lease/health, rollback-journal atomicity, all lower queue/job/store/native bounds and retained unknown disposition | Source-backed accounting and a qualified profile; logical hashes and passing documentation checks do not establish filesystem/native behavior |
+
+A reconciliation may mark an obligation closed only with its concrete evidence.
+Missing owners, incomplete membership or an unqualified physical profile remain
+explicit blockers, not fabricated fixtures or a claim that qualification is
+impossible. New findings that materially change an accepted interface, authority,
+format or limit require a scoped decision for that change only. Once the closed
+contracts and prerequisites are established, independently generated complete
+old/new/manifest/packing fixtures and any executable/native plan retain their
+existing separate gates. #1176 stays open; #740 stays closed research.

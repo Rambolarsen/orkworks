@@ -52,3 +52,21 @@ debit or ordinary execution token is reused. The policy acceptance grants no
 proof/format approval, fixture/executable plan, SQL/database/migration, source
 registration, live capability or native/model probe. The named three architecture
 choices and this unchanged one-action policy need no repeated approval.
+
+
+## Amendment: authorization evidence accepted — 2026-11-05
+
+The owner subsequently accepted [PR #1420's exact authorization representation](../superpowers/specs/2026-11-05-child-preparation-authorization-design.md#scoped-representation-acceptance--2026-11-05)
+for further qualification, against reviewed head
+`8a63849ac23d4bf09dca7f93e6e418b898c96306` / merge
+`8e885c5bcd7d59184f032a1e3c9ee3e7da74ee8d`. This operationalizes the required
+nonsecret proof/lookup/manifest/accounting compatibility consequence above; it
+does not reverse this policy or broaden its one-action permission.
+
+The separate permit identity and exact intent/snapshot codec, immutable P-keyed
+row with permit uniqueness/direct retention, and new-store-only format6 placement
+under existing limits are accepted. Earlier representation-pending wording is
+historical for those exact choices. Physical catalog/membership, actual source/
+ordinary owners, resource/native qualification and separately approved executable
+work remain gates. No code, database, migration, new quota/bearer or activation is
+authorized. RegistryRoot remains a separate proposal. Tracking: [#1421](https://github.com/Rambolarsen/orkworks/issues/1421).
