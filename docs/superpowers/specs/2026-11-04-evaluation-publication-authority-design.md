@@ -411,3 +411,15 @@ admission and the authority cutoff. RecommendationStore opening can migrate and
 recover graph files; removing that fence could race same-path writes. The
 execution plan records this source-backed lock-lifetime ruling. The no-ordinary-
 locks-under-publication-latch contract and every activation gate are unchanged.
+
+
+## Source-admission design handoff — 2026-11-05
+
+PR #1396 delivered the accepted dormant lifecycle-close unit. All production
+carriers remain None; synthetic tests and close routing establish no original
+source or successful runtime custody. [#1397](https://github.com/Rambolarsen/orkworks/issues/1397)
+now proposes the [source-to-runtime admission interface](2026-11-05-evaluation-source-admission-design.md):
+private original-source evidence, exact actual runtime/ordinary bridge, source
+writer participation and final registration freshness. Those new module/fence
+choices await scoped owner review; no accepted policy or prior approval is
+reopened. No production construction/registration or storage activation follows.

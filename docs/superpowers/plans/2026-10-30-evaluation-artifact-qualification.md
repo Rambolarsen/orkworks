@@ -338,3 +338,19 @@ this requests a new scoped decision for call-site routing/tests only. Actual
 source/ordinary bridge, resource/catalog/native and active adoption gates remain.
 Gate 2 stays Investigate; #1176 stays open. #740 itself is completed research,
 with its downstream evidence limitations preserved rather than reopened.
+
+
+## Source-to-runtime admission proposal — 2026-11-05
+
+The authority core and PR #1396's close-only lifecycle routing are now merged;
+all production bindings remain unattached. [#1397](https://github.com/Rambolarsen/orkworks/issues/1397)
+prepares the [private source-admission design](../specs/2026-11-05-evaluation-source-admission-design.md)
+for original child preparation, actual runtime/ordinary-session bridge and
+registration freshness under participating source writers. It is a proposal,
+not an actual source publisher, physical-commit mechanism or executable plan.
+
+Existing Gate 1 choices remain accepted. Gate 2 stays Investigate and Gates 3–4
+remain gated: original source/ordinary preparation atomicity, complete physical
+membership/profile, resource bounds, source authority at commit and native
+recovery still require their qualified mechanisms. Keep #1176 open and #740
+closed; no new fixture, code, database, adapter or probe is authorized here.
