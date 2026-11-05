@@ -743,6 +743,27 @@ fn privacy_prerequisite_interrupts_an_already_queued_analysis() {
 
 #[tokio::test]
 async fn privacy_prerequisite_preserves_deferred_run_status_recovery() {
+    const CHILD: &str = "ORKWORKS_PRIVACY_RECOVERY_TEST_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        // Unique workspace roots do not isolate ANALYSIS_IN_FLIGHT. Exercise
+        // recovery in a separate process without weakening scheduler admission.
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "taskmaster::evaluator::activation_tests::privacy_prerequisite_preserves_deferred_run_status_recovery",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
     for running in [false, true] {
         let fixture = Fixture::new("success");
         fixture.approve();
