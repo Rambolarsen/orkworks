@@ -479,6 +479,14 @@ async fn sql_observer_pipeline_retains_post_rpc_metadata_read_deadline_errors() 
 
 #[tokio::test]
 async fn sql_observer_recovers_rpc_polling_after_detached_wait_without_adopting_proof() {
+    let module = module_path!().split_once("::").unwrap().1;
+    if super::sql_tests::isolated_test(format!(
+        "{module}::sql_observer_recovers_rpc_polling_after_detached_wait_without_adopting_proof"
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (_dir, state, store, writes, _effect, _commands) = fixture_with_root("root").await;
     tokio::time::sleep(std::time::Duration::from_millis(350)).await;
