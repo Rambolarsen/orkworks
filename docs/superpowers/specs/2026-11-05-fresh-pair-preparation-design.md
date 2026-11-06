@@ -360,3 +360,16 @@ cutoffs, complete physical membership and feasible hard resource/recovery eviden
 remain the required next qualification work. The original child preparation
 permit remains the only scoped late-save/no-spawn exception; no earlier event
 inherits it. Gate2 stays Investigate, #1176 open and #740 closed research.
+
+
+## Actual native-owner audit — 2026-11-06
+
+The [fresh-pair native owner audit](../../validation/fresh-pair-native-owner-audit.md)
+under [#1447](https://github.com/Rambolarsen/orkworks/issues/1447) follows the already
+accepted contract at source base 32011f53. Ordinary file creation, workspace
+identity/lease and worker cancellation are concrete patterns, but no located
+constructor returns the accepted original two-file native owner or paired
+proven-old/proven-new/unknown disposition. The immediate missing design is the
+private fresh-pair ownership/reservation/open/disposition protocol. This audit
+changes no accepted seed/command/representation rule and establishes no native
+profile, implementation, test fixture or activation.
