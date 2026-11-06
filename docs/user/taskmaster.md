@@ -94,7 +94,9 @@ Taskmaster shows analysis activity separately from provider readiness. The
 Settings page and Recommendations panel report when an analysis is queued or
 running, and its latest success, failure, or interruption. A failure includes
 the provider/model and a short error summary, so you can distinguish a failed
-analysis from a provider that is simply not configured.
+analysis from a provider that is simply not configured. Current source builds
+report recognized unsupported-model CLI responses as model failures without
+exposing raw provider output.
 New successful analyses also report how many recommendations were created or
 suppressed as duplicates. A confirmed cache hit reports unchanged inputs and
 keeps the previous analysis result. A successful run with no new proposals is
