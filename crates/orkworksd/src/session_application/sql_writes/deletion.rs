@@ -8,6 +8,7 @@ enum Stage {
     Replay,
     Workflow,
     Images,
+    Settings,
 }
 impl Stage {
     fn bit(self) -> u8 {
@@ -15,6 +16,7 @@ impl Stage {
             Self::Replay => 0x01,
             Self::Workflow => 0x02,
             Self::Images => 0x04,
+            Self::Settings => 0x08,
         }
     }
     fn name(self) -> &'static str {
@@ -22,6 +24,7 @@ impl Stage {
             Self::Replay => "replay",
             Self::Workflow => "workflow",
             Self::Images => "images",
+            Self::Settings => "settings",
         }
     }
     fn current(
@@ -29,7 +32,7 @@ impl Stage {
         captured: &crate::workflow_observations::WorkflowObservationStore,
         ws: &WorkspaceState,
     ) -> bool {
-        matches!(self, Self::Replay | Self::Images)
+        matches!(self, Self::Replay | Self::Images | Self::Settings)
             || captured.instance_id() == ws.workflow_observations.instance_id()
     }
 }
@@ -37,15 +40,15 @@ enum Files {
     Replay(Arc<std::io::Result<crate::metadata::replay_cleanup::AnchoredReplayCleanup>>),
     Workflow(crate::workflow_observations::WorkflowObservationStore),
     Images(Arc<std::io::Result<crate::image_context::SqlImageCleanup>>),
+    Settings(Arc<std::io::Result<crate::metadata::BoundSettingsCleanup>>),
+}
+#[derive(Default)]
+struct CleanupGuards {
+    _image: Option<crate::image_context::ImageCleanupGuard>,
+    _settings: Option<crate::metadata::WorkspaceMemoryEdit>,
 }
 impl Files {
-    fn remove(
-        self,
-        id: &str,
-    ) -> (
-        std::io::Result<()>,
-        Option<crate::image_context::ImageCleanupGuard>,
-    ) {
+    fn remove(self, id: &str) -> (std::io::Result<()>, CleanupGuards) {
         match self {
             Self::Replay(files) => (
                 files
@@ -53,13 +56,38 @@ impl Files {
                     .as_ref()
                     .map_err(|e| std::io::Error::new(e.kind(), e.to_string()))
                     .and_then(|files| files.remove()),
-                None,
+                CleanupGuards::default(),
             ),
-            Self::Workflow(files) => (files.delete_session_observations_durable(id), None),
-            Self::Images(files) => match files.as_ref().as_ref() {
-                Ok(files) => files.remove(),
-                Err(e) => (Err(std::io::Error::new(e.kind(), e.to_string())), None),
-            },
+            Self::Workflow(files) => (
+                files.delete_session_observations_durable(id),
+                CleanupGuards::default(),
+            ),
+            Self::Images(files) => {
+                let (result, guard) = match files.as_ref().as_ref() {
+                    Ok(files) => files.remove(),
+                    Err(e) => (Err(std::io::Error::new(e.kind(), e.to_string())), None),
+                };
+                (
+                    result,
+                    CleanupGuards {
+                        _image: guard,
+                        ..Default::default()
+                    },
+                )
+            }
+            Self::Settings(files) => {
+                let (result, guard) = match files.as_ref().as_ref() {
+                    Ok(files) => files.clear(id),
+                    Err(e) => (Err(std::io::Error::new(e.kind(), e.to_string())), None),
+                };
+                (
+                    result,
+                    CleanupGuards {
+                        _settings: guard,
+                        ..Default::default()
+                    },
+                )
+            }
         }
     }
 }
@@ -73,6 +101,7 @@ pub(crate) struct CapturedDeletion {
     replay: Arc<std::io::Result<crate::metadata::replay_cleanup::AnchoredReplayCleanup>>,
     capacity: file_budget::Reservation,
     images: Arc<std::io::Result<crate::image_context::SqlImageCleanup>>,
+    settings: Arc<std::io::Result<crate::metadata::BoundSettingsCleanup>>,
 }
 #[derive(Debug)]
 #[must_use]
@@ -115,13 +144,14 @@ impl SessionWrites {
         created: String,
     ) -> Result<CapturedDeletion, StoreError> {
         let id_for_capture = id.clone();
-        let (memory, workflow, replay, image_root) = self
+        let (memory, workflow, replay, image_root, settings) = self
             .organization_access(id.clone(), None, true, None, move |ws, h, pid| {
                 (
                     Arc::new(Memory::capture(ws, h.as_deref(), pid)),
                     ws.workflow_observations.clone(),
                     ws.metadata.capture_replay_cleanup(&id_for_capture),
                     ws.metadata.root_path(),
+                    ws.metadata.capture_settings_cleanup(),
                 )
             })
             .await?
@@ -154,12 +184,14 @@ impl SessionWrites {
                     &image_id,
                     &lease,
                 )),
+                Arc::new(settings.bind(&lease)),
             )
         });
-        let (capacity, replay, images) = tokio::time::timeout(Duration::from_secs(2), binding)
-            .await
-            .map_err(|_| StoreError::Expired)?
-            .map_err(|_| StoreError::Unavailable)?;
+        let (capacity, replay, images, settings) =
+            tokio::time::timeout(Duration::from_secs(2), binding)
+                .await
+                .map_err(|_| StoreError::Expired)?
+                .map_err(|_| StoreError::Unavailable)?;
         self.organization_access(id.clone(), Some(memory.clone()), true, None, |_, _, _| ())
             .await?
             .ok_or(StoreError::Conflict)?;
@@ -172,6 +204,7 @@ impl SessionWrites {
             replay,
             capacity,
             images,
+            settings,
         })
     }
 }
@@ -186,6 +219,9 @@ impl CapturedDeletion {
     }
     pub(crate) async fn remove_images(self) -> Result<DeletionCleanupResult, StoreError> {
         self.remove(Stage::Images).await
+    }
+    pub(crate) async fn clear_settings(self) -> Result<DeletionCleanupResult, StoreError> {
+        self.remove(Stage::Settings).await
     }
     async fn remove(self, stage: Stage) -> Result<DeletionCleanupResult, StoreError> {
         let claim = Arc::new(Claim {
@@ -233,6 +269,7 @@ impl CapturedDeletion {
                             Stage::Replay => Files::Replay(self.replay.clone()),
                             Stage::Workflow => Files::Workflow(self.workflow.clone()),
                             Stage::Images => Files::Images(self.images.clone()),
+                            Stage::Settings => Files::Settings(self.settings.clone()),
                         };
                         job_claim.admit()?;
                         Ok::<_, StoreError>((reservation, lease, files))
@@ -240,7 +277,7 @@ impl CapturedDeletion {
                     .ok_or(StoreError::Conflict)??;
                 #[cfg(test)]
                 enter_replay_gate(&self.owner.replay_admitted);
-                let (files, _image_lock) = files.remove(&self.id);
+                let (files, _cleanup_guards) = files.remove(&self.id);
                 #[cfg(test)]
                 enter_replay_gate(&self.owner.replay_removed);
                 let progress = if files.is_ok() {

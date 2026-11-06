@@ -1702,3 +1702,44 @@ settings-cleanup facade must retain the same permit outside application guards,
 bind original directory/lease ownership and synchronize file changes before
 recording SQL progress. Production remains JSON; no settings cleanup stage,
 format activation or performance qualification is enabled here.
+
+
+## Captured SQL workspace settings cleanup
+
+`CapturedDeletion::clear_settings` reuses the bounded retained deletion runner
+and records bit `0x08` only after durable file success, with complete=false.
+Original workspace/lease/reader, exact SQL creation/tombstone, physical close,
+reservation, cancellation/admission and lane checks remain shared with the other
+cleanup stages. Every partial outcome leaves the SQL row/job pending.
+
+Metadata captures its workspace-memory owner without I/O, then binds the original
+no-follow workspace directory to the retained lease on the existing blocking
+capture. Admitted settings work takes the existing nonblocking edit permit
+outside application guards and retains it through SQL progress and detached
+checks. Legacy writers and same-workspace reopen share that fence. Failed
+settings binding remains an independent file outcome; other stages retain their
+own captured owners.
+
+The private file facade reads latest `workspace.json` through that directory FD,
+rejects nonregular/multiply-linked/symlinked files, bounds input to one MiB and
+strictly validates duplicate keys, trailing input and known fields. Invalid or
+oversized files remain untouched for explicit repair. Only a matching selection
+loses lastActiveSessionId/lastActiveAt; every other top-level value uses raw JSON
+preservation, including unknown large integers and escaped values. A nonmatching
+file is byte-for-byte unchanged; absence creates no settings file.
+
+A matching edit writes an exclusive private random temporary file, synchronizes
+it, verifies both target and staged-entry identities, renames relative to the
+same original directory and synchronizes that directory before progress. Failures
+clean only the attempt's verified temporary entry. Original-parent replacement
+cannot redirect work. Retries synchronize an already-cleared file and parent;
+absence synchronizes the parent under the same edit permit. File failures skip
+SQL progress; later SQL failure reports the file effect separately and cannot
+roll it back. The tombstone and other cleanup bits remain authoritative.
+
+Unix fixtures exercise this narrow facade; other platforms return Unsupported.
+This is source-only settings cleanup, not production SQL selection, final Delete
+completion, recommendation cleanup or recovery scheduling. The complete
+producer/migration gates still apply before activation; legacy JSON selection
+routes do not become SQL-qualified merely because this stage exists. See the
+[stage validation](../validation/session-store-adapter.md#captured-sql-workspace-settings-cleanup).
