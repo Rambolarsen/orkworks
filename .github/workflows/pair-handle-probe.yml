@@ -1,0 +1,180 @@
+name: Windows pair handle component probe
+
+"on":
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact reviewed implementation commit (one approved dispatch only)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require the approved exact head before build
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          $actual = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $env:EXPECTED_SHA -cnotmatch '^[0-9a-f]{40}$' -or $actual -cne $env:EXPECTED_SHA) {
+            throw 'Exact implementation SHA mismatch; no build or probe started'
+          }
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Compile only and select the exact Cargo test artifact
+        id: build
+        run: |
+          $lock = Get-Content crates/orkworksd/Cargo.lock -Raw
+          foreach ($pin in @(@('rusqlite', '0.32.1'), @('libsqlite3-sys', '0.30.1'))) {
+            $pattern = '(?m)^name = "' + [regex]::Escape($pin[0]) + '"\r?\nversion = "' + [regex]::Escape($pin[1]) + '"$'
+            if ($lock -notmatch $pattern) { throw 'Planned SQLite dependency pin mismatch; no probe started' }
+          }
+          cargo test --locked --no-run --message-format=json --test windows_pair_handle_probe --manifest-path crates/orkworksd/Cargo.toml > cargo-artifacts.jsonl
+          if ($LASTEXITCODE -ne 0) { throw 'Probe compilation failed; no native process started' }
+          $artifacts = @(Get-Content cargo-artifacts.jsonl | ForEach-Object {
+            $record = $_ | ConvertFrom-Json
+            if ($record.reason -eq 'compiler-artifact' -and $record.target.name -eq 'windows_pair_handle_probe' -and
+                $record.target.kind -contains 'test' -and $record.profile.test -eq $true -and $record.executable) { $record }
+          })
+          if ($artifacts.Count -ne 1) { throw 'Expected exactly one probe compiler artifact' }
+          $executable = $artifacts[0].executable
+          if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) { throw 'Compiler artifact is missing' }
+          "executable=$executable" >> $env:GITHUB_OUTPUT
+      - name: One bounded native executable process
+        env:
+          PROBE_EXECUTABLE: ${{ steps.build.outputs.executable }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          # Drain pipes concurrently in fixed buffers. No raw native output is
+          # printed or written to disk. Overflow terminates the same owned process.
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Diagnostics;
+          using System.IO;
+          using System.Text;
+          using System.Threading.Tasks;
+          public sealed class BoundedProbe {
+            public int ExitCode;
+            public bool TimedOut, Overflow, Terminated;
+            public string Output = "";
+            private readonly object gate = new object();
+            private readonly StringBuilder captured = new StringBuilder();
+            private int bytes;
+            private async Task Drain(StreamReader reader, Process process) {
+              var buffer = new char[1024];
+              int count;
+              while ((count = await reader.ReadAsync(buffer, 0, buffer.Length)) != 0) {
+                lock (gate) {
+                  int next = Encoding.UTF8.GetByteCount(buffer, 0, count);
+                  if (bytes + next > 262144) {
+                    Overflow = true;
+                    try { process.Kill(true); } catch { }
+                  } else {
+                    bytes += next;
+                    captured.Append(buffer, 0, count);
+                  }
+                }
+              }
+            }
+            public static BoundedProbe Run(string executable) {
+              var result = new BoundedProbe();
+              using (var process = new Process()) {
+                process.StartInfo = new ProcessStartInfo(executable) {
+                  UseShellExecute = false, RedirectStandardOutput = true,
+                  RedirectStandardError = true, CreateNoWindow = true
+                };
+                foreach (var arg in new[] { "qualify_windows_pair_handles", "--exact", "--ignored", "--test-threads=1" })
+                  process.StartInfo.ArgumentList.Add(arg);
+                // The sole executable start: never retry, even if Start throws.
+                if (!process.Start()) throw new Exception("Probe start failed");
+                var stdout = result.Drain(process.StandardOutput, process);
+                var stderr = result.Drain(process.StandardError, process);
+                if (!process.WaitForExit(120000)) {
+                  result.TimedOut = true;
+                  try { process.Kill(true); } catch { }
+                }
+                result.Terminated = process.WaitForExit(5000);
+                if (result.Terminated) {
+                  result.ExitCode = process.ExitCode;
+                  // Unexpected descendants holding pipes cannot extend the budget.
+                  if (!Task.WaitAll(new[] { stdout, stderr }, 5000)) result.Terminated = false;
+                }
+                lock (result.gate) { result.Output = result.captured.ToString(); }
+              }
+              return result;
+            }
+          }
+          '@
+          $started = [DateTime]::UtcNow.ToString('o')
+          $digest = (Get-FileHash -LiteralPath $env:PROBE_EXECUTABLE -Algorithm SHA256).Hash.ToLowerInvariant()
+          $result = [BoundedProbe]::Run($env:PROBE_EXECUTABLE)
+          $ended = [DateTime]::UtcNow.ToString('o')
+          # Keep only recognized structured records, never libtest/panic text.
+          $records = @()
+          $invalid = $false
+          foreach ($line in ($result.Output -split "`n")) {
+            if ($line.StartsWith('{')) {
+              try {
+                $record = $line | ConvertFrom-Json -ErrorAction Stop
+                # Native code emits only these fixed fields, scalar tags/codes.
+                $allowed = @('case','observation','expected','observed','code','complete','runtime','version','filesystem','vfs','failure')
+                foreach ($property in $record.PSObject.Properties) {
+                  if ($property.Name -notin $allowed -or
+                      ($property.Value -is [string] -and $property.Value -cnotmatch '^[a-zA-Z0-9_.-]{1,80}$') -or
+                      ($property.Value -isnot [string] -and $property.Value -isnot [bool] -and
+                       $property.Value -isnot [long] -and $property.Value -isnot [int])) { throw 'Invalid native record' }
+                }
+                $records += $record
+              } catch { $invalid = $true }
+            }
+          }
+          $expected = @('original_roles','swapped_foreign','file_sharing','directory_sharing','query_failure','partial_creation')
+          $completed = @($records | Where-Object { $_.complete -eq $true } | ForEach-Object { $_.case })
+          $allCases = ($completed.Count -eq 6 -and ($completed -join ',') -ceq ($expected -join ','))
+          $badObservation = @($records | Where-Object { $_.failure -or ($_.PSObject.Properties.Name -contains 'observed' -and $_.observed -ne $true) }).Count -gt 0
+          $success = $result.Terminated -and -not $result.TimedOut -and -not $result.Overflow -and
+            $result.ExitCode -eq 0 -and $allCases -and -not $invalid -and -not $badObservation
+          # Fixed allowlist of build/runtime context; no broad environment capture.
+          $rust = (rustc --version).Trim()
+          $cargo = (cargo --version).Trim()
+          $image = $env:ImageVersion
+          if ($image -cnotmatch '^[0-9.]{1,40}$') { $image = 'unavailable'; $success = $false }
+          $summary = [ordered]@{
+            implementation_sha = $env:EXPECTED_SHA
+            plan_commit = '14c9de4e844589923218f5cb1ab2177863580f9f'
+            executable_sha256 = $digest
+            rustc = $rust; cargo = $cargo; runner_image_version = $image
+            runner_class = 'windows-latest'; sqlite_dependency = 'libsqlite3-sys-0.30.1'
+            rusqlite_dependency = '0.32.1'
+            started_utc = $started; ended_utc = $ended
+            native_process_starts = 1; timeout_seconds = 120
+            terminated = $result.Terminated; timed_out = $result.TimedOut
+            output_overflow = $result.Overflow; exit_code = $result.ExitCode
+            complete = $allCases; success = $success; invalid_record = $invalid
+            records = $records
+          }
+          $json = $summary | ConvertTo-Json -Depth 6
+          if ([Text.Encoding]::UTF8.GetByteCount($json) -gt 262144) { throw 'Sanitized report exceeds limit' }
+          New-Item -ItemType Directory -Path probe-result | Out-Null
+          [IO.File]::WriteAllText((Join-Path $PWD 'probe-result/result.json'), $json)
+          # On forced termination, leave synthetic roots to runner disposal. No
+          # path-based external cleanup or replacement native process is attempted.
+          if (-not $success) { throw 'Component evidence unavailable or failed; no retry authorized' }
+      - name: Retain bounded sanitized evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-pair-handle-component-result
+          path: probe-result/result.json
+          if-no-files-found: warn
+          retention-days: 7
