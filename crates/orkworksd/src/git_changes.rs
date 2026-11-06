@@ -871,6 +871,54 @@ fn side_patch_bytes(
     )))
 }
 
+/// Text and recorded line totals for one delta's non-binary patch sides,
+/// or the display notice that empties them.
+fn delta_patch_content(
+    staging: &mut Staging<'_>,
+    mut file_patches: Vec<Option<git2::Patch<'_>>>,
+    delta: &git2::DiffDelta,
+    path: &str,
+    output: &mut usize,
+) -> Result<(Option<(usize, usize)>, Option<String>, String), String> {
+    let mut added = 0usize;
+    let mut deleted = 0usize;
+    let mut text = String::new();
+    let mut notice = None;
+    if file_patches.iter().any(Option::is_none) {
+        notice = Some("Binary file; no text patch.".into());
+    } else {
+        for mut patch in file_patches.into_iter().flatten() {
+            let text_size = text.len();
+            match side_patch_bytes(&mut patch, text_size, *output)? {
+                Ok((a, d, chunk)) => {
+                    added += a;
+                    deleted += d;
+                    text.push_str(&chunk);
+                }
+                Err(n) => {
+                    notice = Some(n);
+                    staging.partial = true;
+                    break;
+                }
+            }
+        }
+        if notice.is_none() {
+            if delta.status() == git2::Delta::Typechange {
+                // Git displays replacement hunks for a type conversion, but
+                // its line totals describe the net blob-content change.
+                let (a, d) = typechange_net_lines(staging.sets.scratch, delta, path)?;
+                added = a;
+                deleted = d;
+            }
+            *output += text.len();
+        } else {
+            // Never retain or expose one half of a conversion as a complete patch.
+            text = String::new();
+        }
+    }
+    Ok((notice.is_none().then_some((added, deleted)), notice, text))
+}
+
 /// One diff delta's summary, patch text and budget outcome.
 #[allow(clippy::too_many_arguments)]
 fn render_delta(
@@ -890,12 +938,12 @@ fn render_delta(
         .and_then(Path::to_str)
         .ok_or("Unsupported path.")?
         .to_owned();
-    let succ_file = delta.old_file().path().and_then(Path::to_str);
-    let old_path = succ_file.filter(|p| *p != path).map(str::to_owned);
-    let mut notice = None;
-    let mut additions = None;
-    let mut deletions = None;
-    let mut text = String::new();
+    let old_path = delta
+        .old_file()
+        .path()
+        .and_then(Path::to_str)
+        .filter(|p| *p != path)
+        .map(str::to_owned);
     let (patch_diff, indices) = if delta.status() == git2::Delta::Typechange {
         let split = typechange_diff.ok_or("Type change patch unavailable.")?;
         (split, typechange_indices(split, &path)?)
@@ -923,41 +971,11 @@ fn render_delta(
         });
         return Ok(());
     }
-    if file_patches.iter().any(Option::is_none) {
-        notice = Some("Binary file; no text patch.".into());
-    } else {
-        let (mut added, mut deleted) = (0, 0);
-        for mut patch in file_patches.into_iter().flatten() {
-            let text_size = text.len();
-            match side_patch_bytes(&mut patch, text_size, *output)? {
-                Ok((a, d, chunk)) => {
-                    added += a;
-                    deleted += d;
-                    text.push_str(&chunk);
-                }
-                Err(n) => {
-                    notice = Some(n);
-                    staging.partial = true;
-                    break;
-                }
-            }
-        }
-        if notice.is_none() {
-            if delta.status() == git2::Delta::Typechange {
-                // Git displays replacement hunks for a type conversion, but
-                // its line totals describe the net blob-content change.
-                let (a, d) = typechange_net_lines(staging.sets.scratch, delta, &path)?;
-                added = a;
-                deleted = d;
-            }
-            additions = Some(added);
-            deletions = Some(deleted);
-            *output += text.len();
-        } else {
-            // Never retain or expose one half of a conversion as a complete patch.
-            text = String::new();
-        }
-    }
+    let (totals, notice, text) = delta_patch_content(staging, file_patches, delta, &path, output)?;
+    let (additions, deletions) = match totals {
+        Some((a, d)) => (Some(a), Some(d)),
+        None => (None, None),
+    };
     let id = uuid::Uuid::new_v4().to_string();
     patches.insert(id.clone(), text);
     let status = match delta.status() {
