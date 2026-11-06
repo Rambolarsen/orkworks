@@ -266,7 +266,7 @@ mod unsupported_tests {
         fs::create_dir(store.events_dir()).unwrap();
         fs::write(store.events_dir().join("s.terminal"), b"keep").unwrap();
         assert_eq!(
-            bind(&store, "s").unwrap_err().kind(),
+            bind(&store, "s").err().unwrap().kind(),
             std::io::ErrorKind::Unsupported
         );
         assert_eq!(
