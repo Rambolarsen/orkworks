@@ -1,3 +1,4 @@
+mod cleanup;
 mod operation;
 use super::completion::CompletionMutationRequest;
 use super::rollup::stable_rollup_id;
@@ -3158,3 +3159,7 @@ mod tests {
 #[cfg(test)]
 #[path = "store/owner_tests.rs"]
 mod owner_tests;
+
+#[cfg(test)]
+#[path = "store/cleanup_tests.rs"]
+mod cleanup_tests;

@@ -1786,3 +1786,30 @@ must be revalidated or revoked against exact authoritative session/deletion
 state; serialization alone cannot prevent a later producer recreating a deleted
 recommendation. The existing optimistic graph/hash and packet checks are not
 expanded or replaced by this prerequisite.
+
+## Recommendation cleanup preflight
+
+The source-only `RecommendationStore::capture_cleanup` copies memory only.
+Binding runs outside application guards, opens original workspace/recommendation
+directory descriptors, validates the exact workspace lease and retains it.
+Inspection takes the shared nonblocking operation permit; its returned validated
+inventory retains the binding, lease and permit until dropped and exposes records
+only by borrowed slice. Explicit copies remain stale snapshots without authority. Descriptor-relative
+reads on macOS/Linux reject recommendation-directory replacement/appearance,
+symlinks, hardlinks, nonregular entries, mismatched filenames, ambiguous JSON and
+invalid graphs. An absent directory is an empty inventory only while still absent.
+An original workspace path move does not redirect reads to the replacement root.
+
+Conservative preflight caps are 1,024 total directory entries, one MiB per record
+and 32 MiB aggregate encoded record bytes. Overflow fails explicitly without a
+partial inventory. These are internal qualification limits, not new production
+record/retention limits. Unknown entries and transaction directories are refused;
+existing store recovery must finish before retry. Preflight never recovers,
+rewrites, removes, creates or synchronizes files. Other platforms fail Unsupported.
+
+This unwired read-only API grants no deletion, SQL progress, source freshness or
+evidence-protection authority. Application admission, bounded durable transaction
+recovery, original leaf ownership and stale producer revalidation/revocation
+against exact SQL tombstones remain required before captured recommendation
+cleanup. A filesystem stall has no claimed hard deadline; integration must keep
+this blocking work outside input-critical application guards. Production uses JSON.

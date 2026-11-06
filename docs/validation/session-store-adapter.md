@@ -1442,3 +1442,25 @@ outside a store call is not made current by acquiring this operation permit.
 Captured recommendation deletion must qualify producer revalidation/revocation
 against exact SQL tombstones before activation, including stale publication after
 cleanup. No live off-guard deletion producer is selected in this prerequisite.
+
+## Read-only recommendation cleanup preflight
+
+`taskmaster/store/cleanup_tests.rs` qualifies the private read-only boundary using
+real temporary directories and the actual lease/operation owner. Fixtures cover
+retained ownership after caller/store drop, repeated complete inventories,
+contended inspection, lease replacement, original workspace rename/replacement,
+recommendation-directory replacement/appearance, foreign leases, directory and
+leaf symlinks, hardlinks, directories and FIFOs, strict duplicate/trailing/malformed
+JSON, filename identity, pending transactions, invalid graphs, exact 1,024-entry
+acceptance/overflow, one-MiB record rejection and 32-MiB aggregate rejection.
+Returned errors release the permit and leave fixture bytes intact. Repeated
+inspection opens a fresh directory stream rather than sharing a seek offset.
+
+The API performs memory-only capture, read-only off-guard binding and blocking
+inspection; no application stage selects it. It refuses any transaction entry
+rather than invoking unbounded legacy recovery. macOS/Linux implementations use
+relative no-follow nonblocking opens; other platforms have explicit Unsupported
+coverage. Local macOS fixtures and Linux CI are distinct evidence. No native
+Windows cleanup, integrated terminal latency, power-loss behavior, deletion or
+SQL progress is qualified by these tests. Source freshness and durable cleanup
+remain follow-up gates under #1243; production remains JSON.
