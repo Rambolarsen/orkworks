@@ -855,9 +855,7 @@ fn side_patch_bytes(
     output_size: usize,
 ) -> Result<SidePatch, String> {
     let bytes = patch.to_buf().map_err(err)?;
-    if bytes.len() > PATCH_LIMIT
-        || text_size + bytes.len() > PATCH_LIMIT
-        || output_size + text_size + bytes.len() > TOTAL_LIMIT
+    if text_size + bytes.len() > PATCH_LIMIT || output_size + text_size + bytes.len() > TOTAL_LIMIT
     {
         return Ok(Err("Patch exceeds display budget.".into()));
     }
