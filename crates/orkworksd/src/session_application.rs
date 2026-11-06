@@ -1,6 +1,7 @@
 pub(crate) mod ending_completion;
 pub(crate) mod hook_observation;
 pub(crate) mod identity_completion;
+mod recommendation_delivery;
 
 #[cfg(test)]
 #[path = "session_application/ending_history_tests.rs"]
@@ -1468,18 +1469,9 @@ impl SessionApplication {
         // A replaced workspace owns another store. Leave the old reservation
         // for recovery rather than finalizing it against a new instance.
         if delivery.is_err() {
-            if let Some(workspace) = self
-                .state
-                .workspace
-                .lock()
-                .unwrap()
-                .as_ref()
-                .filter(|workspace| target.workspace.matches(workspace))
-            {
-                let _ = workspace
-                    .recommendation_store
-                    .cancel_execution(&id, chrono::Utc::now().to_rfc3339());
-            }
+            let _ = self
+                .settle_recommendation_delivery(&id, &title, &target, false)
+                .await;
             let _ = crate::taskmaster::assessment_access::with_recommendations(
                 &self.state,
                 true,
@@ -1489,38 +1481,8 @@ impl SessionApplication {
             return Err(RecommendationAcceptError::Conflict);
         }
 
-        let workspace_guard = self.state.workspace.lock().unwrap();
-        let workspace = workspace_guard
-            .as_ref()
-            .filter(|workspace| target.workspace.matches(workspace))
-            .ok_or(RecommendationAcceptError::Conflict)?;
-        let current = workspace
-            .recommendation_store
-            .get(&id)
-            .map_err(RecommendationAcceptError::Store)?
-            .ok_or(RecommendationAcceptError::Conflict)?;
-        let delivery_summary = if current.assessment.is_some() {
-            "Taskmaster sent an approved assessment fix prompt.".to_string()
-        } else {
-            format!("Taskmaster sent a fix prompt for: {title}")
-        };
-        workspace.metadata.append_event(
-            &target.session_id,
-            &metadata::Event {
-                event_type: "taskmaster_fix_requested".into(),
-                timestamp: iso_now(),
-                status: "working".into(),
-                observed_status: Some("working".into()),
-                confidence: None,
-                summary: Some(delivery_summary),
-                source: Some("user".into()),
-                recommendation_id: Some(id.to_string()),
-            },
-        );
-        workspace
-            .recommendation_store
-            .complete_execution(&id, chrono::Utc::now().to_rfc3339())
-            .map_err(RecommendationAcceptError::Store)
+        self.settle_recommendation_delivery(&id, &title, &target, true)
+            .await
     }
 
     /// Completes an accepted Taskmaster recommendation from the reporting

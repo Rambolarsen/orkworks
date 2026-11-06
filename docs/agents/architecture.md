@@ -1755,13 +1755,20 @@ precedes registry lookup; the registry mutex protects memory only. Recommendatio
 directory creation, filename migration, recovery and validation follow the same
 nonblocking permit used by reads and mutations.
 
-All public store operations take one permit. Composite execution/completion,
+All public record operations take one permit. Composite execution/completion,
 dismissal, packet replacement and graph deletion retain it through their nested
-get/put/recovery work. Contention returns Io/WouldBlock without waiting behind
+get/put/recovery work. Contention returns Busy without waiting behind
 store I/O. Readers participate because existing get/list operations can replay
 pending graph transactions. The existing transaction, validation, publication and
 recovery algorithms/formats stay unchanged; permit release is automatic on
 success, error and unwind.
+
+Acknowledged recommendation delivery retains its existing in-flight guard while
+settlement returns typed `Busy`. Release notifications wake the retained task
+without polling, resending input or holding application guards across await;
+each retry checks the original workspace instance. Successful acceptance precedes
+its single best-effort delivery event. Failed delivery similarly retries
+cancellation. Actual filesystem errors remain errors for existing recovery.
 
 The canonical-root owner also covers workspace reopen and assessment-access
 redaction's independent store open. It does not replace the cross-process

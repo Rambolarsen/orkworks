@@ -17,6 +17,7 @@ const LEGACY_ROLLUP_TRANSACTION_VERSION: u32 = 1;
 
 #[derive(Debug)]
 pub(crate) enum StoreError {
+    Busy,
     Io(io::Error),
     Json(serde_json::Error),
     InvalidTransition,
@@ -29,6 +30,7 @@ pub(crate) enum StoreError {
 impl std::fmt::Display for StoreError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Busy => write!(f, "recommendation store is busy"),
             Self::Io(error) => write!(f, "{error}"),
             Self::Json(error) => write!(f, "{error}"),
             Self::InvalidTransition => {
@@ -163,6 +165,11 @@ fn take_fault_point(expected: impl FnOnce(FaultPoint) -> bool) -> Result<(), Sto
 impl RecommendationStore {
     fn try_operation(&self) -> Result<operation::Operation, StoreError> {
         self.owner.claim()
+    }
+
+    // A notification is not a grant: callers revalidate and retry the operation.
+    pub(crate) async fn wait_until_available(&self) {
+        self.owner.wait_until_available().await;
     }
 
     pub(crate) fn open(root: PathBuf) -> Result<Self, StoreError> {

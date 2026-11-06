@@ -1420,6 +1420,15 @@ assessment redaction; and an unavailable application read followed by acknowledg
 terminal input on a current-thread runtime with application guards free. All
 existing graph/packet/recovery and assessment-access tests remain applicable.
 
+A review regression reproduced contention after terminal acknowledgement dropping
+the delivery guard before settlement. Typed `Busy` now preserves that guard in
+the existing retained task while awaiting owner-release notifications outside
+application guards. Thirteen owner tests also cover successful/failed delivery
+with HTTP caller loss, release-before-wait/reclaim races, original-workspace
+replacement, and real persistence errors. Retries neither resend input nor append
+an event; acceptance commits before one best-effort event. These fixtures qualify
+contention recovery, not recovery from arbitrary filesystem failures.
+
 This is process-local mutation ownership, not original-file anchoring, finite
 graph-read qualification, a cross-process lock, a new transaction format or a
 SQL deletion-progress grant. Root creation/canonicalization still performs the

@@ -17,7 +17,7 @@ after #1465 and the accepted [storage contract](../specs/2026-11-01-sqlite-sessi
 Keep RecommendationStore as the recommendation/rollup graph authority. Add an
 owned nonblocking operation permit shared by clones and independent opens of the
 same canonical workspace root. Reads participate because they perform recovery.
-A busy operation returns typed Io/WouldBlock before recommendation I/O; no caller
+A busy operation returns typed Busy before recommendation I/O; no caller
 waits behind a slow operation while holding application locks.
 
 - Use a short memory-only registry of weak owner references keyed by canonical
@@ -40,7 +40,7 @@ waits behind a slow operation while holding application locks.
 No captured recommendation deletion/progress bit, new recovery format, SQL
 activation, migration, protection-policy change or final Delete completion.
 Existing synchronous recommendation I/O remains in its current application paths;
-this prerequisite establishes store ownership only.
+this prerequisite establishes store ownership and preserves acknowledged input settlement under contention.
 
 ## Delivery and verification
 
@@ -74,7 +74,7 @@ operations still requires exact source-session/tombstone revalidation or produce
 revocation before captured cleanup activation. The permit deliberately does not
 claim to qualify stale application snapshots or change graph publication policy.
 
-Final verification passed: 53 store tests (including nine new owner tests),
+Initial verification passed before the review fix: 53 store tests (including nine new owner tests),
 14 assessment-access tests, then full repository verification with 3,089 Rust
 unit tests (18 existing ignored), seven integration, 31 reporter, one Electron
 ABI proof, desktop type-check/build and 1,694 tests (three existing skipped),
@@ -82,3 +82,18 @@ docs 1,202 checks/build and diff/doc/worktree checks. Independent medium owner/
 concurrency and producer/recovery reviews were clear on the unchanged product
 diff. The public-doc reminder needs no installer or user-flow claim change for
 this ownership prerequisite; internal architecture/validation state its limits.
+
+PR review reproduced a post-PTY-acknowledgement contention failure. The existing
+retained delivery task now retries typed `Busy` through owner-release
+notifications, keeping its delivery guard and original workspace check without
+holding application guards, polling or resending terminal input. Acceptance
+commits before its single best-effort event. Failed delivery retries cancellation;
+real persistence errors retain existing error/recovery behavior. Thirteen owner
+tests now cover successful/failed delivery, HTTP caller loss, notification races,
+workspace replacement and persistence errors. Both independent medium delta reviews are clear on whole product SHA256
+`7417d34847af0fc0ef9067e5b447e04cef56bd3cefd524e720ad54692de064fa`.
+Final full verification passed: 3,093 Rust unit tests (18 existing ignored),
+seven integration, 31 reporter, one Electron ABI proof, desktop type-check/build
+and 1,694 tests (three existing skipped), docs 1,202 checks/build, and
+diff/doc/worktree checks. The public-doc reminder was reviewed: these internal
+ownership and settlement changes make no installer or migration claim.
