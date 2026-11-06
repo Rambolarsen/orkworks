@@ -104,3 +104,5 @@ Capability research, validation results, and evidence fixtures.
 - [Windows pair-handle component evidence](windows-pair-handle-component-evidence.md) — Exact-head single-attempt native component results and remaining source/owner/runtime gates.
 
 - [Windows pair namespace and auxiliary resource enforcement](windows-pair-namespace-resource-audit.md) — Pinned creation/growth/recovery paths and the missing pre-operation namespace, auxiliary and scratch admission seam.
+
+- [Pair native envelope callback and platform-input closure](pair-native-envelope-input-closure.md) — Complete public callback inventory, default-VFS/cache paths and outstanding native growth/scratch proof inputs.
