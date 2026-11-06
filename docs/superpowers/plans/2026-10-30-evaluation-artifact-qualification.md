@@ -482,3 +482,21 @@ its real prestate-producing events rather than inventing an admitted fixture.
 No code, SQL/database/schema/migration, fixture, executable/native plan, probe,
 source registration or activation follows. Gates3–4 remain gated; #1176 stays
 open and #740 stays closed research.
+
+
+## Fresh-pair preparation contract accepted — 2026-11-06
+
+The [scoped #1441 acceptance](../specs/2026-11-05-fresh-pair-preparation-design.md#scoped-contract-acceptance--2026-11-06)
+and [ADR 0110](../../adr/0110-fresh-pair-preparation.md) select the complete fresh
+thirteen-workspace-resource seed, root/run seed/control schedule and supported
+first-parent/original child-preparation contract for further qualification.
+[#1445](https://github.com/Rambolarsen/orkworks/issues/1445) tracks the record.
+Earlier pending contract-choice language is historical for this exact scope.
+
+Gate2 remains Investigate. Actual fresh/native/ordinary/source/parent/UI/grant/
+allocator participation, earlier strict source cutoffs, physical membership and
+feasible hard resource/recovery proof remain prerequisites before complete paired
+fixtures or a separately approved executable/native plan. Documentation acceptance
+and the dormant storage mechanics do not supply that evidence. No database,
+SQL/schema/migration, fixture, recovery scan, model/native probe, live source
+registration or activation is authorized. #1176 stays open; #740 closed research.

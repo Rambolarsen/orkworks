@@ -400,3 +400,20 @@ reviewable seed schedule and original root/parent/allocated-child/attachment pat
 Its new initialization and original parent-attach classification remain proposed.
 It grants no implementation, source owner, native cutoff, database, fixture or
 resource/recovery qualification; earlier accepted decisions remain unchanged.
+
+
+## Fresh-pair contract accepted — 2026-11-06
+
+The owner [accepted #1441's fresh-pair contract](2026-11-05-fresh-pair-preparation-design.md#scoped-contract-acceptance--2026-11-06)
+for further qualification, recorded by [ADR 0110](../../adr/0110-fresh-pair-preparation.md)
+and [#1445](https://github.com/Rambolarsen/orkworks/issues/1445). Earlier pending
+wording for that exact seed schedule and original root/parent/attachment path is
+historical. All prior scoped architecture/policy/representation/ordering choices
+remain accepted; no repeat approval-only task is needed.
+
+The remaining work is evidence of actual native fresh-pair and ordinary/source/
+parent/UI/grant/allocator participation, strict cutoffs for preceding events,
+complete physical membership and feasible hard resource/recovery bounds. The
+accepted command contract does not construct those owners or enable an executable
+publisher. Gate2 stays Investigate; no product code, SQL/database/migration,
+fixture, recovery scan, executable/native plan, model probe or activation follows.
