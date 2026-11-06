@@ -148,4 +148,6 @@ Decision records and their original rationale and consequences.
 
 - [Fresh pair preparation contract](0110-fresh-pair-preparation.md) — Accepted thirteen-resource workspace seed, root/run preparation and first-parent command direction for further qualification.
 
-- [Original pair native owner](0111-original-pair-native-owner.md) — Accepted retained slot/core lifetime and Windows native handle-binding candidate for further qualification; execution remains gated.
+- [Original pair native owner](0111-original-pair-native-owner.md) — Accepted retained slot/core lifetime; stock/no-custom-VFS candidate selection partially superseded by ADR 0112; execution remains gated.
+
+- [Pair native enforcement](0112-pair-native-enforcement.md) — Accepted Windows VFS/router direction for further envelope qualification; implementation and execution remain gated.

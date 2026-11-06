@@ -332,3 +332,13 @@ Unix binding, actual namespace/auxiliary/restart/durability, strict source cutof
 and hard resource evidence remain unqualified. The [bounded component probe plan](../plans/2026-11-06-windows-pair-handle-qualification.md)
 is a separately gated next step; it constructs no source, initializer or live
 PairCore and supplies no full publisher proof. #1176 stays open; #740 closed.
+
+## Scoped native enforcement replacement — 2026-11-06
+
+The owner accepted [#1469's VFS/router amendment](2026-11-06-pair-native-enforcement-design.md#scoped-architecture-acceptance--2026-11-06)
+for further qualification, recorded in [ADR 0112](../../adr/0112-pair-native-enforcement.md).
+This replaces only the stock-win32/no-custom-VFS candidate selection in the
+earlier accepted contract. Same-worker PairCore/PairSlot ownership, exact native
+identity, source/newness/physical cutoffs, failed/unknown disposition and budgets
+remain unchanged. The separate envelope, implementation, native execution,
+restart/durability and activation gates are not satisfied by this acceptance.

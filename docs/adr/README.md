@@ -155,4 +155,6 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 
 - [Fresh pair preparation contract](0110-fresh-pair-preparation.md) — Accepted complete fresh resource seed and original preparation path for further qualification; actual producer/native evidence remains gated.
 
-- [Original pair native owner](0111-original-pair-native-owner.md) — Accepted retained slot/core lifetime and Windows native handle-binding candidate for further qualification; execution remains gated.
+- [Original pair native owner](0111-original-pair-native-owner.md) — Accepted retained slot/core lifetime; stock/no-custom-VFS candidate selection partially superseded by ADR 0112; execution remains gated.
+
+- [Pair native enforcement](0112-pair-native-enforcement.md) — Accepted Windows public VFS, early pair allocator router and conservative availability restrictions for further envelope qualification; implementation and execution remain gated.
