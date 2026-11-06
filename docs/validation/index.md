@@ -98,3 +98,5 @@ Capability research, validation results, and evidence fixtures.
 - [Fresh-pair native owner audit](fresh-pair-native-owner-audit.md) — Actual file/lease/worker constructors, cancellation/disposition limits and the missing original pair-owner protocol.
 
 - [Windows pair-handle component evidence](windows-pair-handle-component-evidence.md) — Exact-head single-attempt native component results and remaining source/owner/runtime gates.
+
+- [Windows pair namespace and auxiliary resource enforcement](windows-pair-namespace-resource-audit.md) — Pinned creation/growth/recovery paths and the missing pre-operation namespace, auxiliary and scratch admission seam.
