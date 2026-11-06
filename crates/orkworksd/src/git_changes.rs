@@ -305,6 +305,235 @@ fn mirror_control_inputs(
     Ok(())
 }
 
+/// Immutable comparison inputs: the selected repository, its baseline tree
+/// files and the index-derived membership sets used by every comparison path.
+struct CaptureSets<'a> {
+    repo: &'a Repository,
+    scratch: &'a Repository,
+    worktree: &'a Path,
+    start: Instant,
+    comparison: Comparison,
+    old: BTreeMap<String, (Oid, i32)>,
+    tracked: HashSet<String>,
+    gitlinks: HashSet<String>,
+    conflicts: HashSet<String>,
+    stage0: HashMap<String, (Oid, i32, bool)>,
+    trust_filemode: bool,
+    literal_symlinks: bool,
+}
+
+impl<'a> CaptureSets<'a> {
+    fn new(
+        repo: &'a Repository,
+        scratch: &'a Repository,
+        worktree: &'a Path,
+        comparison: Comparison,
+        start: Instant,
+        old: BTreeMap<String, (Oid, i32)>,
+    ) -> Result<Self, String> {
+        let index = if comparison == Comparison::Uncommitted {
+            Some(repo.index().map_err(err)?)
+        } else {
+            None
+        };
+        if index.as_ref().is_some_and(|index| index.len() > CANDIDATES) {
+            return Err("Git index exceeds inspection budget.".into());
+        }
+        let tracked: HashSet<String> = index
+            .iter()
+            .flat_map(|index| index.iter())
+            .map(|e| {
+                String::from_utf8(e.path)
+                    .map_err(|_| "Non-UTF-8 index path; comparison unavailable.".to_owned())
+            })
+            .collect::<Result<_, _>>()?;
+        let gitlinks: HashSet<String> = old
+            .iter()
+            .filter(|(_, (_, mode))| *mode == 0o160000)
+            .map(|(p, _)| p.clone())
+            .chain(
+                index
+                    .iter()
+                    .flat_map(|index| index.iter())
+                    .filter(|e| e.mode == 0o160000)
+                    .filter_map(|e| String::from_utf8(e.path).ok()),
+            )
+            .collect();
+        let conflicts: HashSet<String> = if comparison == Comparison::Uncommitted {
+            repo.index()
+                .map_err(err)?
+                .iter()
+                .filter(|e| e.flags & 0x3000 != 0)
+                .filter_map(|e| String::from_utf8(e.path).ok())
+                .collect()
+        } else {
+            HashSet::new()
+        };
+        let trust_filemode = repo
+            .config()
+            .ok()
+            .and_then(|c| c.get_bool("core.filemode").ok())
+            .unwrap_or(cfg!(unix));
+        let literal_symlinks = repo
+            .config()
+            .ok()
+            .and_then(|c| c.get_bool("core.symlinks").ok())
+            == Some(false);
+        // With core.symlinks=false the index defines which ordinary files are
+        // link-text checkouts. HEAD must not hide a staged conversion or replacement.
+        let stage0: HashMap<String, (Oid, i32, bool)> = index
+            .iter()
+            .flat_map(|index| index.iter())
+            .filter(|e| e.flags & 0x3000 == 0)
+            .filter_map(|e| {
+                String::from_utf8(e.path)
+                    .ok()
+                    .map(|path| (path, (e.id, e.mode as i32, e.flags_extended & 0x4000 != 0)))
+            })
+            .collect();
+        let mut controls = scratch.index().map_err(err)?;
+        let mut control_size = 0usize;
+        for (path, (id, mode, _)) in &stage0 {
+            if matches!(
+                std::path::Path::new(path)
+                    .file_name()
+                    .and_then(|n| n.to_str()),
+                Some(".gitattributes" | ".gitignore")
+            ) {
+                if ![0o100644, 0o100755].contains(mode) {
+                    return Err("Unsupported indexed Git control file.".into());
+                }
+                let data = blob(repo, *id, *mode)?;
+                control_size += data.len();
+                if control_size > 4 * 1024 * 1024 {
+                    return Err("Git control index budget exceeded.".into());
+                }
+                put(scratch, &mut controls, path, &data, *mode)?;
+            }
+        }
+        controls.write().map_err(err)?;
+        Ok(Self {
+            repo,
+            scratch,
+            worktree,
+            start,
+            comparison,
+            old,
+            tracked,
+            gitlinks,
+            conflicts,
+            stage0,
+            trust_filemode,
+            literal_symlinks,
+        })
+    }
+
+    /// Resolve the effective file mode: uncommitted comparisons honor
+    /// filemode trust and literal-symlink configuration from the index.
+    pub fn effective_mode(&self, path: &str, mode: i32) -> i32 {
+        if [0o100644, 0o100755].contains(&mode) {
+            if let Some((_, indexed, _)) = self.stage0.get(path) {
+                if (self.literal_symlinks && *indexed == 0o120000)
+                    || (!self.trust_filemode && [0o100644, 0o100755].contains(indexed))
+                {
+                    return *indexed;
+                }
+            }
+        }
+        mode
+    }
+}
+
+/// Mutable comparison accumulators: the staged before/after indices, budget
+/// bookkeeping and the per-path notices and visit records.
+struct Staging<'a> {
+    sets: &'a CaptureSets<'a>,
+    before: git2::Index,
+    after: git2::Index,
+    total: usize,
+    partial: bool,
+    notices: Vec<(String, String)>,
+    visited: HashSet<String>,
+}
+
+impl Staging<'_> {
+    fn new<'a>(sets: &'a CaptureSets<'a>) -> Result<Staging<'a>, String> {
+        Ok(Staging {
+            sets,
+            before: git2::Index::new().map_err(err)?,
+            after: git2::Index::new().map_err(err)?,
+            total: 0,
+            partial: false,
+            notices: Vec::new(),
+            visited: HashSet::new(),
+        })
+    }
+
+    /// Record one compared path: budget-checked staging of old/new blob pairs.
+    fn compare(
+        &mut self,
+        path: &str,
+        new: Result<Option<(Vec<u8>, i32)>, String>,
+    ) -> Result<(), String> {
+        let sets = self.sets;
+        if sets.start.elapsed() > Duration::from_secs(5) {
+            return Err("Capture budget exceeded; comparison unavailable.".into());
+        }
+        self.visited.insert(path.to_owned());
+        let old_content = sets
+            .old
+            .get(path)
+            .map(|(id, m)| blob(sets.repo, *id, *m).map(|b| (b, *m)))
+            .transpose();
+        let pair = old_content.and_then(|old| {
+            new.map(|mut new| {
+                if sets.comparison == Comparison::Uncommitted {
+                    if let Some((_, mode)) = &mut new {
+                        *mode = sets.effective_mode(path, *mode);
+                    }
+                }
+                (old, new)
+            })
+        });
+        let (old, new) = match pair {
+            Ok(p) => p,
+            Err(n) => {
+                self.partial = true;
+                self.notices.push((path.to_owned(), n));
+                return Ok(());
+            }
+        };
+        if sets.conflicts.contains(path) {
+            self.partial = true;
+            self.notices
+                .push((path.into(), "Conflict; patch unavailable.".into()));
+            return Ok(());
+        }
+        if old == new {
+            return Ok(());
+        }
+        if self.before.len() + self.after.len() >= 1000
+            || self.total
+                + old.as_ref().map_or(0, |x| x.0.len())
+                + new.as_ref().map_or(0, |x| x.0.len())
+                > TOTAL_LIMIT
+        {
+            self.partial = true;
+            return Ok(());
+        }
+        for (content, index) in [(old, &mut self.before), (new, &mut self.after)] {
+            if let Some((data, mut mode)) = content {
+                self.total += data.len();
+                if mode == 0o160000 {
+                    mode = 0o100644
+                }
+                put(sets.scratch, index, path, &data, mode)?;
+            }
+        }
+        Ok(())
+    }
+}
+
 pub fn capture(
     cwd: &Path,
     comparison: Comparison,
@@ -335,161 +564,15 @@ pub fn capture(
     let temp = tempfile::tempdir().map_err(err)?;
     let scratch = Repository::init(temp.path()).map_err(err)?;
     mirror_control_inputs(&repo, &scratch, &worktree, &repo.config().map_err(err)?)?;
-    let mut before = git2::Index::new().map_err(err)?;
-    let mut after = git2::Index::new().map_err(err)?;
-    let mut total = 0usize;
-    let mut partial = false;
-    let mut notices = Vec::new();
-    let visited = std::cell::RefCell::new(HashSet::new());
-    let index = if comparison == Comparison::Uncommitted {
-        Some(repo.index().map_err(err)?)
-    } else {
-        None
-    };
-    if index.as_ref().is_some_and(|index| index.len() > CANDIDATES) {
-        return Err("Git index exceeds inspection budget.".into());
-    }
-    let tracked: HashSet<String> = index
-        .iter()
-        .flat_map(|index| index.iter())
-        .map(|e| {
-            String::from_utf8(e.path)
-                .map_err(|_| "Non-UTF-8 index path; comparison unavailable.".to_owned())
-        })
-        .collect::<Result<_, _>>()?;
-    let gitlinks: HashSet<String> = old
-        .iter()
-        .filter(|(_, (_, mode))| *mode == 0o160000)
-        .map(|(p, _)| p.clone())
-        .chain(
-            index
-                .iter()
-                .flat_map(|index| index.iter())
-                .filter(|e| e.mode == 0o160000)
-                .filter_map(|e| String::from_utf8(e.path).ok()),
-        )
-        .collect();
+    let sets = CaptureSets::new(&repo, &scratch, &worktree, comparison, start, old)?;
+    let mut staging = Staging::new(&sets)?;
+    let old = &sets.old;
+    let tracked = &sets.tracked;
+    let gitlinks = &sets.gitlinks;
+    let conflicts = &sets.conflicts;
+    let stage0 = &sets.stage0;
+    let effective_mode = |path: &str, mode: i32| sets.effective_mode(path, mode);
     let mut seen_modules = HashSet::new();
-    let conflicts: HashSet<String> = if comparison == Comparison::Uncommitted {
-        repo.index()
-            .map_err(err)?
-            .iter()
-            .filter(|e| e.flags & 0x3000 != 0)
-            .filter_map(|e| String::from_utf8(e.path).ok())
-            .collect()
-    } else {
-        HashSet::new()
-    };
-    let trust_filemode = repo
-        .config()
-        .ok()
-        .and_then(|c| c.get_bool("core.filemode").ok())
-        .unwrap_or(cfg!(unix));
-    let literal_symlinks = repo
-        .config()
-        .ok()
-        .and_then(|c| c.get_bool("core.symlinks").ok())
-        == Some(false);
-    // With core.symlinks=false the index defines which ordinary files are
-    // link-text checkouts. HEAD must not hide a staged conversion or replacement.
-    let stage0: HashMap<String, (Oid, i32, bool)> = index
-        .iter()
-        .flat_map(|index| index.iter())
-        .filter(|e| e.flags & 0x3000 == 0)
-        .filter_map(|e| {
-            String::from_utf8(e.path)
-                .ok()
-                .map(|path| (path, (e.id, e.mode as i32, e.flags_extended & 0x4000 != 0)))
-        })
-        .collect();
-    let mut controls = scratch.index().map_err(err)?;
-    let mut control_size = 0usize;
-    for (path, (id, mode, _)) in &stage0 {
-        if matches!(
-            std::path::Path::new(path)
-                .file_name()
-                .and_then(|n| n.to_str()),
-            Some(".gitattributes" | ".gitignore")
-        ) {
-            if ![0o100644, 0o100755].contains(mode) {
-                return Err("Unsupported indexed Git control file.".into());
-            }
-            let data = blob(&repo, *id, *mode)?;
-            control_size += data.len();
-            if control_size > 4 * 1024 * 1024 {
-                return Err("Git control index budget exceeded.".into());
-            }
-            put(&scratch, &mut controls, path, &data, *mode)?;
-        }
-    }
-    controls.write().map_err(err)?;
-    let effective_mode = |path: &str, mode: i32| {
-        if [0o100644, 0o100755].contains(&mode) {
-            if let Some((_, indexed, _)) = stage0.get(path) {
-                if (literal_symlinks && *indexed == 0o120000)
-                    || (!trust_filemode && [0o100644, 0o100755].contains(indexed))
-                {
-                    return *indexed;
-                }
-            }
-        }
-        mode
-    };
-    let mut compare = |path: &str,
-                       new: Result<Option<(Vec<u8>, i32)>, String>|
-     -> Result<(), String> {
-        if start.elapsed() > Duration::from_secs(5) {
-            return Err("Capture budget exceeded; comparison unavailable.".into());
-        }
-        visited.borrow_mut().insert(path.to_owned());
-        let old_content = old
-            .get(path)
-            .map(|(id, m)| blob(&repo, *id, *m).map(|b| (b, *m)))
-            .transpose();
-        let pair = old_content.and_then(|old| {
-            new.map(|mut new| {
-                if comparison == Comparison::Uncommitted {
-                    if let Some((_, mode)) = &mut new {
-                        *mode = effective_mode(path, *mode);
-                    }
-                }
-                (old, new)
-            })
-        });
-        let (old, new) = match pair {
-            Ok(p) => p,
-            Err(n) => {
-                partial = true;
-                notices.push((path.to_owned(), n));
-                return Ok(());
-            }
-        };
-        if conflicts.contains(path) {
-            partial = true;
-            notices.push((path.into(), "Conflict; patch unavailable.".into()));
-            return Ok(());
-        }
-        if old == new {
-            return Ok(());
-        }
-        if before.len() + after.len() >= 1000
-            || total + old.as_ref().map_or(0, |x| x.0.len()) + new.as_ref().map_or(0, |x| x.0.len())
-                > TOTAL_LIMIT
-        {
-            partial = true;
-            return Ok(());
-        }
-        for (content, index) in [(old, &mut before), (new, &mut after)] {
-            if let Some((data, mut mode)) = content {
-                total += data.len();
-                if mode == 0o160000 {
-                    mode = 0o100644
-                }
-                put(&scratch, index, path, &data, mode)?;
-            }
-        }
-        Ok(())
-    };
     if comparison == Comparison::Branch {
         let paths: HashSet<_> = old.keys().chain(target.keys()).cloned().collect();
         for p in paths {
@@ -503,7 +586,7 @@ pub fn capture(
                 .get(&p)
                 .map(|(id, m)| blob(&repo, *id, *m).map(|b| (b, *m)))
                 .transpose();
-            compare(&p, new)?;
+            staging.compare(&p, new)?;
         }
     } else {
         let count = std::cell::Cell::new(0usize);
@@ -531,10 +614,12 @@ pub fn capture(
                     return true;
                 }
                 if matches!(entry.content, Ok(None)) {
-                    visited.borrow_mut().insert(p.to_owned());
+                    staging.visited.insert(p.to_owned());
                     return true;
                 }
-                if let Err(e) = compare(p, entry.content.map(|b| b.map(|b| (b, entry.mode)))) {
+                if let Err(e) =
+                    staging.compare(p, entry.content.map(|b| b.map(|b| (b, entry.mode))))
+                {
                     *failure.borrow_mut() = Some(e);
                     return false;
                 }
@@ -597,7 +682,7 @@ pub fn capture(
         if let Some(e) = failure.into_inner() {
             return Err(e);
         }
-        for path in &gitlinks {
+        for path in gitlinks {
             if seen_modules.contains(path) {
                 continue;
             }
@@ -621,13 +706,13 @@ pub fn capture(
             } else {
                 Err("Submodule directory outside this worktree; unavailable.".into())
             };
-            compare(path, new)?;
+            staging.compare(path, new)?;
         }
         if !exceeded.get() {
             let remaining: Vec<String> = old
                 .keys()
                 .chain(tracked.iter())
-                .filter(|p| !visited.borrow().contains(*p))
+                .filter(|p| !staging.visited.contains(*p))
                 .cloned()
                 .collect::<HashSet<_>>()
                 .into_iter()
@@ -637,21 +722,20 @@ pub fn capture(
                     if old.get(&path) == Some(&(*id, *mode)) {
                         continue;
                     }
-                    compare(
+                    staging.compare(
                         &path,
                         blob(&repo, *id, *mode).map(|data| Some((data, *mode))),
                     )?;
                 } else {
-                    compare(&path, Ok(None))?;
+                    staging.compare(&path, Ok(None))?;
                 }
             }
         } else {
-            drop(compare);
-            partial = true;
+            staging.partial = true;
         }
     }
-    let before = before.write_tree_to(&scratch).map_err(err)?;
-    let after = after.write_tree_to(&scratch).map_err(err)?;
+    let before = staging.before.write_tree_to(&scratch).map_err(err)?;
+    let after = staging.after.write_tree_to(&scratch).map_err(err)?;
     let mut opts = git2::DiffOptions::new();
     opts.context_lines(3)
         .skip_binary_check(false)
@@ -689,7 +773,7 @@ pub fn capture(
     let mut output = 0;
     for (i, delta) in diff.deltas().enumerate() {
         if files.len() >= 500 || start.elapsed() > Duration::from_secs(5) {
-            partial = true;
+            staging.partial = true;
             break;
         }
         let path = delta
@@ -757,13 +841,13 @@ pub fn capture(
                     || output + text.len() + bytes.len() > TOTAL_LIMIT
                 {
                     notice = Some("Patch exceeds display budget.".into());
-                    partial = true;
+                    staging.partial = true;
                     break;
                 } else if std::str::from_utf8(&bytes).is_err()
                     || bytes.split(|b| *b == b'\n').any(|l| l.len() > 65536)
                 {
                     notice = Some("Unsupported text encoding or line too long.".into());
-                    partial = true;
+                    staging.partial = true;
                     break;
                 } else {
                     let (_, a, d) = patch.line_stats().map_err(err)?;
@@ -821,7 +905,8 @@ pub fn capture(
             notice,
         });
     }
-    for (path, n) in notices
+    for (path, n) in staging
+        .notices
         .into_iter()
         .take(500usize.saturating_sub(files.len()))
     {
@@ -878,8 +963,9 @@ pub fn capture(
         baseline_oid: baseline_id.map(|x| x.to_string()),
         head_oid: head_id.map(|x| x.to_string()),
         captured_at: chrono::Utc::now().to_rfc3339(),
-        partial,
-        notice: partial
+        partial: staging.partial,
+        notice: staging
+            .partial
             .then(|| "Partial comparison; some content or totals are unavailable.".into()),
         files,
         patches,
