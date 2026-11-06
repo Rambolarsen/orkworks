@@ -426,6 +426,11 @@ mod tests {
         merge(&mut document, &reporter_path(home.path())).unwrap();
 
         let hooks = document["hooks"].as_object().unwrap();
+        let (event_flag, fingerprint_flag) = if cfg!(windows) {
+            ("-Event", "-HookFingerprint")
+        } else {
+            ("--event", "--hook-fingerprint")
+        };
         for event in [
             "SessionStart",
             "UserPromptSubmit",
@@ -442,11 +447,11 @@ mod tests {
                 .and_then(|entry| entry["command"].as_str())
                 .unwrap();
             assert!(
-                command.contains("--event"),
-                "missing event in {event}: {command}"
+                command.contains(&format!("{event_flag} '{event}'")),
+                "incorrect event argument in {event}: {command}"
             );
             assert!(
-                command.contains("--hook-fingerprint"),
+                command.contains(&format!("{fingerprint_flag} '")),
                 "missing fingerprint in {event}: {command}"
             );
         }
