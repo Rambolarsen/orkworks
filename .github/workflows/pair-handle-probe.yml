@@ -36,7 +36,7 @@ jobs:
         run: |
           $lock = Get-Content crates/orkworksd/Cargo.lock -Raw
           foreach ($pin in @(@('rusqlite', '0.32.1'), @('libsqlite3-sys', '0.30.1'))) {
-            $pattern = '(?m)^name = "' + [regex]::Escape($pin[0]) + '"\r?\nversion = "' + [regex]::Escape($pin[1]) + '"$'
+            $pattern = '(?m)^name = "' + [regex]::Escape($pin[0]) + '"\r?\nversion = "' + [regex]::Escape($pin[1]) + '"\r?$'
             if ($lock -notmatch $pattern) { throw 'Planned SQLite dependency pin mismatch; no probe started' }
           }
           cargo test --locked --no-run --message-format=json --test windows_pair_handle_probe --manifest-path crates/orkworksd/Cargo.toml > cargo-artifacts.jsonl

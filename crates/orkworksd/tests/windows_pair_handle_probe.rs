@@ -58,6 +58,8 @@ fn record(value: serde_json::Value) -> Result<()> {
         phase: "report",
         code: -1,
     })?;
+    // libtest may have written a progress prefix without a trailing newline.
+    bytes.insert(0, b'\n');
     bytes.push(b'\n');
     if bytes.len() > 2048 {
         return Err(Failure {
