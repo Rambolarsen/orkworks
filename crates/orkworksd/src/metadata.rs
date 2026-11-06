@@ -5,6 +5,7 @@ pub(crate) mod lifecycle_mutations;
 pub(crate) mod provenance;
 pub(crate) mod session_reader;
 pub(crate) mod session_transactions;
+mod workspace_memory;
 pub(crate) use provenance::MetadataProvenance;
 
 use crate::harness::{ResumeMemory, ResumeState, ResumeStrategy};
@@ -1298,6 +1299,7 @@ impl IntegrationMetadata {
 }
 
 pub struct MetadataStore {
+    workspace_memory: Arc<workspace_memory::Owner>,
     session_reader: Arc<session_reader::SessionReader>,
     hook_observations: Arc<hook_observation::Store>,
     pub(crate) branch_documents: Arc<crate::branch_documents_store::Store>,
@@ -1314,6 +1316,7 @@ impl MetadataStore {
     pub fn new(root: &Path) -> Self {
         let session_write_locks = Arc::new(Mutex::new(HashMap::new()));
         Self {
+            workspace_memory: workspace_memory::Owner::new(root),
             session_reader: session_reader::SessionReader::new(root, session_write_locks.clone()),
             branch_documents: Arc::new(crate::branch_documents_store::Store::new(root)),
             hook_observations: hook_observation::Store::new(root),
@@ -1325,6 +1328,14 @@ impl MetadataStore {
             #[cfg(test)]
             after_event_write: Mutex::new(None),
         }
+    }
+
+    // Same-workspace adoption retains its live memory fence even though other
+    // metadata readers/owners are rebuilt for the new workspace generation.
+    pub(crate) fn reopen_with_shared_workspace_memory(&self) -> Self {
+        let mut reopened = Self::new(&self.root);
+        reopened.workspace_memory = self.workspace_memory.clone();
+        reopened
     }
 
     pub(crate) fn integration_metadata(&self) -> IntegrationMetadata {
@@ -1398,12 +1409,12 @@ impl MetadataStore {
         }
     }
 
+    pub(crate) fn edit_workspace_memory(&self) -> std::io::Result<workspace_memory::Edit> {
+        self.workspace_memory.edit()
+    }
+
     fn try_write_workspace_memory(&self, memory: &WorkspaceMemory) -> std::io::Result<()> {
-        fs::create_dir_all(&self.root)?;
-        let path = self.workspace_memory_path();
-        let json = serde_json::to_string_pretty(memory)
-            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
-        write_atomic(&path, &json)
+        self.edit_workspace_memory()?.write(memory)
     }
 
     pub fn read_all_sessions(&self) -> Vec<SessionMetadata> {
@@ -1730,13 +1741,14 @@ impl MetadataStore {
     }
 
     pub fn clear_last_active_session_if_matches(&self, id: &str) -> std::io::Result<()> {
-        let Some(mut memory) = self.read_workspace_memory() else {
+        let edit = self.edit_workspace_memory()?;
+        let Some(mut memory) = edit.read()? else {
             return Ok(());
         };
         if memory.last_active_session_id.as_deref() == Some(id) {
             memory.last_active_session_id = None;
             memory.last_active_at = None;
-            self.try_write_workspace_memory(&memory)?;
+            edit.write(&memory)?;
         }
         Ok(())
     }
@@ -6744,3 +6756,6 @@ mod tests {
 }
 
 pub(crate) mod replay_cleanup;
+
+#[cfg(test)]
+mod workspace_memory_tests;
