@@ -1,5 +1,5 @@
 //! Bounded, read-only Git comparisons. Only private temporary repositories are written.
-use git2::{Oid, Repository};
+use git2::{Oid, Repository, Tree};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -200,66 +200,65 @@ fn put(
         })
         .map_err(err)
 }
-pub fn capture(
-    cwd: &Path,
-    comparison: Comparison,
-    base_ref: Option<&str>,
-) -> Result<Capture, String> {
-    let start = Instant::now();
-    let repo = open(cwd)?;
-    let worktree = repo
-        .workdir()
-        .ok_or("No worktree.")?
-        .canonicalize()
-        .map_err(err)?;
+fn resolve_head(repo: &Repository) -> Result<(Option<Oid>, Option<Tree<'_>>), String> {
     let head = match repo.head() {
         Ok(h) => Some(h.peel_to_commit().map_err(err)?),
         Err(e) if e.code() == git2::ErrorCode::UnbornBranch => None,
         Err(e) => return Err(err(e)),
     };
-    let head_id = head.as_ref().map(|h| h.id());
     let head_tree = head.as_ref().map(|h| h.tree()).transpose().map_err(err)?;
-    let mut base_oid = None;
-    let mut baseline_id = head_id;
-    let baseline = if comparison == Comparison::Branch {
-        let h = head_id.ok_or("No branch history before the first commit.")?;
-        let name = base_ref.ok_or("Choose a base branch.")?;
-        if !bases(cwd)?.refs.iter().any(|r| r == name) {
-            return Err("Base branch is unavailable; choose an existing local ref.".into());
-        }
-        let base = repo
-            .find_reference(name)
-            .and_then(|r| r.peel_to_commit())
-            .map_err(err)?
-            .id();
-        base_oid = Some(base);
-        let common = repo.merge_bases(h, base).map_err(|_| {
-            "No available common ancestor; fetch history in your coding tool.".to_owned()
-        })?;
-        if common.len() != 1 {
-            return Err("Multiple merge bases; comparison unavailable.".into());
-        }
-        baseline_id = Some(common[0]);
-        Some(
-            repo.find_commit(common[0])
-                .and_then(|c| c.tree())
-                .map_err(err)?,
-        )
-    } else {
-        head_tree.clone()
-    };
-    let old = tree_files(&repo, baseline.as_ref(), start)?;
-    let target = if comparison == Comparison::Branch {
-        tree_files(&repo, head_tree.as_ref(), start)?
-    } else {
-        BTreeMap::new()
-    };
-    let temp = tempfile::tempdir().map_err(err)?;
-    let scratch = Repository::init(temp.path()).map_err(err)?;
+    Ok((head.map(|h| h.id()), head_tree))
+}
+
+/// Resolve the comparison baseline tree, merge base and baseline identifier.
+fn select_baseline<'a>(
+    repo: &'a Repository,
+    cwd: &Path,
+    comparison: Comparison,
+    base_ref: Option<&str>,
+    head_id: Option<Oid>,
+    head_tree: Option<&Tree<'a>>,
+) -> Result<(Option<Tree<'a>>, Option<Oid>, Option<Oid>), String> {
+    if comparison != Comparison::Branch {
+        return Ok((head_tree.cloned(), None, head_id));
+    }
+    let h = head_id.ok_or("No branch history before the first commit.")?;
+    let name = base_ref.ok_or("Choose a base branch.")?;
+    if !bases(cwd)?.refs.iter().any(|r| r == name) {
+        return Err("Base branch is unavailable; choose an existing local ref.".into());
+    }
+    let base = repo
+        .find_reference(name)
+        .and_then(|r| r.peel_to_commit())
+        .map_err(err)?
+        .id();
+    let common = repo.merge_bases(h, base).map_err(|_| {
+        "No available common ancestor; fetch history in your coding tool.".to_owned()
+    })?;
+    if common.len() != 1 {
+        return Err("Multiple merge bases; comparison unavailable.".into());
+    }
+    let baseline = repo
+        .find_commit(common[0])
+        .and_then(|c| c.tree())
+        .map_err(err)?;
+    Ok((Some(baseline), Some(base), Some(common[0])))
+}
+
+/// Copy the selected repository's attributes and excludes into the scratch
+/// worktree. libgit2 resolves only sanitized control inputs in this private
+/// worktree. Git administrative/global config remains the selected
+/// repository's normal metadata authority, copied with bounded nonblocking
+/// leaf reads.
+fn mirror_control_inputs(
+    repo: &Repository,
+    scratch: &Repository,
+    worktree: &Path,
+    config: &git2::Config,
+) -> Result<(), String> {
     // libgit2 resolves only sanitized control inputs in this private worktree.
     // Git administrative/global config remains the selected repository's normal
     // metadata authority, copied with bounded nonblocking leaf reads.
-    let config = repo.config().map_err(err)?;
     for (key, name) in [
         ("core.attributesfile", "global-attributes"),
         ("core.excludesfile", "global-excludes"),
@@ -303,6 +302,39 @@ pub fn capture(
             std::fs::write(scratch.path().join("info").join(name), data).map_err(err)?;
         }
     }
+    Ok(())
+}
+
+pub fn capture(
+    cwd: &Path,
+    comparison: Comparison,
+    base_ref: Option<&str>,
+) -> Result<Capture, String> {
+    let start = Instant::now();
+    let repo = open(cwd)?;
+    let worktree = repo
+        .workdir()
+        .ok_or("No worktree.")?
+        .canonicalize()
+        .map_err(err)?;
+    let (head_id, head_tree) = resolve_head(&repo)?;
+    let (baseline, base_oid, baseline_id) = select_baseline(
+        &repo,
+        cwd,
+        comparison,
+        base_ref,
+        head_id,
+        head_tree.as_ref(),
+    )?;
+    let old = tree_files(&repo, baseline.as_ref(), start)?;
+    let target = if comparison == Comparison::Branch {
+        tree_files(&repo, head_tree.as_ref(), start)?
+    } else {
+        BTreeMap::new()
+    };
+    let temp = tempfile::tempdir().map_err(err)?;
+    let scratch = Repository::init(temp.path()).map_err(err)?;
+    mirror_control_inputs(&repo, &scratch, &worktree, &repo.config().map_err(err)?)?;
     let mut before = git2::Index::new().map_err(err)?;
     let mut after = git2::Index::new().map_err(err)?;
     let mut total = 0usize;
