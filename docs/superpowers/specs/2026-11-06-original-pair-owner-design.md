@@ -1,10 +1,10 @@
 ---
 type: Design Proposal
 title: Original pair native owner and SQLite handle binding
-description: Proposed sole-worker pair ownership and exact native-handle binding candidate, with explicit Windows qualification scope and retained unknown outcomes.
+description: Accepted pair-owner and Windows handle-binding candidate for further qualification, with native execution and actual eligibility still gated.
 tags: [orkworks, hierarchy, storage, native, ownership, qualification]
 status: draft
-workflow_status: owner-protocol-review-pending
+workflow_status: owner-protocol-accepted-native-qualification-pending
 ---
 
 # Original pair native owner and SQLite handle binding
@@ -308,3 +308,27 @@ not prior owner approvals. No second review round or post-edit reviewer approval
 is claimed. Actual native namespace, resource, strict cutoff, durable newness/
 restart and source qualification remains unverified; no test, probe or eligible
 profile follows from the review. The existing accepted contracts are unchanged.
+
+
+## Scoped owner-protocol acceptance — 2026-11-06
+
+After [PR #1451](https://github.com/Rambolarsen/orkworks/pull/1451), head
+`fe42ba2337843404c8712fa6854659910d19ce9d`, merged
+`12ddf37d243f2e5a690ec8525d286123c074a62d`, the owner answered “keep going”
+to approval of this Windows/NTFS candidate and ownership/failure policy for
+further qualification. [#1453](https://github.com/Rambolarsen/orkworks/issues/1453)
+and [ADR 0111](../../adr/0111-original-pair-native-owner.md) record that decision.
+
+Accept the exact PairSlot/PairCore lifetime, in-place Serving transition,
+documented Windows native-handle binding candidate, and StoppedOccupied/no-
+restart-to-fresh policy above. This includes the explicit author resolutions
+recorded in the bounded review; earlier owner-pending wording is historical for
+those exact choices. All prior accepted contracts stand; no repeat design approval
+is needed. The existing review record is reused without a new technical round.
+
+This acceptance authorizes further qualification only, not candidate implementation,
+native probe/test execution, SQL/database creation, an eligible profile or activation.
+Unix binding, actual namespace/auxiliary/restart/durability, strict source cutoffs
+and hard resource evidence remain unqualified. The [bounded component probe plan](../plans/2026-11-06-windows-pair-handle-qualification.md)
+is a separately gated next step; it constructs no source, initializer or live
+PairCore and supplies no full publisher proof. #1176 stays open; #740 closed.

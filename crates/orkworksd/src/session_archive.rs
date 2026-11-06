@@ -44,6 +44,80 @@ pub(crate) struct OrganizationStore {
     pending: Mutex<HashSet<String>>,
 }
 
+/// Whether any durable organization record under `root` (the
+/// `session-state/` directory) requires the same retention protection the
+/// interactive cleanup loop applies: the owning read path
+/// (`OrganizationStore::read`) protects anything it would report as an
+/// error — bounded-size violations, decode failures, non-current record
+/// fields (wrong `version`, a stored identity that does not match its file
+/// name, zero `revision`, a persisted `active` state the store never
+/// writes) and every invalid-name record — plus any `archived` record,
+/// which the archive design retains outside automatic cleanup. Only a
+/// record this store would read back as a valid `closed` record does not
+/// protect a deleted source's history. Startup workspace GC uses this as
+/// its conservative protection check; identity-bound interactive retention
+/// (`runtime::retention`) remains the authoritative runtime protection.
+pub(crate) fn dir_has_retention_protected_records(root: &Path) -> bool {
+    let mut entries = match fs::read_dir(root) {
+        Ok(entries) => entries,
+        // A missing directory holds nothing to protect; an existing but
+        // unlistable directory protects exactly like an unreadable record
+        // file. (No record can exist under a non-directory path.)
+        Err(_) => {
+            return fs::symlink_metadata(root)
+                .map(|metadata| metadata.is_dir())
+                .unwrap_or(false)
+        }
+    };
+    loop {
+        let Some(entry) = entries.next() else { break };
+        let Ok(entry) = entry else { return true };
+        if !entry.path().is_file() {
+            continue;
+        }
+        let file_name = entry.file_name();
+        let file_name = file_name.to_string_lossy();
+        let Some(id) = file_name.strip_suffix(".json") else {
+            return true;
+        };
+        if id.is_empty()
+            || id.len() > 256
+            || !id
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
+        {
+            return true;
+        }
+        let Ok(record) = read_record_file(&entry.path()) else {
+            return true;
+        };
+        if record.version != 1
+            || record.session_id != id
+            || record.revision == 0
+            || record.state != SessionState::Closed
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// Bounded read of one durable organization record file, mirroring
+/// `OrganizationStore::read`'s size rule: any read error, or an oversized
+/// file, is a protected (unreadable) record.
+fn read_record_file(path: &Path) -> io::Result<Record> {
+    let mut file = fs::File::open(path)?;
+    let mut bytes = Vec::new();
+    file.take(MAX_RECORD_BYTES + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_RECORD_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Session state exceeds limit",
+        ));
+    }
+    serde_json::from_slice(&bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+}
+
 pub(crate) struct Reservation {
     store: Arc<OrganizationStore>,
     id: String,

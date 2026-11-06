@@ -154,3 +154,5 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 - [Retained source registry ordering](0109-retained-source-registry-ordering.md) — Accepted immutable RegistryRoot compare-and-close ordering for further qualification; actual publishers/native evidence remain gated.
 
 - [Fresh pair preparation contract](0110-fresh-pair-preparation.md) — Accepted complete fresh resource seed and original preparation path for further qualification; actual producer/native evidence remains gated.
+
+- [Original pair native owner](0111-original-pair-native-owner.md) — Accepted retained slot/core lifetime and Windows native handle-binding candidate for further qualification; execution remains gated.

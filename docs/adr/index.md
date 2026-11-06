@@ -147,3 +147,5 @@ Decision records and their original rationale and consequences.
 - [Retained source registry ordering](0109-retained-source-registry-ordering.md) — Accepted immutable RegistryRoot compare-and-close ordering for further qualification; actual publishers/native evidence remain gated.
 
 - [Fresh pair preparation contract](0110-fresh-pair-preparation.md) — Accepted thirteen-resource workspace seed, root/run preparation and first-parent command direction for further qualification.
+
+- [Original pair native owner](0111-original-pair-native-owner.md) — Accepted retained slot/core lifetime and Windows native handle-binding candidate for further qualification; execution remains gated.
