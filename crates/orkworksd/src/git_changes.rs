@@ -715,45 +715,13 @@ fn inspect_uncommitted(
     Ok(())
 }
 
-pub fn capture(
-    cwd: &Path,
-    comparison: Comparison,
-    base_ref: Option<&str>,
-) -> Result<Capture, String> {
-    let start = Instant::now();
-    let repo = open(cwd)?;
-    let worktree = repo
-        .workdir()
-        .ok_or("No worktree.")?
-        .canonicalize()
-        .map_err(err)?;
-    let (head_id, head_tree) = resolve_head(&repo)?;
-    let (baseline, base_oid, baseline_id) = select_baseline(
-        &repo,
-        cwd,
-        comparison,
-        base_ref,
-        head_id,
-        head_tree.as_ref(),
-    )?;
-    let old = tree_files(&repo, baseline.as_ref(), start)?;
-    let target = if comparison == Comparison::Branch {
-        tree_files(&repo, head_tree.as_ref(), start)?
-    } else {
-        BTreeMap::new()
-    };
-    let temp = tempfile::tempdir().map_err(err)?;
-    let scratch = Repository::init(temp.path()).map_err(err)?;
-    mirror_control_inputs(&repo, &scratch, &worktree, &repo.config().map_err(err)?)?;
-    let sets = CaptureSets::new(&repo, &scratch, &worktree, comparison, start, old)?;
-    let mut staging = Staging::new(&sets)?;
-    let old = &sets.old;
-    let tracked = &sets.tracked;
-    if comparison == Comparison::Branch {
-        compare_branch(&sets, &mut staging, &target)?;
-    } else {
-        inspect_uncommitted(&sets, &mut staging, &temp)?;
-    }
+/// Write the captured trees and render patch text and per-file summaries,
+/// honoring the file-count, patch-size and aggregate output budgets.
+fn render_changes(
+    staging: &mut Staging<'_>,
+) -> Result<(Vec<ChangedFile>, HashMap<String, String>), String> {
+    let start = staging.sets.start;
+    let scratch = staging.sets.scratch;
     let before = staging.before.write_tree_to(&scratch).map_err(err)?;
     let after = staging.after.write_tree_to(&scratch).map_err(err)?;
     let mut opts = git2::DiffOptions::new();
@@ -925,8 +893,7 @@ pub fn capture(
             notice,
         });
     }
-    for (path, n) in staging
-        .notices
+    for (path, n) in std::mem::take(&mut staging.notices)
         .into_iter()
         .take(500usize.saturating_sub(files.len()))
     {
@@ -941,6 +908,17 @@ pub fn capture(
         });
     }
     files.sort_by(|a, b| a.path.cmp(&b.path));
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok((files, patches))
+}
+
+/// Detect any reference churn under the capture and fail fast.
+fn verify_refs_unchanged(
+    repo: &Repository,
+    head_id: Option<Oid>,
+    base_ref: Option<&str>,
+    base_oid: Option<Oid>,
+) -> Result<(), String> {
     if repo
         .head()
         .ok()
@@ -957,26 +935,72 @@ pub fn capture(
     {
         return Err("Git baseline changed during capture; refresh.".into());
     }
+    Ok(())
+}
+
+/// Branch name for the capture header; detached and unborn heads are labeled.
+fn branch_label(repo: &Repository, head_id: Option<Oid>) -> String {
+    repo.head()
+        .ok()
+        .and_then(|h| {
+            if h.is_branch() {
+                h.shorthand().map(str::to_owned)
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| {
+            head_id
+                .map(|h| format!("Detached HEAD {}", &h.to_string()[..8]))
+                .unwrap_or("Unborn branch".into())
+        })
+}
+
+pub fn capture(
+    cwd: &Path,
+    comparison: Comparison,
+    base_ref: Option<&str>,
+) -> Result<Capture, String> {
+    let start = Instant::now();
+    let repo = open(cwd)?;
+    let worktree = repo
+        .workdir()
+        .ok_or("No worktree.")?
+        .canonicalize()
+        .map_err(err)?;
+    let (head_id, head_tree) = resolve_head(&repo)?;
+    let (baseline, base_oid, baseline_id) = select_baseline(
+        &repo,
+        cwd,
+        comparison,
+        base_ref,
+        head_id,
+        head_tree.as_ref(),
+    )?;
+    let old = tree_files(&repo, baseline.as_ref(), start)?;
+    let target = if comparison == Comparison::Branch {
+        tree_files(&repo, head_tree.as_ref(), start)?
+    } else {
+        BTreeMap::new()
+    };
+    let temp = tempfile::tempdir().map_err(err)?;
+    let scratch = Repository::init(temp.path()).map_err(err)?;
+    mirror_control_inputs(&repo, &scratch, &worktree, &repo.config().map_err(err)?)?;
+    let sets = CaptureSets::new(&repo, &scratch, &worktree, comparison, start, old)?;
+    let mut staging = Staging::new(&sets)?;
+    if comparison == Comparison::Branch {
+        compare_branch(&sets, &mut staging, &target)?;
+    } else {
+        inspect_uncommitted(&sets, &mut staging, &temp)?;
+    }
+    let (files, patches) = render_changes(&mut staging)?;
+    verify_refs_unchanged(&repo, head_id, base_ref, base_oid)?;
     Ok(Capture {
         snapshot_id: uuid::Uuid::new_v4().to_string(),
         session_id: String::new(),
         git_context_source: None,
         worktree: worktree.display().to_string(),
-        branch: repo
-            .head()
-            .ok()
-            .and_then(|h| {
-                if h.is_branch() {
-                    h.shorthand().map(str::to_owned)
-                } else {
-                    None
-                }
-            })
-            .unwrap_or_else(|| {
-                head_id
-                    .map(|h| format!("Detached HEAD {}", &h.to_string()[..8]))
-                    .unwrap_or("Unborn branch".into())
-            }),
+        branch: branch_label(&repo, head_id),
         comparison,
         base_ref: base_ref.map(str::to_owned),
         base_oid: base_oid.map(|x| x.to_string()),
