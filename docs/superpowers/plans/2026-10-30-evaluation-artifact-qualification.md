@@ -500,3 +500,19 @@ fixtures or a separately approved executable/native plan. Documentation acceptan
 and the dormant storage mechanics do not supply that evidence. No database,
 SQL/schema/migration, fixture, recovery scan, model/native probe, live source
 registration or activation is authorized. #1176 stays open; #740 closed research.
+
+
+## Pair-owner accepted; component probe plan pending — 2026-11-06
+
+The owner [accepted #1451's pair-owner/Windows candidate and failure policy](../specs/2026-11-06-original-pair-owner-design.md#scoped-owner-protocol-acceptance--2026-11-06)
+for further qualification, recorded by ADR0111 and [#1453](https://github.com/Rambolarsen/orkworks/issues/1453).
+Earlier owner-pending wording is historical for those unchanged choices. The
+[bounded Windows component plan](2026-11-06-windows-pair-handle-qualification.md)
+is ready for a separate execution decision; it writes no production owner and
+constructs no admitted source/initializer. It requires no new design-acceptance
+round for the unchanged contract and authorizes no native execution by itself.
+
+Gate2 stays Investigate; hard namespace/auxiliary/resource/restart/durability and
+strict source-cutoff evidence remain required before any coupled publisher plan.
+No code, workflow implementation, SQL/database, probe, source registration or
+activation ran while recording this decision. #1176 open; #740 closed research.

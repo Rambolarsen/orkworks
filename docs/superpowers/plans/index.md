@@ -304,3 +304,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Captured SQL workflow evidence cleanup](2026-11-05-sql-evidence-cleanup.md) — Original-owner revocation, durable segment removal and pending-job progress.
 
 - [Retained replay cleanup directory ownership](2026-11-06-replay-directory-owner.md) — Original directory handles and bounded cleanup capture for #1442.
+
+- [Windows pair-handle component qualification](2026-11-06-windows-pair-handle-qualification.md) — Separately gated ignored harness and one manual Windows synthetic native attempt, with explicit evidence and cleanup limits.
