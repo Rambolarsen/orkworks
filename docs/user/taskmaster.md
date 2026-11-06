@@ -80,6 +80,16 @@ first suggestion as a draft default; saved models and edits made while loading
 are preserved. You can enter a custom model ID, and changes wait for **Save
 recommendation settings**. Older installers may require manual refresh.
 
+Current source builds show a discovered model's display name alongside its ID
+when they differ. Selecting that suggestion saves the ID. A custom entry is
+saved literally and marked unverified by the current suggestions; display names
+are not automatically converted into IDs. Provider readiness and model discovery
+do not establish that a model has successfully run. If failure details report a
+model or request validation error, refresh suggestions, check the exact ID,
+provider login and reasoning effort, save any changes, then retry analysis. The
+error alone does not establish which setting caused it. Older installers may not
+show these distinctions.
+
 Taskmaster shows analysis activity separately from provider readiness. The
 Settings page and Recommendations panel report when an analysis is queued or
 running, and its latest success, failure, or interruption. A failure includes

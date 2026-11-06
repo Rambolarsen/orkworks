@@ -99,7 +99,7 @@ contextBridge.exposeInMainWorld("orkworks", {
   getSettings: (): Promise<unknown> => ipcRenderer.invoke("get-settings"),
   getTaskmasterSettings: (): Promise<unknown> => ipcRenderer.invoke("get-taskmaster-settings"),
   getTaskmasterRunStatus: (): Promise<unknown> => ipcRenderer.invoke("get-taskmaster-run-status"),
-  refreshTaskmasterModels: (provider: "codex" | "ollama", ollamaBaseUrl?: string): Promise<string[]> => ipcRenderer.invoke("refresh-taskmaster-models", provider, ollamaBaseUrl),
+  refreshTaskmasterModels: (provider: "codex" | "ollama", ollamaBaseUrl?: string): Promise<{ id: string; displayName: string }[]> => ipcRenderer.invoke("refresh-taskmaster-models", provider, ollamaBaseUrl),
   requestTaskmasterAnalysis: (): Promise<unknown> => ipcRenderer.invoke("analyze-taskmaster"),
   getReadinessStatus: (): Promise<Record<string, unknown>> => ipcRenderer.invoke("get-readiness-status"),
   requestReadinessSuggestion: (): Promise<{ outcome: "scheduled" | "already_running" | "unavailable"; runId: string | null; reasonCode: string | null }> => ipcRenderer.invoke("assess-and-suggest"),

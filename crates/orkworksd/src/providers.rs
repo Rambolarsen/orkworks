@@ -2442,7 +2442,7 @@ impl ProviderManager {
         &self,
         profile: native_inference::NativeProfile,
         ollama_base_url: Option<&str>,
-    ) -> Result<Vec<String>, ProviderOperationError> {
+    ) -> Result<Vec<ProviderModelOption>, ProviderOperationError> {
         self.discover_taskmaster_models_with_codex_command(profile, ollama_base_url, "codex")
     }
 
@@ -2451,14 +2451,13 @@ impl ProviderManager {
         profile: native_inference::NativeProfile,
         ollama_base_url: Option<&str>,
         codex_command: &str,
-    ) -> Result<Vec<String>, ProviderOperationError> {
+    ) -> Result<Vec<ProviderModelOption>, ProviderOperationError> {
         match profile {
             native_inference::NativeProfile::Codex => {
                 let mut definition = profile.definition();
                 definition.list_models_command = Some(codex_command.to_string());
                 definition.list_models_args = vec!["app-server".into(), "--stdio".into()];
                 self.discover_codex_models(&definition)
-                    .map(|models| models.into_iter().map(|model| model.id).collect())
                     .map_err(|message| ProviderOperationError {
                         code: classify_invocation_error(&message),
                         message,
@@ -2468,7 +2467,7 @@ impl ProviderManager {
                 let base_url = ollama_base_url.unwrap_or("http://127.0.0.1:11434");
                 let response = self.verify_ollama(base_url);
                 if response.ok {
-                    Ok(response.models)
+                    Ok(simple_model_options(response.models))
                 } else {
                     Err(ollama_operation_error(&response))
                 }
@@ -5682,7 +5681,8 @@ done
                 codex.to_str().unwrap(),
             )
             .unwrap();
-        assert_eq!(models, vec!["fixed-codex-model"]);
+        assert_eq!(models[0].id, "fixed-codex-model");
+        assert_eq!(models[0].display_name, "Fixed Codex");
         assert!(!override_marker.exists());
     }
 

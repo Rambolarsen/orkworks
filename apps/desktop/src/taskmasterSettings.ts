@@ -1,3 +1,5 @@
+export interface TaskmasterModelOption { id: string; displayName: string }
+
 import type { KnowledgeEvidence, RepositoryEvidence } from "./api.ts";
 
 export type AnalysisContext = "session_observations" | "workflow_context" | "source_code";

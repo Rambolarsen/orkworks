@@ -14,7 +14,7 @@ import { createHash, randomBytes } from "crypto";
 import { existsSync, readFileSync } from "fs";
 import type { AppUpdater, NsisUpdater, UpdateInfo } from "electron-updater";
 import { KnowledgeUpdates, synchronizeKnowledge } from "./knowledgeUpdates";
-import { taskmasterRequest } from "./taskmasterSettings";
+import { parseTaskmasterModels, taskmasterRequest } from "./taskmasterSettings";
 import { approveInferenceAdapter, readInferenceTrust, revokeInferenceAdapter, type TrustContext } from "./inferenceTrust";
 import * as path from "path";
 import { pathToFileURL } from "url";
@@ -613,7 +613,7 @@ app.whenReady().then(async () => {
     knowledgeUpdates.setEnabled(settings?.automaticKnowledgeUpdates !== false);
     return { ...result, knowledgeUpdate: knowledgeUpdates.status() };
   }
-  async function refreshTaskmasterModels(provider: unknown, ollamaBaseUrl?: unknown): Promise<string[]> {
+  async function refreshTaskmasterModels(provider: unknown, ollamaBaseUrl?: unknown): Promise<{ id: string; displayName: string }[]> {
     if (provider !== "codex" && provider !== "ollama") throw new Error("Taskmaster model refresh is unavailable for this provider");
     if (ollamaBaseUrl !== undefined && typeof ollamaBaseUrl !== "string") throw new Error("Invalid Ollama URL");
     const generation = backendGeneration;
@@ -624,10 +624,7 @@ app.whenReady().then(async () => {
       ...(ollamaBaseUrl === undefined ? {} : { ollamaBaseUrl }),
     });
     if (generation !== backendGeneration) throw new Error("Workspace changed; retry model discovery");
-    if (!Array.isArray(result.models) || result.models.some((model) => typeof model !== "string")) {
-      throw new Error("Invalid Taskmaster model response");
-    }
-    return result.models as string[];
+    return parseTaskmasterModels(result);
   }
   async function readinessRequest(resource: "readiness" | "assess-readiness" | "assess-and-suggest"): Promise<Record<string, unknown>> {
     return withReadyBackendGeneration(async (port, token) => taskmasterRequest(port, token, resource));

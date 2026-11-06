@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import InferenceTrustSettings from "./InferenceTrustSettings";
-import { editTaskmasterScope, formatTaskmasterRunStatus, supportsTaskmasterAnalysis, type AnalysisContext, type TaskmasterRunStatus, type TaskmasterSettings as Settings, type TaskmasterSettingsStatus } from "../taskmasterSettings";
+import { editTaskmasterScope, formatTaskmasterRunStatus, supportsTaskmasterAnalysis, type AnalysisContext, type TaskmasterModelOption, type TaskmasterRunStatus, type TaskmasterSettings as Settings, type TaskmasterSettingsStatus } from "../taskmasterSettings";
 
 export default function TaskmasterSettings({ currentWorkspacePath }: { currentWorkspacePath: string | null }) {
   const [status, setStatus] = useState<TaskmasterSettingsStatus | null>(null);
@@ -13,7 +13,7 @@ export default function TaskmasterSettings({ currentWorkspacePath }: { currentWo
   const [runStatusError, setRunStatusError] = useState<string | null>(null);
   const [refreshBusy, setRefreshBusy] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
-  const [refreshed, setRefreshed] = useState<{ key: string; models: string[] } | null>(null);
+  const [refreshed, setRefreshed] = useState<{ key: string; models: TaskmasterModelOption[] } | null>(null);
   const refreshGeneration = useRef(0);
   const editedModels = useRef(new Set<string>());
   const runStatusWorkspace = useRef<string | null>(null);
@@ -63,7 +63,7 @@ export default function TaskmasterSettings({ currentWorkspacePath }: { currentWo
     setRefreshError(null);
   }, [refreshKey]);
   const canRefreshModels = provider === "codex" || provider === "ollama";
-  const models = refreshed?.key === refreshKey ? refreshed.models : selectedProvider?.models ?? [];
+  const models = refreshed?.key === refreshKey ? refreshed.models : (selectedProvider?.models ?? []).map((id) => ({ id, displayName: id }));
   const modelEditKey = JSON.stringify([workspace, refreshKey]);
   useEffect(() => {
     if (canRefreshModels) void refreshModels();
@@ -72,7 +72,7 @@ export default function TaskmasterSettings({ currentWorkspacePath }: { currentWo
   useEffect(() => {
     const first = models[0];
     if (!first || !provider || effective?.selection?.model || editedModels.current.has(modelEditKey)) return;
-    edit({ selection: { ...effective!.selection!, model: first } });
+    edit({ selection: { ...effective!.selection!, model: first.id } });
   }, [models, modelEditKey, effective?.selection?.model]);
   function editModel(model: string) {
     editedModels.current.add(modelEditKey);
@@ -146,16 +146,18 @@ export default function TaskmasterSettings({ currentWorkspacePath }: { currentWo
       {selectedProvider?.state === "execution_inactive" && <p role="status">Adapter approved. Custom background execution is not active in this build.</p>}
       {selectedProvider?.state === "approval_required" && <p role="status">Approve this adapter below before it can become eligible for background execution.</p>}
       <label>Model
-        <select aria-label="Model" value={models.includes(effective.selection?.model ?? "") ? effective.selection!.model : ""} onChange={(event) => editModel(event.target.value)}>
+        <select aria-label="Model" value={models.some((model) => model.id === effective.selection?.model) ? effective.selection!.model : ""} onChange={(event) => editModel(event.target.value)}>
           <option value="">Custom model ID</option>
-          {models.map((model) => <option key={model} value={model}>{model}</option>)}
+          {models.map((model) => <option key={model.id} value={model.id}>{model.displayName === model.id ? model.id : `${model.displayName} (${model.id})`}</option>)}
         </select>
       </label>
       <label>Model ID (editable)
         <input list="taskmaster-model-options" value={effective.selection?.model ?? ""} onChange={(event) => editModel(event.target.value)} placeholder="Model ID" />
-        <datalist id="taskmaster-model-options">{models.map((model) => <option key={model} value={model} />)}</datalist>
+        <datalist id="taskmaster-model-options">{models.map((model) => <option key={model.id} value={model.id}>{model.displayName}</option>)}</datalist>
       </label>
       <p className="settings-section-copy">Choose a suggested model or enter a custom model ID. The first suggestion fills an empty model; existing selections are kept. Codex and Ollama models load automatically.</p>
+      {effective.selection?.model && !models.some((model) => model.id === effective.selection?.model) && <p role="status">Custom model ID — unverified by the current suggestions. It will be saved exactly as entered.</p>}
+      <p className="settings-section-copy">Provider readiness or a model suggestion does not confirm successful execution. A successful analysis run confirms the model worked for that request.</p>
       {canRefreshModels && <>
         <button type="button" disabled={refreshBusy} onClick={() => void refreshModels()}>{refreshBusy ? "Refreshing models…" : "Refresh model suggestions"}</button>
         <p className="settings-section-copy" aria-live="polite">{refreshBusy ? "Loading the provider's current model list…" : refreshed?.key === refreshKey ? `Showing ${models.length} live model suggestions.` : "Model suggestions unavailable. Retry refresh or enter a model ID."}</p>
@@ -201,6 +203,7 @@ export default function TaskmasterSettings({ currentWorkspacePath }: { currentWo
         <p role="status">{formatTaskmasterRunStatus(runStatus)}</p>
         {runStatus.activeAttempt && <p>Queued {runStatus.activeAttempt.queuedAt}{runStatus.activeAttempt.startedAt ? ` · started ${runStatus.activeAttempt.startedAt}` : ""}</p>}
         {runStatus.latestOutcome && <p>Finished {runStatus.latestOutcome.completedAt}{runStatus.latestOutcome.errorSummary ? ` · ${runStatus.latestOutcome.errorSummary}` : ""}</p>}
+        {runStatus.latestOutcome?.state === "failed" && <p>Check the failure details first. If they report a model or request validation failure, refresh suggestions and check the exact model ID, provider login, and reasoning effort. Save any changes before retrying analysis. A failure alone does not identify which setting caused it.</p>}
       </> : <p role="status">{currentWorkspacePath ? runStatusError ?? "Loading analysis status…" : "No workspace selected."}</p>}
     </section>
     {status.knowledgeUpdate.lastError && <p role="status">Knowledge update: {status.knowledgeUpdate.lastError}</p>}

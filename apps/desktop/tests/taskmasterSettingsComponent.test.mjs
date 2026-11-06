@@ -29,7 +29,7 @@ async function fixture(t, { state = "execution_inactive", missing = false, effor
   globalThis.window = { setInterval: (callback) => { intervalCallbacks.push(callback); return intervalCallbacks.length; }, clearInterval: () => {}, addEventListener: () => {}, removeEventListener: () => {}, orkworks: {
     getTaskmasterSettings: async () => structuredClone(status),
     getTaskmasterRunStatus: async () => structuredClone(currentRunStatus),
-    refreshTaskmasterModels: async (...args) => { modelRefresh++; return typeof pendingModels === "function" ? await pendingModels(...args) : pendingModels ? await pendingModels : ["live-model"]; },
+    refreshTaskmasterModels: async (...args) => { modelRefresh++; const models = typeof pendingModels === "function" ? await pendingModels(...args) : pendingModels ? await pendingModels : ["live-model"]; return models.map((model) => typeof model === "string" ? { id: model, displayName: model } : model); },
     getProviderModels: async () => { discovery++; return { models: ["discovered"] }; },
     saveTaskmasterSettings: async (value) => { saves.push(structuredClone(value)); return { ...structuredClone(status), settings: value, effectiveSettings: value }; },
     getInferenceTrust: async () => [{ id: "custom", name: "Custom", state: approved ? "approved" : "approval_required", resolvedPath: "/tools/custom", revision: { documentRevision: "a".repeat(64), generation: "0", digest: "b".repeat(64) }, definition: { command: "custom", args: [], input: "stdin", timeoutSecs: 60 } }],
@@ -131,6 +131,8 @@ test("analysis failure detail is shown separately from provider readiness and kn
   const rendered = text(view.render());
   assert.match(rendered, /Failed background analysis · codex \/ gpt-x: context collection failed/);
   assert.match(rendered, /Knowledge update: knowledge signature check failed/);
+  assert.match(rendered, /Check the failure details first\. If they report a model or request validation failure/);
+  assert.match(rendered, /A failure alone does not identify which setting caused it/);
   assert.doesNotMatch(rendered, /legacy global error/);
 });
 
@@ -263,4 +265,35 @@ test("Ollama discovery follows the draft URL and ignores a previous URL's result
   assert.deepEqual(urls, ["http://127.0.0.1:11434", "http://127.0.0.1:22434"]);
   assert.equal(nodes(view.render()).find((node) => node.type === "input" && node.props.list).props.value, "draft-url-model");
   assert.doesNotMatch(text(view.render()), /stale-url-model/);
+});
+
+
+test("discovered display names show the canonical ID and save only the selected ID", async (t) => {
+  const view = await fixture(t, { provider: "codex", pendingModels: Promise.resolve([{ id: "gpt-6.1-sol", displayName: "GPT-6.1-Sol" }]) });
+  view.render(); await view.settle();
+  const tree = view.render();
+  const picker = nodes(tree).find((node) => node.type === "select" && node.props["aria-label"] === "Model");
+  const option = nodes(picker).find((node) => node.type === "option" && node.props.value === "gpt-6.1-sol");
+  assert.ok(option, "the option value must be the canonical model ID");
+  assert.match(text(option), /GPT-6\.1-Sol.*gpt-6\.1-sol/);
+  picker.props.onChange({ target: { value: option.props.value } });
+  view.render(); await view.settle();
+  nodes(view.render()).find((node) => node.type === "button" && text(node) === "Save recommendation settings").props.onClick();
+  await view.settle();
+  assert.equal(view.saves[0].selection.model, "gpt-6.1-sol");
+  assert.equal(view.discovery(), 0, "Taskmaster must not refresh Peon models");
+  assert.match(text(view.render()), /does not confirm successful execution/);
+});
+
+test("a manually entered display name stays literal and is identified as unverified", async (t) => {
+  const view = await fixture(t, { provider: "codex", model: "gpt-6.1-sol", pendingModels: Promise.resolve([{ id: "gpt-6.1-sol", displayName: "GPT-6.1-Sol" }]) });
+  view.render(); await view.settle();
+  nodes(view.render()).find((node) => node.type === "input" && node.props.list).props.onChange({ target: { value: "GPT-6.1-Sol" } });
+  view.render(); await view.settle();
+  const tree = view.render();
+  assert.match(text(tree), /Custom model ID.*unverified/);
+  assert.equal(nodes(tree).find((node) => node.type === "input" && node.props.list).props.value, "GPT-6.1-Sol");
+  nodes(tree).find((node) => node.type === "button" && text(node) === "Save recommendation settings").props.onClick();
+  await view.settle();
+  assert.equal(view.saves[0].selection.model, "GPT-6.1-Sol");
 });
