@@ -1634,3 +1634,35 @@ failures remain distinct and leave the tombstone/job pending. This source-only
 stage adds no production SQL routing or live migration; remaining external
 owners and final deletion completion are subsequent prerequisites. See the
 [stage validation](../validation/session-store-adapter.md#captured-sql-workflow-evidence-cleanup).
+
+## Captured SQL session-image cleanup
+
+The private `CapturedDeletion::remove_images` stage uses the same original-owner,
+physical-close, exact tombstone, lane/reservation, cancellation/admission and
+bounded-capacity runner as replay/workflow cleanup. The existing read-only
+blocking capture also binds image-parent and target handles outside application
+guards. Image binding failure remains its own file outcome and does not prevent
+other cleanup stages. Only generated UUIDs can own image bundles; other ordinary
+IDs resolve no image paths.
+
+The image store's private SQL facade reuses its directory privacy checks and
+nonblocking global publication/recovery lock. It validates the captured workspace
+lease and bundle marker, bounds enumeration to eight images plus the marker,
+and never follows leaf links or recurses. A replaced target or late-created
+captured-absent path fails closed. Parent handles remain pinned across path
+replacement. Ambiguous markers preserve payloads; an empty markerless directory
+can finish a prior interrupted removal under the exact SQL job and exclusive lock.
+
+Payload unlinks are synchronized before removing the marker; child synchronization
+and image/workspace parent synchronization precede progress bit `0x04`. Retries
+repeat parent sync even after absence. The publication lock is retained through
+the definitive SQL progress outcome, including partial failure. If the image root
+was absent at capture, admitted removal creates that private namespace exclusively
+and takes its existing lock before checking target absence. A root created since
+capture causes retry; a publisher winning lock admission is busy or detected
+before success. This leaves an empty private image root/lock rather than reporting
+unfenced absence. macOS/Linux
+fixtures exercise this file facade; other platforms explicitly return Unsupported.
+Legacy image publication/recovery/deletion and native image-delivery eligibility
+keep their existing behavior. No production SQL routing or final row/job deletion
+is enabled. See the [stage validation](../validation/session-store-adapter.md#captured-sql-session-image-cleanup).

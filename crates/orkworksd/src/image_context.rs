@@ -6,6 +6,7 @@ use std::{io::Cursor, path::PathBuf};
 pub(crate) const BODY_LIMIT: usize = 28 * 1024 * 1024;
 const PER_FILE: usize = 5 * 1024 * 1024;
 const TOTAL: usize = 20 * 1024 * 1024;
+const MAX_IMAGES: usize = 8;
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct ImageInput {
@@ -21,7 +22,7 @@ pub(crate) fn validate(
     inputs: &[ImageInput],
     prompt: &str,
 ) -> Result<Vec<ValidatedImage>, &'static str> {
-    if inputs.len() > 8 || prompt.len() > 65536 {
+    if inputs.len() > MAX_IMAGES || prompt.len() > 65536 {
         return Err("Image requests allow eight images and 64 KiB of prompt text.");
     }
     let mut total = 0usize;
@@ -78,6 +79,7 @@ pub(crate) fn validate(
 
 mod storage;
 pub(crate) use storage::recover;
+pub(crate) use storage::{bind_sql_cleanup, ImageCleanupGuard, SqlImageCleanup};
 pub(crate) use storage::{prepare_cleanup, ImageBundle};
 
 #[derive(Clone, Copy, PartialEq, Eq)]

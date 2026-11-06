@@ -403,3 +403,6 @@ fn enter_replay_gate(gate: &ReplayGate) {
 
 #[cfg(all(test, unix))]
 mod delete_evidence_tests;
+
+#[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
+mod delete_image_tests;

@@ -1294,3 +1294,37 @@ latency or hardware power-loss qualification. Production remains JSON; no
 migration, automatic cleanup scheduling, retention change or platform activation
 is claimed. The [implementation plan](../superpowers/plans/2026-11-05-sql-evidence-cleanup.md)
 records scope and remaining gates.
+
+## Captured SQL session-image cleanup
+
+The image owner's private `storage/sql_cleanup.rs` fixtures exercise all four
+synchronization failure boundaries and explicit recapture/retry, preserving the
+marker until payload synchronization. They reject missing/nonempty, malformed,
+foreign, oversized or symlinked markers before deleting payloads; bound directory
+enumeration, retain nested obstructions rather than recurse, and unlink leaf
+symlinks without changing their targets. Pinned parents preserve replacement
+bundles; a replaced target fails before effects. Captured absence refuses later
+bundles until fresh capture. Existing privacy/no-follow checks and the original
+workspace lease remain mandatory. Non-UUID IDs resolve no paths; other platforms
+have an Unsupported fixture without a Debug requirement on captured success types.
+
+`sql_writes/delete_image_tests.rs` creates a real PNG bundle and canonical closed
+SQL tombstone. It verifies exact removal, unrelated/legacy preservation, durable
+progress/reopen and pending-job retention; busy publishers; partial file errors
+and preservation of other bits; publication-lock retention through SQL-busy
+failure; and explicit retry after that partial outcome. Pre-admission cancellation
+and expiry neither recreate the lock nor remove payloads. Admitted caller loss
+and workspace detachment retain the original lease/lock through completion. Image
+binding failures leave replay/workflow stages usable.
+
+A single-Tokio-worker fixture stalls the retained image job while application
+guards remain available and independent runtime input is acknowledged. A separate
+one-blocking-worker runtime verifies no nested blocking-job dependency. The initial-root-absence regression attempts a real image publication during
+the parent-sync/progress gap: it succeeded before the review fix. Admitted
+exclusive root creation and the existing publication lock now block it until
+the receipt releases the guard; capture itself stays read-only. These fixtures
+qualify controlled source behavior, not live latency, native image support on
+new platforms, hardware power-loss or activation. Production remains
+JSON; later settings/recommendation cleanup and final completion remain under
+[#1243](https://github.com/Rambolarsen/orkworks/issues/1243). See the
+[implementation plan](../superpowers/plans/2026-11-06-sql-image-cleanup.md).

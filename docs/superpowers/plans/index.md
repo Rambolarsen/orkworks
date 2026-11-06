@@ -304,3 +304,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Captured SQL workflow evidence cleanup](2026-11-05-sql-evidence-cleanup.md) — Original-owner revocation, durable segment removal and pending-job progress.
 
 - [Retained replay cleanup directory ownership](2026-11-06-replay-directory-owner.md) — Original directory handles and bounded cleanup capture for #1442.
+
+- [Captured SQL session-image cleanup](2026-11-06-sql-image-cleanup.md) — Original image-owner removal, publication fencing and durable deletion progress.

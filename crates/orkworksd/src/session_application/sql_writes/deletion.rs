@@ -7,18 +7,21 @@ use std::sync::atomic::{AtomicU8, Ordering};
 enum Stage {
     Replay,
     Workflow,
+    Images,
 }
 impl Stage {
     fn bit(self) -> u8 {
         match self {
             Self::Replay => 0x01,
             Self::Workflow => 0x02,
+            Self::Images => 0x04,
         }
     }
     fn name(self) -> &'static str {
         match self {
             Self::Replay => "replay",
             Self::Workflow => "workflow",
+            Self::Images => "images",
         }
     }
     fn current(
@@ -26,26 +29,41 @@ impl Stage {
         captured: &crate::workflow_observations::WorkflowObservationStore,
         ws: &WorkspaceState,
     ) -> bool {
-        matches!(self, Self::Replay)
+        matches!(self, Self::Replay | Self::Images)
             || captured.instance_id() == ws.workflow_observations.instance_id()
     }
 }
 enum Files {
     Replay(Arc<std::io::Result<crate::metadata::replay_cleanup::AnchoredReplayCleanup>>),
     Workflow(crate::workflow_observations::WorkflowObservationStore),
+    Images(Arc<std::io::Result<crate::image_context::SqlImageCleanup>>),
 }
 impl Files {
-    fn remove(self, id: &str) -> std::io::Result<()> {
+    fn remove(
+        self,
+        id: &str,
+    ) -> (
+        std::io::Result<()>,
+        Option<crate::image_context::ImageCleanupGuard>,
+    ) {
         match self {
-            Self::Replay(files) => files
-                .as_ref()
-                .as_ref()
-                .map_err(|e| std::io::Error::new(e.kind(), e.to_string()))?
-                .remove(),
-            Self::Workflow(files) => files.delete_session_observations_durable(id),
+            Self::Replay(files) => (
+                files
+                    .as_ref()
+                    .as_ref()
+                    .map_err(|e| std::io::Error::new(e.kind(), e.to_string()))
+                    .and_then(|files| files.remove()),
+                None,
+            ),
+            Self::Workflow(files) => (files.delete_session_observations_durable(id), None),
+            Self::Images(files) => match files.as_ref().as_ref() {
+                Ok(files) => files.remove(),
+                Err(e) => (Err(std::io::Error::new(e.kind(), e.to_string())), None),
+            },
         }
     }
 }
+
 pub(crate) struct CapturedDeletion {
     owner: Arc<SessionWrites>,
     id: String,
@@ -54,6 +72,7 @@ pub(crate) struct CapturedDeletion {
     workflow: crate::workflow_observations::WorkflowObservationStore,
     replay: Arc<std::io::Result<crate::metadata::replay_cleanup::AnchoredReplayCleanup>>,
     capacity: file_budget::Reservation,
+    images: Arc<std::io::Result<crate::image_context::SqlImageCleanup>>,
 }
 #[derive(Debug)]
 #[must_use]
@@ -96,12 +115,13 @@ impl SessionWrites {
         created: String,
     ) -> Result<CapturedDeletion, StoreError> {
         let id_for_capture = id.clone();
-        let (memory, workflow, replay) = self
+        let (memory, workflow, replay, image_root) = self
             .organization_access(id.clone(), None, true, None, move |ws, h, pid| {
                 (
                     Arc::new(Memory::capture(ws, h.as_deref(), pid)),
                     ws.workflow_observations.clone(),
                     ws.metadata.capture_replay_cleanup(&id_for_capture),
+                    ws.metadata.root_path(),
                 )
             })
             .await?
@@ -122,15 +142,21 @@ impl SessionWrites {
         let lease = memory._lease.clone().ok_or(StoreError::Conflict)?;
         #[cfg(test)]
         let binding_owner = self.clone();
+        let image_id = id.clone();
         let binding = tokio::task::spawn_blocking(move || {
             #[cfg(test)]
             enter_replay_gate(&binding_owner.replay_binding);
             (
                 capacity,
                 Arc::new(replay.and_then(|intent| intent.bind(&lease))),
+                Arc::new(crate::image_context::bind_sql_cleanup(
+                    &image_root,
+                    &image_id,
+                    &lease,
+                )),
             )
         });
-        let (capacity, replay) = tokio::time::timeout(Duration::from_secs(2), binding)
+        let (capacity, replay, images) = tokio::time::timeout(Duration::from_secs(2), binding)
             .await
             .map_err(|_| StoreError::Expired)?
             .map_err(|_| StoreError::Unavailable)?;
@@ -145,6 +171,7 @@ impl SessionWrites {
             workflow,
             replay,
             capacity,
+            images,
         })
     }
 }
@@ -156,6 +183,9 @@ impl CapturedDeletion {
         self,
     ) -> Result<DeletionCleanupResult, StoreError> {
         self.remove(Stage::Workflow).await
+    }
+    pub(crate) async fn remove_images(self) -> Result<DeletionCleanupResult, StoreError> {
+        self.remove(Stage::Images).await
     }
     async fn remove(self, stage: Stage) -> Result<DeletionCleanupResult, StoreError> {
         let claim = Arc::new(Claim {
@@ -202,6 +232,7 @@ impl CapturedDeletion {
                         let files = match stage {
                             Stage::Replay => Files::Replay(self.replay.clone()),
                             Stage::Workflow => Files::Workflow(self.workflow.clone()),
+                            Stage::Images => Files::Images(self.images.clone()),
                         };
                         job_claim.admit()?;
                         Ok::<_, StoreError>((reservation, lease, files))
@@ -209,7 +240,7 @@ impl CapturedDeletion {
                     .ok_or(StoreError::Conflict)??;
                 #[cfg(test)]
                 enter_replay_gate(&self.owner.replay_admitted);
-                let files = files.remove(&self.id);
+                let (files, _image_lock) = files.remove(&self.id);
                 #[cfg(test)]
                 enter_replay_gate(&self.owner.replay_removed);
                 let progress = if files.is_ok() {
