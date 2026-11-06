@@ -1242,10 +1242,24 @@ JSON deletion remains unchanged. Workflow evidence, images, last-active settings
 recommendations, final row/job removal, scheduling, producer/selector integration,
 migration and activation remain follow-ups. Production remains JSON.
 
-Replay directory handles are opened at execution time. Ordinary root/events
-replacement between capture and removal remains an unqualified ownership boundary
-tracked in [#1442](https://github.com/Rambolarsen/orkworks/issues/1442); the source
-fixture results above do not establish activation readiness for that case.
+[#1442](https://github.com/Rambolarsen/orkworks/issues/1442) reproduces ordinary
+root/events replacement through the real captured SQL stage, before execution
+and after admission. The original implementation deleted replacement payloads;
+retaining bound directory handles before returning the view preserves all three
+replacement payloads while removing the originals. An earlier root replacement
+also failed its regression before the fix: capture now validates the directory
+against the original lease lock inode, rejecting missing, copied and symlinked
+replacement lock entries before any unlink.
+
+Additional fixtures reject an events directory created after captured absence,
+then explicitly recapture/retry; fill exactly32 capture slots, reject the33rd,
+and execute using the retained slot without double reservation. A blocked native
+binding on one Tokio worker leaves all application guards available and another
+runtime acknowledges input. Cancellation/expiry keeps that native job's slot
+until it drains. Existing sync failure/retry, max-ID, symlink, stale-owner,
+partial progress, caller-loss and single-blocking-worker fixtures remain green.
+These controlled source fixtures do not establish live activation, hardware
+power-loss or numeric responsiveness qualification.
 
 ## Captured SQL workflow evidence cleanup
 

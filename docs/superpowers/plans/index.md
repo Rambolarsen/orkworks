@@ -302,3 +302,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Launch-scoped worktree instruction delivery](2026-11-04-launch-scoped-worktree-instructions.md) — Approved scope preparation and bounded reporter delivery; actual-source native qualification passed and the qualified source profile is enabled.
 
 - [Captured SQL workflow evidence cleanup](2026-11-05-sql-evidence-cleanup.md) — Original-owner revocation, durable segment removal and pending-job progress.
+
+- [Retained replay cleanup directory ownership](2026-11-06-replay-directory-owner.md) — Original directory handles and bounded cleanup capture for #1442.

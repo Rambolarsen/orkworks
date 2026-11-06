@@ -32,6 +32,8 @@ pub(crate) struct SessionWrites {
     #[cfg(test)]
     replay_before: ReplayGate,
     #[cfg(test)]
+    replay_binding: ReplayGate,
+    #[cfg(test)]
     replay_admitted: ReplayGate,
     #[cfg(test)]
     replay_removed: ReplayGate,
@@ -87,6 +89,8 @@ impl SessionWrites {
             after_organization_grant: std::sync::Mutex::new(None),
             #[cfg(test)]
             replay_before: std::sync::Mutex::new(None),
+            #[cfg(test)]
+            replay_binding: std::sync::Mutex::new(None),
             #[cfg(test)]
             replay_admitted: std::sync::Mutex::new(None),
             #[cfg(test)]

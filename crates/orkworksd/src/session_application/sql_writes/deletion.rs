@@ -31,13 +31,17 @@ impl Stage {
     }
 }
 enum Files {
-    Replay(crate::metadata::replay_cleanup::ReplayCleanup),
+    Replay(Arc<std::io::Result<crate::metadata::replay_cleanup::AnchoredReplayCleanup>>),
     Workflow(crate::workflow_observations::WorkflowObservationStore),
 }
 impl Files {
     fn remove(self, id: &str) -> std::io::Result<()> {
         match self {
-            Self::Replay(files) => files.remove(),
+            Self::Replay(files) => files
+                .as_ref()
+                .as_ref()
+                .map_err(|e| std::io::Error::new(e.kind(), e.to_string()))?
+                .remove(),
             Self::Workflow(files) => files.delete_session_observations_durable(id),
         }
     }
@@ -48,6 +52,8 @@ pub(crate) struct CapturedDeletion {
     created: String,
     memory: Arc<Memory>,
     workflow: crate::workflow_observations::WorkflowObservationStore,
+    replay: Arc<std::io::Result<crate::metadata::replay_cleanup::AnchoredReplayCleanup>>,
+    capacity: file_budget::Reservation,
 }
 #[derive(Debug)]
 #[must_use]
@@ -89,11 +95,13 @@ impl SessionWrites {
         id: String,
         created: String,
     ) -> Result<CapturedDeletion, StoreError> {
-        let (memory, workflow) = self
-            .organization_access(id.clone(), None, true, None, |ws, h, pid| {
+        let id_for_capture = id.clone();
+        let (memory, workflow, replay) = self
+            .organization_access(id.clone(), None, true, None, move |ws, h, pid| {
                 (
                     Arc::new(Memory::capture(ws, h.as_deref(), pid)),
                     ws.workflow_observations.clone(),
+                    ws.metadata.capture_replay_cleanup(&id_for_capture),
                 )
             })
             .await?
@@ -110,6 +118,22 @@ impl SessionWrites {
             .deletion_record(id.clone(), created.clone())
             .await?
             .ok_or(StoreError::Missing)?;
+        let capacity = file_budget::reserve(file_budget::intent_bytes(&(&id, &created))?)?;
+        let lease = memory._lease.clone().ok_or(StoreError::Conflict)?;
+        #[cfg(test)]
+        let binding_owner = self.clone();
+        let binding = tokio::task::spawn_blocking(move || {
+            #[cfg(test)]
+            enter_replay_gate(&binding_owner.replay_binding);
+            (
+                capacity,
+                Arc::new(replay.and_then(|intent| intent.bind(&lease))),
+            )
+        });
+        let (capacity, replay) = tokio::time::timeout(Duration::from_secs(2), binding)
+            .await
+            .map_err(|_| StoreError::Expired)?
+            .map_err(|_| StoreError::Unavailable)?;
         self.organization_access(id.clone(), Some(memory.clone()), true, None, |_, _, _| ())
             .await?
             .ok_or(StoreError::Conflict)?;
@@ -119,6 +143,8 @@ impl SessionWrites {
             created,
             memory,
             workflow,
+            replay,
+            capacity,
         })
     }
 }
@@ -132,8 +158,6 @@ impl CapturedDeletion {
         self.remove(Stage::Workflow).await
     }
     async fn remove(self, stage: Stage) -> Result<DeletionCleanupResult, StoreError> {
-        let capacity =
-            file_budget::reserve(file_budget::intent_bytes(&(&self.id, &self.created))?)?;
         let claim = Arc::new(Claim {
             state: AtomicU8::new(0),
             deadline: Instant::now() + Duration::from_secs(2),
@@ -144,7 +168,7 @@ impl CapturedDeletion {
         let job_claim = claim.clone();
         let (sent, mut received) = oneshot::channel();
         tokio::task::spawn_blocking(move || {
-            let _capacity = capacity;
+            let _capacity = self.capacity;
             let result = (|| {
                 let _lane = handle
                     .block_on(tokio::time::timeout_at(
@@ -176,9 +200,7 @@ impl CapturedDeletion {
                             .reserve(&self.id)
                             .ok_or(StoreError::Conflict)?;
                         let files = match stage {
-                            Stage::Replay => {
-                                Files::Replay(ws.metadata.capture_replay_cleanup(&self.id)?)
-                            }
+                            Stage::Replay => Files::Replay(self.replay.clone()),
                             Stage::Workflow => Files::Workflow(self.workflow.clone()),
                         };
                         job_claim.admit()?;
