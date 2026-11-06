@@ -210,6 +210,8 @@ fn resolve_head(repo: &Repository) -> Result<(Option<Oid>, Option<Tree<'_>>), St
     Ok((head.map(|h| h.id()), head_tree))
 }
 
+/// Comparison start references: the baseline tree and resolved base/baseline ids.
+type Baseline<'a> = (Option<Tree<'a>>, Option<Oid>, Option<Oid>);
 /// Resolve the comparison baseline tree, merge base and baseline identifier.
 fn select_baseline<'a>(
     repo: &'a Repository,
@@ -218,7 +220,7 @@ fn select_baseline<'a>(
     base_ref: Option<&str>,
     head_id: Option<Oid>,
     head_tree: Option<&Tree<'a>>,
-) -> Result<(Option<Tree<'a>>, Option<Oid>, Option<Oid>), String> {
+) -> Result<Baseline<'a>, String> {
     if comparison != Comparison::Branch {
         return Ok((head_tree.cloned(), None, head_id));
     }
@@ -722,8 +724,8 @@ fn render_changes(
 ) -> Result<(Vec<ChangedFile>, HashMap<String, String>), String> {
     let start = staging.sets.start;
     let scratch = staging.sets.scratch;
-    let before = staging.before.write_tree_to(&scratch).map_err(err)?;
-    let after = staging.after.write_tree_to(&scratch).map_err(err)?;
+    let before = staging.before.write_tree_to(scratch).map_err(err)?;
+    let after = staging.after.write_tree_to(scratch).map_err(err)?;
     let mut opts = git2::DiffOptions::new();
     opts.context_lines(3)
         .skip_binary_check(false)
