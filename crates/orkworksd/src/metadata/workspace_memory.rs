@@ -63,3 +63,13 @@ impl Drop for Edit {
         self.owner.editing.store(false, Ordering::Release);
     }
 }
+
+mod sql_cleanup;
+pub(crate) use sql_cleanup::{BoundSettingsCleanup, SettingsCleanup};
+impl Owner {
+    pub(super) fn capture_cleanup(self: &Arc<Self>) -> SettingsCleanup {
+        SettingsCleanup {
+            owner: self.clone(),
+        }
+    }
+}

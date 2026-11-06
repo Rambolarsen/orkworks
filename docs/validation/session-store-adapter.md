@@ -1359,3 +1359,44 @@ not establish original-directory anchoring, bounded unknown-field-preserving
 cleanup, crash recovery or a SQL progress bit. Those are prerequisites for the
 next stage under #1243. Production remains JSON and the ordinary session store
 is not activated.
+
+
+## Captured SQL workspace settings cleanup
+
+The explicit `clear_settings` stage clears the deleted session's last-active pair
+only when latest workspace memory still names that session. It retains the
+existing shared edit permit through file completion, SQL progress and the
+current/detached receipt, using the same captured runner, lane, reservation,
+capacity and close-first checks as replay/workflow/images. Progress bit `0x08`
+uses complete=false; row/job removal and recommendation cleanup remain pending.
+
+Binding opens only the original workspace directory off application guards and
+validates its retained lease. File work is relative to that FD, uses no-follow
+nonblocking opens and refuses nonregular/multiply-linked targets. A strict one
+MiB read cap, duplicate/trailing checks and typed known-field validation reject
+ambiguous or oversized data without rewriting it. Raw JSON values preserve
+unrelated/unknown content rather than rounding unknown large integers through
+f64. Nonmatching files stay byte-identical. Absence creates no file.
+
+The replacement temp file is exclusive/private/random, synced before a relative
+rename, with both target and staged-entry inode checks; the original parent is
+then synced. Failure cleanup removes only the same attempt's verified staged
+entry. A controlled regression reproduced replacement of the staged pathname
+before rename; the additional identity check now preserves both the original
+settings and the unowned replacement. Already-cleared and absent retries repeat
+file/parent or parent synchronization before progress.
+
+Owner fixtures and `sql_writes/delete_settings_tests.rs` exercise sync-failure
+boundaries, latest-selection changes, malformed/duplicate/oversized data,
+symlinks/hardlinks/directories/FIFOs, original parent/lease/target/staged identity,
+lossless unknown values, SQL reopen/progress, contention and file/SQL partial
+failure, pre-admission cancellation/expiry, admitted caller loss/detachment,
+retained lease/edit ownership, independent acknowledged input on a current-thread
+runtime and completion with one blocking worker. Existing cleanup-stage tests
+still qualify the shared capacity and ownership fences.
+
+These are controlled source fixtures, not hardware power-loss, live latency or
+platform activation evidence. Unix behavior is exercised; other platforms fail
+Unsupported before file effects. Production remains JSON with its existing
+legacy replacement semantics; no automatic migration/recovery, SQL selection,
+retention change or final Delete completion is introduced.

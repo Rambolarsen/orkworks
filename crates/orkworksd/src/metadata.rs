@@ -7,6 +7,9 @@ pub(crate) mod session_reader;
 pub(crate) mod session_transactions;
 mod workspace_memory;
 pub(crate) use provenance::MetadataProvenance;
+pub(crate) use workspace_memory::{
+    BoundSettingsCleanup, Edit as WorkspaceMemoryEdit, SettingsCleanup,
+};
 
 use crate::harness::{ResumeMemory, ResumeState, ResumeStrategy};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -1407,6 +1410,11 @@ impl MetadataStore {
         if let Err(e) = self.try_write_workspace_memory(memory) {
             warn!("failed to write workspace memory: {e}");
         }
+    }
+
+    // Memory-only capture; bind the original directory outside application guards.
+    pub(crate) fn capture_settings_cleanup(&self) -> SettingsCleanup {
+        self.workspace_memory.capture_cleanup()
     }
 
     pub(crate) fn edit_workspace_memory(&self) -> std::io::Result<workspace_memory::Edit> {
