@@ -16,19 +16,19 @@ mod unix {
             io::{AsRawFd, FromRawFd},
         },
     };
-    fn component(name: &OsStr) -> std::io::Result<CString> {
+    pub(super) fn component(name: &OsStr) -> std::io::Result<CString> {
         let bytes = name.as_bytes();
         if bytes == b"." || bytes == b".." || bytes.contains(&b'/') {
             return Err(std::io::Error::other("Invalid image component"));
         }
         CString::new(bytes).map_err(|_| std::io::Error::other("Invalid image component"))
     }
-    struct Directory {
-        file: File,
-        path: PathBuf,
+    pub(super) struct Directory {
+        pub(super) file: File,
+        pub(super) path: PathBuf,
     }
     impl Directory {
-        fn verify(file: File, path: PathBuf) -> std::io::Result<Self> {
+        pub(super) fn verify(file: File, path: PathBuf) -> std::io::Result<Self> {
             let meta = file.metadata()?;
             // SAFETY: geteuid has no arguments or memory preconditions.
             if !meta.is_dir()
@@ -52,7 +52,7 @@ mod unix {
                 .open(&path)?;
             Self::verify(file, path)
         }
-        fn file(&self, name: &OsStr, flags: i32) -> std::io::Result<File> {
+        pub(super) fn file(&self, name: &OsStr, flags: i32) -> std::io::Result<File> {
             let name = component(name)?;
             // SAFETY: retained directory fd and NUL-terminated single component;
             // on success ownership of the newly returned descriptor transfers to File.
@@ -73,7 +73,7 @@ mod unix {
             }
             Ok(file)
         }
-        fn child(&self, name: &OsStr, create: bool) -> std::io::Result<Self> {
+        pub(super) fn child(&self, name: &OsStr, create: bool) -> std::io::Result<Self> {
             if create {
                 let component = component(name)?;
                 // SAFETY: same component/retained-directory invariant as openat above.
@@ -122,7 +122,7 @@ mod unix {
             }
             Ok(names)
         }
-        fn lock(&self) -> std::io::Result<File> {
+        pub(super) fn lock(&self) -> std::io::Result<File> {
             let file = self.file(OsStr::new(".lock"), libc::O_RDWR | libc::O_CREAT)?;
             fs2::FileExt::try_lock_exclusive(&file)?;
             Ok(file)
@@ -154,9 +154,9 @@ mod unix {
     }
     #[derive(Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]
-    struct Manifest {
-        owner: String,
-        session: String,
+    pub(super) struct Manifest {
+        pub(super) owner: String,
+        pub(super) session: String,
     }
     pub(crate) struct ImageBundle {
         root: Directory,
@@ -356,4 +356,50 @@ pub(crate) fn prepare_cleanup(_: &Path, id: &str) -> std::io::Result<Option<Imag
 #[cfg(not(unix))]
 pub(crate) fn recover(_: &Path, _: &crate::metadata::MetadataStore) -> std::io::Result<()> {
     Ok(())
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod sql_cleanup;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+pub(crate) use sql_cleanup::{bind_sql_cleanup, ImageCleanupGuard, SqlImageCleanup};
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+pub(crate) struct SqlImageCleanup;
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+pub(crate) struct ImageCleanupGuard;
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+pub(crate) fn bind_sql_cleanup(
+    _: &Path,
+    _: &str,
+    _: &crate::workspace_runtime::WorkspaceLease,
+) -> std::io::Result<SqlImageCleanup> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "durable image cleanup is not qualified on this platform",
+    ))
+}
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+impl SqlImageCleanup {
+    pub(crate) fn remove(&self) -> (std::io::Result<()>, Option<ImageCleanupGuard>) {
+        (
+            Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "durable image cleanup is not qualified on this platform",
+            )),
+            None,
+        )
+    }
+}
+
+#[cfg(all(test, not(any(target_os = "macos", target_os = "linux"))))]
+mod sql_unsupported_tests {
+    use super::*;
+    #[test]
+    fn sql_image_owner_unqualified_platform_fails_before_effects() {
+        let root = tempfile::tempdir().unwrap();
+        let lease = crate::workspace_runtime::WorkspaceLease::acquire(root.path()).unwrap();
+        assert!(
+            matches!(bind_sql_cleanup(root.path(),"11111111-1111-4111-8111-111111111111",&lease),Err(e) if e.kind()==std::io::ErrorKind::Unsupported)
+        );
+        assert!(!root.path().join("session-images").exists());
+    }
 }
