@@ -94,3 +94,5 @@ Capability research, validation results, and evidence fixtures.
 - [Original child preparation commit authority](child-preparation-commit-authority.md) — Accepted one-command late-saving/no-spawn policy for further design; authorization representation and native qualification remain gated.
 
 - [Format-6 preparation catalog reconciliation](child-preparation-catalog-reconciliation.md) — All 35 logical families, paired original-attach effects and concrete physical membership gaps.
+
+- [Fresh-pair native owner audit](fresh-pair-native-owner-audit.md) — Actual file/lease/worker constructors, cancellation/disposition limits and the missing original pair-owner protocol.
