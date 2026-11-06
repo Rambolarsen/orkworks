@@ -1400,3 +1400,36 @@ platform activation evidence. Unix behavior is exercised; other platforms fail
 Unsupported before file effects. Production remains JSON with its existing
 legacy replacement semantics; no automatic migration/recovery, SQL selection,
 retention change or final Delete completion is introduced.
+
+
+## Recommendation operation owner prerequisite
+
+Recommendation reads can recover graph transactions, so captured off-guard SQL
+cleanup cannot safely coexist with a writer fence limited to `WorkspaceState`.
+The store now issues one owned nonblocking operation permit for each complete
+public operation, including open/recovery and reads. Nested get/put calls inside
+transitions use private helpers under that same permit rather than reacquiring
+it. Clones and canonical-root independent opens share a weakly registered owner;
+opening another workspace root remains independent.
+
+Tests in `taskmaster/store/owner_tests.rs` cover every public transition while a
+permit is held; unchanged record bytes; clone/dot/symlink-alias opens; rejection
+before recommendation-directory recreation or pending recovery; release after
+errors/unwind/store drop; real staged graph recovery after release; independent
+assessment redaction; and an unavailable application read followed by acknowledged
+terminal input on a current-thread runtime with application guards free. All
+existing graph/packet/recovery and assessment-access tests remain applicable.
+
+This is process-local mutation ownership, not original-file anchoring, finite
+graph-read qualification, a cross-process lock, a new transaction format or a
+SQL deletion-progress grant. Root creation/canonicalization still performs the
+existing open-path filesystem work before owner lookup. Legacy synchronous I/O
+and published storage format remain JSON; later cleanup and migration gates must
+move captured work off application guards and qualify durable progress.
+
+Snapshot qualification remains separate: `apply_recommendation_graph_transaction`
+checks the supplied expected hashes and can add records. A snapshot retained
+outside a store call is not made current by acquiring this operation permit.
+Captured recommendation deletion must qualify producer revalidation/revocation
+against exact SQL tombstones before activation, including stale publication after
+cleanup. No live off-guard deletion producer is selected in this prerequisite.

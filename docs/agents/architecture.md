@@ -1743,3 +1743,39 @@ completion, recommendation cleanup or recovery scheduling. The complete
 producer/migration gates still apply before activation; legacy JSON selection
 routes do not become SQL-qualified merely because this stage exists. See the
 [stage validation](../validation/session-store-adapter.md#captured-sql-workspace-settings-cleanup).
+
+
+## Shared recommendation operation ownership
+
+`RecommendationStore` remains the recommendation/rollup graph authority. Its
+clones and independent opens share a process-local operation owner keyed by
+canonical workspace root. A weak-reference registry retains no records or
+history cache and prunes expired owners at open. Root initialization/resolution
+precedes registry lookup; the registry mutex protects memory only. Recommendation
+directory creation, filename migration, recovery and validation follow the same
+nonblocking permit used by reads and mutations.
+
+All public store operations take one permit. Composite execution/completion,
+dismissal, packet replacement and graph deletion retain it through their nested
+get/put/recovery work. Contention returns Io/WouldBlock without waiting behind
+store I/O. Readers participate because existing get/list operations can replay
+pending graph transactions. The existing transaction, validation, publication and
+recovery algorithms/formats stay unchanged; permit release is automatic on
+success, error and unwind.
+
+The canonical-root owner also covers workspace reopen and assessment-access
+redaction's independent store open. It does not replace the cross-process
+workspace lease, anchor paths to physical directory identities or turn arbitrary
+opens into deletion authority. Existing synchronous recommendation I/O stays in
+its current application paths. Captured SQL recommendation cleanup must still
+bind original directory/lease ownership, qualify bounded graph I/O and durable
+retry, retain the operation through SQL progress and respect recommendation and
+evidence protections. No SQL cleanup stage, activation or final Delete completion
+is introduced by this prerequisite.
+
+An operation permit does not validate an application snapshot held between store
+calls. Before captured deletion is enabled, old evaluator/publication snapshots
+must be revalidated or revoked against exact authoritative session/deletion
+state; serialization alone cannot prevent a later producer recreating a deleted
+recommendation. The existing optimistic graph/hash and packet checks are not
+expanded or replaced by this prerequisite.

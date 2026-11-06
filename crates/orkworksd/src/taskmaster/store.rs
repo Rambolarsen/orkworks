@@ -1,3 +1,4 @@
+mod operation;
 use super::completion::CompletionMutationRequest;
 use super::rollup::stable_rollup_id;
 use super::{DismissalWatermark, Recommendation, RecommendationStatus, RecommendationType};
@@ -87,8 +88,10 @@ pub(crate) fn dismissed_record(
     recommendation
 }
 
+#[derive(Clone)]
 pub(crate) struct RecommendationStore {
     dir: PathBuf,
+    owner: std::sync::Arc<operation::Owner>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -158,10 +161,20 @@ fn take_fault_point(expected: impl FnOnce(FaultPoint) -> bool) -> Result<(), Sto
 }
 
 impl RecommendationStore {
+    fn try_operation(&self) -> Result<operation::Operation, StoreError> {
+        self.owner.claim()
+    }
+
     pub(crate) fn open(root: PathBuf) -> Result<Self, StoreError> {
+        // Root resolution is outside the short memory-only owner registry.
+        // All recommendation effects, including recovery, follow admission.
+        fs::create_dir_all(&root).map_err(StoreError::Io)?;
+        let root = fs::canonicalize(&root).map_err(StoreError::Io)?;
+        let owner = operation::for_root(&root)?;
+        let _operation = owner.claim()?;
         let dir = root.join("recommendations");
         fs::create_dir_all(&dir).map_err(StoreError::Io)?;
-        let store = Self { dir };
+        let store = Self { dir, owner };
         store.migrate_legacy_rollup_filenames()?;
         store.recover_transactions()?;
         store.validate_graph()?;
@@ -169,6 +182,7 @@ impl RecommendationStore {
     }
 
     pub(crate) fn list(&self) -> Result<Vec<Recommendation>, StoreError> {
+        let _operation = self.try_operation()?;
         self.recover_transactions()?;
         let mut recommendations = self.read_all()?;
         validate_graph_records(&recommendations)?;
@@ -183,6 +197,7 @@ impl RecommendationStore {
     pub(crate) fn list_with_hashes(
         &self,
     ) -> Result<(Vec<Recommendation>, BTreeMap<String, String>), StoreError> {
+        let _operation = self.try_operation()?;
         self.recover_transactions()?;
         let mut stored = self.read_all_stored()?;
         validate_graph_records(
@@ -209,6 +224,11 @@ impl RecommendationStore {
     }
 
     pub(crate) fn get(&self, id: &str) -> Result<Option<Recommendation>, StoreError> {
+        let _operation = self.try_operation()?;
+        self.get_current(id)
+    }
+
+    fn get_current(&self, id: &str) -> Result<Option<Recommendation>, StoreError> {
         self.recover_transactions()?;
         self.validate_graph()?;
         if !valid_id(id) {
@@ -227,6 +247,11 @@ impl RecommendationStore {
     }
 
     pub(crate) fn put(&self, recommendation: &Recommendation) -> Result<(), StoreError> {
+        let _operation = self.try_operation()?;
+        self.put_current(recommendation)
+    }
+
+    fn put_current(&self, recommendation: &Recommendation) -> Result<(), StoreError> {
         self.recover_transactions()?;
         validate_recommendation(recommendation)?;
         let json = serde_json::to_vec_pretty(recommendation).map_err(StoreError::Json)?;
@@ -254,6 +279,7 @@ impl RecommendationStore {
         expected: &BTreeMap<String, Option<String>>,
         records: &[Recommendation],
     ) -> Result<(), StoreError> {
+        let _operation = self.try_operation()?;
         self.recover_transactions()?;
         self.validate_graph()?;
         let stored = self.read_all_stored_by_id()?;
@@ -315,7 +341,8 @@ impl RecommendationStore {
         dismissed_at: String,
         reason: Option<String>,
     ) -> Result<Option<Recommendation>, StoreError> {
-        let Some(recommendation) = self.get(id)? else {
+        let _operation = self.try_operation()?;
+        let Some(recommendation) = self.get_current(id)? else {
             return Ok(None);
         };
         super::assessment_access::ensure_mutable(&recommendation)?;
@@ -329,7 +356,7 @@ impl RecommendationStore {
             return Err(StoreError::InvalidTransition);
         }
         let recommendation = dismissed_record(recommendation, &dismissed_at, reason);
-        self.put(&recommendation)?;
+        self.put_current(&recommendation)?;
         Ok(Some(recommendation))
     }
 
@@ -346,7 +373,8 @@ impl RecommendationStore {
         target_session_id: String,
         started_at: String,
     ) -> Result<Option<Recommendation>, StoreError> {
-        let Some(mut recommendation) = self.get(id)? else {
+        let _operation = self.try_operation()?;
+        let Some(mut recommendation) = self.get_current(id)? else {
             return Ok(None);
         };
         super::assessment_access::ensure_mutable(&recommendation)?;
@@ -358,7 +386,7 @@ impl RecommendationStore {
         recommendation.status = RecommendationStatus::Executing;
         recommendation.target_session_id = Some(target_session_id);
         recommendation.updated_at = started_at;
-        self.put(&recommendation)?;
+        self.put_current(&recommendation)?;
         Ok(Some(recommendation))
     }
 
@@ -370,8 +398,9 @@ impl RecommendationStore {
         mutation: &CompletionMutationRequest,
         approver: String,
     ) -> Result<Option<Recommendation>, StoreError> {
+        let _operation = self.try_operation()?;
         mutation.validate().map_err(StoreError::GraphInvariant)?;
-        let Some(mut recommendation) = self.get(id)? else {
+        let Some(mut recommendation) = self.get_current(id)? else {
             return Ok(None);
         };
         super::assessment_access::ensure_mutable(&recommendation)?;
@@ -400,7 +429,7 @@ impl RecommendationStore {
         recommendation.status = RecommendationStatus::Executing;
         recommendation.target_session_id = Some(target_session_id);
         recommendation.updated_at = started_at;
-        self.put(&recommendation)?;
+        self.put_current(&recommendation)?;
         Ok(Some(recommendation))
     }
 
@@ -410,7 +439,8 @@ impl RecommendationStore {
         id: &str,
         completed_at: String,
     ) -> Result<Option<Recommendation>, StoreError> {
-        let Some(mut recommendation) = self.get(id)? else {
+        let _operation = self.try_operation()?;
+        let Some(mut recommendation) = self.get_current(id)? else {
             return Ok(None);
         };
         // Delivery already succeeded under the admission guard. Access may
@@ -423,7 +453,7 @@ impl RecommendationStore {
         }
         recommendation.status = RecommendationStatus::Accepted;
         recommendation.updated_at = completed_at;
-        self.put(&recommendation)?;
+        self.put_current(&recommendation)?;
         Ok(Some(recommendation))
     }
 
@@ -434,7 +464,8 @@ impl RecommendationStore {
         id: &str,
         completed_at: String,
     ) -> Result<Option<Recommendation>, StoreError> {
-        let Some(mut recommendation) = self.get(id)? else {
+        let _operation = self.try_operation()?;
+        let Some(mut recommendation) = self.get_current(id)? else {
             return Ok(None);
         };
         let redacted_delivered_assessment = recommendation
@@ -453,7 +484,7 @@ impl RecommendationStore {
         }
         recommendation.status = RecommendationStatus::Completed;
         recommendation.updated_at = completed_at;
-        self.put(&recommendation)?;
+        self.put_current(&recommendation)?;
         Ok(Some(recommendation))
     }
 
@@ -463,8 +494,9 @@ impl RecommendationStore {
         completed_at: String,
         mutation: &CompletionMutationRequest,
     ) -> Result<Option<Recommendation>, StoreError> {
+        let _operation = self.try_operation()?;
         mutation.validate().map_err(StoreError::GraphInvariant)?;
-        let Some(mut recommendation) = self.get(id)? else {
+        let Some(mut recommendation) = self.get_current(id)? else {
             return Ok(None);
         };
         let redacted_delivered_assessment = recommendation
@@ -512,7 +544,7 @@ impl RecommendationStore {
         packet.completion_idempotency_key = Some(mutation.idempotency_key.clone());
         recommendation.status = RecommendationStatus::Completed;
         recommendation.updated_at = completed_at;
-        self.put(&recommendation)?;
+        self.put_current(&recommendation)?;
         Ok(Some(recommendation))
     }
 
@@ -523,7 +555,8 @@ impl RecommendationStore {
         id: &str,
         cancelled_at: String,
     ) -> Result<Option<Recommendation>, StoreError> {
-        let Some(mut recommendation) = self.get(id)? else {
+        let _operation = self.try_operation()?;
+        let Some(mut recommendation) = self.get_current(id)? else {
             return Ok(None);
         };
         let redacted = recommendation
@@ -542,13 +575,13 @@ impl RecommendationStore {
             packet.completion_idempotency_key = None;
         }
         recommendation.updated_at = cancelled_at;
-        self.put(&recommendation)?;
+        self.put_current(&recommendation)?;
         if redacted {
             // No input was delivered. Roll back the reservation first, then
             // terminally invalidate the now-proposed assessment; never restore
             // its evidence or grant a new execution capability.
             recommendation.status = RecommendationStatus::Superseded;
-            self.put(&recommendation)?;
+            self.put_current(&recommendation)?;
         }
         Ok(Some(recommendation))
     }
@@ -564,6 +597,7 @@ impl RecommendationStore {
         mut replacement: super::completion::CompletionPacket,
         updated_at: String,
     ) -> Result<Option<Recommendation>, StoreError> {
+        let _operation = self.try_operation()?;
         self.recover_transactions()?;
         let stored = self.read_all_stored_by_id()?;
         let Some(current_record) = stored.get(id) else {
@@ -637,6 +671,7 @@ impl RecommendationStore {
         protected_recommendation_ids: &HashSet<String>,
         recovered_at: String,
     ) -> Result<Vec<String>, StoreError> {
+        let _operation = self.try_operation()?;
         self.recover_transactions()?;
         let stored = self.read_all_stored_by_id()?;
         let mut expected = BTreeMap::new();
@@ -690,6 +725,7 @@ impl RecommendationStore {
     }
 
     pub(crate) fn delete_referencing_session(&self, session_id: &str) -> Result<(), StoreError> {
+        let _operation = self.try_operation()?;
         self.recover_transactions()?;
         let recommendations = self.read_all()?;
         validate_graph_records(&recommendations)?;
@@ -706,6 +742,7 @@ impl RecommendationStore {
         &self,
         retained_session_ids: &HashSet<String>,
     ) -> Result<(), StoreError> {
+        let _operation = self.try_operation()?;
         self.recover_transactions()?;
         let recommendations = self.read_all()?;
         validate_graph_records(&recommendations)?;
@@ -1653,7 +1690,7 @@ mod tests {
     use sha2::{Digest, Sha256};
     use std::collections::BTreeMap;
 
-    fn recommendation(id: &str, session_id: &str) -> Recommendation {
+    pub(super) fn recommendation(id: &str, session_id: &str) -> Recommendation {
         let evidence = WorkflowObservationEvidence {
             observation_id: format!("observation-{id}"),
             sequence: 4,
@@ -3110,3 +3147,7 @@ mod tests {
         .unwrap();
     }
 }
+
+#[cfg(test)]
+#[path = "store/owner_tests.rs"]
+mod owner_tests;
