@@ -8,7 +8,7 @@ status: draft
 
 # Original pairs retain one native owner and exact handle binding
 
-- Status: accepted for further qualification; native execution/implementation gated
+- Status: accepted for further qualification; stock/no-custom-VFS candidate selection partially superseded by [ADR 0112](0112-pair-native-enforcement.md); native execution/implementation gated
 - Deciders: owner, “keep going” on 2026-11-06 after #1451
 - Date: 2026-11-06
 - Tracking: [#1453](https://github.com/Rambolarsen/orkworks/issues/1453), [#1176](https://github.com/Rambolarsen/orkworks/issues/1176)
@@ -54,3 +54,13 @@ No code, SQL/database/schema/migration, native/model probe, source registration,
 new bearer/allowance or runtime activation is authorized. A separately approved
 component plan may gather limited evidence; its toy files/transaction cannot
 construct an admitted source, fresh initializer or production owner.
+
+## Scoped backend replacement — 2026-11-06
+
+[ADR 0112](0112-pair-native-enforcement.md) records owner acceptance of #1469's
+public Windows pair VFS, early allocator router/pair arena and conservative
+availability restrictions for further qualification. Only this record's stock
+VFS/no-custom-VFS candidate selection is replaced. Its same-worker original
+owner, PairSlot/PairCore, native identity/source authority, stopped/unknown
+lifetime and process-loss rules remain accepted. No implementation, new execution
+budget, qualified envelope or activation follows from that scoped replacement.

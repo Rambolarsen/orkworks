@@ -36,7 +36,11 @@ profile, or an enforcement boundary that actually sees operations before their
 side effects. It must reconcile memory attribution and recovery in the same
 design, rather than add another toy success probe or catalog-count document.
 No new architecture, VFS, quota, allocator or native execution is selected by
-this audit.
+this audit. The later
+[scoped acceptance](../superpowers/specs/2026-11-06-pair-native-enforcement-design.md#scoped-architecture-acceptance--2026-11-06)
+selects a VFS/router direction for further qualification only. The
+[first source-envelope derivation](pair-native-envelope-derivation.md) remains
+partial; this audit's missing complete resource/native proofs are not closed.
 
 ## Accepted constraints and source pin
 

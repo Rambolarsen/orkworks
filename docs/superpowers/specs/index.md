@@ -258,6 +258,6 @@ Dated design records; these do not establish current product behavior.
 
 - [Fresh pair initialization and original child preparation contract](2026-11-05-fresh-pair-preparation-design.md) — Proposed complete fresh resource seeding and exact original preparation path with explicit producer gates.
 
-- [Original pair native owner](2026-11-06-original-pair-owner-design.md) — Proposed sole-worker original file ownership, Windows native handle-binding candidate and retained unknown disposition.
+- [Original pair native owner](2026-11-06-original-pair-owner-design.md) — Accepted sole-worker original ownership and retained unknown disposition; candidate enforcement is scoped by ADR 0112.
 
-- [Pair-local native namespace and resource enforcement](2026-11-06-pair-native-enforcement-design.md) — Proposed public Windows VFS and scoped fixed SQL arena under unchanged pair limits, pending owner approval.
+- [Pair-local native namespace and resource enforcement](2026-11-06-pair-native-enforcement-design.md) — Accepted Windows VFS/router direction for further envelope qualification; implementation and execution remain gated.

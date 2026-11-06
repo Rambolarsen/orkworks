@@ -1,10 +1,10 @@
 ---
 type: Design Proposal
 title: Pair-local native namespace and resource enforcement
-description: Proposed public SQLite VFS and scoped fixed-arena allocation design for original Windows pair ownership under unchanged auxiliary and scratch limits.
+description: Accepted public SQLite VFS and pair-routed fixed-arena direction for further qualification under unchanged limits; complete envelopes and implementation remain gated.
 tags: [orkworks, hierarchy, windows, sqlite, ownership, resources]
 status: draft
-workflow_status: owner-approval-pending
+workflow_status: accepted-envelope-qualification-pending
 ---
 
 # Pair-local native namespace and resource enforcement
@@ -319,5 +319,25 @@ supported operations and potentially feasibility. Author ruling: **yes**, the
 explicit first gate above precedes dependent implementation planning; missing
 bounds deny rather than create defaults or extra capacity. This is a sequencing
 clarification of the proposal, not native evidence or an owner acceptance. No
-second post-edit review or approval is claimed. The VFS/router/availability
-amendments remain pending the one scoped owner decision.
+second post-edit review or approval is claimed. At that pre-acceptance point, the VFS/router/availability
+amendments remained pending the one scoped owner decision.
+
+## Scoped architecture acceptance — 2026-11-06
+
+After reviewed [#1469](https://github.com/Rambolarsen/orkworks/pull/1469), head
+`e86d447cad43611c770b7f47dcb1ec3c75bfc78b`, merge
+`50ba4dc329b9a60b51bc6adf25229b6ff0c98d1b`, the owner answered “keep going” to
+the explicit question approving this VFS/router/pair-arena and availability
+package **for further qualification only**. Earlier owner-pending wording is
+superseded only for those choices. [ADR 0112](../../adr/0112-pair-native-enforcement.md)
+records the scoped replacement of the stock/no-custom-VFS selection; all other
+accepted original-owner/source/lifetime and resource contracts remain.
+
+Closed #1470's private SQLite copy and extra restrictive defaults are not selected.
+Do not reopen unchanged architecture approval or infer an arena size/fit from it.
+Complete growth and scratch bounds remain the first qualification gate; the
+[initial pinned-source derivation](../../validation/pair-native-envelope-derivation.md)
+closes only named component facts and leaves the manifest unavailable. No dependent
+backend implementation plan, SQL/database, native/model probe, dispatch/budget
+renewal, qualified constructor or runtime activation is authorized by this answer.
+#1176 remains open and #740 remains closed research.

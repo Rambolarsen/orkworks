@@ -8,6 +8,8 @@ Capability research, validation results, and evidence fixtures.
 
 ## Documents
 
+- [Pair native envelope first source derivation](pair-native-envelope-derivation.md) — Conditional super-journal arithmetic, exact source role caveat and missing complete growth/scratch inputs.
+
 - [Taskmaster model identity trial](taskmaster-model-identity.md) — Two bounded model-ID comparison calls, safe diagnostic classification and historical-causality limits.
 
 - [Harness workspace signal qualification](harness-workspace-signals.md) — Live directory and startup-context evidence, platform checks and remaining coverage gaps for #1347.
