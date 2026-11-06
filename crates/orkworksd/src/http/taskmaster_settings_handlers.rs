@@ -1,5 +1,7 @@
 use crate::http::ErrorResponse;
-use crate::providers::{native_inference::NativeProfile, ProviderOperationErrorResponse};
+use crate::providers::{
+    native_inference::NativeProfile, ProviderModelOption, ProviderOperationErrorResponse,
+};
 use crate::taskmaster::provider_catalog::{self, TaskmasterProvider};
 use crate::taskmaster::runtime::{TaskmasterRuntime, TaskmasterSettings, TaskmasterStatus};
 use crate::AppState;
@@ -94,8 +96,10 @@ pub(crate) struct TaskmasterModelsRequest {
 }
 
 #[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 struct TaskmasterModelsResponse {
     models: Vec<String>,
+    model_options: Vec<ProviderModelOption>,
 }
 
 pub(crate) async fn refresh_taskmaster_models(
@@ -134,7 +138,11 @@ pub(crate) async fn refresh_taskmaster_models(
     })
     .await
     {
-        Ok(Ok(models)) => Json(TaskmasterModelsResponse { models }).into_response(),
+        Ok(Ok(model_options)) => Json(TaskmasterModelsResponse {
+            models: model_options.iter().map(|model| model.id.clone()).collect(),
+            model_options,
+        })
+        .into_response(),
         Ok(Err(error)) => (
             StatusCode::BAD_GATEWAY,
             Json(ProviderOperationErrorResponse { error }),
@@ -642,6 +650,38 @@ mod tests {
             .status(),
             StatusCode::UNPROCESSABLE_ENTITY
         );
+    }
+
+    #[tokio::test]
+    async fn settings_persist_canonical_and_manual_native_model_ids_literally() {
+        let _token = crate::test_support::open_plan_token::set("taskmaster-test-token").await;
+        let directory = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(directory.path());
+        for model in ["gpt-6.1-sol", "GPT-6.1-Sol", "vendor/unlisted-model"] {
+            let mut settings = TaskmasterSettings::default();
+            settings.selection = Some(
+                serde_json::from_value(serde_json::json!({
+                    "provider": "codex", "model": model
+                }))
+                .unwrap(),
+            );
+            assert_eq!(
+                set_taskmaster_settings(State(state.clone()), authorized_headers(), Json(settings))
+                    .await
+                    .status(),
+                StatusCode::OK
+            );
+            // Reopen the on-disk runtime rather than checking only the save response.
+            assert_eq!(
+                runtime_for(&state)
+                    .status(None)
+                    .settings
+                    .selection
+                    .unwrap()
+                    .model,
+                model
+            );
+        }
     }
 
     #[tokio::test]

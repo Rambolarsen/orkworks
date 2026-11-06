@@ -230,8 +230,15 @@ approval required, unavailable, or ready after current executable approval, incl
 when they override a built-in ID. An explicit inference clear cannot fall back
 to the legacy native profile. The Recommendations picker preserves unavailable
 stored selections, shows provider-specific model suggestions, and allows
-manual IDs. Codex and Ollama can refresh live models only on an explicit user
-request; Claude Code uses its built-in static catalog. Taskmaster refresh uses
+manual IDs. Codex and Ollama load live suggestions when Settings opens, the
+provider changes, or the draft Ollama URL changes; explicit refresh retries the
+request. Claude Code uses its built-in static catalog. Taskmaster's model-list
+response retains the compatibility `models` ID list and adds `modelOptions`
+metadata. Electron validates the IDs and display names separately and supports
+older ID-only responses. The picker shows both when they differ and saves the
+canonical ID; manual entries remain literal and are marked unverified by the
+current suggestions. Neither provider readiness nor discovery proves successful
+model execution. Taskmaster refresh uses
 the Taskmaster draft provider and Ollama URL, a separate Electron-authorized
 route, and the shared provider-discovery implementation where safe. It never
 calls Peon's HTTP discovery endpoint, performs inference, applies settings, or

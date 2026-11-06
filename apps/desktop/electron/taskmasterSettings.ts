@@ -82,3 +82,20 @@ export async function taskmasterRequest(
   }
   return value;
 }
+
+
+// Keep identity and presentation separate; manual IDs never pass through this parser.
+export function parseTaskmasterModels(value: Record<string, unknown>): { id: string; displayName: string }[] {
+  if (value.modelOptions !== undefined) {
+    if (!Array.isArray(value.modelOptions) || value.modelOptions.some((model) =>
+      !model || typeof model !== "object" || typeof model.id !== "string" || typeof model.displayName !== "string")) {
+      throw new Error("Invalid Taskmaster model response");
+    }
+    return value.modelOptions.map((model) => ({ id: model.id as string, displayName: model.displayName as string }));
+  }
+  // Older sidecars expose only IDs.
+  if (!Array.isArray(value.models) || value.models.some((model) => typeof model !== "string")) {
+    throw new Error("Invalid Taskmaster model response");
+  }
+  return value.models.map((id: string) => ({ id, displayName: id }));
+}

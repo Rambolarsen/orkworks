@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { editTaskmasterScope, formatTaskmasterRunStatus, supportsTaskmasterAnalysis, type TaskmasterSettings } from "../src/taskmasterSettings.ts";
-import { taskmasterRequest } from "../electron/taskmasterSettings.ts";
+import { parseTaskmasterModels, taskmasterRequest } from "../electron/taskmasterSettings.ts";
 
 const settings: TaskmasterSettings = { enabled: true, selection: { provider: "ollama", model: "first" }, contextLevel: "workflow_context", excludedPaths: [], dailyEvaluationLimit: 8, minIntervalMinutes: 60, automaticKnowledgeUpdates: true, workspaceOverrides: {} };
 test("Taskmaster selection allows declared inactive adapters but not unavailable providers", () => {
@@ -137,5 +137,14 @@ test("knowledge transport enforces the inclusive 6 MiB compact JSON boundary at 
   } finally {
     server.closeAllConnections();
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+
+test("Taskmaster model transport preserves names separately from exact IDs", () => {
+  assert.deepEqual(parseTaskmasterModels({ models: ["gpt-6.1-sol"], modelOptions: [{ id: "gpt-6.1-sol", displayName: "GPT-6.1-Sol" }] }), [{ id: "gpt-6.1-sol", displayName: "GPT-6.1-Sol" }]);
+  assert.deepEqual(parseTaskmasterModels({ models: [" vendor/opaque model "] }), [{ id: " vendor/opaque model ", displayName: " vendor/opaque model " }]);
+  for (const value of [{}, { models: [3] }, { models: ["fallback"], modelOptions: [{ id: 3, displayName: "Bad" }] }, { modelOptions: [{ id: "valid", displayName: null }] }, { modelOptions: null }]) {
+    assert.throws(() => parseTaskmasterModels(value), /Invalid Taskmaster model response/);
   }
 });
