@@ -8,6 +8,8 @@ Capability research, validation results, and evidence fixtures.
 
 ## Documents
 
+- [Taskmaster model identity trial](taskmaster-model-identity.md) — Two bounded model-ID comparison calls, safe diagnostic classification and historical-causality limits.
+
 - [Harness workspace signal qualification](harness-workspace-signals.md) — Live directory and startup-context evidence, platform checks and remaining coverage gaps for #1347.
 
 - [Coding-tool role capabilities](agent-role-capabilities.md) — Validation evidence and context: Coding-tool role capabilities.

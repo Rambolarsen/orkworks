@@ -219,6 +219,7 @@ fn classify_known_failure_text(
     } else if lower.contains("model not found")
         || lower.contains("unknown model")
         || lower.contains("model was not found")
+        || lower.contains("model is not supported")
         || has_http_status(&lower, 404)
     {
         Some((ProviderOperationErrorCode::ModelFailure, "model failure"))
@@ -1112,6 +1113,19 @@ mod tests {
         );
         assert_eq!(code, ProviderOperationErrorCode::ProviderFailure);
         assert_eq!(summary, "provider failure");
+    }
+
+    #[test]
+    fn codex_unsupported_model_is_a_redacted_model_failure() {
+        let message =
+            "The 'GPT-6.1-Sol' model is not supported when using Codex with a ChatGPT account.";
+        let terminal = json!({"type":"turn.failed", "error":{"message":message}}).to_string();
+        for (stderr, stdout) in [(message, ""), ("", terminal.as_str())] {
+            let (code, summary) =
+                super::native_cli_failure_details("codex", stderr, stdout, false, Some(1));
+            assert_eq!(code, ProviderOperationErrorCode::ModelFailure);
+            assert_eq!(summary, "model failure (CLI exit 1)");
+        }
     }
 
     #[test]
