@@ -534,6 +534,187 @@ impl Staging<'_> {
     }
 }
 
+/// Compare two resolved trees: every differing path enters the staging indices.
+fn compare_branch(
+    sets: &CaptureSets<'_>,
+    staging: &mut Staging<'_>,
+    target: &BTreeMap<String, (Oid, i32)>,
+) -> Result<(), String> {
+    let paths: HashSet<_> = sets.old.keys().chain(target.keys()).cloned().collect();
+    for p in paths {
+        if sets.start.elapsed() > Duration::from_secs(5) {
+            return Err("Capture budget exceeded; comparison unavailable.".into());
+        }
+        if sets.old.get(&p) == target.get(&p) {
+            continue;
+        }
+        let new = target
+            .get(&p)
+            .map(|(id, m)| blob(sets.repo, *id, *m).map(|b| (b, *m)))
+            .transpose();
+        staging.compare(&p, new)?;
+    }
+    Ok(())
+}
+
+/// Inspect the live worktree against the baseline and staged index state,
+/// including submodule pointers and late staged additions, honoring the
+/// walk/existence budgets by marking the capture partial.
+fn inspect_uncommitted(
+    sets: &CaptureSets<'_>,
+    staging: &mut Staging<'_>,
+    temp: &tempfile::TempDir,
+) -> Result<(), String> {
+    let mut seen_modules: HashSet<String> = HashSet::new();
+    let count = std::cell::Cell::new(0usize);
+    let exceeded = std::cell::Cell::new(false);
+    let failure = std::cell::RefCell::new(None);
+    crate::git_changes_fs::walk(
+        sets.worktree,
+        |entry| {
+            count.set(count.get() + 1);
+            if count.get() > CANDIDATES || sets.start.elapsed() > Duration::from_secs(5) {
+                exceeded.set(true);
+                return false;
+            }
+            let Some(p) = entry.path.to_str() else {
+                exceeded.set(true);
+                return true;
+            };
+            if sets.gitlinks.contains(p) {
+                seen_modules.insert(p.to_owned());
+            }
+            if !sets.old.contains_key(p)
+                && !sets.tracked.contains(p)
+                && sets
+                    .scratch
+                    .status_should_ignore(&entry.path)
+                    .unwrap_or(true)
+            {
+                return true;
+            }
+            if matches!(entry.content, Ok(None)) {
+                staging.visited.insert(p.to_owned());
+                return true;
+            }
+            if let Err(e) = staging.compare(p, entry.content.map(|b| b.map(|b| (b, entry.mode)))) {
+                *failure.borrow_mut() = Some(e);
+                return false;
+            }
+            true
+        },
+        |path, is_dir| {
+            count.set(count.get() + 1);
+            if count.get() > CANDIDATES || sets.start.elapsed() > Duration::from_secs(5) {
+                exceeded.set(true);
+                return false;
+            }
+            let Some(p) = path.to_str() else {
+                exceeded.set(true);
+                return false;
+            };
+            if is_dir && sets.gitlinks.contains(p) {
+                return false;
+            }
+            if is_dir {
+                if let Err(e) = std::fs::create_dir_all(temp.path().join(path)) {
+                    *failure.borrow_mut() = Some(e.to_string());
+                    return false;
+                }
+            }
+            let prefix = format!("{p}/");
+            sets.old.contains_key(p)
+                || sets.tracked.contains(p)
+                || sets.tracked.iter().any(|k| k.starts_with(&prefix))
+                || sets.old.keys().any(|k| k.starts_with(&prefix))
+                || !sets.scratch.status_should_ignore(path).unwrap_or(true)
+        },
+        |path, mode| {
+            let path = path.to_str().ok_or("Unsupported path.")?;
+            let mode = sets.effective_mode(path, mode);
+            let expected = sets
+                .old
+                .get(path)
+                .filter(|(_, m)| !sets.conflicts.contains(path) && *m == mode)
+                .map(|(id, _)| *id);
+            let eol = crate::git_changes_eol::policy(
+                sets.scratch,
+                sets.repo,
+                path,
+                sets.stage0.get(path).map(|e| e.0),
+                sets.old.get(path).map(|e| e.0),
+            )?;
+            Ok((expected, eol))
+        },
+        |prefix, attrs, ignore| {
+            for (name, data) in [(".gitattributes", attrs), (".gitignore", ignore)] {
+                if let Some(data) = data {
+                    let directory = temp.path().join(prefix);
+                    std::fs::create_dir_all(&directory).map_err(err)?;
+                    std::fs::write(directory.join(name), data).map_err(err)?;
+                }
+            }
+            Ok(())
+        },
+    )
+    .map_err(err)?;
+    if let Some(e) = failure.into_inner() {
+        return Err(e);
+    }
+    for path in &sets.gitlinks {
+        if seen_modules.contains(path) {
+            continue;
+        }
+        let directory = sets.worktree.join(path);
+        if !directory.exists() && sets.stage0.get(path).is_some_and(|e| e.2) {
+            continue;
+        }
+        let new = if !directory.exists() {
+            Ok(None)
+        } else if directory
+            .canonicalize()
+            .is_ok_and(|p| p.starts_with(sets.worktree))
+        {
+            sets.repo
+                .find_submodule(path)
+                .and_then(|module| module.open())
+                .and_then(|sub| sub.head().and_then(|h| h.peel_to_commit()).map(|c| c.id()))
+                .map(|id| Some((format!("Subproject commit {id}\n").into_bytes(), 0o160000)))
+                .map_err(|_| "Submodule commit unavailable; inspect its registered session.".into())
+        } else {
+            Err("Submodule directory outside this worktree; unavailable.".into())
+        };
+        staging.compare(path, new)?;
+    }
+    if exceeded.get() {
+        staging.partial = true;
+        return Ok(());
+    }
+    let remaining: Vec<String> = sets
+        .old
+        .keys()
+        .chain(sets.tracked.iter())
+        .filter(|p| !staging.visited.contains(*p))
+        .cloned()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    for path in remaining {
+        if let Some((id, mode, true)) = sets.stage0.get(&path) {
+            if sets.old.get(&path) == Some(&(*id, *mode)) {
+                continue;
+            }
+            staging.compare(
+                &path,
+                blob(sets.repo, *id, *mode).map(|data| Some((data, *mode))),
+            )?;
+        } else {
+            staging.compare(&path, Ok(None))?;
+        }
+    }
+    Ok(())
+}
+
 pub fn capture(
     cwd: &Path,
     comparison: Comparison,
@@ -568,171 +749,10 @@ pub fn capture(
     let mut staging = Staging::new(&sets)?;
     let old = &sets.old;
     let tracked = &sets.tracked;
-    let gitlinks = &sets.gitlinks;
-    let conflicts = &sets.conflicts;
-    let stage0 = &sets.stage0;
-    let effective_mode = |path: &str, mode: i32| sets.effective_mode(path, mode);
-    let mut seen_modules = HashSet::new();
     if comparison == Comparison::Branch {
-        let paths: HashSet<_> = old.keys().chain(target.keys()).cloned().collect();
-        for p in paths {
-            if start.elapsed() > Duration::from_secs(5) {
-                return Err("Capture budget exceeded; comparison unavailable.".into());
-            }
-            if old.get(&p) == target.get(&p) {
-                continue;
-            }
-            let new = target
-                .get(&p)
-                .map(|(id, m)| blob(&repo, *id, *m).map(|b| (b, *m)))
-                .transpose();
-            staging.compare(&p, new)?;
-        }
+        compare_branch(&sets, &mut staging, &target)?;
     } else {
-        let count = std::cell::Cell::new(0usize);
-        let exceeded = std::cell::Cell::new(false);
-        let failure = std::cell::RefCell::new(None);
-        crate::git_changes_fs::walk(
-            &worktree,
-            |entry| {
-                count.set(count.get() + 1);
-                if count.get() > CANDIDATES || start.elapsed() > Duration::from_secs(5) {
-                    exceeded.set(true);
-                    return false;
-                }
-                let Some(p) = entry.path.to_str() else {
-                    exceeded.set(true);
-                    return true;
-                };
-                if gitlinks.contains(p) {
-                    seen_modules.insert(p.to_owned());
-                }
-                if !old.contains_key(p)
-                    && !tracked.contains(p)
-                    && scratch.status_should_ignore(&entry.path).unwrap_or(true)
-                {
-                    return true;
-                }
-                if matches!(entry.content, Ok(None)) {
-                    staging.visited.insert(p.to_owned());
-                    return true;
-                }
-                if let Err(e) =
-                    staging.compare(p, entry.content.map(|b| b.map(|b| (b, entry.mode))))
-                {
-                    *failure.borrow_mut() = Some(e);
-                    return false;
-                }
-                true
-            },
-            |path, is_dir| {
-                count.set(count.get() + 1);
-                if count.get() > CANDIDATES || start.elapsed() > Duration::from_secs(5) {
-                    exceeded.set(true);
-                    return false;
-                }
-                let Some(p) = path.to_str() else {
-                    exceeded.set(true);
-                    return false;
-                };
-                if is_dir && gitlinks.contains(p) {
-                    return false;
-                }
-                if is_dir {
-                    if let Err(e) = std::fs::create_dir_all(temp.path().join(path)) {
-                        *failure.borrow_mut() = Some(e.to_string());
-                        return false;
-                    }
-                }
-                let prefix = format!("{p}/");
-                old.contains_key(p)
-                    || tracked.contains(p)
-                    || tracked.iter().any(|k| k.starts_with(&prefix))
-                    || old.keys().any(|k| k.starts_with(&prefix))
-                    || !scratch.status_should_ignore(path).unwrap_or(true)
-            },
-            |path, mode| {
-                let path = path.to_str().ok_or("Unsupported path.")?;
-                let mode = effective_mode(path, mode);
-                let expected = old
-                    .get(path)
-                    .filter(|(_, m)| !conflicts.contains(path) && *m == mode)
-                    .map(|(id, _)| *id);
-                let eol = crate::git_changes_eol::policy(
-                    &scratch,
-                    &repo,
-                    path,
-                    stage0.get(path).map(|e| e.0),
-                    old.get(path).map(|e| e.0),
-                )?;
-                Ok((expected, eol))
-            },
-            |prefix, attrs, ignore| {
-                for (name, data) in [(".gitattributes", attrs), (".gitignore", ignore)] {
-                    if let Some(data) = data {
-                        let directory = temp.path().join(prefix);
-                        std::fs::create_dir_all(&directory).map_err(err)?;
-                        std::fs::write(directory.join(name), data).map_err(err)?;
-                    }
-                }
-                Ok(())
-            },
-        )
-        .map_err(err)?;
-        if let Some(e) = failure.into_inner() {
-            return Err(e);
-        }
-        for path in gitlinks {
-            if seen_modules.contains(path) {
-                continue;
-            }
-            let directory = worktree.join(path);
-            if !directory.exists() && stage0.get(path).is_some_and(|e| e.2) {
-                continue;
-            }
-            let new = if !directory.exists() {
-                Ok(None)
-            } else if directory
-                .canonicalize()
-                .is_ok_and(|p| p.starts_with(&worktree))
-            {
-                repo.find_submodule(path)
-                    .and_then(|module| module.open())
-                    .and_then(|sub| sub.head().and_then(|h| h.peel_to_commit()).map(|c| c.id()))
-                    .map(|id| Some((format!("Subproject commit {id}\n").into_bytes(), 0o160000)))
-                    .map_err(|_| {
-                        "Submodule commit unavailable; inspect its registered session.".into()
-                    })
-            } else {
-                Err("Submodule directory outside this worktree; unavailable.".into())
-            };
-            staging.compare(path, new)?;
-        }
-        if !exceeded.get() {
-            let remaining: Vec<String> = old
-                .keys()
-                .chain(tracked.iter())
-                .filter(|p| !staging.visited.contains(*p))
-                .cloned()
-                .collect::<HashSet<_>>()
-                .into_iter()
-                .collect();
-            for path in remaining {
-                if let Some((id, mode, true)) = stage0.get(&path) {
-                    if old.get(&path) == Some(&(*id, *mode)) {
-                        continue;
-                    }
-                    staging.compare(
-                        &path,
-                        blob(&repo, *id, *mode).map(|data| Some((data, *mode))),
-                    )?;
-                } else {
-                    staging.compare(&path, Ok(None))?;
-                }
-            }
-        } else {
-            staging.partial = true;
-        }
+        inspect_uncommitted(&sets, &mut staging, &temp)?;
     }
     let before = staging.before.write_tree_to(&scratch).map_err(err)?;
     let after = staging.after.write_tree_to(&scratch).map_err(err)?;
