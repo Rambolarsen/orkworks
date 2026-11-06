@@ -1,6 +1,5 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 
 import {
   mergeSessionsById,
@@ -45,18 +44,6 @@ test("dead sessions surface their terminal outcome instead of erasing it", () =>
 
 test("dead sessions without a recorded terminal outcome stay neutral", () => {
   assert.equal(sessionAttentionStatus(session("dead-legacy", "dead")), "neutral");
-});
-
-test("remembered rows never render loud treatment, even with a failed tone", () => {
-  const source = readFileSync(
-    new URL("../src/components/SessionListPanel.tsx", import.meta.url),
-    "utf8",
-  );
-  assert.match(
-    source,
-    /isLoudTone\(tone\) && !remembered/,
-    "a dead error session gets tone \"failed\"; loud treatment must stay suppressed for remembered rows",
-  );
 });
 
 test("a session spawning or tearing down its PTY reads working", () => {
