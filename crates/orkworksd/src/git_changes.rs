@@ -1,5 +1,5 @@
 //! Bounded, read-only Git comparisons. Only private temporary repositories are written.
-use git2::{Oid, Repository};
+use git2::{Oid, Repository, Tree};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -200,82 +200,88 @@ fn put(
         })
         .map_err(err)
 }
-pub fn capture(
-    cwd: &Path,
-    comparison: Comparison,
-    base_ref: Option<&str>,
-) -> Result<Capture, String> {
-    let start = Instant::now();
-    let repo = open(cwd)?;
-    let worktree = repo
-        .workdir()
-        .ok_or("No worktree.")?
-        .canonicalize()
-        .map_err(err)?;
+fn resolve_head(repo: &Repository) -> Result<(Option<Oid>, Option<Tree<'_>>), String> {
     let head = match repo.head() {
         Ok(h) => Some(h.peel_to_commit().map_err(err)?),
         Err(e) if e.code() == git2::ErrorCode::UnbornBranch => None,
         Err(e) => return Err(err(e)),
     };
-    let head_id = head.as_ref().map(|h| h.id());
     let head_tree = head.as_ref().map(|h| h.tree()).transpose().map_err(err)?;
-    let mut base_oid = None;
-    let mut baseline_id = head_id;
-    let baseline = if comparison == Comparison::Branch {
-        let h = head_id.ok_or("No branch history before the first commit.")?;
-        let name = base_ref.ok_or("Choose a base branch.")?;
-        if !bases(cwd)?.refs.iter().any(|r| r == name) {
-            return Err("Base branch is unavailable; choose an existing local ref.".into());
-        }
-        let base = repo
-            .find_reference(name)
-            .and_then(|r| r.peel_to_commit())
-            .map_err(err)?
-            .id();
-        base_oid = Some(base);
-        let common = repo.merge_bases(h, base).map_err(|_| {
-            "No available common ancestor; fetch history in your coding tool.".to_owned()
-        })?;
-        if common.len() != 1 {
-            return Err("Multiple merge bases; comparison unavailable.".into());
-        }
-        baseline_id = Some(common[0]);
-        Some(
-            repo.find_commit(common[0])
-                .and_then(|c| c.tree())
-                .map_err(err)?,
-        )
-    } else {
-        head_tree.clone()
-    };
-    let old = tree_files(&repo, baseline.as_ref(), start)?;
-    let target = if comparison == Comparison::Branch {
-        tree_files(&repo, head_tree.as_ref(), start)?
-    } else {
-        BTreeMap::new()
-    };
-    let temp = tempfile::tempdir().map_err(err)?;
-    let scratch = Repository::init(temp.path()).map_err(err)?;
+    Ok((head.map(|h| h.id()), head_tree))
+}
+
+/// Comparison start references: the baseline tree and resolved base/baseline ids.
+type Baseline<'a> = (Option<Tree<'a>>, Option<Oid>, Option<Oid>);
+/// Resolve the comparison baseline tree, merge base and baseline identifier.
+fn select_baseline<'a>(
+    repo: &'a Repository,
+    cwd: &Path,
+    comparison: Comparison,
+    base_ref: Option<&str>,
+    head_id: Option<Oid>,
+    head_tree: Option<&Tree<'a>>,
+) -> Result<Baseline<'a>, String> {
+    if comparison != Comparison::Branch {
+        return Ok((head_tree.cloned(), None, head_id));
+    }
+    let h = head_id.ok_or("No branch history before the first commit.")?;
+    let name = base_ref.ok_or("Choose a base branch.")?;
+    if !bases(cwd)?.refs.iter().any(|r| r == name) {
+        return Err("Base branch is unavailable; choose an existing local ref.".into());
+    }
+    let base = repo
+        .find_reference(name)
+        .and_then(|r| r.peel_to_commit())
+        .map_err(err)?
+        .id();
+    let common = repo.merge_bases(h, base).map_err(|_| {
+        "No available common ancestor; fetch history in your coding tool.".to_owned()
+    })?;
+    if common.len() != 1 {
+        return Err("Multiple merge bases; comparison unavailable.".into());
+    }
+    let baseline = repo
+        .find_commit(common[0])
+        .and_then(|c| c.tree())
+        .map_err(err)?;
+    Ok((Some(baseline), Some(base), Some(common[0])))
+}
+
+/// Directory holding the global attributes or excludes file; None when unset.
+fn global_control_path(config: &git2::Config, key: &str) -> Option<std::path::PathBuf> {
+    config.get_path(key).ok().or_else(|| {
+        std::env::var_os("XDG_CONFIG_HOME")
+            .map(std::path::PathBuf::from)
+            .or_else(|| dirs::home_dir().map(|h| h.join(".config")))
+            .map(|d| {
+                d.join("git").join(if key == "core.attributesfile" {
+                    "attributes"
+                } else {
+                    "ignore"
+                })
+            })
+    })
+}
+
+/// Copy the selected repository's attributes and excludes into the scratch
+/// worktree. libgit2 resolves only sanitized control inputs in this private
+/// worktree. Git administrative/global config remains the selected
+/// repository's normal metadata authority, copied with bounded nonblocking
+/// leaf reads.
+fn mirror_control_inputs(
+    repo: &Repository,
+    scratch: &Repository,
+    worktree: &Path,
+    config: &git2::Config,
+) -> Result<(), String> {
     // libgit2 resolves only sanitized control inputs in this private worktree.
     // Git administrative/global config remains the selected repository's normal
     // metadata authority, copied with bounded nonblocking leaf reads.
-    let config = repo.config().map_err(err)?;
     for (key, name) in [
         ("core.attributesfile", "global-attributes"),
         ("core.excludesfile", "global-excludes"),
     ] {
-        let original = config.get_path(key).ok().or_else(|| {
-            std::env::var_os("XDG_CONFIG_HOME")
-                .map(std::path::PathBuf::from)
-                .or_else(|| dirs::home_dir().map(|h| h.join(".config")))
-                .map(|d| {
-                    d.join("git").join(if key == "core.attributesfile" {
-                        "attributes"
-                    } else {
-                        "ignore"
-                    })
-                })
-        });
+        let original = global_control_path(config, key);
         let data = if let Some(path) = original {
             crate::git_changes_fs::metadata_file(&if path.is_absolute() {
                 path
@@ -303,323 +309,704 @@ pub fn capture(
             std::fs::write(scratch.path().join("info").join(name), data).map_err(err)?;
         }
     }
-    let mut before = git2::Index::new().map_err(err)?;
-    let mut after = git2::Index::new().map_err(err)?;
-    let mut total = 0usize;
-    let mut partial = false;
-    let mut notices = Vec::new();
-    let visited = std::cell::RefCell::new(HashSet::new());
-    let index = if comparison == Comparison::Uncommitted {
-        Some(repo.index().map_err(err)?)
-    } else {
-        None
-    };
-    if index.as_ref().is_some_and(|index| index.len() > CANDIDATES) {
-        return Err("Git index exceeds inspection budget.".into());
-    }
-    let tracked: HashSet<String> = index
-        .iter()
-        .flat_map(|index| index.iter())
-        .map(|e| {
-            String::from_utf8(e.path)
-                .map_err(|_| "Non-UTF-8 index path; comparison unavailable.".to_owned())
-        })
-        .collect::<Result<_, _>>()?;
-    let gitlinks: HashSet<String> = old
-        .iter()
-        .filter(|(_, (_, mode))| *mode == 0o160000)
-        .map(|(p, _)| p.clone())
-        .chain(
-            index
-                .iter()
-                .flat_map(|index| index.iter())
-                .filter(|e| e.mode == 0o160000)
-                .filter_map(|e| String::from_utf8(e.path).ok()),
-        )
-        .collect();
-    let mut seen_modules = HashSet::new();
-    let conflicts: HashSet<String> = if comparison == Comparison::Uncommitted {
-        repo.index()
-            .map_err(err)?
-            .iter()
-            .filter(|e| e.flags & 0x3000 != 0)
-            .filter_map(|e| String::from_utf8(e.path).ok())
-            .collect()
-    } else {
-        HashSet::new()
-    };
-    let trust_filemode = repo
-        .config()
-        .ok()
-        .and_then(|c| c.get_bool("core.filemode").ok())
-        .unwrap_or(cfg!(unix));
-    let literal_symlinks = repo
-        .config()
-        .ok()
-        .and_then(|c| c.get_bool("core.symlinks").ok())
-        == Some(false);
-    // With core.symlinks=false the index defines which ordinary files are
-    // link-text checkouts. HEAD must not hide a staged conversion or replacement.
-    let stage0: HashMap<String, (Oid, i32, bool)> = index
-        .iter()
-        .flat_map(|index| index.iter())
-        .filter(|e| e.flags & 0x3000 == 0)
-        .filter_map(|e| {
-            String::from_utf8(e.path)
-                .ok()
-                .map(|path| (path, (e.id, e.mode as i32, e.flags_extended & 0x4000 != 0)))
-        })
-        .collect();
-    let mut controls = scratch.index().map_err(err)?;
-    let mut control_size = 0usize;
-    for (path, (id, mode, _)) in &stage0 {
-        if matches!(
-            std::path::Path::new(path)
-                .file_name()
-                .and_then(|n| n.to_str()),
-            Some(".gitattributes" | ".gitignore")
-        ) {
-            if ![0o100644, 0o100755].contains(mode) {
-                return Err("Unsupported indexed Git control file.".into());
-            }
-            let data = blob(&repo, *id, *mode)?;
-            control_size += data.len();
-            if control_size > 4 * 1024 * 1024 {
-                return Err("Git control index budget exceeded.".into());
-            }
-            put(&scratch, &mut controls, path, &data, *mode)?;
+    Ok(())
+}
+
+/// Immutable comparison inputs: the selected repository, its baseline tree
+/// files and the index-derived membership sets used by every comparison path.
+struct CaptureSets<'a> {
+    repo: &'a Repository,
+    scratch: &'a Repository,
+    worktree: &'a Path,
+    start: Instant,
+    comparison: Comparison,
+    old: BTreeMap<String, (Oid, i32)>,
+    tracked: HashSet<String>,
+    gitlinks: HashSet<String>,
+    conflicts: HashSet<String>,
+    stage0: HashMap<String, (Oid, i32, bool)>,
+    trust_filemode: bool,
+    literal_symlinks: bool,
+}
+
+impl<'a> CaptureSets<'a> {
+    fn new(
+        repo: &'a Repository,
+        scratch: &'a Repository,
+        worktree: &'a Path,
+        comparison: Comparison,
+        start: Instant,
+        old: BTreeMap<String, (Oid, i32)>,
+    ) -> Result<Self, String> {
+        let index = if comparison == Comparison::Uncommitted {
+            Some(repo.index().map_err(err)?)
+        } else {
+            None
+        };
+        if index.as_ref().is_some_and(|index| index.len() > CANDIDATES) {
+            return Err("Git index exceeds inspection budget.".into());
         }
+        let tracked: HashSet<String> = index
+            .iter()
+            .flat_map(|index| index.iter())
+            .map(|e| {
+                String::from_utf8(e.path)
+                    .map_err(|_| "Non-UTF-8 index path; comparison unavailable.".to_owned())
+            })
+            .collect::<Result<_, _>>()?;
+        let gitlinks: HashSet<String> = old
+            .iter()
+            .filter(|(_, (_, mode))| *mode == 0o160000)
+            .map(|(p, _)| p.clone())
+            .chain(
+                index
+                    .iter()
+                    .flat_map(|index| index.iter())
+                    .filter(|e| e.mode == 0o160000)
+                    .filter_map(|e| String::from_utf8(e.path).ok()),
+            )
+            .collect();
+        let conflicts: HashSet<String> = if comparison == Comparison::Uncommitted {
+            repo.index()
+                .map_err(err)?
+                .iter()
+                .filter(|e| e.flags & 0x3000 != 0)
+                .filter_map(|e| String::from_utf8(e.path).ok())
+                .collect()
+        } else {
+            HashSet::new()
+        };
+        let trust_filemode = repo
+            .config()
+            .ok()
+            .and_then(|c| c.get_bool("core.filemode").ok())
+            .unwrap_or(cfg!(unix));
+        let literal_symlinks = repo
+            .config()
+            .ok()
+            .and_then(|c| c.get_bool("core.symlinks").ok())
+            == Some(false);
+        // With core.symlinks=false the index defines which ordinary files are
+        // link-text checkouts. HEAD must not hide a staged conversion or replacement.
+        let stage0: HashMap<String, (Oid, i32, bool)> = index
+            .iter()
+            .flat_map(|index| index.iter())
+            .filter(|e| e.flags & 0x3000 == 0)
+            .filter_map(|e| {
+                String::from_utf8(e.path)
+                    .ok()
+                    .map(|path| (path, (e.id, e.mode as i32, e.flags_extended & 0x4000 != 0)))
+            })
+            .collect();
+        let mut controls = scratch.index().map_err(err)?;
+        let mut control_size = 0usize;
+        for (path, (id, mode, _)) in &stage0 {
+            if matches!(
+                std::path::Path::new(path)
+                    .file_name()
+                    .and_then(|n| n.to_str()),
+                Some(".gitattributes" | ".gitignore")
+            ) {
+                if ![0o100644, 0o100755].contains(mode) {
+                    return Err("Unsupported indexed Git control file.".into());
+                }
+                let data = blob(repo, *id, *mode)?;
+                control_size += data.len();
+                if control_size > 4 * 1024 * 1024 {
+                    return Err("Git control index budget exceeded.".into());
+                }
+                put(scratch, &mut controls, path, &data, *mode)?;
+            }
+        }
+        controls.write().map_err(err)?;
+        Ok(Self {
+            repo,
+            scratch,
+            worktree,
+            start,
+            comparison,
+            old,
+            tracked,
+            gitlinks,
+            conflicts,
+            stage0,
+            trust_filemode,
+            literal_symlinks,
+        })
     }
-    controls.write().map_err(err)?;
-    let effective_mode = |path: &str, mode: i32| {
+
+    /// Resolve the effective file mode: uncommitted comparisons honor
+    /// filemode trust and literal-symlink configuration from the index.
+    pub fn effective_mode(&self, path: &str, mode: i32) -> i32 {
         if [0o100644, 0o100755].contains(&mode) {
-            if let Some((_, indexed, _)) = stage0.get(path) {
-                if (literal_symlinks && *indexed == 0o120000)
-                    || (!trust_filemode && [0o100644, 0o100755].contains(indexed))
+            if let Some((_, indexed, _)) = self.stage0.get(path) {
+                if (self.literal_symlinks && *indexed == 0o120000)
+                    || (!self.trust_filemode && [0o100644, 0o100755].contains(indexed))
                 {
                     return *indexed;
                 }
             }
         }
         mode
-    };
-    let mut compare = |path: &str,
-                       new: Result<Option<(Vec<u8>, i32)>, String>|
-     -> Result<(), String> {
-        if start.elapsed() > Duration::from_secs(5) {
-            return Err("Capture budget exceeded; comparison unavailable.".into());
-        }
-        visited.borrow_mut().insert(path.to_owned());
-        let old_content = old
+    }
+}
+
+/// Mutable comparison accumulators: the staged before/after indices, budget
+/// bookkeeping and the per-path notices and visit records.
+struct Staging<'a> {
+    sets: &'a CaptureSets<'a>,
+    before: git2::Index,
+    after: git2::Index,
+    total: usize,
+    partial: bool,
+    notices: Vec<(String, String)>,
+    visited: HashSet<String>,
+}
+
+impl Staging<'_> {
+    fn new<'a>(sets: &'a CaptureSets<'a>) -> Result<Staging<'a>, String> {
+        Ok(Staging {
+            sets,
+            before: git2::Index::new().map_err(err)?,
+            after: git2::Index::new().map_err(err)?,
+            total: 0,
+            partial: false,
+            notices: Vec::new(),
+            visited: HashSet::new(),
+        })
+    }
+
+    /// Old/new content pair for a path with the uncommitted mode adjustment,
+    /// or the read error that makes the path unavailable.
+    fn compared_pair(
+        &self,
+        path: &str,
+        new: Result<Option<(Vec<u8>, i32)>, String>,
+    ) -> Result<(Option<(Vec<u8>, i32)>, Option<(Vec<u8>, i32)>), String> {
+        let sets = self.sets;
+        let old_content = sets
+            .old
             .get(path)
-            .map(|(id, m)| blob(&repo, *id, *m).map(|b| (b, *m)))
+            .map(|(id, m)| blob(sets.repo, *id, *m).map(|b| (b, *m)))
             .transpose();
-        let pair = old_content.and_then(|old| {
+        old_content.and_then(|old| {
             new.map(|mut new| {
-                if comparison == Comparison::Uncommitted {
+                if sets.comparison == Comparison::Uncommitted {
                     if let Some((_, mode)) = &mut new {
-                        *mode = effective_mode(path, *mode);
+                        *mode = sets.effective_mode(path, *mode);
                     }
                 }
                 (old, new)
             })
-        });
-        let (old, new) = match pair {
+        })
+    }
+
+    /// Record one compared path: budget-checked staging of old/new blob pairs.
+    fn compare(
+        &mut self,
+        path: &str,
+        new: Result<Option<(Vec<u8>, i32)>, String>,
+    ) -> Result<(), String> {
+        let sets = self.sets;
+        if sets.start.elapsed() > Duration::from_secs(5) {
+            return Err("Capture budget exceeded; comparison unavailable.".into());
+        }
+        self.visited.insert(path.to_owned());
+        let (old, new) = match self.compared_pair(path, new) {
             Ok(p) => p,
             Err(n) => {
-                partial = true;
-                notices.push((path.to_owned(), n));
+                self.partial = true;
+                self.notices.push((path.to_owned(), n));
                 return Ok(());
             }
         };
-        if conflicts.contains(path) {
-            partial = true;
-            notices.push((path.into(), "Conflict; patch unavailable.".into()));
+        if sets.conflicts.contains(path) {
+            self.partial = true;
+            self.notices
+                .push((path.into(), "Conflict; patch unavailable.".into()));
             return Ok(());
         }
         if old == new {
             return Ok(());
         }
-        if before.len() + after.len() >= 1000
-            || total + old.as_ref().map_or(0, |x| x.0.len()) + new.as_ref().map_or(0, |x| x.0.len())
+        if self.before.len() + self.after.len() >= 1000
+            || self.total
+                + old.as_ref().map_or(0, |x| x.0.len())
+                + new.as_ref().map_or(0, |x| x.0.len())
                 > TOTAL_LIMIT
         {
-            partial = true;
+            self.partial = true;
             return Ok(());
         }
-        for (content, index) in [(old, &mut before), (new, &mut after)] {
+        for (content, index) in [(old, &mut self.before), (new, &mut self.after)] {
             if let Some((data, mut mode)) = content {
-                total += data.len();
+                self.total += data.len();
                 if mode == 0o160000 {
                     mode = 0o100644
                 }
-                put(&scratch, index, path, &data, mode)?;
+                put(sets.scratch, index, path, &data, mode)?;
             }
         }
         Ok(())
-    };
-    if comparison == Comparison::Branch {
-        let paths: HashSet<_> = old.keys().chain(target.keys()).cloned().collect();
-        for p in paths {
-            if start.elapsed() > Duration::from_secs(5) {
-                return Err("Capture budget exceeded; comparison unavailable.".into());
-            }
-            if old.get(&p) == target.get(&p) {
-                continue;
-            }
-            let new = target
-                .get(&p)
-                .map(|(id, m)| blob(&repo, *id, *m).map(|b| (b, *m)))
-                .transpose();
-            compare(&p, new)?;
+    }
+}
+
+/// Compare two resolved trees: every differing path enters the staging indices.
+fn compare_branch(
+    sets: &CaptureSets<'_>,
+    staging: &mut Staging<'_>,
+    target: &BTreeMap<String, (Oid, i32)>,
+) -> Result<(), String> {
+    let paths: HashSet<_> = sets.old.keys().chain(target.keys()).cloned().collect();
+    for p in paths {
+        if sets.start.elapsed() > Duration::from_secs(5) {
+            return Err("Capture budget exceeded; comparison unavailable.".into());
         }
-    } else {
-        let count = std::cell::Cell::new(0usize);
-        let exceeded = std::cell::Cell::new(false);
-        let failure = std::cell::RefCell::new(None);
-        crate::git_changes_fs::walk(
-            &worktree,
-            |entry| {
-                count.set(count.get() + 1);
-                if count.get() > CANDIDATES || start.elapsed() > Duration::from_secs(5) {
-                    exceeded.set(true);
-                    return false;
-                }
-                let Some(p) = entry.path.to_str() else {
-                    exceeded.set(true);
-                    return true;
-                };
-                if gitlinks.contains(p) {
-                    seen_modules.insert(p.to_owned());
-                }
-                if !old.contains_key(p)
-                    && !tracked.contains(p)
-                    && scratch.status_should_ignore(&entry.path).unwrap_or(true)
-                {
-                    return true;
-                }
-                if matches!(entry.content, Ok(None)) {
-                    visited.borrow_mut().insert(p.to_owned());
-                    return true;
-                }
-                if let Err(e) = compare(p, entry.content.map(|b| b.map(|b| (b, entry.mode)))) {
-                    *failure.borrow_mut() = Some(e);
-                    return false;
-                }
-                true
-            },
-            |path, is_dir| {
-                count.set(count.get() + 1);
-                if count.get() > CANDIDATES || start.elapsed() > Duration::from_secs(5) {
-                    exceeded.set(true);
-                    return false;
-                }
-                let Some(p) = path.to_str() else {
-                    exceeded.set(true);
-                    return false;
-                };
-                if is_dir && gitlinks.contains(p) {
-                    return false;
-                }
-                if is_dir {
-                    if let Err(e) = std::fs::create_dir_all(temp.path().join(path)) {
-                        *failure.borrow_mut() = Some(e.to_string());
-                        return false;
-                    }
-                }
-                let prefix = format!("{p}/");
-                old.contains_key(p)
-                    || tracked.contains(p)
-                    || tracked.iter().any(|k| k.starts_with(&prefix))
-                    || old.keys().any(|k| k.starts_with(&prefix))
-                    || !scratch.status_should_ignore(path).unwrap_or(true)
-            },
-            |path, mode| {
-                let path = path.to_str().ok_or("Unsupported path.")?;
-                let mode = effective_mode(path, mode);
-                let expected = old
-                    .get(path)
-                    .filter(|(_, m)| !conflicts.contains(path) && *m == mode)
-                    .map(|(id, _)| *id);
-                let eol = crate::git_changes_eol::policy(
-                    &scratch,
-                    &repo,
-                    path,
-                    stage0.get(path).map(|e| e.0),
-                    old.get(path).map(|e| e.0),
-                )?;
-                Ok((expected, eol))
-            },
-            |prefix, attrs, ignore| {
-                for (name, data) in [(".gitattributes", attrs), (".gitignore", ignore)] {
-                    if let Some(data) = data {
-                        let directory = temp.path().join(prefix);
-                        std::fs::create_dir_all(&directory).map_err(err)?;
-                        std::fs::write(directory.join(name), data).map_err(err)?;
-                    }
-                }
-                Ok(())
-            },
-        )
-        .map_err(err)?;
-        if let Some(e) = failure.into_inner() {
-            return Err(e);
+        if sets.old.get(&p) == target.get(&p) {
+            continue;
         }
-        for path in &gitlinks {
-            if seen_modules.contains(path) {
-                continue;
-            }
-            let directory = worktree.join(path);
-            if !directory.exists() && stage0.get(path).is_some_and(|e| e.2) {
-                continue;
-            }
-            let new = if !directory.exists() {
-                Ok(None)
-            } else if directory
-                .canonicalize()
-                .is_ok_and(|p| p.starts_with(&worktree))
-            {
-                repo.find_submodule(path)
-                    .and_then(|module| module.open())
-                    .and_then(|sub| sub.head().and_then(|h| h.peel_to_commit()).map(|c| c.id()))
-                    .map(|id| Some((format!("Subproject commit {id}\n").into_bytes(), 0o160000)))
-                    .map_err(|_| {
-                        "Submodule commit unavailable; inspect its registered session.".into()
-                    })
-            } else {
-                Err("Submodule directory outside this worktree; unavailable.".into())
-            };
-            compare(path, new)?;
-        }
-        if !exceeded.get() {
-            let remaining: Vec<String> = old
-                .keys()
-                .chain(tracked.iter())
-                .filter(|p| !visited.borrow().contains(*p))
-                .cloned()
-                .collect::<HashSet<_>>()
-                .into_iter()
-                .collect();
-            for path in remaining {
-                if let Some((id, mode, true)) = stage0.get(&path) {
-                    if old.get(&path) == Some(&(*id, *mode)) {
-                        continue;
-                    }
-                    compare(
-                        &path,
-                        blob(&repo, *id, *mode).map(|data| Some((data, *mode))),
-                    )?;
-                } else {
-                    compare(&path, Ok(None))?;
-                }
-            }
-        } else {
-            drop(compare);
-            partial = true;
+        let new = target
+            .get(&p)
+            .map(|(id, m)| blob(sets.repo, *id, *m).map(|b| (b, *m)))
+            .transpose();
+        staging.compare(&p, new)?;
+    }
+    Ok(())
+}
+
+/// Per-walk budget cells: candidate counting, exceeded marking and the first
+/// callback failure, shared across the walk callbacks.
+struct WalkCells {
+    count: std::cell::Cell<usize>,
+    exceeded: std::cell::Cell<bool>,
+    failure: std::cell::RefCell<Option<String>>,
+}
+
+impl WalkCells {
+    fn new() -> Self {
+        Self {
+            count: std::cell::Cell::new(0usize),
+            exceeded: std::cell::Cell::new(false),
+            failure: std::cell::RefCell::new(None),
         }
     }
-    let before = before.write_tree_to(&scratch).map_err(err)?;
-    let after = after.write_tree_to(&scratch).map_err(err)?;
+
+    /// Advance the candidate budget and mark it exceeded past its limits.
+    fn over(&self, start: Instant) -> bool {
+        self.count.set(self.count.get() + 1);
+        if self.count.get() <= CANDIDATES && start.elapsed() <= Duration::from_secs(5) {
+            return false;
+        }
+        self.exceeded.set(true);
+        true
+    }
+}
+
+/// File-callback logic: budgeted comparisons of one worktree leaf.
+fn visit_worktree_entry(
+    sets: &CaptureSets<'_>,
+    staging: &mut Staging<'_>,
+    cells: &WalkCells,
+    seen_modules: &mut HashSet<String>,
+    entry: crate::git_changes_fs::Entry,
+) -> bool {
+    if cells.over(sets.start) {
+        return false;
+    }
+    let Some(p) = entry.path.to_str() else {
+        cells.exceeded.set(true);
+        return true;
+    };
+    if sets.gitlinks.contains(p) {
+        seen_modules.insert(p.to_owned());
+    }
+    if !sets.old.contains_key(p)
+        && !sets.tracked.contains(p)
+        && sets
+            .scratch
+            .status_should_ignore(&entry.path)
+            .unwrap_or(true)
+    {
+        return true;
+    }
+    if matches!(entry.content, Ok(None)) {
+        staging.visited.insert(p.to_owned());
+        return true;
+    }
+    if let Err(e) = staging.compare(p, entry.content.map(|b| b.map(|b| (b, entry.mode)))) {
+        *cells.failure.borrow_mut() = Some(e);
+        return false;
+    }
+    true
+}
+
+/// Directory-callback logic: budgeted descent decision with control mirroring.
+fn descend_worktree(
+    sets: &CaptureSets<'_>,
+    cells: &WalkCells,
+    temp: &tempfile::TempDir,
+    path: &Path,
+    is_dir: bool,
+) -> bool {
+    if cells.over(sets.start) {
+        return false;
+    }
+    let Some(p) = path.to_str() else {
+        cells.exceeded.set(true);
+        return false;
+    };
+    if is_dir && sets.gitlinks.contains(p) {
+        return false;
+    }
+    if is_dir {
+        if let Err(e) = std::fs::create_dir_all(temp.path().join(path)) {
+            *cells.failure.borrow_mut() = Some(e.to_string());
+            return false;
+        }
+    }
+    let prefix = format!("{p}/");
+    sets.old.contains_key(p)
+        || sets.tracked.contains(p)
+        || sets.tracked.iter().any(|k| k.starts_with(&prefix))
+        || sets.old.keys().any(|k| k.starts_with(&prefix))
+        || !sets.scratch.status_should_ignore(path).unwrap_or(true)
+}
+
+/// Read-mode-callback logic: captured expected blob and line-end policy.
+fn expect_worktree_mode(
+    sets: &CaptureSets<'_>,
+    path: &Path,
+    mode: i32,
+) -> Result<(Option<Oid>, crate::git_changes_eol::Eol), String> {
+    let path = path.to_str().ok_or("Unsupported path.")?;
+    let mode = sets.effective_mode(path, mode);
+    let expected = sets
+        .old
+        .get(path)
+        .filter(|(_, m)| !sets.conflicts.contains(path) && *m == mode)
+        .map(|(id, _)| *id);
+    let eol = crate::git_changes_eol::policy(
+        sets.scratch,
+        sets.repo,
+        path,
+        sets.stage0.get(path).map(|e| e.0),
+        sets.old.get(path).map(|e| e.0),
+    )?;
+    Ok((expected, eol))
+}
+
+/// Control-callback logic: mirror directory attributes and ignore files.
+fn prepare_worktree_controls(
+    temp: &tempfile::TempDir,
+    prefix: &Path,
+    attrs: Option<Vec<u8>>,
+    ignore: Option<Vec<u8>>,
+) -> Result<(), String> {
+    for (name, data) in [(".gitattributes", attrs), (".gitignore", ignore)] {
+        if let Some(data) = data {
+            let directory = temp.path().join(prefix);
+            std::fs::create_dir_all(&directory).map_err(err)?;
+            std::fs::write(directory.join(name), data).map_err(err)?;
+        }
+    }
+    Ok(())
+}
+
+/// Compare gitlink worktree states, including absent or escaped modules.
+fn compare_submodule_states(
+    sets: &CaptureSets<'_>,
+    staging: &mut Staging<'_>,
+    seen_modules: &HashSet<String>,
+) -> Result<(), String> {
+    for path in &sets.gitlinks {
+        if seen_modules.contains(path) {
+            continue;
+        }
+        let directory = sets.worktree.join(path);
+        if !directory.exists() && sets.stage0.get(path).is_some_and(|e| e.2) {
+            continue;
+        }
+        let new = if !directory.exists() {
+            Ok(None)
+        } else if directory
+            .canonicalize()
+            .is_ok_and(|p| p.starts_with(sets.worktree))
+        {
+            sets.repo
+                .find_submodule(path)
+                .and_then(|module| module.open())
+                .and_then(|sub| sub.head().and_then(|h| h.peel_to_commit()).map(|c| c.id()))
+                .map(|id| Some((format!("Subproject commit {id}\n").into_bytes(), 0o160000)))
+                .map_err(|_| "Submodule commit unavailable; inspect its registered session.".into())
+        } else {
+            Err("Submodule directory outside this worktree; unavailable.".into())
+        };
+        staging.compare(path, new)?;
+    }
+    Ok(())
+}
+
+/// Compare baseline and tracked paths the walk could not show, including late
+/// skip-worktree index entries.
+fn compare_remaining_staged(
+    sets: &CaptureSets<'_>,
+    staging: &mut Staging<'_>,
+) -> Result<(), String> {
+    let remaining: Vec<String> = sets
+        .old
+        .keys()
+        .chain(sets.tracked.iter())
+        .filter(|p| !staging.visited.contains(*p))
+        .cloned()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    for path in remaining {
+        if let Some((id, mode, true)) = sets.stage0.get(&path) {
+            if sets.old.get(&path) == Some(&(*id, *mode)) {
+                continue;
+            }
+            staging.compare(
+                &path,
+                blob(sets.repo, *id, *mode).map(|data| Some((data, *mode))),
+            )?;
+        } else {
+            staging.compare(&path, Ok(None))?;
+        }
+    }
+    Ok(())
+}
+
+/// Inspect the live worktree against the baseline and staged index state,
+/// including submodule pointers and late staged additions, honoring the
+/// walk/existence budgets by marking the capture partial.
+fn inspect_uncommitted(
+    sets: &CaptureSets<'_>,
+    staging: &mut Staging<'_>,
+    temp: &tempfile::TempDir,
+) -> Result<(), String> {
+    let mut seen_modules: HashSet<String> = HashSet::new();
+    let cells = WalkCells::new();
+    crate::git_changes_fs::walk(
+        sets.worktree,
+        |entry| visit_worktree_entry(sets, staging, &cells, &mut seen_modules, entry),
+        |path, is_dir| descend_worktree(sets, &cells, temp, path, is_dir),
+        |path, mode| expect_worktree_mode(sets, path, mode),
+        |prefix, attrs, ignore| prepare_worktree_controls(temp, prefix, attrs, ignore),
+    )
+    .map_err(err)?;
+    if let Some(e) = cells.failure.into_inner() {
+        return Err(e);
+    }
+    compare_submodule_states(sets, staging, &seen_modules)?;
+    if cells.exceeded.get() {
+        staging.partial = true;
+        return Ok(());
+    }
+    compare_remaining_staged(sets, staging)?;
+    Ok(())
+}
+
+/// Pair of split-side delta indices for one type-change conversion path.
+fn typechange_indices(split: &git2::Diff<'_>, path: &str) -> Result<Vec<usize>, String> {
+    let indices: Vec<_> = split
+        .deltas()
+        .enumerate()
+        .filter(|(_, d)| d.new_file().path().or(d.old_file().path()) == Some(Path::new(path)))
+        .map(|(index, _)| index)
+        .collect();
+    if indices.len() != 2 {
+        return Err("Type change patch unavailable.".into());
+    }
+    Ok(indices)
+}
+
+/// Net line change totals of a type conversion, as Git reports them.
+fn typechange_net_lines(
+    scratch: &Repository,
+    delta: &git2::DiffDelta,
+    path: &str,
+) -> Result<(usize, usize), String> {
+    let old_blob = scratch.find_blob(delta.old_file().id()).map_err(err)?;
+    let new_blob = scratch.find_blob(delta.new_file().id()).map_err(err)?;
+    let mut opts = git2::DiffOptions::new();
+    // Classification already used the captured attributes above.
+    opts.force_text(true);
+    let net = git2::Patch::from_blobs(
+        &old_blob,
+        Some(Path::new(path)),
+        &new_blob,
+        Some(Path::new(path)),
+        Some(&mut opts),
+    )
+    .map_err(err)?;
+    let (_, a, d) = net.line_stats().map_err(err)?;
+    Ok((a, d))
+}
+
+/// One rendered patch side with its line totals, or the display notice that
+/// blocks it (budget or encoding failure, not a fetch failure).
+type SidePatch = Result<(usize, usize, String), String>;
+
+/// Budget and encoding check for one rendered patch side.
+fn side_patch_bytes(
+    patch: &mut git2::Patch<'_>,
+    text_size: usize,
+    output_size: usize,
+) -> Result<SidePatch, String> {
+    let bytes = patch.to_buf().map_err(err)?;
+    if text_size + bytes.len() > PATCH_LIMIT || output_size + text_size + bytes.len() > TOTAL_LIMIT
+    {
+        return Ok(Err("Patch exceeds display budget.".into()));
+    }
+    if std::str::from_utf8(&bytes).is_err() || bytes.split(|b| *b == b'\n').any(|l| l.len() > 65536)
+    {
+        return Ok(Err("Unsupported text encoding or line too long.".into()));
+    }
+    let (_, a, d) = patch.line_stats().map_err(err)?;
+    Ok(Ok((
+        a,
+        d,
+        std::str::from_utf8(&bytes).map_err(err)?.to_owned(),
+    )))
+}
+
+/// Text and recorded line totals for one delta's non-binary patch sides,
+/// or the display notice that empties them.
+fn delta_patch_content(
+    staging: &mut Staging<'_>,
+    mut file_patches: Vec<Option<git2::Patch<'_>>>,
+    delta: &git2::DiffDelta,
+    path: &str,
+    output: &mut usize,
+) -> Result<(Option<(usize, usize)>, Option<String>, String), String> {
+    let mut added = 0usize;
+    let mut deleted = 0usize;
+    let mut text = String::new();
+    let mut notice = None;
+    if file_patches.iter().any(Option::is_none) {
+        notice = Some("Binary file; no text patch.".into());
+    } else {
+        for mut patch in file_patches.into_iter().flatten() {
+            let text_size = text.len();
+            match side_patch_bytes(&mut patch, text_size, *output)? {
+                Ok((a, d, chunk)) => {
+                    added += a;
+                    deleted += d;
+                    text.push_str(&chunk);
+                }
+                Err(n) => {
+                    notice = Some(n);
+                    staging.partial = true;
+                    break;
+                }
+            }
+        }
+        if notice.is_none() {
+            if delta.status() == git2::Delta::Typechange {
+                // Git displays replacement hunks for a type conversion, but
+                // its line totals describe the net blob-content change.
+                let (a, d) = typechange_net_lines(staging.sets.scratch, delta, path)?;
+                added = a;
+                deleted = d;
+            }
+            *output += text.len();
+        } else {
+            // Never retain or expose one half of a conversion as a complete patch.
+            text = String::new();
+        }
+    }
+    Ok((notice.is_none().then_some((added, deleted)), notice, text))
+}
+
+/// One diff delta's summary, patch text and budget outcome.
+#[allow(clippy::too_many_arguments)]
+fn render_delta(
+    staging: &mut Staging<'_>,
+    diff: &git2::Diff<'_>,
+    typechange_diff: Option<&git2::Diff<'_>>,
+    delta_index: usize,
+    delta: &git2::DiffDelta,
+    files: &mut Vec<ChangedFile>,
+    patches: &mut HashMap<String, String>,
+    output: &mut usize,
+) -> Result<(), String> {
+    let path = delta
+        .new_file()
+        .path()
+        .or(delta.old_file().path())
+        .and_then(Path::to_str)
+        .ok_or("Unsupported path.")?
+        .to_owned();
+    let old_path = delta
+        .old_file()
+        .path()
+        .and_then(Path::to_str)
+        .filter(|p| *p != path)
+        .map(str::to_owned);
+    let (patch_diff, indices) = if delta.status() == git2::Delta::Typechange {
+        let split = typechange_diff.ok_or("Type change patch unavailable.")?;
+        (split, typechange_indices(split, &path)?)
+    } else {
+        (diff, vec![delta_index])
+    };
+    let file_patches = indices
+        .into_iter()
+        .map(|index| git2::Patch::from_diff(patch_diff, index).map_err(err))
+        .collect::<Result<Vec<_>, _>>()?;
+    if file_patches
+        .iter()
+        .flatten()
+        .any(|patch| patch.delta().old_file().is_binary() || patch.delta().new_file().is_binary())
+    {
+        let id = uuid::Uuid::new_v4().to_string();
+        files.push(ChangedFile {
+            id,
+            path,
+            old_path,
+            status: "Binary".into(),
+            additions: None,
+            deletions: None,
+            notice: Some("Binary file; no text patch.".into()),
+        });
+        return Ok(());
+    }
+    let (totals, notice, text) = delta_patch_content(staging, file_patches, delta, &path, output)?;
+    let (additions, deletions) = match totals {
+        Some((a, d)) => (Some(a), Some(d)),
+        None => (None, None),
+    };
+    let id = uuid::Uuid::new_v4().to_string();
+    patches.insert(id.clone(), text);
+    let status = match delta.status() {
+        git2::Delta::Added => "New",
+        git2::Delta::Deleted => "Deleted",
+        git2::Delta::Renamed => "Renamed",
+        git2::Delta::Typechange => "Type changed",
+        _ => "Modified",
+    }
+    .into();
+    files.push(ChangedFile {
+        id,
+        path,
+        old_path,
+        status,
+        additions,
+        deletions,
+        notice,
+    });
+    Ok(())
+}
+
+/// Write the captured trees and render patch text and per-file summaries,
+/// honoring the file-count, patch-size and aggregate output budgets.
+fn render_changes(
+    staging: &mut Staging<'_>,
+) -> Result<(Vec<ChangedFile>, HashMap<String, String>), String> {
+    let start = staging.sets.start;
+    let scratch = staging.sets.scratch;
+    let before = staging.before.write_tree_to(scratch).map_err(err)?;
+    let after = staging.after.write_tree_to(scratch).map_err(err)?;
     let mut opts = git2::DiffOptions::new();
     opts.context_lines(3)
         .skip_binary_check(false)
@@ -657,139 +1044,21 @@ pub fn capture(
     let mut output = 0;
     for (i, delta) in diff.deltas().enumerate() {
         if files.len() >= 500 || start.elapsed() > Duration::from_secs(5) {
-            partial = true;
+            staging.partial = true;
             break;
         }
-        let path = delta
-            .new_file()
-            .path()
-            .or(delta.old_file().path())
-            .and_then(Path::to_str)
-            .ok_or("Unsupported path.")?
-            .to_owned();
-        let old_path = delta
-            .old_file()
-            .path()
-            .and_then(Path::to_str)
-            .filter(|p| *p != path)
-            .map(str::to_owned);
-        let mut notice = None;
-        let mut additions = None;
-        let mut deletions = None;
-        let mut text = String::new();
-        let (patch_diff, indices) = if delta.status() == git2::Delta::Typechange {
-            let split = typechange_diff
-                .as_ref()
-                .ok_or("Type change patch unavailable.")?;
-            let indices: Vec<_> = split
-                .deltas()
-                .enumerate()
-                .filter(|(_, d)| {
-                    d.new_file().path().or(d.old_file().path()) == Some(Path::new(&path))
-                })
-                .map(|(index, _)| index)
-                .collect();
-            if indices.len() != 2 {
-                return Err("Type change patch unavailable.".into());
-            }
-            (split, indices)
-        } else {
-            (&diff, vec![i])
-        };
-        let file_patches = indices
-            .into_iter()
-            .map(|index| git2::Patch::from_diff(patch_diff, index).map_err(err))
-            .collect::<Result<Vec<_>, _>>()?;
-        if file_patches.iter().flatten().any(|patch| {
-            patch.delta().old_file().is_binary() || patch.delta().new_file().is_binary()
-        }) {
-            let id = uuid::Uuid::new_v4().to_string();
-            files.push(ChangedFile {
-                id,
-                path,
-                old_path,
-                status: "Binary".into(),
-                additions: None,
-                deletions: None,
-                notice: Some("Binary file; no text patch.".into()),
-            });
-            continue;
-        }
-        if file_patches.iter().any(Option::is_none) {
-            notice = Some("Binary file; no text patch.".into());
-        } else {
-            let (mut added, mut deleted) = (0, 0);
-            for mut patch in file_patches.into_iter().flatten() {
-                let bytes = patch.to_buf().map_err(err)?;
-                if text.len() + bytes.len() > PATCH_LIMIT
-                    || output + text.len() + bytes.len() > TOTAL_LIMIT
-                {
-                    notice = Some("Patch exceeds display budget.".into());
-                    partial = true;
-                    break;
-                } else if std::str::from_utf8(&bytes).is_err()
-                    || bytes.split(|b| *b == b'\n').any(|l| l.len() > 65536)
-                {
-                    notice = Some("Unsupported text encoding or line too long.".into());
-                    partial = true;
-                    break;
-                } else {
-                    let (_, a, d) = patch.line_stats().map_err(err)?;
-                    added += a;
-                    deleted += d;
-                    text.push_str(std::str::from_utf8(&bytes).map_err(err)?);
-                }
-            }
-            if notice.is_none() {
-                if delta.status() == git2::Delta::Typechange {
-                    // Git displays replacement hunks for a type conversion, but
-                    // its line totals describe the net blob-content change.
-                    let old_blob = scratch.find_blob(delta.old_file().id()).map_err(err)?;
-                    let new_blob = scratch.find_blob(delta.new_file().id()).map_err(err)?;
-                    let mut opts = git2::DiffOptions::new();
-                    // Classification already used the captured attributes above.
-                    opts.force_text(true);
-                    let net = git2::Patch::from_blobs(
-                        &old_blob,
-                        Some(Path::new(&path)),
-                        &new_blob,
-                        Some(Path::new(&path)),
-                        Some(&mut opts),
-                    )
-                    .map_err(err)?;
-                    let (_, a, d) = net.line_stats().map_err(err)?;
-                    added = a;
-                    deleted = d;
-                }
-                additions = Some(added);
-                deletions = Some(deleted);
-                output += text.len();
-            } else {
-                // Never retain or expose one half of a conversion as a complete patch.
-                text = String::new();
-            }
-        }
-        let id = uuid::Uuid::new_v4().to_string();
-        patches.insert(id.clone(), text);
-        let status = match delta.status() {
-            git2::Delta::Added => "New",
-            git2::Delta::Deleted => "Deleted",
-            git2::Delta::Renamed => "Renamed",
-            git2::Delta::Typechange => "Type changed",
-            _ => "Modified",
-        }
-        .into();
-        files.push(ChangedFile {
-            id,
-            path,
-            old_path,
-            status,
-            additions,
-            deletions,
-            notice,
-        });
+        render_delta(
+            staging,
+            &diff,
+            typechange_diff.as_ref(),
+            i,
+            &delta,
+            &mut files,
+            &mut patches,
+            &mut output,
+        )?;
     }
-    for (path, n) in notices
+    for (path, n) in std::mem::take(&mut staging.notices)
         .into_iter()
         .take(500usize.saturating_sub(files.len()))
     {
@@ -804,6 +1073,16 @@ pub fn capture(
         });
     }
     files.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok((files, patches))
+}
+
+/// Detect any reference churn under the capture and fail fast.
+fn verify_refs_unchanged(
+    repo: &Repository,
+    head_id: Option<Oid>,
+    base_ref: Option<&str>,
+    base_oid: Option<Oid>,
+) -> Result<(), String> {
     if repo
         .head()
         .ok()
@@ -820,34 +1099,81 @@ pub fn capture(
     {
         return Err("Git baseline changed during capture; refresh.".into());
     }
+    Ok(())
+}
+
+/// Branch name for the capture header; detached and unborn heads are labeled.
+fn branch_label(repo: &Repository, head_id: Option<Oid>) -> String {
+    repo.head()
+        .ok()
+        .and_then(|h| {
+            if h.is_branch() {
+                h.shorthand().map(str::to_owned)
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| {
+            head_id
+                .map(|h| format!("Detached HEAD {}", &h.to_string()[..8]))
+                .unwrap_or("Unborn branch".into())
+        })
+}
+
+pub fn capture(
+    cwd: &Path,
+    comparison: Comparison,
+    base_ref: Option<&str>,
+) -> Result<Capture, String> {
+    let start = Instant::now();
+    let repo = open(cwd)?;
+    let worktree = repo
+        .workdir()
+        .ok_or("No worktree.")?
+        .canonicalize()
+        .map_err(err)?;
+    let (head_id, head_tree) = resolve_head(&repo)?;
+    let (baseline, base_oid, baseline_id) = select_baseline(
+        &repo,
+        cwd,
+        comparison,
+        base_ref,
+        head_id,
+        head_tree.as_ref(),
+    )?;
+    let old = tree_files(&repo, baseline.as_ref(), start)?;
+    let target = if comparison == Comparison::Branch {
+        tree_files(&repo, head_tree.as_ref(), start)?
+    } else {
+        BTreeMap::new()
+    };
+    let temp = tempfile::tempdir().map_err(err)?;
+    let scratch = Repository::init(temp.path()).map_err(err)?;
+    mirror_control_inputs(&repo, &scratch, &worktree, &repo.config().map_err(err)?)?;
+    let sets = CaptureSets::new(&repo, &scratch, &worktree, comparison, start, old)?;
+    let mut staging = Staging::new(&sets)?;
+    if comparison == Comparison::Branch {
+        compare_branch(&sets, &mut staging, &target)?;
+    } else {
+        inspect_uncommitted(&sets, &mut staging, &temp)?;
+    }
+    let (files, patches) = render_changes(&mut staging)?;
+    verify_refs_unchanged(&repo, head_id, base_ref, base_oid)?;
     Ok(Capture {
         snapshot_id: uuid::Uuid::new_v4().to_string(),
         session_id: String::new(),
         git_context_source: None,
         worktree: worktree.display().to_string(),
-        branch: repo
-            .head()
-            .ok()
-            .and_then(|h| {
-                if h.is_branch() {
-                    h.shorthand().map(str::to_owned)
-                } else {
-                    None
-                }
-            })
-            .unwrap_or_else(|| {
-                head_id
-                    .map(|h| format!("Detached HEAD {}", &h.to_string()[..8]))
-                    .unwrap_or("Unborn branch".into())
-            }),
+        branch: branch_label(&repo, head_id),
         comparison,
         base_ref: base_ref.map(str::to_owned),
         base_oid: base_oid.map(|x| x.to_string()),
         baseline_oid: baseline_id.map(|x| x.to_string()),
         head_oid: head_id.map(|x| x.to_string()),
         captured_at: chrono::Utc::now().to_rfc3339(),
-        partial,
-        notice: partial
+        partial: staging.partial,
+        notice: staging
+            .partial
             .then(|| "Partial comparison; some content or totals are unavailable.".into()),
         files,
         patches,
