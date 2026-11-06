@@ -34,6 +34,25 @@ class SnapshotTests(unittest.TestCase):
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content)
 
+    def test_snapshot_includes_rust_embedded_files_outside_analysis_roots(self):
+        self.write('crates/orkworksd/src/harness/integrations/opencode.rs',
+                   'static SOLR: &str = include_str!("../../../scripts/session-metadata.py");\n')
+        self.write('crates/orkworksd/scripts/session-metadata.py', 'MAGIC = 42\n')
+        self.write('crates/orkworksd/src/taskmaster/tests.rs',
+                   'static VEC: &str = include_bytes!("../../../../tests/fixtures/vector.json");\n')
+        self.write('tests/fixtures/vector.json', '{}\n')
+        self.write('crates/orkworksd/src/taskmaster/fake.rs',
+                   'const ESCAPES: &str = include_str!("../../../../../../outside.json");\n')
+        self.write('outside.json', '{}\n')
+        destination = self.root / 'snapshot'
+        sonar.snapshot(self.root, destination)
+        self.assertTrue((destination / 'crates/orkworksd/scripts/session-metadata.py').exists(),
+                        'missing embedded script')
+        self.assertTrue((destination / 'tests/fixtures/vector.json').exists(),
+                        'missing embedded test fixture')
+        self.assertFalse((destination / 'outside.json').exists(),
+                         'embedded reference outside the checkout must not be copied')
+
     def test_snapshot_includes_edits_and_untracked_source_but_not_credentials(self):
         self.write('apps/desktop/src/main.ts', 'export const answer = 2;\n')
         self.write('apps/desktop/src/new.ts', 'export const extra = 3;\n')

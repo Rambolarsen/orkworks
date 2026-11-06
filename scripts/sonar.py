@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import re
 import subprocess
 import tempfile
 import time
@@ -26,6 +27,31 @@ EXTENSIONS = {'.rs', '.toml', '.lock', '.ts', '.tsx', '.js', '.mjs', '.cjs', '.j
               '.yaml', '.yml', '.html', '.css', '.svg', '.md', '.sh', '.ps1', '.patch'}
 SNAPSHOT_FILES = {'sonar-project.properties', 'rust-toolchain.toml', '.nvmrc',
                   'apps/desktop/resources/knowledge/public-key.pem'}
+INCLUDE_PATTERN = re.compile(r'include_(?:str|bytes)!\(\s*"([^"\n\x00"]+)"')
+
+
+def embedded_references(root):
+    """Git-relative paths the Rust sources embed with include_str!/include_bytes!.
+
+    The Rust build types embed scripts, fixtures and validation vectors from
+    outside the analysis roots; the snapshot must carry them for Clippy and the
+    Rust sensor to compile. References that resolve outside the checkout or to
+    generated/missing files are ignored.
+    """
+    referenced = set()
+    resolved_root = root.resolve()
+    for source in (root / 'crates').rglob('*.rs'):
+        if any(part in GENERATED for part in source.relative_to(root).parts):
+            continue
+        try:
+            text = source.read_text(encoding='utf-8')
+        except (OSError, UnicodeDecodeError):
+            continue
+        for match in INCLUDE_PATTERN.finditer(text):
+            target = (source.parent / match.group(1)).resolve()
+            if target.is_file() and target.is_relative_to(resolved_root):
+                referenced.add(target.relative_to(resolved_root).as_posix())
+    return referenced
 SCANNER_VERSION = '5.0.1'
 
 
@@ -68,9 +94,10 @@ def snapshot(root, destination):
                 cwd=root, capture=True).split('\0')
     hashed = hashlib.sha256()
     count = 0
+    embedded = embedded_references(root)
     for name in sorted(set(filter(None, names))):
         relative = Path(name)
-        if name not in SNAPSHOT_FILES:
+        if name not in SNAPSHOT_FILES and name not in embedded:
             if not name.startswith(COPY_ROOTS) or relative.suffix not in EXTENSIONS:
                 continue
         if GENERATED.intersection(relative.parts) or relative.name.startswith('.env'):
