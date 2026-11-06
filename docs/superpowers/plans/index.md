@@ -312,3 +312,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Workspace memory edit ownership](2026-11-06-workspace-memory-edit-owner.md) — Nonblocking shared mutation permits before captured SQL settings cleanup.
 
 - [Captured SQL workspace settings cleanup](2026-11-06-sql-settings-cleanup.md) — Original memory-owner selection cleanup and durable pending-job progress.
+
+- [Shared recommendation operation ownership](2026-11-06-recommendation-owner-fence.md) — Nonblocking complete-store operation fencing before captured SQL cleanup.
