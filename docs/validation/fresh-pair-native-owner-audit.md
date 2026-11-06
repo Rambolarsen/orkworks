@@ -146,3 +146,14 @@ Results establish the stated behavior of located functions, not absence of every
 possible differently named, external or future mechanism. No test was run to
 infer runtime/native guarantees. Documentation checks validate this report's
 metadata/links, not the native claims its required owner must eventually prove.
+
+
+## Concrete protocol proposal — 2026-11-06
+
+[#1450](https://github.com/Rambolarsen/orkworks/issues/1450) provides the
+[original pair-owner protocol proposal](../superpowers/specs/2026-11-06-original-pair-owner-design.md).
+It chooses a retained ownership/state-transfer design and a documented Windows/
+NTFS handle-binding candidate, explicitly leaving Unix binding and actual native/
+resource/recovery qualification unavailable. These are new owner-pending choices,
+not evidence that this audit's missing constructor is implemented or qualified.
+No code, native probe, database creation or runtime activation follows.
