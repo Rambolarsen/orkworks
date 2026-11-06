@@ -90,6 +90,15 @@ impl PlanLocation {
     }
 }
 
+fn workspace_memory_error(error: std::io::Error) -> SessionError {
+    if error.kind() == std::io::ErrorKind::WouldBlock {
+        SessionError::Conflict
+    } else {
+        tracing::warn!(%error, "workspace memory operation failed");
+        SessionError::Internal("workspace memory operation failed")
+    }
+}
+
 static PENDING_RECOMMENDATION_DELIVERIES: OnceLock<Mutex<HashSet<(PathBuf, String)>>> =
     OnceLock::new();
 
@@ -3760,7 +3769,27 @@ impl SessionApplication {
         }
         crate::workspace_runtime::write_origin_file_if_absent(&global_dir, &path);
 
-        let store = metadata::MetadataStore::new(&global_dir);
+        let store = self
+            .state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .filter(|ws| {
+                ws.path == path
+                    && ws.metadata.root_path() == global_dir
+                    && ws
+                        .lease
+                        .as_ref()
+                        .is_some_and(|lease| Arc::ptr_eq(lease, &workspace_lease))
+            })
+            .map(|ws| ws.metadata.reopen_with_shared_workspace_memory())
+            .unwrap_or_else(|| metadata::MetadataStore::new(&global_dir));
+        // A same-workspace reopen must not bypass an admitted memory edit.
+        // Acquire before normalization reads, without waiting under projection.
+        let memory_edit = store
+            .edit_workspace_memory()
+            .map_err(workspace_memory_error)?;
         migration::migrate_if_needed(&path, &global_dir);
         let harness_snapshot = self.state.harness_store.snapshot().map_err(|error| {
             tracing::error!(
@@ -3779,8 +3808,10 @@ impl SessionApplication {
             .write()
             .expect("harness catalog lock poisoned") = harness_snapshot.registry.clone();
         self.state.providers.reconcile_harness_provider_settings();
-        let memory = store.read_workspace_memory();
-        let mut memory = memory.unwrap_or_default();
+        let mut memory = memory_edit
+            .read()
+            .map_err(workspace_memory_error)?
+            .unwrap_or_default();
         let original_active_harness_ids = memory.active_harness_ids.clone();
         let mut normalized_active_harness_ids = Vec::new();
         let mut seen_active_harness_ids = std::collections::HashSet::new();
@@ -3803,11 +3834,12 @@ impl SessionApplication {
         memory.active_harness_ids = normalized_active_harness_ids;
         if memory.active_harness_ids != original_active_harness_ids {
             memory.active_harness_revision = memory.active_harness_revision.saturating_add(1);
-            store.write_workspace_memory(&memory);
+            memory_edit.write(&memory).map_err(workspace_memory_error)?;
         }
         let last_active_session_id = memory.last_active_session_id.clone();
         let active_harness_ids = memory.active_harness_ids;
         let active_harness_revision = memory.active_harness_revision;
+        drop(memory_edit);
 
         // Ordinary store open may recover/rewrite graph files. Keep its existing
         // writer fence during preflight, then release it BEFORE evaluation
@@ -5416,20 +5448,23 @@ impl SessionApplication {
     pub(crate) fn set_active_session(&self, session_id: &str) -> Result<(), SessionError> {
         let workspace_guard = self.state.workspace.lock().unwrap();
         let workspace = workspace_guard.as_ref().ok_or(SessionError::Conflict)?;
-        let existing = workspace.metadata.read_workspace_memory();
-        workspace
+        let edit = workspace
             .metadata
-            .write_workspace_memory(&metadata::WorkspaceMemory {
-                last_active_session_id: Some(session_id.to_string()),
-                last_active_at: Some(iso_now()),
-                active_harness_ids: existing
-                    .as_ref()
-                    .map(|memory| memory.active_harness_ids.clone())
-                    .unwrap_or_default(),
-                active_harness_revision: existing
-                    .as_ref()
-                    .map_or(0, |memory| memory.active_harness_revision),
-            });
+            .edit_workspace_memory()
+            .map_err(workspace_memory_error)?;
+        let existing = edit.read().map_err(workspace_memory_error)?;
+        edit.write(&metadata::WorkspaceMemory {
+            last_active_session_id: Some(session_id.to_string()),
+            last_active_at: Some(iso_now()),
+            active_harness_ids: existing
+                .as_ref()
+                .map(|memory| memory.active_harness_ids.clone())
+                .unwrap_or_default(),
+            active_harness_revision: existing
+                .as_ref()
+                .map_or(0, |memory| memory.active_harness_revision),
+        })
+        .map_err(workspace_memory_error)?;
         Ok(())
     }
 
@@ -5476,9 +5511,13 @@ impl SessionApplication {
             .unwrap();
         let workspace_guard = self.state.workspace.lock().unwrap();
         let workspace = workspace_guard.as_ref().ok_or(SessionError::Conflict)?;
-        let existing = workspace
+        let edit = workspace
             .metadata
-            .read_workspace_memory()
+            .edit_workspace_memory()
+            .map_err(workspace_memory_error)?;
+        let existing = edit
+            .read()
+            .map_err(workspace_memory_error)?
             .unwrap_or_default();
         if existing.active_harness_revision != expected_active_harness_revision {
             return Err(SessionError::Conflict);
@@ -5552,13 +5591,15 @@ impl SessionApplication {
                 }
             }
         }
-        workspace.metadata.write_workspace_memory(&memory);
+        let memory_result = edit.write(&memory).map_err(workspace_memory_error);
+        drop(edit);
         drop(workspace_guard);
         drop(transition);
         drop(projection);
         for session_id in retry_ids {
             self.schedule_prompt_tuple_clear_retry(&session_id);
         }
+        memory_result?;
         if revocation_persistence_failed {
             return Err(SessionError::Internal("application operation failed"));
         }

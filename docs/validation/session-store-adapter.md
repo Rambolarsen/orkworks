@@ -1328,3 +1328,34 @@ new platforms, hardware power-loss or activation. Production remains
 JSON; later settings/recommendation cleanup and final completion remain under
 [#1243](https://github.com/Rambolarsen/orkworks/issues/1243). See the
 [implementation plan](../superpowers/plans/2026-11-06-sql-image-cleanup.md).
+
+
+## Workspace memory edit prerequisite
+
+Before captured SQL settings cleanup, the existing metadata owner now serializes
+workspace-memory mutations with a nonblocking owned permit. Live selection and
+harness producers reserve before reading their replacement snapshot or making
+prompt-authority side effects. Conflicting callers fail immediately; the permit
+is retained independently of application guards and the original MetadataStore's
+lifetime. Same-workspace reopen explicitly shares this owner when path, root and
+lease match, reserves before normalization and returns failure before adoption.
+It is shared per adopted owner, not a cross-process lock.
+The existing workspace lease remains the cross-process owner.
+
+Real-file tests in `metadata/workspace_memory_tests.rs` cover contention across
+legacy replacement, conditional retention clear and selection/harness calls;
+release/retry; missing, malformed and unreadable files; failed atomic replacement
+without false success; harness revision preservation/stale conflicts; independent
+stores; and an owned edit surviving its original MetadataStore. A current-thread
+runtime test retains the permit while rejecting selection/harness updates,
+verifies prompt authority and live prompt state are unchanged, then acknowledges
+independent terminal input with application guards free. Real fake-home workspace
+reopen tests cover a held original permit and a failed normalization write; both
+regressions failed before the correction and verify no replacement adoption.
+
+This qualifies mutation serialization only. The legacy replacement still uses
+its existing JSON write/rename helper; it is not durable SQL cleanup and does
+not establish original-directory anchoring, bounded unknown-field-preserving
+cleanup, crash recovery or a SQL progress bit. Those are prerequisites for the
+next stage under #1243. Production remains JSON and the ordinary session store
+is not activated.

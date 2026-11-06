@@ -1673,3 +1673,32 @@ fixtures exercise this file facade; other platforms explicitly return Unsupporte
 Legacy image publication/recovery/deletion and native image-delivery eligibility
 keep their existing behavior. No production SQL routing or final row/job deletion
 is enabled. See the [stage validation](../validation/session-store-adapter.md#captured-sql-session-image-cleanup).
+
+
+## Workspace memory edit ownership
+
+`MetadataStore` retains `workspace.json` authority. Its workspace-memory module
+issues an owned, nonblocking edit permit for a complete read/modify/write.
+Selection and active-harness updates acquire it before reading memory or
+revoking prompt authority; contention returns a conflict rather than waiting
+while holding application guards. Retention's conditional last-active clear and
+legacy replacement writes share the same per-store permit. Startup normalization
+also reserves before reading and propagates persistence failure before adoption.
+A same-workspace reopen shares the adopted memory owner only when canonical path,
+metadata root and retained lease match; rebuilding other metadata owners cannot
+bypass an already-admitted memory edit.
+
+Mutation reads distinguish absent memory (initialization) from malformed or
+unreadable data (failure). Selection APIs return persistence errors rather than
+acknowledging a write that failed. Existing read-only best-effort reads remain
+unchanged. Harness prompt revocation remains effective if a later settings write
+fails, and existing pending tuple-clear retries are still scheduled before the
+failure is returned; settings failure does not roll back that security action.
+
+An edit owns only its original metadata-store instance. It neither anchors a
+filesystem path nor grants SQL deletion/progress authority. Current legacy JSON
+I/O still runs in its existing application paths. A subsequent captured SQL
+settings-cleanup facade must retain the same permit outside application guards,
+bind original directory/lease ownership and synchronize file changes before
+recording SQL progress. Production remains JSON; no settings cleanup stage,
+format activation or performance qualification is enabled here.

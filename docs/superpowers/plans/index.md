@@ -308,3 +308,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Captured SQL session-image cleanup](2026-11-06-sql-image-cleanup.md) — Original image-owner removal, publication fencing and durable deletion progress.
 
 - [Windows pair-handle component qualification](2026-11-06-windows-pair-handle-qualification.md) — Separately gated ignored harness and one manual Windows synthetic native attempt, with explicit evidence and cleanup limits.
+
+- [Workspace memory edit ownership](2026-11-06-workspace-memory-edit-owner.md) — Nonblocking shared mutation permits before captured SQL settings cleanup.
