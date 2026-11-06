@@ -37,6 +37,9 @@ side effects. It must reconcile memory attribution and recovery in the same
 design, rather than add another toy success probe or catalog-count document.
 No new architecture, VFS, quota, allocator or native execution is selected by
 this audit.
+The [follow-up proposal](../superpowers/specs/2026-11-06-pair-preoperation-enforcement-design.md)
+compares enforcement amendments and identifies one concrete owner-pending package;
+its drafting does not change this audit or the accepted candidate.
 
 ## Accepted constraints and source pin
 
