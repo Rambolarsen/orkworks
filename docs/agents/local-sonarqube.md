@@ -110,10 +110,11 @@ python3 scripts/sonar.py compare .sonar/reports/baseline.json .sonar/reports/aft
 
 `scan` copies Git-listed working source into a temporary snapshot, including
 unstaged edits and new nonignored source. It excludes known credential files,
-generated output, host dependency caches and symlinks. The snapshot includes
-the specific public verification key required by the Rust build; other PEM
-files remain excluded. It installs desktop dependencies with pnpm in the
-scanner, and runs Clippy for
+generated output, host dependency caches and symlinks. Files are copied under
+the analysis roots plus required control files, and additionally every file the
+Rust sources embed with `include_str!`/`include_bytes!` (scripts, fixtures and
+validation vectors inside the checkout). It installs desktop dependencies with
+pnpm in the scanner, and runs Clippy for
 `crates/orkworksd/Cargo.toml`. Scanner dependencies, build output and server
 data use named volumes. The source snapshot lives in the disposable scanner
 container, separate from the host's Node/Electron dependencies.
@@ -126,6 +127,11 @@ until the active operation finishes. This prevents shutdown during submission,
 processing or report collection.
 The Git branch and HEAD remain explicit report metadata; these local projects
 are not Sonar-native branch or pull-request analysis.
+
+The snapshot copies Git-listed files under the analysis roots, required control
+files, and every file the Rust sources embed with `include_str!`/`include_bytes!`
+(scripts, fixtures and validation vectors); credential-like files listed by name
+and `.env*` remain excluded.
 
 Reports in ignored `.sonar/reports/` contain the staged source fingerprint,
 commit/dirty state, completed analysis ID, configuration identity, project/file
