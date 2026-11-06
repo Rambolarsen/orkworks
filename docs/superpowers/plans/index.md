@@ -6,6 +6,8 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 - [One Windows SQLite compile-only evidence attempt](2026-11-06-pair-sqlite-compile-evidence.md) — Proposed single compile budget and finite helper-frame evidence endpoint; execution approval pending.
 
+- [Bounded recommendation cleanup preflight](2026-11-06-recommendation-cleanup-preflight.md) — Original-directory read-only inventory and finite cleanup qualification.
+
 - [Captured SQL replay cleanup stage](2026-11-05-sql-replay-cleanup.md) — Original-owner durable replay removal and pending-job progress.
 
 - [Captured SQL close-first Delete admission](2026-11-05-sql-delete-admission.md) — Original-owner close, bounded tombstone admission and recoverable pending-cleanup receipts.
