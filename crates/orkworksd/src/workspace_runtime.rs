@@ -168,6 +168,38 @@ pub(crate) struct WorkspaceLease {
 }
 
 impl WorkspaceLease {
+    /// Read-only, blocking validation of a captured directory against the exact
+    /// advisory-lock inode. A copied path alone is not lease identity.
+    #[cfg(unix)]
+    pub(crate) fn validate_directory(&self, directory: &File) -> io::Result<()> {
+        use std::os::fd::AsRawFd;
+        use std::os::unix::fs::MetadataExt;
+        let expected = self.file.metadata()?;
+        let name = std::ffi::CString::new(".sidecar.lock").unwrap();
+        let mut found = std::mem::MaybeUninit::<libc::stat>::uninit();
+        // SAFETY: live directory FD, fixed C basename, valid output pointer.
+        // Observe the entry itself, never a symlink to the original lock.
+        if unsafe {
+            libc::fstatat(
+                directory.as_raw_fd(),
+                name.as_ptr(),
+                found.as_mut_ptr(),
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+        } < 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: successful fstatat initialized the complete stat structure.
+        let found = unsafe { found.assume_init() };
+        if expected.dev() != found.st_dev as u64 || expected.ino() != found.st_ino as u64 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "workspace directory does not match captured lease",
+            ));
+        }
+        Ok(())
+    }
     pub(crate) fn acquire(global_dir: &std::path::Path) -> io::Result<Self> {
         std::fs::create_dir_all(global_dir)?;
         let file = OpenOptions::new()

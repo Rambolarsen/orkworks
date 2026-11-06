@@ -1579,12 +1579,26 @@ admitting one retained blocking file job under original memory fences. Before
 admission, cancellation/expiry prevents effects; after admission the job retains
 its lease/resources and definitive partial result through caller loss or switch.
 
-The metadata owner exposes a narrow replay facade sharing its checkpoint cache.
-On Unix, directory handles prevent final root/events symlink traversal; relative
-unlinks target only exact event/replay/size basenames. Events and workspace
-syncs precede progress bit `0x01`, including retries with already absent files.
-Other platforms fail before effects. Workflow evidence and cleanup share the
-unchanged 32-job/32-MiB intent budget in `sql_writes/file_budget.rs`.
+The metadata owner exposes a memory-only replay intent sharing its checkpoint
+cache. Capture binds its no-follow root/events directory handles on a blocking
+job outside application guards before returning the view. A relative no-follow
+lock-file identity check ties the root to the captured workspace lease; missing,
+copied or symlinked replacement lock entries cannot authorize cleanup. Bound
+removal never reopens either directory path, so later ordinary directory
+replacement cannot redirect deletion.
+
+Capture retains one slot in the shared 32-job/32-MiB intent budget through view
+drop or definitive stage completion; execution transfers that slot rather than
+reserving twice. The two-second capture wait may expire or be cancelled while
+its read-only native job drains with the original lease/capacity. Memory is
+rechecked after binding. Binding errors remain explicit file outcomes; workflow
+cleanup can still use its independently captured owner.
+
+Relative unlinks target only exact event/replay/size basenames. Events and
+workspace syncs precede progress bit `0x01`, including retries with already
+absent files. Absence at capture is explicit: a later events entry is rejected
+without adoption or unlink, leaving the job for fresh capture/retry. Other
+platforms fail before effects. Legacy JSON deletion remains unchanged.
 
 Receipts separate file results from SQL progress results and detachment. A file
 failure never records progress; a progress failure retains the completed file

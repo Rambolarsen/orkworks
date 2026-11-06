@@ -600,3 +600,250 @@ async fn sql_replay_cleanup_maximum_identity_records_progress_without_optional_p
     assert!(replay_exists(&state));
     store.close().await.unwrap();
 }
+
+#[tokio::test]
+async fn sql_replay_directory_replacement_never_removes_replacement_payloads() {
+    let _serial = crate::runtime::peon_runtime::diagnostic_test_guard();
+    for target in ["events", "root"] {
+        for admitted in [false, true] {
+            let (dir, state, store, writes) = deleted().await;
+            let path = root(&state);
+            let mut view = Some(
+                writes
+                    .capture_deletion(ID.into(), CREATED.into())
+                    .await
+                    .unwrap(),
+            );
+            let mut gate = hold(&writes.replay_admitted);
+            let action = if admitted {
+                let action = tokio::spawn(view.take().unwrap().remove_replay());
+                gate.entered().await;
+                Some(action)
+            } else {
+                None
+            };
+            // The not-yet-started case keeps its view separately below.
+            let original = dir.path().join("original-replay-root");
+            if target == "events" {
+                std::fs::rename(path.join("events"), &original).unwrap();
+            } else {
+                std::fs::rename(&path, &original).unwrap();
+            }
+            std::fs::create_dir_all(path.join("events")).unwrap();
+            for suffix in ["ndjson", "terminal", "terminal-size"] {
+                std::fs::write(path.join(format!("events/{ID}.{suffix}")), b"replacement").unwrap();
+            }
+            drop(gate);
+            let receipt = if let Some(action) = action {
+                action.await.unwrap().unwrap()
+            } else {
+                view.take().unwrap().remove_replay().await.unwrap()
+            };
+            assert!(receipt.files.is_ok());
+            for suffix in ["ndjson", "terminal", "terminal-size"] {
+                assert_eq!(
+                    std::fs::read(path.join(format!("events/{ID}.{suffix}"))).unwrap(),
+                    b"replacement"
+                );
+                let old = if target == "events" {
+                    original.join(format!("{ID}.{suffix}"))
+                } else {
+                    original.join(format!("events/{ID}.{suffix}"))
+                };
+                assert!(!old.exists());
+            }
+            store.close().await.unwrap();
+        }
+    }
+}
+
+#[tokio::test]
+async fn sql_replay_capture_never_adopts_root_replaced_before_binding() {
+    let _serial = crate::runtime::peon_runtime::diagnostic_test_guard();
+    for lock_entry in ["missing", "copied", "symlink"] {
+        let (dir, state, store, writes) = deleted().await;
+        let path = root(&state);
+        let original = dir.path().join("original-root");
+        std::fs::rename(&path, &original).unwrap();
+        std::fs::create_dir_all(path.join("events")).unwrap();
+        match lock_entry {
+            "copied" => std::fs::write(path.join(".sidecar.lock"), b"replacement lock").unwrap(),
+            "symlink" => std::os::unix::fs::symlink(
+                original.join(".sidecar.lock"),
+                path.join(".sidecar.lock"),
+            )
+            .unwrap(),
+            _ => {}
+        }
+        let replacement = path.join(format!("events/{ID}.terminal"));
+        std::fs::write(&replacement, b"replacement").unwrap();
+        let receipt = writes
+            .capture_deletion(ID.into(), CREATED.into())
+            .await
+            .unwrap()
+            .remove_replay()
+            .await
+            .unwrap();
+        assert!(receipt.files.is_err());
+        assert!(receipt.progress.is_none());
+        assert_eq!(std::fs::read(replacement).unwrap(), b"replacement");
+        assert!(original.join(format!("events/{ID}.terminal")).exists());
+        store.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn sql_replay_capture_absence_does_not_adopt_later_events_directory() {
+    let _serial = crate::runtime::peon_runtime::diagnostic_test_guard();
+    let (_dir, state, store, writes) = deleted().await;
+    std::fs::remove_dir_all(root(&state).join("events")).unwrap();
+    let view = writes
+        .capture_deletion(ID.into(), CREATED.into())
+        .await
+        .unwrap();
+    std::fs::create_dir(root(&state).join("events")).unwrap();
+    let payload = root(&state).join(format!("events/{ID}.terminal"));
+    std::fs::write(&payload, b"later").unwrap();
+    let receipt = view.remove_replay().await.unwrap();
+    assert_eq!(
+        receipt.files.unwrap_err().kind(),
+        std::io::ErrorKind::AlreadyExists
+    );
+    assert!(receipt.progress.is_none());
+    assert_eq!(progress(&store).await, 0);
+    assert_eq!(std::fs::read(&payload).unwrap(), b"later");
+    let receipt = writes
+        .capture_deletion(ID.into(), CREATED.into())
+        .await
+        .unwrap()
+        .remove_replay()
+        .await
+        .unwrap();
+    assert!(matches!(receipt.progress, Some(Ok(1))));
+    assert!(!payload.exists());
+    store.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn sql_replay_capture_capacity_is_bounded_and_transfers_without_double_reservation() {
+    let _serial = crate::runtime::peon_runtime::diagnostic_test_guard();
+    let (_dir, _state, store, writes) = deleted().await;
+    let mut views = Vec::new();
+    for _ in 0..32 {
+        views.push(
+            writes
+                .capture_deletion(ID.into(), CREATED.into())
+                .await
+                .unwrap(),
+        );
+    }
+    assert!(matches!(
+        writes.capture_deletion(ID.into(), CREATED.into()).await,
+        Err(StoreError::QueueFull)
+    ));
+    let receipt = views.pop().unwrap().remove_replay().await.unwrap();
+    assert!(matches!(receipt.progress, Some(Ok(1))));
+    views.push(
+        writes
+            .capture_deletion(ID.into(), CREATED.into())
+            .await
+            .unwrap(),
+    );
+    assert!(matches!(
+        writes.capture_deletion(ID.into(), CREATED.into()).await,
+        Err(StoreError::QueueFull)
+    ));
+    drop(views);
+    let view = writes
+        .capture_deletion(ID.into(), CREATED.into())
+        .await
+        .unwrap();
+    drop(view);
+    store.close().await.unwrap();
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn sql_replay_capture_stall_cancel_and_expiry_retain_budget_until_drain_without_guards() {
+    let _serial = crate::runtime::peon_runtime::diagnostic_test_guard();
+    for cancel in [true, false] {
+        let (dir, state, store, writes) = deleted().await;
+        let (input_id, mut commands) = super::organization_tests::input_runtime(&state, dir.path());
+        let mut gate = hold(&writes.replay_binding);
+        let captured = writes.clone();
+        let action =
+            tokio::spawn(async move { captured.capture_deletion(ID.into(), CREATED.into()).await });
+        gate.entered().await;
+        assert!(state.projection_lock.try_lock().is_ok());
+        assert!(state.workspace.try_lock().is_ok());
+        assert!(state.sessions.try_lock().is_ok());
+        assert!(state.session_pids.try_lock().is_ok());
+        let driver = tokio::spawn(async move {
+            match commands.recv().await.unwrap() {
+                crate::runtime::session_runtime::RuntimeCommand::Input {
+                    data,
+                    accepted: Some(accepted),
+                } => {
+                    assert_eq!(data, "binding-input\r");
+                    let _ = accepted.send(Ok(()));
+                }
+                _ => panic!("expected acknowledged input"),
+            }
+        });
+        assert_eq!(
+            tokio::time::timeout(
+                Duration::from_secs(1),
+                crate::runtime::terminal_runtime::submit_approved_input(
+                    &state,
+                    input_id,
+                    "binding-input\r".into()
+                )
+            )
+            .await
+            .unwrap(),
+            Ok(())
+        );
+        driver.await.unwrap();
+        if cancel {
+            action.abort();
+            assert!(matches!(action.await,Err(e) if e.is_cancelled()));
+        } else {
+            assert!(matches!(
+                tokio::time::timeout(Duration::from_secs(3), action)
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                Err(StoreError::Expired)
+            ));
+        }
+        let mut held = Vec::new();
+        for _ in 0..31 {
+            held.push(
+                writes
+                    .capture_deletion(ID.into(), CREATED.into())
+                    .await
+                    .unwrap(),
+            );
+        }
+        assert!(matches!(
+            writes.capture_deletion(ID.into(), CREATED.into()).await,
+            Err(StoreError::QueueFull)
+        ));
+        assert!(replay_exists(&state));
+        assert_eq!(progress(&store).await, 0);
+        drop(gate);
+        let drained = tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                match writes.capture_deletion(ID.into(), CREATED.into()).await {
+                    Ok(view) => break view,
+                    Err(StoreError::QueueFull) => tokio::task::yield_now().await,
+                    Err(e) => panic!("unexpected capture failure: {e:?}"),
+                }
+            }
+        })
+        .await
+        .unwrap();
+        drop(drained);
+        drop(held);
+        store.close().await.unwrap();
+    }
+}
