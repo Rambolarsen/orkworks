@@ -49,7 +49,12 @@ checked revisions, titles, summary snapshots, lifecycle outcomes, archive choice
 plan/worktree references and existing content. Active remains derived from actual
 runtime/finalization; SQL persistence is not process ownership or acceptance.
 Keep close-first Archive/Delete, stale-action checks, archived/unknown-state
-retention protection and applied/default retention settings.
+retention protection and applied/default retention settings. Archived and
+non-terminal session-organization state also protects a workspace's durable
+history from the startup workspace garbage collector, which removes a
+workspace directory only when its source path is verifiably deleted (see
+`docs/agents/runtime-contracts.md`; unmounted or unavailable source roots keep
+their history and every removal is logged).
 
 Agent metadata writes in migrated workspaces use an independently qualified,
 authenticated sidecar protocol with no file fallback. Do not piggyback on gated
