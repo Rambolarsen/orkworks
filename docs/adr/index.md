@@ -145,3 +145,5 @@ Decision records and their original rationale and consequences.
 - [Paired membership indexes](0108-paired-membership-indexes.md) — Accepted source-derived physical membership, artifact metadata and sparse recovery direction for further qualification.
 
 - [Retained source registry ordering](0109-retained-source-registry-ordering.md) — Accepted immutable RegistryRoot compare-and-close ordering for further qualification; actual publishers/native evidence remain gated.
+
+- [Fresh pair preparation contract](0110-fresh-pair-preparation.md) — Accepted thirteen-resource workspace seed, root/run preparation and first-parent command direction for further qualification.

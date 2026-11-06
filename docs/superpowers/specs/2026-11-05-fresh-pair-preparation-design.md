@@ -1,10 +1,10 @@
 ---
 type: Design Proposal
 title: Fresh pair initialization and original child preparation contract
-description: Proposed complete fresh resource seeding and private original-attachment path, naming its prestate-producing events without granting implementation or native authority.
+description: Accepted fresh-pair seed and original preparation contract for further qualification, with actual producer, cutoff, resource and native evidence still gated.
 tags: [orkworks, hierarchy, initialization, preparation, qualification]
 status: draft
-workflow_status: contract-owner-review-pending
+workflow_status: owner-accepted-contract-qualification
 ---
 
 # Fresh pair initialization and original child preparation contract
@@ -324,3 +324,39 @@ wording clarifications identify the fifteen initial rows as hierarchy logical
 rows and explicitly state parent-runtime-attach's null claim/proof equations;
 neither changes the selected scope or authority. No review supplies actual
 producer/native/resource/recovery evidence or acceptance of these new choices.
+
+
+## Scoped contract acceptance — 2026-11-06
+
+After [PR #1441](https://github.com/Rambolarsen/orkworks/pull/1441), reviewed head
+`c0ef79db803d74a145339f1b4579b42b01170bdb`, merged
+`b7d77329edcb6bc023e7c7b1af77c27b6ab0b969`, the owner answered “keep going”
+to: “Approve these new contract choices for further qualification?”
+[#1445](https://github.com/Rambolarsen/orkworks/issues/1445) records that decision;
+[ADR 0110](../../adr/0110-fresh-pair-preparation.md) records its rationale and gates.
+
+This accepts the exact reviewed contract for further qualification:
+
+- The thirteen workspace resources and genuinely fresh format6/schema2 pair
+  initialization, with its complete initial catalogs/physical correspondence.
+- The original root/run resource and initial control seed schedule, preserving
+  the root's three reporting/record/payload rows and the shared run/workspace
+  prerequisites before child commands.
+- The first-parent-only parent-runtime-attach classification and supported
+  original proposal/approval/reservation/allocation/child-preparation path,
+  including its exact private inputs, prestate/effects/versions and disposition.
+
+Earlier proposed/owner-pending wording is historical for these exact choices.
+Reuse the completed bounded correctness/builder review of unchanged definitions;
+this acceptance adds no technical review, actual owner or native evidence.
+Do not ask again for these unchanged choices or prior accepted architecture,
+policy, representation, index and RegistryRoot decisions.
+
+Acceptance supplies no implementation, SQL/DDL/database/schema/migration,
+dependent fixture, recovery scan, executable/native plan, model/native probe,
+live source registration, new quota/bearer or activation. Actual native fresh-pair
+and ordinary/source/parent/UI/grant/allocator ownership, earlier strict source
+cutoffs, complete physical membership and feasible hard resource/recovery evidence
+remain the required next qualification work. The original child preparation
+permit remains the only scoped late-save/no-spawn exception; no earlier event
+inherits it. Gate2 stays Investigate, #1176 open and #740 closed research.
