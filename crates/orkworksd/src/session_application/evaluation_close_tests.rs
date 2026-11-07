@@ -261,7 +261,9 @@ fn evaluation_close_same_workspace_reload_is_not_authority_continuity() {
     assert!(!authority.can_respond());
 }
 
-fn startup_future(state: Arc<AppState>) -> impl std::future::Future<Output = Result<(), String>> {
+fn startup_future(
+    state: Arc<AppState>,
+) -> impl std::future::Future<Output = Result<(), crate::startup_failure::StartupError>> {
     let (mut runtime, control) = crate::runtime::session_runtime::SessionRuntime::live(24, 80);
     let (output, kill, cwd) = {
         let mut sessions = state.sessions.lock().unwrap();

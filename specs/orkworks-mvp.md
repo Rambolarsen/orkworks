@@ -893,6 +893,14 @@ The first useful MVP should include:
 - explicit kill (or the process exiting on its own) is what ends a session — not losing the WebSocket
 - app-restart PTY persistence is out of scope for the initial implementation: after a sidecar restart, sessions reconcile through existing metadata/lifecycle rules rather than being treated as live detached PTYs
 
+Admitted launch and resume failures preserve one optional, bounded
+`startupFailure` code/operation/time record. The desktop shows fixed safe text
+in the selected Terminal surface and the admitted resume failure returns it in
+HTTP 500 JSON. New creation still returns `creating` asynchronously. Admission,
+generation, cancellation and finalization guards own the record; it does not
+carry executable output or grant native/runtime authority. See the
+[approved startup diagnostics contract](../docs/superpowers/specs/2026-11-07-startup-diagnostics-design.md).
+
 Session organization has three states: Active, Closed and Archived. Active
 Archive and Delete close first; Delete confirmation precedes Close. Only completed
 Closed or Archived sessions may be permanently deleted. Restore returns Archived

@@ -49,6 +49,25 @@ is separate from background analysis settings. Other coding tools keep their
 own effort defaults. This describes current source builds; an older published
 installer may not include the control.
 
+## If a session cannot start
+
+Current source builds show **Session could not start** in the selected session's
+Terminal view, with a short explanation and a suggested check. The explanation
+remains with saved history after a reload. An older published installer may show
+only a generic failure toast.
+
+For a Codex isolation-check failure, check the configured executable; for a
+timeout, check that it responds to `--help`. Excessive help output also blocks
+startup. For a process-start failure, check the coding tool's executable and
+working directory. For terminal resource errors, check available system
+resources. Integration errors point to Settings; instruction errors point to
+workspace access. An unexpected failure asks you to check sidecar diagnostics.
+
+After fixing the cause, use the existing explicit start or resume controls.
+OrkWorks does not retry automatically. A new admitted attempt clears the previous
+explanation. The message does not include coding-tool output, tokens or paths.
+If saving session state fails, a visible explanation may not survive a restart.
+
 ## Switch without stopping the work
 
 Select a session to return to its terminal. Switching away does not stop its

@@ -588,6 +588,11 @@ pub(super) fn application_error_response(
     error: crate::session_application::SessionError,
 ) -> axum::response::Response {
     match error {
+        crate::session_application::SessionError::StartupFailed(failure) => {
+            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "error": "session_startup_failed", "message": failure.code.message(), "startupFailure": failure,
+            }))).into_response()
+        }
         crate::session_application::SessionError::BadRequest(message) => {
             (axum::http::StatusCode::BAD_REQUEST, message).into_response()
         }
@@ -1702,6 +1707,7 @@ mod tests {
             plan_path: None,
             connectivity: "online".into(),
             terminal_outcome: None,
+            startup_failure: None,
             pending_terminal_status: None,
             observed_status: None,
             ending_observed_status_snapshot: None,
@@ -2796,6 +2802,7 @@ mod tests {
                     plan_path: None,
                     connectivity: "online".into(),
                     terminal_outcome: None,
+                    startup_failure: None,
                     pending_terminal_status: None,
                     observed_status: None,
                     ending_observed_status_snapshot: None,
@@ -3232,6 +3239,7 @@ mod tests {
                     plan_path: None,
                     connectivity: "online".into(),
                     terminal_outcome: None,
+                    startup_failure: None,
                     pending_terminal_status: None,
                     observed_status: None,
                     ending_observed_status_snapshot: None,
@@ -3381,6 +3389,10 @@ mod tests {
             "before",
             "before",
         );
+        metadata.startup_failure = Some(crate::startup_failure::StartupFailure::new(
+            crate::startup_failure::StartupFailureCode::ProcessSpawnFailed,
+            crate::startup_failure::StartupOperation::Launch,
+        ));
         metadata.harness = "opencode".into();
         metadata.lifecycle_phase = "ended".into();
         metadata.lifecycle = "ended".into();
@@ -3416,6 +3428,21 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert!(state.sessions.lock().unwrap()[&session_id]
+            .info
+            .startup_failure
+            .is_none());
+        assert!(state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(&session_id)
+            .unwrap()
+            .startup_failure
+            .is_none());
         let bytes = response.bytes().await.unwrap();
         server.abort();
         let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
@@ -3714,7 +3741,7 @@ mod tests {
             .expect("startup task does not panic");
         assert_eq!(
             response.into_response().status(),
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR
+            axum::http::StatusCode::CONFLICT
         );
 
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
@@ -4532,6 +4559,7 @@ mod tests {
                     plan_path: None,
                     connectivity: "online".into(),
                     terminal_outcome: None,
+                    startup_failure: None,
                     pending_terminal_status: None,
                     observed_status: None,
                     ending_observed_status_snapshot: None,
@@ -4648,6 +4676,7 @@ mod tests {
                     plan_path: None,
                     connectivity: "online".into(),
                     terminal_outcome: None,
+                    startup_failure: None,
                     pending_terminal_status: None,
                     observed_status: None,
                     ending_observed_status_snapshot: None,
@@ -5652,6 +5681,7 @@ mod tests {
                     plan_path: None,
                     connectivity: "online".into(),
                     terminal_outcome: None,
+                    startup_failure: None,
                     pending_terminal_status: None,
                     observed_status: None,
                     ending_observed_status_snapshot: None,
@@ -7906,6 +7936,7 @@ mod tests {
                 plan_path: None,
                 connectivity: "offline".into(),
                 terminal_outcome: Some("killed".into()),
+                startup_failure: None,
                 pending_terminal_status: None,
                 observed_status: None,
                 ending_observed_status_snapshot: None,
@@ -8183,6 +8214,7 @@ mod tests {
                     plan_path: None,
                     connectivity: "online".into(),
                     terminal_outcome: None,
+                    startup_failure: None,
                     pending_terminal_status: None,
                     observed_status: Some("blocked".into()),
                     ending_observed_status_snapshot: None,
@@ -8348,6 +8380,7 @@ mod tests {
                 info: SessionInfo {
                     connectivity: Some("offline".into()),
                     terminal_outcome: Some("ended".into()),
+                    startup_failure: None,
                     last_activity_at: Some("2026-06-28T09:05:00Z".into()),
                     ..test_session_info(
                         session_id.clone(),
@@ -9299,6 +9332,7 @@ mod tests {
                 plan_path: None,
                 connectivity: "offline".into(),
                 terminal_outcome: Some("ended".into()),
+                startup_failure: None,
                 pending_terminal_status: None,
                 observed_status: None,
                 ending_observed_status_snapshot: None,
@@ -10119,5 +10153,38 @@ mod evaluation_close_poisoned_workspace_tests {
         drop(home_guard);
         assert_eq!(status, axum::http::StatusCode::INTERNAL_SERVER_ERROR);
         assert!(untouched);
+    }
+}
+
+#[cfg(test)]
+mod startup_failure_response_tests {
+    use super::*;
+    #[tokio::test]
+    async fn startup_failure_http_uses_only_catalog_text() {
+        use crate::startup_failure::{
+            StartupFailure, StartupFailureCode as Code, StartupOperation,
+        };
+        let failure = StartupFailure::new(Code::ProcessSpawnFailed, StartupOperation::Resume);
+        let response = application_error_response(
+            crate::session_application::SessionError::StartupFailed(failure),
+        );
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR
+        );
+        let bytes = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["error"], "session_startup_failed");
+        assert_eq!(body["startupFailure"]["code"], "process_spawn_failed");
+        assert_eq!(body["message"], "Could not start the coding tool. Check its configured executable and working directory, then retry.");
+        let response = application_error_response(
+            crate::session_application::SessionError::Internal("secret-token"),
+        );
+        assert!(axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap()
+            .is_empty());
     }
 }

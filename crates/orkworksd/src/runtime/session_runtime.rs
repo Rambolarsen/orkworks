@@ -7,6 +7,7 @@ use crate::runtime::terminal_runtime::{
     set_session_status_for_generation, set_workflow_report_token, should_forward_terminal_env,
     terminal_env_overrides,
 };
+use crate::startup_failure::{StartupError, StartupFailureCode as Code};
 use crate::{harness, peon, plan_handoff, AppState};
 use chrono::{DateTime, Utc};
 use portable_pty::{CommandBuilder, PtySize, PtySystem};
@@ -536,7 +537,17 @@ impl Write for EvaluationWriterFault {
 }
 
 #[derive(Debug)]
+#[cfg(test)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum StartupFault {
+    PtyOpen,
+    TerminalReader,
+    TerminalWriter,
+}
+
 pub(crate) struct SessionRuntime {
+    #[cfg(test)]
+    startup_fault: Option<StartupFault>,
     #[cfg(test)]
     evaluation_driver_abort: Option<tokio::task::AbortHandle>,
     #[cfg(test)]
@@ -604,6 +615,8 @@ impl SessionRuntime {
                 evaluation_driver_abort: None,
                 #[cfg(test)]
                 evaluation_writer_fault: None,
+                #[cfg(test)]
+                startup_fault: None,
                 evaluation_revocation: None,
                 runtime_instance_id: uuid::Uuid::new_v4().to_string(),
                 run_generation: next_runtime_generation(),
@@ -661,6 +674,8 @@ impl SessionRuntime {
         Self {
             evaluation_driver_abort: None,
             evaluation_writer_fault: None,
+            #[cfg(test)]
+            startup_fault: None,
             evaluation_revocation: None,
             runtime_instance_id: uuid::Uuid::new_v4().to_string(),
             run_generation: next_runtime_generation(),
@@ -2069,7 +2084,7 @@ pub(crate) fn start_session_runtime(
     output_tx: broadcast::Sender<RuntimeEvent>,
     kill_rx: tokio::sync::watch::Receiver<bool>,
     initial_size: PtySize,
-) -> impl std::future::Future<Output = Result<(), String>> {
+) -> impl std::future::Future<Output = Result<(), StartupError>> {
     start_session_runtime_inner(
         state,
         id,
@@ -2086,6 +2101,8 @@ pub(crate) fn start_session_runtime(
 }
 
 struct RuntimeStartup {
+    #[cfg(test)]
+    startup_fault: Option<StartupFault>,
     #[cfg(all(test, unix))]
     instruction_fixture: Option<Arc<super::worktree_instructions::testing::RuntimeFixture>>,
     worktree_instruction_request: Option<super::worktree_instructions::LaunchRequest>,
@@ -2110,7 +2127,7 @@ fn start_session_runtime_inner(
         super::codex_native::NativeLaunchPlan,
         Vec<(String, String)>,
     )>,
-) -> impl std::future::Future<Output = Result<(), String>> {
+) -> impl std::future::Future<Output = Result<(), StartupError>> {
     // Captured synchronously; dropping the returned unpolled future revokes this exact owner.
     let captured = state.sessions.lock().unwrap().get(&id).map(|handle| {
         let harness = handle
@@ -2119,6 +2136,8 @@ fn start_session_runtime_inner(
             .as_deref()
             .or(handle.info.harness.as_deref());
         RuntimeStartup {
+            #[cfg(test)]
+            startup_fault: handle.runtime.startup_fault,
             #[cfg(all(test, unix))]
             instruction_fixture: handle.runtime.instruction_fixture.clone(),
             worktree_instruction_request: handle.runtime.worktree_instruction_request.clone(),
@@ -2163,8 +2182,10 @@ async fn run_session_runtime(
         super::codex_native::NativeLaunchPlan,
         Vec<(String, String)>,
     )>,
-) -> Result<(), String> {
+) -> Result<(), StartupError> {
     let RuntimeStartup {
+        #[cfg(test)]
+        startup_fault,
         #[cfg(all(test, unix))]
         instruction_fixture,
         worktree_instruction_request,
@@ -2175,10 +2196,13 @@ async fn run_session_runtime(
         revocation,
     } = captured.ok_or_else(|| "session runtime handle is not installed".to_string())?;
     if *kill_rx.borrow() || startup_generation_is_ending(&state, &id, run_generation) {
-        return Err("session runtime was deleted during startup".into());
+        return Err(StartupError::cancelled(
+            "session runtime was deleted during startup",
+        ));
     }
-    let instruction_scope =
-        super::worktree_instructions::prepare(worktree_instruction_request).await?;
+    let instruction_scope = super::worktree_instructions::prepare(worktree_instruction_request)
+        .await
+        .map_err(|error| StartupError::classified(Code::InstructionSetupFailed, error))?;
     #[cfg(all(test, unix))]
     let instruction_scope = if let Some(fixture) = instruction_fixture.as_ref() {
         fixture.prepare().await
@@ -2186,7 +2210,9 @@ async fn run_session_runtime(
         instruction_scope
     };
     let native_plan = if is_codex_session {
-        super::codex_native::eligible(&command, &state.integration_probe_cache).await?
+        super::codex_native::eligible(&command, &state.integration_probe_cache)
+            .await
+            .map_err(|error| StartupError::classified(Code::NativeStartupFailed, error))?
     } else {
         None
     };
@@ -2196,22 +2222,26 @@ async fn run_session_runtime(
         None => (native_plan, Vec::new()),
     };
     if *kill_rx.borrow() || startup_generation_is_ending(&state, &id, run_generation) {
-        return Err("session runtime was deleted during startup".into());
+        return Err(StartupError::cancelled(
+            "session runtime was deleted during startup",
+        ));
     }
     if is_codex_session && native_plan.is_none() {
         if let Err(error) = super::codex_launch::isolate_session(&mut command).await {
-            // Deletion signals cancellation before its asynchronous status
-            // transition. Preserve that intent even if the probe fails first.
-            let terminal_status = if *kill_rx.borrow() { "killed" } else { "error" };
-            set_session_status_for_generation(&state, &id, run_generation, terminal_status).await;
-            // There is no PTY driver yet to finalize an existing ending
-            // transition, so always schedule this generation.
-            schedule_session_ending_finalization(
-                state.clone(),
-                id.clone(),
-                run_generation,
-                terminal_status.into(),
-            );
+            if *kill_rx.borrow() || startup_generation_is_ending(&state, &id, run_generation) {
+                // No PTY driver exists yet. Cancellation still owns its killed
+                // transition/finalization, independently of diagnostic publication.
+                set_session_status_for_generation(&state, &id, run_generation, "killed").await;
+                schedule_session_ending_finalization(
+                    state.clone(),
+                    id.clone(),
+                    run_generation,
+                    "killed".into(),
+                );
+                return Err(StartupError::cancelled(
+                    "session runtime was deleted during help probe",
+                ));
+            }
             return Err(error);
         }
         let was_killed = *kill_rx.borrow();
@@ -2224,16 +2254,27 @@ async fn run_session_runtime(
                 run_generation,
                 "killed".into(),
             );
-            return Err("session runtime was deleted during startup".into());
+            return Err(StartupError::cancelled(
+                "session runtime was deleted during startup",
+            ));
         }
     }
     let (initial_size, pending_commands) =
         capture_startup_runtime_state(&state, &id, &mut control_rx, initial_size).await;
     if *kill_rx.borrow() || startup_generation_is_ending(&state, &id, run_generation) {
-        return Err("session runtime was deleted during startup".into());
+        return Err(StartupError::cancelled(
+            "session runtime was deleted during startup",
+        ));
     }
     let pty_sys = make_pty_system();
-    let pair = pty_sys.openpty(initial_size).map_err(|e| e.to_string())?;
+    let pair = pty_sys.openpty(initial_size);
+    #[cfg(test)]
+    let pair = if startup_fault == Some(StartupFault::PtyOpen) {
+        Err(std::io::Error::other("secret-token injected PTY failure").into())
+    } else {
+        pair
+    };
+    let pair = pair.map_err(|error| StartupError::classified(Code::PtyOpenFailed, error))?;
 
     #[cfg(windows)]
     let program = {
@@ -2321,7 +2362,9 @@ async fn run_session_runtime(
         if *kill_rx.borrow() || startup_generation_is_ending(&state, &id, run_generation) {
             revocation.close();
             clear_workflow_report_token_if_matches(&id, &report_token);
-            return Err("session runtime was replaced before native startup".into());
+            return Err(StartupError::cancelled(
+                "session runtime was replaced before native startup",
+            ));
         }
         execution_env.push(("ORKWORKS_CODEX_NATIVE_APPROVAL".into(), "1".into()));
         let mut owned = match plan.start(&execution_env).await {
@@ -2329,7 +2372,7 @@ async fn run_session_runtime(
             Err(error) => {
                 revocation.close();
                 clear_workflow_report_token_if_matches(&id, &report_token);
-                return Err(error);
+                return Err(StartupError::classified(Code::NativeStartupFailed, error));
             }
         };
         if *kill_rx.borrow() || startup_generation_is_ending(&state, &id, run_generation) {
@@ -2337,7 +2380,9 @@ async fn run_session_runtime(
             owned.shutdown().await;
             revocation.close();
             clear_workflow_report_token_if_matches(&id, &report_token);
-            return Err("session runtime was deleted during native startup".into());
+            return Err(StartupError::cancelled(
+                "session runtime was deleted during native startup",
+            ));
         }
         cmd = CommandBuilder::new(owned.resolved_executable());
         cmd.args(owned.tui_args());
@@ -2358,7 +2403,9 @@ async fn run_session_runtime(
         revocation.close();
         stop_native_startup(&mut native).await;
         clear_workflow_report_token_if_matches(&id, &report_token);
-        return Err("session runtime was replaced before native PTY spawn".into());
+        return Err(StartupError::cancelled(
+            "session runtime was replaced before native PTY spawn",
+        ));
     }
     // Revalidate at the actual native PTY spawn, after every awaited step.
     if let Some(owned) = native.as_ref() {
@@ -2366,7 +2413,7 @@ async fn run_session_runtime(
             revocation.close();
             stop_native_startup(&mut native).await;
             clear_workflow_report_token_if_matches(&id, &report_token);
-            return Err(error);
+            return Err(StartupError::classified(Code::NativeStartupFailed, error));
         }
     }
     // No await between final qualification/selection and PTY spawn. Scope and
@@ -2375,7 +2422,9 @@ async fn run_session_runtime(
         if *kill_rx.borrow() || startup_generation_is_ending(&state, &id, run_generation) {
             revocation.close();
             clear_workflow_report_token_if_matches(&id, &report_token);
-            return Err("session runtime was replaced before instruction-scoped spawn".into());
+            return Err(StartupError::cancelled(
+                "session runtime was replaced before instruction-scoped spawn",
+            ));
         }
         scope.apply(&mut cmd, &command);
     }
@@ -2394,7 +2443,7 @@ async fn run_session_runtime(
             if let Some((_, generation)) = &prompt_generation {
                 super::prompt_authority::registry().remove_if_generation(&id, generation);
             }
-            return Err(error.to_string());
+            return Err(StartupError::classified(Code::ProcessSpawnFailed, error));
         }
     };
     // `set_workflow_report_token` overwrites any prior value, which is exactly
@@ -2415,7 +2464,9 @@ async fn run_session_runtime(
         let _ = child.kill();
         let _ = child.wait();
         clear_workflow_report_token_if_matches(&id, &report_token);
-        return Err("session runtime was replaced during startup".into());
+        return Err(StartupError::cancelled(
+            "session runtime was replaced during startup",
+        ));
     }
     // Captured before `child` moves into the wait task below; used to probe
     // the process's live cwd (issue #241) rather than trusting the frozen
@@ -2424,30 +2475,32 @@ async fn run_session_runtime(
         state.session_pids.lock().unwrap().insert(id.clone(), pid);
     }
     let startup_grace_ends_at = tokio::time::Instant::now() + STARTUP_ATTENTION_GRACE;
-    // The PTY has spawned, so the lifecycle is alive before either background
-    // task can observe and classify its first output chunk.
+    // The PTY has spawned; keep deletion checks ahead of terminal I/O setup.
     if startup_generation_is_ending(&state, &id, run_generation) {
         revocation.close();
         stop_native_startup(&mut native).await;
         abort_post_spawn_startup(&state, &id, run_generation, child.as_mut());
-        return Err("session runtime was deleted during startup".into());
+        return Err(StartupError::cancelled(
+            "session runtime was deleted during startup",
+        ));
     }
     #[cfg(test)]
     wait_at_startup_ending_check(&id).await;
-    if !set_session_status_for_generation(&state, &id, run_generation, "running").await {
-        revocation.close();
-        stop_native_startup(&mut native).await;
-        let _ = abort_post_spawn_startup(&state, &id, run_generation, child.as_mut());
-        return Err("session runtime was replaced during startup".into());
-    }
 
-    let mut reader = match pair.master.try_clone_reader() {
+    let reader = pair.master.try_clone_reader();
+    #[cfg(test)]
+    let reader = if startup_fault == Some(StartupFault::TerminalReader) {
+        Err(std::io::Error::other("secret-token injected reader failure").into())
+    } else {
+        reader
+    };
+    let mut reader = match reader {
         Ok(reader) => reader,
         Err(error) => {
             revocation.close();
             stop_native_startup(&mut native).await;
             let _ = abort_post_spawn_startup(&state, &id, run_generation, child.as_mut());
-            return Err(error.to_string());
+            return Err(StartupError::classified(Code::TerminalIoFailed, error));
         }
     };
     // Placed after the startup gates above (tests park there while possibly
@@ -2461,15 +2514,33 @@ async fn run_session_runtime(
             align_banner_grace_with_startup(&mut handle.pending_work_signal, startup_grace_ends_at);
         }
     }
-    let writer = match pair.master.take_writer() {
+    let writer = pair.master.take_writer();
+    #[cfg(test)]
+    let writer = if startup_fault == Some(StartupFault::TerminalWriter) {
+        Err(std::io::Error::other("secret-token injected writer failure").into())
+    } else {
+        writer
+    };
+    let writer = match writer {
         Ok(writer) => writer,
         Err(error) => {
             revocation.close();
             stop_native_startup(&mut native).await;
             let _ = abort_post_spawn_startup(&state, &id, run_generation, child.as_mut());
-            return Err(error.to_string());
+            return Err(StartupError::classified(Code::TerminalIoFailed, error));
         }
     };
+    // Publish running only after fallible terminal setup, before any output
+    // reader/driver task can classify the first bytes. Pending creation may now
+    // treat running as the successful startup boundary.
+    if !set_session_status_for_generation(&state, &id, run_generation, "running").await {
+        revocation.close();
+        stop_native_startup(&mut native).await;
+        let _ = abort_post_spawn_startup(&state, &id, run_generation, child.as_mut());
+        return Err(StartupError::cancelled(
+            "session runtime was replaced during startup",
+        ));
+    }
     #[cfg(test)]
     let writer = {
         let fault = {
@@ -7851,6 +7922,72 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
     // finalization for reasons unrelated to the reporting capability itself.
     // `set_workflow_report_token` unconditionally overwrites any prior entry
     // (see that test), which is the actual mechanism resume relies on.
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn startup_faults_classify_pty_io_without_publishing_running() {
+        for (fault, expected) in [
+            (StartupFault::PtyOpen, Code::PtyOpenFailed),
+            (StartupFault::TerminalReader, Code::TerminalIoFailed),
+            (StartupFault::TerminalWriter, Code::TerminalIoFailed),
+        ] {
+            let id = format!("startup-fault-{}", uuid::Uuid::new_v4());
+            let state = test_state_with_runtime_session(&id);
+            let dir = tempfile::tempdir().unwrap();
+            let (mut runtime, control_rx) =
+                SessionRuntime::live(DEFAULT_TERMINAL_ROWS, DEFAULT_TERMINAL_COLS);
+            runtime.startup_fault = Some(fault);
+            let output_tx = runtime.output_tx.clone();
+            {
+                let mut sessions = state.sessions.lock().unwrap();
+                let handle = sessions.get_mut(&id).unwrap();
+                handle.info.status = "creating".into();
+                handle.info.lifecycle_phase = "creating".into();
+                handle.runtime = runtime;
+            }
+            let (_kill_tx, kill_rx) = tokio::sync::watch::channel(false);
+            let error = start_session_runtime(
+                state.clone(),
+                id.clone(),
+                harness::CommandSpec {
+                    program: "/bin/sh".into(),
+                    args: vec!["-c".into(), "exec sleep 10".into()],
+                    cwd: dir.path().display().to_string(),
+                },
+                None,
+                control_rx,
+                output_tx,
+                kill_rx,
+                PtySize {
+                    rows: DEFAULT_TERMINAL_ROWS,
+                    cols: DEFAULT_TERMINAL_COLS,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                },
+            )
+            .await
+            .unwrap_err();
+            assert_eq!(error.code, Some(expected));
+            assert_eq!(
+                state.sessions.lock().unwrap()[&id].info.status,
+                "creating",
+                "failed terminal setup must never resolve pending creation as running"
+            );
+            let safe = crate::startup_failure::StartupFailure::new(
+                expected,
+                crate::startup_failure::StartupOperation::Launch,
+            );
+            assert!(!serde_json::to_string(&safe)
+                .unwrap()
+                .contains("secret-token"));
+            assert!(
+                !crate::runtime::terminal_runtime::verify_workflow_report_token(
+                    &id,
+                    "secret-token"
+                )
+            );
+        }
+    }
 
     #[tokio::test]
     async fn os_randomness_failure_aborts_startup_before_spawning_a_child() {

@@ -76,6 +76,8 @@ pub(crate) struct SessionInfo {
     pub(crate) connectivity: Option<String>,
     #[serde(rename = "terminalOutcome", skip_serializing_if = "Option::is_none")]
     pub(crate) terminal_outcome: Option<String>,
+    #[serde(rename = "startupFailure", skip_serializing_if = "Option::is_none")]
+    pub(crate) startup_failure: Option<crate::startup_failure::StartupFailure>,
     pub(crate) cwd: String,
     #[serde(rename = "worktreeBinding", skip_serializing_if = "Option::is_none")]
     pub(crate) worktree_binding: Option<crate::session_location::WorktreeBinding>,
@@ -248,6 +250,7 @@ impl SessionInfo {
             status: meta.status.clone(),
             connectivity: None,
             terminal_outcome: None,
+            startup_failure: meta.startup_failure.clone(),
             worktree_binding: meta.worktree_binding.clone(),
             git_context_source: None,
             cwd: meta.cwd.clone(),
@@ -366,6 +369,7 @@ mod tests {
             status: status.into(),
             connectivity: None,
             terminal_outcome: None,
+            startup_failure: None,
             cwd: cwd.into(),
             created_at: created_at.clone(),
             last_activity_at: Some(created_at),

@@ -216,6 +216,7 @@ pub(crate) fn recommendation_deliveries_in_flight_for_workspace(
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum SessionError {
+    StartupFailed(crate::startup_failure::StartupFailure),
     BadRequest(&'static str),
     EmptyBadRequest,
     Accepted,
@@ -2315,7 +2316,7 @@ impl SessionApplication {
         let task_id = id.to_string();
         let task_status = status.to_string();
         tokio::task::spawn_blocking(move || {
-            transition_status_blocking(state, task_id, task_status, expected_generation)
+            transition_status_blocking(state, task_id, task_status, expected_generation, None)
         })
         .await
         .unwrap_or_else(|error| {
@@ -5295,6 +5296,79 @@ pub(crate) struct ResumeAdmission {
     committed: bool,
 }
 
+async fn finish_startup_cancellation(
+    state: Arc<AppState>,
+    id: String,
+    generation: crate::runtime::session_runtime::RuntimeGeneration,
+) {
+    let cancelled_owner = state
+        .sessions
+        .lock()
+        .unwrap()
+        .get(&id)
+        .is_some_and(|handle| {
+            handle.runtime.run_generation() == generation
+                && (*handle.kill_tx.borrow() || handle.info.lifecycle_phase == "ending")
+        });
+    if cancelled_owner {
+        crate::runtime::terminal_runtime::set_session_status_for_generation(
+            &state, &id, generation, "killed",
+        )
+        .await;
+        crate::runtime::terminal_runtime::schedule_session_ending_finalization(
+            state,
+            id,
+            generation,
+            "killed".into(),
+        );
+    }
+}
+
+async fn publish_startup_failure(
+    state: Arc<AppState>,
+    id: String,
+    generation: crate::runtime::session_runtime::RuntimeGeneration,
+    error: crate::startup_failure::StartupError,
+    operation: crate::startup_failure::StartupOperation,
+) -> SessionError {
+    let Some(code) = error.code else {
+        finish_startup_cancellation(state, id, generation).await;
+        return SessionError::Conflict;
+    };
+    let failure = crate::startup_failure::StartupFailure::new(code, operation);
+    let saved = failure.clone();
+    let publish_state = state.clone();
+    let publish_id = id.clone();
+    let published = tokio::task::spawn_blocking(move || {
+        // Exact-generation revocation retains existing authority cleanup ordering.
+        crate::runtime::session_runtime::close_runtime_generation(
+            &publish_state,
+            &publish_id,
+            Some(generation),
+        );
+        transition_status_blocking(
+            publish_state,
+            publish_id,
+            "error".into(),
+            Some(generation),
+            Some(saved),
+        )
+    })
+    .await
+    .unwrap_or(false);
+    if !published {
+        finish_startup_cancellation(state, id, generation).await;
+        return SessionError::Conflict;
+    }
+    crate::runtime::terminal_runtime::schedule_session_ending_finalization(
+        state,
+        id,
+        generation,
+        "error".into(),
+    );
+    SessionError::StartupFailed(failure)
+}
+
 /// The spawn-blocking body of a session status transition, run under the
 /// prompt-authority transition lock.
 fn transition_status_blocking(
@@ -5302,6 +5376,7 @@ fn transition_status_blocking(
     id: String,
     status: String,
     expected_generation: Option<crate::runtime::session_runtime::RuntimeGeneration>,
+    startup_failure: Option<crate::startup_failure::StartupFailure>,
 ) -> bool {
     let _prompt_transition = crate::runtime::prompt_authority::transition_lock()
         .lock()
@@ -5309,7 +5384,22 @@ fn transition_status_blocking(
     let is_terminal = matches!(status.as_str(), "killed" | "ended" | "error");
     let (handle_decision, session_resume, entered_running, entered_terminal, already_ending) = {
         let mut sessions = state.sessions.lock().unwrap();
-        match transition_handle_session(&mut sessions, &id, &status, expected_generation) {
+        if startup_failure.is_some()
+            && !sessions.get(&id).is_some_and(|handle| {
+                expected_generation == Some(handle.runtime.run_generation())
+                    && !*handle.kill_tx.borrow()
+                    && !matches!(handle.info.lifecycle_phase.as_str(), "ending" | "ended")
+            })
+        {
+            return false;
+        }
+        let decision = transition_handle_session(&mut sessions, &id, &status, expected_generation);
+        if matches!(decision, HandleTransition::Applied { .. }) {
+            if let Some(failure) = &startup_failure {
+                sessions.get_mut(&id).unwrap().info.startup_failure = Some(failure.clone());
+            }
+        }
+        match decision {
             HandleTransition::Aborted => return false,
             HandleTransition::Missing => (None, (None, None), false, false, false),
             HandleTransition::Applied {
@@ -5372,6 +5462,7 @@ fn transition_status_blocking(
                     timestamp: now.clone(),
                     had_live_handle: handle_decision.is_some(),
                     previous: handle_decision.unwrap_or(false),
+                    startup_failure: startup_failure.clone(),
                 },
             ) {
                 PersistOutcome::Applied => applied = true,
@@ -5526,6 +5617,7 @@ struct LifecyclePersist<'a> {
     had_live_handle: bool,
     /// The live decision the caller falls back to when persistence fails.
     previous: bool,
+    startup_failure: Option<crate::startup_failure::StartupFailure>,
 }
 
 /// Persist one lifecycle transition. Event bookkeeping is left to the caller,
@@ -5542,19 +5634,23 @@ fn persist_lifecycle_transition(
     let stored = ws
         .metadata
         .mutate_session_optional(request.id, scope, |meta| {
-            Ok(
-                metadata::lifecycle_mutations::LifecycleMutation::Transition {
-                    status: request.status.to_string(),
-                    had_live_handle: request.had_live_handle,
-                    already_ending: request.already_ending,
-                    live_phase: request.live_phase.clone(),
-                    resume: request.resume.0,
-                    resumed_from: request.resume.1,
-                    timestamp: request.timestamp.clone(),
+            let applied = metadata::lifecycle_mutations::LifecycleMutation::Transition {
+                status: request.status.to_string(),
+                had_live_handle: request.had_live_handle,
+                already_ending: request.already_ending,
+                live_phase: request.live_phase.clone(),
+                resume: request.resume.0,
+                resumed_from: request.resume.1,
+                timestamp: request.timestamp.clone(),
+            }
+            .apply(meta)
+            .is_some();
+            if applied {
+                if let Some(failure) = request.startup_failure {
+                    meta.startup_failure = Some(failure);
                 }
-                .apply(meta)
-                .is_some(),
-            )
+            }
+            Ok(applied)
         });
     match stored {
         Ok(Some(_)) => PersistOutcome::Applied,
@@ -6159,6 +6255,7 @@ impl Drop for ResumeAdmission {
                 current.lifecycle = saved.lifecycle.clone();
                 current.connectivity = saved.connectivity.clone();
                 current.terminal_outcome = saved.terminal_outcome.clone();
+                current.startup_failure = saved.startup_failure.clone();
                 current.pending_terminal_status = saved.pending_terminal_status.clone();
                 current.ending_observed_status_snapshot =
                     saved.ending_observed_status_snapshot.clone();
@@ -6469,6 +6566,7 @@ async fn resume_session_workflow(
         status: "creating".into(),
         connectivity: Some(connectivity_for_status("creating").into()),
         terminal_outcome: terminal_outcome_for_status("creating"),
+        startup_failure: None,
         cwd: command.cwd.clone(),
         created_at: meta.created_at.clone(),
         last_activity_at: Some(now.clone()),
@@ -6597,6 +6695,7 @@ async fn resume_session_workflow(
                     stored_meta.observed_status = None;
                     stored_meta.connectivity = connectivity_for_status("creating").to_string();
                     stored_meta.terminal_outcome = None;
+                    stored_meta.startup_failure = None;
                     stored_meta.last_activity = now.clone();
                     stored_meta.resume = resumed_memory.clone();
                     stored_meta.resume_options = info.resume_options.clone();
@@ -6634,56 +6733,46 @@ async fn resume_session_workflow(
         },
     );
     let startup_task = tokio::spawn(async move {
-        let start_result = match prepare_prompt_authority_generation(
-            &startup_state,
-            &startup_id,
-            Some(&startup_harness_id),
-            &startup_executable,
-            resume_native_session_id.as_deref(),
-        ) {
-            Ok(()) => runtime_future.await,
-            Err(error) => {
-                drop(runtime_future);
-                Err(error)
+        let operation_state = startup_state.clone();
+        let operation_id = startup_id.clone();
+        let start_result = tokio::spawn(async move {
+            match prepare_prompt_authority_generation(
+                &operation_state,
+                &operation_id,
+                Some(&startup_harness_id),
+                &startup_executable,
+                resume_native_session_id.as_deref(),
+            ) {
+                Ok(()) => runtime_future.await,
+                Err(error) => {
+                    drop(runtime_future);
+                    Err(error.into())
+                }
             }
-        };
-
-        if let Err(error) = &start_result {
-            admission.commit();
-            tracing::error!(session_id = %startup_id, %error, "failed to start resumed session runtime");
-            if crate::runtime::terminal_runtime::set_session_status_for_generation(
-                &startup_state,
-                &startup_id,
-                run_generation,
-                "error",
-            )
-            .await
-            {
-                crate::runtime::terminal_runtime::schedule_session_ending_finalization(
-                    startup_state.clone(),
-                    startup_id.clone(),
-                    run_generation,
-                    "error".into(),
-                );
-            }
-        } else {
-            admission.commit();
-        }
-        start_result
-    });
-    let start_result = startup_task
+        })
         .await
-        .map_err(|error| format!("resumed runtime startup task failed: {error}"))
-        .and_then(|result| result);
-
-    match start_result {
-        Ok(()) => {}
-        Err(error) => {
-            tracing::error!(session_id = %id, %error, "failed to start resumed session runtime");
-            return Err(crate::session_application::SessionError::Internal(
-                "application operation failed",
-            ));
+        .unwrap_or_else(|error| {
+            Err(format!("resumed runtime startup task failed: {error}").into())
+        });
+        admission.commit();
+        match start_result {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                tracing::error!(session_id = %startup_id, %error, "failed to start resumed session runtime");
+                Err(publish_startup_failure(
+                    startup_state,
+                    startup_id,
+                    run_generation,
+                    error,
+                    crate::startup_failure::StartupOperation::Resume,
+                )
+                .await)
+            }
         }
+    });
+    match startup_task.await {
+        Ok(result) => result?,
+        Err(_) => return Err(SessionError::Internal("application operation failed")),
     }
     let mut info = state
         .sessions
@@ -6993,6 +7082,7 @@ async fn create_session_workflow(
         status: "creating".into(),
         connectivity: Some(connectivity_for_status("creating").into()),
         terminal_outcome: terminal_outcome_for_status("creating"),
+        startup_failure: None,
         cwd,
         created_at: now.clone(),
         last_activity_at: Some(now.clone()),
@@ -7213,6 +7303,7 @@ async fn create_session_workflow(
                 plan_path: None,
                 connectivity: "online".into(),
                 terminal_outcome: None,
+                startup_failure: None,
                 pending_terminal_status: None,
                 observed_status: None,
                 ending_observed_status_snapshot: None,
@@ -7323,21 +7414,25 @@ async fn create_session_workflow(
         },
     );
     tokio::spawn(async move {
-        let start_result = prepare_prompt_authority_generation(
-            &startup_state,
-            &startup_id,
-            startup_harness_id.as_deref(),
-            &startup_executable,
-            None,
-        )
-        .and_then(|()| Ok(()));
-        let start_result = match start_result {
-            Ok(()) => runtime_future.await,
-            Err(error) => {
-                drop(runtime_future);
-                Err(error)
+        let operation_state = startup_state.clone();
+        let operation_id = startup_id.clone();
+        let start_result = tokio::spawn(async move {
+            match prepare_prompt_authority_generation(
+                &operation_state,
+                &operation_id,
+                startup_harness_id.as_deref(),
+                &startup_executable,
+                None,
+            ) {
+                Ok(()) => runtime_future.await,
+                Err(error) => {
+                    drop(runtime_future);
+                    Err(error.into())
+                }
             }
-        };
+        })
+        .await
+        .unwrap_or_else(|error| Err(format!("runtime startup task failed: {error}").into()));
         match start_result {
             Ok(()) => {
                 let now = iso_now();
@@ -7360,21 +7455,14 @@ async fn create_session_workflow(
             }
             Err(error) => {
                 tracing::error!(session_id = %startup_id, %error, "failed to start session runtime");
-                if crate::runtime::terminal_runtime::set_session_status_for_generation(
-                    &startup_state,
-                    &startup_id,
+                let _ = publish_startup_failure(
+                    startup_state,
+                    startup_id,
                     run_generation,
-                    "error",
+                    error,
+                    crate::startup_failure::StartupOperation::Launch,
                 )
-                .await
-                {
-                    crate::runtime::terminal_runtime::schedule_session_ending_finalization(
-                        startup_state.clone(),
-                        startup_id.clone(),
-                        run_generation,
-                        "error".into(),
-                    );
-                }
+                .await;
             }
         }
     });
@@ -7426,6 +7514,7 @@ fn clear_claude_capacity_after_working(
 
 #[cfg(test)]
 mod tests {
+    include!("session_application/startup_failure_tests.rs");
 
     #[test]
     fn interactive_effort_validates_catalog_and_builds_native_override() {
@@ -11620,10 +11709,8 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .resume_session(id, None)
             .await;
 
-        assert!(matches!(
-            result,
-            Err(SessionError::Internal("application operation failed"))
-        ));
+        let error = result.unwrap_err();
+        assert!(matches!(error, SessionError::StartupFailed(_)));
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
             loop {
                 if state
@@ -11647,6 +11734,13 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
         let stored = ws.as_ref().unwrap().metadata.read_session(id).unwrap();
         assert_eq!(stored.status, "error");
         assert_eq!(stored.lifecycle_phase, "ended");
+        let raw = serde_json::to_value(&stored).unwrap();
+        assert_eq!(raw["startupFailure"]["code"], "process_spawn_failed");
+        assert_eq!(raw["startupFailure"]["operation"], "resume");
+        assert_eq!(
+            serde_json::to_value(&handle).unwrap()["startupFailure"],
+            raw["startupFailure"]
+        );
         assert_ne!(
             ws.as_ref().unwrap().metadata.read_terminal_size(id),
             Some((120, 40))

@@ -87,6 +87,23 @@ File: `crates/orkworksd/src/metadata.rs`
 
 `normalize_session_metadata` runs on every read to backfill defaults and reconcile `lifecycle`/`lifecycle_phase` drift between old and new records.
 
+## Session startup diagnostics
+
+`startupFailure` is an optional sidecar-owned `{code, operation, occurredAt}`
+record shared by `SessionMetadata` and complete `SessionInfo` projections.
+It records one admitted startup failure, including terminal I/O setup; ordinary
+process exit is separate. Its closed safe vocabulary displays fixed text, never
+executable output. Invalid/unknown persisted objects are ignored without losing
+the session. Agent patches and Peon inference cannot write it; legacy local JSON
+access can forge a known code but cannot inject display text or execution authority.
+
+Admission clears the previous record with `creating`; uncommitted resume rollback
+restores it. Current-generation error publication and finalization preserve it
+through remembered history; stale/cancelled attempts cannot overwrite a newer
+attempt. Metadata I/O failure retains live detail when possible without promising
+restart durability. See the [approved contract](../superpowers/specs/2026-11-07-startup-diagnostics-design.md)
+for the catalog and exact bounds. Format-2 activation remains separately gated.
+
 ## Status vocabulary
 
 Unlike a typed domain enum, `status`/`lifecycle`/`lifecycle_phase`/`attention`/`connectivity` are plain strings, and the vocabulary has grown organically across the HTTP and runtime layers rather than being centrally enumerated. Known values in current use:

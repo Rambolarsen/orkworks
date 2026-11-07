@@ -305,6 +305,9 @@ pub(crate) fn project_session_info(
         status: info.status.clone(),
         connectivity: Some(connectivity_for_status(&info.status).to_string()),
         terminal_outcome: terminal_outcome_for_status(&info.status),
+        startup_failure: info
+            .startup_failure
+            .or_else(|| meta.and_then(|m| m.startup_failure.clone())),
         worktree_binding: meta
             .map(|m| m.worktree_binding.clone())
             .unwrap_or(info.worktree_binding),
@@ -520,6 +523,7 @@ mod tests {
             status: status.clone(),
             connectivity: Some(connectivity_for_status(&status).to_string()),
             terminal_outcome: terminal_outcome_for_status(&status),
+            startup_failure: None,
             cwd: cwd.into(),
             created_at: created_at.clone(),
             last_activity_at: Some(created_at),
@@ -570,6 +574,7 @@ mod tests {
         let info = SessionInfo {
             connectivity: Some("offline".into()),
             terminal_outcome: Some("ended".into()),
+            startup_failure: None,
             last_activity_at: Some("2026-06-28T09:05:00Z".into()),
             last_output_at: Some("2026-06-28T09:06:00Z".into()),
             resume_options: vec![metadata::ResumeOption {
@@ -651,6 +656,7 @@ mod tests {
             plan_path: None,
             connectivity: "offline".into(),
             terminal_outcome: Some("error".into()),
+            startup_failure: None,
             pending_terminal_status: None,
             observed_status: None,
             ending_observed_status_snapshot: None,
@@ -803,6 +809,7 @@ mod tests {
             plan_path: None,
             connectivity: "offline".into(),
             terminal_outcome: Some("ended".into()),
+            startup_failure: None,
             pending_terminal_status: None,
             observed_status: None,
             ending_observed_status_snapshot: None,

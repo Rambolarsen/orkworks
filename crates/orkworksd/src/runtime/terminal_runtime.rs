@@ -4891,6 +4891,7 @@ mod tests {
                 plan_path: None,
                 connectivity: "online".into(),
                 terminal_outcome: None,
+                startup_failure: None,
                 pending_terminal_status: None,
                 observed_status: Some("blocked".into()),
                 ending_observed_status_snapshot: None,
@@ -5047,6 +5048,7 @@ mod tests {
                 plan_path: None,
                 connectivity: "online".into(),
                 terminal_outcome: None,
+                startup_failure: None,
                 pending_terminal_status: Some("killed".into()),
                 observed_status: None,
                 ending_observed_status_snapshot: Some(metadata::ObservedStatusSnapshotMetadata {
@@ -5273,6 +5275,7 @@ mod tests {
                 plan_path: None,
                 connectivity: "online".into(),
                 terminal_outcome: None,
+                startup_failure: None,
                 pending_terminal_status: Some("ended".into()),
                 observed_status: None,
                 ending_observed_status_snapshot: Some(metadata::ObservedStatusSnapshotMetadata {
@@ -5509,6 +5512,7 @@ mod tests {
                 plan_path: None,
                 connectivity: "online".into(),
                 terminal_outcome: None,
+                startup_failure: None,
                 pending_terminal_status: Some("ended".into()),
                 observed_status: None,
                 ending_observed_status_snapshot: None,
