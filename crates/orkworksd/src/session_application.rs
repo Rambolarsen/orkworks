@@ -3945,103 +3945,27 @@ impl SessionApplication {
         let workspace = workspace_guard.as_ref().ok_or(SessionError::Conflict)?;
         let mut sessions = self.state.sessions.lock().unwrap();
         let handle = sessions.get(&signal.session_id);
-        if signal.source == "codex_hook"
-            && handle.is_some_and(|handle| handle.runtime.codex_terminal_status_active)
-        {
-            return Ok(metadata::AttentionMergeResult::Ignored);
+        if let Some(stop) = suppress_codex_hook_terminal(handle, &signal) {
+            return Ok(stop);
         }
-
-        if signal.source == "agent"
-            && !signal.activate_work_hook
-            && handle.is_some_and(|handle| {
-                matches!(
-                    handle
-                        .info
-                        .harness_id
-                        .as_deref()
-                        .or(handle.info.harness.as_deref()),
-                    Some("claude-code" | "copilot")
-                )
-            })
-            && crate::runtime::prompt_authority::registry().is_active(&signal.session_id)
-        {
-            return Err(SessionError::EmptyBadRequest);
+        if let Some(stop) = reject_agent_prompt_harness(&signal, handle) {
+            return Err(stop);
         }
-
-        if signal.activate_work_hook
-            && signal.source == "agent"
-            && signal.opencode_authority.is_none()
-        {
-            return Err(SessionError::EmptyBadRequest);
+        if let Some(stop) = validate_activation_authority(&signal) {
+            return Err(stop);
         }
-        if let Some(authority) = &signal.opencode_authority {
-            let same_live_runtime = handle.is_some_and(|handle| {
-                handle.runtime.matches_identity(&authority.runtime_identity)
-                    && handle.info.lifecycle == "alive"
-                    && handle.info.lifecycle_phase == "active"
-                    && (handle.info.harness_id.as_deref() == Some("opencode")
-                        || handle.info.harness.as_deref() == Some("opencode"))
-            });
-            if !same_live_runtime
-                || !crate::runtime::terminal_runtime::verify_workflow_report_token(
-                    &signal.session_id,
-                    &authority.token,
-                )
-            {
-                return Err(SessionError::EmptyBadRequest);
-            }
+        if let Some(stop) = reject_mismatched_opencode_authority(handle, &signal) {
+            return Err(stop);
         }
-
-        if signal.require_alive {
-            match workspace.metadata.read_session(&signal.session_id) {
-                None => return Err(SessionError::NotFound),
-                Some(meta) if meta.lifecycle != "alive" => {
-                    return Err(SessionError::EmptyBadRequest);
-                }
-                Some(_) => {}
-            }
-            if signal.activate_work_hook && handle.is_none() {
-                return Err(SessionError::Conflict);
-            }
+        if let Some(stop) = require_alive_session(workspace, handle, &signal) {
+            return Err(stop);
         }
-
-        if signal.source == "agent"
-            && !signal.activate_work_hook
-            && handle.is_some_and(|handle| {
-                handle.active_work_hook
-                    && (handle.info.harness_id.as_deref() == Some("opencode")
-                        || handle.info.harness.as_deref() == Some("opencode"))
-            })
-        {
-            return Ok(metadata::AttentionMergeResult::Ignored);
+        if let Some(stop) = suppress_active_work_opencode(handle, &signal) {
+            return Ok(stop);
         }
-
-        if signal.reject_stale_observed_at
-            && signal.observed_at.is_some_and(|timestamp| {
-                handle.is_some_and(|handle| {
-                    handle
-                        .runtime
-                        .last_hook_attention_at
-                        .is_some_and(|previous| {
-                            timestamp < previous
-                                || (timestamp == previous
-                                    && signal.hook_receipt_sequence.is_none_or(|sequence| {
-                                        handle
-                                            .runtime
-                                            .last_hook_attention_sequence
-                                            .is_none_or(|previous| sequence <= previous)
-                                    }))
-                        })
-                        || handle
-                            .runtime
-                            .accepted_input_at
-                            .is_some_and(|accepted_at| timestamp <= accepted_at)
-                })
-            })
-        {
-            return Ok(metadata::AttentionMergeResult::Ignored);
+        if let Some(stop) = reject_stale_hook_observation(handle, &signal) {
+            return Ok(stop);
         }
-
         let result = workspace.metadata.merge_agent_attention_signal_with_plan(
             &signal.session_id,
             &signal.observed_status,
@@ -4054,44 +3978,7 @@ impl SessionApplication {
         );
         if result == metadata::AttentionMergeResult::Accepted {
             if let Some(handle) = sessions.get_mut(&signal.session_id) {
-                apply_live_attention_fields(
-                    &mut handle.info,
-                    &mut handle.runtime.attention_owner,
-                    &signal.observed_status,
-                    signal.message.as_deref(),
-                    &signal.source,
-                    signal.confidence,
-                );
-                if let Some(stored) = workspace.metadata.read_session(&signal.session_id) {
-                    handle.info.provenance = stored.provenance;
-                    handle.info.metadata_source = Some(stored.metadata_source);
-                    handle.info.metadata_confidence = Some(stored.metadata_confidence);
-                }
-                if signal.update_hook_timestamp {
-                    if let Some(observed_at) = signal.observed_at {
-                        handle.runtime.last_hook_attention_at = Some(observed_at);
-                        handle.runtime.last_hook_attention_sequence = signal.hook_receipt_sequence;
-                    }
-                }
-                if signal.activate_work_hook {
-                    handle.active_work_hook = true;
-                    handle.runtime.attention_owner.accepted_write();
-                    handle.info.needs_user_input = None;
-                    handle.info.detected_question = None;
-                    handle.info.suggested_options = None;
-                }
-                if signal.clear_pending_work_signal {
-                    handle.pending_work_signal = None;
-                }
-                match &signal.debug_hint_mutation {
-                    Some(DebugHintMutation::Preserve) | None => {}
-                    Some(DebugHintMutation::Clear) => {
-                        handle.info.usage_limit_reset_hint = None;
-                    }
-                    Some(DebugHintMutation::Set(message)) => {
-                        handle.info.usage_limit_reset_hint = Some(message.clone());
-                    }
-                }
+                bind_accepted_attention(handle, workspace, &signal);
             }
         }
         Ok(result)
@@ -5886,6 +5773,200 @@ fn apply_prompt_commit(
     if let Some(observed_at) = observed_at {
         handle.runtime.last_hook_attention_at = Some(observed_at);
         handle.runtime.last_hook_attention_sequence = Some(receipt_sequence);
+    }
+}
+
+/// The terminal-status recorder owns live attention for its window; a hook
+/// merge cannot add to it.
+fn suppress_codex_hook_terminal(
+    handle: Option<&SessionHandle>,
+    signal: &AttentionMergeSignal,
+) -> Option<metadata::AttentionMergeResult> {
+    if signal.source == "codex_hook"
+        && handle.is_some_and(|handle| handle.runtime.codex_terminal_status_active)
+    {
+        return Some(metadata::AttentionMergeResult::Ignored);
+    }
+    None
+}
+
+/// Registry-active prompt harnesses reject plain agent reports.
+fn reject_agent_prompt_harness(
+    signal: &AttentionMergeSignal,
+    handle: Option<&SessionHandle>,
+) -> Option<SessionError> {
+    if signal.source == "agent"
+        && !signal.activate_work_hook
+        && handle.is_some_and(|handle| {
+            matches!(
+                handle
+                    .info
+                    .harness_id
+                    .as_deref()
+                    .or(handle.info.harness.as_deref()),
+                Some("claude-code" | "copilot")
+            )
+        })
+        && crate::runtime::prompt_authority::registry().is_active(&signal.session_id)
+    {
+        return Some(SessionError::EmptyBadRequest);
+    }
+    None
+}
+
+/// An activation request needs an opencode report authority token.
+fn validate_activation_authority(signal: &AttentionMergeSignal) -> Option<SessionError> {
+    if signal.activate_work_hook && signal.source == "agent" && signal.opencode_authority.is_none()
+    {
+        return Some(SessionError::EmptyBadRequest);
+    }
+    None
+}
+
+/// An opencode authority token must belong to this live opencode runtime.
+fn reject_mismatched_opencode_authority(
+    handle: Option<&SessionHandle>,
+    signal: &AttentionMergeSignal,
+) -> Option<SessionError> {
+    let Some(authority) = &signal.opencode_authority else {
+        return None;
+    };
+    let same_live_runtime = handle.is_some_and(|handle| {
+        handle.runtime.matches_identity(&authority.runtime_identity)
+            && handle.info.lifecycle == "alive"
+            && handle.info.lifecycle_phase == "active"
+            && (handle.info.harness_id.as_deref() == Some("opencode")
+                || handle.info.harness.as_deref() == Some("opencode"))
+    });
+    if !same_live_runtime
+        || !crate::runtime::terminal_runtime::verify_workflow_report_token(
+            &signal.session_id,
+            &authority.token,
+        )
+    {
+        return Some(SessionError::EmptyBadRequest);
+    }
+    None
+}
+
+/// Require-alive merges need an alive durable session and, for activation
+/// hooks, a live handle to carry the work-hook flag.
+fn require_alive_session(
+    workspace: &WorkspaceState,
+    handle: Option<&SessionHandle>,
+    signal: &AttentionMergeSignal,
+) -> Option<SessionError> {
+    if !signal.require_alive {
+        return None;
+    }
+    match workspace.metadata.read_session(&signal.session_id) {
+        None => return Some(SessionError::NotFound),
+        Some(meta) if meta.lifecycle != "alive" => {
+            return Some(SessionError::EmptyBadRequest);
+        }
+        Some(_) => {}
+    }
+    if signal.activate_work_hook && handle.is_none() {
+        return Some(SessionError::Conflict);
+    }
+    None
+}
+
+/// The opencode active-work-hook already owns input attention.
+fn suppress_active_work_opencode(
+    handle: Option<&SessionHandle>,
+    signal: &AttentionMergeSignal,
+) -> Option<metadata::AttentionMergeResult> {
+    if signal.source == "agent"
+        && !signal.activate_work_hook
+        && handle.is_some_and(|handle| {
+            handle.active_work_hook
+                && (handle.info.harness_id.as_deref() == Some("opencode")
+                    || handle.info.harness.as_deref() == Some("opencode"))
+        })
+    {
+        return Some(metadata::AttentionMergeResult::Ignored);
+    }
+    None
+}
+
+/// Observed-at older than the last accepted receipt is stale.
+fn reject_stale_hook_observation(
+    handle: Option<&SessionHandle>,
+    signal: &AttentionMergeSignal,
+) -> Option<metadata::AttentionMergeResult> {
+    if !signal.reject_stale_observed_at {
+        return None;
+    }
+    if signal.observed_at.is_some_and(|timestamp| {
+        handle.is_some_and(|handle| {
+            handle
+                .runtime
+                .last_hook_attention_at
+                .is_some_and(|previous| {
+                    timestamp < previous
+                        || (timestamp == previous
+                            && signal.hook_receipt_sequence.is_none_or(|sequence| {
+                                handle
+                                    .runtime
+                                    .last_hook_attention_sequence
+                                    .is_none_or(|previous| sequence <= previous)
+                            }))
+                })
+                || handle
+                    .runtime
+                    .accepted_input_at
+                    .is_some_and(|accepted_at| timestamp <= accepted_at)
+        })
+    }) {
+        return Some(metadata::AttentionMergeResult::Ignored);
+    }
+    None
+}
+
+/// Apply one accepted attention merge to the live handle.
+fn bind_accepted_attention(
+    handle: &mut SessionHandle,
+    workspace: &WorkspaceState,
+    signal: &AttentionMergeSignal,
+) {
+    apply_live_attention_fields(
+        &mut handle.info,
+        &mut handle.runtime.attention_owner,
+        &signal.observed_status,
+        signal.message.as_deref(),
+        &signal.source,
+        signal.confidence,
+    );
+    if let Some(stored) = workspace.metadata.read_session(&signal.session_id) {
+        handle.info.provenance = stored.provenance;
+        handle.info.metadata_source = Some(stored.metadata_source);
+        handle.info.metadata_confidence = Some(stored.metadata_confidence);
+    }
+    if signal.update_hook_timestamp {
+        if let Some(observed_at) = signal.observed_at {
+            handle.runtime.last_hook_attention_at = Some(observed_at);
+            handle.runtime.last_hook_attention_sequence = signal.hook_receipt_sequence;
+        }
+    }
+    if signal.activate_work_hook {
+        handle.active_work_hook = true;
+        handle.runtime.attention_owner.accepted_write();
+        handle.info.needs_user_input = None;
+        handle.info.detected_question = None;
+        handle.info.suggested_options = None;
+    }
+    if signal.clear_pending_work_signal {
+        handle.pending_work_signal = None;
+    }
+    match &signal.debug_hint_mutation {
+        Some(DebugHintMutation::Preserve) | None => {}
+        Some(DebugHintMutation::Clear) => {
+            handle.info.usage_limit_reset_hint = None;
+        }
+        Some(DebugHintMutation::Set(message)) => {
+            handle.info.usage_limit_reset_hint = Some(message.clone());
+        }
     }
 }
 
