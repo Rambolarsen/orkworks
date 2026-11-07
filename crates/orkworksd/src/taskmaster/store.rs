@@ -3176,3 +3176,6 @@ mod cleanup_tests;
 #[cfg(test)]
 #[path = "store/removal_tests.rs"]
 mod removal_tests;
+
+#[cfg(test)]
+mod journal_tests;

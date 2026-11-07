@@ -1,4 +1,4 @@
-//! Read-only qualification boundary; no graph recovery or deletion authority.
+//! Source-only bounded recommendation cleanup; application admission remains separate.
 #![cfg_attr(not(test), allow(dead_code))]
 mod removal;
 use super::*;
@@ -95,10 +95,10 @@ mod unix {
     const ENTRIES: usize = 1024;
     const RECORD_BYTES: usize = 1024 * 1024;
     const TOTAL_BYTES: usize = 32 * 1024 * 1024;
-    fn invalid(message: &str) -> io::Error {
+    pub(super) fn invalid(message: &str) -> io::Error {
         io::Error::new(io::ErrorKind::InvalidData, message)
     }
-    fn open(parent: &fs::File, name: &CStr, directory: bool) -> io::Result<fs::File> {
+    pub(super) fn open(parent: &fs::File, name: &CStr, directory: bool) -> io::Result<fs::File> {
         // SAFETY: live parent FD and a fixed or enumerated single C basename.
         // No-follow rejects aliases; nonblocking avoids waiting on a FIFO.
         let fd = unsafe {
@@ -118,11 +118,11 @@ mod unix {
         // SAFETY: successful openat returned one new owned descriptor.
         Ok(unsafe { fs::File::from_raw_fd(fd) })
     }
-    fn identity(file: &fs::File) -> io::Result<(u64, u64)> {
+    pub(super) fn identity(file: &fs::File) -> io::Result<(u64, u64)> {
         let m = file.metadata()?;
         Ok((m.dev(), m.ino()))
     }
-    fn entry(parent: &fs::File, name: &CStr) -> io::Result<Option<(u64, u64)>> {
+    pub(super) fn entry(parent: &fs::File, name: &CStr) -> io::Result<Option<(u64, u64)>> {
         let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
         // SAFETY: live FD, valid basename and writable stat output; never follows aliases.
         if unsafe {
@@ -171,7 +171,7 @@ mod unix {
             records,
         })))
     }
-    fn current(binding: &Binding) -> io::Result<()> {
+    pub(super) fn current(binding: &Binding) -> io::Result<()> {
         binding._lease.validate_directory(&binding.root)?;
         let expected = binding.records.as_ref().map(identity).transpose()?;
         if entry(&binding.root, c"recommendations")? != expected {
@@ -182,15 +182,32 @@ mod unix {
     pub(super) fn inspect(
         binding: &Binding,
     ) -> Result<(Vec<Recommendation>, BTreeMap<String, CapturedLeaf>), StoreError> {
+        let (records, leaves) = read_records(binding, false)?;
+        validate_graph_records(&records)?;
+        Ok((records, leaves))
+    }
+    pub(super) fn read_records(
+        binding: &Binding,
+        allow_journal: bool,
+    ) -> Result<(Vec<Recommendation>, BTreeMap<String, CapturedLeaf>), StoreError> {
         current(binding).map_err(StoreError::Io)?;
         let Some(directory) = &binding.records else {
             return Ok((Vec::new(), BTreeMap::new()));
         };
         let names = names(directory).map_err(StoreError::Io)?;
+        let journal = names.iter().any(|n| n == c".rollup-transactions");
+        if names.len() > ENTRIES + usize::from(allow_journal && journal) {
+            return Err(StoreError::Io(invalid(
+                "recommendations exceed entry bound",
+            )));
+        }
         let mut records = Vec::new();
         let mut leaves = BTreeMap::new();
         let mut total = 0usize;
         for name in names {
+            if allow_journal && name == c".rollup-transactions" {
+                continue;
+            }
             if !name.to_bytes().ends_with(b".json") {
                 return Err(StoreError::Recovery(
                     "recommendation preflight requires recovered canonical record entries".into(),
@@ -250,11 +267,10 @@ mod unix {
             );
             records.push(record);
         }
-        validate_graph_records(&records)?;
         current(binding).map_err(StoreError::Io)?;
         Ok((records, leaves))
     }
-    fn names(directory: &fs::File) -> io::Result<Vec<CString>> {
+    pub(super) fn names(directory: &fs::File) -> io::Result<Vec<CString>> {
         // A fresh open description avoids sharing directory offsets across inspections.
         let file = open(directory, c".", true)?;
         let fd = file.into_raw_fd();
@@ -299,7 +315,7 @@ mod unix {
             if name == c"." || name == c".." {
                 continue;
             }
-            if names.len() == ENTRIES {
+            if names.len() == ENTRIES + 1 {
                 return Err(invalid("recommendations exceed entry bound"));
             }
             names.push(name.to_owned());
@@ -307,3 +323,6 @@ mod unix {
         Ok(names)
     }
 }
+
+#[cfg(test)]
+thread_local! { pub(super) static JOURNAL_FAILURE: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) }; }

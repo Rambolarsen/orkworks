@@ -1,4 +1,5 @@
-//! Immutable deletion data; no journal publication, current-state or deletion grant.
+//! Owned deletion data; application freshness and protection admission remain separate.
+mod journal;
 use super::*;
 
 pub(crate) struct PreparedRemoval {

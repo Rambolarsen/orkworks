@@ -4,6 +4,8 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 ## Documents
 
+- [Anchored recommendation deletion journal](2026-11-07-recommendation-journal.md) — Bounded durable deletion publication and restart recovery.
+
 - [One Windows SQLite compile-only evidence attempt](2026-11-06-pair-sqlite-compile-evidence.md) — Completed one compile-only attempt and helper-frame evidence; full envelope remains unavailable (#1485).
 
 - [Bounded recommendation cleanup preflight](2026-11-06-recommendation-cleanup-preflight.md) — Original-directory read-only inventory and finite cleanup qualification.
