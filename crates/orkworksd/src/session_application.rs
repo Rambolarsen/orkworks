@@ -4564,114 +4564,18 @@ impl SessionApplication {
         id: &str,
         signal: AttentionSignal,
     ) -> Result<(), SessionError> {
-        let (protected_prompt_harness, hook_receipt_sequence) = {
-            let _transition = crate::runtime::prompt_authority::transition_lock()
-                .lock()
-                .unwrap();
-            let mut sessions = self.state.sessions.lock().unwrap();
-            let protected = sessions
-                .get_mut(id)
-                .and_then(|handle| {
-                    let harness = handle
-                        .info
-                        .harness_id
-                        .as_deref()
-                        .or(handle.info.harness.as_deref());
-                    let protected = matches!(harness, Some("claude-code" | "copilot"));
-                    let active_work_hook = handle.active_work_hook;
-                    let sequence = if protected {
-                        handle.runtime.hook_receipt_sequence =
-                            handle.runtime.hook_receipt_sequence.saturating_add(1);
-                        Some(handle.runtime.hook_receipt_sequence)
-                    } else {
-                        None
-                    };
-                    Some((
-                        protected,
-                        harness == Some("claude-code"),
-                        active_work_hook,
-                        sequence,
-                    ))
-                })
-                .unwrap_or((false, false, false, None));
-            drop(sessions);
-            let (protected_prompt_harness, claude_harness, active_work_hook, hook_receipt_sequence) =
-                protected;
-            if protected_prompt_harness {
-                if crate::runtime::prompt_authority::registry().is_active(id) {
-                    return Err(SessionError::EmptyBadRequest);
-                }
-                if claude_harness
-                    && active_work_hook
-                    && signal.source.is_none()
-                    && signal.status == "working"
-                {
-                    let observed_at = signal
-                        .observed_at
-                        .as_deref()
-                        .map(parse_hook_observed_at)
-                        .transpose()
-                        .map_err(|_| SessionError::EmptyBadRequest)?
-                        .ok_or(SessionError::EmptyBadRequest)?;
-                    let accepted_input_at = self
-                        .state
-                        .sessions
-                        .lock()
-                        .unwrap()
-                        .get(id)
-                        .and_then(|handle| handle.runtime.accepted_input_at);
-                    if accepted_input_at.is_some_and(|accepted_at| observed_at <= accepted_at) {
-                        return self
-                            .workspace_exists()
-                            .then_some(())
-                            .ok_or(SessionError::Conflict);
-                    }
-                    clear_claude_capacity_after_working(&self.state, id, observed_at);
-                    return Ok(());
-                }
-            }
-            (protected_prompt_harness, hook_receipt_sequence)
-        };
+        let (protected_prompt_harness, hook_receipt_sequence) =
+            match prompt_protected_receipt(self, id, &signal)? {
+                PromptReceipt::Completed(result) => return result,
+                PromptReceipt::Continue {
+                    protected,
+                    hook_receipt_sequence,
+                } => (protected, hook_receipt_sequence),
+            };
         if protected_prompt_harness {
             return Err(SessionError::EmptyBadRequest);
         }
-        let opencode_hook = signal.source.as_deref() == Some("opencode_hook");
-        let mut opencode_authority = None;
-        if opencode_hook {
-            let token = signal
-                .report_token
-                .as_deref()
-                .ok_or(SessionError::EmptyBadRequest)?;
-            if !crate::runtime::terminal_runtime::verify_workflow_report_token(id, token) {
-                return Err(SessionError::EmptyBadRequest);
-            }
-            let runtime_identity = self
-                .state
-                .sessions
-                .lock()
-                .unwrap()
-                .get(id)
-                .filter(|handle| {
-                    handle.info.lifecycle == "alive"
-                        && handle.info.lifecycle_phase == "active"
-                        && (handle.info.harness_id.as_deref() == Some("opencode")
-                            || handle.info.harness.as_deref() == Some("opencode"))
-                })
-                .map(|handle| handle.runtime.identity())
-                .ok_or(SessionError::EmptyBadRequest)?;
-            let event = signal
-                .event
-                .as_deref()
-                .ok_or(SessionError::EmptyBadRequest)?;
-            if signal.observed_at.is_none() || !opencode_event_allows_status(event, &signal.status)
-            {
-                return Err(SessionError::EmptyBadRequest);
-            }
-            opencode_authority = Some(OpenCodeReportAuthority {
-                token: token.to_owned(),
-                runtime_identity,
-            });
-        }
+        let opencode_authority = opencode_report_authority(self, id, &signal)?;
         let codex_hook = self.validate_codex_hook_signal(id, &signal)?;
         let observed_at = signal
             .observed_at
@@ -4691,7 +4595,7 @@ impl SessionApplication {
             .get(id)
             .is_some_and(|handle| handle.active_work_hook)
             || codex_hook
-            || opencode_hook;
+            || opencode_hook_by_source(&signal.source);
         let status = normalize_hook_attention_status(&signal.status, supports_active_work)
             .ok_or(SessionError::EmptyBadRequest)?;
         if observed_at.is_some_and(|timestamp| {
@@ -4734,8 +4638,8 @@ impl SessionApplication {
                 reject_stale_observed_at: true,
                 update_hook_timestamp: true,
                 clear_pending_work_signal: true,
-                require_alive: codex_hook || opencode_hook,
-                activate_work_hook: codex_hook || opencode_hook,
+                require_alive: codex_hook || opencode_authority.is_some(),
+                activate_work_hook: codex_hook || opencode_authority.is_some(),
                 opencode_authority,
                 debug_hint_mutation: None,
             })
@@ -4751,21 +4655,7 @@ impl SessionApplication {
             }
         }
         if result == metadata::AttentionMergeResult::Accepted {
-            if let Some(cwd) = cwd {
-                self.state
-                    .peon
-                    .reported_cwd
-                    .write()
-                    .unwrap()
-                    .insert(id.clone(), cwd);
-            }
-            let mut bufs = self.state.peon.input_buf.write().unwrap();
-            if bufs
-                .get(&id)
-                .is_some_and(|buf| !peon::is_descriptive_input(buf))
-            {
-                bufs.remove(&id);
-            }
+            note_accepted_attention_buffers(&self.state, &id, cwd);
         }
         match result {
             metadata::AttentionMergeResult::Accepted | metadata::AttentionMergeResult::Ignored => {
@@ -4791,7 +4681,7 @@ impl SessionApplication {
         cwd: Option<&str>,
         token: Option<&str>,
     ) -> Result<(), SessionError> {
-        let (harness_id, event_name, prompt_wait, submitted_prompt) =
+        let (harness_id, prompt_wait, submitted_prompt) =
             prompt_request_shape(source, event, notification_type, status)?;
         let generation = generation.ok_or(SessionError::EmptyBadRequest)?;
         let token = token.ok_or(SessionError::EmptyBadRequest)?;
@@ -5669,7 +5559,7 @@ fn prompt_request_shape(
     event: Option<&str>,
     notification_type: Option<&str>,
     status: &str,
-) -> Result<(&'static str, &'static str, bool, bool), SessionError> {
+) -> Result<(&'static str, bool, bool), SessionError> {
     let (harness_id, event_name) = match source {
         "claude_hook" => ("claude-code", "Notification"),
         "copilot_hook" => ("copilot", "notification"),
@@ -5689,7 +5579,7 @@ fn prompt_request_shape(
         && notification_type.is_none();
     let prompt_wait =
         event == Some(event_name) && status == "waiting_for_input" && notification_allowed;
-    Ok((harness_id, event_name, prompt_wait, submitted_prompt))
+    Ok((harness_id, prompt_wait, submitted_prompt))
 }
 
 /// Stale-observed-at check against already-accepted hook receipts and commits.
@@ -5967,6 +5857,161 @@ fn bind_accepted_attention(
         Some(DebugHintMutation::Set(message)) => {
             handle.info.usage_limit_reset_hint = Some(message.clone());
         }
+    }
+}
+
+/// A protected prompt harness either finishes the report inline or continues.
+enum PromptReceipt {
+    Continue {
+        protected: bool,
+        hook_receipt_sequence: Option<u64>,
+    },
+    Completed(Result<(), SessionError>),
+}
+
+/// Track protected prompt-harness receipt bookkeeping before attention merging.
+fn prompt_protected_receipt(
+    app: &SessionApplication,
+    id: &str,
+    signal: &AttentionSignal,
+) -> Result<PromptReceipt, SessionError> {
+    let _transition = crate::runtime::prompt_authority::transition_lock()
+        .lock()
+        .unwrap();
+    let mut sessions = app.state.sessions.lock().unwrap();
+    let protected = sessions
+        .get_mut(id)
+        .and_then(|handle| {
+            let harness = handle
+                .info
+                .harness_id
+                .as_deref()
+                .or(handle.info.harness.as_deref());
+            let protected = matches!(harness, Some("claude-code" | "copilot"));
+            let active_work_hook = handle.active_work_hook;
+            let sequence = if protected {
+                handle.runtime.hook_receipt_sequence =
+                    handle.runtime.hook_receipt_sequence.saturating_add(1);
+                Some(handle.runtime.hook_receipt_sequence)
+            } else {
+                None
+            };
+            Some((
+                protected,
+                harness == Some("claude-code"),
+                active_work_hook,
+                sequence,
+            ))
+        })
+        .unwrap_or((false, false, false, None));
+    drop(sessions);
+    let (protected_prompt_harness, claude_harness, active_work_hook, hook_receipt_sequence) =
+        protected;
+    if protected_prompt_harness {
+        if crate::runtime::prompt_authority::registry().is_active(id) {
+            return Err(SessionError::EmptyBadRequest);
+        }
+        if claude_harness
+            && active_work_hook
+            && signal.source.is_none()
+            && signal.status == "working"
+        {
+            let observed_at = signal
+                .observed_at
+                .as_deref()
+                .map(parse_hook_observed_at)
+                .transpose()
+                .map_err(|_| SessionError::EmptyBadRequest)?
+                .ok_or(SessionError::EmptyBadRequest)?;
+            let accepted_input_at = app
+                .state
+                .sessions
+                .lock()
+                .unwrap()
+                .get(id)
+                .and_then(|handle| handle.runtime.accepted_input_at);
+            if accepted_input_at.is_some_and(|accepted_at| observed_at <= accepted_at) {
+                return Ok(PromptReceipt::Completed(
+                    app.workspace_exists()
+                        .then_some(())
+                        .ok_or(SessionError::Conflict),
+                ));
+            }
+            clear_claude_capacity_after_working(&app.state, id, observed_at);
+            return Ok(PromptReceipt::Completed(Ok(())));
+        }
+    }
+    Ok(PromptReceipt::Continue {
+        protected: protected_prompt_harness,
+        hook_receipt_sequence,
+    })
+}
+
+/// An opencode hook report needs an authenticated live runtime authority.
+fn opencode_report_authority(
+    app: &SessionApplication,
+    id: &str,
+    signal: &AttentionSignal,
+) -> Result<Option<OpenCodeReportAuthority>, SessionError> {
+    if signal.source.as_deref() != Some("opencode_hook") {
+        return Ok(None);
+    }
+    let token = signal
+        .report_token
+        .as_deref()
+        .ok_or(SessionError::EmptyBadRequest)?;
+    if !crate::runtime::terminal_runtime::verify_workflow_report_token(id, token) {
+        return Err(SessionError::EmptyBadRequest);
+    }
+    let runtime_identity = app
+        .state
+        .sessions
+        .lock()
+        .unwrap()
+        .get(id)
+        .filter(|handle| {
+            handle.info.lifecycle == "alive"
+                && handle.info.lifecycle_phase == "active"
+                && (handle.info.harness_id.as_deref() == Some("opencode")
+                    || handle.info.harness.as_deref() == Some("opencode"))
+        })
+        .map(|handle| handle.runtime.identity())
+        .ok_or(SessionError::EmptyBadRequest)?;
+    let event = signal
+        .event
+        .as_deref()
+        .ok_or(SessionError::EmptyBadRequest)?;
+    if signal.observed_at.is_none() || !opencode_event_allows_status(event, &signal.status) {
+        return Err(SessionError::EmptyBadRequest);
+    }
+    Ok(Some(OpenCodeReportAuthority {
+        token: token.to_owned(),
+        runtime_identity,
+    }))
+}
+
+/// Whether the source identifies an authority-checked opencode hook.
+fn opencode_hook_by_source(source: &Option<String>) -> bool {
+    source.as_deref() == Some("opencode_hook")
+}
+
+/// Accepted attention merges refresh the reported working directory and drop
+/// non-descriptive buffered input that attention now explains.
+fn note_accepted_attention_buffers(state: &AppState, id: &str, cwd: Option<String>) {
+    if let Some(cwd) = cwd {
+        state
+            .peon
+            .reported_cwd
+            .write()
+            .unwrap()
+            .insert(id.to_string(), cwd);
+    }
+    let mut bufs = state.peon.input_buf.write().unwrap();
+    if bufs
+        .get(id)
+        .is_some_and(|buf| !peon::is_descriptive_input(buf))
+    {
+        bufs.remove(id);
     }
 }
 
