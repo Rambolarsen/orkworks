@@ -302,3 +302,117 @@ arithmetic, call/inlining facts and native slot mapping. It found no factual
 error or promotion to full qualification; its small conditional-branch coverage
 omission is resolved by the explicit UUID note above. No second compilation or
 probe ran for review.
+
+## NTFS allocation-rounding component — 2026-11-07
+
+Tracking: [#1496](https://github.com/Rambolarsen/orkworks/issues/1496). Inspection
+base: c2af02f9c7f047e65fc7ed74575500d594af0238. This source-only follow-up derives
+an alignment component of file growth. **The complete pre-operation growth
+envelope remains unavailable.** No native/compile/model probe or database ran.
+
+### Contracts and the quantity they describe
+
+[MS-FSCC FileAllocationInformation](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/0201c69b-50db-412d-bab3-dd97aeede13b)
+describes cluster alignment for nonresident allocations. Its
+[NTFS product note102](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/d4bc551b-7aaf-4b4f-ba0e-3a75e7c528f0)
+specifies 8-byte resident rounding, retention of residency on allocation shrink,
+and conversion to cluster-aligned nonresident storage when resident allocation
+is extended. Its last-handle-close rule also means unused preallocation is not
+a permanent reservation after closing all handles.
+
+The [MS-FSA allocation-set algorithm](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fsa/3820daf2-e512-4730-8cce-2d0435ae6ad2)
+computes a cluster-aligned requested size, checks storage reservation before
+assigning the abstract allocation field, and includes early-success paths for
+an unchanged allocation or a deleted stream. Status alone therefore cannot
+establish a new field value or physical reclamation. Its
+[BlockAlign definition](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fsa/6e365e98-7cb0-471b-a50e-5b56461b33d8)
+requires a power-of-two boundary and gives the exact alignment calculation.
+
+These are useful operation/state contracts. The
+[Microsoft protocol catalog](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-winprotlp/e36c976a-6263-42a8-b119-7a3cc41ddd2a)
+identifies FSA as an abstract object-store model supporting SMB, and FSCC as
+network representations of native structures. FSCC's product note88 maps Windows
+processing to NtQueryInformationFile/NtSetInformationFile but explicitly leaves
+the processing function's implementation outside the protocol. Neither abstract
+field assignment nor the absence of an intermediate model state proves the
+local NTFS implementation's peak physical work/allocation.
+
+Let C be the positive cluster size of the **actual admitted volume**, not the
+SQLite page size. The native
+[volume-query interface](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/nf-ntifs-ntqueryvolumeinformationfile)
+takes an existing file/directory/volume handle;
+[FILE_FS_SIZE_INFORMATION](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntddk/ns-ntddk-_file_fs_size_information)
+provides sectors per allocation unit and bytes per sector. Their checked product
+can supply geometry associated with that handle. This supplies neither source
+authority nor a disk-space reservation; no query was executed in this audit.
+
+### Conditional alignment and shared-limit arithmetic
+
+For nonnegative allocation request q and validated power-of-two C divisible by8:
+
+    Q_C(q) = C * (q div C + indicator(q mod C != 0))
+    Q_8(q) = 8 * (q div 8 + indicator(q mod 8 != 0))
+
+All input conversion, multiplication, addition and requested I/O end calculations
+must be checked in the eventual native ABI's integer range. The division form
+avoids blindly computing q+C-1 near an integer limit.
+
+For the documented nonresident alignment component, Q_C is the rounded size.
+Resident shrink uses Q_8; resident growth converts to the nonresident case.
+Since C is a multiple of8, Q_8(q) <= Q_C(q): Q_C is itself an 8-aligned value
+at least q. Thus Q_C conservatively covers these **rounding components** without
+guessing which residency class is present. It does not bound all representations,
+native overhead or transient work.
+
+Let B=2,147,483,648 bytes be the existing shared auxiliary ceiling. Let K include
+all other owned/pending/uncertain charges, excluding this file's entire charge.
+Let u be this file's entire previously retained charge, counted once. A
+conservative rounding-and-retention allowance, not a native-peak bound, is:
+
+    D(q,C,u) = max(u, Q_C(q))
+    K + D(q,C,u) <= B
+
+This preserves the old charge while covering the rounding component. Passing
+covers only those components; failure permits conservative refusal, not a claim
+that every resident-shrink case physically exceeds B. For illustration only,
+C=4096, u=4096 and K=B-4096 give:
+
+| q (bytes) | Q_C(q)=D here | K + D | Rounded-allowance check |
+| --- | --- | --- | --- |
+| 4095 | 4096 | 2,147,483,648 | Fits this component only |
+| 4096 | 4096 | 2,147,483,648 | Fits this component only |
+| 4097 | 8192 | 2,147,487,744 | Allowance exceeds the shared ceiling |
+
+Likewise, a hypothetical resident allocation8 extended by requesting9 converts
+to a 4096-byte nonresident component on that illustrative volume; using resident
+rounding16 for that extension would be wrong. These calculations were recomputed
+as pure integer arithmetic. They select no cluster default, per-file quota,
+residency threshold or qualified volume/build. The ordinary main file is not
+assigned this auxiliary ceiling.
+
+### Why this does not close the first gate
+
+Admission still needs K+E(q,state,operation)<=B, where E conservatively covers
+the current file's retained charge and **whole-operation peak** under the
+accepted accounting contract. The reviewed sources do not establish that
+E=D(q,C,u) or E=Q_C(q), nor justify a fixed old-plus-new copy count for conversion, creation,
+write/preallocation, recovery or failed/uncertain completion. A smaller settled
+allocation cannot refund the original retained charge without reclamation proof.
+
+A successful allocation setter also supplies no permanent cap on later writes:
+[NtWriteFile](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/content/ntifs/nf-ntifs-ntwritefile)
+can extend EOF. A future closed I/O sequence would still need its pre-operation
+bound for every allowed write/truncate/hint and ownership/error transition.
+No such sequence or backend implementation is selected by this derivation.
+
+The finite result is a closed conditional rounding calculation and an identified
+missing bridge from abstract allocation state to the applicable native peak.
+Under the accepted first gate, growth qualification stays unavailable on this
+evidence. It is not a proof that a supported bound is impossible. Another small
+measurement cannot substitute for that missing upper-bound argument.
+
+The shared2GiB auxiliary / separate8MiB scratch ceilings, complete-S gate,
+accepted architecture and owner/recovery rules remain unchanged. Both earlier
+execution batches stay consumed. No new probe budget, dependent implementation
+plan, quota, profile eligibility or activation follows; #1176 remains open and
+#740 remains closed research.
