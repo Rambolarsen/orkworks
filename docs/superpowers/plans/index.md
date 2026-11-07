@@ -318,3 +318,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Captured SQL workspace settings cleanup](2026-11-06-sql-settings-cleanup.md) — Original memory-owner selection cleanup and durable pending-job progress.
 
 - [Shared recommendation operation ownership](2026-11-06-recommendation-owner-fence.md) — Nonblocking complete-store operation fencing before captured SQL cleanup.
+
+- [Owned recommendation removal batches](2026-11-07-recommendation-removal-batches.md) — Lossless original leaf proofs and complete graph deletion manifests.

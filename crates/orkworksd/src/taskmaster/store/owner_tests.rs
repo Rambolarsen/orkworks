@@ -320,6 +320,7 @@ async fn recommendation_owner_delivery_settlement_waits_for_contention_without_r
             ws.recommendation_store.clone()
         };
         let (runtime, mut commands) = SessionRuntime::live(24, 80);
+        let input_gate = runtime.input_gate.clone();
         let mut info = crate::test_support::test_session_info(
             id,
             "Delivery",
@@ -366,6 +367,14 @@ async fn recommendation_owner_delivery_settlement_waits_for_contention_without_r
         accepted
             .send(if delivered { Ok(()) } else { Err(()) })
             .unwrap();
+        // The terminal owner performs blocking bookkeeping after writer ACK.
+        // Wait for that legitimate lock user before probing settlement's await;
+        // a fixed delay alone can sample the bookkeeping critical section.
+        let bookkeeping =
+            tokio::time::timeout(std::time::Duration::from_secs(1), input_gate.lock_owned())
+                .await
+                .unwrap();
+        drop(bookkeeping);
         let waiting = if let Some(request) = request.as_mut() {
             tokio::time::timeout(std::time::Duration::from_millis(30), request)
                 .await
