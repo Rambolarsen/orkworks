@@ -1,5 +1,6 @@
 //! Blocking source-only v2 deletion protocol; never selected by production startup.
 use super::*;
+mod sql_codec;
 
 #[must_use]
 pub(crate) struct JournalReceipt {

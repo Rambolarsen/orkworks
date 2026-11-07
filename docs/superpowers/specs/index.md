@@ -6,7 +6,7 @@ Dated design records; these do not establish current product behavior.
 
 - [Owned help and version probe processes](2026-11-07-probe-process-ownership-design.md) — Proposed shared native ownership, bounded cleanup and caller compatibility contract for #694.
 
-- [SQL-bound recommendation journal recovery](2026-11-07-sql-recommendation-journal-recovery.md) — Proposed exact-job v3 journal identity, legacy refusal and retained-permit recovery; owner approval pending.
+- [SQL-bound recommendation journal recovery](2026-11-07-sql-recommendation-journal-recovery.md) — Accepted exact-job v3 journal identity, legacy refusal and retained-permit recovery; source implementation underway.
 
 - [Session startup diagnostics](2026-11-07-startup-diagnostics-design.md) — Proposed safe launch/resume failure record, API and desktop presentation for #689.
 

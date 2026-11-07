@@ -9,7 +9,9 @@ pub(crate) use internal_mutations::InternalMutationResult;
 mod deletion_recovery;
 mod queries;
 #[allow(unused_imports)] // Source-only recovery interface until qualified cutover.
-pub(crate) use deletion_recovery::{DeletionCursor, DeletionPage, DeletionRecord};
+pub(crate) use deletion_recovery::{
+    DeletionCursor, DeletionPage, DeletionRecord, SqlDeletionIdentity,
+};
 mod worker;
 #[allow(unused_imports)] // Query DTOs are consumed by the later format-2 adapter.
 pub(crate) use queries::{Cursor, HistoryQuery, Page, Summary};
@@ -83,6 +85,7 @@ pub(crate) struct OrganizationRecord {
 
 struct Database {
     conn: Connection,
+    workspace: String,
     attention_owners:
         std::collections::HashMap<String, crate::runtime::observed_status::AttentionOwner>,
 }
@@ -106,6 +109,7 @@ impl Database {
         tx.commit()?;
         Ok(Self {
             conn,
+            workspace: workspace.to_owned(),
             attention_owners: Default::default(),
         })
     }
@@ -140,6 +144,7 @@ impl Database {
         conn.prepare("SELECT id FROM metadata_search WHERE metadata_search MATCH ?1 LIMIT 1")?;
         Ok(Self {
             conn,
+            workspace: workspace.to_owned(),
             attention_owners: Default::default(),
         })
     }

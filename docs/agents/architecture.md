@@ -1935,3 +1935,26 @@ revalidation/revocation against SQL tombstones, job-bound journal recovery, othe
 required external stages and final deletion remain activation gates. Existing
 retained intent/job and graph bounds remain; no measured RSS, end-to-end latency,
 hardware power-loss or production activation claim is introduced.
+
+## SQL deletion identity and recommendation codec
+
+The accepted [recommendation recovery protocol](../superpowers/specs/2026-11-07-sql-recommendation-journal-recovery.md)
+has a private identity/codec foundation. Selected `deletion_record` reads return
+an immutable `SqlDeletionIdentity` from the exact tombstone/job and header in one
+short SQL transaction. The worker retains the originally opened workspace for
+comparison; noncanonical UUID epoch spelling is rejected without header rewrite.
+The existing selected response bound is unchanged. Identity objects serialize
+for comparison but cannot be deserialized into SQL-minted authority.
+
+The pure v3 codec computes the reserved basename from domain-separated,
+length-prefixed UTF-8 epoch/workspace-digest/session/creation fields. It compares
+all stored identity fields and the expected basename, rejects duplicate/unknown/
+missing fields, replacement entries, unsafe paths and invalid lowercase SHA-256
+values, and retains the 1,024-entry/1 MiB manifest caps. Legacy v1/v2 structs and
+codecs are unchanged. No new journal publisher/recovery caller, legacy-routing
+gate or cleanup progress effect is wired here; captured cleanup still refuses
+nonempty journals. Original lease/runtime/reservation/operation ownership is
+required in later integration; an identity or decoded manifest grants none.
+
+Producer fencing, safe final job completion, startup routing, migration and
+activation remain gated. Production remains JSON, with no measured latency gain.

@@ -4,7 +4,7 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 ## Documents
 
-- [SQL-bound recommendation journal recovery](2026-11-07-sql-recommendation-journal-recovery.md) — Proposed bounded delivery and fault qualification for SQL-bound recommendation recovery; owner approval pending.
+- [SQL-bound recommendation journal recovery](2026-11-07-sql-recommendation-journal-recovery.md) — Approved bounded delivery and fault qualification for SQL-bound recommendation recovery; identity/codec slice underway.
 - [Session startup diagnostics implementation](2026-11-07-startup-diagnostics.md) — Approved-contract delivery for #689.
 
 - [Captured SQL recommendation cleanup](2026-11-07-sql-recommendation-cleanup.md) — Exact-job admission, original graph ownership and retained SQL cleanup progress.

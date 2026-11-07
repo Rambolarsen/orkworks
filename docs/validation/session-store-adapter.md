@@ -1547,3 +1547,30 @@ stale-view regressions remain applicable and run with the SQL application suite.
 Production remains JSON. These fixtures grant no authority to stale legacy
 producers after cleanup or to automatic journal recovery, and do not complete the
 SQL deletion job. Those boundaries remain release gates under #1243.
+
+## Selected SQL identity and strict recommendation codec
+
+The owner accepted the complete #1507 recovery protocol with “keep going” after
+the explicit implementation request. The first bounded slice exposes only an
+immutable selected SQL identity and pure v3 codec; it performs no journal writes,
+recovery, legacy routing, progress mutation or activation. See the
+[accepted contract](../superpowers/specs/2026-11-07-sql-recommendation-journal-recovery.md).
+
+Four real SQL regressions verify exact header/creation binding and reopen,
+foreign-store distinction, independent literal ASCII/UTF-8 basename vectors,
+noncanonical UUID rejection without rewriting the header, and changed-workspace
+refusal without job progress. Existing missing/reused/corrupt/busy and maximum
+escaped response tests remain applicable. The selected identity is read with the
+tombstone/header transaction and cannot be minted by deserializing journal bytes.
+
+Five pure codec regressions use identities returned by the real SQL worker.
+They cover draft/committed roundtrips, foreign field/store/name refusal, unknown/
+missing/duplicate/wrongly typed JSON, deletion-only/hash/path/duplicate-ID
+validation, 1,024 versus 1,025 entries, exactly 1 MiB versus one excess byte, and
+a writer envelope too large despite a single entry. Legacy manifest types remain
+unchanged. This is codec/SQL-read evidence, not executed filesystem crash recovery.
+
+Full repository verification and current-diff review are recorded with the PR.
+Publication/recovery, all-name legacy preflight refusal and captured integration
+remain subsequent deliverables. Producer revalidation, safe finalization, startup
+selection and complete backup/migration gates remain before activation.

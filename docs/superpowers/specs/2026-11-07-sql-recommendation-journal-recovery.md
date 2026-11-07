@@ -1,17 +1,19 @@
 ---
 type: Design
 title: SQL-bound recommendation journal recovery
-description: Proposed exact-job journal identity, legacy refusal and bounded restart recovery for ordinary-session deletion.
+description: Accepted exact-job journal identity, legacy refusal and bounded restart recovery for ordinary-session deletion.
 tags: [orkworks, sessions, sqlite, recommendations, recovery]
-status: draft
-workflow_status: proposed
+status: stable
+workflow_status: accepted
 ---
 
 # SQL-bound recommendation journal recovery
 
 Parent: [#1243](https://github.com/Rambolarsen/orkworks/issues/1243).
 Inspection base: `418cacba3b7b3f9b9ce90b1ab6d59d11c1fecf42` (#1505).
-This is a proposal for owner review, not implementation or activation approval.
+The owner approved the concrete protocol after PR #1507 by answering “keep going”
+to the explicit implementation request on 2026-11-07. Source-only implementation
+may proceed; activation retains its separate gates.
 The accepted [session storage design](2026-11-01-sqlite-session-storage-design.md#external-payloads-events-backup-and-deletion)
 already requires recoverable identity-bound external deletion. This document
 closes the recommendation journal representation and recovery-routing choices.
@@ -215,12 +217,18 @@ claimed by process-interruption tests.
 
 ## Owner decision and next gate
 
-Proposed decision: accept the strict v3 identity envelope, reserved digest-bound
+Accepted decision: use the strict v3 identity envelope, reserved digest-bound
 basename, legacy preflight refusal and exact-job retained-permit recovery flow
 above for source-only implementation under #1243. Existing SQLite authority,
 backup, producer, migration and native/hierarchy gates remain unchanged.
 
-Owner approval is pending. Record the decision here and as a dated clarification
-of [ADR 0103](../../adr/0103-sqlite-session-storage.md) before dependent protocol
-implementation; do not mark this proposal accepted merely because its docs PR
-passes CI or merges.
+Owner acceptance — 2026-11-07: the explicit request linked this complete protocol
+and asked whether to implement it; the owner answered “keep going.” This accepts
+the v3 envelope, reserved exact-identity basename, canonical epoch rejection,
+legacy preflight refusal and retained-permit recovery flow for private source-only
+implementation. [ADR 0103](../../adr/0103-sqlite-session-storage.md) records the
+dated clarification. It supplies no live recovery, migration or activation.
+
+The first bounded implementation delivers only the selected SQL identity and pure
+codec. Destructive publication/recovery, legacy routing and captured integration
+remain subsequent deliverables under the same approved contract.

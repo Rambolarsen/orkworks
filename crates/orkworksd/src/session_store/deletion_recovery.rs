@@ -20,8 +20,37 @@ pub(crate) struct DeletionPage {
     pub(crate) jobs: Vec<DeletionJob>,
     pub(crate) cursor: Option<DeletionCursor>,
 }
+/// Identification only: construction requires an exact SQL tombstone/header read.
+/// Deliberately not Deserialize; journal bytes cannot mint a selected SQL identity.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SqlDeletionIdentity {
+    database_epoch: String,
+    workspace_sha256: String,
+    session_id: String,
+    created_at: String,
+}
+impl SqlDeletionIdentity {
+    pub(crate) fn journal_name(&self) -> String {
+        let mut hash = Sha256::new();
+        hash.update(b"orkworks/sql-recommendation-delete/v1\0");
+        for field in [
+            &self.database_epoch,
+            &self.workspace_sha256,
+            &self.session_id,
+            &self.created_at,
+        ] {
+            // Private construction bounds these UTF-8 values to at most 256 bytes.
+            hash.update((field.len() as u32).to_be_bytes());
+            hash.update(field.as_bytes());
+        }
+        format!("sql-delete-v1-{}", hex::encode(hash.finalize()))
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub(crate) struct DeletionRecord {
+    pub(crate) identity: SqlDeletionIdentity,
     pub(crate) job: DeletionJob,
     pub(crate) document: serde_json::Value,
 }
@@ -135,8 +164,33 @@ impl Database {
         if record.metadata.created_at != created || recorded_state(&record.metadata) != "closed" {
             return Err(StoreError::Corrupt);
         }
+        let (epoch, workspace): (String, String) = tx
+            .query_row(
+                "SELECT epoch,workspace FROM store_header WHERE singleton=1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?
+            .ok_or(StoreError::Corrupt)?;
+        if workspace != self.workspace {
+            return Err(StoreError::Conflict);
+        }
+        if uuid::Uuid::parse_str(&epoch)
+            .map_err(|_| StoreError::Corrupt)?
+            .to_string()
+            != epoch
+        {
+            return Err(StoreError::Corrupt);
+        }
+        let identity = SqlDeletionIdentity {
+            database_epoch: epoch,
+            workspace_sha256: hex::encode(Sha256::digest(workspace.as_bytes())),
+            session_id: id.into(),
+            created_at: created.into(),
+        };
         tx.commit()?;
         let record = DeletionRecord {
+            identity,
             job: DeletionJob {
                 id: id.into(),
                 created_at: created.into(),
@@ -160,6 +214,130 @@ mod tests {
     fn tombstone(db: &mut Database, id: &str) {
         db.insert(closed_document(id)).unwrap();
         db.begin_delete(id, CREATED, "0", "0").unwrap();
+    }
+
+    #[test]
+    fn selected_identity_binds_header_and_creation_and_survives_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("v1.sqlite");
+        let mut db = Database::create(&path, "/workspace").unwrap();
+        tombstone(&mut db, "pending");
+        db.conn
+            .execute(
+                "UPDATE store_header SET epoch='12345678-1234-4234-8234-123456789abc'",
+                [],
+            )
+            .unwrap();
+        let selected = db.deletion_record("pending", CREATED).unwrap().unwrap();
+        assert_eq!(
+            serde_json::to_value(&selected.identity).unwrap(),
+            serde_json::json!({
+                "databaseEpoch":"12345678-1234-4234-8234-123456789abc",
+                "workspaceSha256":"c52ddf65534b7b46035084358ab7902be4bfef220bdb503ac7039cc861905b05",
+                "sessionId":"pending", "createdAt":CREATED
+            })
+        );
+        assert_eq!(
+            selected.identity.journal_name(),
+            "sql-delete-v1-b47b479b96e9e4f461380776d59519029ef4270108905cdb28c0c35d26fe92a7"
+        );
+        drop(db);
+        let db = Database::open(&path, "/workspace").unwrap();
+        assert_eq!(
+            selected.identity,
+            db.deletion_record("pending", CREATED)
+                .unwrap()
+                .unwrap()
+                .identity
+        );
+        assert!(db.deletion_record("pending", "other").unwrap().is_none());
+        assert!(db.deletion_record("missing", CREATED).unwrap().is_none());
+        let mut other = Database::create(&dir.path().join("other.sqlite"), "/workspace").unwrap();
+        tombstone(&mut other, "pending");
+        assert_ne!(
+            selected.identity,
+            other
+                .deletion_record("pending", CREATED)
+                .unwrap()
+                .unwrap()
+                .identity
+        );
+    }
+
+    #[test]
+    fn selected_identity_uses_utf8_byte_lengths_in_literal_name_vector() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Database::create(&dir.path().join("v1.sqlite"), "/ø/工作").unwrap();
+        let mut value = closed_document("pending");
+        value["createdAt"] = serde_json::json!("é🙂");
+        db.insert(value).unwrap();
+        db.begin_delete("pending", "é🙂", "0", "0").unwrap();
+        db.conn
+            .execute(
+                "UPDATE store_header SET epoch='12345678-1234-4234-8234-123456789abc'",
+                [],
+            )
+            .unwrap();
+        let selected = db.deletion_record("pending", "é🙂").unwrap().unwrap();
+        assert_eq!(
+            selected.identity.journal_name(),
+            "sql-delete-v1-aa386cd9d0afe0af7ac27b550672a368db4102edd924d3e200fbd3ece033f8bf"
+        );
+    }
+
+    #[test]
+    fn selected_identity_rejects_noncanonical_epoch_without_rewriting_header() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Database::create(&dir.path().join("v1.sqlite"), "/workspace").unwrap();
+        tombstone(&mut db, "pending");
+        for epoch in [
+            "12345678-1234-4234-8234-123456789ABC",
+            "12345678123442348234123456789abc",
+            "{12345678-1234-4234-8234-123456789abc}",
+            "invalid",
+        ] {
+            db.conn
+                .execute("UPDATE store_header SET epoch=?1", [epoch])
+                .unwrap();
+            assert!(
+                matches!(
+                    db.deletion_record("pending", CREATED),
+                    Err(StoreError::Corrupt)
+                ),
+                "{epoch}"
+            );
+            assert_eq!(
+                db.conn
+                    .query_row("SELECT epoch FROM store_header", [], |r| r
+                        .get::<_, String>(0))
+                    .unwrap(),
+                epoch
+            );
+        }
+    }
+
+    #[test]
+    fn selected_identity_rejects_changed_workspace_and_leaves_job_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Database::create(&dir.path().join("v1.sqlite"), "/workspace").unwrap();
+        tombstone(&mut db, "pending");
+        db.conn
+            .execute("UPDATE store_header SET workspace='/foreign'", [])
+            .unwrap();
+        assert!(matches!(
+            db.deletion_record("pending", CREATED),
+            Err(StoreError::Conflict)
+        ));
+        assert_eq!(
+            db.conn
+                .query_row(
+                    "SELECT progress FROM deletion_jobs WHERE id='pending'",
+                    [],
+                    |r| r.get::<_, u8>(0)
+                )
+                .unwrap(),
+            0
+        );
     }
 
     #[test]
