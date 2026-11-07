@@ -361,6 +361,14 @@ write-before-publish. OrkWorks never edits tracked/shareable configuration,
 `.gitignore`, or arbitrary user hook commands. See
 [ADR 0026](../docs/adr/0026-resolved-harness-capability-registry.md).
 
+Short coding-tool version/help and native path-selection probes use invocation-owned
+process groups/Jobs with cleanup after every outcome. Existing deadlines, capture
+and environment policies remain; native setup/cleanup failure supplies no
+capability evidence. Admission and pending reaping are bounded to 64 owners per
+sidecar, with no retry at saturation. Escaped sessions and brokered launches
+remain explicit limits under ordinary same-user access. See the
+[approved probe contract](../docs/superpowers/specs/2026-11-07-probe-process-ownership-design.md).
+
 ### Codex terminal program status
 
 For a live Codex runtime that emits OSC 7501, the sidecar uses the displayed

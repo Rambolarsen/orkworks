@@ -4,15 +4,16 @@ title: Owned help and version probe processes
 description: Proposed shared ownership and bounded cleanup contract for short coding-tool discovery probes.
 tags: [harnesses, probes, process-ownership, safety]
 status: draft
-workflow_status: proposed
+workflow_status: approved
 ---
 
 # Owned help and version probe processes
 
 Proposed contract for [#694](https://github.com/Rambolarsen/orkworks/issues/694).
-Owner approval is pending. This records a design, not implemented behavior,
-qualified native cleanup or authorization for a live coding-tool/model probe.
-Approval of this concrete contract is required before dependent implementation.
+Owner approved this concrete contract on 2026-11-07 (“go ahead” after the
+#1511 approval request). Approval authorizes dependent implementation and its
+synthetic fixtures; it does not establish implemented behavior, qualified native
+cleanup or authorization for installed coding-tool/model probes.
 
 ## Outcome and scope
 

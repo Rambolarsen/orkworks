@@ -63,6 +63,14 @@ working directory. For terminal resource errors, check available system
 resources. Integration errors point to Settings; instruction errors point to
 workspace access. An unexpected failure asks you to check sidecar diagnostics.
 
+Current source builds also stop the native process group or Job owned by a short
+coding-tool check, including wrappers, after success or failure. If ownership or
+cleanup cannot be established, the check fails rather than accepting uncertain
+capability evidence. Too many active or finishing checks can temporarily report
+unavailable; retry explicitly after they finish. This does not stop your existing
+shared coding-tool daemon or guarantee cleanup of deliberately escaped processes.
+Older installers may predate this behavior.
+
 After fixing the cause, use the existing explicit start or resume controls.
 OrkWorks does not retry automatically. A new admitted attempt clears the previous
 explanation. The message does not include coding-tool output, tokens or paths.

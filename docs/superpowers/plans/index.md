@@ -4,6 +4,8 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 ## Documents
 
+- [Owned short probe implementation](2026-11-07-probe-process-ownership.md) — Approved #694 shared runner, caller migration and fixture delivery.
+
 - [SQL-bound recommendation journal recovery](2026-11-07-sql-recommendation-journal-recovery.md) — Approved bounded delivery and fault qualification for SQL-bound recommendation recovery; identity/codec slice underway.
 - [Session startup diagnostics implementation](2026-11-07-startup-diagnostics.md) — Approved-contract delivery for #689.
 

@@ -3,7 +3,6 @@ use crate::harness::CommandSpec;
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use tokio::io::AsyncReadExt;
 
 const UNVERIFIABLE: &str = "Cannot verify this exact OpenCode conversation. Check the local OpenCode installation and saved session; no replacement was started.";
 const MISSING: &str =
@@ -26,7 +25,7 @@ pub(crate) async fn verify_exact(command: &CommandSpec, id: &str) -> Result<(), 
 async fn selected_path(command: &CommandSpec) -> Result<PathBuf, &'static str> {
     let tool =
         crate::harness::detect::probe_installed_tool(&command.program).ok_or(UNVERIFIABLE)?;
-    let mut probe = tokio::process::Command::new(tool.executable);
+    let mut probe = std::process::Command::new(tool.executable);
     // Keep native path selection (OPENCODE_DB/XDG) but strip session authority.
     probe
         .env_clear()
@@ -42,34 +41,25 @@ async fn selected_path(command: &CommandSpec) -> Result<PathBuf, &'static str> {
     probe
         .args(["debug", "paths", "db"])
         .current_dir(&command.cwd)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true);
-    let read = async {
-        let mut child = probe.spawn().map_err(|_| UNVERIFIABLE)?;
-        let mut out = Vec::new();
-        let mut err = Vec::new();
-        let mut stdout = child.stdout.take().ok_or(UNVERIFIABLE)?.take(8193);
-        let mut stderr = child.stderr.take().ok_or(UNVERIFIABLE)?.take(8193);
-        let (a, b) = tokio::join!(stdout.read_to_end(&mut out), stderr.read_to_end(&mut err));
-        a.map_err(|_| UNVERIFIABLE)?;
-        b.map_err(|_| UNVERIFIABLE)?;
-        if out.len() > 8192 || err.len() > 8192 {
-            return Err(UNVERIFIABLE);
-        }
-        if !child.wait().await.map_err(|_| UNVERIFIABLE)?.success() {
-            return Err(UNVERIFIABLE);
-        }
-        let path = std::str::from_utf8(&out).map_err(|_| UNVERIFIABLE)?.trim();
-        if path.chars().any(char::is_control) || !Path::new(path).is_absolute() {
-            return Err(UNVERIFIABLE);
-        }
-        Ok(PathBuf::from(path))
-    };
-    tokio::time::timeout(Duration::from_secs(3), read)
-        .await
+        .stdin(std::process::Stdio::null());
+    let output = crate::probe_process::run(
+        &mut probe,
+        crate::probe_process::ProbePolicy {
+            max_bytes: 8192,
+            reject_overflow: true,
+            require_success: true,
+        },
+        Duration::from_secs(3),
+    )
+    .await
+    .map_err(|_| UNVERIFIABLE)?;
+    let path = std::str::from_utf8(&output.stdout)
         .map_err(|_| UNVERIFIABLE)?
+        .trim();
+    if path.chars().any(char::is_control) || !Path::new(path).is_absolute() {
+        return Err(UNVERIFIABLE);
+    }
+    Ok(PathBuf::from(path))
 }
 
 fn saved_session_at(path: &Path, id: &str) -> Result<bool, ()> {

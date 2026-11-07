@@ -1304,12 +1304,23 @@ runtime. Existing delayed reset retries likewise offload and revalidate the
 captured runtime before metadata effects. See [ADR 0075](../adr/0075-responsive-pty-input-delivery.md).
 
 The shared provider process runner owns a Windows Job object per invocation
-(`providers/windows_process.rs`). It assigns the suspended child before resuming
+(`process_job.rs`, re-exported by `providers/windows_process.rs`). It assigns the suspended child before resuming
 execution, preventing descendants from escaping timeout cleanup. Termination
 and pipe joins have bounded waits; external `taskkill` is unnecessary. Unix
 continues using an owned process group. See the 2026-09-12 amendment to
 [ADR 0055](../adr/0055-json-taskmaster-inference-adapters.md); native Windows
 desktop verification remains tracked by #525.
+
+### Short probe runtime
+
+`probe_process.rs` owns the bounded discovery-probe service and one reaper.
+It retains the original direct child and permit through cleanup/reaping, uses
+asynchronous pipe reads, and never sends a delayed Unix group signal after
+reaping its leader. The shared Windows Job primitive preserves provider setup
+semantics. Main's termination-signal branch closes probe admission and drains
+cleanup for at most one second before runtime exit; ordinary process crash
+recovery/adoption remains outside this owner. Caller compatibility and practical
+escape limits are in the [harness contract](harness-integration-contracts.md#short-discovery-probe-ownership).
 
 ## Fixed desktop shell
 

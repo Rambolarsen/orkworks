@@ -1,0 +1,445 @@
+use super::*;
+
+#[derive(Default)]
+pub(super) struct Faults {
+    pub(super) pipe_setup: AtomicBool,
+    pub(super) close_after_register: AtomicBool,
+    pub(super) cleanup: AtomicBool,
+    pub(super) reap: AtomicBool,
+}
+
+#[tokio::test]
+async fn saturation_and_shutdown_never_spawn_a_new_probe() {
+    let service = ProbeService::new().unwrap();
+    let mut permits = Vec::new();
+    for _ in 0..64 {
+        permits.push(service.shared.permits.clone().try_acquire_owned().unwrap());
+    }
+    let mut command = Command::new("must-not-be-spawned");
+    let policy = ProbePolicy {
+        max_bytes: 64,
+        reject_overflow: true,
+        require_success: true,
+    };
+    assert_eq!(
+        service
+            .run(&mut command, policy, Duration::from_secs(3))
+            .await
+            .unwrap_err(),
+        ProbeError::Busy
+    );
+    drop(permits);
+    service.shutdown().await;
+    assert_eq!(
+        service
+            .run(&mut command, policy, Duration::from_secs(3))
+            .await
+            .unwrap_err(),
+        ProbeError::Closed
+    );
+}
+
+#[cfg(unix)]
+mod unix {
+    use super::*;
+    fn shell(script: &str, dir: &std::path::Path) -> Command {
+        let mut cmd = Command::new("/bin/sh");
+        cmd.arg("-c").arg(script).current_dir(dir);
+        cmd
+    }
+    fn policy(success: bool, overflow: bool) -> ProbePolicy {
+        ProbePolicy {
+            max_bytes: 1024,
+            require_success: success,
+            reject_overflow: overflow,
+        }
+    }
+    async fn quiet(path: &std::path::Path) {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let before = std::fs::metadata(path).unwrap().len();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(
+            std::fs::metadata(path).unwrap().len(),
+            before,
+            "owned descendant survived cleanup"
+        );
+    }
+    struct Cleanup(i32);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            unsafe {
+                libc::kill(self.0, libc::SIGKILL);
+            }
+        }
+    }
+    fn fixture_child(dir: &std::path::Path) -> Cleanup {
+        Cleanup(
+            std::fs::read_to_string(dir.join("pid"))
+                .unwrap()
+                .trim()
+                .parse()
+                .unwrap(),
+        )
+    }
+
+    #[tokio::test]
+    async fn successful_help_cleans_descendants_without_touching_sentinel() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = ProbeService::new().unwrap();
+        let mut sentinel = Command::new("/bin/sleep").arg("30").spawn().unwrap();
+        let result = service.run(&mut shell("(while :; do printf x >> heartbeat; sleep 0.01; done) >/dev/null 2>&1 & echo $! > pid; while [ ! -f heartbeat ]; do sleep 0.01; done; printf 'version'; exit 0",dir.path()),policy(true,true),Duration::from_secs(3)).await.unwrap();
+        let _cleanup = fixture_child(dir.path());
+        assert_eq!(result.stdout, b"version");
+        quiet(&dir.path().join("heartbeat")).await;
+        let alive = sentinel.try_wait().unwrap().is_none();
+        sentinel.kill().unwrap();
+        sentinel.wait().unwrap();
+        assert!(alive, "unrelated sentinel was killed");
+        service.shutdown().await;
+    }
+    #[tokio::test]
+    async fn prefix_capture_preserves_version_policy_and_rejects_help_overflow() {
+        let service = ProbeService::new().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let result=service.run(&mut shell("while :; do printf abcdefghijklmnopqrstuvwxyz; printf abcdefghijklmnopqrstuvwxyz >&2; done",dir.path()),policy(false,false),Duration::from_secs(3)).await.unwrap();
+        assert_eq!(result.stdout.len(), 1024);
+        assert_eq!(service.run(&mut shell("while :; do printf abcdefghijklmnopqrstuvwxyz; printf abcdefghijklmnopqrstuvwxyz >&2; done",dir.path()),policy(true,true),Duration::from_secs(3)).await.unwrap_err(),ProbeError::Overflow);
+        let silent = service
+            .run(
+                &mut shell("exit 9", dir.path()),
+                policy(false, false),
+                Duration::from_secs(3),
+            )
+            .await
+            .unwrap();
+        assert!(silent.stdout.is_empty());
+        assert_eq!(
+            service
+                .run(
+                    &mut shell("exit 9", dir.path()),
+                    policy(true, true),
+                    Duration::from_secs(3)
+                )
+                .await
+                .unwrap_err(),
+            ProbeError::Unsuccessful
+        );
+    }
+    #[tokio::test]
+    async fn dropping_probe_future_cleans_without_another_poll() {
+        let service = Arc::new(ProbeService::new().unwrap());
+        let dir = tempfile::tempdir().unwrap();
+        let running = service.clone();
+        let path = dir.path().to_owned();
+        let task = tokio::spawn(async move {
+            running.run(&mut shell("(while :; do printf x >> heartbeat; sleep 0.01; done) & echo $! > pid; wait",&path),policy(true,true),Duration::from_secs(30)).await
+        });
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !dir.path().join("heartbeat").exists() {
+                tokio::time::sleep(POLL).await;
+            }
+        })
+        .await
+        .unwrap();
+        let _cleanup = fixture_child(dir.path());
+        task.abort();
+        let _ = task.await;
+        quiet(&dir.path().join("heartbeat")).await;
+        service.shutdown().await;
+        assert_eq!(service.shared.permits.available_permits(), 64);
+    }
+    #[tokio::test]
+    async fn shutdown_terminates_active_probe_and_closes_admission() {
+        let service = Arc::new(ProbeService::new().unwrap());
+        let dir = tempfile::tempdir().unwrap();
+        let running = service.clone();
+        let path = dir.path().to_owned();
+        let task = tokio::spawn(async move {
+            running
+                .run(
+                    &mut shell(
+                        "echo $$ > pid; while :; do printf x >> heartbeat; sleep 0.01; done",
+                        &path,
+                    ),
+                    policy(true, true),
+                    Duration::from_secs(30),
+                )
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !dir.path().join("heartbeat").exists() {
+                tokio::time::sleep(POLL).await;
+            }
+        })
+        .await
+        .unwrap();
+        let _cleanup = fixture_child(dir.path());
+        service.shutdown().await;
+        assert_eq!(task.await.unwrap().unwrap_err(), ProbeError::Closed);
+        quiet(&dir.path().join("heartbeat")).await;
+        assert_eq!(service.shared.permits.available_permits(), 64);
+    }
+    #[tokio::test]
+    async fn setup_failure_terminates_before_delayed_configured_output() {
+        let service = ProbeService::new().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        service
+            .shared
+            .faults
+            .pipe_setup
+            .store(true, Ordering::Relaxed);
+        assert_eq!(
+            service
+                .run(
+                    &mut shell("sleep 0.2; touch unexpected", dir.path()),
+                    policy(true, true),
+                    Duration::from_secs(3)
+                )
+                .await
+                .unwrap_err(),
+            ProbeError::Io
+        );
+        service.shutdown().await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(!dir.path().join("unexpected").exists());
+        assert_eq!(service.shared.permits.available_permits(), OWNER_LIMIT);
+    }
+
+    #[tokio::test]
+    async fn unconfirmed_cleanup_retains_capacity_until_root_is_reaped() {
+        let service = ProbeService::new().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        service.shared.faults.cleanup.store(true, Ordering::Relaxed);
+        service.shared.faults.reap.store(true, Ordering::Relaxed);
+        assert_eq!(
+            service
+                .run(
+                    &mut shell("printf version; sleep 30", dir.path()),
+                    policy(true, true),
+                    Duration::from_millis(100)
+                )
+                .await
+                .unwrap_err(),
+            ProbeError::CleanupUnconfirmed
+        );
+        assert_eq!(service.shared.permits.available_permits(), OWNER_LIMIT - 1);
+        service.shared.faults.reap.store(false, Ordering::Relaxed);
+        service.shutdown().await;
+        assert_eq!(service.shared.permits.available_permits(), OWNER_LIMIT);
+    }
+
+    #[tokio::test]
+    async fn cleanup_settle_uses_remaining_deadline() {
+        let service = ProbeService::new().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        service.shared.faults.reap.store(true, Ordering::Relaxed);
+        let start = Instant::now();
+        assert_eq!(
+            service
+                .run(
+                    &mut shell("printf version", dir.path()),
+                    policy(true, true),
+                    Duration::from_millis(100)
+                )
+                .await
+                .unwrap_err(),
+            ProbeError::CleanupUnconfirmed
+        );
+        assert!(start.elapsed() < Duration::from_millis(800));
+        assert_eq!(service.shared.permits.available_permits(), OWNER_LIMIT - 1);
+        service.shared.faults.reap.store(false, Ordering::Relaxed);
+        service.shutdown().await;
+        assert_eq!(service.shared.permits.available_permits(), OWNER_LIMIT);
+    }
+
+    #[tokio::test]
+    async fn completed_owner_keeps_permit_until_registry_removal() {
+        let service = ProbeService::new().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        // An owner remains capacity-accounted after reap until its final drop.
+        let mut child = shell("exit 0", dir.path()).spawn().unwrap();
+        child.wait().unwrap();
+        let mut owner = Owner {
+            child,
+            cleanup: Some(true),
+            reaped: false,
+            _permit: service.shared.permits.clone().try_acquire_owned().unwrap(),
+            faults: service.shared.faults.clone(),
+        };
+        owner.reap();
+        assert!(owner.reaped);
+        assert_eq!(service.shared.permits.available_permits(), OWNER_LIMIT - 1);
+        drop(owner);
+        assert_eq!(service.shared.permits.available_permits(), OWNER_LIMIT);
+    }
+
+    #[tokio::test]
+    async fn externally_reaped_root_loses_group_cleanup_authority() {
+        let service = ProbeService::new().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let mut child = shell("exit 0", dir.path()).spawn().unwrap();
+        child.wait().unwrap();
+        let mut owner = Owner {
+            child,
+            cleanup: None,
+            reaped: false,
+            _permit: service.shared.permits.clone().try_acquire_owned().unwrap(),
+            faults: service.shared.faults.clone(),
+        };
+        assert!(!owner.terminate());
+        assert_eq!(owner.cleanup, Some(false));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn exited_leader_check_rejects_live_group_member() {
+        use std::os::unix::process::CommandExt;
+        let dir = tempfile::tempdir().unwrap();
+        let mut cmd = shell("sleep 30 >/dev/null 2>&1 & exit 0", dir.path());
+        cmd.process_group(0);
+        let child = cmd.spawn().unwrap();
+        let service = ProbeService::new().unwrap();
+        let mut owner = Owner {
+            child,
+            cleanup: None,
+            reaped: false,
+            _permit: service.shared.permits.clone().try_acquire_owned().unwrap(),
+            faults: service.shared.faults.clone(),
+        };
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while owner.peek_exit().unwrap().is_none() {
+                tokio::time::sleep(POLL).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(!only_exited_leader(owner.child.id()));
+        assert!(owner.terminate());
+        owner.child.wait().unwrap();
+    }
+    #[tokio::test]
+    async fn escaped_session_is_outside_owned_group() {
+        let service = ProbeService::new().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let mut command = Command::new("python3");
+        command.current_dir(dir.path()).arg("-c").arg(
+            r#"
+import os, time
+pid = os.fork()
+if pid == 0:
+    os.setsid()
+    fd = os.open(os.devnull, os.O_RDWR)
+    os.dup2(fd, 1)
+    os.dup2(fd, 2)
+    with open('pid', 'w') as f: f.write(str(os.getpid()))
+    while True:
+        with open('heartbeat', 'a') as f: f.write('x')
+        time.sleep(0.01)
+while not os.path.exists('heartbeat'): time.sleep(0.01)
+print('version', flush=True)
+"#,
+        );
+        let result = service
+            .run(&mut command, policy(true, true), Duration::from_secs(3))
+            .await
+            .unwrap();
+        let _cleanup = fixture_child(dir.path());
+        assert_eq!(result.stdout, b"version\n");
+        let before = std::fs::metadata(dir.path().join("heartbeat"))
+            .unwrap()
+            .len();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(
+            std::fs::metadata(dir.path().join("heartbeat"))
+                .unwrap()
+                .len()
+                > before,
+            "fixture must demonstrate the documented setsid escape limit"
+        );
+        service.shutdown().await;
+    }
+}
+
+#[tokio::test]
+async fn shutdown_between_registration_and_attachment_never_panics() {
+    let service = ProbeService::new().unwrap();
+    service
+        .shared
+        .faults
+        .close_after_register
+        .store(true, Ordering::Relaxed);
+    #[cfg(unix)]
+    let mut command = {
+        let mut c = Command::new("/bin/sh");
+        c.args(["-c", "sleep 30"]);
+        c
+    };
+    #[cfg(windows)]
+    let mut command = {
+        let mut c = Command::new("powershell.exe");
+        c.args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "Start-Sleep -Seconds 30",
+        ]);
+        c
+    };
+    let error = service
+        .run(
+            &mut command,
+            ProbePolicy {
+                max_bytes: 64,
+                reject_overflow: true,
+                require_success: true,
+            },
+            Duration::from_secs(3),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error, ProbeError::Closed);
+    service.shutdown().await;
+    assert_eq!(service.shared.permits.available_permits(), OWNER_LIMIT);
+}
+
+#[test]
+fn shutdown_before_first_probe_closes_global_admission() {
+    const FIXTURE: &str = "ORKWORKS_PROBE_SHUTDOWN_FIXTURE";
+    if std::env::var_os(FIXTURE).is_some() {
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            super::shutdown().await;
+            let mut command = Command::new("must-not-be-spawned");
+            assert_eq!(
+                super::run(
+                    &mut command,
+                    ProbePolicy {
+                        max_bytes: 64,
+                        reject_overflow: true,
+                        require_success: true
+                    },
+                    Duration::from_secs(3)
+                )
+                .await
+                .unwrap_err(),
+                ProbeError::Closed
+            );
+        });
+        return;
+    }
+    // Global admission is intentionally irreversible. Isolate it from other tests.
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "probe_process::tests::shutdown_before_first_probe_closes_global_admission",
+            "--nocapture",
+        ])
+        .env(FIXTURE, "1")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

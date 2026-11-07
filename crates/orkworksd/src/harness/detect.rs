@@ -110,7 +110,7 @@ const MAX_PROBE_OUTPUT_BYTES: usize = 64 * 1024;
 /// the read stops there (not an error) and any further output the child
 /// writes just backs up in the OS pipe buffer, which the child sees as
 /// ordinary write-side backpressure — it does not need to be drained for
-/// the timeout or `kill_on_drop` to still take effect.
+/// the timeout and invocation-owned native cleanup to still take effect.
 pub(crate) async fn probe_tool_version(executable: &Path) -> Option<String> {
     probe_tool_version_with_timeout(executable, Duration::from_secs(3)).await
 }
@@ -131,48 +131,23 @@ async fn probe_tool_output(
     timeout: Duration,
     require_success: bool,
 ) -> Option<String> {
-    use tokio::io::AsyncReadExt;
-
-    let mut command = tokio::process::Command::new(executable);
-    command
-        .arg(argument)
-        .kill_on_drop(true)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
-
-    let read_capped_output = async {
-        let mut child = command.spawn().ok()?;
-        let stdout = child.stdout.take()?;
-        let stderr = child.stderr.take()?;
-        let mut stdout_capped = stdout.take(MAX_PROBE_OUTPUT_BYTES as u64);
-        let mut stderr_capped = stderr.take(MAX_PROBE_OUTPUT_BYTES as u64);
-        let mut stdout_buf = Vec::new();
-        let mut stderr_buf = Vec::new();
-        let (stdout_result, stderr_result) = tokio::join!(
-            stdout_capped.read_to_end(&mut stdout_buf),
-            stderr_capped.read_to_end(&mut stderr_buf),
-        );
-        stdout_result.ok()?;
-        stderr_result.ok()?;
-        if require_success && !child.wait().await.ok()?.success() {
-            return None;
-        }
-        // Version probes deliberately do not await child.wait(): once each stream's
-        // cap is hit (or the child exits first, whichever comes first), the
-        // probe already has everything it needs. A gluttonous writer that
-        // keeps producing past the cap may never exit on its own once we
-        // stop draining it (kernel pipe backpressure blocks its next
-        // write()), so waiting for exit here would just re-block on the
-        // outer 3s timeout for no benefit. `command.kill_on_drop(true)`
-        // cleans up `child` when it drops at the end of this scope, the
-        // same as it does on the timeout-cancellation path.
-        Some((stdout_buf, stderr_buf))
-    };
-
-    let (stdout_buf, stderr_buf) = tokio::time::timeout(timeout, read_capped_output)
-        .await
-        .ok()??;
-    Some(String::from_utf8_lossy(&stdout_buf).into_owned() + &String::from_utf8_lossy(&stderr_buf))
+    let mut command = std::process::Command::new(executable);
+    command.arg(argument);
+    let output = crate::probe_process::run(
+        &mut command,
+        crate::probe_process::ProbePolicy {
+            max_bytes: MAX_PROBE_OUTPUT_BYTES,
+            reject_overflow: false,
+            require_success,
+        },
+        timeout,
+    )
+    .await
+    .ok()?;
+    Some(
+        String::from_utf8_lossy(&output.stdout).into_owned()
+            + &String::from_utf8_lossy(&output.stderr),
+    )
 }
 
 /// Extracts the first `major.minor[.patch]`-shaped token from arbitrary CLI
@@ -651,6 +626,44 @@ mod tests {
         assert!(
             !pidfile.exists(),
             "readiness must not start the hanging body"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn version_probe_timeout_stops_non_exec_wrapper_descendant() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("wrapper");
+        let heartbeat = dir.path().join("heartbeat");
+        let pidfile = dir.path().join("descendant.pid");
+        std::fs::write(&bin, format!("#!/bin/sh\nif [ \"$1\" = --fixture-ready ]; then echo fixture-ready; exit 0; fi\n(while :; do printf x >> '{}'; sleep 0.01; done) &\necho $! > '{}'\nwait\n", heartbeat.display(), pidfile.display())).unwrap();
+        crate::test_support::make_test_executable(&bin);
+        await_fixture_executable(&bin, Duration::from_secs(3))
+            .await
+            .unwrap();
+        let result = probe_tool_version_with_timeout(&bin, Duration::from_secs(1)).await;
+        assert!(result.is_none());
+        let pid: i32 = std::fs::read_to_string(&pidfile)
+            .expect("fixture must reach descendant spawn")
+            .trim()
+            .parse()
+            .unwrap();
+        struct Cleanup(i32);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                unsafe {
+                    libc::kill(self.0, libc::SIGKILL);
+                }
+            }
+        }
+        let _cleanup = Cleanup(pid);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let before = std::fs::metadata(&heartbeat).unwrap().len();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(
+            std::fs::metadata(&heartbeat).unwrap().len(),
+            before,
+            "timeout killed the wrapper but left its descendant running"
         );
     }
 
