@@ -1813,3 +1813,30 @@ recovery, original leaf ownership and stale producer revalidation/revocation
 against exact SQL tombstones remain required before captured recommendation
 cleanup. A filesystem stall has no claimed hard deadline; integration must keep
 this blocking work outside input-critical application guards. Production uses JSON.
+
+## Owned recommendation removal batches
+
+The source-only cleanup inventory retains exact bounded leaf bytes and observed
+(device, inode) pairs alongside typed records. Consuming it with
+`prepare_session_removal` computes the existing complete deletion closure from
+exact source/evidence/affected/watermark references. Legacy deletion and this
+preparation share one pure closure helper, including forward member/parent and
+reverse/superseded-parent edges. No eligibility or protection policy changes.
+
+An immutable batch retains the inventory's original binding, lease and shared
+operation permit. Borrowed target views expose canonical encoded target/backup
+names, original bytes and captured identities. Both false/true committed payloads
+use the existing version-2 rollup manifest format, deletion-only entries, hashes
+of exact original bytes and deterministic ID ordering. Each encoded manifest is
+capped at one MiB; the tested 1,024-entry graph with 250-byte IDs
+fits that cap. Empty/unreferenced inventories produce no-op batches. Existing
+preflight entry/record/aggregate limits remain unchanged. Retained raw bytes add
+bounded transient memory; no persistent history cache or measured RSS claim.
+
+Preparation performs no I/O and creates no journal, backup or file effect.
+Captured identities and manifest bytes are observations, not current authority;
+copying a view does not copy the operation permit. Before publication, a future
+writer must qualify current lease/leaf checks, bounded durable journal recovery,
+existing recommendation/evidence protections and exact SQL job/source freshness.
+No SQL progress, final deletion or production activation is introduced. Production
+continues to use JSON and its existing graph transaction owner.

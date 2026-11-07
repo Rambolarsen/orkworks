@@ -1464,3 +1464,23 @@ coverage. Local macOS fixtures and Linux CI are distinct evidence. No native
 Windows cleanup, integrated terminal latency, power-loss behavior, deletion or
 SQL progress is qualified by these tests. Source freshness and durable cleanup
 remain follow-up gates under #1243; production remains JSON.
+
+## Lossless recommendation removal preparation
+
+`taskmaster/store/removal_tests.rs` exercises exact original byte/hash/leaf-identity
+preservation (including unknown members and formatting), existing version-2
+manifest validation, canonical encoded rollup paths, complete forward/reverse and
+superseded-parent closure, all four exact reference channels, unrelated records,
+retained lease/shared ownership, no-I/O preparation after source-directory
+removal, no-op batches and deterministic manifests across independent roots and
+directory insertion order. The largest accepted 1,024-leaf graph with 250-byte IDs
+produces manifests below one MiB without writing a journal. Existing store graph
+cleanup tests exercise the shared closure through actual legacy transactions.
+
+These source-only batch fixtures do not exercise a new destructive transaction:
+prepared commit flags are data, not publication or durable-success evidence. Raw
+leaf bytes remain subject to the existing one-MiB record/32-MiB aggregate bounds;
+retaining them adds bounded transient memory that still requires integrated
+resource qualification. Captured inode/hash data is not a current-leaf check.
+Bounded anchored mutation/recovery, stale publisher/source fences, protection
+revalidation and SQL progress remain required before integration/activation.

@@ -1,5 +1,6 @@
 //! Read-only qualification boundary; no graph recovery or deletion authority.
 #![cfg_attr(not(test), allow(dead_code))]
+mod removal;
 use super::*;
 use crate::workspace_runtime::WorkspaceLease;
 use std::sync::Arc;
@@ -20,8 +21,13 @@ struct Binding {
 #[must_use]
 pub(crate) struct CleanupInventory {
     records: Vec<Recommendation>,
+    leaves: BTreeMap<String, CapturedLeaf>,
     _operation: operation::Operation,
     _binding: BoundCleanup,
+}
+struct CapturedLeaf {
+    bytes: Vec<u8>,
+    identity: (u64, u64),
 }
 impl CleanupInventory {
     // Copies remain snapshots, never a deletion or source-freshness capability.
@@ -59,9 +65,10 @@ impl BoundCleanup {
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         {
             let operation = self.0.store.try_operation()?;
-            let records = unix::inspect(&self.0)?;
+            let (records, leaves) = unix::inspect(&self.0)?;
             Ok(CleanupInventory {
                 records,
+                leaves,
                 _binding: self.clone(),
                 _operation: operation,
             })
@@ -172,13 +179,16 @@ mod unix {
         }
         Ok(())
     }
-    pub(super) fn inspect(binding: &Binding) -> Result<Vec<Recommendation>, StoreError> {
+    pub(super) fn inspect(
+        binding: &Binding,
+    ) -> Result<(Vec<Recommendation>, BTreeMap<String, CapturedLeaf>), StoreError> {
         current(binding).map_err(StoreError::Io)?;
         let Some(directory) = &binding.records else {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), BTreeMap::new()));
         };
         let names = names(directory).map_err(StoreError::Io)?;
         let mut records = Vec::new();
+        let mut leaves = BTreeMap::new();
         let mut total = 0usize;
         for name in names {
             if !name.to_bytes().ends_with(b".json") {
@@ -231,11 +241,18 @@ mod unix {
                     "recommendation filename does not match its identity",
                 )));
             }
+            leaves.insert(
+                record.id.clone(),
+                CapturedLeaf {
+                    bytes,
+                    identity: (metadata.dev(), metadata.ino()),
+                },
+            );
             records.push(record);
         }
         validate_graph_records(&records)?;
         current(binding).map_err(StoreError::Io)?;
-        Ok(records)
+        Ok((records, leaves))
     }
     fn names(directory: &fs::File) -> io::Result<Vec<CString>> {
         // A fresh open description avoids sharing directory offsets across inspections.

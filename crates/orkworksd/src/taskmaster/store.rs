@@ -914,36 +914,9 @@ impl RecommendationStore {
     fn delete_graph_records(
         &self,
         recommendations: &[Recommendation],
-        mut ids: BTreeSet<String>,
+        ids: BTreeSet<String>,
     ) -> Result<(), StoreError> {
-        let by_id = recommendations
-            .iter()
-            .map(|recommendation| (recommendation.id.as_str(), recommendation))
-            .collect::<BTreeMap<_, _>>();
-        let mut changed = true;
-        while changed {
-            changed = false;
-            for id in ids.clone() {
-                let Some(recommendation) = by_id.get(id.as_str()) else {
-                    continue;
-                };
-                if let Some(parent_id) = recommendation.rolled_up_by.as_deref() {
-                    changed |= ids.insert(parent_id.to_string());
-                }
-                for member_id in &recommendation.rollup_member_ids {
-                    changed |= ids.insert(member_id.clone());
-                }
-            }
-            for recommendation in recommendations {
-                if recommendation
-                    .rollup_member_ids
-                    .iter()
-                    .any(|member_id| ids.contains(member_id))
-                {
-                    changed |= ids.insert(recommendation.id.clone());
-                }
-            }
-        }
+        let ids = deletion_graph_ids(recommendations, ids);
         let stored = self.read_all_stored_by_id()?;
         let expected = ids
             .iter()
@@ -1661,6 +1634,42 @@ fn valid_id(id: &str) -> bool {
     legacy_id || stable_rollup_id
 }
 
+// Shared legacy/captured closure; eligibility and protection decisions belong to callers.
+fn deletion_graph_ids(
+    recommendations: &[Recommendation],
+    mut ids: BTreeSet<String>,
+) -> BTreeSet<String> {
+    let by_id = recommendations
+        .iter()
+        .map(|recommendation| (recommendation.id.as_str(), recommendation))
+        .collect::<BTreeMap<_, _>>();
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for id in ids.clone() {
+            let Some(recommendation) = by_id.get(id.as_str()) else {
+                continue;
+            };
+            if let Some(parent_id) = recommendation.rolled_up_by.as_deref() {
+                changed |= ids.insert(parent_id.to_string());
+            }
+            for member_id in &recommendation.rollup_member_ids {
+                changed |= ids.insert(member_id.clone());
+            }
+        }
+        for recommendation in recommendations {
+            if recommendation
+                .rollup_member_ids
+                .iter()
+                .any(|member_id| ids.contains(member_id))
+            {
+                changed |= ids.insert(recommendation.id.clone());
+            }
+        }
+    }
+    ids
+}
+
 fn references_session(recommendation: &Recommendation, session_id: &str) -> bool {
     recommendation
         .source_session_ids
@@ -1760,7 +1769,7 @@ mod tests {
         }
     }
 
-    fn rollup_parent(id: &str, member_ids: &[&str]) -> Recommendation {
+    pub(super) fn rollup_parent(id: &str, member_ids: &[&str]) -> Recommendation {
         let mut parent = recommendation(id, "parent-session");
         parent.title = "Combined improvement".into();
         parent.summary = "Combined summary".into();
@@ -3163,3 +3172,7 @@ mod owner_tests;
 #[cfg(test)]
 #[path = "store/cleanup_tests.rs"]
 mod cleanup_tests;
+
+#[cfg(test)]
+#[path = "store/removal_tests.rs"]
+mod removal_tests;
