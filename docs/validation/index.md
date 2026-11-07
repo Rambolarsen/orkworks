@@ -8,6 +8,8 @@ Capability research, validation results, and evidence fixtures.
 
 ## Documents
 
+- [Partial legacy workspace-copy recovery](legacy-migration-recovery-review.md) — Source-derived retry, overwrite and resurrection risks with a proposed maintenance-owner handoff.
+
 - [Pair native envelope first source derivation](pair-native-envelope-derivation.md) — Conditional super-journal arithmetic, exact source role caveat and missing complete growth/scratch inputs.
 
 - [Taskmaster model identity trial](taskmaster-model-identity.md) — Two bounded model-ID comparison calls, safe diagnostic classification and historical-causality limits.
