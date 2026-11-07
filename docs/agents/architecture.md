@@ -1804,12 +1804,12 @@ Conservative preflight caps are 1,024 total directory entries, one MiB per recor
 and 32 MiB aggregate encoded record bytes. Overflow fails explicitly without a
 partial inventory. These are internal qualification limits, not new production
 record/retention limits. Unknown entries and transaction directories are refused;
-existing store recovery must finish before retry. Preflight never recovers,
+qualified recovery must finish before retry. Preflight never recovers,
 rewrites, removes, creates or synchronizes files. Other platforms fail Unsupported.
 
 This unwired read-only API grants no deletion, SQL progress, source freshness or
-evidence-protection authority. Application admission, bounded durable transaction
-recovery, original leaf ownership and stale producer revalidation/revocation
+evidence-protection authority. Application admission, integration of bounded durable
+transaction recovery, original leaf ownership and stale producer revalidation/revocation
 against exact SQL tombstones remain required before captured recommendation
 cleanup. A filesystem stall has no claimed hard deadline; integration must keep
 this blocking work outside input-critical application guards. Production uses JSON.
@@ -1840,3 +1840,44 @@ writer must qualify current lease/leaf checks, bounded durable journal recovery,
 existing recommendation/evidence protections and exact SQL job/source freshness.
 No SQL progress, final deletion or production activation is introduced. Production
 continues to use JSON and its existing graph transaction owner.
+
+
+## Recommendation deletion journal
+
+The source-only `PreparedRemoval::publish` revalidates the complete captured
+inventory, lease, original leaf bytes/inodes and canonical metadata-root identity.
+It writes private exclusive backups and existing v2 deletion manifests through
+pinned directory descriptors, synchronizes files/ancestors before target removal,
+validates the resulting graph, then removes only known leaves and empty directories.
+The manifest is removed last. The result receipt retains the operation permit and
+workspace lease through success or failure; callers must retain it through any
+future SQL progress decision. A receipt alone grants no SQL/session admission.
+
+`RecommendationStore::bind_cleanup_recovery` binds an existing root without
+running normal legacy migration/recovery or exposing a partially opened store.
+`BoundCleanup::recover_removals` accepts at most one canonical v2 deletion journal,
+validates all entries before effects, reconstructs the old graph for partial
+publication, and finishes committed removal or discards verified uncommitted
+staging. Partial draft backups must match prefixes of unchanged original files.
+Missing committed backups are accepted only once all selected targets are absent.
+Aliases, unexpected entries, changed targets, unsupported manifests and bounds
+failures remain visible and preserve recovery evidence. Repeated recovery syncs
+the records/root directories even when previous cleanup already removed the journal.
+
+Bounds remain 1,024 logical records, one MiB per record/manifest and 32 MiB per
+encoded graph or backup phase, with one extra physical journal-directory entry.
+Transient validation copies add bounded memory; no I/O deadline, measured RSS or
+hardware power-loss claim is made. macOS/Linux fixtures qualify source behavior;
+other platforms return Unsupported. The v2 layout remains readable by legacy
+recovery, but activation must route this qualified recovery before ordinary store
+opening; normal legacy recovery remains path based and unbounded.
+
+The operation registry is path keyed: destructive work refuses a renamed or
+replaced canonical metadata root (including a renamed ancestor hidden behind a
+symlink) even though read-only preflight can retain its
+original descriptors. Restart v2 manifests preserve hashes/IDs, not inode history;
+SQL epoch/job/creation identity, protection admission and stale-producer revocation
+remain required integration gates. Descriptor checks do not provide atomic
+compare-and-unlink against arbitrary same-user external filesystem mutation.
+No application selection, cleanup progress, retention or activation changes are
+introduced here. Production remains on JSON.

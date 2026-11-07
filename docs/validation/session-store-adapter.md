@@ -1484,3 +1484,30 @@ retaining them adds bounded transient memory that still requires integrated
 resource qualification. Captured inode/hash data is not a current-leaf check.
 Bounded anchored mutation/recovery, stale publisher/source fences, protection
 revalidation and SQL progress remain required before integration/activation.
+
+
+## Anchored recommendation journal qualification
+
+`taskmaster/store/journal_tests.rs` exercises source-only v2 deletion publication
+and recovery against real temporary directories and workspace leases. Fourteen tests
+cover success/failure receipt ownership, original byte preservation, stale target
+and canonical-root replacement/ancestor-alias refusal, no-op/absent directories, complete rollup
+closure, partial draft backups without rewriting originals, corrupt manifests,
+hashes, missing backups, unknown/staged files, symlinks, hardlinks, FIFO, oversized
+files, aliased manifest temp files and multiple pending journals.
+
+The interruption matrix injects a failure after each successful filesystem effect
+or sync boundary in publication/cleanup, drops the old store and lease, reacquires
+the lease, and uses the recovery-only binding twice. Before commit it preserves
+all three fixture records; after commit it retains only the unrelated record,
+with exact original bytes, and removes the journal. This qualifies idempotent
+source recovery across software interruptions. It does not emulate kernel or
+hardware power loss, short writes, arbitrary external filesystem attackers or an
+integrated SQL deletion admission. The canonical-root guard intentionally refuses
+destructive work after metadata-root moves despite read-only descriptor continuity.
+
+All 90 store regressions pass locally. Full verification and PR platform evidence
+are recorded in the linked implementation plan and PR; Linux and Windows CI are
+separate from local macOS results. Other platforms return Unsupported before
+journal effects. Production continues using JSON; captured SQL job/protection
+admission and stale producer revalidation/revocation remain activation gates.
