@@ -273,3 +273,5 @@ Dated design records; these do not establish current product behavior.
 - [Legacy adoption inventory and owner confirmation v1](2026-11-07-legacy-adoption-inventory-approval.md) — Accepted logical inventory/report/decision bytes and owner-confirmation ordering for further qualification; physical/transport gates remain.
 
 - [Legacy adoption publication and interrupted recovery](2026-11-07-legacy-adoption-publication-recovery.md) — Accepted conditional progress/effect ordering, cancellation settlement and restore-first recovery for further qualification; actual producer/physical gates remain.
+
+- [Complete session backup and same-version restore](2026-11-07-session-backup-restore-contract.md) — Proposed quiescent complete-set scope, inert validation, damaged-state preservation and fenced restore; actual owner/physical gates remain.
