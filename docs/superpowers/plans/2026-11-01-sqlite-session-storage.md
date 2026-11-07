@@ -106,10 +106,14 @@ detail DTOs. Integrate with the store from task 2; do not add attempt history.
 
 ### 4. Complete backup and restore — #1250
 
-The [conditional complete-set contract proposal](../specs/2026-11-07-session-backup-restore-contract.md)
-in #1517 refines scope, validation and restore boundaries. New refinements remain
-pending owner review; the accepted quiescent model is reused. No implementation
-or physical qualification checkbox is completed by the written proposal.
+The [accepted conditional complete-set contract](../specs/2026-11-07-session-backup-restore-contract.md)
+from #1517/#1518 refines scope, validation and restore boundaries. After #1518,
+the owner approved its four refinements for further qualification on 2026-11-08;
+#1522 records acceptance. Reuse this unchanged approval and the accepted quiescent
+model. No implementation or physical qualification checkbox is completed.
+The next prerequisite is the exact purpose-bound bundle/seal and owner-body
+representation, with native, maintenance/application, SQL closure and complete
+resource evidence still required before dependent implementation.
 
 Owners: a private maintenance/backup module, `workspace_runtime.rs` lease and
 format ownership, existing external evidence/image owners; synthetic/copy fixtures.

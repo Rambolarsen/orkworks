@@ -1,10 +1,10 @@
 ---
-type: Contract Proposal
+type: Contract
 title: Complete session backup and same-version restore
 description: Conditional scope, validation and restore ownership for quiescent complete workspace recovery sets.
 tags: [orkworks, sessions, backup, recovery, ownership]
-status: draft
-workflow_status: backup-restore-contract-proposed
+status: stable
+workflow_status: accepted-for-qualification
 ---
 
 # Complete session backup and same-version restore
@@ -16,17 +16,20 @@ Consumes the accepted [storage requirements](../../../specs/session-storage.md),
 [storage design](2026-11-01-sqlite-session-storage-design.md#external-payloads-events-backup-and-deletion),
 [additive adoption policy](2026-11-07-legacy-source-adoption-amendment.md) and
 [publication/recovery contract](2026-11-07-legacy-adoption-publication-recovery.md).
-This is a written proposal; no producer, platform, complete recovery fixture,
+The owner accepted the unchanged conditional contract for further qualification
+on 2026-11-08 after #1518, answering “keep going” to the explicit four-refinement
+approval request; [#1522](https://github.com/Rambolarsen/orkworks/issues/1522)
+records that acceptance. No producer, platform, complete recovery fixture,
 resource fit, runtime activation or live-user operation is qualified here.
 
-## Existing decisions and proposed refinements
+## Existing decisions and accepted refinements
 
 Reuse accepted quiescent maintenance, complete database-plus-external-file
 capture, isolated validation, destination preservation, same-version recovery
 and the existing format-2 marker authority. This does not add online snapshots,
 repository/native-tool backup, retention changes or process adoption.
 
-Proposed refinements for owner review:
+Accepted refinements for further qualification:
 
 1. **Closed-store initial profile.** All relevant writers stop and drain; the SQL
    owner seals/closes every connection and accounts for its complete auxiliary
@@ -47,8 +50,9 @@ Proposed refinements for owner review:
    This is a maintenance fence; it does not replace marker authority.
 
 The exact serialized codecs, supported native profiles and numerical resource
-bounds are later qualification inputs, not builder defaults. Acceptance of
-these logical refinements would not qualify those inputs or authorize code.
+bounds remain qualification inputs, not builder defaults. Acceptance of these
+logical refinements does not qualify those inputs or authorize code. Reuse this
+approval within scope; do not reopen unchanged storage/adoption decisions.
 
 ## Ownership and source evidence
 
