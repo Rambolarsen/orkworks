@@ -105,6 +105,23 @@ transport implementation, publication/recovery evidence or probe budget. The
 existing private primitives from those still-required guarantees. The policy,
 single activation point, current-data precedence and runtime gates above stand.
 
+### Publication/recovery acceptance — 2026-11-07
+
+After #1512, the owner answered “keep going” to the explicit approval request for
+three [publication/recovery choices](../superpowers/specs/2026-11-07-legacy-adoption-publication-recovery.md):
+restore-first after owner loss or ambiguous effects; existing final-payload
+parents only; and permit-first individual-effect settlement. Cancellation can
+prevent the next admission but cannot undo an already admitted effect; if that
+effect publishes a valid format-2 marker, SQL is authoritative. The unchanged
+conditional representation is accepted for further qualification in #1514.
+
+This does not reconstruct lost approval, authorize rollback by pathname, qualify
+physical owners or permit runtime implementation. Actual native/control,
+backup/restore, SQL/marker, maintenance/application and resource guarantees,
+complete physical accounting and #1242/#1243/#1248/#1250 remain prerequisites.
+The accepted additive policy, v1 bytes and existing marker activation rule stand;
+no new probe budget, live recovery or rollout permission follows.
+
 ## Clarification — 2026-11-07: SQL-bound recommendation recovery
 
 After reviewing the complete [recovery protocol](../superpowers/specs/2026-11-07-sql-recommendation-journal-recovery.md)
