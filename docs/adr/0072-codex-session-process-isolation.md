@@ -62,3 +62,21 @@ private app-server plus remote native terminal for compatible configurations,
 retaining independent execution environments and this ADR's direct launch as
 fallback. It requires written review and lifecycle/configuration verification;
 the accepted startup decision above remains in effect.
+
+## Amendment — 2026-11-07: own short discovery probe processes
+
+The owner approved the [shared probe ownership contract](../superpowers/specs/2026-11-07-probe-process-ownership-design.md)
+on 2026-11-07. Short version/help and OpenCode path-selection probes own a Unix
+process group or a suspended-child Windows Job, clean up after every outcome
+including successful output, and retain their current per-caller policies.
+Unix signaling precedes direct-child reaping; escaped sessions and brokered
+launches remain disclosed limits. Native termination requests do not promise
+immediate physical exit or same-user confinement. Provider safeguards from
+ADR 0055 are preserved.
+
+The existing three-second operation budget includes cleanup waiting; cleanup
+settlement is at most one second within that budget. Admission is bounded to
+64 active/pending-reap owners per sidecar, with no queue or retry at saturation.
+Shutdown closes admission and requests cleanup before a bounded reaping drain.
+This amendment does not authorize a hosted model probe, native activation,
+storage cutover, process adoption or termination of a user's shared daemon.

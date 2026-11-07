@@ -31,6 +31,9 @@ mod migration;
 mod opencode_session_store;
 mod peon;
 mod plan_handoff;
+mod probe_process;
+#[cfg(windows)]
+mod process_job;
 mod procfs;
 mod providers;
 mod runtime;
@@ -324,7 +327,25 @@ async fn run_sidecar() {
 
     tracing::info!(addr = %bound_addr, "orkworksd listening");
 
-    axum::serve(listener, app).await.unwrap();
+    tokio::select! {
+        result = async { axum::serve(listener, app).await } => { result.unwrap(); }
+        _ = sidecar_shutdown_signal() => {}
+    }
+    probe_process::shutdown().await;
+}
+
+async fn sidecar_shutdown_signal() {
+    #[cfg(unix)]
+    {
+        let mut terminate =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .expect("install termination signal");
+        tokio::select! { _ = terminate.recv() => {}, _ = tokio::signal::ctrl_c() => {} }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+    }
 }
 
 async fn health_check() -> &'static str {

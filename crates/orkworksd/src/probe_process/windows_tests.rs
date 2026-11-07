@@ -172,9 +172,7 @@ struct FixtureProcess(OwnedHandle);
 impl FixtureProcess {
     fn open(pid: u32) -> std::io::Result<Option<Self>> {
         // SAFETY: request access only to the fixture PID read from its private marker file.
-        let handle = unsafe {
-            OpenProcess(PROCESS_SYNCHRONIZE | PROCESS_TERMINATE, 0, pid)
-        };
+        let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE | PROCESS_TERMINATE, 0, pid) };
         if handle.is_null() {
             let error = std::io::Error::last_os_error();
             if error.raw_os_error() == Some(ERROR_INVALID_PARAMETER as i32) {
@@ -210,7 +208,8 @@ async fn wait_for_fixture_process(files: &FixtureFiles) -> FixtureProcess {
         loop {
             if let Ok(pid) = std::fs::read_to_string(&files.pid) {
                 if let Ok(pid) = pid.trim().parse() {
-                    if let Some(process) = FixtureProcess::open(pid).expect("open fixture process") {
+                    if let Some(process) = FixtureProcess::open(pid).expect("open fixture process")
+                    {
                         return process;
                     }
                     panic!("fixture descendant exited before the owner outcome");
@@ -304,7 +303,12 @@ async fn successful_wrapper_exit_terminates_descendant_and_leaves_sentinel_alive
     let files = FixtureFiles::new();
     let mut sentinel = Sentinel(
         Command::new("powershell.exe")
-            .args(["-NoProfile", "-NonInteractive", "-Command", "Start-Sleep -Seconds 30"])
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "Start-Sleep -Seconds 30",
+            ])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -337,7 +341,10 @@ async fn successful_wrapper_exit_terminates_descendant_and_leaves_sentinel_alive
         "wrapper output is captured before successful completion"
     );
     fixture.wait_for_exit();
-    assert!(matches!(sentinel.0.try_wait(), Ok(None)), "unrelated sentinel stays alive");
+    assert!(
+        matches!(sentinel.0.try_wait(), Ok(None)),
+        "unrelated sentinel stays alive"
+    );
 }
 
 #[tokio::test]
@@ -370,7 +377,12 @@ fn owned_process_job_reports_resume_failure_without_losing_termination_authority
     use windows_sys::Win32::System::Threading::CREATE_SUSPENDED;
 
     let mut child = Command::new("powershell.exe")
-        .args(["-NoProfile", "-NonInteractive", "-Command", "Start-Sleep -Seconds 30"])
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "Start-Sleep -Seconds 30",
+        ])
         .creation_flags(CREATE_SUSPENDED)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -378,12 +390,59 @@ fn owned_process_job_reports_resume_failure_without_losing_termination_authority
         .spawn()
         .expect("start suspended fixture");
     let job = ProcessJob::new().expect("create owned job");
-    job.attach_and_resume(&child).expect("assign and resume fixture");
+    job.attach_and_resume(&child)
+        .expect("assign and resume fixture");
     let error = match job.attach_and_resume(&child) {
         Ok(()) => panic!("resuming an already running thread should fail"),
         Err(error) => error,
     };
-    assert_eq!(error.to_string(), "unexpected provider thread suspension state");
-    job.terminate().expect("job still owns fixture after resume failure");
+    assert_eq!(
+        error.to_string(),
+        "unexpected provider thread suspension state"
+    );
+    job.terminate()
+        .expect("job still owns fixture after resume failure");
     let _ = child.wait();
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn assignment_denial_never_runs_configured_code_and_reaps_suspended_child() {
+    let dir = tempfile::tempdir().unwrap();
+    let marker = dir.path().join("unexpected");
+    let service = ProbeService::new().unwrap();
+    let mut command = Command::new("powershell.exe");
+    command
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "[IO.File]::WriteAllText($env:ORK_PROBE_MARKER, 'ran')",
+        ])
+        .env("ORK_PROBE_MARKER", &marker);
+    let failure = crate::process_job::fail_assignment_for_test();
+    assert_eq!(
+        service
+            .run(
+                &mut command,
+                ProbePolicy {
+                    max_bytes: 64,
+                    reject_overflow: true,
+                    require_success: true
+                },
+                Duration::from_secs(3)
+            )
+            .await
+            .unwrap_err(),
+        ProbeError::Setup
+    );
+    drop(failure);
+    service.shutdown().await;
+    assert!(
+        !marker.exists(),
+        "configured code ran before assignment succeeded"
+    );
+    assert_eq!(
+        service.shared.permits.available_permits(),
+        super::OWNER_LIMIT
+    );
 }

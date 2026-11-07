@@ -35,6 +35,27 @@ fixture and version/feature evidence are added beside the binding.
 | Aider (not installed) | [Notifications](https://aider.chat/docs/usage/notifications.html) | `--notifications-command` runs when the LLM finishes a response and Aider is waiting for the next input. The callback has no native Aider session ID or structured event payload and does not distinguish an ordinary completed response from a response containing a question. OrkWorks correlates its reporter to the launched session through its inherited session environment. Current OrkWorks launch augmentation reports it as `waiting_for_input`. | Limited: the official contract is unversioned and no live fixture is available in this environment. The callback's session correlation does not make completion a prompt signal; it should not write attention state, so Peon remains the attention fallback even when notification integration is enabled. No repository Aider config is edited. |
 | Generic shell | No deterministic extension point | None. | Unsupported; all integration mutation requests are no-ops with a conflict response. |
 
+### Short discovery probe ownership
+
+Source version/help probes, Codex isolation help and the OpenCode exact-resume
+path selector use one private native process owner. Unix probes have a fresh
+process group, signaled before direct-child reaping; Windows children enter an
+unnamed kill-on-close Job while suspended, before configured code runs. Cleanup
+also follows successful output. Existing argv/cwd/environment policies, cache
+identity, output limits and exit requirements remain caller-owned.
+
+The operation budget stays three seconds, with at most one second of cleanup
+settlement inside its remaining time. Sixty-four active or pending-reap owners
+per sidecar bound admission; saturation fails unavailable without queuing or
+retry. Drop requests cleanup even when the caller is never polled again, and
+sidecar shutdown closes admission before a bounded cleanup drain. Ownership or
+cleanup failure cannot establish capability evidence. A detached Unix session
+or brokered external process can escape this native set; production never chases
+it by process name or stale PID. This is ordinary native cleanup, not host
+confinement or immediate physical-exit proof. See the
+[approved contract](../superpowers/specs/2026-11-07-probe-process-ownership-design.md).
+Published installers may predate these source changes.
+
 ### OpenCode server isolation
 
 OpenCode 2.2.5's installed `--help` advertises `--standalone` for a private

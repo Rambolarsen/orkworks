@@ -4,7 +4,6 @@ use super::terminal_runtime::should_forward_terminal_env;
 use crate::harness::CommandSpec;
 use crate::startup_failure::{StartupError, StartupFailureCode as Code};
 use std::time::Duration;
-use tokio::io::AsyncReadExt;
 
 const MAX_HELP_BYTES: u64 = 64 * 1024;
 const PROBE_ERROR: &str =
@@ -20,7 +19,7 @@ pub(crate) async fn isolate_session(command: &mut CommandSpec) -> Result<(), Sta
         );
         StartupError::classified(Code::CodexHelpFailed, PROBE_ERROR)
     })?;
-    let mut probe = tokio::process::Command::new(tool.executable);
+    let mut probe = std::process::Command::new(tool.executable);
     // Help wrappers must receive neither launcher authority nor an ambient session capability.
     probe
         .env_clear()
@@ -35,59 +34,31 @@ pub(crate) async fn isolate_session(command: &mut CommandSpec) -> Result<(), Sta
     probe
         .arg("--help")
         .current_dir(&command.cwd)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true);
-    let read_help = async {
-        let mut child = probe
-            .spawn()
-            .map_err(|_| (Code::CodexHelpFailed, "help process could not start"))?;
-        let mut stdout = child
-            .stdout
-            .take()
-            .ok_or((Code::CodexHelpFailed, "help stdout pipe missing"))?
-            .take(MAX_HELP_BYTES + 1);
-        let mut stderr = child
-            .stderr
-            .take()
-            .ok_or((Code::CodexHelpFailed, "help stderr pipe missing"))?
-            .take(MAX_HELP_BYTES + 1);
-        let mut out = Vec::new();
-        let mut err = Vec::new();
-        let (out_result, err_result) =
-            tokio::join!(stdout.read_to_end(&mut out), stderr.read_to_end(&mut err),);
-        out_result.map_err(|_| (Code::CodexHelpFailed, "help stdout read failed"))?;
-        err_result.map_err(|_| (Code::CodexHelpFailed, "help stderr read failed"))?;
-        // Do not wait on an oversized writer: dropping the child kills it.
-        if out.len() as u64 > MAX_HELP_BYTES || err.len() as u64 > MAX_HELP_BYTES {
-            return Err((
-                Code::CodexHelpOversized,
-                "help output exceeded the size limit",
-            ));
-        }
-        if !child
-            .wait()
-            .await
-            .map_err(|_| (Code::CodexHelpFailed, "help process wait failed"))?
-            .success()
-        {
-            return Err((Code::CodexHelpFailed, "help process exited unsuccessfully"));
-        }
-        Ok(format!(
-            "{}\n{}",
-            String::from_utf8_lossy(&out),
-            String::from_utf8_lossy(&err)
-        ))
-    };
-    let help = match tokio::time::timeout(Duration::from_secs(3), read_help).await {
-        Ok(result) => result,
-        Err(_) => Err((Code::CodexHelpTimeout, "help probe timed out")),
-    }
-    .map_err(|(code, reason)| {
-        tracing::warn!(reason, "Codex session-isolation probe failed");
+        .stdin(std::process::Stdio::null());
+    let output = crate::probe_process::run(
+        &mut probe,
+        crate::probe_process::ProbePolicy {
+            max_bytes: MAX_HELP_BYTES as usize,
+            reject_overflow: true,
+            require_success: true,
+        },
+        Duration::from_secs(3),
+    )
+    .await
+    .map_err(|error| {
+        let code = match error {
+            crate::probe_process::ProbeError::Timeout => Code::CodexHelpTimeout,
+            crate::probe_process::ProbeError::Overflow => Code::CodexHelpOversized,
+            _ => Code::CodexHelpFailed,
+        };
+        tracing::warn!(stage=?error, "Codex session-isolation probe failed");
         StartupError::classified(code, PROBE_ERROR)
     })?;
+    let help = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
     let help = crate::peon::strip_ansi(&help);
     if help
         .lines()

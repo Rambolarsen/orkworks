@@ -56,3 +56,7 @@ jobs:
         run: cargo test --locked --manifest-path crates/orkworksd/Cargo.toml listener_identity
       - name: Test SDK socket decoder
         run: cargo test --locked --manifest-path crates/orkworksd/Cargo.toml --test listener_identity_sdk
+      - name: Test short probe process ownership on macOS
+        run: cargo test --locked --manifest-path crates/orkworksd/Cargo.toml probe_process
+      - name: Test non-exec version probe timeout
+        run: cargo test --locked --manifest-path crates/orkworksd/Cargo.toml version_probe_timeout_stops_non_exec_wrapper_descendant

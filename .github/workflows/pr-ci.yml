@@ -229,6 +229,15 @@ jobs:
           $listed = cargo test --locked --manifest-path crates/orkworksd/Cargo.toml --bin orkworksd -- --list
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $required = @(
+            "probe_process::tests::shutdown_between_registration_and_attachment_never_panics",
+            "probe_process::windows_pipe::tests::pending_capture_with_external_writer_does_not_retain_runtime_worker",
+            "probe_process::windows_tests::timeout_terminates_non_exec_descendant_holding_capture_pipe",
+            "probe_process::windows_tests::output_cap_terminates_non_exec_descendant_holding_capture_pipe",
+            "probe_process::windows_tests::cancellation_terminates_only_owned_descendant",
+            "probe_process::windows_tests::successful_wrapper_exit_terminates_descendant_and_leaves_sentinel_alive",
+            "probe_process::windows_tests::peek_exit_observes_success_without_reaping_owned_child",
+            "probe_process::windows_tests::assignment_denial_never_runs_configured_code_and_reaps_suspended_child",
+            "probe_process::windows_tests::owned_process_job_reports_resume_failure_without_losing_termination_authority",
             "providers::custom_inference::transport_tests::custom_inference_transports_stdin_and_file_with_literal_argv_and_existing_login",
             "providers::custom_inference::transport_tests::custom_inference_cleans_up_failures_and_bounds_output_and_runtime",
             "providers::custom_inference::transport_tests::custom_inference_rejects_invalid_utf8_instead_of_repairing_response_bytes",
@@ -253,6 +262,8 @@ jobs:
           foreach ($test in $required) {
             if ($listed -notcontains "$($test): test") { throw "Missing required Windows test: $test" }
           }
+      - name: Test owned short probe processes
+        run: cargo test --locked --manifest-path crates/orkworksd/Cargo.toml probe_process -- --test-threads=1
       - name: Run native custom inference transport
         run: cargo test --locked --manifest-path crates/orkworksd/Cargo.toml custom_inference
       - name: Test workspace update sockets and native metadata watcher

@@ -2,7 +2,9 @@
 use std::io;
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::process::Child;
-use windows_sys::Win32::Foundation::{INVALID_HANDLE_VALUE, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT};
+use windows_sys::Win32::Foundation::{
+    INVALID_HANDLE_VALUE, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
+};
 use windows_sys::Win32::System::{
     Diagnostics::ToolHelp::{
         CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32,
@@ -13,8 +15,7 @@ use windows_sys::Win32::System::{
         JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     },
     Threading::{
-        GetExitCodeProcess, OpenThread, ResumeThread, WaitForSingleObject,
-        THREAD_SUSPEND_RESUME,
+        GetExitCodeProcess, OpenThread, ResumeThread, WaitForSingleObject, THREAD_SUSPEND_RESUME,
     },
 };
 
@@ -47,6 +48,10 @@ impl ProcessJob {
     }
 
     pub(crate) fn attach_and_resume(&self, child: &Child) -> io::Result<()> {
+        #[cfg(test)]
+        if ASSIGNMENT_FAILURE.with(|failure| failure.get()) {
+            return Err(io::Error::from_raw_os_error(5)); // ERROR_ACCESS_DENIED
+        }
         // SAFETY: both handles are live and owned, and child was spawned suspended.
         if unsafe { AssignProcessToJobObject(self.0.as_raw_handle(), child.as_raw_handle()) } == 0 {
             return Err(io::Error::last_os_error());
@@ -79,7 +84,9 @@ impl ProcessJob {
                 return match unsafe { ResumeThread(thread.as_raw_handle()) } {
                     1 => Ok(()),
                     u32::MAX => Err(io::Error::last_os_error()),
-                    _ => Err(io::Error::other("unexpected provider thread suspension state")),
+                    _ => Err(io::Error::other(
+                        "unexpected provider thread suspension state",
+                    )),
                 };
             }
             entry.dwSize = std::mem::size_of::<THREADENTRY32>() as u32;
@@ -114,4 +121,20 @@ pub(crate) fn peek_exit(child: &Child) -> io::Result<Option<bool>> {
         }
         _ => Err(io::Error::other("unexpected child process wait result")),
     }
+}
+
+// Native assignment denial cannot be forced portably with a valid owned child.
+// Inject only that result; the fixture still spawns and cleans a real suspended child.
+#[cfg(test)]
+thread_local! { static ASSIGNMENT_FAILURE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+#[cfg(test)]
+pub(crate) fn fail_assignment_for_test() -> impl Drop {
+    struct Guard(std::marker::PhantomData<std::rc::Rc<()>>);
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            ASSIGNMENT_FAILURE.with(|failure| failure.set(false));
+        }
+    }
+    ASSIGNMENT_FAILURE.with(|failure| failure.set(true));
+    Guard(std::marker::PhantomData)
 }

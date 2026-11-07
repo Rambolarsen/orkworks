@@ -22,6 +22,10 @@ lock file; never evict it by age or delete its inode. Desktop dev/build/dist
 rebuild native dependencies for Electron. Run `pnpm rebuild fs-ext` before Node
 tests after an Electron build. See [architecture](architecture.md).
 
+Short discovery probes follow the [approved native ownership contract](../superpowers/specs/2026-11-07-probe-process-ownership-design.md)
+and its [shared runtime owner](architecture.md#short-probe-runtime), including
+cleanup on success, original-child identity and bounded reaping/admission.
+
 Provider process cleanup uses Windows Job APIs through the existing
 `windows-sys` dependency; preserve suspended-child assignment and bounded cleanup
 when changing inference transports. See [provider process ownership](architecture.md)
