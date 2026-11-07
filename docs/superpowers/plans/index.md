@@ -320,3 +320,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Shared recommendation operation ownership](2026-11-06-recommendation-owner-fence.md) — Nonblocking complete-store operation fencing before captured SQL cleanup.
 
 - [Owned recommendation removal batches](2026-11-07-recommendation-removal-batches.md) — Lossless original leaf proofs and complete graph deletion manifests.
+
+- [Retained legacy source-adoption qualification](2026-11-07-legacy-source-adoption-qualification.md) — Contract, authority, publication and restart gates before implementing accepted additive recovery.

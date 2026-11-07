@@ -1,19 +1,22 @@
 ---
-type: Design Proposal
+type: Design Specification
 title: Explicit adoption of retained legacy session evidence
-description: Proposed additive, owner-approved recovery of selected workspace-local session records and missing payloads during storage maintenance.
+description: Accepted-for-qualification additive, owner-approved recovery of selected workspace-local session records and missing payloads during storage maintenance.
 tags: [orkworks, sessions, migration, recovery, ownership]
-status: draft
-workflow_status: proposed
+status: stable
+workflow_status: accepted-for-qualification
 ---
 
 # Explicit adoption of retained legacy session evidence
 
-Status: proposed on 2026-11-07; owner approval pending.
+Status: accepted by the owner on 2026-11-07 for ADR and qualification-plan updates;
+implementation and live recovery remain gated.
 Drafting: [#1494](https://github.com/Rambolarsen/orkworks/issues/1494).
+Acceptance record: [#1498](https://github.com/Rambolarsen/orkworks/issues/1498).
 Delivery owner: [#1244](https://github.com/Rambolarsen/orkworks/issues/1244),
 consuming verified backup/restore from [#1250](https://github.com/Rambolarsen/orkworks/issues/1250).
-This draft does not amend the acceptance recorded in [ADR 0103](../../adr/0103-sqlite-session-storage.md).
+The dated amendment in [ADR 0103](../../adr/0103-sqlite-session-storage.md)
+records this additive policy without changing the existing activation point.
 
 ## Problem and scope
 
@@ -28,12 +31,14 @@ activation**, under the existing maintenance/import owner. Keep global format-1
 metadata authoritative until the existing activation point. No startup merge,
 standalone format-1 repair engine, post-activation supplemental import or live
 recovery is included. An urgent repair before the storage prerequisites are
-ready needs its own scope; this proposal does not make #1244 ready to execute.
+ready needs its own scope; this acceptance does not make #1244 ready to execute.
 
-The design choices below are the drafter's proposed defaults, not previously
-approved decisions. Existing producer, backup, historical-fact, linked-store,
-native/hierarchy and rollout gates remain binding. No dependency, model/native
-probe, live data access or implementation is authorized by publishing this draft.
+The owner approved the concrete policy after reviewing PR #1495 at
+`a1fd8b7834a44b3b7342bf84ae7b9c55d7e9bdd2`, replying “keep going” to the
+explicit request to approve it for ADR and plan updates. Existing producer,
+backup, historical-fact, linked-store, native/hierarchy and rollout gates remain
+binding. This approval supplies no runtime implementation, model/native probe
+budget or live-data access.
 
 ## Authority and preservation
 
@@ -76,7 +81,7 @@ Initial adoptable inputs are supported ordinary-session metadata and its known
 external `events/<id>.ndjson`, `<id>.terminal` and `<id>.terminal-size` files.
 Report unsupported versions, filenames, file kinds and relationships explicitly.
 Existing global images and other related files remain under their current
-owners; this initial proposal does not import a local image bundle without a
+owners; this initial scope does not import a local image bundle without a
 separately qualified association rule. The owner must explicitly exclude an
 unsupported candidate; if that candidate is required for a selected record's
 validity, the record cannot be selected. Never advertise complete recovered
@@ -89,10 +94,10 @@ from them. Current global organization and external-evidence protections retain
 their existing owners. This is not restoration of an entire old workspace.
 
 Inventory/report processing is streamed and separate from PTY/runtime work.
-Proposed report pages use at most 100 entries and 256 KiB including the envelope;
+Report pages use at most 100 entries and 256 KiB including the envelope;
 continue through all pages before confirmation. Do not truncate entries or
 silently omit oversized input: stop with a diagnostic when a single entry cannot
-fit. These proposed report limits do not change existing history/SQL limits.
+fit. These report limits do not change existing history/SQL limits.
 Existing import record limits still apply, including the 1 MiB canonical metadata
 record bound. Full manifest storage/accounting and platform path representation
 must be qualified before implementation; no all-history in-memory inventory is
@@ -196,14 +201,14 @@ rolled-back external file or complete successful import without verification.
 
 ## Qualification and delivery gates
 
-Before dependent implementation, approve this amendment and record the
-corresponding dated ADR 0103 amendment. Then revise #1244/#1250's implementation
-plan within their existing dependencies; publishing this draft is not that plan
-or implementation approval. Settle and review the canonical approval/manifest
-codec, complete on-disk inventory/progress accounting, application-owner approval
-transport, external-owner identity/exclusive publication and interrupted-recovery
-contracts before code depends on them. Those are qualification deliverables;
-no finite storage/native fit or platform guarantee is asserted here.
+The policy approval and dated ADR amendment permit the
+[qualification plan](../plans/2026-11-07-legacy-source-adoption-qualification.md),
+within #1244/#1250's existing dependencies. Settle and review the canonical
+approval/manifest codec, complete on-disk inventory/progress accounting,
+application-owner approval transport, external-owner identity/exclusive
+publication and interrupted-recovery contracts before code depends on them.
+Those are qualification deliverables, not runtime implementation approval; no
+finite storage/native fit or platform guarantee is asserted here.
 
 Copied/synthetic regression cases must exercise:
 
@@ -227,12 +232,13 @@ Copied/synthetic regression cases must exercise:
 
 Native filesystem, durability, ownership and producer gates require separately
 bounded execution evidence on supported platforms. No live-user repair or new
-probe budget is supplied by this proposal.
+probe budget is supplied by this acceptance.
 
-## Approval requested
+## Acceptance and delivery status
 
-Approve or revise the additive policy, explicit per-candidate decisions and
-maintenance-only delivery through #1244/#1250. Acceptance would permit updating
-the canonical design/ADR and preparing the qualified implementation plan. It
-would not authorize a live migration, a new probe budget, bypassing dependencies
-or runtime implementation before the remaining contracts and plan are reviewed.
+The additive policy, explicit per-candidate decisions and maintenance-only
+ownership are accepted for further qualification. Reuse that approval within
+scope rather than reopening the same policy. The linked plan begins with
+written inventory/approval contract closure; it does not execute adoption.
+Runtime implementation, live migration and probe budgets remain outside this
+acceptance until their stated contracts, dependencies and plan gates pass.

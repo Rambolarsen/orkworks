@@ -127,11 +127,14 @@ No online multi-store snapshot or live-user restore is implied.
 
 ### 5. Recoverable import, activation and cleanup — #1244
 
-Proposed extension, **not executable under this plan yet**: the
-[retained-source adoption amendment](../specs/2026-11-07-legacy-source-adoption-amendment.md)
-requires owner acceptance, the corresponding ADR update and reviewed approval/
-inventory/publication/recovery contracts before its tasks are added. Existing
-#1244/#1250 dependencies remain; this note changes no approved implementation scope.
+Accepted policy extension, **qualification only before runtime implementation**:
+the [retained-source adoption amendment](../specs/2026-11-07-legacy-source-adoption-amendment.md)
+and dated ADR 0103 amendment permit the
+[prerequisite qualification plan](2026-11-07-legacy-source-adoption-qualification.md).
+Complete its reviewed inventory/approval, ownership/publication and restart/
+accounting contracts before adding adoption implementation tasks here. Existing
+#1244/#1250 dependencies remain; acceptance does not enable startup merge,
+overwrite, live recovery or a new probe budget.
 
 Owners: `session_application.rs` workspace/lifecycle integration, `migration.rs`,
 `workspace_runtime.rs`, metadata adapter selection, archive/retention and deletion

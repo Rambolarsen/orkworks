@@ -69,3 +69,27 @@ transaction broker, versioned lineage and retained-tombstone direction for
 further qualification. Its partial supersession changes only that linked-profile
 connection/worker arrangement; this record's other authority, recovery, retention
 and activation decisions remain. No implementation or source permission follows.
+
+## Amendment — 2026-11-07: retained legacy source adoption
+
+The owner approved the concrete [retained-source adoption policy](../superpowers/specs/2026-11-07-legacy-source-adoption-amendment.md)
+after PR #1495, for ADR and qualification-plan updates. Before first format-2
+activation, the existing maintenance/import owner may prepare explicitly
+approved additive recovery from the selected retained workspace-local source.
+Current global metadata and every existing payload take precedence and remain
+unchanged. Source-only sessions and missing same-creation payloads require
+explicit adopt/exclude decisions bound to inventories, verified backups and
+current identity/protection; absence never proves a missed import or deletion
+intent. Conflicting or unknown identity cannot be approved around.
+
+This operationalizes preserved sources and explicit recovery under the existing
+single-authority activation decision. It adds neither startup replay nor a
+standalone repair engine, overwrite authority, post-activation adoption, native
+resume or new retention behavior. External publication is non-atomic and must
+retain exact progress and block ordinary opening through unresolved cutover.
+
+The [qualification plan](../superpowers/plans/2026-11-07-legacy-source-adoption-qualification.md)
+closes inventory/approval, publication/ownership and restart/accounting contracts
+before dependent implementation. #1244/#1250 and existing producer, historical,
+linked-store, native/hierarchy and rollout gates remain. No runtime implementation,
+live repair, new probe budget or platform guarantee follows from policy acceptance.
