@@ -1,10 +1,10 @@
 ---
-type: Contract Proposal
+type: Contract
 title: Legacy adoption publication and interrupted recovery
 description: Conditional effect ordering, ownership and restore-first recovery for accepted additive legacy adoption.
 tags: [orkworks, sessions, migration, publication, recovery]
-status: draft
-workflow_status: publication-contract-proposed
+status: stable
+workflow_status: accepted-for-qualification
 ---
 
 # Legacy adoption publication and interrupted recovery
@@ -14,11 +14,12 @@ Tracking: [#1510](https://github.com/Rambolarsen/orkworks/issues/1510),
 Consumes the accepted [additive policy](2026-11-07-legacy-source-adoption-amendment.md),
 [logical inventory/confirmation v1](2026-11-07-legacy-adoption-inventory-approval.md)
 and [pinned evidence-owner audit](../../validation/legacy-adoption-evidence-owners.md).
-This is step 2's **conditional written proposal**, not a qualified producer,
-implementation plan, probe budget or live repair permission. No accepted v1 bytes,
-current-global precedence or format-2 activation rule is changed.
+This is step 2's **owner-accepted conditional contract for further qualification**,
+not a qualified producer, implementation plan, probe budget or live repair
+permission. No accepted v1 bytes, current-global precedence or format-2 activation
+rule is changed.
 
-## Scope choices for owner review
+## Accepted scope choices
 
 1. **Restore-first after owner loss or ambiguity.** The initial publication
    profile does not reconstruct a lost approval/publication claim or roll forward
@@ -36,9 +37,12 @@ current-global precedence or format-2 activation rule is changed.
    admitted effect publishes a valid format-2 marker, SQL becomes authoritative
    even if cancellation arrives meanwhile. There is no rollback promise.
 
-These are proposed publication/recovery decisions, not an inference that the
-accepted policy already selected these exact restrictions. Reuse the accepted
-policy/v1 approvals; review these new choices before dependent code.
+After #1512, the owner answered “keep going” to the explicit request to approve
+these three choices for further qualification; [#1514](https://github.com/Rambolarsen/orkworks/issues/1514)
+records that acceptance on 2026-11-07. The unchanged conditional representation
+is accepted within this scope. Reuse the policy/v1 and publication/recovery
+approvals; actual producer, physical-accounting and dependency qualification
+remain required before dependent code.
 
 ## Required producing owners
 
@@ -66,7 +70,7 @@ identity operation, physical fit or native execution result is supplied here.
 
 Use v1's exact `C`, `H`, `Attempt`, `U`, `D`, native/profile/reference types and
 retained full manifest bodies. New `las.publication-*` tags are a separate
-proposed representation; they do not extend v1's closed Receipt-kind enum.
+publication representation; they do not extend v1's closed Receipt-kind enum.
 
 The target set is derived **only** from v1 payload candidates whose decision is
 `adopt`, in candidate ordinal order. Source-only metadata is added to staged SQL;
@@ -78,7 +82,7 @@ absence binding must validate. A target list from a caller or summary is invalid
 `Join = H(["las.publication-import.v1",baseImportDigestD,H(Batch),H(Snapshot),H(Targets)])`
 binds the ordinary complete global import and selected additions without a hash
 cycle. The qualified existing SQL/format owner binds this import digest in its
-existing database/marker fields; this proposal adds no format.json field or
+existing database/marker fields; this contract adds no format.json field or
 activation point. No raw database hash substitutes for the owner's import-only
 identity/change-counter validation.
 
@@ -287,13 +291,14 @@ all simultaneous occurrences; no hard-link/dedup/reference discount without the
 qualified resource owner's explicit physical accounting. Counter overflow,
 missing bounds or failed admission prevents the operation before its allocations.
 No 256 KiB report cap, journal LIMIT/TOTAL, free-space probe or linked-pair budget
-supplies those bounds. This proposal proves no resource fit.
+supplies those bounds. This contract proves no resource fit.
 
 Conditional written design may proceed using the audited owners; runtime code
 cannot while native/control, backup/restore, SQL/marker, application or resource
-inputs remain unqualified. Before implementation, review/accept this proposal,
-close those actual producer contracts and evidence, then add bounded tasks to
-#1244's plan within #1242/#1243/#1248/#1250 and native/hierarchy/rollout gates.
+inputs remain unqualified. Owner acceptance supplies no missing qualification.
+Before implementation, close those actual producer contracts and evidence,
+then add bounded tasks to #1244's plan within #1242/#1243/#1248/#1250 and
+native/hierarchy/rollout gates.
 No live restore, SQL/native/model probe or extra budget is authorized here.
 
 ## Review disposition
