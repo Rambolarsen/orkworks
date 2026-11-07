@@ -1231,6 +1231,49 @@ mod tests {
     }
 
     #[test]
+    fn opencode_go_weekly_banner_latches_capacity() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let registry = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
+        let patterns = registry.get("opencode").unwrap().capacity_patterns();
+        let banner = "│ OpenCode Go weekly usage limit reached";
+        let lines = vec![
+            banner.to_string(),
+            "│ Resets Nov 9, 1:00 AM. Switch to a free model with ctrl+x m to continue.".into(),
+        ];
+        assert!(crate::peon::detect_usage_limit(patterns, &lines));
+        let raw = format!("\x1b[90m{banner}\x1b[0m\r\n{}", lines[1]);
+        assert!(crate::peon::detect_usage_limit_raw(patterns, &raw));
+
+        let mut state = crate::capacity_state::CapacityState::default();
+        let observation = state.observe(patterns, &lines, &raw);
+        assert!(observation.at_usage_limit);
+        state.apply_observation(&observation);
+        assert!(state.at_usage_limit_latched);
+    }
+
+    #[test]
+    fn opencode_go_weekly_mentions_do_not_latch_capacity() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let registry = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
+        let patterns = registry.get("opencode").unwrap().capacity_patterns();
+        for text in [
+            "The error says OpenCode Go weekly usage limit reached",
+            "\"OpenCode Go weekly usage limit reached\"",
+            "OpenCode Go weekly usage limit reached is the message to detect",
+            "42: OpenCode Go weekly usage limit reached",
+        ] {
+            assert!(
+                !crate::peon::detect_usage_limit(patterns, &[text.to_string()]),
+                "{text}"
+            );
+            assert!(
+                !crate::peon::detect_usage_limit_raw(patterns, text),
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
     fn opencode_launch_and_resume_keep_reporting_in_a_private_server() {
         let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
         let registry = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
