@@ -135,3 +135,11 @@ The next product decision is whether to extend #1244's source inventory and
 owner-controlled conflict decisions, or commission urgent standalone legacy
 repair for a demonstrated incident. No current incident or recovery urgency was
 established by this source review.
+
+## Subsequent acceptance — 2026-11-07
+
+After #1495, the owner approved the [additive source-adoption policy](../superpowers/specs/2026-11-07-legacy-source-adoption-amendment.md)
+for ADR and qualification-plan updates. [ADR 0103](../adr/0103-sqlite-session-storage.md)
+and the [qualification plan](../superpowers/plans/2026-11-07-legacy-source-adoption-qualification.md)
+record that disposition. The source findings above remain historical evidence;
+runtime implementation, physical qualification and live recovery remain gated.

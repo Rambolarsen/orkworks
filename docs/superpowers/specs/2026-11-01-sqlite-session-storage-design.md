@@ -458,11 +458,14 @@ source-permission implementation is approved; the source commit/revocation
 cutoff remains separate. Unlinked ordinary behavior and other accepted session
 storage/producer/backup/recovery decisions remain unchanged.
 
-## Proposed retained-source adoption — 2026-11-07
+## Amendment — 2026-11-07: retained-source adoption
 
-The [source-adoption amendment](2026-11-07-legacy-source-adoption-amendment.md)
-proposes explicitly approved additive recovery from retained workspace-local
-evidence during the initial maintenance import. It is pending owner approval;
-the accepted design above does not yet authorize the additional source set.
-Current data, producer/backup qualification and the existing activation/recovery
-boundaries remain authoritative. See #1494 and the recovery review linked there.
+The owner accepted the [source-adoption amendment](2026-11-07-legacy-source-adoption-amendment.md)
+for ADR and qualification planning after PR #1495. It adds explicit owner-approved
+additive recovery from selected retained workspace-local evidence before first
+format-2 activation, preserving current global records/payloads, exact identity
+and the existing maintenance/backup/activation authorities. It does not authorize
+startup merge, overwrite, post-activation adoption or live recovery. The dated
+[ADR 0103 amendment](../../adr/0103-sqlite-session-storage.md) records the decision;
+the [qualification plan](../plans/2026-11-07-legacy-source-adoption-qualification.md)
+and unchanged #1244/#1250 dependencies gate dependent implementation.

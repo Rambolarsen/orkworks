@@ -107,10 +107,13 @@ full repository verification, applicable current-diff code review and required
 CI before owner-controlled rollout. No live recovery or supported platform is
 claimed until corresponding evidence exists.
 
-## Proposed retained-source adoption amendment — 2026-11-07
+## Retained-source adoption amendment — 2026-11-07
 
-The [retained legacy source-adoption proposal](../docs/superpowers/specs/2026-11-07-legacy-source-adoption-amendment.md)
-is pending owner approval under #1494/#1244. It proposes explicit additive recovery
-of selected workspace-local session records and missing payloads during the
-existing quiescent import. It supplies no startup merge, overwrite authority,
-accepted-contract change or runtime implementation approval.
+The owner accepted the [retained legacy source-adoption policy](../docs/superpowers/specs/2026-11-07-legacy-source-adoption-amendment.md)
+for ADR and qualification-plan updates after #1495. It permits further design of
+explicit additive recovery before first format-2 activation; current global
+metadata/payloads remain unchanged and source-only records or missing same-creation
+payloads require exact owner decisions. No startup merge, overwrite, post-activation
+adoption or live repair is included. [ADR 0103](../docs/adr/0103-sqlite-session-storage.md)
+records the dated amendment. The [qualification plan](../docs/superpowers/plans/2026-11-07-legacy-source-adoption-qualification.md)
+and existing #1244/#1250 dependencies remain gates before runtime implementation.
