@@ -4,7 +4,7 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 ## Documents
 
-- [One Windows SQLite compile-only evidence attempt](2026-11-06-pair-sqlite-compile-evidence.md) — Approved single compile budget and finite helper-frame evidence endpoint; execution tracked in #1485.
+- [One Windows SQLite compile-only evidence attempt](2026-11-06-pair-sqlite-compile-evidence.md) — Completed one compile-only attempt and helper-frame evidence; full envelope remains unavailable (#1485).
 
 - [Bounded recommendation cleanup preflight](2026-11-06-recommendation-cleanup-preflight.md) — Original-directory read-only inventory and finite cleanup qualification.
 
