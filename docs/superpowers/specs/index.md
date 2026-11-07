@@ -4,6 +4,8 @@ Dated design records; these do not establish current product behavior.
 
 ## Documents
 
+- [Session startup diagnostics](2026-11-07-startup-diagnostics-design.md) — Proposed safe launch/resume failure record, API and desktop presentation for #689.
+
 - [Harness-independent session workspace signals](2026-11-03-harness-workspace-signals-design.md) — Proposed cross-harness location evidence, shared resolution rules and qualification boundaries for #1347.
 
 - [Peon scheduling across session deletion](2026-11-01-peon-scheduling-forget-design.md) — Proposed scheduling fence and stale-work cleanup contract for #403.
