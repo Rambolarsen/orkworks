@@ -4,6 +4,8 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 ## Documents
 
+- [SQL-bound recommendation journal recovery](2026-11-07-sql-recommendation-journal-recovery.md) — Proposed bounded delivery and fault qualification for SQL-bound recommendation recovery; owner approval pending.
+
 - [Captured SQL recommendation cleanup](2026-11-07-sql-recommendation-cleanup.md) — Exact-job admission, original graph ownership and retained SQL cleanup progress.
 
 - [Anchored recommendation deletion journal](2026-11-07-recommendation-journal.md) — Bounded durable deletion publication and restart recovery.
