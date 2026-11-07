@@ -9,6 +9,7 @@ const shaPattern = /^[0-9a-f]{40}$/;
 function unrelated(path) {
   if (typeof path !== 'string' || !path || path.startsWith('/') || path.includes('\\') || path.split('/').some(part => part === '..' || part === '.' || !part)) return false;
   if (path.split('/').includes('fixtures')) return false;
+  if (path === 'apps/desktop/src/startupDiagnostics.ts') return false;
   if (path.startsWith('apps/desktop/src/')) return /\.(?:[cm]?[jt]sx?|vue|css|scss|svg|png|jpe?g|webp|ico)$/.test(path);
   return /^(?:docs|specs|skills)\/.+\.md$/.test(path);
 }

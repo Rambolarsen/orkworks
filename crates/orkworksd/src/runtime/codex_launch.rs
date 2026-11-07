@@ -2,6 +2,7 @@
 
 use super::terminal_runtime::should_forward_terminal_env;
 use crate::harness::CommandSpec;
+use crate::startup_failure::{StartupError, StartupFailureCode as Code};
 use std::time::Duration;
 use tokio::io::AsyncReadExt;
 
@@ -11,13 +12,13 @@ const PROBE_ERROR: &str =
 
 /// Probe before PTY spawn so launch and exact resume use the same isolation.
 /// Older CLIs without the option retain their existing arguments.
-pub(crate) async fn isolate_session(command: &mut CommandSpec) -> Result<(), String> {
+pub(crate) async fn isolate_session(command: &mut CommandSpec) -> Result<(), StartupError> {
     let tool = crate::harness::detect::probe_installed_tool(&command.program).ok_or_else(|| {
         tracing::warn!(
             reason = "executable not found",
             "Codex session-isolation probe failed"
         );
-        PROBE_ERROR.to_string()
+        StartupError::classified(Code::CodexHelpFailed, PROBE_ERROR)
     })?;
     let mut probe = tokio::process::Command::new(tool.executable);
     // Help wrappers must receive neither launcher authority nor an ambient session capability.
@@ -39,34 +40,39 @@ pub(crate) async fn isolate_session(command: &mut CommandSpec) -> Result<(), Str
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
     let read_help = async {
-        let mut child = probe.spawn().map_err(|_| "help process could not start")?;
+        let mut child = probe
+            .spawn()
+            .map_err(|_| (Code::CodexHelpFailed, "help process could not start"))?;
         let mut stdout = child
             .stdout
             .take()
-            .ok_or("help stdout pipe missing")?
+            .ok_or((Code::CodexHelpFailed, "help stdout pipe missing"))?
             .take(MAX_HELP_BYTES + 1);
         let mut stderr = child
             .stderr
             .take()
-            .ok_or("help stderr pipe missing")?
+            .ok_or((Code::CodexHelpFailed, "help stderr pipe missing"))?
             .take(MAX_HELP_BYTES + 1);
         let mut out = Vec::new();
         let mut err = Vec::new();
         let (out_result, err_result) =
             tokio::join!(stdout.read_to_end(&mut out), stderr.read_to_end(&mut err),);
-        out_result.map_err(|_| "help stdout read failed")?;
-        err_result.map_err(|_| "help stderr read failed")?;
+        out_result.map_err(|_| (Code::CodexHelpFailed, "help stdout read failed"))?;
+        err_result.map_err(|_| (Code::CodexHelpFailed, "help stderr read failed"))?;
         // Do not wait on an oversized writer: dropping the child kills it.
         if out.len() as u64 > MAX_HELP_BYTES || err.len() as u64 > MAX_HELP_BYTES {
-            return Err("help output exceeded the size limit");
+            return Err((
+                Code::CodexHelpOversized,
+                "help output exceeded the size limit",
+            ));
         }
         if !child
             .wait()
             .await
-            .map_err(|_| "help process wait failed")?
+            .map_err(|_| (Code::CodexHelpFailed, "help process wait failed"))?
             .success()
         {
-            return Err("help process exited unsuccessfully");
+            return Err((Code::CodexHelpFailed, "help process exited unsuccessfully"));
         }
         Ok(format!(
             "{}\n{}",
@@ -76,11 +82,11 @@ pub(crate) async fn isolate_session(command: &mut CommandSpec) -> Result<(), Str
     };
     let help = match tokio::time::timeout(Duration::from_secs(3), read_help).await {
         Ok(result) => result,
-        Err(_) => Err("help probe timed out"),
+        Err(_) => Err((Code::CodexHelpTimeout, "help probe timed out")),
     }
-    .map_err(|reason| {
+    .map_err(|(code, reason)| {
         tracing::warn!(reason, "Codex session-isolation probe failed");
-        PROBE_ERROR.to_string()
+        StartupError::classified(code, PROBE_ERROR)
     })?;
     let help = crate::peon::strip_ansi(&help);
     if help
@@ -101,7 +107,7 @@ pub(crate) async fn isolate_session(command: &mut CommandSpec) -> Result<(), Str
 mod tests {
     use super::*;
 
-    async fn prepare(script: &str, args: &[&str]) -> Result<Vec<String>, String> {
+    async fn prepare(script: &str, args: &[&str]) -> Result<Vec<String>, StartupError> {
         let dir = tempfile::tempdir().unwrap();
         let executable = dir.path().join("codex-help-fixture");
         std::fs::write(&executable, format!("#!/bin/sh\n{script}\n")).unwrap();
@@ -213,20 +219,31 @@ mod tests {
 
     #[tokio::test]
     async fn failed_help_cannot_authorize_a_shared_launch() {
-        assert!(prepare("printf '  --no-daemon\n'; exit 1", &[])
+        let error = prepare("printf '\\033[31msecret-token\\n'; exit 1", &[])
             .await
-            .is_err());
+            .unwrap_err();
+        assert_eq!(error.code, Some(Code::CodexHelpFailed));
+        assert!(!error.to_string().contains("secret-token"));
     }
 
     #[tokio::test]
     async fn oversized_help_cannot_hide_an_isolation_option() {
-        assert!(prepare("head -c 65537 /dev/zero", &[]).await.is_err());
+        assert_eq!(
+            prepare("head -c 65537 /dev/zero", &[])
+                .await
+                .unwrap_err()
+                .code,
+            Some(Code::CodexHelpOversized)
+        );
     }
 
     #[tokio::test]
     async fn a_hung_help_probe_is_bounded() {
         let start = std::time::Instant::now();
-        assert!(prepare("exec sleep 30", &[]).await.is_err());
+        assert_eq!(
+            prepare("exec sleep 30", &[]).await.unwrap_err().code,
+            Some(Code::CodexHelpTimeout)
+        );
         assert!(start.elapsed() < Duration::from_secs(5));
     }
 }

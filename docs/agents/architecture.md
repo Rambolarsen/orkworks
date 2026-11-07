@@ -568,6 +568,18 @@ independently of list failures. Terminal sockets and PTY ownership are unchanged
 
 Key endpoints: `POST /workspace`, `POST /workspace/active-session`, `PUT /workspace/active-harnesses`, `GET/POST /sessions`, `DELETE /sessions/:id`, `DELETE /sessions/:id/forget`, `POST /sessions/:id/resume`, `POST /sessions/:id/harness-session`, `POST /sessions/:id/attention`, `POST /sessions/:id/plan-path`, `POST /sessions/:id/debug-injection`, `GET /sessions/:id/plan-content`, `POST /sessions/:id/request-plan-review`, `POST /taskmaster/analyze`, `POST /taskmaster/recommendations/:id/accept`, `POST /taskmaster/recommendations/:id/complete`, `POST /taskmaster/recommendations/:id/completion-packet`, `GET /workspace/integrations/:harness_id/status`, `POST /workspace/integrations/:harness_id/install`, `POST /workspace/integrations/:harness_id/uninstall`, `GET /sessions/:id/terminal-output`, `GET /sessions/:id/summary-log`, `GET/POST /sessions/:id/workflow-observations`, `GET /providers`, `GET /providers/:id/models`, `POST /settings/providers`, `POST /settings/providers/ollama/verify`, `POST /settings/retention`, `GET/POST /harnesses`, `POST /harnesses/:id/duplicate`, `POST /harnesses/:id/remove-profile`, `PUT/DELETE /harnesses/:id`, and `WS /sessions/:id/terminal`.
 
+### Startup failure responses
+
+An admitted resume startup failure returns HTTP 500 JSON with
+`error: "session_startup_failed"`, catalog-derived `message`, and `startupFailure`
+(code, launch/resume operation and UTC timestamp). Generic internal errors still
+have empty bodies. Superseded/cancelled admitted resumes return empty HTTP 409.
+New creation retains asynchronous `creating` admission; complete session rows
+carry its eventual safe failure. The desktop bounds failure-body reads, validates
+the object and renders its local catalog, then refreshes the failed resume row.
+It keeps the diagnostic in the selected Terminal surface without repeated
+poll/reconnect toasts. See the [startup diagnostics contract](../superpowers/specs/2026-11-07-startup-diagnostics-design.md).
+
 ### Harness configuration and provider projection
 
 The sidecar persists `~/.orkworks/harnesses.json` as version 3. The document

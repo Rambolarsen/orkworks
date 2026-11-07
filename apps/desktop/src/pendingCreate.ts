@@ -1,4 +1,5 @@
 import type { SessionInfo } from "./api.ts";
+import { startupFailureMessage } from "./startupDiagnostics.ts";
 
 /**
  * The New Session dialog's create response now reflects the pre-spawn
@@ -20,18 +21,26 @@ export function trackPendingCreate(prev: ReadonlySet<string>, id: string): Reado
 export interface PendingCreateResolution {
   ids: ReadonlySet<string>;
   erroredIds: readonly string[];
+  erroredSessions: readonly SessionInfo[];
 }
 
 export function resolvePendingCreates(
   prev: ReadonlySet<string>,
   sessions: readonly SessionInfo[],
 ): PendingCreateResolution {
-  if (prev.size === 0) return { ids: prev, erroredIds: [] };
-  const statusById = new Map(sessions.map((s) => [s.id, s.status]));
+  if (prev.size === 0) return { ids: prev, erroredIds: [], erroredSessions: [] };
+  const sessionById = new Map(sessions.map((s) => [s.id, s]));
   const ids = new Set<string>();
   const erroredIds: string[] = [];
+  const erroredSessions: SessionInfo[] = [];
   for (const id of prev) {
-    const status = statusById.get(id);
+    const session = sessionById.get(id);
+    const status = session?.status;
+    if (session && startupFailureMessage(session.startupFailure)) {
+      erroredIds.push(id);
+      erroredSessions.push(session);
+      continue;
+    }
     if (status === "creating") {
       ids.add(id);
       continue;
@@ -41,7 +50,8 @@ export function resolvePendingCreates(
     // only "error" gets a toast.
     if (status === "error") {
       erroredIds.push(id);
+      if (session) erroredSessions.push(session);
     }
   }
-  return { ids, erroredIds };
+  return { ids, erroredIds, erroredSessions };
 }

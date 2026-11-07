@@ -4,15 +4,15 @@ title: Session startup diagnostics
 description: Proposed bounded failure details for admitted session launches and resumes, with safe desktop and HTTP presentation.
 tags: [sessions, startup, diagnostics, desktop, api]
 status: draft
-workflow_status: proposed
+workflow_status: approved
 ---
 
 # Session startup diagnostics
 
 Proposed contract for [#689](https://github.com/Rambolarsen/orkworks/issues/689).
-Owner approval is pending. This document records a proposal, not implemented
-behavior or a published-installer claim. It requires one approval of this
-contract before dependent runtime, metadata, API or desktop implementation.
+Owner approved this concrete contract on 2026-11-07 (“go ahead” after the
+#1503 approval request). Approval authorizes dependent implementation; it does
+not establish implemented behavior or a published-installer claim.
 
 ## Problem and boundary
 

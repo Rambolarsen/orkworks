@@ -428,6 +428,13 @@ pub struct SessionMetadata {
     #[serde(rename = "terminalOutcome", skip_serializing_if = "Option::is_none")]
     pub terminal_outcome: Option<String>,
     #[serde(
+        rename = "startupFailure",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::startup_failure::deserialize_optional"
+    )]
+    pub(crate) startup_failure: Option<crate::startup_failure::StartupFailure>,
+    #[serde(
         rename = "pendingTerminalStatus",
         skip_serializing_if = "Option::is_none"
     )]
@@ -913,6 +920,7 @@ pub(crate) fn assert_session_metadata_serializes_connectivity_terminal_outcome_a
         plan_path: None,
         connectivity: "offline".into(),
         terminal_outcome: Some("ended".into()),
+        startup_failure: None,
         pending_terminal_status: None,
         observed_status: None,
         ending_observed_status_snapshot: None,
@@ -3022,6 +3030,7 @@ mod tests {
             plan_path: None,
             connectivity: "online".into(),
             terminal_outcome: None,
+            startup_failure: None,
             pending_terminal_status: None,
             observed_status: None,
             ending_observed_status_snapshot: None,
@@ -3665,6 +3674,7 @@ mod tests {
             plan_path: None,
             connectivity: "online".into(),
             terminal_outcome: None,
+            startup_failure: None,
             pending_terminal_status: None,
             observed_status: None,
             ending_observed_status_snapshot: None,
@@ -3822,6 +3832,7 @@ mod tests {
             plan_path: None,
             connectivity: "online".into(),
             terminal_outcome: None,
+            startup_failure: None,
             pending_terminal_status: None,
             observed_status: None,
             ending_observed_status_snapshot: None,
@@ -4565,6 +4576,7 @@ mod tests {
             plan_path: None,
             connectivity: "online".into(),
             terminal_outcome: None,
+            startup_failure: None,
             pending_terminal_status: None,
             observed_status: None,
             ending_observed_status_snapshot: None,

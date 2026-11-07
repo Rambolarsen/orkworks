@@ -8,6 +8,7 @@ import {
 import type { SessionInfo, WorkspaceInfo } from "../src/api.ts";
 import type { CreateSessionOptions } from "../src/harnessTypes.ts";
 import type { PollScheduler } from "../src/sessionPolling.ts";
+import { ResumeSessionError } from "../src/api.ts";
 
 function session(id: string, lifecycle: SessionInfo["lifecycle"] = "alive", status = "running"): SessionInfo {
   return {
@@ -275,14 +276,74 @@ test("only the exact tracked creating id reaching error reports a create error",
   let polled: SessionInfo[] = [session("tracked", "creating", "creating"), session("other")];
   const controller = createWorkspaceSessionController({
     deps: deps({ listSessions: async () => polled, createSession: async () => session("tracked", "creating", "creating") }),
-    onError: (error) => errors.push(error.key),
+    onError: (error) => errors.push(error.message),
   });
   await controller.createSession({} satisfies CreateSessionOptions);
   await controller.refreshSessions();
   assert.deepEqual(errors, []);
   polled = [session("tracked", "dead", "error"), session("other", "dead", "error")];
   await controller.refreshSessions();
-  assert.deepEqual(errors, ["create"]);
+  assert.deepEqual(errors, ["Couldn't start a new session."]);
+  controller.dispose();
+});
+
+test("a tracked startup failure uses its catalog toast once", async () => {
+  const errors: string[] = [];
+  let rows = [session("tracked", "creating", "creating")];
+  const controller = createWorkspaceSessionController({
+    deps: deps({
+      createSession: async () => rows[0],
+      listSessions: async () => rows,
+    }),
+    onError: error => errors.push(error.message),
+  });
+  await controller.createSession({});
+  rows = [{
+    ...session("tracked", "dead", "error"),
+    startupFailure: { code: "process_spawn_failed", operation: "launch", occurredAt: "2026-11-07T12:00:00.000Z" },
+  }];
+  await controller.refreshSessions();
+  await controller.refreshSessions();
+  assert.deepEqual(errors, ["Could not start the coding tool. Check its configured executable and working directory, then retry."]);
+  controller.dispose();
+});
+
+test("a diagnostic in the ending transition is toasted once before repeated error rows", async () => {
+  const errors: string[] = [];
+  let rows = [session("tracked", "creating", "creating")];
+  const diagnostic = { code: "process_spawn_failed" as const, operation: "launch" as const, occurredAt: "2026-11-07T12:00:00.000Z" };
+  const controller = createWorkspaceSessionController({
+    deps: deps({
+      createSession: async () => rows[0],
+      listSessions: async () => rows,
+    }),
+    onError: error => errors.push(error.message),
+  });
+  await controller.createSession({});
+  rows = [{ ...session("tracked", "alive", "running"), lifecyclePhase: "ending", startupFailure: diagnostic }];
+  await controller.refreshSessions();
+  rows = [{ ...session("tracked", "dead", "error"), lifecyclePhase: "ended", startupFailure: diagnostic }];
+  await controller.refreshSessions();
+  await controller.refreshSessions();
+  assert.deepEqual(errors, ["Could not start the coding tool. Check its configured executable and working directory, then retry."]);
+  controller.dispose();
+});
+
+test("a failed resume refreshes and publishes the authoritative diagnostic row", async () => {
+  const errors: string[] = [];
+  const snapshots: SessionInfo[][] = [];
+  const diagnostic = { code: "codex_help_timeout" as const, operation: "resume" as const, occurredAt: "2026-11-07T12:00:00.000Z" };
+  const controller = createWorkspaceSessionController({
+    deps: deps({
+      resumeSession: async () => { throw new ResumeSessionError("The Codex session isolation check timed out. Check that the configured executable responds to --help, then retry.", diagnostic); },
+      listSessions: async () => [{ ...session("resume-me", "dead", "error"), startupFailure: diagnostic }],
+    }),
+    onError: error => errors.push(error.message),
+    onSessions: rows => snapshots.push([...rows]),
+  });
+  await controller.resumeSession("resume-me");
+  assert.equal(errors[0], "The Codex session isolation check timed out. Check that the configured executable responds to --help, then retry.");
+  assert.equal(snapshots.at(-1)?.[0].startupFailure?.code, "codex_help_timeout");
   controller.dispose();
 });
 
@@ -1035,6 +1096,30 @@ test("workspace replacement clears resume progress and an old response cannot cl
   newResponse.resolve(session("one"));
   await newOperation;
   assert.deepEqual(progress.at(-1), []);
+  controller.dispose();
+});
+
+test("a stale startup failure cannot toast or refresh the replacement workspace", async () => {
+  const response = deferred<SessionInfo>();
+  const errors: string[] = [];
+  let lists = 0;
+  const controller = createWorkspaceSessionController({
+    deps: deps({
+      resumeSession: async () => response.promise,
+      listSessions: async () => { lists += 1; return []; },
+    }),
+    onError: error => errors.push(error.message),
+  });
+  const operation = controller.resumeSession("old-session");
+  await new Promise(resolve => setImmediate(resolve));
+  controller.setAdmissionEnabled(false);
+  controller.setAdmissionEnabled(true);
+  await controller.openWorkspace("/replacement");
+  const listCallsBeforeLateFailure = lists;
+  response.reject(new ResumeSessionError("Session startup failed. Check sidecar diagnostics before retrying."));
+  await operation;
+  assert.deepEqual(errors, []);
+  assert.equal(lists, listCallsBeforeLateFailure);
   controller.dispose();
 });
 

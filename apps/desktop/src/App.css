@@ -3411,3 +3411,22 @@ html, body, #root {
 .skills-apm .ui-input { width: 100%; min-width: 0; box-sizing: border-box; }
 .skills-apm-body > button { justify-self: start; }
 .skills-apm p { margin: 0; overflow-wrap: anywhere; }
+.terminal-session-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.startup-failure-notice {
+  flex: 0 0 auto;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-default);
+  background: color-mix(in srgb, var(--state-error) 9%, var(--surface-1));
+  color: var(--text-primary);
+}
+
+.startup-failure-notice p {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+}

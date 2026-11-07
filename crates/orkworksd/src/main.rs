@@ -41,6 +41,7 @@ mod session_projection;
 mod session_store;
 mod session_types;
 mod session_view;
+mod startup_failure;
 mod taskmaster;
 mod workflow_observations;
 mod workspace_runtime;
@@ -806,6 +807,7 @@ pub(crate) mod test_support {
             status,
             connectivity,
             terminal_outcome,
+            startup_failure: None,
             cwd: cwd.into(),
             created_at: created_at.clone(),
             last_activity_at: Some(created_at),
@@ -880,6 +882,7 @@ pub(crate) mod test_support {
             plan_path: None,
             connectivity: "offline".into(),
             terminal_outcome: Some("ended".into()),
+            startup_failure: None,
             pending_terminal_status: None,
             observed_status: None,
             ending_observed_status_snapshot: None,
