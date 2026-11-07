@@ -407,51 +407,45 @@ mod unix_walk {
         prepare(prefix, attrs, ignore).map_err(io::Error::other)?;
         let stream = open_stream(dir)?;
         loop {
-            match next_entry(stream.0, prefix, count, start)? {
+            let name = match next_entry(stream.0, prefix, count, start)? {
                 Listing::End => return Ok(true),
                 Listing::Skip => continue,
-                Listing::Entry(name) => {
-                    let path = prefix.join(std::ffi::OsStr::from_bytes(name.to_bytes()));
-                    if let Some(stat) = entry_stat(dir, &name) {
-                        let kind = stat.st_mode & libc::S_IFMT;
-                        let outcome = if kind == libc::S_IFDIR {
-                            walk_directory(
-                                dir,
-                                &name,
-                                &path,
-                                visit,
-                                descend,
-                                count,
-                                start,
-                                expected,
-                                hash_bytes,
-                                prepare,
-                                control_bytes,
-                            )?
-                        } else {
-                            if !descend(&path, false) {
-                                continue;
-                            }
-                            if !visit_leaf(
-                                dir, &name, &path, stat, visit, expected, hash_bytes, start,
-                            )? {
-                                return Ok(false);
-                            }
-                            true
-                        };
-                        if !outcome {
-                            return Ok(false);
-                        }
-                    } else if !visit_unreadable(
-                        visit,
-                        path,
-                        "File changed or is unreadable; refresh.",
-                    )? {
-                        return Ok(false);
-                    }
+                Listing::Entry(name) => name,
+            };
+            let path = prefix.join(std::ffi::OsStr::from_bytes(name.to_bytes()));
+            let Some(stat) = entry_stat(dir, &name) else {
+                if !visit_unreadable(visit, path, "File changed or is unreadable; refresh.")? {
+                    return Ok(false);
                 }
+                continue;
+            };
+            let kind = stat.st_mode & libc::S_IFMT;
+            if kind == libc::S_IFDIR {
+                if !walk_directory(
+                    dir,
+                    &name,
+                    &path,
+                    visit,
+                    descend,
+                    count,
+                    start,
+                    expected,
+                    hash_bytes,
+                    prepare,
+                    control_bytes,
+                )? {
+                    return Ok(false);
+                }
+                continue;
+            }
+            if !descend(&path, false) {
+                continue;
+            }
+            if !visit_leaf(dir, &name, &path, stat, visit, expected, hash_bytes, start)? {
+                return Ok(false);
             }
         }
+        Ok(true)
     }
 
     /// Start at the filesystem root and open every canonical component relative
@@ -691,13 +685,15 @@ mod windows_walk {
             }
             if meta.file_attributes() & 0x400 != 0 {
                 if !visit(Entry {
-                    path: path.clone(),
+                    path,
                     mode: 0o120000,
                     content: reparse_content(root, &path),
                 }) {
                     return Ok(false);
                 }
-            } else if meta.is_dir() {
+                continue;
+            }
+            if meta.is_dir() {
                 if descend(&path, true)
                     && !recurse(
                         root,
@@ -714,7 +710,9 @@ mod windows_walk {
                 {
                     return Ok(false);
                 }
-            } else if !visit_leaf(held, &path, &meta, visit, expected, hash_bytes, start)? {
+                continue;
+            }
+            if !visit_leaf(held, &path, &meta, visit, expected, hash_bytes, start)? {
                 return Ok(false);
             }
         }
