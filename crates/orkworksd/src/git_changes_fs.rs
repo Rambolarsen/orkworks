@@ -106,6 +106,16 @@ fn traversal_exceeded(count: &mut usize, start: std::time::Instant) -> bool {
     *count > 10_000 || start.elapsed() > std::time::Duration::from_secs(5)
 }
 
+/// Budget check as a result, for caller-local `?` propagation.
+fn traversal_stop(count: &mut usize, start: std::time::Instant) -> io::Result<()> {
+    if traversal_exceeded(count, start) {
+        return Err(io::Error::other(
+            "Worktree traversal budget exceeded; comparison unavailable.",
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(unix)]
 mod unix_walk {
     use super::super::git_changes_eol::Eol;
@@ -716,11 +726,7 @@ mod windows_walk {
         )?;
         prepare(relative, attrs, ignore).map_err(io::Error::other)?;
         for item in std::fs::read_dir(root.join(relative))? {
-            if traversal_exceeded(count, start) {
-                return Err(io::Error::other(
-                    "Worktree traversal budget exceeded; comparison unavailable.",
-                ));
-            }
+            traversal_stop(count, start)?;
             let Some(path) = listing_path(item, relative)? else {
                 continue;
             };
@@ -728,10 +734,11 @@ mod windows_walk {
                 continue;
             };
             let meta = held.metadata()?;
-            if !descend(&path, meta.is_dir() && meta.file_attributes() & 0x400 == 0) {
+            let reparse = meta.file_attributes() & 0x400 != 0;
+            if !descend(&path, meta.is_dir() && !reparse) {
                 continue;
             }
-            if meta.file_attributes() & 0x400 != 0 {
+            if reparse {
                 if !visit_reparse(root, &path, visit) {
                     return Ok(false);
                 }
