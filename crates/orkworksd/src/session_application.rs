@@ -4670,17 +4670,20 @@ impl SessionApplication {
 
     pub(crate) fn report_prompt_attention(
         &self,
-        id: &str,
-        source: &str,
-        event: Option<&str>,
-        notification_type: Option<&str>,
-        native_session_id: &str,
-        status: &str,
-        generation: Option<&str>,
-        observed_at: Option<&str>,
-        cwd: Option<&str>,
-        token: Option<&str>,
+        request: PromptAttentionRequest<'_>,
     ) -> Result<(), SessionError> {
+        let PromptAttentionRequest {
+            id,
+            source,
+            event,
+            notification_type,
+            native_session_id,
+            status,
+            generation,
+            observed_at,
+            cwd,
+            token,
+        } = request;
         let (harness_id, prompt_wait, submitted_prompt) =
             prompt_request_shape(source, event, notification_type, status)?;
         let generation = generation.ok_or(SessionError::EmptyBadRequest)?;
@@ -5359,15 +5362,17 @@ fn transition_status_blocking(
             };
             match persist_lifecycle_transition(
                 ws,
-                &id,
-                is_terminal,
-                &status,
-                already_ending,
-                live_handle_phase,
-                session_resume,
-                now.clone(),
-                handle_decision.is_some(),
-                handle_decision.unwrap_or(false),
+                LifecyclePersist {
+                    id: &id,
+                    is_terminal,
+                    status: &status,
+                    already_ending,
+                    live_phase: live_handle_phase,
+                    resume: session_resume,
+                    timestamp: now.clone(),
+                    had_live_handle: handle_decision.is_some(),
+                    previous: handle_decision.unwrap_or(false),
+                },
             ) {
                 PersistOutcome::Applied => applied = true,
                 PersistOutcome::NoSession => return false,
@@ -5508,48 +5513,53 @@ fn live_handle_phase(
     inspect_live_phase(&sessions, id, expected_generation)
 }
 
-/// Persist one lifecycle transition and append its durable session.status event
-/// bookkeeping is left to the caller, which owns `applied`.
-/// This helper covers only the `mutate_session_optional` step.
-fn persist_lifecycle_transition(
-    ws: &WorkspaceState,
-    id: &str,
+/// One staged transition ready for durable persistence.
+struct LifecyclePersist<'a> {
+    id: &'a str,
     is_terminal: bool,
-    status: &str,
+    status: &'a str,
     already_ending: bool,
     live_phase: Option<String>,
     resume: (Option<harness::ResumeMemory>, Option<String>),
+    /// Timestamp shared by the persisted mutation and the status event.
     timestamp: String,
     had_live_handle: bool,
+    /// The live decision the caller falls back to when persistence fails.
     previous: bool,
+}
+
+/// Persist one lifecycle transition. Event bookkeeping is left to the caller,
+/// which owns `applied`; this helper covers only `mutate_session_optional`.
+fn persist_lifecycle_transition(
+    ws: &WorkspaceState,
+    request: LifecyclePersist<'_>,
 ) -> PersistOutcome {
-    let stored = ws.metadata.mutate_session_optional(
-        id,
-        if is_terminal {
-            WriteScope::ATTENTION
-        } else {
-            WriteScope::NONE
-        },
-        |meta| {
+    let scope = if request.is_terminal {
+        WriteScope::ATTENTION
+    } else {
+        WriteScope::NONE
+    };
+    let stored = ws
+        .metadata
+        .mutate_session_optional(request.id, scope, |meta| {
             Ok(
                 metadata::lifecycle_mutations::LifecycleMutation::Transition {
-                    status: status.to_string(),
-                    had_live_handle,
-                    already_ending,
-                    live_phase: live_phase.clone(),
-                    resume: resume.0,
-                    resumed_from: resume.1,
-                    timestamp: timestamp.clone(),
+                    status: request.status.to_string(),
+                    had_live_handle: request.had_live_handle,
+                    already_ending: request.already_ending,
+                    live_phase: request.live_phase.clone(),
+                    resume: request.resume.0,
+                    resumed_from: request.resume.1,
+                    timestamp: request.timestamp.clone(),
                 }
                 .apply(meta)
                 .is_some(),
             )
-        },
-    );
+        });
     match stored {
         Ok(Some(_)) => PersistOutcome::Applied,
         Ok(None) => PersistOutcome::NoSession,
-        Err(error) => PersistOutcome::SoftError(error, previous),
+        Err(error) => PersistOutcome::SoftError(error, request.previous),
     }
 }
 
@@ -6013,6 +6023,20 @@ fn note_accepted_attention_buffers(state: &AppState, id: &str, cwd: Option<Strin
     {
         bufs.remove(id);
     }
+}
+
+/// One authenticated prompt-attention notification awaiting validation.
+pub(crate) struct PromptAttentionRequest<'a> {
+    pub id: &'a str,
+    pub source: &'a str,
+    pub event: Option<&'a str>,
+    pub notification_type: Option<&'a str>,
+    pub native_session_id: &'a str,
+    pub status: &'a str,
+    pub generation: Option<&'a str>,
+    pub observed_at: Option<&'a str>,
+    pub cwd: Option<&'a str>,
+    pub token: Option<&'a str>,
 }
 
 impl ResumeAdmission {
@@ -18877,21 +18901,21 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
         );
         std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
 
+        let observed = (newer_prompt_at - chrono::Duration::seconds(1))
+            .to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
         let result = SessionApplication::new(state.clone()).report_prompt_attention(
-            id,
-            "copilot_hook",
-            Some("notification"),
-            Some("permission_prompt"),
-            "replacement-native",
-            "waiting_for_input",
-            Some(generation),
-            Some(
-                (newer_prompt_at - chrono::Duration::seconds(1))
-                    .to_rfc3339_opts(chrono::SecondsFormat::Micros, true)
-                    .as_str(),
-            ),
-            None,
-            Some(token),
+            PromptAttentionRequest {
+                id,
+                source: "copilot_hook",
+                event: Some("notification"),
+                notification_type: Some("permission_prompt"),
+                native_session_id: "replacement-native",
+                status: "waiting_for_input",
+                generation: Some(generation),
+                observed_at: Some(&observed),
+                cwd: None,
+                token: Some(token),
+            },
         );
         assert_eq!(result, Err(SessionError::EmptyBadRequest));
         assert!(!authority.is_active(id));
@@ -19017,18 +19041,18 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             if !queued && source != "user" {
                 std::fs::create_dir(&failed_write_path).unwrap();
                 assert_eq!(
-                    application.report_prompt_attention(
-                        &id,
-                        "claude_hook",
-                        Some("Notification"),
-                        Some("permission_prompt"),
-                        "native-session",
-                        "waiting_for_input",
-                        Some("generation"),
-                        Some("2026-10-03T12:00:00.000000Z"),
-                        None,
-                        Some("token"),
-                    ),
+                    application.report_prompt_attention(PromptAttentionRequest {
+                        id: &id,
+                        source: "claude_hook",
+                        event: Some("Notification"),
+                        notification_type: Some("permission_prompt"),
+                        native_session_id: "native-session",
+                        status: "waiting_for_input",
+                        generation: Some("generation"),
+                        observed_at: Some("2026-10-03T12:00:00.000000Z"),
+                        cwd: None,
+                        token: Some("token"),
+                    }),
                     Err(SessionError::Internal("application operation failed"))
                 );
                 assert_failed_write();
@@ -19048,18 +19072,18 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                     crate::runtime::prompt_authority::BindResult::Held
                 );
             }
-            let result = application.report_prompt_attention(
-                &id,
-                "claude_hook",
-                Some("Notification"),
-                Some("permission_prompt"),
-                "native-session",
-                "waiting_for_input",
-                Some("generation"),
-                Some("2026-10-03T12:00:00.000000Z"),
-                None,
-                Some("token"),
-            );
+            let result = application.report_prompt_attention(PromptAttentionRequest {
+                id: &id,
+                source: "claude_hook",
+                event: Some("Notification"),
+                notification_type: Some("permission_prompt"),
+                native_session_id: "native-session",
+                status: "waiting_for_input",
+                generation: Some("generation"),
+                observed_at: Some("2026-10-03T12:00:00.000000Z"),
+                cwd: None,
+                token: Some("token"),
+            });
             if queued {
                 assert_eq!(result, Err(SessionError::Accepted));
                 assert!(authority.acknowledge_reset(&id).is_some());
@@ -19233,18 +19257,18 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
         crate::runtime::terminal_runtime::set_workflow_report_token(id, "test-token".into());
 
         SessionApplication::new(state.clone())
-            .report_prompt_attention(
+            .report_prompt_attention(PromptAttentionRequest {
                 id,
-                "claude_hook",
-                Some("Notification"),
-                Some("permission_prompt"),
-                "native-session",
-                "waiting_for_input",
-                Some("prompt-generation"),
-                Some("2026-10-03T12:00:00.000000Z"),
-                None,
-                Some("test-token"),
-            )
+                source: "claude_hook",
+                event: Some("Notification"),
+                notification_type: Some("permission_prompt"),
+                native_session_id: "native-session",
+                status: "waiting_for_input",
+                generation: Some("prompt-generation"),
+                observed_at: Some("2026-10-03T12:00:00.000000Z"),
+                cwd: None,
+                token: Some("test-token"),
+            })
             .unwrap();
 
         assert!(state

@@ -488,18 +488,18 @@ pub(crate) async fn report_attention_route(
         };
         let application = SessionApplication::new(state.clone());
         return application
-            .report_prompt_attention(
-                &id,
-                &request.source,
-                Some(&request.event),
-                request.notification_type.as_deref(),
-                &request.harness_session_id,
-                &request.status,
-                Some(&request.prompt_hook_generation),
-                request.observed_at.as_deref(),
-                request.cwd.as_deref(),
-                bearer_token(&headers),
-            )
+            .report_prompt_attention(crate::session_application::PromptAttentionRequest {
+                id: &id,
+                source: &request.source,
+                event: Some(&request.event),
+                notification_type: request.notification_type.as_deref(),
+                native_session_id: &request.harness_session_id,
+                status: &request.status,
+                generation: Some(&request.prompt_hook_generation),
+                observed_at: request.observed_at.as_deref(),
+                cwd: request.cwd.as_deref(),
+                token: bearer_token(&headers),
+            })
             .map(|_| axum::http::StatusCode::OK.into_response())
             .or_else(|error| match error {
                 crate::session_application::SessionError::Accepted => {
@@ -5227,18 +5227,18 @@ mod tests {
             crate::runtime::prompt_authority::BindResult::Bound
         );
         crate::session_application::SessionApplication::new(state.clone())
-            .report_prompt_attention(
-                &session_id,
-                "claude_hook",
-                Some("Notification"),
-                Some("elicitation_dialog"),
-                "claude-elicitation-native",
-                "waiting_for_input",
-                Some(&generation),
-                None,
-                None,
-                Some(&token),
-            )
+            .report_prompt_attention(crate::session_application::PromptAttentionRequest {
+                id: &session_id,
+                source: "claude_hook",
+                event: Some("Notification"),
+                notification_type: Some("elicitation_dialog"),
+                native_session_id: "claude-elicitation-native",
+                status: "waiting_for_input",
+                generation: Some(&generation),
+                observed_at: None,
+                cwd: None,
+                token: Some(&token),
+            })
             .unwrap();
 
         assert_eq!(
@@ -5340,18 +5340,18 @@ mod tests {
             crate::runtime::prompt_authority::BindResult::Bound
         );
         crate::session_application::SessionApplication::new(state.clone())
-            .report_prompt_attention(
-                &session_id,
-                "claude_hook",
-                Some("Notification"),
-                Some("permission_prompt"),
-                "claude-permission-native",
-                "waiting_for_input",
-                Some(&generation),
-                None,
-                None,
-                Some(&token),
-            )
+            .report_prompt_attention(crate::session_application::PromptAttentionRequest {
+                id: &session_id,
+                source: "claude_hook",
+                event: Some("Notification"),
+                notification_type: Some("permission_prompt"),
+                native_session_id: "claude-permission-native",
+                status: "waiting_for_input",
+                generation: Some(&generation),
+                observed_at: None,
+                cwd: None,
+                token: Some(&token),
+            })
             .unwrap();
 
         crate::runtime::terminal_runtime::record_terminal_input(&state, &session_id, "y");
@@ -5443,18 +5443,18 @@ mod tests {
         let reporter = std::thread::spawn(move || {
             started_tx.send(()).unwrap();
             let result = crate::session_application::SessionApplication::new(report_state)
-                .report_prompt_attention(
-                    &report_session,
-                    "copilot_hook",
-                    Some("notification"),
-                    Some("permission_prompt"),
-                    "copilot-revoke-race-native",
-                    "waiting_for_input",
-                    Some(&report_generation),
-                    Some("2026-10-03T05:00:00.000000Z"),
-                    None,
-                    Some(&report_token),
-                );
+                .report_prompt_attention(crate::session_application::PromptAttentionRequest {
+                    id: &report_session,
+                    source: "copilot_hook",
+                    event: Some("notification"),
+                    notification_type: Some("permission_prompt"),
+                    native_session_id: "copilot-revoke-race-native",
+                    status: "waiting_for_input",
+                    generation: Some(&report_generation),
+                    observed_at: Some("2026-10-03T05:00:00.000000Z"),
+                    cwd: None,
+                    token: Some(&report_token),
+                });
             result.is_ok()
         });
         started_rx
