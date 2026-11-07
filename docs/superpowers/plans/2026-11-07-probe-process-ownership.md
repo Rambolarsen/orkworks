@@ -92,3 +92,11 @@ cleanup budget, and saturation retaining permits. Each has a fixture owner above
   as green. Docs build passed; existing chunk warnings do not concern this diff.
   Doc currency warning requests README review: its product/architecture overview
   remains accurate, so no README edit is needed for this private runtime boundary.
+
+- Final startup/shutdown edge regression failed before the fix (shutdown before
+  first service use still attempted spawn), then passed after shutdown publishes
+  and closes the shared service. All 14 ownership tests pass. Scoped manual
+  review approved this two-file delta from 677bd1ab, SHA-256
+  `9d7bb8ad25683cb288a90086f0a905dbfe6611478060730ce2ccda7e1263a887`
+  over `git diff --binary 677bd1ab -- crates/orkworksd/src/probe_process.rs
+  crates/orkworksd/src/probe_process/tests.rs`. No contract change.

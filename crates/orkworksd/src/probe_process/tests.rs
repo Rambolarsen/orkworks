@@ -401,3 +401,45 @@ async fn shutdown_between_registration_and_attachment_never_panics() {
     service.shutdown().await;
     assert_eq!(service.shared.permits.available_permits(), OWNER_LIMIT);
 }
+
+#[test]
+fn shutdown_before_first_probe_closes_global_admission() {
+    const FIXTURE: &str = "ORKWORKS_PROBE_SHUTDOWN_FIXTURE";
+    if std::env::var_os(FIXTURE).is_some() {
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            super::shutdown().await;
+            let mut command = Command::new("must-not-be-spawned");
+            assert_eq!(
+                super::run(
+                    &mut command,
+                    ProbePolicy {
+                        max_bytes: 64,
+                        reject_overflow: true,
+                        require_success: true
+                    },
+                    Duration::from_secs(3)
+                )
+                .await
+                .unwrap_err(),
+                ProbeError::Closed
+            );
+        });
+        return;
+    }
+    // Global admission is intentionally irreversible. Isolate it from other tests.
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "probe_process::tests::shutdown_before_first_probe_closes_global_admission",
+            "--nocapture",
+        ])
+        .env(FIXTURE, "1")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

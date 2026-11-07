@@ -477,7 +477,9 @@ pub(crate) async fn run(
         .await
 }
 pub(crate) async fn shutdown() {
-    if let Some(Ok(service)) = SERVICE.get() {
+    // Publish a closed service even if no probe has initialized it yet. A
+    // queued request reaching run during shutdown must not open fresh admission.
+    if let Ok(service) = SERVICE.get_or_init(|| ProbeService::new().map_err(|_| ())) {
         service.shutdown().await;
     }
 }
