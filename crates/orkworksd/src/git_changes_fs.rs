@@ -408,7 +408,7 @@ mod unix_walk {
         let stream = open_stream(dir)?;
         loop {
             let name = match next_entry(stream.0, prefix, count, start)? {
-                Listing::End => return Ok(true),
+                Listing::End => break,
                 Listing::Skip => continue,
                 Listing::Entry(name) => name,
             };
@@ -602,6 +602,60 @@ mod windows_walk {
         Ok(Some(path))
     }
 
+    /// Pin the entry, or visit it as unreadable and tell the walk to continue.
+    fn pinned_entry(
+        root: &Path,
+        path: &Path,
+        visit: &mut impl FnMut(Entry) -> bool,
+    ) -> io::Result<Option<File>> {
+        match pin(&root.join(path)) {
+            Ok(f) => Ok(Some(f)),
+            Err(_) => {
+                Ok(visit_unreadable(visit, path.to_owned(), "Unreadable file.").then(|_| None))
+            }
+        }
+    }
+
+    /// Visit a reparse leaf as link content without dereferencing it.
+    fn visit_reparse(root: &Path, path: &Path, visit: &mut impl FnMut(Entry) -> bool) -> bool {
+        visit(Entry {
+            path: path.to_owned(),
+            mode: 0o120000,
+            content: reparse_content(root, path),
+        })
+    }
+
+    /// Recurse into an approved directory descent.
+    #[allow(clippy::too_many_arguments)]
+    fn walk_directory(
+        root: &Path,
+        path: &Path,
+        visit: &mut impl FnMut(Entry) -> bool,
+        descend: &mut impl FnMut(&Path, bool) -> bool,
+        count: &mut usize,
+        start: std::time::Instant,
+        expected: &mut impl FnMut(&Path, i32) -> Result<(Option<git2::Oid>, Eol), String>,
+        hash_bytes: &mut usize,
+        prepare: &mut impl FnMut(&Path, Option<Vec<u8>>, Option<Vec<u8>>) -> Result<(), String>,
+        control_bytes: &mut usize,
+    ) -> io::Result<bool> {
+        if descend(path, true) {
+            return recurse(
+                root,
+                path,
+                visit,
+                descend,
+                count,
+                start,
+                expected,
+                hash_bytes,
+                prepare,
+                control_bytes,
+            );
+        }
+        Ok(true)
+    }
+
     /// Read and visit one pinned non-directory leaf.
     #[allow(clippy::too_many_arguments)]
     fn visit_leaf(
@@ -670,44 +724,32 @@ mod windows_walk {
             let Some(path) = listing_path(item, relative)? else {
                 continue;
             };
-            let held = match pin(&root.join(&path)) {
-                Ok(f) => f,
-                Err(_) => {
-                    if !visit_unreadable(visit, path, "Unreadable file.") {
-                        return Ok(false);
-                    }
-                    continue;
-                }
+            let Some(held) = pinned_entry(root, &path, visit)? else {
+                continue;
             };
             let meta = held.metadata()?;
             if !descend(&path, meta.is_dir() && meta.file_attributes() & 0x400 == 0) {
                 continue;
             }
             if meta.file_attributes() & 0x400 != 0 {
-                if !visit(Entry {
-                    path,
-                    mode: 0o120000,
-                    content: reparse_content(root, &path),
-                }) {
+                if !visit_reparse(root, &path, visit) {
                     return Ok(false);
                 }
                 continue;
             }
             if meta.is_dir() {
-                if descend(&path, true)
-                    && !recurse(
-                        root,
-                        &path,
-                        visit,
-                        descend,
-                        count,
-                        start,
-                        expected,
-                        hash_bytes,
-                        prepare,
-                        control_bytes,
-                    )?
-                {
+                if !walk_directory(
+                    root,
+                    &path,
+                    visit,
+                    descend,
+                    count,
+                    start,
+                    expected,
+                    hash_bytes,
+                    prepare,
+                    control_bytes,
+                )? {
                     return Ok(false);
                 }
                 continue;
