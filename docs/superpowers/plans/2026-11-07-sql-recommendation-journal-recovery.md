@@ -1,16 +1,16 @@
 ---
 type: Implementation Plan
 title: SQL-bound recommendation journal recovery plan
-description: Proposed delivery and fault evidence for exact-job recommendation recovery before SQL rollout.
+description: Approved delivery and fault evidence for exact-job recommendation recovery before SQL rollout.
 tags: [orkworks, sessions, sqlite, recommendations, recovery, plan]
 status: draft
-workflow_status: owner-review-pending
+workflow_status: implementation-active
 ---
 
 # SQL-bound recommendation journal recovery plan
 
 Parent: [#1243](https://github.com/Rambolarsen/orkworks/issues/1243).
-Spec: [proposed recovery contract](../specs/2026-11-07-sql-recommendation-journal-recovery.md).
+Spec: [accepted recovery contract](../specs/2026-11-07-sql-recommendation-journal-recovery.md).
 Base: `418cacba3b7b3f9b9ce90b1ab6d59d11c1fecf42`.
 
 Pass condition: a captured SQL cleanup can recover its own interrupted journal,
@@ -38,9 +38,9 @@ identity, retained operation/lane/lease, unchanged caps and fault qualification.
 
 ## Delivery
 
-- [ ] Obtain one owner decision on the concrete protocol and record it in the
+- [x] Obtain one owner decision on the concrete protocol and record it in the
   design/ADR; do not treat generic continuation as approval of unseen codecs.
-- [ ] SQL identity and codec: extend `session_store/deletion_recovery.rs` and
+- [x] SQL identity and codec: extend `session_store/deletion_recovery.rs` and
   its typed worker result with immutable header/job identity from one transaction.
   Add a focused private codec beside `taskmaster/store/cleanup/removal/journal.rs`.
   Verify exact UTF-8 length-prefix/name vectors, strict v3 roundtrips, canonical
@@ -83,7 +83,7 @@ store epochs and creation reuse before any unlink. These are delivery checks,
 not optional follow-ups. Exact finalization and stale-producer revocation remain
 separate pre-activation work. No live data, native launch or installer change.
 
-## Review disposition
+## Proposal review disposition (before acceptance)
 
 Self-review: Ready for independent review and owner decision; implementation
 blocked on that decision. Source assumptions are cited in the design. No runtime
@@ -102,3 +102,34 @@ lower-cost `gpt-6-luna` reviewers at high effort with fresh contexts: one verifi
 identity/compatibility claims against source; one checks crash/ownership coverage
 and whether a builder must guess a material contract. Apply bounded findings
 before handing off the concrete proposal. No delegated writers or coding harness.
+
+## Approved execution slice — 2026-11-07
+
+Owner accepted the linked concrete protocol with “keep going” after #1507.
+This PR delivers the SQL-identity/pure-codec item only, as permitted by the
+reviewable split above. Base `30c7aca0`; owned `sql-deletion-identity` worktree.
+No journal publication/recovery caller or legacy-routing behavior changes.
+
+Checks: real exact tombstone/header reads and reopen; canonical epoch and original
+workspace rejection; literal UTF-8/name vectors; strict envelope/entry parsing,
+foreign identity/name denial and unchanged 1,024-entry/1 MiB manifest bounds.
+The existing maximum-escaped selected response remains bounded. Source errors
+stay typed; identity objects are not cleanup permits and cannot be deserialized
+as freshly minted SQL authority. Full verification/manual review follow code.
+
+Identity/codec verification: all 112 private SQL store regressions and five codec
+regressions pass. Full `bash scripts/verify-repo.sh` passed with
+`RUST_TEST_THREADS=1`: 3,161 Rust unit tests (18 existing ignored), seven integration,
+31 reporter, one Electron ABI proof, desktop type-check/build and 1,709 tests
+(three existing skips), 1,202 docs tests/build and diff/doc/worktree checks. No
+additional filters or skips. Public docs/README reminders were reviewed: this
+private source-only foundation changes no installed behavior or onboarding;
+canonical architecture/validation and ADR records carry the changed claims.
+
+Completed current-product `/code-review medium` (protocol/identity and >500 code/
+test lines): separate read-only transaction/identity and codec/denial passes, both
+without actionable findings. Artifact SHA256
+`446a147db4793cd247f16fc78b7f859c3c63b35e6c765f124fdcba9163d54bec`; four
+source files remained byte-identical through review and full verification. These
+are reviewed source/codec checks, not executed journal recovery or activation.
+Remaining delivery checkboxes and production gates above remain open.

@@ -104,3 +104,20 @@ transport implementation, publication/recovery evidence or probe budget. The
 [evidence-owner audit](../validation/legacy-adoption-evidence-owners.md) separates
 existing private primitives from those still-required guarantees. The policy,
 single activation point, current-data precedence and runtime gates above stand.
+
+## Clarification — 2026-11-07: SQL-bound recommendation recovery
+
+After reviewing the complete [recovery protocol](../superpowers/specs/2026-11-07-sql-recommendation-journal-recovery.md)
+in PR #1507, the owner answered “keep going” to the explicit implementation
+request. The accepted representation binds a reserved transaction basename to
+the existing database epoch/workspace/session creation before backups, carries
+the full identity in a strict v3 deletion manifest, and refuses reserved journals
+in legacy recovery before effects. Exact-job recovery retains the existing
+operation/lane/lease through file completion and SQL progress. No SQL schema bump
+or public API is selected.
+
+This operationalizes identity-bound external deletion under the existing decision.
+The [delivery plan](../superpowers/plans/2026-11-07-sql-recommendation-journal-recovery.md)
+keeps producer revocation, final job completion, qualified startup routing,
+backup/migration and activation gates. Approval permits source-only implementation;
+it claims no executed recovery, live change or performance qualification.
