@@ -509,6 +509,7 @@ mod windows_walk {
     use std::{
         fs::File,
         io,
+        os::windows::fs::{MetadataExt, OpenOptionsExt},
         path::{Path, PathBuf},
     };
 
@@ -608,18 +609,26 @@ mod windows_walk {
         Ok(Some(path))
     }
 
-    /// Pin the entry, or visit it as unreadable and tell the walk to continue.
+    /// One pinned attempt: held descriptor, reported-continue, or walk stop.
+    enum Pinned {
+        Held(File),
+        Continue,
+        Stop,
+    }
+
+    /// Pin the entry, or visit it as unreadable when the pin fails.
     fn pinned_entry(
         root: &Path,
         path: &Path,
         visit: &mut impl FnMut(Entry) -> bool,
-    ) -> io::Result<Option<File>> {
-        match pin(&root.join(path)) {
-            Ok(f) => Ok(Some(f)),
-            Err(_) => {
-                Ok(visit_unreadable(visit, path.to_owned(), "Unreadable file.").then(|_| None))
+    ) -> io::Result<Pinned> {
+        Ok(match pin(&root.join(path)) {
+            Ok(f) => Pinned::Held(f),
+            Err(_) if visit_unreadable(visit, path.to_owned(), "Unreadable file.") => {
+                Pinned::Continue
             }
-        }
+            Err(_) => Pinned::Stop,
+        })
     }
 
     /// Visit a reparse leaf as link content without dereferencing it.
@@ -726,8 +735,10 @@ mod windows_walk {
             let Some(path) = listing_path(item, relative)? else {
                 continue;
             };
-            let Some(held) = pinned_entry(root, &path, visit)? else {
-                continue;
+            let held = match pinned_entry(root, &path, visit)? {
+                Pinned::Held(f) => f,
+                Pinned::Continue => continue,
+                Pinned::Stop => return Ok(false),
             };
             let meta = held.metadata()?;
             if let Ok(false) = route_pinned_entry(
