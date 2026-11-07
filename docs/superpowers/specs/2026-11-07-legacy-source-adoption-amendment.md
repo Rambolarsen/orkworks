@@ -213,6 +213,8 @@ The [v1 inventory/report/confirmation contract](2026-11-07-legacy-adoption-inven
 is the owner-accepted step-1 logical representation for further qualification,
 not a qualified approval mechanism. Its [evidence-owner audit](../../validation/legacy-adoption-evidence-owners.md)
 keeps unavailable native/backup/application guarantees explicit.
+The [publication/recovery contract](2026-11-07-legacy-adoption-publication-recovery.md)
+is a conditional step-2 proposal pending review, with no runtime authority.
 
 Copied/synthetic regression cases must exercise:
 

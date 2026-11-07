@@ -96,6 +96,11 @@ new approval/security contract requires its applicable owner review before code.
 
 ## 2. External publication, backup and restart contract
 
+Tracking: [#1510](https://github.com/Rambolarsen/orkworks/issues/1510).
+The [conditional publication/recovery proposal](../specs/2026-11-07-legacy-adoption-publication-recovery.md)
+records logical phase/effect and interruption oracles; it is pending owner review
+and establishes no qualified native/backup/control/resource producer.
+
 **Owner and artifact:** #1244 owns the companion publication/recovery contract;
 #1250 owns complete-backup validity/restoration and existing external-file owners
 retain their files. Keep one authoritative contract per seam; link the step-1
