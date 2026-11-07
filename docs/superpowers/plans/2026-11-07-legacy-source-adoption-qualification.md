@@ -59,7 +59,7 @@ remaining uncertainty cannot be resolved read-only.
 
 Tracking: [#1500](https://github.com/Rambolarsen/orkworks/issues/1500).
 The [v1 inventory/report/confirmation contract](../specs/2026-11-07-legacy-adoption-inventory-approval.md)
-records the proposed logical representation and component oracles; qualification
+records the owner-accepted logical representation and component oracles; qualification
 of its referenced physical/backup/application capabilities remains required.
 
 **Owner and artifact:** #1244 owns a written contract under
@@ -173,3 +173,15 @@ acceptance-fidelity review on 2026-11-07 found no material scope, coverage,
 authority or recovery gaps for that next gate. Unchanged policy approval and
 source evidence were reused. No qualification contract or runtime/native result
 was claimed complete by the review.
+
+## Subsequent representation acceptance and owner audit — 2026-11-07
+
+After #1504, the owner accepted v1's exact logical representation and confirmation
+ordering for further qualification. Step 1's written representation/review is
+delivered; do not reopen that unchanged approval. The
+[evidence-owner audit](../../validation/legacy-adoption-evidence-owners.md)
+pins actual available primitives and unqualified receipt/transport capabilities.
+Step 2 may use those findings for conditional written contract work, but cannot
+claim production readiness, physical fit or backup restoration until its actual
+required inputs and platform evidence are qualified. Dependent implementation
+remains Investigate; no new execution or probe budget follows.

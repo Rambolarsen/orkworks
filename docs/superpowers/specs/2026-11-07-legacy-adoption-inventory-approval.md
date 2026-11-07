@@ -1,10 +1,10 @@
 ---
-type: Contract Proposal
+type: Contract Specification
 title: Legacy adoption inventory and owner confirmation v1
 description: Exact logical bytes, candidate accounting and confirmation rules for additive retained-source recovery, with physical capabilities still unqualified.
 tags: [orkworks, sessions, migration, inventory, approval]
-status: draft
-workflow_status: representation-proposed
+status: stable
+workflow_status: representation-accepted-qualification-required
 ---
 
 # Legacy adoption inventory and owner confirmation v1
@@ -15,11 +15,13 @@ Policy: [accepted additive adoption](2026-11-07-legacy-source-adoption-amendment
 Delivery: [qualification step 1](../plans/2026-11-07-legacy-source-adoption-qualification.md).
 Source inspection base: `de180b5d685b80329ce808e74147cff9817db609`.
 
-This is a proposed **written logical contract**, not a serializer implementation,
-qualified native/backup receipt, approval endpoint or permission to publish files.
-The accepted policy is unchanged. Representation and approval ordering must be
-reviewed before dependent code; physical ownership, complete on-disk accounting
-and interrupted publication remain step 2. No live inputs, native/model probe,
+The owner accepted this **written logical representation and confirmation
+ordering for further qualification** after PR #1504 at
+`cd26d5d3bf59c739e25bd86078ac6ebe259dd083`, replying “keep going” to the explicit
+approval request. This is not a serializer implementation, qualified native/
+backup receipt, approval endpoint or permission to publish files. Reuse this
+scoped representation approval; physical ownership, complete on-disk accounting,
+trusted transport and interrupted publication remain qualification gates. No live inputs, native/model probe,
 SQL activation or new execution budget is supplied.
 
 ## 1. Encoding and identities
@@ -538,7 +540,10 @@ choices or changing current-data precedence. Reviews and component calculations
 supply no physical or runtime qualification. Final docs validation passed metadata/
 index checks, all 1,202 tests and the site/link build.
 
-Representation is proposed for owner review and further qualification. This closes
-only the written contract/byte-oracle deliverable, not a valid production approval
-witness or completed physical/backup/application capability. Do not run dependent publication or code
+The owner accepted the unchanged v1 representation and confirmation ordering
+for further qualification on 2026-11-07. This closes the written contract/byte-oracle
+and representation-review gates, not a valid production approval witness or
+completed physical/backup/application capability. The
+[evidence-owner audit](../../validation/legacy-adoption-evidence-owners.md)
+identifies available private primitives and remaining actual-owner guarantees. Do not run dependent publication or code
 as though those missing inputs had been supplied.

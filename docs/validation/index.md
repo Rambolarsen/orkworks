@@ -108,3 +108,5 @@ Capability research, validation results, and evidence fixtures.
 - [Windows pair namespace and auxiliary resource enforcement](windows-pair-namespace-resource-audit.md) — Pinned creation/growth/recovery paths and the missing pre-operation namespace, auxiliary and scratch admission seam.
 
 - [Pair native envelope callback and platform-input closure](pair-native-envelope-input-closure.md) — Callback/native inputs, compiler helper evidence and conditional NTFS allocation rounding; complete growth/scratch bounds remain unavailable.
+
+- [Legacy adoption evidence-owner audit](legacy-adoption-evidence-owners.md) — Pinned private primitives, scoped cleanup authority and unqualified actual receipt/backup/application guarantees.

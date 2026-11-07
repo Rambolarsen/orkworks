@@ -93,3 +93,14 @@ closes inventory/approval, publication/ownership and restart/accounting contract
 before dependent implementation. #1244/#1250 and existing producer, historical,
 linked-store, native/hierarchy and rollout gates remain. No runtime implementation,
 live repair, new probe budget or platform guarantee follows from policy acceptance.
+
+### Representation acceptance — 2026-11-07
+
+The owner subsequently approved the unchanged [v1 inventory/report/confirmation
+representation](../superpowers/specs/2026-11-07-legacy-adoption-inventory-approval.md)
+and its one-use local-owner confirmation ordering after #1504, for further
+qualification. This supplies no native/backup/application profile, trusted
+transport implementation, publication/recovery evidence or probe budget. The
+[evidence-owner audit](../validation/legacy-adoption-evidence-owners.md) separates
+existing private primitives from those still-required guarantees. The policy,
+single activation point, current-data precedence and runtime gates above stand.
