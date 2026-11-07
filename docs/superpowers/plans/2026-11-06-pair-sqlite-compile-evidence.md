@@ -4,7 +4,7 @@ title: One Windows SQLite compile-only evidence attempt
 description: Owner-approved bounded compiler evidence acquisition for the pair scratch analysis; one compile-only attempt and no complete envelope or backend implementation implied.
 tags: [orkworks, sqlite, windows, qualification, resources]
 status: draft
-workflow_status: approved-execution-in-progress
+workflow_status: attempt-complete-envelope-unavailable
 ---
 
 # One Windows SQLite compile-only evidence attempt
@@ -161,3 +161,17 @@ request. This accepts the tooling and sole compile-only attempt above; no repeat
 approval is needed within that scope. [#1485](https://github.com/Rambolarsen/orkworks/issues/1485)
 tracks execution and its terminal result. No dispatch has occurred in this record.
 All broader architecture, growth/scratch, production and source gates remain.
+
+## Terminal result — 2026-11-07
+
+The approved sole [run42352195449](https://github.com/Rambolarsen/orkworks/actions/runs/42352195449)
+completed successfully on merged tooling24fbfc12ffc6571db98aa484b880aac13381ccc3:
+one 195-second Windows-2022 job, one compiler driver invocation, exit0 and zero
+target executions. The [existing envelope concept](../../validation/pair-native-envelope-input-closure.md#compile-only-component-result--2026-11-07)
+records verified artifact identities, all four emitted helper bodies, own RSP
+adjustments, outgoing call boundaries and the remaining unknowns. This supplied
+useful component evidence and completes the attempt; dispatch1/1 and compiler1/1
+are consumed. There is no retry, fallback, new execution budget, complete S/growth
+manifest, backend implementation plan or activation implied. Historical approval-
+pending/in-progress statements above describe their earlier phases; this dated
+result is the current disposition. #1176 stays open; #740 stays closed research.

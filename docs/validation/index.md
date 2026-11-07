@@ -105,4 +105,4 @@ Capability research, validation results, and evidence fixtures.
 
 - [Windows pair namespace and auxiliary resource enforcement](windows-pair-namespace-resource-audit.md) — Pinned creation/growth/recovery paths and the missing pre-operation namespace, auxiliary and scratch admission seam.
 
-- [Pair native envelope callback and platform-input closure](pair-native-envelope-input-closure.md) — Complete public callback inventory, default-VFS/cache paths and outstanding native growth/scratch proof inputs.
+- [Pair native envelope callback and platform-input closure](pair-native-envelope-input-closure.md) — Public callback/native-input inventory and completed compiler helper-frame evidence; complete growth/scratch bounds remain unavailable.

@@ -1,7 +1,7 @@
 ---
 type: Qualification Audit
 title: Pair native envelope callback and platform-input closure
-description: Complete public callback inventory, global helper paths and documented Windows size semantics for the accepted pair VFS/router envelope gate, with numerical fit still unavailable.
+description: Public callback/native-input inventory plus the completed Windows SQLite compiler component evidence; complete growth and scratch qualification remains unavailable.
 tags: [orkworks, hierarchy, sqlite, windows, memory, qualification]
 status: draft
 workflow_status: complete-envelope-unavailable
@@ -36,7 +36,7 @@ an arena capacity, prove a valid command fits or declare the architecture
 impossible. The next evidence must provide the actual callback/native layout and
 closed build/call graph; another sample showing small usage cannot replace it.
 
-Method, performed read-only:
+Initial source-only audit method:
 
 1. Extract public callback members from the exact pinned amalgamation and map
    every slot to accepted behavior and pre-operation accounting obligations.
@@ -178,6 +178,127 @@ manifest from these source facts. Any implementation/compile/native work needed
 to produce missing evidence requires its concrete bounded plan and applicable
 authorization; the prior native attempt budget remains fully consumed.
 
-No product/backend/allocator code, SQL/database opening, compile/native/model
-probe or activation ran. This is source/documentation qualification only;
+At that initial audit, no product/backend/allocator code, SQL/database opening,
+compile/native/model probe or activation ran. That phase was source-only;
 #1176 remains open and #740 remains closed research.
+
+## Compile-only component result — 2026-11-07
+
+The owner approved [#1480's exact plan](../superpowers/plans/2026-11-06-pair-sqlite-compile-evidence.md#scoped-execution-approval--2026-11-07).
+[#1485](https://github.com/Rambolarsen/orkworks/issues/1485) tracks this attempt;
+tooling [#1486](https://github.com/Rambolarsen/orkworks/pull/1486) merged as
+24fbfc12ffc6571db98aa484b880aac13381ccc3. The reviewed workflow/driver bytes match
+tooling head 8f8ffbfe6b5ff6a59c843d6d57080e3dbabd9e73. Compiler-free Windows tests,
+four local workflow/argv checks and exact-head Codex review passed before dispatch.
+Required CI passed after one ordinary failed-jobs rerun for two unchanged tests;
+that CI rerun was not a qualification-workflow retry.
+
+**The single attempt supplied useful compiler component evidence.** Run
+[42352195449](https://github.com/Rambolarsen/orkworks/actions/runs/42352195449)
+completed successfully: one Windows-2022 job, one compiler driver invocation,
+zero target executions and compiler exit 0. Job time was 07:39:39–07:42:54 UTC
+(195 seconds); the script recorded 07:39:48.4529531–07:42:43.1385396 UTC.
+Within this qualification job, no linked executable, SQLite call, database,
+model call, VFS/router installation or filesystem-growth experiment ran. The owned frozen run branch pointed to the
+exact merged tooling head; no alternate ref/configuration or second dispatch ran.
+
+### Build and evidence identity
+
+| Item | Recorded value |
+| --- | --- |
+| Runner image | windows-2022 / 20261101.353.1 |
+| Compiler file version | MSVC 19.44.35229.0, x64 host / x64 target |
+| Compiler SHA-256 | fe251ef50a1545b1b0835ee17b1e785459712b38d79e45b5c1d3d28970a36619 |
+| Windows SDK | 10.0.26100.0 |
+| Source/configuration | Same pinned archive/amalgamation hashes above and in the plan; downloaded report argv exactly matches the approved 29 literal arguments, including source filename and 19 defines |
+| Object | 4,602,277 bytes; reported SHA-256 95ab1c5638a33847c8f1e09e13081653f2cba6d8f0e7d8db52a0dfeca596b248; object was not uploaded or executed |
+| Sanitized listing | 202,650,720 bytes; SHA-256 5dfd859e068c6690cc12c06fc6283e07cf8cf83d1dab75a86cc5c4183a651245 |
+| JSON report | 2,052 bytes; SHA-256 1fe542872b4f50740104e4f0121b07d540964e5feaf7362c01577ddc9e7ce52a |
+| Diagnostics | 11 bytes (source filename only); SHA-256 590d897d7a74113c659eb55273051f75edf017a333d4de6961e8b0b6fb4140e2 |
+| GitHub artifact | [13565809579](https://github.com/Rambolarsen/orkworks/actions/runs/42352195449/artifacts/13565809579), 53,048,506 archive bytes, one-day remote retention |
+| GitHub-reported artifact digest | sha256:fc251b62ab3292a726c88504554d5f82e6e28a700c1e0dff197ae905554fc2cf |
+
+Only result.json, diagnostics.txt and sqlite3.asm were downloaded. Their byte
+sizes and SHA-256 values were recomputed locally; report argv/counts/outcome and
+identity shapes were checked. Compiler/object hashes are the controlled driver's
+records, not a local rehash of retained binaries. No object or whole runner
+environment was collected. The artifact archive digest is GitHub-reported;
+the independent checks above apply to its three extracted files. This is a
+candidate object compilation, not a linked production/backend image.
+
+### Emitted helper bodies and own stack adjustments
+
+All four standalone bodies are present. Line numbers below identify the exact
+sanitized listing hash above, counting lines from 1. The byte column counts
+only the body's explicit downward RSP adjustment from its entry value: 8 bytes
+per pushed x64 register plus its fixed sub rsp instruction. It excludes
+call-pushed return addresses, caller-provided home area and callee execution.
+
+| Body / listing lines | Explicit prologue | Own RSP decrement |
+| --- | --- | --- |
+| sqlite3_randomness, 5009900–5010196 | push rdi; sub rsp,32 | 40 bytes |
+| winRandomness, 4178624–4179064 | push rbp/rdi/r14; sub rsp,64 | 88 bytes |
+| xorMemory, 4179073–4179127 | No push/sub of RSP; saves rbx/rsi/rdi at incoming rsp+8/+16/+24 and restores them | 0 additional bytes; uses 24 bytes of caller-provided home storage |
+| chacha_block, 4212049–4212325 | push rbp/rbx/rsi/rdi/r12/r13/r14/r15; sub rsp,104 | 168 bytes |
+
+The corresponding epilogues restore these adjustments. Inspection of each
+complete emitted body found no variable RSP adjustment, outgoing tail transfer
+or self-recursive edge. xorMemory and chacha_block have no outgoing calls in
+these bodies. Their local loops do not repeatedly allocate another frame.
+
+These numbers are **not S**, total stack consumption or a zero-scratch claim
+for xorMemory. Microsoft documents the distinct roles of
+[prologue/epilogue allocation](https://learn.microsoft.com/en-us/cpp/build/prolog-and-epilog?view=msvc-170)
+and [caller parameter/home storage and call-pushed return addresses](https://learn.microsoft.com/en-us/cpp/build/stack-usage?view=msvc-170).
+Some nonvolatile saves use the incoming home area, so counting every store as a
+new allocation would double-count caller storage. Callee work, calling ancestry,
+alignment/stack reservation and non-stack workspaces remain separate obligations.
+
+### Actual call edges, inlining and remaining boundaries
+
+| Emitted body | Outgoing edges / relevant observations |
+| --- | --- |
+| sqlite3_randomness | Calls sqlite3_initialize, sqlite3_vfs_find, memcpy (two sites), chacha_block, mutex callbacks through sqlite3Config+112/+128/+144, and an indirect VFS callback. Lines5010058–5010061 load the callback from rcx+104, set edx=44 and call rax: the default-VFS seed path remains in this candidate |
+| winRandomness | Calls memset, four aSyscall slots and __security_check_cookie. The source entropy-mixing operations are emitted inline here; there is no call to the separate xorMemory body |
+| xorMemory | Standalone body retained, although this winRandomness uses inline copies; register-only loop state plus its caller-home saves above |
+| chacha_block | Called by sqlite3_randomness; memcpy(x,in,64) is emitted as vector loads/stores, with no outgoing memcpy or other call in this body |
+
+The four indirect Windows slot offsets are 704, 416, 800 and 1232, at listing
+lines4178664,4178787,4178869,4178972. In the pinned source, win_syscall has three
+pointer fields and pCurrent is its second field. The x64 24-byte entries map
+these offsets to indices29,17,33,51: default GetSystemTime, GetCurrentProcessId,
+GetTickCount and QueryPerformanceCounter respectively (source macros at
+lines47406,47305,47439,47577). This identifies emitted dispatch slots and their
+source defaults; no Windows API or future runtime callback target was executed
+or qualified. In particular, native import and CRT/helper workspace costs were
+not measured or bounded by this compilation.
+
+Inlining is therefore observed in specific call sites; no requested standalone
+helper disappeared. The UUID-gated source branch (lines52575–52585) emits no
+UUID calls in this candidate; the approved define set did not enable
+SQLITE_WIN32_USE_UUID. This records the candidate's conditional branch, not a
+new feature-disable setting. Conditional seed/mutex paths are still present. None of this
+proves that initialization, PRNG reset, VFS selection, global mutex dispatch or
+the native helpers can be omitted from a later closed-program analysis.
+
+### Terminal disposition
+
+This completes the approved compiler-evidence attempt: dispatch **1/1** and
+compiler invocation **1/1**, with no retry/fallback or automatic next probe.
+The prior Windows native handle-probe budget remains separately consumed.
+
+The new evidence replaces guessed source-local stack sizes for these four
+emitted bodies. It leaves the complete call graph/native callees, Rust/private
+backend frames, F/P/R/L, arena layout/lifetimes and pre-operation native-growth
+envelope unresolved. No numerical manifest, arena capacity, maximum-profile fit,
+eligible backend or runtime activation follows. The unchanged first gate remains
+open and the candidate remains unavailable; #1176 stays open and #740 stays
+closed research. Further work must justify an identified missing bound within
+the accepted gate; this result grants no new execution budget.
+
+One bounded independent read-only review rehashed the three downloaded files and
+the pinned source, checked the 29 arguments, complete helper bodies, stack
+arithmetic, call/inlining facts and native slot mapping. It found no factual
+error or promotion to full qualification; its small conditional-branch coverage
+omission is resolved by the explicit UUID note above. No second compilation or
+probe ran for review.
