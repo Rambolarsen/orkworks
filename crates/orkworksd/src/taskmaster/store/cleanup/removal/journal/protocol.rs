@@ -145,8 +145,12 @@ pub(super) fn publish(removal: &PreparedRemoval) -> io::Result<()> {
             "recommendation inventory changed before publication",
         ));
     }
-    if let Some(dir) = &binding.records {
-        if entry(dir, JOURNAL)?.is_some() {
+    let existing_parent = match &binding.records {
+        Some(dir) => optional_directory(dir, JOURNAL)?,
+        None => None,
+    };
+    if let Some(parent) = &existing_parent {
+        if !names(parent)?.is_empty() {
             return Err(invalid("recommendation recovery required"));
         }
     }
@@ -158,7 +162,10 @@ pub(super) fn publish(removal: &PreparedRemoval) -> io::Result<()> {
         .as_ref()
         .ok_or_else(|| invalid("missing records directory"))?;
     current(binding)?;
-    let parent = mkdir(dir, JOURNAL)?;
+    let parent = match existing_parent {
+        Some(parent) => parent,
+        None => mkdir(dir, JOURNAL)?,
+    };
     let name = basename(&format!("tx-{}", uuid::Uuid::new_v4()))?;
     let directory = mkdir(&parent, &name)?;
     let backups = Some(mkdir(&directory, c"backups")?);

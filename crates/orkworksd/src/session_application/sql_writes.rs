@@ -409,3 +409,6 @@ mod delete_image_tests;
 
 #[cfg(all(test, unix))]
 mod delete_settings_tests;
+
+#[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
+mod delete_recommendation_tests;

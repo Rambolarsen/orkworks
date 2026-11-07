@@ -3,6 +3,7 @@
 mod removal;
 use super::*;
 use crate::workspace_runtime::WorkspaceLease;
+pub(crate) use removal::JournalReceipt;
 use std::sync::Arc;
 
 pub(crate) struct CleanupIntent {
@@ -36,6 +37,10 @@ impl CleanupInventory {
     }
 }
 impl RecommendationStore {
+    // Shared canonical-root operation identity, not a filesystem freshness check.
+    pub(crate) fn same_owner(&self, other: &Self) -> bool {
+        self.dir == other.dir && Arc::ptr_eq(&self.owner, &other.owner)
+    }
     // Memory only: capture while the caller owns its workspace identity.
     pub(crate) fn capture_cleanup(&self) -> CleanupIntent {
         CleanupIntent {
@@ -62,10 +67,21 @@ impl CleanupIntent {
 impl BoundCleanup {
     // Blocking-only. Caller releases application guards before inspection.
     pub(crate) fn inspect(&self) -> Result<CleanupInventory, StoreError> {
+        self.inspect_mode(false)
+    }
+    // Legacy successful graph transactions retain an empty journal parent.
+    // Permit only that scaffold; pending journals still need separate authority.
+    pub(crate) fn prepare_removal(
+        &self,
+        session_id: &str,
+    ) -> Result<removal::PreparedRemoval, StoreError> {
+        self.inspect_mode(true)?.prepare_session_removal(session_id)
+    }
+    fn inspect_mode(&self, allow_empty_journal: bool) -> Result<CleanupInventory, StoreError> {
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         {
             let operation = self.0.store.try_operation()?;
-            let (records, leaves) = unix::inspect(&self.0)?;
+            let (records, leaves) = unix::inspect(&self.0, allow_empty_journal)?;
             Ok(CleanupInventory {
                 records,
                 leaves,
@@ -74,10 +90,13 @@ impl BoundCleanup {
             })
         }
         #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-        Err(StoreError::Io(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "recommendation cleanup preflight is not qualified on this platform",
-        )))
+        {
+            let _ = allow_empty_journal;
+            Err(StoreError::Io(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "recommendation cleanup preflight is not qualified on this platform",
+            )))
+        }
     }
 }
 
@@ -181,8 +200,28 @@ mod unix {
     }
     pub(super) fn inspect(
         binding: &Binding,
+        allow_empty_journal: bool,
     ) -> Result<(Vec<Recommendation>, BTreeMap<String, CapturedLeaf>), StoreError> {
-        let (records, leaves) = read_records(binding, false)?;
+        let (records, leaves) = read_records(binding, allow_empty_journal)?;
+        if allow_empty_journal {
+            if let Some(directory) = &binding.records {
+                match open(directory, c".rollup-transactions", true) {
+                    Ok(journal) => {
+                        if !names(&journal).map_err(StoreError::Io)?.is_empty()
+                            || entry(directory, c".rollup-transactions").map_err(StoreError::Io)?
+                                != Some(identity(&journal).map_err(StoreError::Io)?)
+                        {
+                            return Err(StoreError::Recovery(
+                                "pending recommendation journal requires identity-bound recovery"
+                                    .into(),
+                            ));
+                        }
+                    }
+                    Err(e) if e.kind() == io::ErrorKind::NotFound => (),
+                    Err(e) => return Err(StoreError::Io(e)),
+                }
+            }
+        }
         validate_graph_records(&records)?;
         Ok((records, leaves))
     }

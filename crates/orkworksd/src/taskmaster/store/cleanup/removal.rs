@@ -1,6 +1,7 @@
 //! Owned deletion data; application freshness and protection admission remain separate.
 mod journal;
 use super::*;
+pub(crate) use journal::JournalReceipt;
 
 pub(crate) struct PreparedRemoval {
     inventory: CleanupInventory,
