@@ -1,4 +1,5 @@
 mod cleanup;
+pub(crate) use cleanup::{BoundCleanup, JournalReceipt};
 mod operation;
 use super::completion::CompletionMutationRequest;
 use super::rollup::stable_rollup_id;

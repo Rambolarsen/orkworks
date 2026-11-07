@@ -1775,10 +1775,10 @@ redaction's independent store open. It does not replace the cross-process
 workspace lease, anchor paths to physical directory identities or turn arbitrary
 opens into deletion authority. Existing synchronous recommendation I/O stays in
 its current application paths. Captured SQL recommendation cleanup must still
-bind original directory/lease ownership, qualify bounded graph I/O and durable
-retry, retain the operation through SQL progress and respect recommendation and
-evidence protections. No SQL cleanup stage, activation or final Delete completion
-is introduced by this prerequisite.
+respect original directory/lease ownership, bounded graph I/O, durable retry and
+recommendation/evidence protections. The captured stage below retains this owner
+through progress; identity-bound recovery and producer qualification still gate
+activation and final Delete completion.
 
 An operation permit does not validate an application snapshot held between store
 calls. Before captured deletion is enabled, old evaluator/publication snapshots
@@ -1810,8 +1810,8 @@ rewrites, removes, creates or synchronizes files. Other platforms fail Unsupport
 This unwired read-only API grants no deletion, SQL progress, source freshness or
 evidence-protection authority. Application admission, integration of bounded durable
 transaction recovery, original leaf ownership and stale producer revalidation/revocation
-against exact SQL tombstones remain required before captured recommendation
-cleanup. A filesystem stall has no claimed hard deadline; integration must keep
+against exact SQL tombstones remain required before production selection of
+captured recommendation cleanup. A filesystem stall has no claimed hard deadline; integration must keep
 this blocking work outside input-critical application guards. Production uses JSON.
 
 ## Owned recommendation removal batches
@@ -1835,9 +1835,9 @@ bounded transient memory; no persistent history cache or measured RSS claim.
 
 Preparation performs no I/O and creates no journal, backup or file effect.
 Captured identities and manifest bytes are observations, not current authority;
-copying a view does not copy the operation permit. Before publication, a future
-writer must qualify current lease/leaf checks, bounded durable journal recovery,
-existing recommendation/evidence protections and exact SQL job/source freshness.
+copying a view does not copy the operation permit. Publication separately validates current lease/leaf checks and bounded durable
+journal behavior. Existing recommendation/evidence protections and exact SQL
+job/source freshness remain application integration responsibilities.
 No SQL progress, final deletion or production activation is introduced. Production
 continues to use JSON and its existing graph transaction owner.
 
@@ -1853,7 +1853,7 @@ A validated draft temporary manifest is removed and its directory synced before
 discarding backups needed to validate it on restart. The manifest is removed last.
 The result receipt retains the operation permit and
 workspace lease through success or failure; callers must retain it through any
-future SQL progress decision. A receipt alone grants no SQL/session admission.
+SQL progress decision. A receipt alone grants no SQL/session admission.
 
 `RecommendationStore::bind_cleanup_recovery` binds an existing root without
 running normal legacy migration/recovery or exposing a partially opened store.
@@ -1885,3 +1885,41 @@ remain required integration gates. Descriptor checks do not provide atomic
 compare-and-unlink against arbitrary same-user external filesystem mutation.
 No application selection, cleanup progress, retention or activation changes are
 introduced here. Production remains on JSON.
+
+
+## Captured SQL recommendation cleanup
+
+The source-only `CapturedDeletion::remove_recommendations` adds cleanup progress
+bit `0x10` without selecting SQL in production. Capture clones the recommendation
+shared owner under application guards and binds original directories/lease in the
+existing off-guard file-binding phase. Binding errors stay stage-specific. Before
+effects the existing session lane rechecks the exact tombstoned ID/creation job,
+workspace/lease/reader/runtime memory, original recommendation shared owner and
+close-first state, reserves the session operation, then atomically admits the
+retained worker. Same-owner comparison is memory only; the anchored file layer
+performs physical identity checks outside application guards.
+
+Removal preparation permits only the verified empty `.rollup-transactions` parent
+left by successful legacy graph writes. Publication reuses that pinned directory
+and removes it during normal cleanup; a no-op may retain the empty scaffold.
+Strict read-only `inspect` behavior stays unchanged. Any nonempty journal parent
+fails before effects: existing v2 manifests do not identify a SQL job/creation/epoch
+and this action cannot adopt another job's recovery authority. Interrupted fresh
+publication leaves a visible pending journal and no new SQL progress; qualified
+identity-bound recovery routing remains required before activation.
+
+The graph uses the existing exact-reference predicate and complete forward/reverse
+rollup closure. Explicit Delete's existing graph semantics remain authoritative;
+background anti-spam citation protection is unchanged. A journal receipt retains
+its recommendation operation and original lease through SQL progress persistence
+and detached-view checks, including file error, SQL failure and admitted caller
+loss. Busy remains a visible file-stage WouldBlock error with no progress. Success
+ORs `0x10` into existing progress; the tombstone/job remains and legacy session
+JSON is untouched. Graph work and SQL I/O never run under input-critical guards.
+
+A progress flag records one completed pass. It does not qualify later legacy
+publishers or prevent recreation after the permit is released. Producer
+revalidation/revocation against SQL tombstones, job-bound journal recovery, other
+required external stages and final deletion remain activation gates. Existing
+retained intent/job and graph bounds remain; no measured RSS, end-to-end latency,
+hardware power-loss or production activation claim is introduced.

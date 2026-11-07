@@ -1521,3 +1521,29 @@ both complete publication and restart after 512 of 1,024 targets were removed.
 The previous implementation failed with EMFILE because it retained a descriptor
 per backup. Recovery now retains bounded byte/inode observations and reopens one
 backup for each later sync/removal. No parent-process resource limit is changed.
+
+
+## Captured recommendation cleanup stage
+
+`session_application/sql_writes/delete_recommendation_tests.rs` exercises the
+source-only `0x10` stage through real SQL jobs, workspace leases, recommendation
+owners and temporary files. Ten tests cover complete connected rollup removal,
+exact unrelated/legacy bytes, progress preservation and reopen/no-op retry,
+recommendation Busy, SQL progress failure while retaining the graph permit,
+original shared-owner/physical-directory replacement, reused SQL creation,
+stage-specific binding errors, admitted caller loss, original lease/reservation
+lifetime, acknowledged input with all application guards free while stalled, and
+completion with one blocking worker. Replacement directories and symlink targets
+contain valid recommendation JSON, so refusal depends on ownership checks.
+
+A valid committed journal for another session is preserved without recovery or
+progress. Legacy successful graph writes leave an empty journal parent; the
+initial integration fixture reproduced its rejection before the narrow removal
+preparation/publication compatibility path was added. Strict read-only preflight
+continues rejecting that parent, and nonempty journals still require separate
+job-bound recovery authority. Existing shared admission cancellation/expiry and
+stale-view regressions remain applicable and run with the SQL application suite.
+
+Production remains JSON. These fixtures grant no authority to stale legacy
+producers after cleanup or to automatic journal recovery, and do not complete the
+SQL deletion job. Those boundaries remain release gates under #1243.

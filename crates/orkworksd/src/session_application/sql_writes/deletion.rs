@@ -9,6 +9,7 @@ enum Stage {
     Workflow,
     Images,
     Settings,
+    Recommendations,
 }
 impl Stage {
     fn bit(self) -> u8 {
@@ -17,6 +18,7 @@ impl Stage {
             Self::Workflow => 0x02,
             Self::Images => 0x04,
             Self::Settings => 0x08,
+            Self::Recommendations => 0x10,
         }
     }
     fn name(self) -> &'static str {
@@ -25,15 +27,20 @@ impl Stage {
             Self::Workflow => "workflow",
             Self::Images => "images",
             Self::Settings => "settings",
+            Self::Recommendations => "recommendations",
         }
     }
     fn current(
         self,
         captured: &crate::workflow_observations::WorkflowObservationStore,
+        recommendations: &crate::taskmaster::store::RecommendationStore,
         ws: &WorkspaceState,
     ) -> bool {
-        matches!(self, Self::Replay | Self::Images | Self::Settings)
-            || captured.instance_id() == ws.workflow_observations.instance_id()
+        match self {
+            Self::Workflow => captured.instance_id() == ws.workflow_observations.instance_id(),
+            Self::Recommendations => recommendations.same_owner(&ws.recommendation_store),
+            Self::Replay | Self::Images | Self::Settings => true,
+        }
     }
 }
 enum Files {
@@ -41,11 +48,15 @@ enum Files {
     Workflow(crate::workflow_observations::WorkflowObservationStore),
     Images(Arc<std::io::Result<crate::image_context::SqlImageCleanup>>),
     Settings(Arc<std::io::Result<crate::metadata::BoundSettingsCleanup>>),
+    Recommendations(
+        Arc<Result<crate::taskmaster::store::BoundCleanup, crate::taskmaster::store::StoreError>>,
+    ),
 }
 #[derive(Default)]
 struct CleanupGuards {
     _image: Option<crate::image_context::ImageCleanupGuard>,
     _settings: Option<crate::metadata::WorkspaceMemoryEdit>,
+    _recommendations: Option<crate::taskmaster::store::JournalReceipt>,
 }
 impl Files {
     fn remove(self, id: &str) -> (std::io::Result<()>, CleanupGuards) {
@@ -75,6 +86,37 @@ impl Files {
                     },
                 )
             }
+            Self::Recommendations(files) => {
+                // No pending-journal recovery here: v2 manifests do not bind a
+                // SQL job/creation/epoch and cannot grant this job that authority.
+                let batch = files
+                    .as_ref()
+                    .as_ref()
+                    .map_err(recommendation_error)
+                    .and_then(|files| {
+                        files
+                            .prepare_removal(id)
+                            .map_err(|e| recommendation_error(&e))
+                    });
+                match batch {
+                    Ok(batch) => {
+                        let receipt = batch.publish();
+                        let result = receipt
+                            .result()
+                            .as_ref()
+                            .map(|_| ())
+                            .map_err(recommendation_error);
+                        (
+                            result,
+                            CleanupGuards {
+                                _recommendations: Some(receipt),
+                                ..Default::default()
+                            },
+                        )
+                    }
+                    Err(error) => (Err(error), CleanupGuards::default()),
+                }
+            }
             Self::Settings(files) => {
                 let (result, guard) = match files.as_ref().as_ref() {
                     Ok(files) => files.clear(id),
@@ -92,6 +134,16 @@ impl Files {
     }
 }
 
+fn recommendation_error(error: &crate::taskmaster::store::StoreError) -> std::io::Error {
+    use crate::taskmaster::store::StoreError as Error;
+    let kind = match error {
+        Error::Busy => std::io::ErrorKind::WouldBlock,
+        Error::Io(error) => error.kind(),
+        _ => std::io::ErrorKind::InvalidData,
+    };
+    std::io::Error::new(kind, error.to_string())
+}
+
 pub(crate) struct CapturedDeletion {
     owner: Arc<SessionWrites>,
     id: String,
@@ -102,6 +154,9 @@ pub(crate) struct CapturedDeletion {
     capacity: file_budget::Reservation,
     images: Arc<std::io::Result<crate::image_context::SqlImageCleanup>>,
     settings: Arc<std::io::Result<crate::metadata::BoundSettingsCleanup>>,
+    recommendation_store: crate::taskmaster::store::RecommendationStore,
+    recommendations:
+        Arc<Result<crate::taskmaster::store::BoundCleanup, crate::taskmaster::store::StoreError>>,
 }
 #[derive(Debug)]
 #[must_use]
@@ -144,7 +199,7 @@ impl SessionWrites {
         created: String,
     ) -> Result<CapturedDeletion, StoreError> {
         let id_for_capture = id.clone();
-        let (memory, workflow, replay, image_root, settings) = self
+        let (memory, workflow, replay, image_root, settings, recommendation_store) = self
             .organization_access(id.clone(), None, true, None, move |ws, h, pid| {
                 (
                     Arc::new(Memory::capture(ws, h.as_deref(), pid)),
@@ -152,6 +207,7 @@ impl SessionWrites {
                     ws.metadata.capture_replay_cleanup(&id_for_capture),
                     ws.metadata.root_path(),
                     ws.metadata.capture_settings_cleanup(),
+                    ws.recommendation_store.clone(),
                 )
             })
             .await?
@@ -173,6 +229,7 @@ impl SessionWrites {
         #[cfg(test)]
         let binding_owner = self.clone();
         let image_id = id.clone();
+        let recommendation_intent = recommendation_store.capture_cleanup();
         let binding = tokio::task::spawn_blocking(move || {
             #[cfg(test)]
             enter_replay_gate(&binding_owner.replay_binding);
@@ -185,9 +242,10 @@ impl SessionWrites {
                     &lease,
                 )),
                 Arc::new(settings.bind(&lease)),
+                Arc::new(recommendation_intent.bind(lease.clone())),
             )
         });
-        let (capacity, replay, images, settings) =
+        let (capacity, replay, images, settings, recommendations) =
             tokio::time::timeout(Duration::from_secs(2), binding)
                 .await
                 .map_err(|_| StoreError::Expired)?
@@ -205,6 +263,8 @@ impl SessionWrites {
             capacity,
             images,
             settings,
+            recommendation_store,
+            recommendations,
         })
     }
 }
@@ -222,6 +282,11 @@ impl CapturedDeletion {
     }
     pub(crate) async fn clear_settings(self) -> Result<DeletionCleanupResult, StoreError> {
         self.remove(Stage::Settings).await
+    }
+    // Source-only: producer fencing and identity-bound journal recovery remain
+    // activation gates. This method never completes the deletion job itself.
+    pub(crate) async fn remove_recommendations(self) -> Result<DeletionCleanupResult, StoreError> {
+        self.remove(Stage::Recommendations).await
     }
     async fn remove(self, stage: Stage) -> Result<DeletionCleanupResult, StoreError> {
         let claim = Arc::new(Claim {
@@ -255,7 +320,7 @@ impl CapturedDeletion {
                     .owner
                     .organization_current(&self.id, Some(&self.memory), true, |ws, h, pid| {
                         if !session_actions::runtime_closed(h.as_deref(), pid)
-                            || !stage.current(&self.workflow, ws)
+                            || !stage.current(&self.workflow, &self.recommendation_store, ws)
                         {
                             return Err(StoreError::Conflict);
                         }
@@ -270,6 +335,9 @@ impl CapturedDeletion {
                             Stage::Workflow => Files::Workflow(self.workflow.clone()),
                             Stage::Images => Files::Images(self.images.clone()),
                             Stage::Settings => Files::Settings(self.settings.clone()),
+                            Stage::Recommendations => {
+                                Files::Recommendations(self.recommendations.clone())
+                            }
                         };
                         job_claim.admit()?;
                         Ok::<_, StoreError>((reservation, lease, files))
@@ -301,7 +369,7 @@ impl CapturedDeletion {
                     true,
                     |ws, h, pid| {
                         session_actions::runtime_closed(h.as_deref(), pid)
-                            && stage.current(&self.workflow, ws)
+                            && stage.current(&self.workflow, &self.recommendation_store, ws)
                     },
                 ) != Some(true);
                 if !detached {

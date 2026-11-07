@@ -4,6 +4,8 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 ## Documents
 
+- [Captured SQL recommendation cleanup](2026-11-07-sql-recommendation-cleanup.md) — Exact-job admission, original graph ownership and retained SQL cleanup progress.
+
 - [Anchored recommendation deletion journal](2026-11-07-recommendation-journal.md) — Bounded durable deletion publication and restart recovery.
 
 - [One Windows SQLite compile-only evidence attempt](2026-11-06-pair-sqlite-compile-evidence.md) — Completed one compile-only attempt and helper-frame evidence; full envelope remains unavailable (#1485).
