@@ -87,3 +87,8 @@ forgery can select fixed text but confers no authority.
   overview, milestones and ADRs are unchanged, so README needs no edit.
 - All implementation and local verification steps complete. PR CI and terminal
   close-out remain tracked in the PR; native/storage activation is unchanged.
+
+- Hosted documentation routing tests caught the new Rust test's embedded desktop
+  catalog as an unrouted external input. Reproduced both routing failures locally;
+  added that exact path to Rust CI and excluded it from CodeQL's unrelated-UI
+  skip. Product-code diff/review remains unchanged; routing tests verify the fix.
