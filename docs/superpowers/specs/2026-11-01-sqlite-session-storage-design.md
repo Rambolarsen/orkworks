@@ -457,3 +457,12 @@ lineage and hidden-tombstone costs. No ordinary schema/migration/activation or
 source-permission implementation is approved; the source commit/revocation
 cutoff remains separate. Unlinked ordinary behavior and other accepted session
 storage/producer/backup/recovery decisions remain unchanged.
+
+## Proposed retained-source adoption — 2026-11-07
+
+The [source-adoption amendment](2026-11-07-legacy-source-adoption-amendment.md)
+proposes explicitly approved additive recovery from retained workspace-local
+evidence during the initial maintenance import. It is pending owner approval;
+the accepted design above does not yet authorize the additional source set.
+Current data, producer/backup qualification and the existing activation/recovery
+boundaries remain authoritative. See #1494 and the recovery review linked there.

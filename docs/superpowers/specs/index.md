@@ -261,3 +261,5 @@ Dated design records; these do not establish current product behavior.
 - [Original pair native owner](2026-11-06-original-pair-owner-design.md) — Accepted sole-worker original ownership and retained unknown disposition; candidate enforcement is scoped by ADR 0112.
 
 - [Pair-local native namespace and resource enforcement](2026-11-06-pair-native-enforcement-design.md) — Accepted Windows VFS/router direction for further envelope qualification; implementation and execution remain gated.
+
+- [Explicit adoption of retained legacy session evidence](2026-11-07-legacy-source-adoption-amendment.md) — Proposed additive maintenance-time recovery with explicit owner decisions and unchanged current authority.
