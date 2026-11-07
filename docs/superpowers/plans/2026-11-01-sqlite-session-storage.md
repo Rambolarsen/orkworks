@@ -106,6 +106,11 @@ detail DTOs. Integrate with the store from task 2; do not add attempt history.
 
 ### 4. Complete backup and restore — #1250
 
+The [conditional complete-set contract proposal](../specs/2026-11-07-session-backup-restore-contract.md)
+in #1517 refines scope, validation and restore boundaries. New refinements remain
+pending owner review; the accepted quiescent model is reused. No implementation
+or physical qualification checkbox is completed by the written proposal.
+
 Owners: a private maintenance/backup module, `workspace_runtime.rs` lease and
 format ownership, existing external evidence/image owners; synthetic/copy fixtures.
 
