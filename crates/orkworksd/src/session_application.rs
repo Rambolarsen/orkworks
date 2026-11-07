@@ -546,6 +546,36 @@ fn persist_peon_input_label_metadata(
     }
 }
 
+/// Where the sessions step of a transition leaves the blocking task.
+enum HandleTransition {
+    /// Generation or lifecycle matches forbid continuing the whole transition.
+    Aborted,
+    /// No handle for the id and no expected generation pinned.
+    Missing,
+    /// The live handle absorbed the transition and stays authoritative.
+    Applied {
+        resume: (Option<harness::ResumeMemory>, Option<String>),
+        entered_running: bool,
+        already_ending: bool,
+    },
+}
+
+/// Where the persisted metadata step leaves the blocking task.
+enum PersistOutcome {
+    /// The durable metadata now carries the transition.
+    Applied,
+    /// No durable session for the id; the transition must abort.
+    NoSession,
+    /// Persistence failed after the live mutation; keep the live transition.
+    SoftError(SessionTransactionError, bool),
+}
+
+/// Whether the retryable sessions re-lookup should retry or abort the task.
+enum PhaseCheck {
+    Retry,
+    Abort,
+}
+
 impl SessionApplication {
     pub(crate) fn new(state: Arc<AppState>) -> Self {
         Self { state }
@@ -2264,10 +2294,6 @@ impl SessionApplication {
         seeded_label
     }
 
-    /// Applies a process status transition to persisted metadata and the live session.
-    ///
-    /// The entire workflow remains on one blocking task so the live mutation, terminal-size
-    /// persistence, metadata update, and event append preserve their existing sequencing.
     pub(crate) async fn transition_session_status(
         &self,
         id: &str,
@@ -2286,190 +2312,10 @@ impl SessionApplication {
         let expected_generation =
             expected_generation.or(captured.map(|identity| identity.run_generation));
         let state = self.state.clone();
-        let task_state = state.clone();
         let task_id = id.to_string();
-        let status = status.to_string();
+        let task_status = status.to_string();
         tokio::task::spawn_blocking(move || {
-            let state = task_state;
-            let id = task_id;
-            let _prompt_transition = crate::runtime::prompt_authority::transition_lock()
-                .lock()
-                .unwrap();
-            let is_terminal = matches!(status.as_str(), "killed" | "ended" | "error");
-            let (
-                handle_decision,
-                session_resume,
-                entered_running,
-                entered_terminal,
-                already_ending,
-            ) = {
-                let mut sessions = state.sessions.lock().unwrap();
-                if expected_generation.is_some_and(|expected| {
-                    !sessions
-                        .get(&id)
-                        .is_some_and(|handle| handle.runtime.run_generation() == expected)
-                }) {
-                    return false;
-                }
-                if let Some(handle) = sessions.get_mut(&id) {
-                    if !is_terminal
-                        && matches!(handle.info.lifecycle_phase.as_str(), "ending" | "ended")
-                    {
-                        return false;
-                    }
-                    let entered_running =
-                        !is_terminal && status == "running" && handle.info.status != "running";
-                    let already_ending = is_terminal && handle.info.lifecycle_phase == "ending";
-                    if is_terminal && handle.info.lifecycle_phase == "ended" {
-                        return false;
-                    }
-                    if is_terminal {
-                        handle.runtime.attention_owner.accepted_write();
-                    }
-                    if is_terminal && !already_ending {
-                        handle.info.status = "running".to_string();
-                        handle.info.lifecycle_phase = "ending".to_string();
-                        handle.info.lifecycle = "stopping".to_string();
-                        handle.info.attention = None;
-                        handle.info.connectivity =
-                            Some(connectivity_for_status("running").to_string());
-                        handle.info.terminal_outcome = None;
-                    } else if !is_terminal {
-                        handle.info.status = status.clone();
-                        handle.info.lifecycle_phase = if status == "creating" {
-                            "creating".to_string()
-                        } else {
-                            "active".to_string()
-                        };
-                        handle.info.lifecycle = if status == "creating" {
-                            "creating"
-                        } else {
-                            "alive"
-                        }
-                        .to_string();
-                        handle.info.connectivity =
-                            Some(connectivity_for_status(&status).to_string());
-                        handle.info.terminal_outcome = terminal_outcome_for_status(&status);
-                    }
-                    handle.info.last_activity_at = Some(iso_now());
-                    if is_terminal {
-                        handle.info.observed_status = None;
-                    }
-                    (
-                        Some(true),
-                        (handle.info.resume.clone(), handle.info.resumed_from.clone()),
-                        entered_running,
-                        is_terminal,
-                        already_ending,
-                    )
-                } else {
-                    (None, (None, None), false, false, false)
-                }
-            };
-            if entered_terminal {
-                state.peon.last_output.write().unwrap().remove(&id);
-                state.peon.input_buf.write().unwrap().remove(&id);
-                // Authoritative final size for dead-session replay. Goes through the
-                // same lock-serialized helper live-resize persistence uses
-                // (`SessionApplication::persist_terminal_size`) so a live-resize write
-                // deferred onto a blocking-pool thread can never land after this one
-                // and clobber it with a stale size — see that operation's doc comment.
-                // Must run before `ws_guard` below acquires `state.workspace`, since
-                // this also locks it internally and the lock isn't reentrant.
-                crate::session_application::SessionApplication::new(state.clone())
-                    .persist_terminal_size(&id, true);
-            } else if entered_running && state.peon.config.enabled {
-                state
-                    .peon
-                    .last_output
-                    .write()
-                    .unwrap()
-                    .entry(id.clone())
-                    .or_insert_with(tokio::time::Instant::now);
-            }
-            let now = iso_now();
-            let mut applied = handle_decision.unwrap_or(false);
-            loop {
-                let ws_guard = state.workspace.lock().unwrap();
-                if let Some(ref ws) = *ws_guard {
-                        // A transition detached while waiting for the workspace
-                        // lock must not overwrite a live handle that has since
-                        // entered its terminal lifecycle. Persisted `ended` alone
-                        // is not authoritative when a live handle is active: it
-                        // can be stale from an earlier process. Once the live
-                        // generation is ending, preserve a durable terminal status even
-                        // before the finalizer updates its live phase. If the
-                        // session map is temporarily busy, release the workspace lock
-                        // and retry rather than treating contention as no handle.
-                        let live_handle_phase = match state.sessions.try_lock() {
-                            Ok(sessions) => {
-                                let handle = sessions.get(&id);
-                                if expected_generation.is_some_and(|expected| {
-                                    !handle.is_some_and(|handle| {
-                                        handle.runtime.run_generation() == expected
-                                    })
-                                }) {
-                                    return false;
-                                }
-                                handle.map(|handle| handle.info.lifecycle_phase.clone())
-                            }
-                            Err(std::sync::TryLockError::WouldBlock) => {
-                                drop(ws_guard);
-                                std::thread::sleep(std::time::Duration::from_millis(1));
-                                continue;
-                            }
-                            Err(std::sync::TryLockError::Poisoned(error)) => {
-                                let sessions = error.into_inner();
-                                let handle = sessions.get(&id);
-                                if expected_generation.is_some_and(|expected| {
-                                    !handle.is_some_and(|handle| {
-                                        handle.runtime.run_generation() == expected
-                                    })
-                                }) {
-                                    return false;
-                                }
-                                handle.map(|handle| handle.info.lifecycle_phase.clone())
-                            }
-                        };
-                    let stored = ws.metadata.mutate_session_optional(
-                        &id, if is_terminal { WriteScope::ATTENTION } else { WriteScope::NONE }, |meta| {
-                        Ok(metadata::lifecycle_mutations::LifecycleMutation::Transition {
-                            status: status.clone(), had_live_handle: handle_decision.is_some(),
-                            already_ending, live_phase: live_handle_phase,
-                            resume: session_resume.0, resumed_from: session_resume.1,
-                            timestamp: now.clone(),
-                        }.apply(meta).is_some())
-                    });
-                    match stored {
-                        Ok(Some(_)) => applied = true,
-                        Ok(None) => return false,
-                        Err(error) => {
-                            tracing::warn!(session_id = %id, %error, "failed to persist lifecycle transition");
-                            // The owned process already changed lifecycle. Preserve
-                            // its live transition so terminal finalization still runs;
-                            // no durable event or successful metadata write is claimed.
-                            return handle_decision.unwrap_or(false);
-                        }
-                    }
-                    if applied {
-                        ws.metadata.append_event(
-                            &id,
-                            &metadata::Event {
-                                event_type: "session.status".into(),
-                                timestamp: now,
-                                status,
-                                observed_status: None,
-                                confidence: None,
-                                summary: None,
-                                source: None,
-                                recommendation_id: None,
-                            },
-                        );
-                    }
-                }
-                break;
-            }
-            applied
+            transition_status_blocking(state, task_id, task_status, expected_generation)
         })
         .await
         .unwrap_or_else(|error| {
@@ -5732,6 +5578,267 @@ pub(crate) struct ResumeAdmission {
     previous_handle: Option<SessionHandle>,
     rollback: Option<ResumeRollback>,
     committed: bool,
+}
+
+/// The spawn-blocking body of a session status transition, run under the
+/// prompt-authority transition lock.
+fn transition_status_blocking(
+    state: Arc<AppState>,
+    id: String,
+    status: String,
+    expected_generation: Option<crate::runtime::session_runtime::RuntimeGeneration>,
+) -> bool {
+    let _prompt_transition = crate::runtime::prompt_authority::transition_lock()
+        .lock()
+        .unwrap();
+    let is_terminal = matches!(status.as_str(), "killed" | "ended" | "error");
+    let (handle_decision, session_resume, entered_running, entered_terminal, already_ending) = {
+        let mut sessions = state.sessions.lock().unwrap();
+        match transition_handle_session(&mut sessions, &id, &status, expected_generation) {
+            HandleTransition::Aborted => return false,
+            HandleTransition::Missing => (None, (None, None), false, false, false),
+            HandleTransition::Applied {
+                resume,
+                entered_running,
+                already_ending,
+            } => (
+                Some(true),
+                resume,
+                entered_running,
+                is_terminal,
+                already_ending,
+            ),
+        }
+    };
+    if entered_terminal {
+        state.peon.last_output.write().unwrap().remove(&id);
+        state.peon.input_buf.write().unwrap().remove(&id);
+        // Authoritative final size for dead-session replay. Goes through the
+        // same lock-serialized helper live-resize persistence uses
+        // (`SessionApplication::persist_terminal_size`) so a live-resize write
+        // deferred onto a blocking-pool thread can never land after this one
+        // and clobber it with a stale size — see that operation's doc comment.
+        // Must run before `ws_guard` below acquires `state.workspace`, since
+        // this also locks it internally and the lock isn't reentrant.
+        crate::session_application::SessionApplication::new(state.clone())
+            .persist_terminal_size(&id, true);
+    } else if entered_running && state.peon.config.enabled {
+        state
+            .peon
+            .last_output
+            .write()
+            .unwrap()
+            .entry(id.clone())
+            .or_insert_with(tokio::time::Instant::now);
+    }
+    let now = iso_now();
+    let mut applied = handle_decision.unwrap_or(false);
+    loop {
+        let ws_guard = state.workspace.lock().unwrap();
+        if let Some(ref ws) = *ws_guard {
+            let live_handle_phase = match live_handle_phase(&state, &id, expected_generation) {
+                Ok(phase) => phase,
+                Err(PhaseCheck::Retry) => {
+                    drop(ws_guard);
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                    continue;
+                }
+                Err(PhaseCheck::Abort) => return false,
+            };
+            match persist_lifecycle_transition(
+                ws,
+                &id,
+                is_terminal,
+                &status,
+                already_ending,
+                live_handle_phase,
+                session_resume,
+                now.clone(),
+                handle_decision.is_some(),
+                handle_decision.unwrap_or(false),
+            ) {
+                PersistOutcome::Applied => applied = true,
+                PersistOutcome::NoSession => return false,
+                PersistOutcome::SoftError(error, previous) => {
+                    tracing::warn!(session_id = %id, %error, "failed to persist lifecycle transition");
+                    // The owned process already changed lifecycle. Preserve
+                    // its live transition so terminal finalization still runs;
+                    // no durable event or successful metadata write is claimed.
+                    return previous;
+                }
+            }
+            if applied {
+                ws.metadata.append_event(
+                    &id,
+                    &metadata::Event {
+                        event_type: "session.status".into(),
+                        timestamp: now,
+                        status,
+                        observed_status: None,
+                        confidence: None,
+                        summary: None,
+                        source: None,
+                        recommendation_id: None,
+                    },
+                );
+            }
+        }
+        break;
+    }
+    applied
+}
+
+/// The sessions-lock mutation step of a status transition.
+fn transition_handle_session(
+    sessions: &mut std::collections::HashMap<String, SessionHandle>,
+    id: &str,
+    status: &str,
+    expected_generation: Option<crate::runtime::session_runtime::RuntimeGeneration>,
+) -> HandleTransition {
+    let is_terminal = matches!(status, "killed" | "ended" | "error");
+    let Some(handle) = sessions.get_mut(id) else {
+        if expected_generation.is_some() {
+            return HandleTransition::Aborted;
+        }
+        return HandleTransition::Missing;
+    };
+    if expected_generation.is_some_and(|expected| handle.runtime.run_generation() != expected) {
+        return HandleTransition::Aborted;
+    }
+    if !is_terminal && matches!(handle.info.lifecycle_phase.as_str(), "ending" | "ended") {
+        return HandleTransition::Aborted;
+    }
+    if is_terminal && handle.info.lifecycle_phase == "ended" {
+        return HandleTransition::Aborted;
+    }
+    let entered_running = !is_terminal && status == "running" && handle.info.status != "running";
+    let already_ending = is_terminal && handle.info.lifecycle_phase == "ending";
+    if is_terminal {
+        handle.runtime.attention_owner.accepted_write();
+    }
+    if is_terminal && !already_ending {
+        transition_handle_terminal(handle);
+    } else if !is_terminal {
+        transition_handle_non_terminal(handle, status);
+    }
+    handle.info.last_activity_at = Some(iso_now());
+    if is_terminal {
+        handle.info.observed_status = None;
+    }
+    HandleTransition::Applied {
+        resume: (handle.info.resume.clone(), handle.info.resumed_from.clone()),
+        entered_running,
+        already_ending,
+    }
+}
+
+/// Absorb an entering terminal transition into the live handle. The caller
+/// owns `attention_owner.accepted_write()`; ending and ended handles reach it too.
+fn transition_handle_terminal(handle: &mut SessionHandle) {
+    handle.info.status = "running".to_string();
+    handle.info.lifecycle_phase = "ending".to_string();
+    handle.info.lifecycle = "stopping".to_string();
+    handle.info.attention = None;
+    handle.info.connectivity = Some(connectivity_for_status("running").to_string());
+    handle.info.terminal_outcome = None;
+}
+
+/// Absorb a non-terminal status into the live handle.
+fn transition_handle_non_terminal(handle: &mut SessionHandle, status: &str) {
+    handle.info.status = status.to_string();
+    handle.info.lifecycle_phase = if status == "creating" {
+        "creating".to_string()
+    } else {
+        "active".to_string()
+    };
+    handle.info.lifecycle = if status == "creating" {
+        "creating"
+    } else {
+        "alive"
+    }
+    .to_string();
+    handle.info.connectivity = Some(connectivity_for_status(status).to_string());
+    handle.info.terminal_outcome = terminal_outcome_for_status(status);
+}
+
+/// Guard the re-lookup of the live handle phase against generation drift.
+fn inspect_live_phase(
+    sessions: &std::collections::HashMap<String, SessionHandle>,
+    id: &str,
+    expected_generation: Option<crate::runtime::session_runtime::RuntimeGeneration>,
+) -> Result<Option<String>, PhaseCheck> {
+    let handle = sessions.get(id);
+    if expected_generation.is_some_and(|expected| {
+        !handle.is_some_and(|handle| handle.runtime.run_generation() == expected)
+    }) {
+        return Err(PhaseCheck::Abort);
+    }
+    Ok(handle.map(|handle| handle.info.lifecycle_phase.clone()))
+}
+
+/// A transition detached while waiting for the workspace lock must not
+/// overwrite a live handle that has since entered its terminal lifecycle.
+/// Persisted `ended` alone is not authoritative when a live handle is active:
+/// it can be stale from an earlier process. Once the live generation is
+/// ending, preserve a durable terminal status even before the finalizer
+/// updates its live phase. If the session map is temporarily busy, retry
+/// rather than treating contention as no handle.
+fn live_handle_phase(
+    state: &AppState,
+    id: &str,
+    expected_generation: Option<crate::runtime::session_runtime::RuntimeGeneration>,
+) -> Result<Option<String>, PhaseCheck> {
+    let sessions = match state.sessions.try_lock() {
+        Ok(sessions) => sessions,
+        Err(std::sync::TryLockError::WouldBlock) => return Err(PhaseCheck::Retry),
+        Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+    };
+    inspect_live_phase(&sessions, id, expected_generation)
+}
+
+/// Persist one lifecycle transition and append its durable session.status event
+/// bookkeeping is left to the caller, which owns `applied`.
+/// This helper covers only the `mutate_session_optional` step.
+fn persist_lifecycle_transition(
+    ws: &WorkspaceState,
+    id: &str,
+    is_terminal: bool,
+    status: &str,
+    already_ending: bool,
+    live_phase: Option<String>,
+    resume: (Option<harness::ResumeMemory>, Option<String>),
+    timestamp: String,
+    had_live_handle: bool,
+    previous: bool,
+) -> PersistOutcome {
+    let stored = ws.metadata.mutate_session_optional(
+        id,
+        if is_terminal {
+            WriteScope::ATTENTION
+        } else {
+            WriteScope::NONE
+        },
+        |meta| {
+            Ok(
+                metadata::lifecycle_mutations::LifecycleMutation::Transition {
+                    status: status.to_string(),
+                    had_live_handle,
+                    already_ending,
+                    live_phase: live_phase.clone(),
+                    resume: resume.0,
+                    resumed_from: resume.1,
+                    timestamp: timestamp.clone(),
+                }
+                .apply(meta)
+                .is_some(),
+            )
+        },
+    );
+    match stored {
+        Ok(Some(_)) => PersistOutcome::Applied,
+        Ok(None) => PersistOutcome::NoSession,
+        Err(error) => PersistOutcome::SoftError(error, previous),
+    }
 }
 
 impl ResumeAdmission {
