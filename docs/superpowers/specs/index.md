@@ -274,4 +274,4 @@ Dated design records; these do not establish current product behavior.
 
 - [Legacy adoption publication and interrupted recovery](2026-11-07-legacy-adoption-publication-recovery.md) — Accepted conditional progress/effect ordering, cancellation settlement and restore-first recovery for further qualification; actual producer/physical gates remain.
 
-- [Complete session backup and same-version restore](2026-11-07-session-backup-restore-contract.md) — Proposed quiescent complete-set scope, inert validation, damaged-state preservation and fenced restore; actual owner/physical gates remain.
+- [Complete session backup and same-version restore](2026-11-07-session-backup-restore-contract.md) — Accepted-for-qualification quiescent complete-set scope, purpose-bound bundles, damaged-state preservation and fenced restore; actual owner/physical gates remain.

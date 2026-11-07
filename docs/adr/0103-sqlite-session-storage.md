@@ -122,6 +122,30 @@ complete physical accounting and #1242/#1243/#1248/#1250 remain prerequisites.
 The accepted additive policy, v1 bytes and existing marker activation rule stand;
 no new probe budget, live recovery or rollout permission follows.
 
+## Amendment — 2026-11-08: complete backup contract acceptance
+
+After #1518, the owner answered “keep going” to the explicit request to approve
+four [backup/restore refinements](../superpowers/specs/2026-11-07-session-backup-restore-contract.md)
+for further qualification: closed-store initial capture; versioned private
+directory bundles with purpose-bound recoverable-workspace, retained-evidence
+and preservation-only classes; complete damaged-state preservation before
+replacement; and a durable opener-discoverable restore fence before replacement.
+#1522 records acceptance of the unchanged conditional contract.
+
+Only recoverable-workspace sets are eligible for workspace restore. Retained
+local evidence preserves readable malformed/excluded inputs without asserting
+whole-workspace recoverability; current global recovery semantics remain required.
+The separate restore protocol cannot revive an interrupted adoption claim. The
+existing format-2 marker remains the authority switch after qualified restoration;
+the restore fence blocks mixed/incomplete opening and supplies no alternate format.
+
+Reuse the accepted quiescent model, additive policy, v1 and publication/recovery
+choices. Exact bundle/seal and owner-body codecs, supported native publication/
+fence discovery, all-writer maintenance/application admission, SQL closure and
+complete physical accounting remain prerequisites. This acceptance supplies no
+runtime implementation, executed recovery, native/model probe budget or rollout
+permission. #1250/#1244 and their dependency/qualification gates remain open.
+
 ## Clarification — 2026-11-07: SQL-bound recommendation recovery
 
 After reviewing the complete [recovery protocol](../superpowers/specs/2026-11-07-sql-recommendation-journal-recovery.md)
