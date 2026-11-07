@@ -8,89 +8,71 @@ use windows_sys::Win32::System::Threading::{
     OpenProcess, TerminateProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE,
 };
 
-const CHILD_SCRIPT: &str = r#"
-$psi = New-Object System.Diagnostics.ProcessStartInfo
-$psi.FileName = $env:ComSpec
-$psi.Arguments = '/c ping -t 127.0.0.1 >nul'
-$psi.UseShellExecute = $false
-if ($env:ORK_PROBE_FIXTURE_MODE -eq 'exit') {
-    $psi.RedirectStandardInput = $true
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError = $true
-    $child = [System.Diagnostics.Process]::Start($psi)
-    $child.StandardInput.Close()
-} else {
-    $nativeLauncher = @'
-using System;
-using System.ComponentModel;
-using System.Runtime.InteropServices;
-using System.Text;
-public static class ProbeFixtureNativeLauncher {
-    [StructLayout(LayoutKind.Sequential)]
-    private struct StartupInfo {
-        public uint cb;
-        public IntPtr reserved;
-        public IntPtr desktop;
-        public IntPtr title;
-        public uint x, y, xSize, ySize, xCountChars, yCountChars, fillAttribute, flags;
-        public ushort showWindow, reserved2Length;
-        public IntPtr reserved2, stdInput, stdOutput, stdError;
-    }
-    [StructLayout(LayoutKind.Sequential)]
-    private struct ProcessInformation {
-        public IntPtr process, thread;
-        public uint processId, threadId;
-    }
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool CreateProcess(string application, StringBuilder commandLine,
-        IntPtr processAttributes, IntPtr threadAttributes, bool inheritHandles, uint flags,
-        IntPtr environment, string currentDirectory, ref StartupInfo startup,
-        out ProcessInformation processInformation);
-    [DllImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool CloseHandle(IntPtr handle);
-    public static uint Start() {
-        var startup = new StartupInfo();
-        startup.cb = (uint)Marshal.SizeOf(typeof(StartupInfo));
-        startup.flags = 0x00000100;
-        startup.stdInput = GetStdHandle(-10);
-        startup.stdOutput = GetStdHandle(-11);
-        startup.stdError = GetStdHandle(-12);
-        var executable = Environment.GetEnvironmentVariable("ComSpec");
-        var commandLine = new StringBuilder("\"" + executable + "\" /c ping -t 127.0.0.1 >nul");
-        ProcessInformation process;
-        if (!CreateProcess(executable, commandLine, IntPtr.Zero, IntPtr.Zero, true,
-            0x08000000, IntPtr.Zero, null, ref startup, out process)) {
-            throw new Win32Exception(Marshal.GetLastWin32Error());
+const NATIVE_FIXTURE: &str = "probe_process::windows_tests::native_probe_fixture";
+
+fn native_fixture_command(role: &str) -> Command {
+    let mut command = Command::new(std::env::current_exe().unwrap());
+    command
+        .args(["--exact", NATIVE_FIXTURE, "--nocapture", "--test-threads=1"])
+        .env("ORK_PROBE_FIXTURE_ROLE", role);
+    command
+}
+
+#[test]
+fn native_probe_fixture() {
+    let Some(role) = std::env::var_os("ORK_PROBE_FIXTURE_ROLE") else {
+        return;
+    };
+    match role.to_str().unwrap() {
+        "success" => std::process::exit(0),
+        "marker" => {
+            std::fs::write(std::env::var_os("ORK_PROBE_MARKER").unwrap(), b"ran").unwrap();
+            std::process::exit(0);
         }
-        CloseHandle(process.thread);
-        CloseHandle(process.process);
-        return process.processId;
+        "child" => {
+            std::fs::write(
+                std::env::var_os("ORK_PROBE_FIXTURE_PID").unwrap(),
+                std::process::id().to_string(),
+            )
+            .unwrap();
+        }
+        "wrapper" => {
+            use std::io::Write;
+            let mode = std::env::var("ORK_PROBE_FIXTURE_MODE").unwrap();
+            let mut child = native_fixture_command("child");
+            child.stdin(Stdio::null());
+            if mode == "exit" {
+                child.stdout(Stdio::null()).stderr(Stdio::null());
+            } else {
+                // Real inherited capture writers, independently held by the
+                // non-exec descendant until native Job cleanup terminates it.
+                child.stdout(Stdio::inherit()).stderr(Stdio::inherit());
+            }
+            let _child = child.spawn().unwrap();
+            if mode == "exit" || mode == "cap" {
+                let release = std::path::PathBuf::from(
+                    std::env::var_os("ORK_PROBE_FIXTURE_RELEASE").unwrap(),
+                );
+                while !release.exists() {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+            }
+            if mode == "exit" {
+                println!("fixture-marker");
+                std::io::stdout().flush().unwrap();
+                std::process::exit(0);
+            }
+            if mode == "cap" {
+                std::io::stdout().write_all(&[b'x'; 8192]).unwrap();
+                std::io::stdout().flush().unwrap();
+            }
+        }
+        "idle" => {}
+        _ => panic!("unknown synthetic fixture role"),
     }
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern IntPtr GetStdHandle(int standardHandle);
+    std::thread::sleep(Duration::from_secs(30));
+    std::process::exit(0);
 }
-'@
-    Add-Type -TypeDefinition $nativeLauncher -Language CSharp
-    $nativePid = [ProbeFixtureNativeLauncher]::Start()
-}
-$childPid = if ($env:ORK_PROBE_FIXTURE_MODE -eq 'exit') { $child.Id } else { $nativePid }
-[System.IO.File]::WriteAllText($env:ORK_PROBE_FIXTURE_PID, [string]$childPid)
-if ($env:ORK_PROBE_FIXTURE_MODE -eq 'exit' -or $env:ORK_PROBE_FIXTURE_MODE -eq 'cap') {
-    while (!(Test-Path $env:ORK_PROBE_FIXTURE_RELEASE)) {
-        Start-Sleep -Milliseconds 10
-    }
-}
-if ($env:ORK_PROBE_FIXTURE_MODE -eq 'exit') {
-    [Console]::Out.WriteLine('fixture-marker')
-    exit 0
-}
-if ($env:ORK_PROBE_FIXTURE_MODE -eq 'cap') {
-    [Console]::Out.WriteLine(('x' * 8192))
-}
-Start-Sleep -Seconds 30
-"#;
 
 struct FixtureFiles {
     pid: std::path::PathBuf,
@@ -119,9 +101,8 @@ impl Drop for FixtureFiles {
 }
 
 fn fixture_command(mode: &str, files: &FixtureFiles) -> Command {
-    let mut command = Command::new("powershell.exe");
+    let mut command = native_fixture_command("wrapper");
     command
-        .args(["-NoProfile", "-NonInteractive", "-Command", CHILD_SCRIPT])
         .env("ORK_PROBE_FIXTURE_MODE", mode)
         .env("ORK_PROBE_FIXTURE_PID", &files.pid)
         .env("ORK_PROBE_FIXTURE_RELEASE", &files.release)
@@ -257,7 +238,7 @@ async fn output_cap_terminates_non_exec_descendant_holding_capture_pipe() {
             .run(
                 &mut command,
                 ProbePolicy {
-                    max_bytes: 64,
+                    max_bytes: 1024,
                     reject_overflow: true,
                     require_success: false,
                 },
@@ -302,13 +283,7 @@ async fn cancellation_terminates_only_owned_descendant() {
 async fn successful_wrapper_exit_terminates_descendant_and_leaves_sentinel_alive() {
     let files = FixtureFiles::new();
     let mut sentinel = Sentinel(
-        Command::new("powershell.exe")
-            .args([
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                "Start-Sleep -Seconds 30",
-            ])
+        native_fixture_command("idle")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -349,8 +324,7 @@ async fn successful_wrapper_exit_terminates_descendant_and_leaves_sentinel_alive
 
 #[tokio::test]
 async fn peek_exit_observes_success_without_reaping_owned_child() {
-    let mut child = Command::new("powershell.exe")
-        .args(["-NoProfile", "-NonInteractive", "-Command", "exit 0"])
+    let mut child = native_fixture_command("success")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -376,13 +350,7 @@ fn owned_process_job_reports_resume_failure_without_losing_termination_authority
     use std::os::windows::process::CommandExt;
     use windows_sys::Win32::System::Threading::CREATE_SUSPENDED;
 
-    let mut child = Command::new("powershell.exe")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "Start-Sleep -Seconds 30",
-        ])
+    let mut child = native_fixture_command("idle")
         .creation_flags(CREATE_SUSPENDED)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -410,15 +378,8 @@ async fn assignment_denial_never_runs_configured_code_and_reaps_suspended_child(
     let dir = tempfile::tempdir().unwrap();
     let marker = dir.path().join("unexpected");
     let service = ProbeService::new().unwrap();
-    let mut command = Command::new("powershell.exe");
-    command
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "[IO.File]::WriteAllText($env:ORK_PROBE_MARKER, 'ran')",
-        ])
-        .env("ORK_PROBE_MARKER", &marker);
+    let mut command = native_fixture_command("marker");
+    command.env("ORK_PROBE_MARKER", &marker);
     let failure = crate::process_job::fail_assignment_for_test();
     assert_eq!(
         service

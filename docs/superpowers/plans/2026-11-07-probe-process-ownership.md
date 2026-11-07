@@ -100,3 +100,21 @@ cleanup budget, and saturation retaining permits. Each has a fixture owner above
   `9d7bb8ad25683cb288a90086f0a905dbfe6611478060730ce2ccda7e1263a887`
   over `git diff --binary 677bd1ab -- crates/orkworksd/src/probe_process.rs
   crates/orkworksd/src/probe_process/tests.rs`. No contract change.
+
+- Full local repository verifier passed: 3175 Rust unit tests (18 ignored), seven
+  integration tests, 31 reporter tests, 1709 desktop tests (three skipped), builds,
+  docs checks and close-out hooks. Current-head macOS CI passed all 14 ownership
+  tests and the original caller regression.
+- Automated review found that normal Tokio runtime drop could wait indefinitely
+  on existing PTY blocking tasks after the new signal handler returned. A child
+  fixture reproduced the hang; explicit zero-wait runtime shutdown after the
+  probe drain passes the regression. Scoped `/code-review medium` approved the
+  delta from b2ca021d, fingerprint
+  `5b7504e6624d5e6a6b7add123be0173a91e5d418333106188d7188ab680e8968`
+  over main.rs and probe_process/windows_tests.rs binary diff.
+- Native Windows CI passed overlapped reader disposal, shutdown and assignment
+  denial. PowerShell progress fixtures timed out, including standalone exit 0;
+  replaced their test-only script/runtime dependency with the compiled native
+  test executable. Non-exec descendants, inherited capture, exact live handles,
+  release barriers and unrelated sentinel checks remain. Cross-compilation of
+  the actual replacement fixture and runner passes; native rerun remains gated.

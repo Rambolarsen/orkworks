@@ -225,10 +225,20 @@ fn main() {
     if git::run_scan_worker() {
         return;
     }
-    run_sidecar();
+    run_sidecar_runtime(run_sidecar());
 }
 
-#[tokio::main]
+fn run_sidecar_runtime(main: impl std::future::Future<Output = ()>) {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("create sidecar runtime");
+    runtime.block_on(main);
+    // Probe owners have already drained within their budget. PTY readers and
+    // child waiters may still be blocked; they must not delay process shutdown.
+    runtime.shutdown_timeout(std::time::Duration::ZERO);
+}
+
 async fn run_sidecar() {
     tracing_subscriber::registry()
         .with(
@@ -953,6 +963,51 @@ pub(crate) mod test_support {
 mod tests {
     use super::*;
     use crate::test_support::*;
+
+    #[test]
+    fn sidecar_runtime_shutdown_does_not_wait_for_started_blocking_tasks() {
+        const FIXTURE: &str = "ORKWORKS_RUNTIME_SHUTDOWN_FIXTURE";
+        if std::env::var_os(FIXTURE).is_some() {
+            let (hold, blocked) = std::sync::mpsc::channel::<()>();
+            run_sidecar_runtime(async {
+                let (started, ready) = tokio::sync::oneshot::channel();
+                // PTY readers/child waiters use the same uncancellable blocking
+                // pool. Keep one real task blocked across sidecar shutdown.
+                tokio::task::spawn_blocking(move || {
+                    let _ = started.send(());
+                    let _ = blocked.recv();
+                });
+                ready.await.unwrap();
+                probe_process::shutdown().await;
+            });
+            drop(hold);
+            return;
+        }
+        let mut fixture = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "tests::sidecar_runtime_shutdown_does_not_wait_for_started_blocking_tasks",
+            ])
+            .env(FIXTURE, "1")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        loop {
+            if let Some(status) = fixture.try_wait().unwrap() {
+                assert!(status.success());
+                break;
+            }
+            if std::time::Instant::now() >= deadline {
+                fixture.kill().unwrap();
+                fixture.wait().unwrap();
+                panic!("sidecar runtime shutdown waited on a started blocking task");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
 
     fn test_router(state: Arc<AppState>) -> Router {
         // The shared builder is the production router; the test fixture
