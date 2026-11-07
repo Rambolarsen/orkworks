@@ -1,4 +1,6 @@
 mod cleanup;
+#[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
+pub(crate) mod sql_cleanup_test_gate;
 pub(crate) use cleanup::{BoundCleanup, JournalReceipt};
 mod operation;
 use super::completion::CompletionMutationRequest;

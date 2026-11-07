@@ -59,7 +59,11 @@ struct CleanupGuards {
     _recommendations: Option<crate::taskmaster::store::JournalReceipt>,
 }
 impl Files {
-    fn remove(self, id: &str) -> (std::io::Result<()>, CleanupGuards) {
+    fn remove(
+        self,
+        id: &str,
+        identity: &crate::session_store::SqlDeletionIdentity,
+    ) -> (std::io::Result<()>, CleanupGuards) {
         match self {
             Self::Replay(files) => (
                 files
@@ -87,20 +91,17 @@ impl Files {
                 )
             }
             Self::Recommendations(files) => {
-                // No pending-journal recovery here: v2 manifests do not bind a
-                // SQL job/creation/epoch and cannot grant this job that authority.
-                let batch = files
+                let receipt = files
                     .as_ref()
                     .as_ref()
                     .map_err(recommendation_error)
                     .and_then(|files| {
                         files
-                            .prepare_removal(id)
+                            .remove_for_sql(identity)
                             .map_err(|e| recommendation_error(&e))
                     });
-                match batch {
-                    Ok(batch) => {
-                        let receipt = batch.publish();
+                match receipt {
+                    Ok(receipt) => {
                         let result = receipt
                             .result()
                             .as_ref()
@@ -148,6 +149,7 @@ pub(crate) struct CapturedDeletion {
     owner: Arc<SessionWrites>,
     id: String,
     created: String,
+    identity: crate::session_store::SqlDeletionIdentity,
     memory: Arc<Memory>,
     workflow: crate::workflow_observations::WorkflowObservationStore,
     replay: Arc<std::io::Result<crate::metadata::replay_cleanup::AnchoredReplayCleanup>>,
@@ -220,11 +222,14 @@ impl SessionWrites {
         {
             return Err(StoreError::Conflict);
         }
-        self.store
+        let identity = self
+            .store
             .deletion_record(id.clone(), created.clone())
             .await?
-            .ok_or(StoreError::Missing)?;
-        let capacity = file_budget::reserve(file_budget::intent_bytes(&(&id, &created))?)?;
+            .ok_or(StoreError::Missing)?
+            .identity;
+        let capacity =
+            file_budget::reserve(file_budget::intent_bytes(&(&id, &created, &identity))?)?;
         let lease = memory._lease.clone().ok_or(StoreError::Conflict)?;
         #[cfg(test)]
         let binding_owner = self.clone();
@@ -257,6 +262,7 @@ impl SessionWrites {
             owner: self.clone(),
             id,
             created,
+            identity,
             memory,
             workflow,
             replay,
@@ -283,7 +289,7 @@ impl CapturedDeletion {
     pub(crate) async fn clear_settings(self) -> Result<DeletionCleanupResult, StoreError> {
         self.remove(Stage::Settings).await
     }
-    // Source-only: producer fencing and identity-bound journal recovery remain
+    // Source-only: producer fencing, startup routing and finalization remain
     // activation gates. This method never completes the deletion job itself.
     pub(crate) async fn remove_recommendations(self) -> Result<DeletionCleanupResult, StoreError> {
         self.remove(Stage::Recommendations).await
@@ -314,6 +320,12 @@ impl CapturedDeletion {
                             .deletion_record(self.id.clone(), self.created.clone()),
                     )?
                     .ok_or(StoreError::Missing)?;
+                // A capture cannot move to a different database incarnation.
+                // Identity is reread under the original lane before admission;
+                // it supplies identification, never runtime/lease authority.
+                if matches!(stage, Stage::Recommendations) && record.identity != self.identity {
+                    return Err(StoreError::Conflict);
+                }
                 #[cfg(test)]
                 enter_replay_gate(&self.owner.replay_before);
                 let (_reservation, _lease, files) = self
@@ -345,7 +357,7 @@ impl CapturedDeletion {
                     .ok_or(StoreError::Conflict)??;
                 #[cfg(test)]
                 enter_replay_gate(&self.owner.replay_admitted);
-                let (files, _cleanup_guards) = files.remove(&self.id);
+                let (files, _cleanup_guards) = files.remove(&self.id, &record.identity);
                 #[cfg(test)]
                 enter_replay_gate(&self.owner.replay_removed);
                 let progress = if files.is_ok() {
