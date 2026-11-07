@@ -209,6 +209,8 @@ application-owner approval transport, external-owner identity/exclusive
 publication and interrupted-recovery contracts before code depends on them.
 Those are qualification deliverables, not runtime implementation approval; no
 finite storage/native fit or platform guarantee is asserted here.
+The [v1 inventory/report/confirmation contract](2026-11-07-legacy-adoption-inventory-approval.md)
+is the proposed step-1 representation, not a qualified approval mechanism.
 
 Copied/synthetic regression cases must exercise:
 

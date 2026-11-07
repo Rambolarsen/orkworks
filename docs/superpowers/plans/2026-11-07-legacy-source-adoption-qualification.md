@@ -58,6 +58,9 @@ remaining uncertainty cannot be resolved read-only.
 ## 1. Inventory, report and owner-confirmation contract
 
 Tracking: [#1500](https://github.com/Rambolarsen/orkworks/issues/1500).
+The [v1 inventory/report/confirmation contract](../specs/2026-11-07-legacy-adoption-inventory-approval.md)
+records the proposed logical representation and component oracles; qualification
+of its referenced physical/backup/application capabilities remains required.
 
 **Owner and artifact:** #1244 owns a written contract under
 `docs/superpowers/specs/` for the import inventory/approval seam; #1250 supplies

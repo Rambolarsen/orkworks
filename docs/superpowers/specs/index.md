@@ -263,3 +263,5 @@ Dated design records; these do not establish current product behavior.
 - [Pair-local native namespace and resource enforcement](2026-11-06-pair-native-enforcement-design.md) — Accepted Windows VFS/router direction for further envelope qualification; implementation and execution remain gated.
 
 - [Explicit adoption of retained legacy session evidence](2026-11-07-legacy-source-adoption-amendment.md) — Accepted-for-qualification additive maintenance recovery with explicit owner decisions and unchanged current authority.
+
+- [Legacy adoption inventory and owner confirmation v1](2026-11-07-legacy-adoption-inventory-approval.md) — Proposed exact logical inventory/report/decision bytes and owner-confirmation ordering; physical/transport qualification remains gated.
