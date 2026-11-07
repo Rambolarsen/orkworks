@@ -281,6 +281,112 @@ mod unix_walk {
         }))
     }
 
+    /// One readdir outcome: stream end, a skipped name, or a validated entry.
+    enum Listing {
+        End,
+        Skip,
+        Entry(CString),
+    }
+
+    /// Consume one directory entry, checking budgets, dot names and safe paths.
+    fn next_entry(
+        stream: *mut libc::DIR,
+        prefix: &Path,
+        count: &mut usize,
+        start: std::time::Instant,
+    ) -> io::Result<Listing> {
+        let item = unsafe { libc::readdir(stream) };
+        if item.is_null() {
+            return Ok(Listing::End);
+        }
+        if traversal_exceeded(count, start) {
+            return Err(io::Error::other(
+                "Worktree traversal budget exceeded; comparison unavailable.",
+            ));
+        }
+        let bytes = unsafe { CStr::from_ptr((*item).d_name.as_ptr()) }.to_bytes();
+        if bytes == b"." || bytes == b".." || bytes.eq_ignore_ascii_case(b".git") {
+            return Ok(Listing::Skip);
+        }
+        let path = prefix.join(std::ffi::OsStr::from_bytes(bytes));
+        if safe_path(&path).is_err() {
+            return Err(io::Error::other(
+                "Unsupported Git path; comparison unavailable.",
+            ));
+        }
+        Ok(Listing::Entry(
+            CString::new(bytes).map_err(io::Error::other)?,
+        ))
+    }
+
+    /// Open the child directory after descent approval; the recursion carries
+    /// the shared budget/callback set forward.
+    #[allow(clippy::too_many_arguments)]
+    fn walk_directory(
+        dir: &File,
+        name: &CStr,
+        path: &Path,
+        visit: &mut impl FnMut(Entry) -> bool,
+        descend: &mut impl FnMut(&Path, bool) -> bool,
+        count: &mut usize,
+        start: std::time::Instant,
+        expected: &mut impl FnMut(&Path, i32) -> Result<(Option<git2::Oid>, Eol), String>,
+        hash_bytes: &mut usize,
+        prepare: &mut impl FnMut(&Path, Option<Vec<u8>>, Option<Vec<u8>>) -> Result<(), String>,
+        control_bytes: &mut usize,
+    ) -> io::Result<bool> {
+        if descend(path, true) {
+            let child = open_dir(dir.as_raw_fd(), name)?;
+            return recurse(
+                &child,
+                path,
+                visit,
+                descend,
+                count,
+                start,
+                expected,
+                hash_bytes,
+                prepare,
+                control_bytes,
+            );
+        }
+        Ok(true)
+    }
+
+    /// Read and visit one non-directory leaf.
+    #[allow(clippy::too_many_arguments)]
+    fn visit_leaf(
+        dir: &File,
+        name: &CStr,
+        path: &Path,
+        stat: libc::stat,
+        visit: &mut impl FnMut(Entry) -> bool,
+        expected: &mut impl FnMut(&Path, i32) -> Result<(Option<git2::Oid>, Eol), String>,
+        hash_bytes: &mut usize,
+        start: std::time::Instant,
+    ) -> io::Result<bool> {
+        let (mode, content) = match stat.st_mode & libc::S_IFMT {
+            libc::S_IFLNK => (0o120000, link_content(dir, name)),
+            libc::S_IFREG => {
+                let mode = if stat.st_mode & 0o111 != 0 {
+                    0o100755
+                } else {
+                    0o100644
+                };
+                (
+                    mode,
+                    regular_content(dir, name, path, mode, expected, hash_bytes, start),
+                )
+            }
+            _ => (0, Err("Special file; content unavailable.".into())),
+        };
+        Ok(visit(Entry {
+            path: path.to_owned(),
+            mode,
+            content,
+        }))
+    }
+
     // The recursion threads one shared budget/callback set; a context struct
     // would wrap eight borrows behind one alias without reducing coupling.
     #[allow(clippy::too_many_arguments)]
@@ -301,80 +407,51 @@ mod unix_walk {
         prepare(prefix, attrs, ignore).map_err(io::Error::other)?;
         let stream = open_stream(dir)?;
         loop {
-            let item = unsafe { libc::readdir(stream.0) };
-            if item.is_null() {
-                break;
-            }
-            if traversal_exceeded(count, start) {
-                return Err(io::Error::other(
-                    "Worktree traversal budget exceeded; comparison unavailable.",
-                ));
-            }
-            let bytes = unsafe { CStr::from_ptr((*item).d_name.as_ptr()) }.to_bytes();
-            if bytes == b"." || bytes == b".." || bytes.eq_ignore_ascii_case(b".git") {
-                continue;
-            }
-            let name = CString::new(bytes).map_err(io::Error::other)?;
-            let path = prefix.join(std::ffi::OsStr::from_bytes(bytes));
-            if safe_path(&path).is_err() {
-                return Err(io::Error::other(
-                    "Unsupported Git path; comparison unavailable.",
-                ));
-            }
-            let Some(stat) = entry_stat(dir, &name) else {
-                if !visit_unreadable(visit, path, "File changed or is unreadable; refresh.")? {
-                    return Ok(false);
-                }
-                continue;
-            };
-            let kind = stat.st_mode & libc::S_IFMT;
-            if kind == libc::S_IFDIR {
-                if descend(&path, true) {
-                    let child = open_dir(dir.as_raw_fd(), &name)?;
-                    if !recurse(
-                        &child,
-                        &path,
+            match next_entry(stream.0, prefix, count, start)? {
+                Listing::End => return Ok(true),
+                Listing::Skip => continue,
+                Listing::Entry(name) => {
+                    let path = prefix.join(std::ffi::OsStr::from_bytes(name.to_bytes()));
+                    if let Some(stat) = entry_stat(dir, &name) {
+                        let kind = stat.st_mode & libc::S_IFMT;
+                        let outcome = if kind == libc::S_IFDIR {
+                            walk_directory(
+                                dir,
+                                &name,
+                                &path,
+                                visit,
+                                descend,
+                                count,
+                                start,
+                                expected,
+                                hash_bytes,
+                                prepare,
+                                control_bytes,
+                            )?
+                        } else {
+                            if !descend(&path, false) {
+                                continue;
+                            }
+                            if !visit_leaf(
+                                dir, &name, &path, stat, visit, expected, hash_bytes, start,
+                            )? {
+                                return Ok(false);
+                            }
+                            true
+                        };
+                        if !outcome {
+                            return Ok(false);
+                        }
+                    } else if !visit_unreadable(
                         visit,
-                        descend,
-                        count,
-                        start,
-                        expected,
-                        hash_bytes,
-                        prepare,
-                        control_bytes,
+                        path,
+                        "File changed or is unreadable; refresh.",
                     )? {
                         return Ok(false);
                     }
                 }
-                continue;
-            }
-            if !descend(&path, false) {
-                continue;
-            }
-            let (mode, content) = match kind {
-                libc::S_IFLNK => (0o120000, link_content(dir, &name)),
-                libc::S_IFREG => {
-                    let mode = if stat.st_mode & 0o111 != 0 {
-                        0o100755
-                    } else {
-                        0o100644
-                    };
-                    (
-                        mode,
-                        regular_content(dir, &name, &path, mode, expected, hash_bytes, start),
-                    )
-                }
-                _ => (0, Err("Special file; content unavailable.".into())),
-            };
-            if !visit(Entry {
-                path,
-                mode,
-                content,
-            }) {
-                return Ok(false);
             }
         }
-        Ok(true)
     }
 
     /// Start at the filesystem root and open every canonical component relative
@@ -507,6 +584,54 @@ mod windows_walk {
     }
 
     // The recursion threads one shared budget/callback set; a context struct
+    /// One read_dir outcome: a skipped name, or a validated relative path.
+    /// Budget behavior: caller advances it before resolving the item.
+    #[allow(clippy::too_many_arguments)]
+    fn listing_path(
+        item: std::io::Result<std::fs::DirEntry>,
+        relative: &Path,
+    ) -> io::Result<Option<PathBuf>> {
+        let item = item?;
+        let path = relative.join(item.file_name());
+        if item
+            .file_name()
+            .to_string_lossy()
+            .eq_ignore_ascii_case(".git")
+        {
+            return Ok(None);
+        }
+        if safe_path(&path).is_err() {
+            return Err(io::Error::other(
+                "Unsupported Git path; comparison unavailable.",
+            ));
+        }
+        Ok(Some(path))
+    }
+
+    /// Read and visit one pinned non-directory leaf.
+    #[allow(clippy::too_many_arguments)]
+    fn visit_leaf(
+        held: File,
+        path: &Path,
+        meta: &std::fs::Metadata,
+        visit: &mut impl FnMut(Entry) -> bool,
+        expected: &mut impl FnMut(&Path, i32) -> Result<(Option<git2::Oid>, Eol), String>,
+        hash_bytes: &mut usize,
+        start: std::time::Instant,
+    ) -> io::Result<bool> {
+        let content = if meta.is_file() {
+            regular_content(held, path, expected, hash_bytes, start)
+        } else {
+            Err("Special file; content unavailable.".into())
+        };
+        Ok(visit(Entry {
+            path: path.to_owned(),
+            mode: 0o100644,
+            content,
+        }))
+    }
+
+    // The recursion threads one shared budget/callback set; a context struct
     // would wrap eight borrows behind one alias without reducing coupling.
     #[allow(clippy::too_many_arguments)]
     fn recurse(
@@ -548,20 +673,9 @@ mod windows_walk {
                     "Worktree traversal budget exceeded; comparison unavailable.",
                 ));
             }
-            let item = item?;
-            let path = relative.join(item.file_name());
-            if item
-                .file_name()
-                .to_string_lossy()
-                .eq_ignore_ascii_case(".git")
-            {
+            let Some(path) = listing_path(item, relative)? else {
                 continue;
-            }
-            if safe_path(&path).is_err() {
-                return Err(io::Error::other(
-                    "Unsupported Git path; comparison unavailable.",
-                ));
-            }
+            };
             let held = match pin(&root.join(&path)) {
                 Ok(f) => f,
                 Err(_) => {
@@ -577,7 +691,7 @@ mod windows_walk {
             }
             if meta.file_attributes() & 0x400 != 0 {
                 if !visit(Entry {
-                    path,
+                    path: path.clone(),
                     mode: 0o120000,
                     content: reparse_content(root, &path),
                 }) {
@@ -600,15 +714,7 @@ mod windows_walk {
                 {
                     return Ok(false);
                 }
-            } else if !visit(Entry {
-                path: path.clone(),
-                mode: 0o100644,
-                content: if meta.is_file() {
-                    regular_content(held, &path, expected, hash_bytes, start)
-                } else {
-                    Err("Special file; content unavailable.".into())
-                },
-            }) {
+            } else if !visit_leaf(held, &path, &meta, visit, expected, hash_bytes, start)? {
                 return Ok(false);
             }
         }
