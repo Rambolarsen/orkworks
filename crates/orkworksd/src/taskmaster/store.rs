@@ -184,6 +184,8 @@ impl RecommendationStore {
         let dir = root.join("recommendations");
         fs::create_dir_all(&dir).map_err(StoreError::Io)?;
         let store = Self { dir, owner };
+        // A reserved SQL transaction must be refused even before migration.
+        let _ = store.transaction_entries()?;
         store.migrate_legacy_rollup_filenames()?;
         store.recover_transactions()?;
         store.validate_graph()?;
@@ -1105,14 +1107,46 @@ impl RecommendationStore {
             .map_err(StoreError::Io)
     }
 
+    // Complete bounded name preflight before any legacy recovery effect. A SQL
+    // directory without a manifest is still owned by its exact SQL job.
+    fn transaction_entries(&self) -> Result<Option<Vec<fs::DirEntry>>, StoreError> {
+        let root = self.dir.join(ROLLUP_TRANSACTION_DIR);
+        match fs::symlink_metadata(&root) {
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(StoreError::Io(e)),
+            Ok(meta) if !meta.is_dir() || meta.file_type().is_symlink() => {
+                return Err(StoreError::Recovery(
+                    "invalid recommendation journal parent".into(),
+                ));
+            }
+            Ok(_) => (),
+        }
+        let mut entries = Vec::new();
+        for entry in fs::read_dir(&root).map_err(StoreError::Io)? {
+            let entry = entry.map_err(StoreError::Io)?;
+            if entries.len() == cleanup::MAX_DIRECTORY_ENTRIES
+                || entry
+                    .file_name()
+                    .to_string_lossy()
+                    .to_ascii_lowercase()
+                    .starts_with("sql-delete-v1-")
+            {
+                return Err(StoreError::Recovery(
+                    "SQL-bound or over-limit recommendation journals require qualified recovery"
+                        .into(),
+                ));
+            }
+            entries.push(entry);
+        }
+        Ok(Some(entries))
+    }
     fn recover_transactions(&self) -> Result<(), StoreError> {
         let root = self.dir.join(ROLLUP_TRANSACTION_DIR);
-        if !root.exists() {
+        let Some(entries) = self.transaction_entries()? else {
             return Ok(());
-        }
-        let entries = fs::read_dir(&root).map_err(StoreError::Io)?;
+        };
         for entry in entries {
-            let transaction_root = entry.map_err(StoreError::Io)?.path();
+            let transaction_root = entry.path();
             if !transaction_root.is_dir() {
                 continue;
             }

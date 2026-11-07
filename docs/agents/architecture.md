@@ -1951,10 +1951,43 @@ length-prefixed UTF-8 epoch/workspace-digest/session/creation fields. It compare
 all stored identity fields and the expected basename, rejects duplicate/unknown/
 missing fields, replacement entries, unsafe paths and invalid lowercase SHA-256
 values, and retains the 1,024-entry/1 MiB manifest caps. Legacy v1/v2 structs and
-codecs are unchanged. No new journal publisher/recovery caller, legacy-routing
-gate or cleanup progress effect is wired here; captured cleanup still refuses
-nonempty journals. Original lease/runtime/reservation/operation ownership is
+codecs are unchanged. The pure foundation grants no journal or cleanup authority.
+The bounded store layer described below consumes it. Captured SQL cleanup still
+refuses nonempty journals until its separate admission/progress integration. Original lease/runtime/reservation/operation ownership is
 required in later integration; an identity or decoded manifest grants none.
 
 Producer fencing, safe final job completion, startup routing, migration and
 activation remain gated. Production remains JSON, with no measured latency gain.
+
+## SQL-bound recommendation publication and recovery
+
+The private blocking `BoundCleanup::remove_for_sql` composes expected-identity
+recovery, a fresh bounded graph inspection/removal pass and strict v3 publication
+under one recommendation operation permit. The same permit and original anchored
+binding/lease survive success and all admitted error receipts, including failures
+before preparation finishes. A private shared guard extends that original permit;
+no release/reacquire or recursive claim occurs between phases.
+
+The anchored engine has explicit legacy-v2 and SQL-v3 routing. A reserved digest-
+bound directory is created exclusively and synced through its parents before
+backup writes; full identity/name/shape checks precede canonical unlinks.
+Recovered targets must belong to the selected session's complete graph closure
+whenever complete original evidence is available, even with all targets absent.
+Additional independent committed references are left for the fresh pass; partial
+backup cleanup after all targets are gone remains resumable. Empty complete
+journals must prove there is no selected work. First-manifest temporary prefixes
+require complete expected backup evidence. Recovery retains the existing strict
+leaf/root/ancestor checks, sync ordering, byte/entry limits and constant descriptor
+use; it neither restores deleted files nor adopts another job or a legacy journal.
+
+Legacy startup preflights all bounded journal names before filename migration,
+and every ordinary recovery call preflights them before its first effect. Reserved
+SQL entries block both startup and existing instances, including absent manifests
+and mixed parents. Memory-only captures/operation claims remain memory-only.
+
+This is a source-only store-layer primitive with no production or HTTP caller.
+An identity is identification, not admission: captured integration must reread the
+exact pending job and retain the runtime/lane/reservation/lease through file work
+and SQL progress. Existing captured cleanup and progress behavior are unchanged.
+Producer fencing, safe finalization, qualified startup, backup/migration and SQL
+activation remain separate gates; no installed behavior or latency gain is claimed.
