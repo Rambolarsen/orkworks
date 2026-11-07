@@ -58,6 +58,11 @@ jobs:
           ProducerTests.test_unrelated_and_capabilityless_starts_do_not_emit_worktree_context
           ProducerTests.test_powershell_session_start_uses_each_native_context_envelope
 
+      - name: Test compile-only qualification guards without compiling SQLite
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/qualification/pair-sqlite-compile-evidence.test.ps1
+
   native-session-app-windows:
     needs: changes
     if: needs.changes.outputs.native_session_app_changed == 'true'
@@ -86,6 +91,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
         working-directory: docs
       - run: node --test docs/.vitepress/*.test.mjs scripts/docs-audit-scope.test.mjs
+      - name: Test compile-only qualification workflow contract
+        run: node --test scripts/qualification/pair-sqlite-compile-evidence.test.mjs
       - name: Test workspace signal qualification probe
         run: python3 scripts/qualify-workspace-signals.test.py
       - name: Test repository verifier prerequisites and ordering

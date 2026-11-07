@@ -1,0 +1,48 @@
+name: Windows SQLite compile-only evidence
+
+"on":
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact reviewed merged tooling head; one approved dispatch only
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require reviewed head and first attempt
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          $actual = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+              $env:EXPECTED_SHA -cnotmatch '\A[0-9a-f]{40}\z' -or $actual -cne $env:EXPECTED_SHA) {
+            throw 'Exact head/first attempt mismatch; compilation not started'
+          }
+      - name: One approved compiler-only invocation
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: ./scripts/qualification/pair-sqlite-compile-evidence.ps1
+      - name: Retain only allowlisted compiler evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pair-sqlite-compile-evidence
+          retention-days: 1
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/ork-pair-sqlite-compile/evidence/result.json
+            ${{ runner.temp }}/ork-pair-sqlite-compile/evidence/diagnostics.txt
+            ${{ runner.temp }}/ork-pair-sqlite-compile/evidence/sqlite3.asm

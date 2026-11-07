@@ -1,10 +1,10 @@
 ---
 type: Qualification Plan
 title: One Windows SQLite compile-only evidence attempt
-description: Bounded compiler evidence acquisition for the accepted pair scratch analysis; separate execution approval required and no complete envelope or backend implementation implied.
+description: Owner-approved bounded compiler evidence acquisition for the pair scratch analysis; one compile-only attempt and no complete envelope or backend implementation implied.
 tags: [orkworks, sqlite, windows, qualification, resources]
 status: draft
-workflow_status: awaiting-scoped-execution-approval
+workflow_status: approved-execution-in-progress
 ---
 
 # One Windows SQLite compile-only evidence attempt
@@ -151,3 +151,13 @@ identity, process/job budget, failure endpoint and remaining gate terms are
 explicit. No implementation code is prewritten and no approval of unchanged
 architecture is requested. Any material scope/argument/budget change requires
 updating this plan and resolving that change before dependent execution.
+
+## Scoped execution approval — 2026-11-07
+
+After reviewed [#1480](https://github.com/Rambolarsen/orkworks/pull/1480), merge
+5474a192c13760ee8052bb201c7fc2b1f9aad4fd, the owner answered “keep going” to
+the explicit one-job/one-compiler-invocation/15-minute/no-target-execution/no-retry
+request. This accepts the tooling and sole compile-only attempt above; no repeat
+approval is needed within that scope. [#1485](https://github.com/Rambolarsen/orkworks/issues/1485)
+tracks execution and its terminal result. No dispatch has occurred in this record.
+All broader architecture, growth/scratch, production and source gates remain.
