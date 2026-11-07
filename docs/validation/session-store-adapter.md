@@ -1489,7 +1489,7 @@ revalidation and SQL progress remain required before integration/activation.
 ## Anchored recommendation journal qualification
 
 `taskmaster/store/journal_tests.rs` exercises source-only v2 deletion publication
-and recovery against real temporary directories and workspace leases. Fourteen tests
+and recovery against real temporary directories and workspace leases. Seventeen tests
 cover success/failure receipt ownership, original byte preservation, stale target
 and canonical-root replacement/ancestor-alias refusal, no-op/absent directories, complete rollup
 closure, partial draft backups without rewriting originals, corrupt manifests,
@@ -1506,8 +1506,18 @@ hardware power loss, short writes, arbitrary external filesystem attackers or an
 integrated SQL deletion admission. The canonical-root guard intentionally refuses
 destructive work after metadata-root moves despite read-only descriptor continuity.
 
-All 90 store regressions pass locally. Full verification and PR platform evidence
+All 93 store regressions pass locally. Full verification and PR platform evidence
 are recorded in the linked implementation plan and PR; Linux and Windows CI are
 separate from local macOS results. Other platforms return Unsupported before
 journal effects. Production continues using JSON; captured SQL job/protection
 admission and stale producer revalidation/revocation remain activation gates.
+
+
+PR review added recovery-self-interruption coverage for first-manifest drafts:
+the verified temp must be removed and directory-synced before its backup evidence
+is discarded. The old ordering failed at injected recovery boundary two. An
+isolated child lowers only its own soft descriptor limit to 64 and qualifies
+both complete publication and restart after 512 of 1,024 targets were removed.
+The previous implementation failed with EMFILE because it retained a descriptor
+per backup. Recovery now retains bounded byte/inode observations and reopens one
+backup for each later sync/removal. No parent-process resource limit is changed.

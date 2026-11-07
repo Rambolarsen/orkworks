@@ -314,7 +314,7 @@ fn recover_expected(
                     return Err(invalid("backup hash mismatch"));
                 }
                 let record = parse_record(&leaf.bytes, &e.id)?;
-                backups.insert(e.id.clone(), (leaf, Some(record)));
+                backups.insert(e.id.clone(), (capture_backup(leaf)?, Some(record)));
             } else {
                 let matching = leaves
                     .iter()
@@ -328,7 +328,7 @@ fn recover_expected(
                 if !original.bytes.starts_with(&leaf.bytes) {
                     return Err(invalid("draft backup differs from original"));
                 }
-                backups.insert(id.clone(), (leaf, None));
+                backups.insert(id.clone(), (capture_backup(leaf)?, None));
             }
         }
     }
@@ -430,8 +430,8 @@ fn recover_expected(
     if committed {
         // Repeat durability barrier even after a prior crash following manifest rename.
         if let Some(directory) = &tx.backups {
-            for (leaf, _) in backups.values() {
-                leaf.verify(directory)?;
+            for (id, (captured, _)) in &backups {
+                let leaf = reopen_backup(directory, id, captured)?;
                 sync(&leaf.file)?;
             }
             sync(directory)?;
@@ -454,10 +454,19 @@ fn recover_expected(
     }
     sync_records(binding)?;
     graph(&records(binding)?.0)?;
+    // The first draft temp needs the complete backup set for validation. Its
+    // removal must be durable before any of that evidence can be discarded.
+    if let Some(temp) = temp {
+        tx.current(binding)?;
+        temp.verify(&tx.directory)?;
+        remove(&tx.directory, TEMP, &temp.file, false)?;
+        sync(&tx.directory)?;
+    }
     // Known leaf removals only. Manifest remains until all backup cleanup is durable.
     if let Some(directory) = &tx.backups {
-        for (leaf, _) in backups.values() {
+        for (id, (captured, _)) in &backups {
             tx.current(binding)?;
+            let leaf = reopen_backup(directory, id, captured)?;
             leaf.verify(directory)?;
             remove(directory, &leaf.name, &leaf.file, false)?;
         }
@@ -474,11 +483,6 @@ fn recover_expected(
             remove(&tx.directory, name, &file, true)?;
             sync(&tx.directory)?;
         }
-    }
-    if let Some(temp) = temp {
-        tx.current(binding)?;
-        temp.verify(&tx.directory)?;
-        remove(&tx.directory, TEMP, &temp.file, false)?;
     }
     if let Some(manifest) = manifest_leaf {
         tx.current(binding)?;
@@ -500,4 +504,21 @@ fn parse_record(bytes: &[u8], id: &str) -> io::Result<Recommendation> {
         return Err(invalid("backup identity mismatch"));
     }
     Ok(r)
+}
+
+// Inventory bytes and observed identities are bounded; open descriptors are
+// constant in the number of records. Every later effect reopens one leaf and
+// checks both its current inode and bytes against the observation.
+fn capture_backup(leaf: Leaf) -> io::Result<CapturedLeaf> {
+    Ok(CapturedLeaf {
+        identity: identity(&leaf.file)?,
+        bytes: leaf.bytes,
+    })
+}
+fn reopen_backup(directory: &fs::File, id: &str, captured: &CapturedLeaf) -> io::Result<Leaf> {
+    let leaf = read(directory, &basename(&recommendation_filename(id))?)?;
+    if identity(&leaf.file)? != captured.identity || leaf.bytes != captured.bytes {
+        return Err(invalid("backup changed during recovery"));
+    }
+    Ok(leaf)
 }

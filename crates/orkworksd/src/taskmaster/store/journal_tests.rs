@@ -508,3 +508,152 @@ fn anchored_journal_refuses_parent_rename_hidden_by_symlink() {
         .join("metadata/recommendations/.rollup-transactions")
         .exists());
 }
+
+#[test]
+fn anchored_journal_recovers_interruptions_while_discarding_first_manifest_draft() {
+    let mut reached_success = false;
+    for boundary in 0..100 {
+        let (root, store, lease) = fixture();
+        let tx = journal(&store, lease.clone(), false);
+        let manifest = fs::read(tx.join("manifest.json")).unwrap();
+        fs::write(
+            tx.join("manifest.json.tmp"),
+            &manifest[..manifest.len() - 11],
+        )
+        .unwrap();
+        fs::remove_file(tx.join("manifest.json")).unwrap();
+        let originals = ["a", "b", "keep"].map(|id| fs::read(store.path_for(id)).unwrap());
+        let bound = store.capture_cleanup().bind(lease.clone()).unwrap();
+        cleanup::JOURNAL_FAILURE.with(|f| f.set(Some(boundary)));
+        let receipt = bound.recover_removals().unwrap();
+        cleanup::JOURNAL_FAILURE.with(|f| f.set(None));
+        let success = receipt.result().is_ok();
+        drop(receipt);
+        drop(bound);
+        drop(store);
+        drop(lease);
+        let bound = RecommendationStore::bind_cleanup_recovery(
+            root.path().to_path_buf(),
+            Arc::new(WorkspaceLease::acquire(root.path()).unwrap()),
+        )
+        .unwrap();
+        for _ in 0..2 {
+            let receipt = bound.recover_removals().unwrap();
+            assert!(
+                receipt.result().is_ok(),
+                "recovery boundary {boundary}: {:?}",
+                receipt.result()
+            );
+        }
+        assert_eq!(
+            ["a", "b", "keep"].map(|id| fs::read(
+                root.path()
+                    .join("recommendations")
+                    .join(format!("{id}.json"))
+            )
+            .unwrap()),
+            originals
+        );
+        assert!(!root
+            .path()
+            .join("recommendations/.rollup-transactions")
+            .exists());
+        if success {
+            reached_success = true;
+            break;
+        }
+    }
+    assert!(reached_success);
+}
+#[test]
+fn anchored_journal_maximum_inventory_uses_bounded_descriptors() {
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "taskmaster::store::journal_tests::anchored_journal_fd_limit_child",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env("ORKWORKS_JOURNAL_FD_LIMIT_TEST", "1")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+#[test]
+fn anchored_journal_fd_limit_child() {
+    if std::env::var_os("ORKWORKS_JOURNAL_FD_LIMIT_TEST").is_none() {
+        return;
+    }
+    let mut limit = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    // SAFETY: valid initialized output for this isolated child process's limit.
+    assert_eq!(
+        unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) },
+        0
+    );
+    limit.rlim_cur = 64.min(limit.rlim_max);
+    // SAFETY: lower only this child process's soft limit; leave the hard limit intact.
+    assert_eq!(unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &limit) }, 0);
+    for restart in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let lease = Arc::new(WorkspaceLease::acquire(root.path()).unwrap());
+        let store = RecommendationStore::open(root.path().to_path_buf()).unwrap();
+        for i in 0..1024 {
+            let id = format!("record-{i:04}");
+            fs::write(
+                store.path_for(&id),
+                serde_json::to_vec(&tests::recommendation(&id, "s")).unwrap(),
+            )
+            .unwrap();
+        }
+        let removal = store
+            .capture_cleanup()
+            .bind(lease.clone())
+            .unwrap()
+            .inspect()
+            .unwrap()
+            .prepare_session_removal("s")
+            .unwrap();
+        if restart {
+            let tx = store
+                .dir
+                .join(ROLLUP_TRANSACTION_DIR)
+                .join("tx-00000000-0000-4000-8000-000000000001");
+            fs::create_dir_all(tx.join("backups")).unwrap();
+            fs::create_dir(tx.join("staged")).unwrap();
+            for target in removal.targets() {
+                fs::write(tx.join(target.backup), target.bytes).unwrap();
+            }
+            fs::write(tx.join("manifest.json"), removal.manifest_bytes(true)).unwrap();
+            for target in removal.targets().take(512) {
+                fs::remove_file(store.path_for(target.id)).unwrap();
+            }
+            drop(removal);
+            drop(store);
+            drop(lease);
+            let bound = RecommendationStore::bind_cleanup_recovery(
+                root.path().to_path_buf(),
+                Arc::new(WorkspaceLease::acquire(root.path()).unwrap()),
+            )
+            .unwrap();
+            let receipt = bound.recover_removals().unwrap();
+            assert!(receipt.result().is_ok(), "{:?}", receipt.result());
+        } else {
+            let receipt = removal.publish();
+            assert!(receipt.result().is_ok(), "{:?}", receipt.result());
+        }
+        assert_eq!(
+            fs::read_dir(root.path().join("recommendations"))
+                .unwrap()
+                .count(),
+            0
+        );
+    }
+}

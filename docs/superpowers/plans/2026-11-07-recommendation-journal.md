@@ -78,7 +78,7 @@ committed journals reject any temp, uncommitted temp must prefix the exact next
 canonical payload, and first-manifest temp requires at least one complete backup.
 An additional failing regression exposed ancestor rename through a symlink;
 the owning session added canonical-path revalidation and reviewed that delta.
-All findings are dispositioned. Current reviewed code artifact SHA256 is
+Initial manual findings were dispositioned. The first reviewed code artifact SHA256 is
 `189994bd478dbc03eccf3b44b48ed7a93a8d6444ed739b96023a9f7527772069`.
 
 ## Verification evidence
@@ -117,3 +117,33 @@ product diff is byte-identical across the rebase (committed diff SHA256
 `d6275c52beb9919b81ecddae0afa7f71920a28962503bb08527af8a6093bf58d`),
 so current code review is reused. Post-rebase checks and refreshed current-head
 reviews/CI are recorded in the PR.
+
+
+## PR review cycle 1
+
+Codex findings [4501249745](https://github.com/Rambolarsen/orkworks/pull/1502#discussion_r4501249745)
+and [4501249747](https://github.com/Rambolarsen/orkworks/pull/1502#discussion_r4501249747)
+were independently reproduced: draft cleanup could lose the complete backup set
+needed to validate its remaining temp on retry; retained backup files exhausted
+the process descriptor limit before recovery could finish. The corrections sync
+validated temp removal before any backup deletion, and retain only bounded
+byte/inode observations while reopening and checking individual backup leaves.
+The existing schema, graph policy, lease/operation ownership and source-only
+selection remain unchanged.
+
+All 93 store tests pass, including interruption/restart during draft recovery
+and both publication and 1,024-record partial-publication recovery in an isolated
+child with a 64-descriptor soft limit. A post-rebase verifier was deliberately
+stopped before these demonstrated corrections; it is not qualifying final
+verification. Current-code review and full verification are refreshed for the
+new head before merge. The PR lifecycle remains cycle 1 of 3, with its original
+two-hour deadline measured from 2026-11-07T10:07:56Z.
+
+
+Both fresh independent `/code-review medium` passes are clear on the complete
+cycle-1 product diff SHA256
+`fc915cb3e17a7c74ef3e79d5024c7a3bd16eee374b325875a8f910db10539ef3`.
+One pass audited recovery/graph/cleanup completeness; the other audited identity,
+lease/permit lifetime and descriptor bounds. The 93-test store result covers both
+reproduced Codex findings. Final full verification and refreshed CI/reviews are
+recorded at the resulting PR head before merge.

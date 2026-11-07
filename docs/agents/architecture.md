@@ -1849,7 +1849,9 @@ inventory, lease, original leaf bytes/inodes and canonical metadata-root identit
 It writes private exclusive backups and existing v2 deletion manifests through
 pinned directory descriptors, synchronizes files/ancestors before target removal,
 validates the resulting graph, then removes only known leaves and empty directories.
-The manifest is removed last. The result receipt retains the operation permit and
+A validated draft temporary manifest is removed and its directory synced before
+discarding backups needed to validate it on restart. The manifest is removed last.
+The result receipt retains the operation permit and
 workspace lease through success or failure; callers must retain it through any
 future SQL progress decision. A receipt alone grants no SQL/session admission.
 
@@ -1866,7 +1868,9 @@ the records/root directories even when previous cleanup already removed the jour
 
 Bounds remain 1,024 logical records, one MiB per record/manifest and 32 MiB per
 encoded graph or backup phase, with one extra physical journal-directory entry.
-Transient validation copies add bounded memory; no I/O deadline, measured RSS or
+Backup observations retain bytes and inode identities with constant open-descriptor
+use; each later sync/removal reopens and revalidates one leaf. Transient validation
+copies add bounded memory; no I/O deadline, measured RSS or
 hardware power-loss claim is made. macOS/Linux fixtures qualify source behavior;
 other platforms return Unsupported. The v2 layout remains readable by legacy
 recovery, but activation must route this qualified recovery before ordinary store
