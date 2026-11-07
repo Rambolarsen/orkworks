@@ -106,3 +106,11 @@ native-resume, off-page selection and stale ownership tests. Run scoped checks,
 full repository verification, applicable current-diff code review and required
 CI before owner-controlled rollout. No live recovery or supported platform is
 claimed until corresponding evidence exists.
+
+## Proposed retained-source adoption amendment — 2026-11-07
+
+The [retained legacy source-adoption proposal](../docs/superpowers/specs/2026-11-07-legacy-source-adoption-amendment.md)
+is pending owner approval under #1494/#1244. It proposes explicit additive recovery
+of selected workspace-local session records and missing payloads during the
+existing quiescent import. It supplies no startup merge, overwrite authority,
+accepted-contract change or runtime implementation approval.
