@@ -546,6 +546,36 @@ fn persist_peon_input_label_metadata(
     }
 }
 
+/// Where the sessions step of a transition leaves the blocking task.
+enum HandleTransition {
+    /// Generation or lifecycle matches forbid continuing the whole transition.
+    Aborted,
+    /// No handle for the id and no expected generation pinned.
+    Missing,
+    /// The live handle absorbed the transition and stays authoritative.
+    Applied {
+        resume: (Option<harness::ResumeMemory>, Option<String>),
+        entered_running: bool,
+        already_ending: bool,
+    },
+}
+
+/// Where the persisted metadata step leaves the blocking task.
+enum PersistOutcome {
+    /// The durable metadata now carries the transition.
+    Applied,
+    /// No durable session for the id; the transition must abort.
+    NoSession,
+    /// Persistence failed after the live mutation; keep the live transition.
+    SoftError(SessionTransactionError, bool),
+}
+
+/// Whether the retryable sessions re-lookup should retry or abort the task.
+enum PhaseCheck {
+    Retry,
+    Abort,
+}
+
 impl SessionApplication {
     pub(crate) fn new(state: Arc<AppState>) -> Self {
         Self { state }
@@ -2264,10 +2294,6 @@ impl SessionApplication {
         seeded_label
     }
 
-    /// Applies a process status transition to persisted metadata and the live session.
-    ///
-    /// The entire workflow remains on one blocking task so the live mutation, terminal-size
-    /// persistence, metadata update, and event append preserve their existing sequencing.
     pub(crate) async fn transition_session_status(
         &self,
         id: &str,
@@ -2286,190 +2312,10 @@ impl SessionApplication {
         let expected_generation =
             expected_generation.or(captured.map(|identity| identity.run_generation));
         let state = self.state.clone();
-        let task_state = state.clone();
         let task_id = id.to_string();
-        let status = status.to_string();
+        let task_status = status.to_string();
         tokio::task::spawn_blocking(move || {
-            let state = task_state;
-            let id = task_id;
-            let _prompt_transition = crate::runtime::prompt_authority::transition_lock()
-                .lock()
-                .unwrap();
-            let is_terminal = matches!(status.as_str(), "killed" | "ended" | "error");
-            let (
-                handle_decision,
-                session_resume,
-                entered_running,
-                entered_terminal,
-                already_ending,
-            ) = {
-                let mut sessions = state.sessions.lock().unwrap();
-                if expected_generation.is_some_and(|expected| {
-                    !sessions
-                        .get(&id)
-                        .is_some_and(|handle| handle.runtime.run_generation() == expected)
-                }) {
-                    return false;
-                }
-                if let Some(handle) = sessions.get_mut(&id) {
-                    if !is_terminal
-                        && matches!(handle.info.lifecycle_phase.as_str(), "ending" | "ended")
-                    {
-                        return false;
-                    }
-                    let entered_running =
-                        !is_terminal && status == "running" && handle.info.status != "running";
-                    let already_ending = is_terminal && handle.info.lifecycle_phase == "ending";
-                    if is_terminal && handle.info.lifecycle_phase == "ended" {
-                        return false;
-                    }
-                    if is_terminal {
-                        handle.runtime.attention_owner.accepted_write();
-                    }
-                    if is_terminal && !already_ending {
-                        handle.info.status = "running".to_string();
-                        handle.info.lifecycle_phase = "ending".to_string();
-                        handle.info.lifecycle = "stopping".to_string();
-                        handle.info.attention = None;
-                        handle.info.connectivity =
-                            Some(connectivity_for_status("running").to_string());
-                        handle.info.terminal_outcome = None;
-                    } else if !is_terminal {
-                        handle.info.status = status.clone();
-                        handle.info.lifecycle_phase = if status == "creating" {
-                            "creating".to_string()
-                        } else {
-                            "active".to_string()
-                        };
-                        handle.info.lifecycle = if status == "creating" {
-                            "creating"
-                        } else {
-                            "alive"
-                        }
-                        .to_string();
-                        handle.info.connectivity =
-                            Some(connectivity_for_status(&status).to_string());
-                        handle.info.terminal_outcome = terminal_outcome_for_status(&status);
-                    }
-                    handle.info.last_activity_at = Some(iso_now());
-                    if is_terminal {
-                        handle.info.observed_status = None;
-                    }
-                    (
-                        Some(true),
-                        (handle.info.resume.clone(), handle.info.resumed_from.clone()),
-                        entered_running,
-                        is_terminal,
-                        already_ending,
-                    )
-                } else {
-                    (None, (None, None), false, false, false)
-                }
-            };
-            if entered_terminal {
-                state.peon.last_output.write().unwrap().remove(&id);
-                state.peon.input_buf.write().unwrap().remove(&id);
-                // Authoritative final size for dead-session replay. Goes through the
-                // same lock-serialized helper live-resize persistence uses
-                // (`SessionApplication::persist_terminal_size`) so a live-resize write
-                // deferred onto a blocking-pool thread can never land after this one
-                // and clobber it with a stale size — see that operation's doc comment.
-                // Must run before `ws_guard` below acquires `state.workspace`, since
-                // this also locks it internally and the lock isn't reentrant.
-                crate::session_application::SessionApplication::new(state.clone())
-                    .persist_terminal_size(&id, true);
-            } else if entered_running && state.peon.config.enabled {
-                state
-                    .peon
-                    .last_output
-                    .write()
-                    .unwrap()
-                    .entry(id.clone())
-                    .or_insert_with(tokio::time::Instant::now);
-            }
-            let now = iso_now();
-            let mut applied = handle_decision.unwrap_or(false);
-            loop {
-                let ws_guard = state.workspace.lock().unwrap();
-                if let Some(ref ws) = *ws_guard {
-                        // A transition detached while waiting for the workspace
-                        // lock must not overwrite a live handle that has since
-                        // entered its terminal lifecycle. Persisted `ended` alone
-                        // is not authoritative when a live handle is active: it
-                        // can be stale from an earlier process. Once the live
-                        // generation is ending, preserve a durable terminal status even
-                        // before the finalizer updates its live phase. If the
-                        // session map is temporarily busy, release the workspace lock
-                        // and retry rather than treating contention as no handle.
-                        let live_handle_phase = match state.sessions.try_lock() {
-                            Ok(sessions) => {
-                                let handle = sessions.get(&id);
-                                if expected_generation.is_some_and(|expected| {
-                                    !handle.is_some_and(|handle| {
-                                        handle.runtime.run_generation() == expected
-                                    })
-                                }) {
-                                    return false;
-                                }
-                                handle.map(|handle| handle.info.lifecycle_phase.clone())
-                            }
-                            Err(std::sync::TryLockError::WouldBlock) => {
-                                drop(ws_guard);
-                                std::thread::sleep(std::time::Duration::from_millis(1));
-                                continue;
-                            }
-                            Err(std::sync::TryLockError::Poisoned(error)) => {
-                                let sessions = error.into_inner();
-                                let handle = sessions.get(&id);
-                                if expected_generation.is_some_and(|expected| {
-                                    !handle.is_some_and(|handle| {
-                                        handle.runtime.run_generation() == expected
-                                    })
-                                }) {
-                                    return false;
-                                }
-                                handle.map(|handle| handle.info.lifecycle_phase.clone())
-                            }
-                        };
-                    let stored = ws.metadata.mutate_session_optional(
-                        &id, if is_terminal { WriteScope::ATTENTION } else { WriteScope::NONE }, |meta| {
-                        Ok(metadata::lifecycle_mutations::LifecycleMutation::Transition {
-                            status: status.clone(), had_live_handle: handle_decision.is_some(),
-                            already_ending, live_phase: live_handle_phase,
-                            resume: session_resume.0, resumed_from: session_resume.1,
-                            timestamp: now.clone(),
-                        }.apply(meta).is_some())
-                    });
-                    match stored {
-                        Ok(Some(_)) => applied = true,
-                        Ok(None) => return false,
-                        Err(error) => {
-                            tracing::warn!(session_id = %id, %error, "failed to persist lifecycle transition");
-                            // The owned process already changed lifecycle. Preserve
-                            // its live transition so terminal finalization still runs;
-                            // no durable event or successful metadata write is claimed.
-                            return handle_decision.unwrap_or(false);
-                        }
-                    }
-                    if applied {
-                        ws.metadata.append_event(
-                            &id,
-                            &metadata::Event {
-                                event_type: "session.status".into(),
-                                timestamp: now,
-                                status,
-                                observed_status: None,
-                                confidence: None,
-                                summary: None,
-                                source: None,
-                                recommendation_id: None,
-                            },
-                        );
-                    }
-                }
-                break;
-            }
-            applied
+            transition_status_blocking(state, task_id, task_status, expected_generation)
         })
         .await
         .unwrap_or_else(|error| {
@@ -4099,103 +3945,27 @@ impl SessionApplication {
         let workspace = workspace_guard.as_ref().ok_or(SessionError::Conflict)?;
         let mut sessions = self.state.sessions.lock().unwrap();
         let handle = sessions.get(&signal.session_id);
-        if signal.source == "codex_hook"
-            && handle.is_some_and(|handle| handle.runtime.codex_terminal_status_active)
-        {
-            return Ok(metadata::AttentionMergeResult::Ignored);
+        if let Some(stop) = suppress_codex_hook_terminal(handle, &signal) {
+            return Ok(stop);
         }
-
-        if signal.source == "agent"
-            && !signal.activate_work_hook
-            && handle.is_some_and(|handle| {
-                matches!(
-                    handle
-                        .info
-                        .harness_id
-                        .as_deref()
-                        .or(handle.info.harness.as_deref()),
-                    Some("claude-code" | "copilot")
-                )
-            })
-            && crate::runtime::prompt_authority::registry().is_active(&signal.session_id)
-        {
-            return Err(SessionError::EmptyBadRequest);
+        if let Some(stop) = reject_agent_prompt_harness(&signal, handle) {
+            return Err(stop);
         }
-
-        if signal.activate_work_hook
-            && signal.source == "agent"
-            && signal.opencode_authority.is_none()
-        {
-            return Err(SessionError::EmptyBadRequest);
+        if let Some(stop) = validate_activation_authority(&signal) {
+            return Err(stop);
         }
-        if let Some(authority) = &signal.opencode_authority {
-            let same_live_runtime = handle.is_some_and(|handle| {
-                handle.runtime.matches_identity(&authority.runtime_identity)
-                    && handle.info.lifecycle == "alive"
-                    && handle.info.lifecycle_phase == "active"
-                    && (handle.info.harness_id.as_deref() == Some("opencode")
-                        || handle.info.harness.as_deref() == Some("opencode"))
-            });
-            if !same_live_runtime
-                || !crate::runtime::terminal_runtime::verify_workflow_report_token(
-                    &signal.session_id,
-                    &authority.token,
-                )
-            {
-                return Err(SessionError::EmptyBadRequest);
-            }
+        if let Some(stop) = reject_mismatched_opencode_authority(handle, &signal) {
+            return Err(stop);
         }
-
-        if signal.require_alive {
-            match workspace.metadata.read_session(&signal.session_id) {
-                None => return Err(SessionError::NotFound),
-                Some(meta) if meta.lifecycle != "alive" => {
-                    return Err(SessionError::EmptyBadRequest);
-                }
-                Some(_) => {}
-            }
-            if signal.activate_work_hook && handle.is_none() {
-                return Err(SessionError::Conflict);
-            }
+        if let Some(stop) = require_alive_session(workspace, handle, &signal) {
+            return Err(stop);
         }
-
-        if signal.source == "agent"
-            && !signal.activate_work_hook
-            && handle.is_some_and(|handle| {
-                handle.active_work_hook
-                    && (handle.info.harness_id.as_deref() == Some("opencode")
-                        || handle.info.harness.as_deref() == Some("opencode"))
-            })
-        {
-            return Ok(metadata::AttentionMergeResult::Ignored);
+        if let Some(stop) = suppress_active_work_opencode(handle, &signal) {
+            return Ok(stop);
         }
-
-        if signal.reject_stale_observed_at
-            && signal.observed_at.is_some_and(|timestamp| {
-                handle.is_some_and(|handle| {
-                    handle
-                        .runtime
-                        .last_hook_attention_at
-                        .is_some_and(|previous| {
-                            timestamp < previous
-                                || (timestamp == previous
-                                    && signal.hook_receipt_sequence.is_none_or(|sequence| {
-                                        handle
-                                            .runtime
-                                            .last_hook_attention_sequence
-                                            .is_none_or(|previous| sequence <= previous)
-                                    }))
-                        })
-                        || handle
-                            .runtime
-                            .accepted_input_at
-                            .is_some_and(|accepted_at| timestamp <= accepted_at)
-                })
-            })
-        {
-            return Ok(metadata::AttentionMergeResult::Ignored);
+        if let Some(stop) = reject_stale_hook_observation(handle, &signal) {
+            return Ok(stop);
         }
-
         let result = workspace.metadata.merge_agent_attention_signal_with_plan(
             &signal.session_id,
             &signal.observed_status,
@@ -4208,44 +3978,7 @@ impl SessionApplication {
         );
         if result == metadata::AttentionMergeResult::Accepted {
             if let Some(handle) = sessions.get_mut(&signal.session_id) {
-                apply_live_attention_fields(
-                    &mut handle.info,
-                    &mut handle.runtime.attention_owner,
-                    &signal.observed_status,
-                    signal.message.as_deref(),
-                    &signal.source,
-                    signal.confidence,
-                );
-                if let Some(stored) = workspace.metadata.read_session(&signal.session_id) {
-                    handle.info.provenance = stored.provenance;
-                    handle.info.metadata_source = Some(stored.metadata_source);
-                    handle.info.metadata_confidence = Some(stored.metadata_confidence);
-                }
-                if signal.update_hook_timestamp {
-                    if let Some(observed_at) = signal.observed_at {
-                        handle.runtime.last_hook_attention_at = Some(observed_at);
-                        handle.runtime.last_hook_attention_sequence = signal.hook_receipt_sequence;
-                    }
-                }
-                if signal.activate_work_hook {
-                    handle.active_work_hook = true;
-                    handle.runtime.attention_owner.accepted_write();
-                    handle.info.needs_user_input = None;
-                    handle.info.detected_question = None;
-                    handle.info.suggested_options = None;
-                }
-                if signal.clear_pending_work_signal {
-                    handle.pending_work_signal = None;
-                }
-                match &signal.debug_hint_mutation {
-                    Some(DebugHintMutation::Preserve) | None => {}
-                    Some(DebugHintMutation::Clear) => {
-                        handle.info.usage_limit_reset_hint = None;
-                    }
-                    Some(DebugHintMutation::Set(message)) => {
-                        handle.info.usage_limit_reset_hint = Some(message.clone());
-                    }
-                }
+                bind_accepted_attention(handle, workspace, &signal);
             }
         }
         Ok(result)
@@ -4831,114 +4564,18 @@ impl SessionApplication {
         id: &str,
         signal: AttentionSignal,
     ) -> Result<(), SessionError> {
-        let (protected_prompt_harness, hook_receipt_sequence) = {
-            let _transition = crate::runtime::prompt_authority::transition_lock()
-                .lock()
-                .unwrap();
-            let mut sessions = self.state.sessions.lock().unwrap();
-            let protected = sessions
-                .get_mut(id)
-                .and_then(|handle| {
-                    let harness = handle
-                        .info
-                        .harness_id
-                        .as_deref()
-                        .or(handle.info.harness.as_deref());
-                    let protected = matches!(harness, Some("claude-code" | "copilot"));
-                    let active_work_hook = handle.active_work_hook;
-                    let sequence = if protected {
-                        handle.runtime.hook_receipt_sequence =
-                            handle.runtime.hook_receipt_sequence.saturating_add(1);
-                        Some(handle.runtime.hook_receipt_sequence)
-                    } else {
-                        None
-                    };
-                    Some((
-                        protected,
-                        harness == Some("claude-code"),
-                        active_work_hook,
-                        sequence,
-                    ))
-                })
-                .unwrap_or((false, false, false, None));
-            drop(sessions);
-            let (protected_prompt_harness, claude_harness, active_work_hook, hook_receipt_sequence) =
-                protected;
-            if protected_prompt_harness {
-                if crate::runtime::prompt_authority::registry().is_active(id) {
-                    return Err(SessionError::EmptyBadRequest);
-                }
-                if claude_harness
-                    && active_work_hook
-                    && signal.source.is_none()
-                    && signal.status == "working"
-                {
-                    let observed_at = signal
-                        .observed_at
-                        .as_deref()
-                        .map(parse_hook_observed_at)
-                        .transpose()
-                        .map_err(|_| SessionError::EmptyBadRequest)?
-                        .ok_or(SessionError::EmptyBadRequest)?;
-                    let accepted_input_at = self
-                        .state
-                        .sessions
-                        .lock()
-                        .unwrap()
-                        .get(id)
-                        .and_then(|handle| handle.runtime.accepted_input_at);
-                    if accepted_input_at.is_some_and(|accepted_at| observed_at <= accepted_at) {
-                        return self
-                            .workspace_exists()
-                            .then_some(())
-                            .ok_or(SessionError::Conflict);
-                    }
-                    clear_claude_capacity_after_working(&self.state, id, observed_at);
-                    return Ok(());
-                }
-            }
-            (protected_prompt_harness, hook_receipt_sequence)
-        };
+        let (protected_prompt_harness, hook_receipt_sequence) =
+            match prompt_protected_receipt(self, id, &signal)? {
+                PromptReceipt::Completed(result) => return result,
+                PromptReceipt::Continue {
+                    protected,
+                    hook_receipt_sequence,
+                } => (protected, hook_receipt_sequence),
+            };
         if protected_prompt_harness {
             return Err(SessionError::EmptyBadRequest);
         }
-        let opencode_hook = signal.source.as_deref() == Some("opencode_hook");
-        let mut opencode_authority = None;
-        if opencode_hook {
-            let token = signal
-                .report_token
-                .as_deref()
-                .ok_or(SessionError::EmptyBadRequest)?;
-            if !crate::runtime::terminal_runtime::verify_workflow_report_token(id, token) {
-                return Err(SessionError::EmptyBadRequest);
-            }
-            let runtime_identity = self
-                .state
-                .sessions
-                .lock()
-                .unwrap()
-                .get(id)
-                .filter(|handle| {
-                    handle.info.lifecycle == "alive"
-                        && handle.info.lifecycle_phase == "active"
-                        && (handle.info.harness_id.as_deref() == Some("opencode")
-                            || handle.info.harness.as_deref() == Some("opencode"))
-                })
-                .map(|handle| handle.runtime.identity())
-                .ok_or(SessionError::EmptyBadRequest)?;
-            let event = signal
-                .event
-                .as_deref()
-                .ok_or(SessionError::EmptyBadRequest)?;
-            if signal.observed_at.is_none() || !opencode_event_allows_status(event, &signal.status)
-            {
-                return Err(SessionError::EmptyBadRequest);
-            }
-            opencode_authority = Some(OpenCodeReportAuthority {
-                token: token.to_owned(),
-                runtime_identity,
-            });
-        }
+        let opencode_authority = opencode_report_authority(self, id, &signal)?;
         let codex_hook = self.validate_codex_hook_signal(id, &signal)?;
         let observed_at = signal
             .observed_at
@@ -4958,7 +4595,7 @@ impl SessionApplication {
             .get(id)
             .is_some_and(|handle| handle.active_work_hook)
             || codex_hook
-            || opencode_hook;
+            || opencode_hook_by_source(&signal.source);
         let status = normalize_hook_attention_status(&signal.status, supports_active_work)
             .ok_or(SessionError::EmptyBadRequest)?;
         if observed_at.is_some_and(|timestamp| {
@@ -5001,8 +4638,8 @@ impl SessionApplication {
                 reject_stale_observed_at: true,
                 update_hook_timestamp: true,
                 clear_pending_work_signal: true,
-                require_alive: codex_hook || opencode_hook,
-                activate_work_hook: codex_hook || opencode_hook,
+                require_alive: codex_hook || opencode_authority.is_some(),
+                activate_work_hook: codex_hook || opencode_authority.is_some(),
                 opencode_authority,
                 debug_hint_mutation: None,
             })
@@ -5018,21 +4655,7 @@ impl SessionApplication {
             }
         }
         if result == metadata::AttentionMergeResult::Accepted {
-            if let Some(cwd) = cwd {
-                self.state
-                    .peon
-                    .reported_cwd
-                    .write()
-                    .unwrap()
-                    .insert(id.clone(), cwd);
-            }
-            let mut bufs = self.state.peon.input_buf.write().unwrap();
-            if bufs
-                .get(&id)
-                .is_some_and(|buf| !peon::is_descriptive_input(buf))
-            {
-                bufs.remove(&id);
-            }
+            note_accepted_attention_buffers(&self.state, &id, cwd);
         }
         match result {
             metadata::AttentionMergeResult::Accepted | metadata::AttentionMergeResult::Ignored => {
@@ -5047,36 +4670,22 @@ impl SessionApplication {
 
     pub(crate) fn report_prompt_attention(
         &self,
-        id: &str,
-        source: &str,
-        event: Option<&str>,
-        notification_type: Option<&str>,
-        native_session_id: &str,
-        status: &str,
-        generation: Option<&str>,
-        observed_at: Option<&str>,
-        cwd: Option<&str>,
-        token: Option<&str>,
+        request: PromptAttentionRequest<'_>,
     ) -> Result<(), SessionError> {
-        let (harness_id, event_name) = match source {
-            "claude_hook" => ("claude-code", "Notification"),
-            "copilot_hook" => ("copilot", "notification"),
-            _ => return Err(SessionError::EmptyBadRequest),
-        };
-        let notification_allowed = match (harness_id, notification_type) {
-            (
-                "claude-code",
-                Some("permission_prompt" | "elicitation_dialog" | "elicitation_url_dialog"),
-            ) => true,
-            ("copilot", Some("permission_prompt" | "elicitation_dialog")) => true,
-            _ => false,
-        };
-        let submitted_prompt = harness_id == "copilot"
-            && event == Some("userPromptSubmitted")
-            && status == "working"
-            && notification_type.is_none();
-        let prompt_wait =
-            event == Some(event_name) && status == "waiting_for_input" && notification_allowed;
+        let PromptAttentionRequest {
+            id,
+            source,
+            event,
+            notification_type,
+            native_session_id,
+            status,
+            generation,
+            observed_at,
+            cwd,
+            token,
+        } = request;
+        let (harness_id, prompt_wait, submitted_prompt) =
+            prompt_request_shape(source, event, notification_type, status)?;
         let generation = generation.ok_or(SessionError::EmptyBadRequest)?;
         let token = token.ok_or(SessionError::EmptyBadRequest)?;
         if (!prompt_wait && !submitted_prompt)
@@ -5120,23 +4729,7 @@ impl SessionApplication {
         handle.runtime.hook_receipt_sequence =
             handle.runtime.hook_receipt_sequence.saturating_add(1);
         let receipt_sequence = handle.runtime.hook_receipt_sequence;
-        if observed_at.is_some_and(|timestamp| {
-            handle
-                .runtime
-                .last_hook_attention_at
-                .is_some_and(|previous| {
-                    timestamp < previous
-                        || (timestamp == previous
-                            && handle
-                                .runtime
-                                .last_hook_attention_sequence
-                                .is_some_and(|previous| receipt_sequence <= previous))
-                })
-                || handle
-                    .runtime
-                    .committed_input_at
-                    .is_some_and(|accepted_at| timestamp <= accepted_at)
-        }) {
+        if prompt_stale(handle, observed_at, receipt_sequence) {
             return Err(SessionError::EmptyBadRequest);
         }
         let authority = crate::runtime::prompt_authority::registry();
@@ -5175,51 +4768,19 @@ impl SessionApplication {
             handle.runtime.last_hook_attention_sequence = Some(receipt_sequence);
             return Ok(());
         }
-        let committed = match if submitted_prompt {
-            workspace.metadata.merge_prompt_authority_work_record(id)
-        } else {
-            workspace.metadata.merge_prompt_authority_wait_record(id)
-        } {
-            Ok(record) => record,
-            Err(metadata::AttentionMergeResult::NotFound) => return Err(SessionError::NotFound),
-            Err(metadata::AttentionMergeResult::PersistFailed) => {
-                return Err(SessionError::Internal("application operation failed"));
-            }
-            Err(_) => return Err(SessionError::EmptyBadRequest),
-        };
+        let committed = merge_prompt_record(&workspace.metadata, id, submitted_prompt)?;
         if prompt_wait && !authority.activate(id, harness_id, generation, native_session_id) {
             return Err(SessionError::EmptyBadRequest);
         }
         handle.pending_work_signal = None;
-        if let Some(committed) = committed {
-            handle.runtime.attention_owner.accepted_write();
-            handle.info.observed_status = committed.metadata.observed_status;
-            handle.info.attention = committed.metadata.attention;
-            handle.info.needs_user_input = None;
-            handle.info.detected_question = None;
-            handle.info.suggested_options = None;
-            handle.info.provenance.attention_source =
-                committed.metadata.provenance.attention_source;
-            handle.info.provenance.attention_confidence =
-                committed.metadata.provenance.attention_confidence;
-            handle.info.provenance.attention_origin =
-                committed.metadata.provenance.attention_origin;
-            handle.info.provenance.attention_updated_at =
-                committed.metadata.provenance.attention_updated_at;
-            handle.runtime.active_prompt_kind = if submitted_prompt {
-                None
-            } else {
-                Some(
-                    crate::runtime::session_runtime::RuntimePromptKind::from_notification_type(
-                        notification_type.expect("validated prompt notification type"),
-                    ),
-                )
-            };
-        }
-        if let Some(observed_at) = observed_at {
-            handle.runtime.last_hook_attention_at = Some(observed_at);
-            handle.runtime.last_hook_attention_sequence = Some(receipt_sequence);
-        }
+        apply_prompt_commit(
+            handle,
+            committed,
+            submitted_prompt,
+            notification_type,
+            observed_at,
+            receipt_sequence,
+        );
         if let Some(cwd) = cwd.filter(|cwd| !cwd.is_empty()) {
             self.state
                 .peon
@@ -5732,6 +5293,750 @@ pub(crate) struct ResumeAdmission {
     previous_handle: Option<SessionHandle>,
     rollback: Option<ResumeRollback>,
     committed: bool,
+}
+
+/// The spawn-blocking body of a session status transition, run under the
+/// prompt-authority transition lock.
+fn transition_status_blocking(
+    state: Arc<AppState>,
+    id: String,
+    status: String,
+    expected_generation: Option<crate::runtime::session_runtime::RuntimeGeneration>,
+) -> bool {
+    let _prompt_transition = crate::runtime::prompt_authority::transition_lock()
+        .lock()
+        .unwrap();
+    let is_terminal = matches!(status.as_str(), "killed" | "ended" | "error");
+    let (handle_decision, session_resume, entered_running, entered_terminal, already_ending) = {
+        let mut sessions = state.sessions.lock().unwrap();
+        match transition_handle_session(&mut sessions, &id, &status, expected_generation) {
+            HandleTransition::Aborted => return false,
+            HandleTransition::Missing => (None, (None, None), false, false, false),
+            HandleTransition::Applied {
+                resume,
+                entered_running,
+                already_ending,
+            } => (
+                Some(true),
+                resume,
+                entered_running,
+                is_terminal,
+                already_ending,
+            ),
+        }
+    };
+    if entered_terminal {
+        state.peon.last_output.write().unwrap().remove(&id);
+        state.peon.input_buf.write().unwrap().remove(&id);
+        // Authoritative final size for dead-session replay. Goes through the
+        // same lock-serialized helper live-resize persistence uses
+        // (`SessionApplication::persist_terminal_size`) so a live-resize write
+        // deferred onto a blocking-pool thread can never land after this one
+        // and clobber it with a stale size — see that operation's doc comment.
+        // Must run before `ws_guard` below acquires `state.workspace`, since
+        // this also locks it internally and the lock isn't reentrant.
+        crate::session_application::SessionApplication::new(state.clone())
+            .persist_terminal_size(&id, true);
+    } else if entered_running && state.peon.config.enabled {
+        state
+            .peon
+            .last_output
+            .write()
+            .unwrap()
+            .entry(id.clone())
+            .or_insert_with(tokio::time::Instant::now);
+    }
+    let now = iso_now();
+    let mut applied = handle_decision.unwrap_or(false);
+    loop {
+        let ws_guard = state.workspace.lock().unwrap();
+        if let Some(ref ws) = *ws_guard {
+            let live_handle_phase = match live_handle_phase(&state, &id, expected_generation) {
+                Ok(phase) => phase,
+                Err(PhaseCheck::Retry) => {
+                    drop(ws_guard);
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                    continue;
+                }
+                Err(PhaseCheck::Abort) => return false,
+            };
+            match persist_lifecycle_transition(
+                ws,
+                LifecyclePersist {
+                    id: &id,
+                    is_terminal,
+                    status: &status,
+                    already_ending,
+                    live_phase: live_handle_phase,
+                    resume: session_resume,
+                    timestamp: now.clone(),
+                    had_live_handle: handle_decision.is_some(),
+                    previous: handle_decision.unwrap_or(false),
+                },
+            ) {
+                PersistOutcome::Applied => applied = true,
+                PersistOutcome::NoSession => return false,
+                PersistOutcome::SoftError(error, previous) => {
+                    tracing::warn!(session_id = %id, %error, "failed to persist lifecycle transition");
+                    // The owned process already changed lifecycle. Preserve
+                    // its live transition so terminal finalization still runs;
+                    // no durable event or successful metadata write is claimed.
+                    return previous;
+                }
+            }
+            if applied {
+                ws.metadata.append_event(
+                    &id,
+                    &metadata::Event {
+                        event_type: "session.status".into(),
+                        timestamp: now,
+                        status,
+                        observed_status: None,
+                        confidence: None,
+                        summary: None,
+                        source: None,
+                        recommendation_id: None,
+                    },
+                );
+            }
+        }
+        break;
+    }
+    applied
+}
+
+/// The sessions-lock mutation step of a status transition.
+fn transition_handle_session(
+    sessions: &mut std::collections::HashMap<String, SessionHandle>,
+    id: &str,
+    status: &str,
+    expected_generation: Option<crate::runtime::session_runtime::RuntimeGeneration>,
+) -> HandleTransition {
+    let is_terminal = matches!(status, "killed" | "ended" | "error");
+    let Some(handle) = sessions.get_mut(id) else {
+        if expected_generation.is_some() {
+            return HandleTransition::Aborted;
+        }
+        return HandleTransition::Missing;
+    };
+    if expected_generation.is_some_and(|expected| handle.runtime.run_generation() != expected) {
+        return HandleTransition::Aborted;
+    }
+    if !is_terminal && matches!(handle.info.lifecycle_phase.as_str(), "ending" | "ended") {
+        return HandleTransition::Aborted;
+    }
+    if is_terminal && handle.info.lifecycle_phase == "ended" {
+        return HandleTransition::Aborted;
+    }
+    let entered_running = !is_terminal && status == "running" && handle.info.status != "running";
+    let already_ending = is_terminal && handle.info.lifecycle_phase == "ending";
+    if is_terminal {
+        handle.runtime.attention_owner.accepted_write();
+    }
+    if is_terminal && !already_ending {
+        transition_handle_terminal(handle);
+    } else if !is_terminal {
+        transition_handle_non_terminal(handle, status);
+    }
+    handle.info.last_activity_at = Some(iso_now());
+    if is_terminal {
+        handle.info.observed_status = None;
+    }
+    HandleTransition::Applied {
+        resume: (handle.info.resume.clone(), handle.info.resumed_from.clone()),
+        entered_running,
+        already_ending,
+    }
+}
+
+/// Absorb an entering terminal transition into the live handle. The caller
+/// owns `attention_owner.accepted_write()`; ending and ended handles reach it too.
+fn transition_handle_terminal(handle: &mut SessionHandle) {
+    handle.info.status = "running".to_string();
+    handle.info.lifecycle_phase = "ending".to_string();
+    handle.info.lifecycle = "stopping".to_string();
+    handle.info.attention = None;
+    handle.info.connectivity = Some(connectivity_for_status("running").to_string());
+    handle.info.terminal_outcome = None;
+}
+
+/// Absorb a non-terminal status into the live handle.
+fn transition_handle_non_terminal(handle: &mut SessionHandle, status: &str) {
+    handle.info.status = status.to_string();
+    handle.info.lifecycle_phase = if status == "creating" {
+        "creating".to_string()
+    } else {
+        "active".to_string()
+    };
+    handle.info.lifecycle = if status == "creating" {
+        "creating"
+    } else {
+        "alive"
+    }
+    .to_string();
+    handle.info.connectivity = Some(connectivity_for_status(status).to_string());
+    handle.info.terminal_outcome = terminal_outcome_for_status(status);
+}
+
+/// Guard the re-lookup of the live handle phase against generation drift.
+fn inspect_live_phase(
+    sessions: &std::collections::HashMap<String, SessionHandle>,
+    id: &str,
+    expected_generation: Option<crate::runtime::session_runtime::RuntimeGeneration>,
+) -> Result<Option<String>, PhaseCheck> {
+    let handle = sessions.get(id);
+    if expected_generation.is_some_and(|expected| {
+        !handle.is_some_and(|handle| handle.runtime.run_generation() == expected)
+    }) {
+        return Err(PhaseCheck::Abort);
+    }
+    Ok(handle.map(|handle| handle.info.lifecycle_phase.clone()))
+}
+
+/// A transition detached while waiting for the workspace lock must not
+/// overwrite a live handle that has since entered its terminal lifecycle.
+/// Persisted `ended` alone is not authoritative when a live handle is active:
+/// it can be stale from an earlier process. Once the live generation is
+/// ending, preserve a durable terminal status even before the finalizer
+/// updates its live phase. If the session map is temporarily busy, retry
+/// rather than treating contention as no handle.
+fn live_handle_phase(
+    state: &AppState,
+    id: &str,
+    expected_generation: Option<crate::runtime::session_runtime::RuntimeGeneration>,
+) -> Result<Option<String>, PhaseCheck> {
+    let sessions = match state.sessions.try_lock() {
+        Ok(sessions) => sessions,
+        Err(std::sync::TryLockError::WouldBlock) => return Err(PhaseCheck::Retry),
+        Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+    };
+    inspect_live_phase(&sessions, id, expected_generation)
+}
+
+/// One staged transition ready for durable persistence.
+struct LifecyclePersist<'a> {
+    id: &'a str,
+    is_terminal: bool,
+    status: &'a str,
+    already_ending: bool,
+    live_phase: Option<String>,
+    resume: (Option<harness::ResumeMemory>, Option<String>),
+    /// Timestamp shared by the persisted mutation and the status event.
+    timestamp: String,
+    had_live_handle: bool,
+    /// The live decision the caller falls back to when persistence fails.
+    previous: bool,
+}
+
+/// Persist one lifecycle transition. Event bookkeeping is left to the caller,
+/// which owns `applied`; this helper covers only `mutate_session_optional`.
+fn persist_lifecycle_transition(
+    ws: &WorkspaceState,
+    request: LifecyclePersist<'_>,
+) -> PersistOutcome {
+    let scope = if request.is_terminal {
+        WriteScope::ATTENTION
+    } else {
+        WriteScope::NONE
+    };
+    let stored = ws
+        .metadata
+        .mutate_session_optional(request.id, scope, |meta| {
+            Ok(
+                metadata::lifecycle_mutations::LifecycleMutation::Transition {
+                    status: request.status.to_string(),
+                    had_live_handle: request.had_live_handle,
+                    already_ending: request.already_ending,
+                    live_phase: request.live_phase.clone(),
+                    resume: request.resume.0,
+                    resumed_from: request.resume.1,
+                    timestamp: request.timestamp.clone(),
+                }
+                .apply(meta)
+                .is_some(),
+            )
+        });
+    match stored {
+        Ok(Some(_)) => PersistOutcome::Applied,
+        Ok(None) => PersistOutcome::NoSession,
+        Err(error) => PersistOutcome::SoftError(error, request.previous),
+    }
+}
+
+/// Validated request classification for one prompt attention notification.
+fn prompt_request_shape(
+    source: &str,
+    event: Option<&str>,
+    notification_type: Option<&str>,
+    status: &str,
+) -> Result<(&'static str, bool, bool), SessionError> {
+    let (harness_id, event_name) = match source {
+        "claude_hook" => ("claude-code", "Notification"),
+        "copilot_hook" => ("copilot", "notification"),
+        _ => return Err(SessionError::EmptyBadRequest),
+    };
+    let notification_allowed = match (harness_id, notification_type) {
+        (
+            "claude-code",
+            Some("permission_prompt" | "elicitation_dialog" | "elicitation_url_dialog"),
+        ) => true,
+        ("copilot", Some("permission_prompt" | "elicitation_dialog")) => true,
+        _ => false,
+    };
+    let submitted_prompt = harness_id == "copilot"
+        && event == Some("userPromptSubmitted")
+        && status == "working"
+        && notification_type.is_none();
+    let prompt_wait =
+        event == Some(event_name) && status == "waiting_for_input" && notification_allowed;
+    Ok((harness_id, prompt_wait, submitted_prompt))
+}
+
+/// Stale-observed-at check against already-accepted hook receipts and commits.
+fn prompt_stale(
+    handle: &SessionHandle,
+    observed_at: Option<chrono::DateTime<chrono::Utc>>,
+    receipt_sequence: u64,
+) -> bool {
+    let Some(timestamp) = observed_at else {
+        return false;
+    };
+    handle
+        .runtime
+        .last_hook_attention_at
+        .is_some_and(|previous| {
+            timestamp < previous
+                || (timestamp == previous
+                    && handle
+                        .runtime
+                        .last_hook_attention_sequence
+                        .is_some_and(|previous| receipt_sequence <= previous))
+        })
+        || handle
+            .runtime
+            .committed_input_at
+            .is_some_and(|accepted_at| timestamp <= accepted_at)
+}
+
+/// Commit one prompt-authority record; errors map to session errors.
+fn merge_prompt_record(
+    metadata: &metadata::MetadataStore,
+    id: &str,
+    submitted_prompt: bool,
+) -> Result<Option<metadata::session_transactions::RevisionedSession>, SessionError> {
+    match if submitted_prompt {
+        metadata.merge_prompt_authority_work_record(id)
+    } else {
+        metadata.merge_prompt_authority_wait_record(id)
+    } {
+        Ok(record) => Ok(record),
+        Err(metadata::AttentionMergeResult::NotFound) => Err(SessionError::NotFound),
+        Err(metadata::AttentionMergeResult::PersistFailed) => {
+            Err(SessionError::Internal("application operation failed"))
+        }
+        Err(_) => Err(SessionError::EmptyBadRequest),
+    }
+}
+
+/// Apply one committed prompt record to the live handle and its hook receipt.
+fn apply_prompt_commit(
+    handle: &mut SessionHandle,
+    committed: Option<metadata::session_transactions::RevisionedSession>,
+    submitted_prompt: bool,
+    notification_type: Option<&str>,
+    observed_at: Option<chrono::DateTime<chrono::Utc>>,
+    receipt_sequence: u64,
+) {
+    if let Some(committed) = committed {
+        handle.runtime.attention_owner.accepted_write();
+        handle.info.observed_status = committed.metadata.observed_status;
+        handle.info.attention = committed.metadata.attention;
+        handle.info.needs_user_input = None;
+        handle.info.detected_question = None;
+        handle.info.suggested_options = None;
+        handle.info.provenance.attention_source = committed.metadata.provenance.attention_source;
+        handle.info.provenance.attention_confidence =
+            committed.metadata.provenance.attention_confidence;
+        handle.info.provenance.attention_origin = committed.metadata.provenance.attention_origin;
+        handle.info.provenance.attention_updated_at =
+            committed.metadata.provenance.attention_updated_at;
+        handle.runtime.active_prompt_kind = if submitted_prompt {
+            None
+        } else {
+            Some(
+                crate::runtime::session_runtime::RuntimePromptKind::from_notification_type(
+                    notification_type.expect("validated prompt notification type"),
+                ),
+            )
+        };
+    }
+    if let Some(observed_at) = observed_at {
+        handle.runtime.last_hook_attention_at = Some(observed_at);
+        handle.runtime.last_hook_attention_sequence = Some(receipt_sequence);
+    }
+}
+
+/// The terminal-status recorder owns live attention for its window; a hook
+/// merge cannot add to it.
+fn suppress_codex_hook_terminal(
+    handle: Option<&SessionHandle>,
+    signal: &AttentionMergeSignal,
+) -> Option<metadata::AttentionMergeResult> {
+    if signal.source == "codex_hook"
+        && handle.is_some_and(|handle| handle.runtime.codex_terminal_status_active)
+    {
+        return Some(metadata::AttentionMergeResult::Ignored);
+    }
+    None
+}
+
+/// Registry-active prompt harnesses reject plain agent reports.
+fn reject_agent_prompt_harness(
+    signal: &AttentionMergeSignal,
+    handle: Option<&SessionHandle>,
+) -> Option<SessionError> {
+    if signal.source == "agent"
+        && !signal.activate_work_hook
+        && handle.is_some_and(|handle| {
+            matches!(
+                handle
+                    .info
+                    .harness_id
+                    .as_deref()
+                    .or(handle.info.harness.as_deref()),
+                Some("claude-code" | "copilot")
+            )
+        })
+        && crate::runtime::prompt_authority::registry().is_active(&signal.session_id)
+    {
+        return Some(SessionError::EmptyBadRequest);
+    }
+    None
+}
+
+/// An activation request needs an opencode report authority token.
+fn validate_activation_authority(signal: &AttentionMergeSignal) -> Option<SessionError> {
+    if signal.activate_work_hook && signal.source == "agent" && signal.opencode_authority.is_none()
+    {
+        return Some(SessionError::EmptyBadRequest);
+    }
+    None
+}
+
+/// An opencode authority token must belong to this live opencode runtime.
+fn reject_mismatched_opencode_authority(
+    handle: Option<&SessionHandle>,
+    signal: &AttentionMergeSignal,
+) -> Option<SessionError> {
+    let Some(authority) = &signal.opencode_authority else {
+        return None;
+    };
+    let same_live_runtime = handle.is_some_and(|handle| {
+        handle.runtime.matches_identity(&authority.runtime_identity)
+            && handle.info.lifecycle == "alive"
+            && handle.info.lifecycle_phase == "active"
+            && (handle.info.harness_id.as_deref() == Some("opencode")
+                || handle.info.harness.as_deref() == Some("opencode"))
+    });
+    if !same_live_runtime
+        || !crate::runtime::terminal_runtime::verify_workflow_report_token(
+            &signal.session_id,
+            &authority.token,
+        )
+    {
+        return Some(SessionError::EmptyBadRequest);
+    }
+    None
+}
+
+/// Require-alive merges need an alive durable session and, for activation
+/// hooks, a live handle to carry the work-hook flag.
+fn require_alive_session(
+    workspace: &WorkspaceState,
+    handle: Option<&SessionHandle>,
+    signal: &AttentionMergeSignal,
+) -> Option<SessionError> {
+    if !signal.require_alive {
+        return None;
+    }
+    match workspace.metadata.read_session(&signal.session_id) {
+        None => return Some(SessionError::NotFound),
+        Some(meta) if meta.lifecycle != "alive" => {
+            return Some(SessionError::EmptyBadRequest);
+        }
+        Some(_) => {}
+    }
+    if signal.activate_work_hook && handle.is_none() {
+        return Some(SessionError::Conflict);
+    }
+    None
+}
+
+/// The opencode active-work-hook already owns input attention.
+fn suppress_active_work_opencode(
+    handle: Option<&SessionHandle>,
+    signal: &AttentionMergeSignal,
+) -> Option<metadata::AttentionMergeResult> {
+    if signal.source == "agent"
+        && !signal.activate_work_hook
+        && handle.is_some_and(|handle| {
+            handle.active_work_hook
+                && (handle.info.harness_id.as_deref() == Some("opencode")
+                    || handle.info.harness.as_deref() == Some("opencode"))
+        })
+    {
+        return Some(metadata::AttentionMergeResult::Ignored);
+    }
+    None
+}
+
+/// Observed-at older than the last accepted receipt is stale.
+fn reject_stale_hook_observation(
+    handle: Option<&SessionHandle>,
+    signal: &AttentionMergeSignal,
+) -> Option<metadata::AttentionMergeResult> {
+    if !signal.reject_stale_observed_at {
+        return None;
+    }
+    if signal.observed_at.is_some_and(|timestamp| {
+        handle.is_some_and(|handle| {
+            handle
+                .runtime
+                .last_hook_attention_at
+                .is_some_and(|previous| {
+                    timestamp < previous
+                        || (timestamp == previous
+                            && signal.hook_receipt_sequence.is_none_or(|sequence| {
+                                handle
+                                    .runtime
+                                    .last_hook_attention_sequence
+                                    .is_none_or(|previous| sequence <= previous)
+                            }))
+                })
+                || handle
+                    .runtime
+                    .accepted_input_at
+                    .is_some_and(|accepted_at| timestamp <= accepted_at)
+        })
+    }) {
+        return Some(metadata::AttentionMergeResult::Ignored);
+    }
+    None
+}
+
+/// Apply one accepted attention merge to the live handle.
+fn bind_accepted_attention(
+    handle: &mut SessionHandle,
+    workspace: &WorkspaceState,
+    signal: &AttentionMergeSignal,
+) {
+    apply_live_attention_fields(
+        &mut handle.info,
+        &mut handle.runtime.attention_owner,
+        &signal.observed_status,
+        signal.message.as_deref(),
+        &signal.source,
+        signal.confidence,
+    );
+    if let Some(stored) = workspace.metadata.read_session(&signal.session_id) {
+        handle.info.provenance = stored.provenance;
+        handle.info.metadata_source = Some(stored.metadata_source);
+        handle.info.metadata_confidence = Some(stored.metadata_confidence);
+    }
+    if signal.update_hook_timestamp {
+        if let Some(observed_at) = signal.observed_at {
+            handle.runtime.last_hook_attention_at = Some(observed_at);
+            handle.runtime.last_hook_attention_sequence = signal.hook_receipt_sequence;
+        }
+    }
+    if signal.activate_work_hook {
+        handle.active_work_hook = true;
+        handle.runtime.attention_owner.accepted_write();
+        handle.info.needs_user_input = None;
+        handle.info.detected_question = None;
+        handle.info.suggested_options = None;
+    }
+    if signal.clear_pending_work_signal {
+        handle.pending_work_signal = None;
+    }
+    match &signal.debug_hint_mutation {
+        Some(DebugHintMutation::Preserve) | None => {}
+        Some(DebugHintMutation::Clear) => {
+            handle.info.usage_limit_reset_hint = None;
+        }
+        Some(DebugHintMutation::Set(message)) => {
+            handle.info.usage_limit_reset_hint = Some(message.clone());
+        }
+    }
+}
+
+/// A protected prompt harness either finishes the report inline or continues.
+enum PromptReceipt {
+    Continue {
+        protected: bool,
+        hook_receipt_sequence: Option<u64>,
+    },
+    Completed(Result<(), SessionError>),
+}
+
+/// Track protected prompt-harness receipt bookkeeping before attention merging.
+fn prompt_protected_receipt(
+    app: &SessionApplication,
+    id: &str,
+    signal: &AttentionSignal,
+) -> Result<PromptReceipt, SessionError> {
+    let _transition = crate::runtime::prompt_authority::transition_lock()
+        .lock()
+        .unwrap();
+    let mut sessions = app.state.sessions.lock().unwrap();
+    let protected = sessions
+        .get_mut(id)
+        .and_then(|handle| {
+            let harness = handle
+                .info
+                .harness_id
+                .as_deref()
+                .or(handle.info.harness.as_deref());
+            let protected = matches!(harness, Some("claude-code" | "copilot"));
+            let active_work_hook = handle.active_work_hook;
+            let sequence = if protected {
+                handle.runtime.hook_receipt_sequence =
+                    handle.runtime.hook_receipt_sequence.saturating_add(1);
+                Some(handle.runtime.hook_receipt_sequence)
+            } else {
+                None
+            };
+            Some((
+                protected,
+                harness == Some("claude-code"),
+                active_work_hook,
+                sequence,
+            ))
+        })
+        .unwrap_or((false, false, false, None));
+    drop(sessions);
+    let (protected_prompt_harness, claude_harness, active_work_hook, hook_receipt_sequence) =
+        protected;
+    if protected_prompt_harness {
+        if crate::runtime::prompt_authority::registry().is_active(id) {
+            return Err(SessionError::EmptyBadRequest);
+        }
+        if claude_harness
+            && active_work_hook
+            && signal.source.is_none()
+            && signal.status == "working"
+        {
+            let observed_at = signal
+                .observed_at
+                .as_deref()
+                .map(parse_hook_observed_at)
+                .transpose()
+                .map_err(|_| SessionError::EmptyBadRequest)?
+                .ok_or(SessionError::EmptyBadRequest)?;
+            let accepted_input_at = app
+                .state
+                .sessions
+                .lock()
+                .unwrap()
+                .get(id)
+                .and_then(|handle| handle.runtime.accepted_input_at);
+            if accepted_input_at.is_some_and(|accepted_at| observed_at <= accepted_at) {
+                return Ok(PromptReceipt::Completed(
+                    app.workspace_exists()
+                        .then_some(())
+                        .ok_or(SessionError::Conflict),
+                ));
+            }
+            clear_claude_capacity_after_working(&app.state, id, observed_at);
+            return Ok(PromptReceipt::Completed(Ok(())));
+        }
+    }
+    Ok(PromptReceipt::Continue {
+        protected: protected_prompt_harness,
+        hook_receipt_sequence,
+    })
+}
+
+/// An opencode hook report needs an authenticated live runtime authority.
+fn opencode_report_authority(
+    app: &SessionApplication,
+    id: &str,
+    signal: &AttentionSignal,
+) -> Result<Option<OpenCodeReportAuthority>, SessionError> {
+    if signal.source.as_deref() != Some("opencode_hook") {
+        return Ok(None);
+    }
+    let token = signal
+        .report_token
+        .as_deref()
+        .ok_or(SessionError::EmptyBadRequest)?;
+    if !crate::runtime::terminal_runtime::verify_workflow_report_token(id, token) {
+        return Err(SessionError::EmptyBadRequest);
+    }
+    let runtime_identity = app
+        .state
+        .sessions
+        .lock()
+        .unwrap()
+        .get(id)
+        .filter(|handle| {
+            handle.info.lifecycle == "alive"
+                && handle.info.lifecycle_phase == "active"
+                && (handle.info.harness_id.as_deref() == Some("opencode")
+                    || handle.info.harness.as_deref() == Some("opencode"))
+        })
+        .map(|handle| handle.runtime.identity())
+        .ok_or(SessionError::EmptyBadRequest)?;
+    let event = signal
+        .event
+        .as_deref()
+        .ok_or(SessionError::EmptyBadRequest)?;
+    if signal.observed_at.is_none() || !opencode_event_allows_status(event, &signal.status) {
+        return Err(SessionError::EmptyBadRequest);
+    }
+    Ok(Some(OpenCodeReportAuthority {
+        token: token.to_owned(),
+        runtime_identity,
+    }))
+}
+
+/// Whether the source identifies an authority-checked opencode hook.
+fn opencode_hook_by_source(source: &Option<String>) -> bool {
+    source.as_deref() == Some("opencode_hook")
+}
+
+/// Accepted attention merges refresh the reported working directory and drop
+/// non-descriptive buffered input that attention now explains.
+fn note_accepted_attention_buffers(state: &AppState, id: &str, cwd: Option<String>) {
+    if let Some(cwd) = cwd {
+        state
+            .peon
+            .reported_cwd
+            .write()
+            .unwrap()
+            .insert(id.to_string(), cwd);
+    }
+    let mut bufs = state.peon.input_buf.write().unwrap();
+    if bufs
+        .get(id)
+        .is_some_and(|buf| !peon::is_descriptive_input(buf))
+    {
+        bufs.remove(id);
+    }
+}
+
+/// One authenticated prompt-attention notification awaiting validation.
+pub(crate) struct PromptAttentionRequest<'a> {
+    pub id: &'a str,
+    pub source: &'a str,
+    pub event: Option<&'a str>,
+    pub notification_type: Option<&'a str>,
+    pub native_session_id: &'a str,
+    pub status: &'a str,
+    pub generation: Option<&'a str>,
+    pub observed_at: Option<&'a str>,
+    pub cwd: Option<&'a str>,
+    pub token: Option<&'a str>,
 }
 
 impl ResumeAdmission {
@@ -18596,21 +18901,21 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
         );
         std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
 
+        let observed = (newer_prompt_at - chrono::Duration::seconds(1))
+            .to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
         let result = SessionApplication::new(state.clone()).report_prompt_attention(
-            id,
-            "copilot_hook",
-            Some("notification"),
-            Some("permission_prompt"),
-            "replacement-native",
-            "waiting_for_input",
-            Some(generation),
-            Some(
-                (newer_prompt_at - chrono::Duration::seconds(1))
-                    .to_rfc3339_opts(chrono::SecondsFormat::Micros, true)
-                    .as_str(),
-            ),
-            None,
-            Some(token),
+            PromptAttentionRequest {
+                id,
+                source: "copilot_hook",
+                event: Some("notification"),
+                notification_type: Some("permission_prompt"),
+                native_session_id: "replacement-native",
+                status: "waiting_for_input",
+                generation: Some(generation),
+                observed_at: Some(&observed),
+                cwd: None,
+                token: Some(token),
+            },
         );
         assert_eq!(result, Err(SessionError::EmptyBadRequest));
         assert!(!authority.is_active(id));
@@ -18736,18 +19041,18 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             if !queued && source != "user" {
                 std::fs::create_dir(&failed_write_path).unwrap();
                 assert_eq!(
-                    application.report_prompt_attention(
-                        &id,
-                        "claude_hook",
-                        Some("Notification"),
-                        Some("permission_prompt"),
-                        "native-session",
-                        "waiting_for_input",
-                        Some("generation"),
-                        Some("2026-10-03T12:00:00.000000Z"),
-                        None,
-                        Some("token"),
-                    ),
+                    application.report_prompt_attention(PromptAttentionRequest {
+                        id: &id,
+                        source: "claude_hook",
+                        event: Some("Notification"),
+                        notification_type: Some("permission_prompt"),
+                        native_session_id: "native-session",
+                        status: "waiting_for_input",
+                        generation: Some("generation"),
+                        observed_at: Some("2026-10-03T12:00:00.000000Z"),
+                        cwd: None,
+                        token: Some("token"),
+                    }),
                     Err(SessionError::Internal("application operation failed"))
                 );
                 assert_failed_write();
@@ -18767,18 +19072,18 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                     crate::runtime::prompt_authority::BindResult::Held
                 );
             }
-            let result = application.report_prompt_attention(
-                &id,
-                "claude_hook",
-                Some("Notification"),
-                Some("permission_prompt"),
-                "native-session",
-                "waiting_for_input",
-                Some("generation"),
-                Some("2026-10-03T12:00:00.000000Z"),
-                None,
-                Some("token"),
-            );
+            let result = application.report_prompt_attention(PromptAttentionRequest {
+                id: &id,
+                source: "claude_hook",
+                event: Some("Notification"),
+                notification_type: Some("permission_prompt"),
+                native_session_id: "native-session",
+                status: "waiting_for_input",
+                generation: Some("generation"),
+                observed_at: Some("2026-10-03T12:00:00.000000Z"),
+                cwd: None,
+                token: Some("token"),
+            });
             if queued {
                 assert_eq!(result, Err(SessionError::Accepted));
                 assert!(authority.acknowledge_reset(&id).is_some());
@@ -18952,18 +19257,18 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
         crate::runtime::terminal_runtime::set_workflow_report_token(id, "test-token".into());
 
         SessionApplication::new(state.clone())
-            .report_prompt_attention(
+            .report_prompt_attention(PromptAttentionRequest {
                 id,
-                "claude_hook",
-                Some("Notification"),
-                Some("permission_prompt"),
-                "native-session",
-                "waiting_for_input",
-                Some("prompt-generation"),
-                Some("2026-10-03T12:00:00.000000Z"),
-                None,
-                Some("test-token"),
-            )
+                source: "claude_hook",
+                event: Some("Notification"),
+                notification_type: Some("permission_prompt"),
+                native_session_id: "native-session",
+                status: "waiting_for_input",
+                generation: Some("prompt-generation"),
+                observed_at: Some("2026-10-03T12:00:00.000000Z"),
+                cwd: None,
+                token: Some("test-token"),
+            })
             .unwrap();
 
         assert!(state
