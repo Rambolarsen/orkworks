@@ -42,6 +42,25 @@ fn native_probe_fixture() {
             let mut child = native_fixture_command("child");
             child.stdin(Stdio::null());
             if mode == "exit" {
+                // Null child stdio alone does not clear the wrapper's other
+                // inheritable handle-table entries. Keep its capture writers
+                // private so this fixture truly closes capture on root exit.
+                for handle in [
+                    std::io::stdout().as_raw_handle(),
+                    std::io::stderr().as_raw_handle(),
+                ] {
+                    // SAFETY: both live standard handles belong to this fixture.
+                    assert_ne!(
+                        unsafe {
+                            windows_sys::Win32::Foundation::SetHandleInformation(
+                                handle,
+                                windows_sys::Win32::Foundation::HANDLE_FLAG_INHERIT,
+                                0,
+                            )
+                        },
+                        0
+                    );
+                }
                 child.stdout(Stdio::null()).stderr(Stdio::null());
             } else {
                 // Real inherited capture writers, independently held by the
