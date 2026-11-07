@@ -120,7 +120,7 @@ fn traversal_stop(count: &mut usize, start: std::time::Instant) -> io::Result<()
 mod unix_walk {
     use super::super::git_changes_eol::Eol;
     use super::{bounded, safe_path};
-    use super::{traversal_exceeded, Entry};
+    use super::{traversal_stop, Entry};
     use std::{
         ffi::{CStr, CString},
         fs::File,
@@ -309,11 +309,7 @@ mod unix_walk {
         if item.is_null() {
             return Ok(Listing::End);
         }
-        if traversal_exceeded(count, start) {
-            return Err(io::Error::other(
-                "Worktree traversal budget exceeded; comparison unavailable.",
-            ));
-        }
+        traversal_stop(count, start)?;
         let bytes = unsafe { CStr::from_ptr((*item).d_name.as_ptr()) }.to_bytes();
         if bytes == b"." || bytes == b".." || bytes.eq_ignore_ascii_case(b".git") {
             return Ok(Listing::Skip);
@@ -509,7 +505,7 @@ pub fn walk(
 mod windows_walk {
     use super::super::git_changes_eol::Eol;
     use super::{bounded, safe_path};
-    use super::{traversal_exceeded, Entry};
+    use super::{traversal_stop, Entry};
     use std::{
         fs::File,
         io,
@@ -734,38 +730,65 @@ mod windows_walk {
                 continue;
             };
             let meta = held.metadata()?;
-            let reparse = meta.file_attributes() & 0x400 != 0;
-            if !descend(&path, meta.is_dir() && !reparse) {
-                continue;
-            }
-            if reparse {
-                if !visit_reparse(root, &path, visit) {
-                    return Ok(false);
-                }
-                continue;
-            }
-            if meta.is_dir() {
-                if !walk_directory(
-                    root,
-                    &path,
-                    visit,
-                    descend,
-                    count,
-                    start,
-                    expected,
-                    hash_bytes,
-                    prepare,
-                    control_bytes,
-                )? {
-                    return Ok(false);
-                }
-                continue;
-            }
-            if !visit_leaf(held, &path, &meta, visit, expected, hash_bytes, start)? {
+            if let Ok(false) = route_pinned_entry(
+                root,
+                &path,
+                held,
+                &meta,
+                visit,
+                descend,
+                count,
+                start,
+                expected,
+                hash_bytes,
+                prepare,
+                control_bytes,
+            ) {
                 return Ok(false);
             }
         }
         Ok(true)
+    }
+
+    /// Route one pinned entry after descent: reparse read, directory descent
+    /// or leaf capture. Ok(false) marks the walk stopped by the visitor.
+    #[allow(clippy::too_many_arguments)]
+    fn route_pinned_entry(
+        root: &Path,
+        path: &Path,
+        held: File,
+        meta: &std::fs::Metadata,
+        visit: &mut impl FnMut(Entry) -> bool,
+        descend: &mut impl FnMut(&Path, bool) -> bool,
+        count: &mut usize,
+        start: std::time::Instant,
+        expected: &mut impl FnMut(&Path, i32) -> Result<(Option<git2::Oid>, Eol), String>,
+        hash_bytes: &mut usize,
+        prepare: &mut impl FnMut(&Path, Option<Vec<u8>>, Option<Vec<u8>>) -> Result<(), String>,
+        control_bytes: &mut usize,
+    ) -> io::Result<bool> {
+        let reparse = meta.file_attributes() & 0x400 != 0;
+        if !descend(path, meta.is_dir() && !reparse) {
+            return Ok(true);
+        }
+        if reparse {
+            return Ok(visit_reparse(root, path, visit));
+        }
+        if meta.is_dir() {
+            return walk_directory(
+                root,
+                path,
+                visit,
+                descend,
+                count,
+                start,
+                expected,
+                hash_bytes,
+                prepare,
+                control_bytes,
+            );
+        }
+        visit_leaf(held, path, meta, visit, expected, hash_bytes, start)
     }
 
     /// Keep every normal ancestor open without FILE_SHARE_DELETE, and reject
