@@ -10,6 +10,8 @@ use std::{
 };
 mod files;
 use files::*;
+mod kind;
+use kind::Kind;
 const JOURNAL: &CStr = c".rollup-transactions";
 const MANIFEST: &CStr = c"manifest.json";
 const TEMP: &CStr = c"manifest.json.tmp";
@@ -128,6 +130,15 @@ fn manifest(
     read(&tx.directory, MANIFEST)
 }
 pub(super) fn publish(removal: &PreparedRemoval) -> io::Result<()> {
+    publish_kind(removal, Kind::Legacy)
+}
+pub(super) fn publish_sql(
+    removal: &PreparedRemoval,
+    identity: &crate::session_store::SqlDeletionIdentity,
+) -> io::Result<()> {
+    publish_kind(removal, Kind::Sql(identity))
+}
+fn publish_kind(removal: &PreparedRemoval, kind: Kind<'_>) -> io::Result<()> {
     let binding = &removal.inventory._binding.0;
     current(binding)?;
     let (current_records, leaves) = records(binding)?;
@@ -166,8 +177,14 @@ pub(super) fn publish(removal: &PreparedRemoval) -> io::Result<()> {
         Some(parent) => parent,
         None => mkdir(dir, JOURNAL)?,
     };
-    let name = basename(&format!("tx-{}", uuid::Uuid::new_v4()))?;
+    let name = basename(&kind.name())?;
     let directory = mkdir(&parent, &name)?;
+    if matches!(kind, Kind::Sql(_)) {
+        // Establish the bound transaction name durably before any backup write.
+        sync(&directory)?;
+        sync(&parent)?;
+        sync_records(binding)?;
+    }
     let backups = Some(mkdir(&directory, c"backups")?);
     let staged = Some(mkdir(&directory, c"staged")?);
     let tx = Transaction {
@@ -197,15 +214,22 @@ pub(super) fn publish(removal: &PreparedRemoval) -> io::Result<()> {
     )?;
     // Recovery performs complete content/graph validation before its first unlink.
     // The same held operation permit spans publication, recovery and the receipt.
-    recover_expected(binding, Some(&removal.inventory.leaves))
+    recover_expected(binding, Some(&removal.inventory.leaves), kind)
 }
 
 pub(super) fn recover(binding: &Binding) -> io::Result<()> {
-    recover_expected(binding, None)
+    recover_expected(binding, None, Kind::Legacy)
+}
+pub(super) fn recover_sql(
+    binding: &Binding,
+    identity: &crate::session_store::SqlDeletionIdentity,
+) -> io::Result<()> {
+    recover_expected(binding, None, Kind::Sql(identity))
 }
 fn recover_expected(
     binding: &Binding,
     expected: Option<&BTreeMap<String, CapturedLeaf>>,
+    kind: Kind<'_>,
 ) -> io::Result<()> {
     current(binding)?;
     let (live, leaves) = records(binding)?;
@@ -243,17 +267,7 @@ fn recover_expected(
     let text = name
         .to_str()
         .map_err(|_| invalid("invalid transaction name"))?;
-    let id = text
-        .strip_prefix("tx-")
-        .ok_or_else(|| invalid("invalid transaction name"))?;
-    if uuid::Uuid::parse_str(id)
-        .map(|u| u.to_string())
-        .ok()
-        .as_deref()
-        != Some(id)
-    {
-        return Err(invalid("noncanonical transaction identity"));
-    }
+    kind.check_name(text)?;
     let directory = open(&parent, &name, true)?;
     let mut tx = Transaction {
         backups: optional_directory(&directory, c"backups")?,
@@ -277,24 +291,14 @@ fn recover_expected(
     }
     let manifest_leaf = optional_read(&tx.directory, MANIFEST)?;
     let temp = optional_read(&tx.directory, TEMP)?;
+    let text = tx
+        .name
+        .to_str()
+        .map_err(|_| invalid("invalid transaction name"))?;
     let parsed: Option<RollupTransactionManifest> = manifest_leaf
         .as_ref()
-        .map(|leaf| {
-            crate::harness::definition::parse_strict_json(&leaf.bytes, LIMIT)
-                .map_err(|_| invalid("invalid deletion manifest"))
-        })
+        .map(|leaf| kind.parse(&leaf.bytes, text))
         .transpose()?;
-    if let Some(m) = &parsed {
-        if m.version != 2
-            || m.entries.len() > 1024
-            || m.entries.iter().any(|e| {
-                !e.old_exists || e.new_exists || e.staged.is_some() || e.new_sha256.is_some()
-            })
-        {
-            return Err(invalid("unsupported deletion manifest"));
-        }
-        validate_manifest_entries(&m.entries).map_err(|e| invalid(&e.to_string()))?;
-    }
     let committed = parsed.as_ref().is_some_and(|m| m.committed);
     let selected: BTreeMap<&str, &RollupTransactionEntry> = parsed
         .as_ref()
@@ -377,7 +381,17 @@ fn recover_expected(
                 entries,
             }
         };
-        let bytes = bounded_manifest(&next).map_err(|e| invalid(&e.to_string()))?;
+        if parsed.is_none() {
+            // A short first prefix cannot prove backup completeness. SQL's
+            // selected job identifies the full expected graph before discard.
+            let expected = next
+                .entries
+                .iter()
+                .map(|e| (e.target.as_str(), e))
+                .collect();
+            kind.selection(&live, &expected, true)?;
+        }
+        let bytes = kind.encode(&next)?;
         if !bytes.starts_with(&temp.bytes) {
             return Err(invalid("temporary manifest differs from expected write"));
         }
@@ -386,7 +400,11 @@ fn recover_expected(
     if committed {
         let mut old: BTreeMap<String, Recommendation> =
             live.iter().map(|r| (r.id.clone(), r.clone())).collect();
-        if !all_absent {
+        let complete_backups = selected.values().all(|e| backups.contains_key(&e.id));
+        // Complete SQL evidence must still be validated when the targets are
+        // already gone. Missing backups are allowed only after all targets are
+        // absent, so interrupted backup cleanup remains resumable.
+        if !all_absent || (matches!(kind, Kind::Sql(_)) && complete_backups) {
             for e in selected.values() {
                 let (_, record) = backups
                     .get(&e.id)
@@ -415,7 +433,11 @@ fn recover_expected(
             {
                 return Err(invalid("reconstructed graph exceeds bounds"));
             }
-            graph(&old.into_values().collect::<Vec<_>>())?;
+            let old = old.into_values().collect::<Vec<_>>();
+            graph(&old)?;
+            // An empty journal must prove there is no selected work. A
+            // nonempty committed pass may precede additional independent refs.
+            kind.selection(&old, &selected, selected.is_empty())?;
         }
         let remaining: Vec<_> = live
             .iter()
@@ -425,6 +447,9 @@ fn recover_expected(
         graph(&remaining)?;
     } else {
         graph(&live)?;
+        if parsed.is_some() {
+            kind.selection(&live, &selected, true)?;
+        }
         for e in selected.values() {
             if !leaves
                 .get(&e.id)

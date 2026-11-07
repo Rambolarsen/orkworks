@@ -47,13 +47,13 @@ identity, retained operation/lane/lease, unchanged caps and fault qualification.
   epoch enforcement (reject uppercase/compact/braced spellings without header
   rewrite), wrong header/
   job denial, existing read limits and reopen behavior. No public raw SQL access.
-- [ ] Bound publication/recovery: extend the existing `removal.rs`, `journal.rs`
+- [x] Bound publication/recovery: extend the existing `removal.rs`, `journal.rs`
   and `journal/protocol.rs` owners with private SQL-specific preparation and a
   combined recover/inspect/publish operation returning `JournalReceipt`. Keep
   legacy v2 entry points distinct and reuse descriptor-relative primitives.
   Tests in focused store modules must cover every spec state, repeated crashes,
   graph/hash/name/identity mismatch, exact caps and 64-descriptor behavior.
-- [ ] Compatibility routing: update `taskmaster/store.rs` legacy recovery and
+- [x] Compatibility routing: update `taskmaster/store.rs` legacy recovery and
   ordinary operation admission so all names are preflighted before effects and
   reserved SQL journals block both startup and existing-instance operations.
   Test manifest-less and malformed SQL entries mixed with committed v1/v2 data;
@@ -133,3 +133,48 @@ without actionable findings. Artifact SHA256
 source files remained byte-identical through review and full verification. These
 are reviewed source/codec checks, not executed journal recovery or activation.
 Remaining delivery checkboxes and production gates above remain open.
+
+## Approved publication/recovery slice — 2026-11-07
+
+After #1513, continue the already accepted protocol with the bounded store-layer
+publisher/recovery composite and required legacy preflight refusal. Base
+`c32a36cc`; owned branch `sql-bound-journal`. Reuse the existing anchored v2
+engine through an explicit v2/v3 mode; keep legacy manifest structs unchanged.
+The source-only composite retains one shared operation permit from expected-job
+recovery through fresh bounded inspection/preparation/publication and its success
+or error receipt. SQL identity remains identification; later captured integration
+must supply current job/runtime/lane/reservation admission and persist progress.
+
+Before effects, legacy startup preflights journals before filename migration and
+legacy recovery preflights every bounded parent entry before processing any.
+Existing instances reach that same guard through their current recovery calls.
+No new I/O is added to memory-only operation claims or captures.
+
+Checks: exact-job v3 success/restart/no-op and full graph closure; foreign identity/
+legacy/mixed journal refusal with unchanged bytes; manifest-less and draft/commit/
+temp states; repeated failures at publication and recovery boundaries; original
+leaf/root/ancestor replacement; retained permit/lease on success and errors;
+1,024-record recovery under a 64-descriptor child limit. Run legacy store tests,
+full repository checks and fresh current-diff review. Production and captured
+SQL progress routing remain unchanged in this slice.
+
+Store-layer verification: all 118 recommendation-store tests pass, including 20
+new qualifications. Full `bash scripts/verify-repo.sh` passed with
+`RUST_TEST_THREADS=1`: 3,181 Rust unit tests (18 existing ignored), seven integration,
+31 reporter, one Electron ABI proof, desktop type-check/build and 1,709 tests
+(three existing skips), 1,202 docs tests/build and diff/doc/worktree checks. No
+additional filters/skips. Documentation-currency reminders were reviewed against
+this private source-only diff; canonical architecture and validation claims are
+updated, with no installed flow/onboarding change to describe in public docs.
+
+Completed `/code-review medium` for the protocol/lifecycle and large diff: the
+protocol pass was clear; the ownership pass found skipped complete backup proof
+when all targets were absent. Its real regression failed before the correction;
+all store tests then passed. Updated review of the corrected current delta is
+clear. Final artifact SHA256
+`a51b041672c64984f977bd51f7e0946020caa78e9bcd12348e3b04e038a1892d`; all
+nine source hashes remained frozen through the updated review and final verifier.
+The earlier verifier was deliberately interrupted before the fix and is not
+passing evidence. These are injected-interruption/fresh-lease and source checks,
+not physical power-loss qualification. Captured integration/progress and all
+producer/finalization/startup/backup/migration/activation gates remain open.

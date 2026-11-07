@@ -1574,3 +1574,44 @@ Full repository verification and current-diff review are recorded with the PR.
 Publication/recovery, all-name legacy preflight refusal and captured integration
 remain subsequent deliverables. Producer revalidation, safe finalization, startup
 selection and complete backup/migration gates remain before activation.
+
+## SQL-bound recommendation journal store layer
+
+The approved [recovery contract](../superpowers/specs/2026-11-07-sql-recommendation-journal-recovery.md)
+now has a private composite for exact expected-identity recovery, fresh bounded
+removal and v3 publication. It retains one original recommendation permit/lease
+through every result, with no intermediate release or recursive claim. Current
+application admission, SQL progress, finalization and production selection remain
+unchanged; this primitive does not turn an identity into cleanup authority.
+
+Real SQL identities and filesystem fixtures cover full graph/byte preservation,
+foreign full-identity/basename and wrong-session targets, manifest-less prefixes,
+draft/first-temp/committed states, all publication failure checkpoints and repeated
+recovery interruptions under fresh leases. Corruption, aliases, unknown entries,
+mixed/valid legacy journals and replaced roots fail before canonical effects.
+A real competing store call observes Busy between recovery and the fresh pass;
+success/error receipts retain the original permit. A verified child process
+checks publication and half-completed recovery of 1,024 records under a soft
+64-descriptor limit, including a reopened SQL identity.
+
+Legacy startup and existing-instance tests assert no migration/record/journal
+effects before reserved-journal refusal. Exact directory enumeration bounds are
+reused from the anchored reader rather than introducing a new allowance.
+The first red legacy regression caught migration before refusal. A targeted
+first-temp regression caught acceptance with a missing expected backup, requiring
+full job-graph evidence before discarding that ambiguous prefix. These are
+injected-interruption and fresh-lease source checks, not hardware power-loss or
+live qualification.
+
+Final scoped/full verification and current-diff review evidence belong to this
+PR and the implementation plan. Captured SQL admission/progress, stale-producer
+revocation, safe finalizer, startup, complete backup/migration and activation
+remain open gates. Production continues to use JSON.
+
+Review regression: a committed journal with all canonical targets absent must
+still validate complete remaining backup evidence against the selected job.
+Wrong-session targets and empty entries with selected work are refused without
+discarding that evidence. Legitimate additional independent references still
+reach the retained fresh pass; once backup cleanup has started, missing backups
+remain idempotent when all canonical targets are absent. Repeated-recovery tests
+cover that partial-cleanup continuation.

@@ -31,6 +31,9 @@ pub(crate) struct SqlDeletionIdentity {
     created_at: String,
 }
 impl SqlDeletionIdentity {
+    pub(crate) fn session_id(&self) -> &str {
+        &self.session_id
+    }
     pub(crate) fn journal_name(&self) -> String {
         let mut hash = Sha256::new();
         hash.update(b"orkworks/sql-recommendation-delete/v1\0");

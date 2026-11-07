@@ -6,6 +6,9 @@ use crate::workspace_runtime::WorkspaceLease;
 pub(crate) use removal::JournalReceipt;
 use std::sync::Arc;
 
+// Existing anchored enumeration budget: 1,024 leaves plus one known scaffold.
+pub(super) const MAX_DIRECTORY_ENTRIES: usize = 1025;
+
 pub(crate) struct CleanupIntent {
     store: RecommendationStore,
 }
@@ -23,7 +26,7 @@ struct Binding {
 pub(crate) struct CleanupInventory {
     records: Vec<Recommendation>,
     leaves: BTreeMap<String, CapturedLeaf>,
-    _operation: operation::Operation,
+    _operation: Arc<operation::Operation>,
     _binding: BoundCleanup,
 }
 struct CapturedLeaf {
@@ -86,7 +89,7 @@ impl BoundCleanup {
                 records,
                 leaves,
                 _binding: self.clone(),
-                _operation: operation,
+                _operation: Arc::new(operation),
             })
         }
         #[cfg(not(any(target_os = "macos", target_os = "linux")))]
@@ -354,7 +357,7 @@ mod unix {
             if name == c"." || name == c".." {
                 continue;
             }
-            if names.len() == ENTRIES + 1 {
+            if names.len() == MAX_DIRECTORY_ENTRIES {
                 return Err(invalid("recommendations exceed entry bound"));
             }
             names.push(name.to_owned());

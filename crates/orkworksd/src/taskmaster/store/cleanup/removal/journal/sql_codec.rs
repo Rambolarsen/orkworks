@@ -1,5 +1,5 @@
 //! Pure SQL-bound v3 deletion encoding. No file effects or recovery authority.
-#![allow(dead_code)] // Publication/recovery integration is a separate qualified slice.
+#![allow(dead_code)] // Captured application routing remains a separately qualified slice.
 use super::*;
 use crate::session_store::SqlDeletionIdentity;
 use serde::{Deserialize, Serialize};

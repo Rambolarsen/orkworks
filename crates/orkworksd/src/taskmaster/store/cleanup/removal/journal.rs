@@ -6,7 +6,7 @@ mod sql_codec;
 pub(crate) struct JournalReceipt {
     result: Result<(), StoreError>,
     // Field order releases the operation before the workspace binding/lease.
-    _operation: operation::Operation,
+    _operation: Arc<operation::Operation>,
     _binding: BoundCleanup,
 }
 impl JournalReceipt {
@@ -28,6 +28,45 @@ impl PreparedRemoval {
     }
 }
 impl BoundCleanup {
+    /// Blocking source-only composite. The caller supplies current SQL/runtime
+    /// admission; an identity alone never grants cleanup authority.
+    pub(crate) fn remove_for_sql(
+        &self,
+        identity: &crate::session_store::SqlDeletionIdentity,
+    ) -> Result<JournalReceipt, StoreError> {
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        {
+            // This one permit spans recovery, fresh inspection/preparation,
+            // publication and even errors before a PreparedRemoval is built.
+            let operation = Arc::new(self.0.store.try_operation()?);
+            let result = (|| {
+                protocol::recover_sql(&self.0, identity).map_err(StoreError::Io)?;
+                #[cfg(test)]
+                sql_tests::after_recovery();
+                let (records, leaves) = unix::inspect(&self.0, true)?;
+                let inventory = CleanupInventory {
+                    records,
+                    leaves,
+                    _operation: operation.clone(),
+                    _binding: self.clone(),
+                };
+                let mut removal = inventory.prepare_session_removal(identity.session_id())?;
+                removal.uncommitted = sql_codec::encode(identity, &removal.entries, false)?;
+                removal.committed = sql_codec::encode(identity, &removal.entries, true)?;
+                protocol::publish_sql(&removal, identity).map_err(StoreError::Io)
+            })();
+            Ok(JournalReceipt {
+                result,
+                _operation: operation,
+                _binding: self.clone(),
+            })
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        {
+            let _ = identity;
+            Err(unsupported())
+        }
+    }
     pub(crate) fn recover_removals(&self) -> Result<JournalReceipt, StoreError> {
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         {
@@ -35,7 +74,7 @@ impl BoundCleanup {
             let result = protocol::recover(&self.0).map_err(StoreError::Io);
             Ok(JournalReceipt {
                 result,
-                _operation: operation,
+                _operation: Arc::new(operation),
                 _binding: self.clone(),
             })
         }
@@ -75,3 +114,6 @@ fn unsupported() -> StoreError {
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod protocol;
+
+#[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
+mod sql_tests;
