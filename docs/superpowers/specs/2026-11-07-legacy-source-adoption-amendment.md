@@ -210,7 +210,9 @@ publication and interrupted-recovery contracts before code depends on them.
 Those are qualification deliverables, not runtime implementation approval; no
 finite storage/native fit or platform guarantee is asserted here.
 The [v1 inventory/report/confirmation contract](2026-11-07-legacy-adoption-inventory-approval.md)
-is the proposed step-1 representation, not a qualified approval mechanism.
+is the owner-accepted step-1 logical representation for further qualification,
+not a qualified approval mechanism. Its [evidence-owner audit](../../validation/legacy-adoption-evidence-owners.md)
+keeps unavailable native/backup/application guarantees explicit.
 
 Copied/synthetic regression cases must exercise:
 
