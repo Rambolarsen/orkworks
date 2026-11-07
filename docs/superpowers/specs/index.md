@@ -4,6 +4,8 @@ Dated design records; these do not establish current product behavior.
 
 ## Documents
 
+- [SQL-bound recommendation journal recovery](2026-11-07-sql-recommendation-journal-recovery.md) — Proposed exact-job v3 journal identity, legacy refusal and retained-permit recovery; owner approval pending.
+
 - [Session startup diagnostics](2026-11-07-startup-diagnostics-design.md) — Proposed safe launch/resume failure record, API and desktop presentation for #689.
 
 - [Harness-independent session workspace signals](2026-11-03-harness-workspace-signals-design.md) — Proposed cross-harness location evidence, shared resolution rules and qualification boundaries for #1347.
