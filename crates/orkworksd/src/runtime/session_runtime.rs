@@ -536,15 +536,15 @@ impl Write for EvaluationWriterFault {
     }
 }
 
-#[derive(Debug)]
 #[cfg(test)]
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum StartupFault {
     PtyOpen,
     TerminalReader,
     TerminalWriter,
 }
 
+#[derive(Debug)]
 pub(crate) struct SessionRuntime {
     #[cfg(test)]
     startup_fault: Option<StartupFault>,
@@ -7922,6 +7922,12 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
     // finalization for reasons unrelated to the reporting capability itself.
     // `set_workflow_report_token` unconditionally overwrites any prior entry
     // (see that test), which is the actual mechanism resume relies on.
+
+    #[test]
+    fn runtime_debug_remains_available_after_adding_startup_faults() {
+        let runtime = SessionRuntime::detached(DEFAULT_TERMINAL_ROWS, DEFAULT_TERMINAL_COLS);
+        let _diagnostic = format!("{runtime:?}");
+    }
 
     #[cfg(unix)]
     #[tokio::test]

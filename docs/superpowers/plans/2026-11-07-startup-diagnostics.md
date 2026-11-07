@@ -92,3 +92,9 @@ forgery can select fixed text but confers no authority.
   catalog as an unrouted external input. Reproduced both routing failures locally;
   added that exact path to Rust CI and excluded it from CodeQL's unrelated-UI
   skip. Product-code diff/review remains unchanged; routing tests verify the fix.
+
+- PR automated review identified an unintentionally displaced existing Debug
+  derive. A new runtime formatting regression reproduced E0277, then passed
+  after restoring SessionRuntime's original derive. Scoped low-effort review
+  approved the Debug and CI-routing delta with no findings; no behavior changed.
+  All 42 hosted documentation routing/site tests passed locally after the fix.
