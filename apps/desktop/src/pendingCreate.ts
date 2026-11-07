@@ -1,4 +1,5 @@
 import type { SessionInfo } from "./api.ts";
+import { startupFailureMessage } from "./startupDiagnostics.ts";
 
 /**
  * The New Session dialog's create response now reflects the pre-spawn
@@ -35,6 +36,11 @@ export function resolvePendingCreates(
   for (const id of prev) {
     const session = sessionById.get(id);
     const status = session?.status;
+    if (session && startupFailureMessage(session.startupFailure)) {
+      erroredIds.push(id);
+      erroredSessions.push(session);
+      continue;
+    }
     if (status === "creating") {
       ids.add(id);
       continue;

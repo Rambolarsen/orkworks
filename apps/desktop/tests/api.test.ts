@@ -116,6 +116,26 @@ test("an oversized truncated startup body still uses the generic fixed fallback"
   }
 });
 
+test("a truncated object with reordered startup fields cannot expose its message", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(
+    `{"message":"SECRET /private/tool ${"detail ".repeat(200)}","error":"session_startup_failed","startupFailure":{"code":"process_spawn_failed","operation":"resume","occurredAt":"2026-11-07T12:00:00.000Z"}}`,
+    { status: 500 },
+  );
+  try {
+    await assert.rejects(
+      resumeSession("http://backend", "s-4"),
+      (error: unknown) => {
+        assert.equal(error instanceof Error ? error.message : "", "Session startup failed. Check sidecar diagnostics before retrying.");
+        assert.doesNotMatch(error instanceof Error ? error.message : "", /SECRET|\/private\/tool/);
+        return true;
+      },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("SessionInfo type accepts metadata fields", () => {
   const session: SessionInfo = {
     id: "test",

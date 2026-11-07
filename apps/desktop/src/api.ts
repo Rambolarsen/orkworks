@@ -486,8 +486,8 @@ export async function resumeSession(
     try { parsed = JSON.parse(body); } catch { parsed = undefined; }
     const startupError = parsed && typeof parsed === "object" &&
       (parsed as Record<string, unknown>).error === "session_startup_failed";
-    const truncatedStartupError = /^\s*\{\s*"error"\s*:\s*"session_startup_failed"\s*(?:,|\})/.test(body);
-    if (startupError || truncatedStartupError) {
+    const truncatedJsonObject = parsed === undefined && /^\s*[\[{]/.test(body);
+    if (startupError || truncatedJsonObject) {
       const failure = validateStartupFailure(
         parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>).startupFailure : undefined,
       );

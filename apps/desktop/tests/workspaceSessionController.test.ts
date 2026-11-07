@@ -308,6 +308,27 @@ test("a tracked startup failure uses its catalog toast once", async () => {
   controller.dispose();
 });
 
+test("a diagnostic in the ending transition is toasted once before repeated error rows", async () => {
+  const errors: string[] = [];
+  let rows = [session("tracked", "creating", "creating")];
+  const diagnostic = { code: "process_spawn_failed" as const, operation: "launch" as const, occurredAt: "2026-11-07T12:00:00.000Z" };
+  const controller = createWorkspaceSessionController({
+    deps: deps({
+      createSession: async () => rows[0],
+      listSessions: async () => rows,
+    }),
+    onError: error => errors.push(error.message),
+  });
+  await controller.createSession({});
+  rows = [{ ...session("tracked", "alive", "running"), lifecyclePhase: "ending", startupFailure: diagnostic }];
+  await controller.refreshSessions();
+  rows = [{ ...session("tracked", "dead", "error"), lifecyclePhase: "ended", startupFailure: diagnostic }];
+  await controller.refreshSessions();
+  await controller.refreshSessions();
+  assert.deepEqual(errors, ["Could not start the coding tool. Check its configured executable and working directory, then retry."]);
+  controller.dispose();
+});
+
 test("a failed resume refreshes and publishes the authoritative diagnostic row", async () => {
   const errors: string[] = [];
   const snapshots: SessionInfo[][] = [];
