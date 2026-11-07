@@ -124,6 +124,24 @@ restorable identity or access. Copied native handles/lock files are never live.
 
 ## Bundle model and validation
 
+Every bundle has a closed purpose class, bound by its manifest/seal and every
+consuming owner result:
+
+- `recoverable-workspace`: a semantically validated complete format-1 or format-2
+  workspace at Q, eligible for same-version isolated restore after new admission.
+- `retained-evidence`: a complete, readable capture of retained local source
+  evidence, eligible only for the accepted per-candidate adoption review. Preserve
+  raw bytes/identities and classify malformed records or known missing content;
+  do not claim the old source is a semantically recoverable workspace.
+- `preservation-only`: raw current-destination state retained before replacement,
+  including damaged or unresolved cutover evidence. It grants neither workspace
+  restore eligibility nor adoption-input validity.
+
+No class can be relabelled or substituted by the caller. Full physical capture,
+identity, enumeration, exclusions and seal validation apply to all three; semantic
+validation and consuming rights are class-specific. Missing optional/required
+content is reported under its actual owner classification, never fabricated.
+
 Logical bundle version is `orkworks.workspace-backup.v1`. It is a private directory
 under a qualified destination parent disjoint from source, restore destination
 and other bundle roots. The owner exclusively creates an attempt directory; it
@@ -135,9 +153,9 @@ The immutable manifest retains these complete fields (no summary substitutes):
 
 - Version and required application/schema/native/owner profile versions; backup
   attempt identity, exact workspace identity, source root binding and Q.
-- Source format and all authority evidence. Format 1 records proven absence of
-  cutover evidence; format 2 binds valid marker to exact SQL workspace/epoch/
-  schema/import identity and captured actual generation, never a made-up zero.
+- Bundle purpose class, source format and all authority evidence. A recoverable
+  format-1 set records proven absence of cutover evidence; a recoverable format-2
+  set binds valid marker to exact SQL workspace/epoch/schema/import identity and captured actual generation, never a made-up zero.
 - Exhaustive relative-entry inventory: exact supported name bytes, object kind,
   owner, source native identity, independent bundle entry identity, content byte
   count/hash, required access metadata and owner revision/association/protection.
@@ -159,13 +177,27 @@ then no production parser/receipt can claim this logical schema is executable.
 
 Validation occurs in an inert private context: no normal application/store open
 that repairs files, resumes journal effects, schedules work, renews credentials
-or launches tools. Verify database integrity and complete record/organization/
-revision/reference semantics through the qualified SQL validator, beyond file
-hashes/quick_check. Include real generation and tombstones; no deleted row may
-be resurrected by restore. Required external/protection evidence must exist and
-validate. A missing optional payload is allowed only if its owner proves absence
-at Q, its optional status and the retained historical fact/availability result;
-unreadable, ambiguous or corrupt content blocks success.
+or launches tools. For recoverable-workspace sets, verify database integrity and
+complete record/organization/revision/reference semantics through the qualified
+SQL validator, beyond file hashes/quick_check. Include real generation and
+tombstones; no deleted row may be resurrected by restore. Required external/
+protection evidence must exist and validate. A missing optional payload is allowed only if its owner proves
+absence at Q, its optional status and the retained historical fact/availability
+result; unreadable, ambiguous or corrupt required content blocks recovery-set
+success. The absence of an optional payload does not permit copying corrupt
+present content as valid.
+
+For retained-evidence sets, readable malformed independent local metadata remains
+exact raw evidence with a malformed classification, never an invented Session.
+Known missing required content remains explicitly missing; its source-only
+metadata must be excluded from the adoption batch. The full inventory and raw
+bytes of every extant supported file must still validate. Unreadable bytes,
+incomplete enumeration, uncertain identity or unqualified exclusion blocks the
+capture. Adoption's existing history/association/protection/normalization owners
+must validate every selected record and payload; a retained-evidence seal cannot
+bless malformed selected content or bypass current-global corruption/protection.
+These distinctions preserve v1's accepted missing-required/excluded and
+malformed-local/excluded oracles without granting whole-workspace restore.
 
 A recoverable set returns a complete result only after owner validation, copied
 byte read-back, durable file/directory publication and completion seal settlement.
@@ -175,13 +207,17 @@ owned partial effects and reason without exposing secrets. Stored complete bytes
 prove only captured data: consumption revalidates full integrity, supported
 profiles, complete scope and the intended restore/capture subject.
 
-For retained-source adoption, produce two separately validated recoverable
-format-1 sets: selected retained source and current global root. Bind both to the
-exact v1 Snapshot inventories/roots and current publication Intent/Plan through
-the actual backup owner. Neither set covers the other by implication. Later
-backup-current evidence must revalidate both actual sets and restore-point
-validity, not merely re-emit a retained receipt. Do not modify accepted v1 bytes
-or supply a dummy known receipt. Unsupported source scope blocks adoption.
+For retained-source adoption, produce two separately validated sets: a complete
+`retained-evidence` capture of the selected local source and a
+`recoverable-workspace` format-1 backup of the current global root. Bind both
+classes and complete scope to the exact v1 Snapshot inventories/roots and current
+publication Intent/Plan through the actual backup owner. Neither covers the other
+by implication. Later backup-current evidence must revalidate both actual sets,
+the source's complete evidence-capture validity and the global restore-point
+validity, not merely re-emit a retained receipt. The local set can restore captured
+source evidence bytes only through its separately qualified evidence owner; it
+cannot be installed as a workspace. Do not modify accepted v1 bytes or supply a
+dummy known receipt. Unsupported source scope blocks adoption.
 
 ## Capture phases and interruption
 
@@ -201,9 +237,11 @@ path/hash match alone authorizes removal. There is no automatic retry loop.
 
 ## Same-version restore and preservation
 
-Restore requires a separate explicit local-owner decision binding the selected
-complete set, exact current destination/workspace, intended captured point and
-visible age/data-loss implications. Backup creation approval grants no restore
+Workspace restore accepts only a `recoverable-workspace` set. Neither a
+retained-evidence nor preservation-only seal satisfies that input. Restore
+requires a separate explicit local-owner decision binding the selected complete
+set, exact current destination/workspace, intended captured point and visible
+age/data-loss implications. Backup creation approval grants no restore
 permission. Agent/report capabilities and retained confirmation bytes cannot
 instantiate this live claim. Validation failure invalidates it; restart requires
 new confirmation and actual maintenance admission.
@@ -271,7 +309,9 @@ These are conditional requirements, not executed crash/platform results.
 | Any writer/descendant, root or resource ownership unknown | No Q, backup success or replacement; stop/unavailable. |
 | Close fails or SQL auxiliary set is unresolved | No closed-image capture; do not copy only v1.sqlite and call it complete. |
 | Source changes during copy/final validation | Invalidate complete set; retain partial owned attempt, do not reseal old Q. |
-| Known optional absence versus unreadable/required missing file | Preserve explicit owner-proven optional absence; required/unreadable/ambiguous blocks. |
+| Known optional absence versus unreadable/required missing file | Recoverable-workspace requires explicit optional-absence proof; required missing blocks. Retained-evidence reports known missing content and requires exclusion of affected source-only metadata. Unreadable/ambiguous capture blocks every class. |
+| Readable malformed independent local record, all raw bytes/identities captured | Retained-evidence may preserve/report it for explicit exclude-only review; never eligible selected metadata or whole-workspace restore. Global corruption still blocks the recoverable global backup. |
+| Retained-evidence or preservation-only bundle passed to workspace restore | Reject purpose mismatch before destination effects; no class substitution or automatic conversion. |
 | Unknown entry, secret-bearing durable record, unsupported link/name/profile | Block before unsafe copying; never silently omit, traverse or sanitize required bytes. |
 | Disk-full/cancel/crash during capture/validation/seal | No claimed complete result unless an actual valid durable seal/set can be established; no automatic partial cleanup. |
 | Seal succeeds but response is lost | New inert validation can identify captured data, not revive old permission. |
@@ -319,3 +359,10 @@ restore protocol and adoption recovery. Clarified that restore guard/journal
 cannot resume adoption or reconstruct a lost approval/publication claim; the
 accepted restore-first boundary remains. Inspected source claims matched the
 pinned baseline. Neither review qualifies a producer or physical operation.
+
+Codex current-head review of the initial PR found that requiring the retained
+local source to be a semantically recoverable workspace rejected accepted v1
+exclude-only inputs. Corrected with purpose-bound retained-evidence capture,
+separate global recoverable backup and damaged-state preservation, class-specific
+validation/consumption and explicit rejection oracles. All classes still require
+complete readable physical evidence; none can bypass accepted candidate decisions.
