@@ -17,6 +17,7 @@ import type { CreateSessionOptions } from "./harnessTypes.ts";
 import { resolvePendingCreates, trackPendingCreate } from "./pendingCreate.ts";
 import { startSessionPolling, type PollScheduler } from "./sessionPolling.ts";
 import { mergeSessionsById } from "./sessionSort.ts";
+import { startupFailureMessage } from "./startupDiagnostics.ts";
 
 export interface WorkspaceSessionControllerDeps {
   getBackendUrl: () => Promise<string>;
@@ -139,7 +140,10 @@ export function createWorkspaceSessionController(
     deps.pruneTerminals(new Set(list.filter((session) => !isHistoricalSession(session)).map((session) => session.id)));
     const resolution = resolvePendingCreates(pendingCreateIds, list);
     pendingCreateIds = resolution.ids;
-    if (resolution.erroredIds.length > 0) publishError("create", "Couldn't start a new session.");
+    if (resolution.erroredIds.length > 0) {
+      const failure = resolution.erroredSessions[0]?.startupFailure;
+      publishError("create", startupFailureMessage(failure) ?? "Couldn't start a new session.");
+    }
 
     const [next, nextLastResortAt] = mergeSessionsById(sessions, list, lastResortAt, new Date());
     lastResortAt = nextLastResortAt;
@@ -339,7 +343,10 @@ export function createWorkspaceSessionController(
       activeSessionId = resumed.id;
       options.onActiveSession?.(resumed.id);
     } catch (error) {
-      if (isCurrent(token)) publishError("resume", error instanceof Error ? error.message : "Couldn't resume session.");
+      if (isCurrent(token) && isCurrentAdmission(admissionToken)) {
+        publishError("resume", error instanceof Error ? error.message : "Couldn't resume session.");
+        await refreshSessions();
+      }
     } finally {
       if (pendingResumes.get(id) === operation) {
         pendingResumes.delete(id);

@@ -42,6 +42,17 @@ test("a tracked id that resolves to error drops and is reported", () => {
   assert.deepEqual(result.erroredIds, ["a"]);
 });
 
+test("a tracked startup failure supplies its fixed catalog message for one toast", () => {
+  const pending = trackPendingCreate(new Set(), "a");
+  const result = resolvePendingCreates(pending, [{
+    ...session("a", "error"),
+    startupFailure: { code: "process_spawn_failed", operation: "launch", occurredAt: "2026-11-07T12:00:00.000Z" },
+  }]);
+  assert.deepEqual(result.erroredIds, ["a"]);
+  assert.equal(result.erroredSessions[0].startupFailure?.code, "process_spawn_failed");
+  assert.equal(result.ids.size, 0);
+});
+
 test("a tracked id missing from the poll (deleted mid-create) drops without a toast", () => {
   const pending = trackPendingCreate(new Set(), "a");
   const result = resolvePendingCreates(pending, []);

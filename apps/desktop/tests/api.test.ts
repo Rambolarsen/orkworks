@@ -20,6 +20,102 @@ import {
   saveHarnessConfiguration,
 } from "../src/api.ts";
 
+test("resume uses local startup diagnostics and bounds response reads to 1 KiB", async () => {
+  const originalFetch = globalThis.fetch;
+  let responseBytesRead = 0;
+  globalThis.fetch = async () => {
+    const bytes = new TextEncoder().encode(JSON.stringify({
+        error: "session_startup_failed",
+        message: "ATTACKER CONTROLLED",
+        startupFailure: {
+          code: "codex_help_timeout",
+          operation: "resume",
+          occurredAt: "2026-11-07T12:00:00.000Z",
+        },
+      }) + " ".repeat(2048));
+    let offset = 0;
+    const response = new Response(new ReadableStream<Uint8Array>({
+      pull(controller) {
+        const next = bytes.subarray(offset, offset + 256);
+        offset += next.byteLength;
+        if (next.length) controller.enqueue(next);
+        else controller.close();
+      },
+    }), { status: 500 });
+    const body = response.body!;
+    Object.defineProperty(response, "body", {
+      value: {
+        getReader() {
+          const reader = body.getReader();
+          return {
+            async read() {
+              const result = await reader.read();
+              if (!result.done) responseBytesRead += result.value.byteLength;
+              return result;
+            },
+            cancel: (reason?: unknown) => reader.cancel(reason),
+          };
+        },
+      },
+    });
+    return response;
+  };
+  try {
+    await assert.rejects(
+      resumeSession("http://backend", "s-1"),
+      (error: unknown) => {
+        assert.match(error instanceof Error ? error.message : "", /Codex session isolation check timed out/);
+        assert.doesNotMatch(error instanceof Error ? error.message : "", /ATTACKER CONTROLLED/);
+        return true;
+      },
+    );
+    assert.ok(responseBytesRead <= 1024, `read ${responseBytesRead} response bytes`);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("unknown startup codes use a fixed fallback instead of server text", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    error: "session_startup_failed",
+    message: "secret path /private/tool",
+    startupFailure: { code: "future_code", operation: "resume", occurredAt: "2026-11-07T12:00:00.000Z" },
+  }), { status: 500 });
+  try {
+    await assert.rejects(
+      resumeSession("http://backend", "s-2"),
+      (error: unknown) => {
+        assert.equal(error instanceof Error ? error.message : "", "Session startup failed. Check sidecar diagnostics before retrying.");
+        assert.equal((error as { startupFailure?: unknown }).startupFailure, undefined);
+        return true;
+      },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("an oversized truncated startup body still uses the generic fixed fallback", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(
+    `{"error":"session_startup_failed","message":"${"secret ".repeat(300)}"`,
+    { status: 500 },
+  );
+  try {
+    await assert.rejects(
+      resumeSession("http://backend", "s-3"),
+      (error: unknown) => {
+        assert.equal(error instanceof Error ? error.message : "", "Session startup failed. Check sidecar diagnostics before retrying.");
+        assert.doesNotMatch(error instanceof Error ? error.message : "", /secret/);
+        return true;
+      },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("SessionInfo type accepts metadata fields", () => {
   const session: SessionInfo = {
     id: "test",

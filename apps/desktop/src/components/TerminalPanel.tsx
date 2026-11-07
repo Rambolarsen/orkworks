@@ -4,6 +4,7 @@ import HistoricalTerminal from "./HistoricalTerminal";
 import EmptyState from "./EmptyState";
 import type { SessionInfo } from "../api";
 import { isSessionStarting } from "../terminalPresentation";
+import { startupFailureMessage } from "../startupDiagnostics";
 
 interface TerminalPanelProps {
   backendStatus: string;
@@ -17,7 +18,7 @@ function TerminalPanel({ backendStatus, session, onBackendUnavailable, onRetryBa
   if (!session) {
     return <EmptyState message="Select a session to open its terminal." />;
   }
-  return isHistoricalSession(session) ? (
+  const terminal = isHistoricalSession(session) ? (
     <HistoricalTerminal sessionId={session.id} onSelectPlan={onSelectPlan} />
   ) : (
     <CenterPanel
@@ -29,6 +30,16 @@ function TerminalPanel({ backendStatus, session, onBackendUnavailable, onRetryBa
       onSelectPlan={onSelectPlan}
     />
   );
+  const diagnostic = startupFailureMessage(session.startupFailure);
+  return diagnostic ? (
+    <div className="terminal-session-view">
+      <aside className="startup-failure-notice" role="status">
+        <strong>Session could not start</strong>
+        <p>{diagnostic}</p>
+      </aside>
+      {terminal}
+    </div>
+  ) : terminal;
 }
 
 export default TerminalPanel;

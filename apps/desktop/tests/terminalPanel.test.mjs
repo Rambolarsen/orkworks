@@ -19,6 +19,7 @@ new Function("require", "module", "exports", outputText)((id) => {
   if (id in children) return { default: children[id] };
   if (id === "../sessionRuntimeState") return require("../src/sessionRuntimeState.ts");
   if (id === "../terminalPresentation") return require("../src/terminalPresentation.ts");
+  if (id === "../startupDiagnostics") return require("../src/startupDiagnostics.ts");
   return require(id);
 }, component, component.exports);
 const TerminalPanel = component.exports.default;
@@ -34,6 +35,19 @@ test("dead session selects read-only history with its session id", () => {
   const view = TerminalPanel({ ...props, session: { id: "ended", lifecycle: "dead", status: "done" } });
   assert.equal(view.type, children["./HistoricalTerminal"]);
   assert.deepEqual(view.props, { sessionId: "ended", onSelectPlan: props.onSelectPlan });
+});
+
+test("remembered startup failures show fixed diagnostics alongside terminal replay", () => {
+  const view = TerminalPanel({ ...props, session: {
+    id: "ended", lifecycle: "dead", status: "error",
+    startupFailure: { code: "codex_help_timeout", operation: "launch", occurredAt: "2026-11-07T12:00:00.000Z" },
+  } });
+  assert.equal(view.type, "div");
+  assert.equal(view.props.className, "terminal-session-view");
+  assert.match(view.props.children[0].props.children[0].props.children, /Session could not start/);
+  assert.match(view.props.children[0].props.children[1].props.children, /Codex session isolation check timed out/);
+  assert.equal(view.props.children[1].type, children["./HistoricalTerminal"]);
+  assert.equal(view.props.children[1].props.sessionId, "ended");
 });
 
 for (const lifecycle of [undefined, "creating", "alive", "stopping"]) {

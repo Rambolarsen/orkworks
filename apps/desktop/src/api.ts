@@ -5,6 +5,14 @@ import type {
   HarnessListResponse,
 } from "./harnessTypes.ts";
 import type { ProviderEffectiveState } from "./providerTypes.ts";
+import {
+  STARTUP_FAILURE_FALLBACK,
+  startupFailureMessage,
+  validateStartupFailure,
+  type StartupFailure,
+} from "./startupDiagnostics.ts";
+
+export type { StartupFailure, StartupFailureCode } from "./startupDiagnostics.ts";
 
 export type { HarnessConfigEntry, HarnessEditorMode, HarnessListResponse } from "./harnessTypes.ts";
 
@@ -60,6 +68,7 @@ export type SessionState = "active" | "closed" | "archived";
 export type SessionAction = "close" | "archive" | "restore" | "delete";
 
 export interface SessionInfo {
+  startupFailure?: StartupFailure;
   sessionState?: SessionState | null;
   sessionActionToken?: string | null;
   sessionStateError?: string;
@@ -471,8 +480,55 @@ export async function resumeSession(
     method: "POST",
     ...(strategy ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ strategy }) } : {}),
   });
-  if (!resp.ok) throw new Error((await resp.text()).trim().slice(0, 512) || `Couldn't resume session (${resp.status}).`);
+  if (!resp.ok) {
+    const body = await readResponseTextBounded(resp, 1024);
+    let parsed: unknown;
+    try { parsed = JSON.parse(body); } catch { parsed = undefined; }
+    const startupError = parsed && typeof parsed === "object" &&
+      (parsed as Record<string, unknown>).error === "session_startup_failed";
+    const truncatedStartupError = /^\s*\{\s*"error"\s*:\s*"session_startup_failed"\s*(?:,|\})/.test(body);
+    if (startupError || truncatedStartupError) {
+      const failure = validateStartupFailure(
+        parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>).startupFailure : undefined,
+      );
+      const message = startupFailureMessage(failure) ?? STARTUP_FAILURE_FALLBACK;
+      throw new ResumeSessionError(message, failure);
+    }
+    throw new Error(body.trim().slice(0, 512) || `Couldn't resume session (${resp.status}).`);
+  }
   return resp.json();
+}
+
+export class ResumeSessionError extends Error {
+  readonly startupFailure?: StartupFailure;
+
+  constructor(message: string, startupFailure?: StartupFailure) {
+    super(message);
+    this.name = "ResumeSessionError";
+    this.startupFailure = startupFailure;
+  }
+}
+
+async function readResponseTextBounded(response: Response, limit: number): Promise<string> {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  let bytes = 0;
+  try {
+    while (bytes < limit) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = value.subarray(0, limit - bytes);
+      bytes += chunk.byteLength;
+      text += decoder.decode(chunk, { stream: bytes < limit });
+      if (chunk.byteLength < value.byteLength) break;
+    }
+    text += decoder.decode();
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+  return text;
 }
 
 export async function applyDebugAttention(
