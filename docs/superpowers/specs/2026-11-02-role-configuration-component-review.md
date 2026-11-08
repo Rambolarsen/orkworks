@@ -155,11 +155,13 @@ and [#1349](https://github.com/Rambolarsen/orkworks/pull/1349) (selected child s
 pair, #1345). These do not constitute a full configuration codec or native support.
 Do not repeat those completed units based on this earlier handoff.
 
-The next proposed data-only validation slice is
+The retirement-artifact data-only validation slice is
 [#1548](https://github.com/Rambolarsen/orkworks/issues/1548), the
 [retirement-artifact snapshot plan](../plans/2026-11-08-role-retirement-artifacts.md).
-It validates supplied catalog snapshot bytes and derives their existing digest/key;
-its concrete supported provenance/caps and executable plan await owner approval.
+Its dormant implementation validates supplied catalog snapshot bytes and derives
+their existing digest/key;
+its concrete supported provenance/caps and executable plan received owner approval
+on 2026-11-08, recorded on #1548.
 No tombstone, catalog, selection, approval, storage or runtime consumer is included.
 A launch integration still needs real adapter mapping, required delivery,
 #742/#610 authority and applicable storage/source qualifications. No global
