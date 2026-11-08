@@ -147,15 +147,24 @@ technical amendments are not broadened, and no new producer/source/storage or
 native guarantee is approved. The acceptance record and issue handoff complete
 this specification; no further general research loop is required.
 
-The next code-sized unit can be an isolated data-only configuration validator/
-canonical renderer with deterministic fixtures and explicit version coverage.
-It would not create sessions/worktrees, grant authority, call models, mutate user
-settings, add endpoints, choose storage or enable a role. Its exact module/API,
-version subset and tests require a separately reviewed executable plan and issue
-before code. A launch integration additionally needs the real adapter mapping,
-required delivery, #742/#610 authority and applicable storage/source qualifications.
-No global storage/native proof campaign is a prerequisite to accepting this
-logical core, and no runtime grant follows from that acceptance.
+The original next unit was an isolated data-only validator/canonical renderer.
+Its supplied-instruction portion shipped in [#1305](https://github.com/Rambolarsen/orkworks/pull/1305)
+for #1303. Later dormant source-only slices shipped in
+[#1315](https://github.com/Rambolarsen/orkworks/pull/1315) (retained root v2, #1307)
+and [#1349](https://github.com/Rambolarsen/orkworks/pull/1349) (selected child source
+pair, #1345). These do not constitute a full configuration codec or native support.
+Do not repeat those completed units based on this earlier handoff.
+
+The next proposed data-only validation slice is
+[#1548](https://github.com/Rambolarsen/orkworks/issues/1548), the
+[retirement-artifact snapshot plan](../plans/2026-11-08-role-retirement-artifacts.md).
+It validates supplied catalog snapshot bytes and derives their existing digest/key;
+its concrete supported provenance/caps and executable plan await owner approval.
+No tombstone, catalog, selection, approval, storage or runtime consumer is included.
+A launch integration still needs real adapter mapping, required delivery,
+#742/#610 authority and applicable storage/source qualifications. No global
+storage/native proof campaign is a prerequisite to accepting this logical core,
+and no runtime grant follows from that acceptance.
 
 ## Written review disposition
 
