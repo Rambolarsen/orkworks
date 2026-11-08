@@ -51,7 +51,7 @@ the later bounded plan after these contracts close.
 owner. Written evidence belongs beside the canonical maintenance contract/audit,
 not a second independent status ledger.
 
-- [ ] For every audit family, pin the current source and exact existing admission,
+- [x] For every audit family, pin the current source and exact existing admission,
   captured root/incarnation, retained handles, completion path and readiness path.
   Name missing operations as required unavailable interfaces; do not substitute
   a proposed signature, counter or test fixture for a known runtime capability.
@@ -154,3 +154,22 @@ Fresh plan review and changed-scope acceptance/authority review found no materia
 findings. The Ready disposition is limited to step 1's written investigation;
 no unknown owner/native/resource/rollback input was promoted to qualified, and
 unchanged accepted design reviews were reused.
+
+
+## Written investigation result — 2026-11-08
+
+[#1544](https://github.com/Rambolarsen/orkworks/issues/1544) records the
+[source-pinned owner-interface investigation](../../validation/backup-maintenance-writer-audit.md#owner-interface-investigation--2026-11-08)
+at `1ab168d35a2cfd8689d82f984b52a0fad278f765`. The first inventory task above
+is complete as a written investigation: existing handles, original-job recipes,
+state mapping and precise unavailable operations are recorded beside the audit.
+The historical audit pin is preserved. The new owned recommendation reopen path
+is local evidence; it does not establish production adoption or complete release.
+
+Remaining step 1 boxes stay open: documenting missing registration, finite-job
+settlement and readiness integration does not implement or close those actual
+owner contracts. Steps 2–3 stay blocked on those capabilities and qualified
+physical/native/resource/restore evidence. **Disposition: written investigation
+delivered; Investigate for actual contract closure and implementation.** No
+runtime operations or product tests were executed and no execution budget was
+created. The accepted maintenance design and its approval remain unchanged.
