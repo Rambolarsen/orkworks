@@ -1,10 +1,10 @@
 ---
 type: Design Contract
 title: Bounded cleanup binding and recommendation settlement
-description: Proposed finite reservation, deadline and truthful completion rules for detached cleanup binding and contended recommendation settlement.
+description: Accepted conditional reservation, deadline and truthful completion rules for detached cleanup binding and contended recommendation settlement.
 tags: [orkworks, sessions, backup, maintenance, resources]
-status: draft
-workflow_status: proposed-owner-review
+status: stable
+workflow_status: accepted-for-qualification
 ---
 
 # Bounded cleanup binding and recommendation settlement
@@ -15,14 +15,14 @@ Consumes the accepted [maintenance admission](2026-11-08-backup-maintenance-admi
 and [registration/settlement](2026-11-08-maintenance-registration-settlement-design.md)
 designs and [constructor/ingress evidence](../../validation/backup-maintenance-writer-audit.md#constructor-ingress-and-completion-coverage--2026-11-08).
 Existing backup purposes, v1 bytes, restore/marker authority and no-automatic-stop
-rules remain unchanged. This proposal narrows two missing finite-job contracts;
+rules remain unchanged. This design narrows two missing finite-job contracts;
 it does not qualify the whole producer catalog or supply capture resource fit.
 
 Source pin: `a0404c2aa7eae301aad754bb6444de2f9742aa36`. Source was read only.
 No product test, SQL/native/model execution, live process/metadata inspection,
 stop/capture/restore, new execution allowance or implementation is authorized.
 
-## Proposed choices
+## Accepted choices for further qualification
 
 1. Reserve the complete per-job resource vector and independently retained result/
    protection record before dispatch or the first durable delivery reservation.
@@ -36,8 +36,11 @@ stop/capture/restore, new execution allowance or implementation is authorized.
    that, expiry or ambiguous delivery retains a blocked obligation for explicit
    resolution. Settlement never resends input.
 
-These choices remain proposed for owner review. The small fixed attempt graph
-is a policy recommendation, not a measured throughput/time/resource allowance.
+After #1560, the owner answered “go ahead” to the explicit three-choice approval
+request. [#1561](https://github.com/Rambolarsen/orkworks/issues/1561) records
+acceptance of these unchanged choices for further qualification on 2026-11-08.
+Reuse this approval with the accepted maintenance/registration/backup/adoption/v1
+rules. The fixed attempt graph is not a measured throughput/time/resource allowance.
 Numeric profile values remain unavailable until their actual owners qualify them.
 
 ## Actual controls and missing guarantees
@@ -196,7 +199,7 @@ confirmed versus unknown input; event failure after graph settlement; switched
 root and owner loss; hung teardown; and fresh explicit resolution without resend.
 These are required oracles, not executed tests or a probe allowance.
 
-Approval would accept the three policy choices for further qualification. Actual
+Acceptance covers the three unchanged policy choices for further qualification. Actual
 numeric limits/deadlines and enforcement, producer operations, delivery evidence,
 full registry/native/external/restore readiness and physical fit stay unavailable
 until qualified. The [qualification plan](../plans/2026-11-08-backup-maintenance-qualification.md)
