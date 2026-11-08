@@ -1873,6 +1873,23 @@ establishes only data preservation and point-in-time validation; source-origin
 producers, publication/deletion ordering, provenance-aware cleanup, action and
 startup routing remain unqualified. Production remains JSON.
 
+The accepted [observation origin contract](../superpowers/specs/2026-11-08-sql-observation-origin-capture.md)
+now has a private data codec and strict descriptor-relative reader under
+`workflow_observations/sql_origin`. New tags retain original scope/creation and
+an exact observation-value digest; legacy records stay unqualified. The reader
+never calls the tolerant legacy opener, repairs tails, creates directories or
+writes counters. On macOS/Linux it rejects nonregular/linked entries and pins
+reads to the supplied directory descriptor; other platforms return Unsupported.
+Expected scope is supplied data, not SQL currentness or publication authority.
+
+A captured read request keeps its original deadline and reserves a full existing
+file-job slot. Returned data retains that reservation until dropped. Inventory,
+line, segment, aggregate byte and compact result caps are independent; refusals
+return no partial snapshot. The source-only reader still requires the separately
+qualified original owner/operation grant before actual SQL input use. No
+production claim constructor, shared-mode/legacy opener change, final-scan
+producer, Workflow deletion integration or assessment activation is present.
+
 ## Recommendation cleanup preflight
 
 The source-only `RecommendationStore::capture_cleanup` copies memory only.

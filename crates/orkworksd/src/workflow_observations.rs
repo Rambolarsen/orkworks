@@ -180,7 +180,7 @@ pub(crate) struct WorkflowObservation {
 /// On-disk representation of one accepted observation: the public record
 /// plus the internal idempotency fields. `idempotency_key_hash` and
 /// `payload_hash` are never exposed through `workspace_observations()`.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 struct StoredObservation {
     #[serde(flatten)]
@@ -191,7 +191,7 @@ struct StoredObservation {
 
 /// Compact record kept only long enough to preserve the 15-minute retry
 /// window for an observation that bounded trimming has already evicted.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 struct Tombstone {
     idempotency_key_hash: String,
@@ -3375,3 +3375,6 @@ fn forget_session(inner: &mut StoreInner, session_id: &str) {
     inner.idempotency.retain(|(sid, _), _| sid != session_id);
     inner.diagnostics.remove(session_id);
 }
+
+// Data-only until the separately qualified SQL observation owner is integrated.
+pub(crate) mod sql_origin;

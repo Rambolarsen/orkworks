@@ -1,19 +1,20 @@
 ---
 type: Design
 title: SQL workflow observation origin capture
-description: Proposed original-owner capture and durable observation provenance without legacy backfill or assessment activation.
+description: Accepted original-owner capture and durable observation provenance without legacy backfill or assessment activation.
 tags: [orkworks, sqlite, observations, provenance, ownership]
-status: draft
-workflow_status: owner-decision-pending
+status: stable
+workflow_status: accepted
 ---
 
 # SQL workflow observation origin capture
 
 Parent: [#1243](https://github.com/Rambolarsen/orkworks/issues/1243).
 Inspection base: `d4565340052e21d3de97128091908c513ee0d5b4` (#1551).
-This is a proposed prerequisite, not implementation approval. Reuse the accepted
+The owner accepted this concrete design and plan after #1554 on 2026-11-08,
+replying “go ahead” to the explicit private-implementation question. Reuse the accepted
 [assessment provenance contract](2026-11-08-sql-assessment-source-provenance.md).
-It remains accepted; this proposal selects the first actual origin owner and a
+It remains accepted; this contract selects the first actual origin owner and a
 new private observation representation and operation boundary.
 
 ## Outcome and scope
@@ -248,7 +249,7 @@ fixtures, real SQL, reopened owners and bounded stalls. No live user history,
 installed harness, power-loss, performance or production behavior is qualified
 by this document or its example JSON.
 
-The proposed decision is: accept the new tagged origin/tombstone representation
+The accepted decision covers the new tagged origin/tombstone representation
 and bounds, original-before-inference capture, and shared SQL admission/legacy
 refusal policy for source-only implementation. Recommendation and readiness
 origin contracts remain separate; assessment scheduling/publication, actions,

@@ -419,3 +419,13 @@ pub(crate) use organization::RecommendationCleanupAdmission;
 
 mod opening;
 pub(crate) use opening::RecommendationOpenAdmission;
+
+// Narrow retained accounting for the source-only strict observation reader.
+pub(crate) struct ObservationReadCapacity {
+    _reservation: file_budget::Reservation,
+}
+pub(crate) fn reserve_observation_read() -> Result<ObservationReadCapacity, StoreError> {
+    Ok(ObservationReadCapacity {
+        _reservation: file_budget::reserve(file_budget::MAX_BYTES)?,
+    })
+}
