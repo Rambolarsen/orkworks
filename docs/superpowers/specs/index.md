@@ -281,3 +281,5 @@ Dated design records; these do not establish current product behavior.
 - [Complete session backup and same-version restore](2026-11-07-session-backup-restore-contract.md) — Accepted-for-qualification quiescent complete-set scope, purpose-bound bundles, damaged-state preservation and fenced restore; actual owner/physical gates remain.
 
 - [Backup bundle and owner evidence v1](2026-11-08-backup-bundle-evidence-v1.md) — Accepted exact private layout, streamed inventories, purpose-bound evidence and acyclic manifest/seal for further qualification; producer and physical gates remain.
+
+- [Backup maintenance admission and physical settlement](2026-11-08-backup-maintenance-admission-design.md) — Proposed per-root job ownership, closure/drain/Q and explicit validated release; actual module/native/resource qualification remains.
