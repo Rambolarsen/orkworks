@@ -244,3 +244,15 @@ Actual truthful outcome transport, retained result/root ownership, full finite
 resource enforcement and compatible deadline/notification operations remain
 unavailable. No remaining qualification checkbox is completed, no physical fit
 is claimed, and no runtime execution or implementation allowance follows.
+
+
+## Terminal/application outcome interface proposal — 2026-11-08
+
+[#1569](https://github.com/Rambolarsen/orkworks/issues/1569) provides the
+[private outcome interface proposal](../specs/2026-11-08-terminal-input-outcome-interface-design.md)
+for an original submission record retaining direct writer facts, distinct input
+truth/physical/application settlement, and rich recommendation consumption without
+resend. Its three choices remain proposed for owner review. Accepted no-resend,
+retained ownership and finite deadline/settlement policy stand. No actual outcome
+transport, numeric reservation/enforcement or physical readiness is qualified by
+the proposed record; all remaining qualification boxes and execution gates stand.
