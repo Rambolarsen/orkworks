@@ -20,6 +20,7 @@ test('keeps a missing implementation step visible and disabled without hiding th
  const html=render({...data,steps:[data.steps[0],{kind:'implementation',available:false,pinned:false}]});
  assert.match(html,/Design the work/);assert.match(html,/Implementation plan/);assert.match(html,/No document found yet/);
  assert.match(html,/<button[^>]*disabled[^>]*data-document-kind="implementation"|<button[^>]*data-document-kind="implementation"[^>]*disabled/);
+ assert.equal((html.match(/No document found yet/g)||[]).length, 1);
 });
 test('missing pinned documents stay visibly unavailable and can return to latest',()=>{
  const html=render({...data,notice:'Branch history unavailable',steps:[{...data.steps[1],available:false}]});

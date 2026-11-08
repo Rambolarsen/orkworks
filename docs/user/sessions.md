@@ -196,9 +196,10 @@ or Actions overlay hides it without interrupting the clicked control.
 Pinned inspectors stay open. Narrow windows keep the temporary inspector page.
 This describes current source builds; published installers may differ.
 
-Details starts with a session menu: **Plan** and **Changes** open in the main
+Details starts with a session menu: **Changes** and any legacy **Plan** open in the main
 view, while **Activity** shows recent checkpoints inside the panel. Choose
-**Session menu** to return from Activity. Expand **Session info** for metadata,
+**Session menu** to return from Activity. Expand **Design & plan** to find branch
+documents, or **Session info** for metadata,
 title editing, Git facts, and independent review. Changing the inspected session
 returns to the menu with Session info collapsed.
 
@@ -351,16 +352,17 @@ page, `Ctrl+Alt+Y` / `Ctrl+Alt+E` line by line, and `Ctrl+Alt+U` /
 
 ## Read a plan
 
-In current source builds, Details shows **Design & plan** as two ordered steps:
+In current source builds, expand **Design & plan** in Details to see two ordered steps:
 **Design / specification**, then **Implementation plan**. Select either available
-document to read it in the main work area. Sessions using the same repository
+document to read it in the main work area. The section starts collapsed and
+matches the Changes and Activity rows. Sessions using the same repository
 and branch share the pair. OrkWorks can recover documents from local branch
 history and uncommitted changes when an agent report was missed; unchanged
 documents inherited from the base branch are not automatically attached.
 
 Each step defaults to its latest document. Selecting a terminal document link
 pins that step; **Use latest** restores automatic discovery. A missing step or
-unavailable pinned file remains visible. The source disclosure explains how the
+unavailable pinned file remains visible when the section is expanded. The source disclosure explains how the
 document was found. These steps display documents only: the coding workflow
 owns approval, completion and execution gates. Older documents remain accessible
 through Changes. Published installers may predate this source behavior.
