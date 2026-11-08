@@ -416,3 +416,6 @@ mod delete_recommendation_tests;
 #[cfg(test)]
 pub(crate) use organization::trusted_cleanup_admission_fixture;
 pub(crate) use organization::RecommendationCleanupAdmission;
+
+mod opening;
+pub(crate) use opening::RecommendationOpenAdmission;

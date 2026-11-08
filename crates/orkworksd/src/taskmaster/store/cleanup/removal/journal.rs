@@ -35,6 +35,14 @@ pub(crate) struct SqlCleanupClaim {
 /// Admitted SQL work; not constructible from an identity or journal bytes.
 pub(crate) struct SqlCleanup(SqlCleanupClaim);
 impl SqlCleanupClaim {
+    /// Opening grants no exact-job cleanup authority and performs no file I/O.
+    pub(crate) fn admit_open(
+        self,
+        _proof: crate::session_application::sql_writes::RecommendationOpenAdmission,
+    ) -> RecommendationStore {
+        self.operation.revoke_legacy();
+        self.binding.0.store.clone()
+    }
     /// Consume the opaque proof minted by checked application admission; callers
     /// cannot replace workspace/lease/delivery/cancellation checks with a callback.
     pub(crate) fn admit(
@@ -96,6 +104,13 @@ impl BoundCleanup {
         }
         #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         Err(unsupported())
+    }
+    /// Read-only original binding validation under the retained operation.
+    pub(crate) fn claim_sql_open(&self) -> Result<SqlCleanupClaim, StoreError> {
+        let claim = self.claim_sql_cleanup()?;
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        unix::current(&self.0).map_err(StoreError::Io)?;
+        Ok(claim)
     }
     // Trusted store-layer fixture only; production must hand off checked admission.
     #[cfg(test)]

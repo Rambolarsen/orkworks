@@ -393,7 +393,7 @@ async fn sql_hook_relay_rejects_stale_context_after_a_stalled_metadata_read() {
             );
         }
         if change == "workspace" {
-            crate::test_support::swap_workspace(&state, dir.path());
+            crate::test_support::replace_sql_workspace_context(&state, dir.path());
         }
         drop(paused);
         assert_eq!(

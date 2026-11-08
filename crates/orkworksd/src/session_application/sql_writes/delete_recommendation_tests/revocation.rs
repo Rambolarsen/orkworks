@@ -248,7 +248,7 @@ async fn sql_cleanup_cancelled_or_expired_admission_preserves_legacy_authority()
 }
 
 #[tokio::test]
-async fn sql_cleanup_progress_failure_then_last_owner_loss_is_explicitly_not_fenced() {
+async fn sql_cleanup_progress_failure_then_owner_worker_and_lease_reopen_stays_sql_owned() {
     let _serial = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (_dir, state, store, writes) = deleted().await;
     let files = seed(&state);
@@ -273,28 +273,70 @@ async fn sql_cleanup_progress_failure_then_last_owner_loss_is_explicitly_not_fen
         files.put(&stale),
         Err(RecommendationError::SqlAuthorityRequired)
     ));
-    state.workspace.lock().unwrap().take();
+    let old = state.workspace.lock().unwrap().take().unwrap();
+    let workspace_path = old.path.clone();
+    drop(blocker);
+    store.close().await.unwrap();
     drop(files);
     drop(writes);
-    let reopened = tokio::time::timeout(std::time::Duration::from_secs(2), async {
-        loop {
-            match RecommendationStore::open(path.clone()) {
-                Ok(files) => break files,
-                Err(RecommendationError::SqlAuthorityRequired | RecommendationError::Busy) => {
-                    tokio::task::yield_now().await
-                }
-                Err(error) => panic!("unexpected reopen error: {error}"),
-            }
-        }
-    })
+    drop(store);
+    drop(old);
+    assert!(matches!(
+        RecommendationStore::open(path.clone()),
+        Err(RecommendationError::SqlAuthorityRequired)
+    ));
+    let lease = Arc::new(WorkspaceLease::acquire(&path).unwrap());
+    let opened = super::super::opening::SqlRecommendationWorkspace::open(
+        state.clone(),
+        path.clone(),
+        workspace_path.to_string_lossy().into_owned(),
+        lease.clone(),
+    )
     .await
     .unwrap();
-    // Negative qualification case: fresh Legacy ownership can recreate bytes.
-    // Live SQL startup/reopen must close this gap before activation.
-    reopened.put(&stale).unwrap();
-    assert!(path.join("recommendations/a.json").exists());
-    assert_eq!(progress(&store).await, 0);
-    store.close().await.unwrap();
+    assert!(matches!(
+        opened.recommendations.list(),
+        Err(RecommendationError::SqlAuthorityRequired)
+    ));
+    assert_eq!(progress(&opened.store).await, 0);
+    // This fixture adopts only the returned private candidate; the opener
+    // itself never selects production SQL or replaces an active workspace.
+    let adopted_root = opened.store.location().0.to_path_buf();
+    assert_eq!(adopted_root, std::fs::canonicalize(&path).unwrap());
+    *state.workspace.lock().unwrap() = Some(WorkspaceState {
+        path: workspace_path,
+        metadata: metadata::MetadataStore::new(&adopted_root),
+        workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
+            adopted_root,
+        )
+        .unwrap(),
+        recommendation_store: opened.recommendations.clone(),
+        lease: Some(opened.lease.clone()),
+        evaluation_revocation: None,
+    });
+    let writes = SessionWrites::bind(state.clone(), opened.store.clone()).unwrap();
+    let receipt = writes
+        .capture_deletion(ID.into(), CREATED.into())
+        .await
+        .unwrap()
+        .remove_recommendations()
+        .await
+        .unwrap();
+    assert!(receipt.files.is_ok(), "{:?}", receipt.files);
+    assert!(matches!(receipt.progress, Some(Ok(16))));
+    assert!(!path.join("recommendations/a.json").exists());
+    assert_eq!(progress(&opened.store).await, 16);
+    assert_eq!(
+        opened
+            .store
+            .pending_deletions(None, 100)
+            .await
+            .unwrap()
+            .jobs
+            .len(),
+        1
+    );
+    opened.store.close().await.unwrap();
 }
 
 fn delivery_runtime(

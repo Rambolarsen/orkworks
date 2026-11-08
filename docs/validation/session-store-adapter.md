@@ -1662,10 +1662,24 @@ Existing graph/recovery/failure/caller-loss tests remain and use independent raw
 file assertions after intentional legacy read refusal. Executed counts and current
 review evidence belong to the implementation plan and PR.
 
-The owner-loss fixture deliberately demonstrates the missing qualification:
-file work can succeed, SQL progress fail, all owner references disappear and a
-fresh Legacy owner recreate removed bytes while the durable job remains pending.
-This is not fixed by the first process-local step. Live SQL cleanup stays blocked
-until qualified startup/reopen preserves or refuses pending-job authority; complete
-SQL-aware producers, finalization, backup/migration and activation remain gates.
-No measured latency, physical power-loss or installed behavior change is claimed.
+The original #1534 owner-loss fixture demonstrated file success, failed SQL
+progress and fresh Legacy publication after recommendation owners disappeared.
+The worker remained available in that original counterexample. The
+[accepted reopen prerequisite](../superpowers/specs/2026-11-08-sql-recommendation-reopen.md)
+now adds a two-name constructor refusal floor and separate private SQL candidate
+opening. Its extended fixture closes/drops the original worker and owners,
+releases/reacquires the lease, refuses fresh legacy opening beside retained SQL
+evidence, adopts the returned canonical candidate only inside the fixture and
+retries the exact pending job without finalization.
+
+Focused opening tests cover zero/all-bits-set pending jobs, no recommendation
+file effects, wrong workspace/root/lease, header epoch changes, application and
+physical directory replacement, Busy and in-flight delivery, caller loss before
+and after revocation, retained worker/lease settlement and free shared guards.
+Constructor tests preserve malformed graph/journal bytes and cover each evidence
+name/type, dangling entries, aliases, permission/inspection failure and Busy
+precedence. Executed final counts and current review evidence belong to the
+implementation plan/PR. This does not qualify the complete #1244 evidence resolver,
+production format/adoption route, SQL-aware producers, finalization, other external
+recovery or backup/migration. No measured latency, physical power-loss or installed
+behavior change is claimed; production remains JSON.

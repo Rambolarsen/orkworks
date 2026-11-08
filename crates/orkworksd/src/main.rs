@@ -807,6 +807,20 @@ pub(crate) mod test_support {
         state.bump_harness_probe_generation();
     }
 
+    /// Invalidate a SQL fixture's application generation without a legacy open.
+    /// Retain its original recommendation owner: this creates no replacement
+    /// file/cleanup authority and leaves the production constructor gate intact.
+    pub(crate) fn replace_sql_workspace_context(state: &AppState, path: &std::path::Path) {
+        let mut guard = state.workspace.lock().unwrap();
+        let workspace = guard.as_mut().expect("SQL fixture has a workspace");
+        assert_eq!(workspace.path, path);
+        workspace.metadata = metadata::MetadataStore::new(&workspace.metadata.root_path());
+        workspace.lease = None;
+        workspace.evaluation_revocation = None;
+        drop(guard);
+        state.bump_harness_probe_generation();
+    }
+
     pub(crate) fn test_session_info(
         id: impl Into<String>,
         label: impl Into<String>,

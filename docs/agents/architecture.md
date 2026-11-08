@@ -1831,11 +1831,30 @@ caller loss retain revocation. SQL retry rechecks original authority and uses
 its distinct private admission path. Legacy clones and independent canonical-root
 opens cannot bypass the retained owner's mode.
 
-Complete producer qualification still requires SQL-aware publication and qualified
-startup/reopen handling of pending jobs. After every owner reference drops, the
-weak registry can create a fresh Legacy owner, even when file work completed but
-SQL progress failed. This is an explicit negative qualification case, not restart
-safety. Live SQL cleanup and production activation remain gated.
+The weak registry remains process-local: without durable format evidence, a new
+owner can be Legacy after every reference drops. The accepted
+[reopen prerequisite](../superpowers/specs/2026-11-08-sql-recommendation-reopen.md)
+adds a constructor refusal floor: any non-followed `format.json` or `session-store`
+entry denies legacy opening before effects, and inspection errors never count as
+absence. The same constructor covers independent assessment access. This is not
+the complete staging/cutover evidence resolver required by #1244.
+
+The private `sql_writes::opening` candidate opens only an existing SQL store,
+checks its typed epoch/workspace header and original root/lease binding, then
+claims and revokes the recommendation owner before returning it. It rejects
+changed application context and in-flight delivery; SQL/file waits occur outside
+application guards. The candidate retains its native root identity and lease;
+the worker also retains the lease until its connection closes, including caller
+loss. Opening grants no cleanup authority, sets no progress and changes no active
+workspace. A future startup router must provide qualified format selection and
+adoption. Exact pending-job retry still uses its separately captured admission.
+
+The copied-fixture owner-loss case now closes the original SQL worker, releases
+and reacquires the lease, refuses legacy opening, adopts the canonical returned
+candidate in the fixture and retries the pending recommendation stage. Complete
+SQL-aware producers/provenance, pre-legacy workspace routing, other external
+recovery owners, finalization and backup/migration remain activation gates.
+Production remains JSON; no physical power-loss or live startup claim follows.
 
 ## Recommendation cleanup preflight
 

@@ -313,7 +313,7 @@ async fn native_sql_queued_effect_rechecks_every_runtime_boundary() {
             }
         }
         if change == "workspace" {
-            crate::test_support::swap_workspace(&state, dir.path());
+            crate::test_support::replace_sql_workspace_context(&state, dir.path());
         }
         drop(lane);
         drop(reservation);

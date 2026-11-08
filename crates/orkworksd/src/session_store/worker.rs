@@ -27,6 +27,7 @@ enum Command {
         intent: Box<InternalMutation>,
     },
     Get(String),
+    OpeningIdentity,
     OrganizationState(String),
     PendingDeletions(Option<DeletionCursor>, usize),
     DeletionRecord(String, String),
@@ -88,7 +89,8 @@ enum Command {
 impl Command {
     fn is_read(&self) -> bool {
         match self {
-            Self::Get(_)
+            Self::OpeningIdentity
+            | Self::Get(_)
             | Self::OrganizationState(_)
             | Self::PendingDeletions(..)
             | Self::DeletionRecord(..)
@@ -119,6 +121,7 @@ impl Command {
         match self {
             Self::Get(_) | Self::Patch { .. } => MAX_RECORD,
             Self::OrganizationState(_) | Self::DeletionRecord(..) => MAX_RECORD + 4096,
+            Self::OpeningIdentity => 64,
             Self::PendingDeletions(..) => 256 * 1024,
             // Canonical record plus JSON-escaped creation/session proof and decision.
             Self::Internal { .. } | Self::OwnedAttention { .. } => MAX_RECORD + 4096,
@@ -153,6 +156,7 @@ impl Command {
                 Ok(Reply::Unit)
             }
             Self::Get(id) => Ok(Reply::Detail(db.get(&id)?)),
+            Self::OpeningIdentity => Ok(Reply::OpeningIdentity(db.opening_identity()?)),
             Self::OrganizationState(id) => {
                 Ok(Reply::OrganizationState(db.organization_state(&id)?))
             }
@@ -222,6 +226,7 @@ impl Command {
 #[derive(Debug)]
 enum Reply {
     Unit,
+    OpeningIdentity(OpeningIdentity),
     Internal(InternalMutationResult),
     OwnedAttention(Option<(serde_json::Value, super::AttentionProof)>),
     Detail(Option<serde_json::Value>),
@@ -645,7 +650,22 @@ impl SessionStore {
         Self::start(root, workspace, false).await
     }
     async fn start(root: PathBuf, workspace: String, create: bool) -> Result<Self> {
-        let mut startup = Self::launch(root.clone(), workspace.clone(), create)?;
+        Self::start_leased(root, workspace, create, None).await
+    }
+    pub(crate) async fn open_leased(
+        root: PathBuf,
+        workspace: String,
+        lease: Arc<crate::workspace_runtime::WorkspaceLease>,
+    ) -> Result<Self> {
+        Self::start_leased(root, workspace, false, Some(lease)).await
+    }
+    async fn start_leased(
+        root: PathBuf,
+        workspace: String,
+        create: bool,
+        lease: Option<Arc<crate::workspace_runtime::WorkspaceLease>>,
+    ) -> Result<Self> {
+        let mut startup = Self::launch_leased(root.clone(), workspace.clone(), create, lease)?;
         (&mut startup.ready)
             .await
             .map_err(|_| StoreError::Unavailable)??;
@@ -657,7 +677,16 @@ impl SessionStore {
             workspace,
         })
     }
+    #[cfg(test)]
     fn launch(root: PathBuf, workspace: String, create: bool) -> Result<Startup> {
+        Self::launch_leased(root, workspace, create, None)
+    }
+    fn launch_leased(
+        root: PathBuf,
+        workspace: String,
+        create: bool,
+        lease: Option<Arc<crate::workspace_runtime::WorkspaceLease>>,
+    ) -> Result<Startup> {
         let shared = Arc::new(Shared {
             queue: Mutex::new(Queue::default()),
             ready: Condvar::new(),
@@ -691,7 +720,8 @@ impl SessionStore {
                         let _ = ready_tx.send(Err(error));
                     }
                 }
-                // Connection is dropped before maintenance/shutdown can continue.
+                // Connection and startup lease are settled before close completes.
+                drop(lease);
                 let _ = finished_tx.send(true);
             })?;
         Ok(Startup {
@@ -1008,6 +1038,12 @@ impl SessionStore {
             .await?
         {
             Reply::Unit => Ok(()),
+            _ => Err(StoreError::Unavailable),
+        }
+    }
+    pub(crate) async fn opening_identity(&self) -> Result<OpeningIdentity> {
+        match self.request(Command::OpeningIdentity).await? {
+            Reply::OpeningIdentity(identity) => Ok(identity),
             _ => Err(StoreError::Unavailable),
         }
     }

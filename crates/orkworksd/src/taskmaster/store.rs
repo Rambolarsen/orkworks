@@ -1,4 +1,6 @@
 mod cleanup;
+#[cfg(test)]
+mod reopen_tests;
 #[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
 pub(crate) mod sql_cleanup_test_gate;
 pub(crate) use cleanup::{BoundCleanup, JournalReceipt, SqlCleanup};
@@ -186,6 +188,15 @@ impl RecommendationStore {
         let root = root_for_open(&root).map_err(StoreError::Io)?;
         let owner = operation::for_root(&root)?;
         let _operation = owner.claim()?;
+        // Existing cutover evidence forbids legacy recovery even when no
+        // process-local SQL owner survived. Never follow dangling entries.
+        for name in ["format.json", "session-store"] {
+            match fs::symlink_metadata(root.join(name)) {
+                Ok(_) => return Err(StoreError::SqlAuthorityRequired),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(StoreError::Io(error)),
+            }
+        }
         fs::create_dir_all(&root).map_err(StoreError::Io)?;
         if fs::canonicalize(&root).map_err(StoreError::Io)? != root {
             return Err(StoreError::Recovery(
