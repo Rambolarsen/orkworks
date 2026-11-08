@@ -285,3 +285,5 @@ Dated design records; these do not establish current product behavior.
 - [Backup bundle and owner evidence v1](2026-11-08-backup-bundle-evidence-v1.md) — Accepted exact private layout, streamed inventories, purpose-bound evidence and acyclic manifest/seal for further qualification; producer and physical gates remain.
 
 - [Backup maintenance admission and physical settlement](2026-11-08-backup-maintenance-admission-design.md) — Accepted per-root job ownership, closure/drain/Q and explicit validated release for further qualification; actual module/native/resource gates remain.
+
+- [Complete maintenance registration and original-job settlement](2026-11-08-maintenance-registration-settlement-design.md) — Proposed private producer catalog, root registrations and retained finite completion ownership; actual integration and physical qualification remain gated.
