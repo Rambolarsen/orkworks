@@ -192,3 +192,20 @@ finite resource contracts against this accepted design, starting with exact
 constructor/ingress coverage and retained SQL publication/cleanup completion
 owners. This plan supplies no new execution allowance. Missing actual operations
 remain unavailable; acceptance does not make a hypothetical catalog executable.
+
+
+## Constructor and completion coverage result — 2026-11-08
+
+[#1556](https://github.com/Rambolarsen/orkworks/issues/1556) adds
+[concrete entry/owner coverage](../../validation/backup-maintenance-writer-audit.md#constructor-ingress-and-completion-coverage--2026-11-08)
+at source `f5013bb189bfc6bb3155ed7b2cacc447e3069813`. Production open has effects
+before workspace installation; direct metadata HTTP, integration-derived
+revocation and background/global producers require coverage beyond an application
+facade. Private SQL handles remain source-only. Cleanup binding can outlive its
+async timeout; recommendation BUSY settlement has no finite maintenance wait
+bound. Both require actual retained completion and resource/deadline contracts.
+
+No remaining checkbox is completed: these exact insertion/transfer inputs do not
+implement the actual complete registration or finite-job settlement operations.
+Disposition remains Investigate for dependent implementation; unchanged accepted
+choices are reused. No runtime execution or new numerical allowance was supplied.

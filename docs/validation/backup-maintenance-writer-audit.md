@@ -223,3 +223,115 @@ Fresh source-fidelity and independent coverage/authority reviews found no materi
 findings in this supplementary investigation. They checked the actual pinned
 interfaces and the limited written-inventory completion; neither review executed
 runtime operations or qualified the remaining owner/profile inputs.
+
+
+## Constructor, ingress and completion coverage — 2026-11-08
+
+Tracking: [#1556](https://github.com/Rambolarsen/orkworks/issues/1556).
+Source pin: `f5013bb189bfc6bb3155ed7b2cacc447e3069813`.
+This follows the now [accepted registration/settlement design](../superpowers/specs/2026-11-08-maintenance-registration-settlement-design.md)
+and records concrete integration inputs without changing that design. Earlier
+sections keep their own historical pins. Paths and line references in this
+section refer to this new pin. Source was read only; no product test, runtime,
+SQL/native/model probe, installed-state inspection or live recovery was executed.
+
+**Finding:** registration cannot be added only at `WorkspaceState` installation,
+HTTP dispatch or `SessionApplication::new`. Setup already mutates before the
+workspace exchange, metadata HTTP has a direct store path, and background/global
+producers are started independently. Original-root admission must precede each
+physical dispatch/effect, retain the exact domain context, and cover the local
+completion owner until physical return. The following mapping identifies
+necessary routes; it is not an executable or qualified closed catalog.
+
+### Constructor and root binding
+
+| Exact constructor/source | Observed ordering and required integration input |
+| --- | --- |
+| [main.rs](../../crates/orkworksd/src/main.rs), 273–327 | Production `AppState` starts with `workspace: None`, then spawns Peon, periodic Taskmaster evaluation, retention and one-shot GC independently. A registration owner must exist before producers can dispatch root-affecting jobs; an active-workspace constructor alone cannot account for startup GC/global work. Current startup supplies no such owner. |
+| [session_handlers.rs](../../crates/orkworksd/src/http/session_handlers.rs), 236–295 | `/workspace` resolves `WorkspaceIdentity`, compares the requested identity and calls `open_workspace_with_identity`. After successful open it can await integration reconciliation. HTTP completion therefore spans more than installing the workspace. HTTP dispatch itself supplies no retained root/job claim. |
+| [session_application.rs](../../crates/orkworksd/src/session_application.rs), 3514–3602 | `open_workspace_inner` holds projection, resolves the selected repository path and global metadata directory, acquires/reuses the global `WorkspaceLease`, creates metadata directories/origin, constructs or reopens metadata ownership, acquires memory edit and runs migration. Registration at the later `workspace.replace` misses these effects. The repository identity and metadata-root lease are distinct captured inputs; neither proves ownership of a retained local adoption source or restore destination. |
+| [metadata.rs](../../crates/orkworksd/src/metadata.rs), 1327–1350 | `MetadataStore::new` constructs workspace-memory, shared session write locks/reader, branch documents, hook observations, organization and checkpoint owners. `reopen_with_shared_workspace_memory` rebuilds the other owners but shares the memory owner. Registration cannot assume all owner identities survive a same-path reopen. Required owner-incarnation/lease checks remain separate from path equality. |
+| [session_application.rs](../../crates/orkworksd/src/session_application.rs), 3653–3758 | Preflight opens observations/recommendations, reads sessions and scrubs recommendation orphans before the exchange; evaluation revocation is closed, context rechecked, observations reopened and `workspace.replace` installs the owners. Orphan metadata and recommendation execution reconciliation follow. These reads/open/recovery operations can write; the exchange is not the first effect or a complete readiness acknowledgement. Retired resources are retained by the enclosing open path. |
+| [opening.rs](../../crates/orkworksd/src/session_application/sql_writes/opening.rs), `SqlRecommendationWorkspace::open`; [scoped guide](https://github.com/Rambolarsen/orkworks/blob/f5013bb189bfc6bb3155ed7b2cacc447e3069813/crates/orkworksd/AGENTS.md) | The SQL candidate is privately owned and deliberately not adopted into `AppState`. Production open above constructs legacy metadata/observation/recommendation owners, not this candidate. SQL tests/local handles cannot stand in for production format selection, complete startup registration or original-store readiness. |
+
+The accepted startup rule still requires blocked/unverified registration before
+ordinary writers become available. Current open is a mutating legacy workflow,
+not that qualified startup operation. A future constructor change must admit its
+exact startup/recovery effects separately, preserve existing domain checks and
+retained owners, and leave ordinary scheduling closed until actual readiness.
+This investigation does not authorize that change or invent a provisional native
+identity for a nonexistent output directory.
+
+### Concrete ingress routes and completion owners
+
+| Entry / exact source | Current downstream ownership and coverage obligation |
+| --- | --- |
+| Session create/resume/delete/forget, active session/harnesses — [session_handlers.rs](../../crates/orkworksd/src/http/session_handlers.rs), 326–442, 551–581; [application](../../crates/orkworksd/src/session_application.rs), `create_session`, `resume_session`, `delete_session`, `forget_session` | Application workflows own launch, organization and durable cleanup. Existing request return or session-state publication cannot replace original lifecycle/finalization job tracking. Scope must include setup/image publication and any delayed launch/failure callback before runtime adoption. |
+| Agent metadata read/patch — [session_metadata_handlers.rs](../../crates/orkworksd/src/http/session_metadata_handlers.rs), 57–138, 210–245 | HTTP spawns blocking `perform` directly; it locks workspace then sessions, checks live token/record identity and calls `validate_agent_patch` or `apply_agent_patch`. It does not pass through `SessionApplication`. The blocking closure captures `AppState`, not an original root claim. Future capture/register/revalidate must preserve the exact selected context; gating only the HTTP method or application facade misses this route. Read/quarantine classification still belongs to the actual reader. |
+| Harness identity/attention and local relay — [session_handlers.rs](../../crates/orkworksd/src/http/session_handlers.rs), `report_harness_session_with_headers`, `report_harness_session_from_local_relay`, `report_attention_route`; [identity completion](../../crates/orkworksd/src/session_application/identity_completion.rs) | Application identity merge has a separate completion/publication owner and may schedule label refresh. Relay authentication/currentness is local domain admission, not maintenance closure. Original identity publication and later refresh need finite declared completion ownership; excluded hook-spool bytes do not exclude downstream session effects. |
+| Agent observation — [workflow_observation_handlers.rs](../../crates/orkworksd/src/http/workflow_observation_handlers.rs), `report_workflow_observation` | Authentication/rate/idempotency validation delegates persistence to `record_agent_workflow_observation`, then can schedule evaluation. Observation publication and new evaluation are distinct admissions; an old observation claim cannot authorize a fresh analysis after Closing. |
+| Session title — [session_title_handlers.rs](../../crates/orkworksd/src/http/session_title_handlers.rs), 21–43; [titles.rs](../../crates/orkworksd/src/session_application/titles.rs), `session_title` | HTTP dispatches blocking application title mutation. The blocking owner must retain admission/completion even if the handler waiter is dropped; its current identity checks are retained rather than replaced. |
+| Document content/latest/review and session listing — [branch_documents_handlers.rs](../../crates/orkworksd/src/http/branch_documents_handlers.rs), `content`, `use_latest`, `review`; [branch application](../../crates/orkworksd/src/branch_documents_application.rs), `read_document_content`, `reset_document_pin`, `request_document_review`; [projection](../../crates/orkworksd/src/session_projection.rs), 640–671 | Content/latest use blocking application work; listing prepares scans and invokes branch projection under current-owner checks. Branch association/reconciliation and metadata/read-derived mutations require coverage even on GET/list paths. HTTP method names cannot establish inertness. |
+| Terminal WebSocket/output/size/ending — [router](../../crates/orkworksd/src/main.rs), `/sessions/:id/terminal`; [runtime](../../crates/orkworksd/src/runtime/session_runtime.rs), `persist_writer`; [application](../../crates/orkworksd/src/session_application.rs), `append_terminal_output_batch`, `trim_terminal_output`, `persist_terminal_size_with_snapshot`; [ending_completion.rs](../../crates/orkworksd/src/session_application/ending_completion.rs), 106–130 | Persistence drain/trim and ending's owned blocking completion are later boundaries than a socket response or live status. Ending returns separate replay/metadata/event/publication outcomes; a compatibility publication boolean is no durability promise. Maintenance still rejects active/pending runtimes without stopping them. |
+| Peon/provider callbacks — [main startup](../../crates/orkworksd/src/main.rs), 301–307; [Peon runtime](../../crates/orkworksd/src/runtime/peon_runtime.rs); [application](../../crates/orkworksd/src/session_application.rs), `persist_peon_observation`, `persist_final_peon_scan`, `record_peon_workflow_observations` | Background attempts and blocking post-processing have their own currentness checks. Register actual work before physical dispatch and track completion after callback return; production scheduling has no qualified maintenance pause/drain operation. Test shutdown is not that operation. |
+| Taskmaster manual/periodic/delivery — [taskmaster_handlers.rs](../../crates/orkworksd/src/http/taskmaster_handlers.rs), `analyze_taskmaster`, `assess_workflow`, recommendation action handlers; [main.rs](../../crates/orkworksd/src/main.rs), 310–314; [delivery](../../crates/orkworksd/src/session_application/recommendation_delivery.rs), `settle_recommendation_delivery` | Application graph updates, model scheduling and delivery/event settlement are separate physical work. Delivery retains original target/guard while repeatedly waiting for BUSY ownership to clear; that loop has no finite maintenance wait bound. It cannot be labelled a qualified finite continuation without closing its actual bound/unknown disposition. |
+| Retention, observation spam cleanup and GC — [retention.rs](../../crates/orkworksd/src/runtime/retention.rs), `retention_cleanup_task`, `delete_session_evidence`; [GC](../../crates/orkworksd/src/runtime/workspace_gc.rs), `gc_stale_workspaces_task` | Retention separately invokes spam cleanup. Legacy `delete_session_evidence` removes observation/events/settings/images/metadata/organization and retries recommendation cleanup once; it is not the SQL deletion job protocol. Startup GC dispatches blocking root removal outside current workspace selection. All need actual original scope/completion coverage. |
+| Integration mutations and inspection-derived revocation — [integration application](../../crates/orkworksd/src/harness_integration_application.rs), `mutate`, `list_workspace`, `reconcile_unreferenced`; [workspace response](../../crates/orkworksd/src/http/session_handlers.rs), 283–295 | Install/repair/uninstall and reconciliation are separate owners; even inspection/list can revoke stale prompt authority. They capture integration metadata as well as external configuration. Classify actual workspace metadata effects versus excluded repository/native/global bytes; exclusion cannot silently bypass root-affecting consequences. No repository/native backup scope is added. |
+| Workspace settings/images and global producer changes — [router](../../crates/orkworksd/src/main.rs), 368–550; [application](../../crates/orkworksd/src/session_application.rs), `set_active_session`, `set_active_harnesses_at`; [image owner](../../crates/orkworksd/src/image_context/storage.rs) | Existing workspace-memory and private image locks own their files. Global provider/harness/settings routes are not automatically part of the backup, but any follow-on workspace writes/launch/publication still require actual admission. A global-settings-only exclusion is not proof of no captured-root effect. |
+
+This is concrete routing evidence, not a claim that a router listing enumerates
+all native or installed producers. Every affected constructor, direct store caller,
+background callback and owner-specific child remains a required integration check.
+Empty namespaces still need their actual owner. Unsupported external direct
+writers, root alias/overlap, installed helper state and descendant quiescence
+remain unavailable physical/profile inputs.
+
+### Exact retained SQL completion transfers
+
+These private source paths are integration inputs; none is production routing:
+
+- In [sql_writes.rs](../../crates/orkworksd/src/session_application/sql_writes.rs),
+  173–197 and 240–343, the owned async task takes the original lane/lease into
+  `RuntimeWriteResources`, enqueues and concurrently waits for execution/currentness
+  and `InternalMutationTicket::finish`. Grant execution runs after shared guards
+  release. `InternalCompletion` moves into `current_async`'s blocking closure,
+  whose `_completion` outlives the guarded publication. The outer task sends the
+  final `Outcome` through a oneshot; lost reply delivery does not create a retained
+  maintenance result record. The required integration retains the obligation and
+  actual outcome across that entire chain, including detached publication and
+  no-document/failed-projection paths, rather than equating ticket completion with
+  outer completion.
+- In [deletion.rs](../../crates/orkworksd/src/session_application/sql_writes/deletion.rs),
+  196–258, `capture_deletion` captures original context, reserves file capacity and
+  spawns blocking lease-bound cleanup binding. A two-second timeout stops awaiting
+  the binding handle; it does not cancel its blocking work. Its binding resources
+  remain with that closure until it returns. This pre-stage work also needs an
+  independently retained completion obligation; tracking only `remove_*` misses it.
+- In the same file, 296–423, a stage's blocking closure owns capacity, original
+  lane, reservation/lease and cleanup guards through actual file removal and SQL
+  progress, then computes detachment and sends the result. The result channel is
+  a waiter-delivery mechanism, not an application-owned settlement ledger. Missing
+  progress after real removal remains a separate recovery/protection obligation.
+  Each stage awaits its own progress attempt before returning; this does not
+  enforce ordering against every SQL close path. The accepted design requires
+  the future outer-job coordinator to settle those continuations before close.
+- [opening.rs](../../crates/orkworksd/src/session_application/sql_writes/opening.rs)
+  retains an owned opening task/candidate and closes on failed delivery/error after
+  worker open. Complete release still needs production adoption and all-owner
+  readiness. The accepted partial-readiness rule retains already prepared/reopened
+  handles while Blocked until actual safe teardown or qualified resolution.
+
+**Disposition:** exact source entry and retained-owner inputs are documented.
+Actual complete constructor/ingress registration, finite producer recipes and
+application-owned outcome retention remain unavailable. The binding timeout and
+BUSY delivery loop are explicit inputs to resource/deadline qualification, not
+new allowances. The accepted qualification plan's remaining producer/physical/
+readiness boxes stay open. Next work must close actual enforcement and finite
+resource ownership before a bounded implementation handoff; no model-only
+catalog, sampled zero count or mock drained response satisfies that gate.
+
+Fresh independent coverage/authority review found no material gap in this bounded
+mapping. Source-fidelity review identified wording that could imply global SQL
+close ordering already exists; it now distinguishes the per-stage progress wait
+from the required, unavailable outer-job/close integration. Neither review supplies
+physical/native evidence or changes accepted authority.
