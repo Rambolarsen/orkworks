@@ -1,21 +1,22 @@
 ---
 type: Implementation Plan
 title: SQL assessment provenance qualification plan
-description: Proposed strict provenance data and typed SQL qualification prerequisite without enabling assessment publication.
+description: Approved strict provenance data and typed SQL qualification prerequisite without enabling assessment publication.
 tags: [orkworks, sqlite, assessments, provenance, plan]
 status: draft
-workflow_status: owner-decision-pending
+workflow_status: implementation-complete
 ---
 
 # SQL assessment provenance qualification plan
 
 Tracking: [#1243](https://github.com/Rambolarsen/orkworks/issues/1243).
-Spec: [proposed source contract](../specs/2026-11-08-sql-assessment-source-provenance.md).
+Spec: [accepted source contract](../specs/2026-11-08-sql-assessment-source-provenance.md).
 Base: `1ab168d35a2cfd8689d82f984b52a0fad278f765`.
 Pass condition: exact original source data survives a format4 pending record,
 SQL close/reopen and validation; reused/tombstoned/foreign/unqualified sources
 fail visibly without record or recommendation effects. This is a data/validation
-prerequisite, not a runnable SQL assessment producer. Owner decision pending.
+prerequisite, not a runnable SQL assessment producer. Owner accepted after #1546 with “keep going” on 2026-11-08;
+execute inline within this bounded private scope.
 
 ## Investigated uncertainty and scope
 
@@ -42,17 +43,17 @@ Finite independent caps, explicit refusal and no route activation bound the work
 
 ## Bounded implementation after acceptance
 
-- [ ] Record the owner's one decision in the design/plan and dated ADR0103
+- [x] Record the owner's one decision in the design/plan and dated ADR0103
   clarification before source implementation. Existing storage/reopen acceptance
   remains valid; it does not accept this new wire format by itself.
-- [ ] Add a focused private source-provenance module near assessment_report with
+- [x] Add a focused private source-provenance module near assessment_report with
   strict schema/canonical validation, fixed digest bytes and128-pair/16KiB limits.
   Keep parsed data distinct from original-input claims and any application grant.
   Production origin-claim construction remains unavailable; trusted fixture
   construction is cfg(test) only. Golden vectors cover empty/one/maximal short
   pair sets, exact hashes, sorting, duplicate/conflicting IDs, unknown/duplicate
   fields, noncanonical UUID/hash, malformed/oversized IDs and both byte boundaries.
-- [ ] Extend AssessmentRecord/AssessmentProvenance and AssessmentStore validation
+- [x] Extend AssessmentRecord/AssessmentProvenance and AssessmentStore validation
   for format4/optional readiness and exact report/pending/source consistency.
   Existing1–3 serialization/recovery stays unchanged; SQL-specific use validation
   rejects their missing proof without invoking legacy recovery. Cover every state,
@@ -64,7 +65,7 @@ Finite independent caps, explicit refusal and no route activation bound the work
   source-copy mismatch,64KiB total overflow, failed save and record byte preservation.
   Round-trip a pending record and a surviving recommendation after latest-report
   replacement; source provenance must not disappear with the report.
-- [ ] Add typed private capture/validate commands in session_store/worker and a
+- [x] Add typed private capture/validate commands in session_store/worker and a
   focused owning module. Consume original epoch/workspace scope and expected
   pairs; compare the current header to that scope before producing provenance,
   never initialize original scope from current SQL. Check exact live rows within
@@ -74,13 +75,13 @@ Finite independent caps, explicit refusal and no route activation bound the work
   with identical IDs/creations, closed/archived eligibility,
   empty-set header validation, busy/corrupt/unavailable/queue expiry and unchanged
   parsed source bytes after failure. No schema change or raw SQL interface.
-- [ ] Compose copied-fixture qualification: capture trusted original input claims,
+- [x] Compose copied-fixture qualification: capture trusted original input claims,
   serialize a format4 pending record, close the worker, reopen, validate the exact
   saved object and compare bytes. Between phases inject source deletion/recreation,
   epoch replacement (including equal source IDs/creations) and inaccessible SQL. Assert no recommendation I/O, no source
   refresh, no pending-state completion and no inference dispatch. Keep legacy
   input refusal explicit even if its output card has no visible session IDs.
-- [ ] Update canonical assessment/architecture/validation claims with actual
+- [x] Update canonical assessment/architecture/validation claims with actual
   evidence, run scoped and full repository verification, current-diff manual
   review and required CI, then complete the normal PR/owned cleanup lifecycle.
   Do not claim source-origin producer, publication/deletion race or live startup
@@ -116,4 +117,31 @@ Bounded builder follow-up: Ready; both corrections close the identified gaps,
 with no remaining material completeness issue. Final corrected-doc build passed
 all1,202 documentation tests, metadata/index validation and VitePress links/build.
 Existing circular-chunk/bundle warnings concern unchanged assets. This review
-record adds no runtime or physical qualification. Owner decision remains pending.
+record adds no runtime or physical qualification. The owner accepted the concrete contract after #1546; the private implementation is complete.
+
+
+## Implementation evidence
+
+The private codec, format4 record boundary and typed worker commands are now
+implemented. Focused qualification passed all 84 assessment tests, including the
+strict codec and record cases; real SQL source checks passed 3 tests and worker
+admission/failure checks passed 2 tests. Independent one/maximal-source digest
+vectors supplement the empty vector. Exact 16 KiB provenance and 64 KiB complete
+record boundaries accept; one extra byte refuses without replacing prior bytes.
+The duplicate-parent legacy source-field regression was observed failing before
+the stream scanner fix. A second behavioral regression exposed missing pending
+readiness equality/capability checks; format4 now mirrors those existing checks.
+
+Fresh manual medium reviews cover source/authority correctness and SQL worker/
+integration completeness. The initial source review was clear; bounded follow-up
+confirmed the readiness gap and approved its narrow correction. The final scoped
+assessment suite passed 84 tests after that fix; the final normal Rust build and
+format check passed. Full repository verification passed 3,255 Rust unit tests
+(18 ignored), 7 integration tests, 31 reporter tests, 1 native ABI test, 1,709 desktop
+tests (3 skipped), 1,202 documentation tests, desktop/docs builds and currency
+checks. The full run began before the narrow readiness correction; the final
+focused suite and build cover that correction and the added no-proposal case.
+Both manual review scopes are APPROVE on the final code snapshot. Documentation
+currency suggestions need no public guide/README edits: canonical architecture,
+ADR and validation claims changed, while installed/runtime behavior is unchanged.
+The PR conversation records CI, terminal-state and owned cleanup evidence.

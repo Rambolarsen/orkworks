@@ -6,6 +6,7 @@ mod internal_mutations;
 pub(crate) use conditional_attention::AttentionProof;
 #[allow(unused_imports)] // Internal API becomes a production path only at qualified cutover.
 pub(crate) use internal_mutations::InternalMutationResult;
+mod assessment_sources;
 mod deletion_recovery;
 mod queries;
 #[allow(unused_imports)] // Source-only recovery interface until qualified cutover.

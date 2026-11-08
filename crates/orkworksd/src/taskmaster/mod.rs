@@ -6,6 +6,7 @@ pub(crate) mod assessment_discovery;
 mod assessment_failure;
 pub(crate) mod assessment_model;
 pub(crate) mod assessment_report;
+pub(crate) mod assessment_sources;
 pub(crate) mod assessment_store;
 pub(crate) mod audit;
 mod child_sources;
@@ -198,6 +199,8 @@ pub(crate) struct KnowledgeEvidence {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct AssessmentProvenance {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sql_sources: Option<assessment_sources::SqlAssessmentSources>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub readiness_reference: Option<readiness_focus::RecommendationReadinessReference>,
     #[serde(default)]

@@ -1683,3 +1683,32 @@ implementation plan/PR. This does not qualify the complete #1244 evidence resolv
 production format/adoption route, SQL-aware producers, finalization, other external
 recovery or backup/migration. No measured latency, physical power-loss or installed
 behavior change is claimed; production remains JSON.
+
+
+## SQL assessment source data qualification
+
+The [accepted provenance contract](../superpowers/specs/2026-11-08-sql-assessment-source-provenance.md)
+has a private strict codec, format4 record reader and typed worker capture and
+validation commands. Original-input claims have a test-only fixture constructor;
+parsed source data cannot mint one. Empty, one-source and maximal short-source
+canonical digests use independently computed SHA-256 vectors. Codec tests cover
+strict fields, sorted unique pairs, canonical identity, 128-source and exact 16 KiB
+limits; complete records retain the 64 KiB cap and atomic-save preservation.
+
+Real SQLite tests cover exact creation, missing/tombstoned/reused sources,
+live-row/deletion-job inconsistency, original epoch/workspace mismatch including
+empty sets, and unchanged closed/archived eligibility. Worker tests cover read
+admission, complete result reservation, queue expiry, busy, unavailable and corrupt
+storage. Copied pending fixtures capture original claims, save, close/reopen and
+validate without changing saved bytes or pending state; changed creation,
+tombstone or epoch refuses validation, and unavailable SQL refuses reopening.
+They create no recommendations and invoke no inference producer.
+
+Legacy formats1–3 reject raw top-level and nested reserved SQL fields, including
+null and duplicate-parent hiding. Legacy readers, publication and recovery refuse
+format4 before callbacks; the SQL data reader refuses legacy and redacted context.
+Pending source-copy mismatches fail without replacing prior bytes. Published
+recommendation metadata round-trips its complete provenance independently of the
+latest report. These are source-only data and point-in-time validation tests;
+production source-origin capture, publication/deletion ordering, source-aware
+cleanup/action checks, activation and physical recovery remain unqualified.

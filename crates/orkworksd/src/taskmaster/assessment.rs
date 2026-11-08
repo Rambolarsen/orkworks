@@ -704,6 +704,7 @@ pub(crate) fn schedule(
     let now = chrono::Utc::now().to_rfc3339();
     let id = format!("assessment-{}", uuid::Uuid::new_v4());
     let record = super::assessment_report::AssessmentRecord {
+        sql_sources: None,
         readiness_reference: None,
         format_version: 2,
         input_manifest: None,
@@ -1970,6 +1971,7 @@ fn build_assessment_recommendation(
         .expect("validated proposed assessment");
     Recommendation {
         assessment: Some(AssessmentProvenance {
+            sql_sources: None,
             readiness_reference: snapshot.readiness_focus.as_ref().map(|focus| focus.cited_reference(&snapshot.evaluation, &response.knowledge_page_ids).expect("validated readiness citations")),
             id: assessment_id.into(),
             input_fingerprint: snapshot.fingerprint.clone(),
@@ -2404,6 +2406,7 @@ mod tests {
 
         let lease = runtime.try_analysis_lease().unwrap().unwrap();
         let record = AssessmentRecord {
+            sql_sources: None,
             readiness_reference: None,
             format_version: 2,
             input_manifest: None,
@@ -2530,6 +2533,7 @@ pub(crate) fn run_fresh_under_lease(
     }
     let expected_key = expected_evaluation.cache_key("")?;
     let mut record = AssessmentRecord {
+        sql_sources: None,
         readiness_reference: Some(readiness_reference),
         format_version: 3,
         input_manifest: None,

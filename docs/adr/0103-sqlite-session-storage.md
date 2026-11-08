@@ -230,3 +230,18 @@ activation is accepted. #1244 still owns complete evidence resolution, qualified
 format-2 validation and pre-legacy production startup routing; SQL-aware
 producers, all external recovery owners, finalization and backup/migration gates
 remain. Production stays JSON.
+
+## Clarification — 2026-11-08: retained SQL assessment provenance
+
+The owner accepted the [source-provenance contract](../superpowers/specs/2026-11-08-sql-assessment-source-provenance.md)
+and [qualification plan](../superpowers/plans/2026-11-08-sql-assessment-source-provenance.md)
+after #1546, replying “keep going” to the explicit implementation request.
+Format4 binds original epoch/workspace, assessment/input identity and sorted
+source creations, with 128-pair/16 KiB provenance and existing 64 KiB record limits.
+Legacy/unproven sources cannot be backfilled; top-level and nested SQL fields
+are rejected on legacy formats, including null. The first accepted runtime
+slice is strict data, SQL-use refusal and typed worker/copied-fixture validation.
+No production origin-claim constructor, observation wire upgrade, recommendation
+I/O bypass, SQL publication/recovery route or activation is accepted. Actual
+origin producers and publication/deletion/cleanup/action integration, qualified
+startup, backup/migration and rollout remain separate gates. Production stays JSON.

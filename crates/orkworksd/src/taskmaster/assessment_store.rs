@@ -13,7 +13,38 @@ impl AssessmentStore {
             path: root.join("assessment.json"),
         }
     }
+    /// Existing callers are legacy owners and cannot replay format4.
     pub(crate) fn load<T: DeserializeOwned>(&self) -> Result<Option<T>, String> {
+        let Some(bytes) = self.read_bytes()? else {
+            return Ok(None);
+        };
+        let value: serde_json::Value =
+            serde_json::from_slice(&bytes).map_err(|_| "Assessment report is invalid")?;
+        if value
+            .get("formatVersion")
+            .and_then(serde_json::Value::as_u64)
+            == Some(4)
+        {
+            return Err("SQL assessment requires a qualified reader".into());
+        }
+        serde_json::from_slice(&bytes)
+            .map(Some)
+            .map_err(|_| "Assessment report is invalid".into())
+    }
+    /// Parsed data only. The caller must separately validate SQL and ownership.
+    #[cfg_attr(not(test), allow(dead_code))] // Data reader; no production SQL route yet.
+    pub(crate) fn load_sql(
+        &self,
+    ) -> Result<Option<super::assessment_report::AssessmentRecord>, String> {
+        let Some(bytes) = self.read_bytes()? else {
+            return Ok(None);
+        };
+        let record: super::assessment_report::AssessmentRecord =
+            serde_json::from_slice(&bytes).map_err(|_| "Assessment report is invalid")?;
+        record.sources_for_sql_validation()?;
+        Ok(Some(record))
+    }
+    fn read_bytes(&self) -> Result<Option<Vec<u8>>, String> {
         let file = match std::fs::File::open(&self.path) {
             Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -24,9 +55,7 @@ impl AssessmentStore {
             .read_to_end(&mut bytes)
             .map_err(|_| "Assessment report could not be read")?;
         validate_bytes(&bytes)?;
-        serde_json::from_slice(&bytes)
-            .map(Some)
-            .map_err(|_| "Assessment report is invalid".into())
+        Ok(Some(bytes))
     }
     pub(crate) fn save<T: Serialize>(&self, value: &T) -> Result<(), String> {
         let bytes = serde_json::to_vec(value).map_err(|_| "Assessment report cannot be encoded")?;
@@ -63,6 +92,14 @@ fn validate_bytes(bytes: &[u8]) -> Result<(), String> {
     }
     let value: serde_json::Value =
         serde_json::from_slice(bytes).map_err(|_| "Assessment report is invalid")?;
+    if value
+        .get("formatVersion")
+        .and_then(serde_json::Value::as_u64)
+        .is_some_and(|v| (1..=3).contains(&v))
+        && contains_sql_source_field(bytes)?
+    {
+        return Err("Legacy assessment contains SQL source fields".into());
+    }
     match value
         .get("formatVersion")
         .and_then(serde_json::Value::as_u64)
@@ -72,7 +109,7 @@ fn validate_bytes(bytes: &[u8]) -> Result<(), String> {
                 return Err("Legacy assessment contains unsupported fields".into());
             }
         }
-        Some(2 | 3) => {
+        Some(2 | 3 | 4) => {
             let record: super::assessment_report::AssessmentRecord = serde_json::from_slice(bytes)
                 .map_err(|_| "Assessment record has an invalid shape")?;
             record.validate_format()?;
@@ -80,6 +117,76 @@ fn validate_bytes(bytes: &[u8]) -> Result<(), String> {
         _ => return Err("Assessment report version is unsupported".into()),
     }
     Ok(())
+}
+
+// Walk the reserved paths in the original stream: Value would discard earlier
+// duplicate parents, potentially hiding a forbidden field from a legacy reader.
+fn contains_sql_source_field(bytes: &[u8]) -> Result<bool, String> {
+    use serde::de::{DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor};
+    struct Probe<'a> {
+        level: u8,
+        found: &'a mut bool,
+    }
+    impl<'de> DeserializeSeed<'de> for Probe<'_> {
+        type Value = ();
+        fn deserialize<D: serde::Deserializer<'de>>(self, de: D) -> Result<(), D::Error> {
+            de.deserialize_any(self)
+        }
+    }
+    impl<'de> Visitor<'de> for Probe<'_> {
+        type Value = ();
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("JSON data")
+        }
+        fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<(), M::Error> {
+            while let Some(key) = map.next_key::<String>()? {
+                if matches!(self.level, 0 | 2) && key == "sqlSources" {
+                    *self.found = true;
+                    map.next_value::<IgnoredAny>()?;
+                } else if (self.level == 0 && key == "pendingRecommendation")
+                    || (self.level == 1 && key == "assessment")
+                {
+                    map.next_value_seed(Probe {
+                        level: self.level + 1,
+                        found: &mut *self.found,
+                    })?;
+                } else {
+                    map.next_value::<IgnoredAny>()?;
+                }
+            }
+            Ok(())
+        }
+        fn visit_seq<S: SeqAccess<'de>>(self, mut seq: S) -> Result<(), S::Error> {
+            while seq.next_element::<IgnoredAny>()?.is_some() {}
+            Ok(())
+        }
+        fn visit_unit<E: serde::de::Error>(self) -> Result<(), E> {
+            Ok(())
+        }
+        fn visit_bool<E: serde::de::Error>(self, _: bool) -> Result<(), E> {
+            Ok(())
+        }
+        fn visit_i64<E: serde::de::Error>(self, _: i64) -> Result<(), E> {
+            Ok(())
+        }
+        fn visit_u64<E: serde::de::Error>(self, _: u64) -> Result<(), E> {
+            Ok(())
+        }
+        fn visit_f64<E: serde::de::Error>(self, _: f64) -> Result<(), E> {
+            Ok(())
+        }
+        fn visit_str<E: serde::de::Error>(self, _: &str) -> Result<(), E> {
+            Ok(())
+        }
+    }
+    let mut found = false;
+    Probe {
+        level: 0,
+        found: &mut found,
+    }
+    .deserialize(&mut serde_json::Deserializer::from_slice(bytes))
+    .map_err(|_| "Assessment report is invalid".to_string())?;
+    Ok(found)
 }
 
 #[cfg(test)]
@@ -219,6 +326,30 @@ mod tests {
 mod format_tests {
     use super::*;
     #[test]
+    fn legacy_source_fields_are_rejected_before_null_collapses_or_bytes_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = AssessmentStore::new(dir.path());
+        let (record, _) = crate::taskmaster::assessment_report::tests::proposal();
+        let value = serde_json::to_value(record).unwrap();
+        store.save(&value).unwrap();
+        let before = std::fs::read(dir.path().join("assessment.json")).unwrap();
+        for nested in [false, true] {
+            let mut invalid = value.clone();
+            if nested {
+                invalid["pendingRecommendation"]["assessment"]["sqlSources"] =
+                    serde_json::Value::Null;
+            } else {
+                invalid["sqlSources"] = serde_json::Value::Null;
+            }
+            assert!(store.save(&invalid).is_err(), "nested={nested}");
+            assert_eq!(
+                std::fs::read(dir.path().join("assessment.json")).unwrap(),
+                before
+            );
+        }
+    }
+
+    #[test]
     fn format_two_requires_a_bounded_manifest_and_legacy_rejects_new_fields() {
         let dir = tempfile::tempdir().unwrap();
         let workspace = tempfile::tempdir().unwrap();
@@ -263,3 +394,6 @@ mod format_tests {
         assert!(store.save(&value).is_err());
     }
 }
+
+#[cfg(test)]
+pub(crate) mod sql_source_tests;

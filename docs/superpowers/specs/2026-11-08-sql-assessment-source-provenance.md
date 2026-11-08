@@ -1,17 +1,19 @@
 ---
 type: Design
 title: SQL assessment source provenance
-description: Proposed bounded durable source-creation representation and refusal policy for retained SQL assessment results.
+description: Accepted bounded durable source-creation representation and refusal policy for retained SQL assessment results.
 tags: [orkworks, sqlite, assessments, provenance, recovery]
-status: draft
-workflow_status: owner-decision-pending
+status: stable
+workflow_status: accepted
 ---
 
 # SQL assessment source provenance
 
 Tracking: [#1243](https://github.com/Rambolarsen/orkworks/issues/1243).
 Inspection base: `1ab168d35a2cfd8689d82f984b52a0fad278f765` (#1543).
-Owner decision pending. This selects a private data/validation prerequisite;
+Owner accepted this concrete format and refusal policy after #1546 on
+2026-11-08 by answering “keep going” to the explicit implementation request.
+This selects a private data/validation prerequisite;
 it does not enable SQL assessment capture, publication, recovery or production.
 
 ## Outcome and verified gap
