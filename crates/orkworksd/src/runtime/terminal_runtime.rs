@@ -1047,10 +1047,10 @@ fn mark_committed_input_working(
         handle.runtime.active_prompt_kind,
         Some(crate::runtime::session_runtime::RuntimePromptKind::Permission)
     ) && validated_harness_prompt;
-    let is_elicitation = matches!(
-        handle.runtime.active_prompt_kind,
-        Some(crate::runtime::session_runtime::RuntimePromptKind::Elicitation)
-    );
+    let is_elicitation = handle
+        .runtime
+        .active_prompt_kind
+        .is_some_and(crate::runtime::session_runtime::RuntimePromptKind::is_elicitation);
     let permission_owned = codex_permission_owned || harness_permission_owned;
     let attention_source = handle
         .info
@@ -1060,7 +1060,7 @@ fn mark_committed_input_working(
         .or(handle.info.metadata_source.as_deref());
     let single_key_policy = match handle.runtime.active_prompt_kind {
         Some(crate::runtime::session_runtime::RuntimePromptKind::Permission) => permission_owned,
-        Some(crate::runtime::session_runtime::RuntimePromptKind::Elicitation) => false,
+        Some(_) => false,
         None => {
             permission_owned
                 || matches!(

@@ -128,6 +128,7 @@ session_start_event=""
 session_start_observed_at=""
 session_source=""
 prompt_notification_type=""
+claude_prompt_event_valid="no"
 prompt_observed_at=""
 codex_attention="no"
 codex_capture_only="no"
@@ -160,9 +161,9 @@ case "$marker" in
     # is non-whitespace, so `read` preserves empty fields correctly.
     claude_fields="$(
       printf '%s' "$payload" |
-      python3 -c 'import json,sys; data=json.load(sys.stdin); event=sys.argv[1]; safe=lambda value: value if isinstance(value,str) and not any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in value) else ""; source=safe(data.get("source")) if event == "SessionStart" else ""; notification=safe(data.get("notification_type")) if event == "Notification" else ""; session_id=safe(data.get("session_id")).strip(); print("%s\x1f%s\x1f%s\x1f%s" % (safe(data.get("cwd")), session_id, source if source == "clear" else "", notification))' "$event" 2>/dev/null
+      python3 -c 'import json,sys; data=json.load(sys.stdin); event=sys.argv[1]; safe=lambda value: value if isinstance(value,str) and not any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in value) else ""; source=safe(data.get("source")) if event == "SessionStart" else ""; valid=data.get("hook_event_name") == event and event in ("Notification", "UserPromptSubmit"); notification=safe(data.get("notification_type")) if event == "Notification" and valid else ""; session_id=safe(data.get("session_id")).strip(); print("%s\x1f%s\x1f%s\x1f%s\x1f%s" % (safe(data.get("cwd")), session_id, source if source == "clear" else "", notification, "yes" if valid else "no"))' "$event" 2>/dev/null
     )" || true
-    IFS=$'\x1f' read -r reported_cwd harness_session_id session_start_source prompt_notification_type <<< "$claude_fields"
+    IFS=$'\x1f' read -r reported_cwd harness_session_id session_start_source prompt_notification_type claude_prompt_event_valid <<< "$claude_fields"
     if [ "$event" = "SessionStart" ] && [ "$session_start_source" = "clear" ]; then
       session_start_event="SessionStart"
     fi
@@ -428,10 +429,15 @@ fi
 # The sidecar keeps submissions inert until prompt authority has activated.
 prompt_notification_allowed="no"
 prompt_status="waiting_for_input"
-if [ "$session_source" = "claude_hook" ] && [ "$event" = "Notification" ]; then
+if [ "$session_source" = "claude_hook" ] && [ "$event" = "Notification" ] && [ "$claude_prompt_event_valid" = "yes" ]; then
   case "$prompt_notification_type" in
     permission_prompt|elicitation_dialog|elicitation_url_dialog) prompt_notification_allowed="yes" ;;
+    idle_prompt) prompt_notification_allowed="yes"; prompt_status="idle" ;;
+    elicitation_response|elicitation_complete) prompt_notification_allowed="yes"; prompt_status="working" ;;
   esac
+elif [ "$session_source" = "claude_hook" ] && [ "$event" = "UserPromptSubmit" ] && [ "$claude_prompt_event_valid" = "yes" ]; then
+  prompt_notification_allowed="yes"
+  prompt_status="working"
 elif [ "$session_source" = "copilot_hook" ] && [ "$event" = "notification" ]; then
   case "$prompt_notification_type" in
     permission_prompt|elicitation_dialog) prompt_notification_allowed="yes" ;;

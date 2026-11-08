@@ -865,7 +865,7 @@ mod tests {
     fn report_harness_event_posts_claude_prompt_only_after_registration_succeeds() {
         let trace = run_report_harness_event_sh_trace_with_args(
             "orkworks:harness-integration:v2:claude-code",
-            r#"{"session_id":"claude-native-1","notification_type":"permission_prompt"}"#,
+            r#"{"hook_event_name":"Notification","session_id":"claude-native-1","notification_type":"permission_prompt"}"#,
             &["--event", "Notification"],
         );
         let registration = trace.find("/harness-session").unwrap();

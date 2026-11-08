@@ -231,6 +231,15 @@ completion does not clear a prompt or establish that the main session is idle.
 Update an existing Copilot integration through Settings to add the submission
 hook; published installers may have earlier behavior.
 
+Current source builds also map Claude Code prompt submissions and clarification
+completion notifications. Once the integration has reported a prompt, submitting
+another prompt clears the prior wait. A completion report for one unambiguous
+clarification returns the session to working; overlapping prompts may remain
+**Needs You** until you submit a response. A delayed idle notification does not
+dismiss a pending clarification. Update an existing Claude integration through
+Settings to add submission reporting. Notification coverage remains limited;
+published installers may have earlier behavior.
+
 When a coding tool hits its provider's usage limit, its session row shows
 **Capped**, and the detail panel adds any reset hint the tool printed. In current
 source builds, the **New session** coding-tool selector also shows that hint

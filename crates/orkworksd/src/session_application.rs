@@ -3104,11 +3104,7 @@ impl SessionApplication {
                 committed.metadata.provenance.attention_origin;
             handle.info.provenance.attention_updated_at =
                 committed.metadata.provenance.attention_updated_at;
-            handle.runtime.active_prompt_kind = Some(
-                crate::runtime::session_runtime::RuntimePromptKind::from_notification_type(
-                    &queued.notification_type,
-                ),
-            );
+            handle.runtime.active_prompt_kind = Some(queued.prompt_kind);
         }
         handle.runtime.last_hook_attention_at = queued.observed_at;
         handle.runtime.last_hook_attention_sequence = Some(queued.receipt_sequence);
@@ -4685,23 +4681,25 @@ impl SessionApplication {
             cwd,
             token,
         } = request;
-        let (harness_id, prompt_wait, submitted_prompt) =
-            prompt_request_shape(source, event, notification_type, status)?;
+        let (harness_id, action) = prompt_request_shape(source, event, notification_type, status)?;
+        let prompt_wait = action == PromptEvent::Open;
         let generation = generation.ok_or(SessionError::EmptyBadRequest)?;
         let token = token.ok_or(SessionError::EmptyBadRequest)?;
-        if (!prompt_wait && !submitted_prompt)
-            || native_session_id.is_empty()
+        if native_session_id.is_empty()
             || !crate::runtime::terminal_runtime::verify_workflow_report_token(id, token)
         {
             return Err(SessionError::EmptyBadRequest);
         }
-        let observed_at = observed_at
-            .map(parse_hook_observed_at)
-            .transpose()
-            .map_err(|_| SessionError::EmptyBadRequest)?;
-        if harness_id == "copilot" && observed_at.is_none() {
-            return Err(SessionError::EmptyBadRequest);
-        }
+        // Claude supplies no source timestamp; preserve receipt order instead
+        // of treating an optional caller field as upstream timing evidence.
+        let observed_at = if harness_id == "copilot" {
+            Some(
+                parse_hook_observed_at(observed_at.ok_or(SessionError::EmptyBadRequest)?)
+                    .map_err(|_| SessionError::EmptyBadRequest)?,
+            )
+        } else {
+            None
+        };
 
         let _transition = crate::runtime::prompt_authority::transition_lock()
             .lock()
@@ -4762,26 +4760,48 @@ impl SessionApplication {
         }
         // A turn event cannot establish prompt authority or suppress Peon's
         // fallback through an attention write before the first real prompt.
-        if submitted_prompt && !authority.is_active(id) {
+        if !prompt_wait && !authority.is_active(id) {
             // Still retain the authenticated event order: asynchronous older
             // prompt notifications must not activate a superseded wait.
             handle.runtime.last_hook_attention_at = observed_at;
             handle.runtime.last_hook_attention_sequence = Some(receipt_sequence);
             return Ok(());
         }
-        let committed = merge_prompt_record(&workspace.metadata, id, submitted_prompt)?;
+        use crate::runtime::session_runtime::{ClaudeElicitation, RuntimePromptKind};
+        let current_kind = handle.runtime.active_prompt_kind;
+        let next_kind = match action {
+            PromptEvent::Open => Some(RuntimePromptKind::for_notification(
+                harness_id,
+                current_kind,
+                notification_type.expect("validated prompt type"),
+            )),
+            PromptEvent::Submitted => None,
+            PromptEvent::Idle if current_kind.is_some_and(RuntimePromptKind::is_elicitation) => {
+                return Ok(())
+            }
+            PromptEvent::Idle => None,
+            PromptEvent::ClearDialog
+                if current_kind
+                    == Some(RuntimePromptKind::ClaudeElicitation(
+                        ClaudeElicitation::Dialog,
+                    )) =>
+            {
+                None
+            }
+            PromptEvent::ClearUrl
+                if current_kind
+                    == Some(RuntimePromptKind::ClaudeElicitation(ClaudeElicitation::Url)) =>
+            {
+                None
+            }
+            PromptEvent::ClearDialog | PromptEvent::ClearUrl => return Ok(()),
+        };
+        let committed = merge_prompt_record(&workspace.metadata, id, action)?;
         if prompt_wait && !authority.activate(id, harness_id, generation, native_session_id) {
             return Err(SessionError::EmptyBadRequest);
         }
         handle.pending_work_signal = None;
-        apply_prompt_commit(
-            handle,
-            committed,
-            submitted_prompt,
-            notification_type,
-            observed_at,
-            receipt_sequence,
-        );
+        apply_prompt_commit(handle, committed, next_kind, observed_at, receipt_sequence);
         if let Some(cwd) = cwd.filter(|cwd| !cwd.is_empty()) {
             self.state
                 .peon
@@ -5659,33 +5679,53 @@ fn persist_lifecycle_transition(
     }
 }
 
-/// Validated request classification for one prompt attention notification.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PromptEvent {
+    Open,
+    Submitted,
+    Idle,
+    ClearDialog,
+    ClearUrl,
+}
+
+/// Exact event/status combinations from ADR 0073. Nothing else changes attention.
 fn prompt_request_shape(
     source: &str,
     event: Option<&str>,
     notification_type: Option<&str>,
     status: &str,
-) -> Result<(&'static str, bool, bool), SessionError> {
-    let (harness_id, event_name) = match source {
-        "claude_hook" => ("claude-code", "Notification"),
-        "copilot_hook" => ("copilot", "notification"),
+) -> Result<(&'static str, PromptEvent), SessionError> {
+    let (harness, action) = match (source, event, notification_type, status) {
+        (
+            "claude_hook",
+            Some("Notification"),
+            Some("permission_prompt" | "elicitation_dialog" | "elicitation_url_dialog"),
+            "waiting_for_input",
+        ) => ("claude-code", PromptEvent::Open),
+        ("claude_hook", Some("UserPromptSubmit"), None, "working") => {
+            ("claude-code", PromptEvent::Submitted)
+        }
+        ("claude_hook", Some("Notification"), Some("idle_prompt"), "idle") => {
+            ("claude-code", PromptEvent::Idle)
+        }
+        ("claude_hook", Some("Notification"), Some("elicitation_response"), "working") => {
+            ("claude-code", PromptEvent::ClearDialog)
+        }
+        ("claude_hook", Some("Notification"), Some("elicitation_complete"), "working") => {
+            ("claude-code", PromptEvent::ClearUrl)
+        }
+        (
+            "copilot_hook",
+            Some("notification"),
+            Some("permission_prompt" | "elicitation_dialog"),
+            "waiting_for_input",
+        ) => ("copilot", PromptEvent::Open),
+        ("copilot_hook", Some("userPromptSubmitted"), None, "working") => {
+            ("copilot", PromptEvent::Submitted)
+        }
         _ => return Err(SessionError::EmptyBadRequest),
     };
-    let notification_allowed = match (harness_id, notification_type) {
-        (
-            "claude-code",
-            Some("permission_prompt" | "elicitation_dialog" | "elicitation_url_dialog"),
-        ) => true,
-        ("copilot", Some("permission_prompt" | "elicitation_dialog")) => true,
-        _ => false,
-    };
-    let submitted_prompt = harness_id == "copilot"
-        && event == Some("userPromptSubmitted")
-        && status == "working"
-        && notification_type.is_none();
-    let prompt_wait =
-        event == Some(event_name) && status == "waiting_for_input" && notification_allowed;
-    Ok((harness_id, prompt_wait, submitted_prompt))
+    Ok((harness, action))
 }
 
 /// Stale-observed-at check against already-accepted hook receipts and commits.
@@ -5718,13 +5758,14 @@ fn prompt_stale(
 fn merge_prompt_record(
     metadata: &metadata::MetadataStore,
     id: &str,
-    submitted_prompt: bool,
+    action: PromptEvent,
 ) -> Result<Option<metadata::session_transactions::RevisionedSession>, SessionError> {
-    match if submitted_prompt {
-        metadata.merge_prompt_authority_work_record(id)
-    } else {
-        metadata.merge_prompt_authority_wait_record(id)
-    } {
+    let result = match action {
+        PromptEvent::Open => metadata.merge_prompt_authority_wait_record(id),
+        PromptEvent::Idle => metadata.merge_prompt_authority_idle_record(id),
+        _ => metadata.merge_prompt_authority_work_record(id),
+    };
+    match result {
         Ok(record) => Ok(record),
         Err(metadata::AttentionMergeResult::NotFound) => Err(SessionError::NotFound),
         Err(metadata::AttentionMergeResult::PersistFailed) => {
@@ -5738,8 +5779,7 @@ fn merge_prompt_record(
 fn apply_prompt_commit(
     handle: &mut SessionHandle,
     committed: Option<metadata::session_transactions::RevisionedSession>,
-    submitted_prompt: bool,
-    notification_type: Option<&str>,
+    next_kind: Option<crate::runtime::session_runtime::RuntimePromptKind>,
     observed_at: Option<chrono::DateTime<chrono::Utc>>,
     receipt_sequence: u64,
 ) {
@@ -5756,15 +5796,7 @@ fn apply_prompt_commit(
         handle.info.provenance.attention_origin = committed.metadata.provenance.attention_origin;
         handle.info.provenance.attention_updated_at =
             committed.metadata.provenance.attention_updated_at;
-        handle.runtime.active_prompt_kind = if submitted_prompt {
-            None
-        } else {
-            Some(
-                crate::runtime::session_runtime::RuntimePromptKind::from_notification_type(
-                    notification_type.expect("validated prompt notification type"),
-                ),
-            )
-        };
+        handle.runtime.active_prompt_kind = next_kind;
     }
     if let Some(observed_at) = observed_at {
         handle.runtime.last_hook_attention_at = Some(observed_at);

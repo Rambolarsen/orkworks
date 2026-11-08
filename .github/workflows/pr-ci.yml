@@ -264,6 +264,8 @@ jobs:
           }
       - name: Test owned short probe processes
         run: cargo test --locked --manifest-path crates/orkworksd/Cargo.toml probe_process -- --test-threads=1
+      - name: Test native Claude reporter event mapping
+        run: cargo test --locked --manifest-path crates/orkworksd/Cargo.toml --test claude_reporter_ps1
       - name: Run native custom inference transport
         run: cargo test --locked --manifest-path crates/orkworksd/Cargo.toml custom_inference
       - name: Test workspace update sockets and native metadata watcher

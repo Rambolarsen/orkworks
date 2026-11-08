@@ -488,12 +488,49 @@ impl ReplayBuffer {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ClaudeElicitation {
+    Dialog,
+    Url,
+    Ambiguous,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RuntimePromptKind {
     Permission,
     Elicitation,
+    ClaudeElicitation(ClaudeElicitation),
 }
 
 impl RuntimePromptKind {
+    pub(crate) fn is_elicitation(self) -> bool {
+        !matches!(self, Self::Permission)
+    }
+
+    pub(crate) fn for_notification(
+        harness: &str,
+        previous: Option<Self>,
+        notification: &str,
+    ) -> Self {
+        if harness != "claude-code" {
+            return Self::from_notification_type(notification);
+        }
+        let next = match notification {
+            "permission_prompt" => Self::Permission,
+            "elicitation_dialog" => Self::ClaudeElicitation(ClaudeElicitation::Dialog),
+            "elicitation_url_dialog" => Self::ClaudeElicitation(ClaudeElicitation::Url),
+            _ => unreachable!("prompt notification was validated"),
+        };
+        // No request IDs exist. A repeated or mixed unresolved prompt involving
+        // an elicitation cannot be matched safely by a subsequent clear.
+        if previous.is_some_and(Self::is_elicitation)
+            || (previous.is_some() && next.is_elicitation())
+        {
+            Self::ClaudeElicitation(ClaudeElicitation::Ambiguous)
+        } else {
+            next
+        }
+    }
+
     pub(crate) fn from_notification_type(notification_type: &str) -> Self {
         match notification_type {
             "permission_prompt" => Self::Permission,

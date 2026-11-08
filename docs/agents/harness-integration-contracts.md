@@ -340,6 +340,30 @@ establish authority by themselves. Before authority activates, these turn
 events do not write attention. `PreToolUse` fires before the tool executes and
 before the permission decision, so it must not write attention or clear a
 pending prompt.
+The source Claude adapter now installs `UserPromptSubmit` in place of the
+owned legacy `PreToolUse` attention hook. Explicit Settings reconciliation
+removes only that owned legacy entry and preserves foreign hooks plus the
+synchronous `PostToolUse` `Write|Edit` plan-path hook. Existing installations
+need reconciliation to receive the source reporter and new submission hook;
+source support does not establish updated published installers or active profiles.
+Both reporters require the raw Claude `hook_event_name` to exactly match
+`Notification` or `UserPromptSubmit` before sending those attention reports,
+register native identity first, and omit prompt and notification message text.
+
+Private runtime prompt kind retains a sole Claude MCP or URL elicitation.
+Another unresolved prompt involving an elicitation makes it ambiguous, including
+mixed permission/elicitation waits. An unambiguous matching `elicitation_response`
+or `elicitation_complete` moves attention to `working`; a zero, mismatched or
+ambiguous clear leaves attention unchanged. Delayed `idle_prompt` cannot clear
+an elicitation. Committed input or submission clears this bounded ambiguity;
+session/reset clearing uses the same private runtime kind, and reset-held prompt
+reports retain it. No request ID, persisted field or public DTO was added.
+POSIX reporter and route fixtures, plus a native PowerShell transport fixture,
+are synthetic checks against ADR 0073 and the official hook reference. They do
+not extend the recorded live or release-specific qualification; coverage stays
+**feature-probed, limited** and [#643](https://github.com/Rambolarsen/orkworks/issues/643)
+remains open for its outstanding evidence.
+
 Claude's `PermissionRequest` runs before
 the permission flow and does not prove that a visible prompt was shown. Its
 permission notification may be delayed about six seconds and has no event

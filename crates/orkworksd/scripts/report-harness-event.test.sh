@@ -294,7 +294,7 @@ if [ -n "$codex_stderr" ]; then
 fi
 
 expected_errors='curl fixture failure'
-claude_stderr="$(printf '%s' '{"session_id":"claude-session-secret","notification_type":"permission_prompt"}' |
+claude_stderr="$(printf '%s' '{"hook_event_name":"Notification","session_id":"claude-session-secret","notification_type":"permission_prompt"}' |
   TEST_HTTP_STATUS=000 TEST_CURL_EXIT=7 run_reporter Notification claude-code 2>&1)"
 if [ "$claude_stderr" != "$expected_errors" ]; then
   printf 'Claude curl errors should remain visible, got: %s\n' "$claude_stderr" >&2
@@ -310,7 +310,7 @@ fi
 
 request_bodies_file="$temp_dir/prompt-request-bodies.jsonl"
 curl_configs_file="$temp_dir/curl-configs.txt"
-printf '%s' '{"session_id":"claude-session-secret","notification_type":"permission_prompt","cwd":"/harness-reported/claude"}' |
+printf '%s' '{"hook_event_name":"Notification","session_id":"claude-session-secret","notification_type":"permission_prompt","cwd":"/harness-reported/claude"}' |
   TEST_HTTP_STATUS=202 TEST_CURL_BODIES_FILE="$request_bodies_file" TEST_CURL_CONFIGS_FILE="$curl_configs_file" run_reporter Notification claude-code
 printf '%s' '{"sessionId":"copilot-session-secret","notification_type":"permission_prompt","timestamp":"2026-09-01T12:00:00Z"}' |
   TEST_HTTP_STATUS=202 TEST_CURL_BODIES_FILE="$request_bodies_file" run_reporter notification copilot
@@ -408,6 +408,49 @@ import json, pathlib, sys
 bodies = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text().splitlines()]
 assert sum('status' in body for body in bodies) == 1, bodies
 PY
+
+# Claude mapping transport is a synthetic match to ADR 0073. It is not a
+# captured live payload or installed-version verification.
+claude_bodies="$temp_dir/claude-turn-bodies.jsonl"
+for kind in permission_prompt elicitation_dialog elicitation_url_dialog idle_prompt elicitation_response elicitation_complete; do
+  printf '{"hook_event_name":"Notification","session_id":"claude-native","notification_type":"%s","message":"private-question"}' "$kind" |
+    TEST_HTTP_STATUS=200 TEST_CURL_BODIES_FILE="$claude_bodies" run_reporter Notification claude-code
+done
+printf '%s' '{"hook_event_name":"UserPromptSubmit","session_id":"claude-native","prompt":"private-submission"}' |
+  TEST_HTTP_STATUS=200 TEST_CURL_BODIES_FILE="$claude_bodies" run_reporter UserPromptSubmit claude-code
+python3 - "$claude_bodies" <<'CLAUDE'
+import json, pathlib, sys
+bodies=[json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text().splitlines()]
+attention=[b for b in bodies if 'status' in b]
+assert [b['status'] for b in attention] == ['waiting_for_input']*3+['idle','working','working','working'], attention
+assert len(bodies) == 14, bodies
+for i in range(0,len(bodies),2):
+    assert bodies[i]['harnessSessionId'] == 'claude-native'
+    assert bodies[i+1]['harnessSessionId'] == 'claude-native'
+    assert bodies[i+1]['promptHookGeneration'] == 'generation-secret'
+assert 'private-question' not in json.dumps(bodies)
+assert 'private-submission' not in json.dumps(bodies)
+CLAUDE
+for payload in \
+  '{"session_id":"claude-native","notification_type":"permission_prompt"}' \
+  '{"hook_event_name":"Stop","session_id":"claude-native","notification_type":"permission_prompt"}' \
+  '{"hook_event_name":42,"session_id":"claude-native","notification_type":"permission_prompt"}' \
+  '{"hook_event_name":"Notification","session_id":"claude-native","notification_type":42}' \
+  '{"hook_event_name":"Notification","session_id":"claude-native","notification_type":"agent_needs_input"}' \
+  '{"hook_event_name":"Notification","session_id":"claude-native","notification_type":"unknown"}'; do
+  printf '%s' "$payload" | TEST_HTTP_STATUS=200 TEST_CURL_BODIES_FILE="$claude_bodies" run_reporter Notification claude-code
+done
+for event in PreToolUse PostToolUse Stop; do
+  printf '{"hook_event_name":"%s","session_id":"claude-native"}' "$event" |
+    TEST_HTTP_STATUS=200 TEST_CURL_BODIES_FILE="$claude_bodies" run_reporter "$event" claude-code
+done
+printf '%s' '{"hook_event_name":"UserPromptSubmit","session_id":"claude-native"}' |
+  TEST_HTTP_STATUS=403 TEST_CURL_BODIES_FILE="$claude_bodies" run_reporter UserPromptSubmit claude-code
+python3 - "$claude_bodies" <<'CLAUDE'
+import json, pathlib, sys
+bodies=[json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text().splitlines()]
+assert sum('status' in b for b in bodies) == 7, bodies
+CLAUDE
 
 # Native approval transport keeps scalar evidence private; legacy attention is
 # the fallback whenever the owned marker/proof or atomic publish is absent.

@@ -1176,6 +1176,7 @@ mod tests {
     use super::*;
 
     include!("copilot_attention_tests.rs");
+    include!("claude_attention_tests.rs");
 
     #[test]
     fn unchanged_codex_reports_refresh_native_titles_but_preserve_user_titles() {
@@ -5270,12 +5271,6 @@ mod tests {
             })
             .unwrap();
 
-        assert_eq!(
-            state.sessions.lock().unwrap()[&session_id]
-                .runtime
-                .active_prompt_kind,
-            Some(crate::runtime::session_runtime::RuntimePromptKind::Elicitation)
-        );
         crate::runtime::terminal_runtime::record_terminal_input(&state, &session_id, "x");
 
         let info = state.sessions.lock().unwrap()[&session_id].info.clone();

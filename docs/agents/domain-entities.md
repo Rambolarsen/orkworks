@@ -130,6 +130,16 @@ prompt authority and lifecycle checks remain at the application boundary.
 Committed terminal input keeps its generation/freshness bookkeeping and attention
 update in the same critical section.
 
+The private runtime prompt kind distinguishes permission waits, generic
+elicitations, a sole Claude MCP/URL elicitation and ambiguous Claude elicitations.
+Repeated or mixed unresolved prompts involving elicitation retain ambiguity until
+committed input, submission or lifecycle clearing. A matching sole elicitation
+may clear from its mapped notification; ambiguous waits cannot clear from an
+unsubmitted key or an uncorrelated notification. Reset-held prompts retain this
+same bounded kind. It is runtime-only, so no metadata schema or API vocabulary
+changes; existing attention ownership and SQL observation-currentness checks
+continue to fence stale writes.
+
 Physical lifecycle changes have a different order. A terminal status first
 marks the owned live runtime `ending`, then attempts its durable transition;
 failed persistence cannot undo the physical process event or prevent its
