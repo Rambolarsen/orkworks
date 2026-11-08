@@ -291,3 +291,5 @@ Dated design records; these do not establish current product behavior.
 - [SQL workflow observation origin capture](2026-11-08-sql-observation-origin-capture.md) — Accepted original final-scan capture, strict tagged records and SQL owner refusal; private qualification is in progress and activation remains gated.
 
 - [Bounded cleanup binding and recommendation settlement](2026-11-08-maintenance-settlement-bounds-design.md) — Accepted-for-qualification retained resource/result accounting, absolute deadline and fixed contention-settlement graph; numeric and physical qualification remain gated.
+
+- [Private terminal input truth and completion interface](2026-11-08-terminal-input-outcome-interface-design.md) — Proposed original submission record separating byte-effect truth, physical completion and application settlement; actual operations and numeric/physical qualification remain gated.
