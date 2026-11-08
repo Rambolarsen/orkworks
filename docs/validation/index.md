@@ -112,3 +112,5 @@ Capability research, validation results, and evidence fixtures.
 - [Legacy adoption evidence-owner audit](legacy-adoption-evidence-owners.md) — Pinned private primitives, scoped cleanup authority and unqualified actual receipt/backup/application guarantees.
 
 - [Backup maintenance writer admission and drain audit](backup-maintenance-writer-audit.md) — Pinned current writer families, local ownership/SQL close and missing complete capture/restore admission/settlement guarantees.
+
+- [Model-free parent continuation oracles](parent-continuation-fixture.md) — Synthetic direct-call event/gap/revocation/resume tests and pinned receipt evidence; no native qualification.
