@@ -147,3 +147,6 @@ hash pins. The existing docs test runner now executes the standalone Python suit
 through docs:check/CI. No production module or native transport was introduced.
 All three native capabilities remain unverified; the next step is the one-route
 native packet review above, with live budget still zero until separately approved.
+
+The [prepared native packet](../../validation/parent-native-packet.md) is tracked
+in #1573. Its model-free preparation does not authorize or qualify a native run.

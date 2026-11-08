@@ -114,3 +114,5 @@ Capability research, validation results, and evidence fixtures.
 - [Backup maintenance writer admission and drain audit](backup-maintenance-writer-audit.md) — Pinned current writer families, local ownership/SQL close and missing complete capture/restore admission/settlement guarantees.
 
 - [Model-free parent continuation oracles](parent-continuation-fixture.md) — Synthetic direct-call event/gap/revocation/resume tests and pinned receipt evidence; no native qualification.
+
+- [Prepared parent native continuation canary](parent-native-packet.md) — Exact unapproved stdio packet, synthetic process checks and finite proposed live budget.
