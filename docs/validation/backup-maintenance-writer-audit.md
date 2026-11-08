@@ -116,3 +116,110 @@ HTTP-only helper claims. Fresh coverage/authority review found no material gap
 in the bounded writer-family mapping or its explicit lack of closed-registry,
 quiescence, native or physical qualification. Neither review executed runtime
 operations or supplies a maintenance receipt.
+
+
+## Owner-interface investigation — 2026-11-08
+
+Tracking: [#1544](https://github.com/Rambolarsen/orkworks/issues/1544).
+This supplementary investigation pins source at
+`1ab168d35a2cfd8689d82f984b52a0fad278f765`; the original audit and its line
+references above remain pinned to `4e5215db`. It executes step 1's **written
+investigation** in the [qualification plan](../superpowers/plans/2026-11-08-backup-maintenance-qualification.md),
+under the now [accepted maintenance design](../superpowers/specs/2026-11-08-backup-maintenance-admission-design.md).
+The following are actual local interfaces, not proposed maintenance APIs.
+Names describe their source capability; none is a complete Modules/Q producer.
+Source files linked below use this supplementary pin for interpretation.
+
+### Existing handles and unavailable owner operations
+
+| Writer family / source | Actual admission, retained owner and completion | Readiness and unavailable maintenance operation |
+| --- | --- | --- |
+| Workspace open and lifecycle — [application](../../crates/orkworksd/src/session_application.rs), [lease](../../crates/orkworksd/src/workspace_runtime.rs), [organization](../../crates/orkworksd/src/session_archive.rs) | Application open resolves/revalidates root identity and retains a `WorkspaceLease`; create/resume use current application/runtime checks. `OrganizationStore::reserve(self: &Arc<Self>, id: &str) -> Option<Reservation>` serializes the particular ID; dropping the reservation releases it. | Ordinary open may create origin/directories or migrate legacy files. No inert all-owner readiness result or workspace-wide lifecycle admission closure exists here. Lease validation covers cooperating owners, not external process termination. |
+| Private SQL worker — [worker](../../crates/orkworksd/src/session_store/worker.rs) | `prepare_internal_owned` returns `PreparedInternalMutation`; `enqueue(self, RuntimeWriteResources)` returns an `InternalMutationTicket` and execution-request receiver. `ExecutionRequest::grant` yields `ExecutionGrant`; `execute` releases the worker to run. `InternalMutationTicket::finish` returns `InternalCompletion` retaining permit/resources. `prepare_organization` has analogous ticket/completion ownership. | `close(&self)` awaits worker completion, not outer application/file jobs. `open`/`initialize` are real constructors, not maintenance integrity profiles. No all-module registration, inert closed-image seal or complete reopen/readiness operation follows from them. |
+| SQL callbacks/publication — [sql_writes](../../crates/orkworksd/src/session_application/sql_writes.rs), [lifecycle](../../crates/orkworksd/src/session_application/sql_writes/lifecycle.rs) | `SessionWrites::bind` captures root/workspace/store/lease identity; `peon` and `lifecycle` retain work across caller loss. `RuntimeWriteResources` owns the per-ID lane, optional lease and organization reservation. `Outcome` distinguishes no-op, committed and committed-detached publication. Blocking publication retains the completion resources. | No maintenance owner can currently enumerate/await all these outer jobs or reserve their finite continuation slots. A committed-detached result is durable truth, not rollback or complete live-module readiness. |
+| SQL external deletion — [deletion](../../crates/orkworksd/src/session_application/sql_writes/deletion.rs), [capacity](../../crates/orkworksd/src/session_application/sql_writes/file_budget.rs) | `capture_deletion` returns `CapturedDeletion` with original ID/creation/deletion identity, lane context, lease-bound cleanup owners and file reservation. Consuming stage methods `remove_replay`, `remove_workflow_evidence`, `remove_images`, `clear_settings`, `remove_recommendations` return `DeletionCleanupResult { files, progress, detached }`. | Result fields deliberately separate physical removal and optional SQL progress. No shared physical-settlement registry or maintenance continuation authority exists. File accounting retains original switched-away jobs but supplies no backup allowance. |
+| Replay/settings/image cleanup — [replay](../../crates/orkworksd/src/metadata/replay_cleanup.rs), [settings](../../crates/orkworksd/src/metadata/workspace_memory/sql_cleanup.rs), [images](../../crates/orkworksd/src/image_context/storage/sql_cleanup.rs) | `ReplayCleanup::bind` yields `AnchoredReplayCleanup`; its `remove(&self)` acts on captured anchored paths. `SettingsCleanup::bind` yields `BoundSettingsCleanup`; `clear(&self, id)` returns `(io::Result<()>, Option<Edit>)`. `bind_sql_cleanup` yields `SqlImageCleanup`; `remove` returns file result plus optional `ImageCleanupGuard`. Settings/image guards remain available through progress recording. | These are exact cleanup owners, not authorization for another namespace. Platform restrictions remain real (settings/replay Unix; image implementation macOS/Linux); absent support cannot produce an empty successful profile. None supplies a complete maintenance readiness result. |
+| Legacy metadata and mutating reads — [transactions](../../crates/orkworksd/src/metadata/session_transactions.rs), [reader](../../crates/orkworksd/src/metadata/session_reader.rs), [metadata](../../crates/orkworksd/src/metadata.rs) | Per-session transaction mutex/revision protects mutations; `SessionReader::read` can quarantine corrupt metadata under that ownership. Event append is separate I/O. Completion of an individual synchronous write/read is local to that call. | No all-session stop-admission/drain or inert-read interface is supplied. Quarantine and event writes must be admitted as effects; an empty session listing cannot stand in for namespace registration. |
+| Terminal replay/size/finalization — [runtime](../../crates/orkworksd/src/runtime/session_runtime.rs), [application](../../crates/orkworksd/src/session_application.rs) | Persistence receiver awaits blocking application append; driver ending drops the final sender, awaits `persist_writer`, then awaits blocking trim. Application append/trim use the workspace mutex; terminal transitions own size changes. | The driver-local join is not an exported maintenance acknowledgement over every producer. No new stop/resume action is authorized. Ending/UI detach does not close other admitted effects or prove readiness. |
+| Peon/provider callbacks — [Peon](../../crates/orkworksd/src/runtime/peon_runtime.rs) | Attempt generation/currentness plus cooperative cancellation restrict callbacks. Shutdown joins a `JoinSet`, then can abort async inference after its timeout; blocking post-processing has its own retained work/currentness checks. Production `peon_loop` supplies a pending shutdown future. | The test shutdown receiver is unavailable as a production maintenance handle. Async abort is not blocking-work settlement. No production pause-scheduling plus all-callback acknowledgement/readiness interface is established. |
+| Taskmaster scheduling/delivery — [scheduler](../../crates/orkworksd/src/main.rs), [evaluator](../../crates/orkworksd/src/taskmaster/evaluator.rs), [application](../../crates/orkworksd/src/session_application.rs) | Periodic evaluation, analysis lease/in-flight state and retained blocking `Flight` constrain individual analysis work; delivery captures workspace/lease and tracks in-flight deliveries. | No shared closure over periodic/manual scheduling, analysis and every delivery exists. Dropping `Flight` clears its local flag; it does not certify all writers drained. Global scope must be classified separately. |
+| Recommendation graph/journal — [operation](../../crates/orkworksd/src/taskmaster/store/operation.rs), [journal](../../crates/orkworksd/src/taskmaster/store/cleanup/removal/journal.rs) | `Owner::claim` / `claim_sql` yield an `Operation`; Drop clears BUSY. `BoundCleanup::claim_sql_cleanup` yields `SqlCleanupClaim`; `admit` consumes exact cleanup admission and `SqlCleanup::remove` yields `JournalReceipt` retaining operation/binding. `JournalReceipt::result` exposes the physical result. | `wait_until_available` observes availability without preventing the next claim. SQL mode is monotonic while the process-local weakly registered owner lives; it is not persisted restart authority. No maintenance drain or inert journal recovery capability is implied. |
+| SQL recommendation reopen — [opening](../../crates/orkworksd/src/session_application/sql_writes/opening.rs), [worker](../../crates/orkworksd/src/session_store/worker.rs), [journal](../../crates/orkworksd/src/taskmaster/store/cleanup/removal/journal.rs) | `SqlRecommendationWorkspace::open(state, root, workspace, lease)` owns an opening task and returns a candidate retaining `Arc<SessionStore>`, `RecommendationStore`, lease and identity. `SessionStore::open_leased` keeps the startup lease in the worker; `opening_identity` checks worker identity. `claim_sql_open` validates the binding; private `RecommendationOpenAdmission` gates `admit_open`. | This new path preserves recommendation ownership across reopen but explicitly does not adopt the candidate into `AppState`. It is neither production format routing nor all-module maintenance release/readiness. See the concrete recipe below. |
+| Workflow observations — [captured](../../crates/orkworksd/src/workflow_observations/captured.rs) | `capture_writer(id, created)` returns `CapturedWriter` with revocable creation validity. `record_batch(&self, &FileClaim, generation, candidates)` checks validity and admits the claim under the store lock. `FileClaim::cancel`/`expire` compete only while pending; recorded outcomes are returned per item. | A per-creation claim is not a closed workspace writer set. The local deadline/batch cap is not a backup resource profile. No root-wide admission closure, all-rewrite acknowledgement or maintenance readiness operation exists. |
+| Observation trim/retention — [retention](../../crates/orkworksd/src/runtime/retention.rs) | Segment trim plans revalidate identity/protection before each effect. Retention uses current application/session/organization guards; the periodic loop separately invokes observation spam cleanup. | No common scheduling pause covers every trim/cleanup job. Each admitted rewrite/deletion and later callback needs its own retained physical completion, including switched-away roots. |
+| Startup GC — [GC](../../crates/orkworksd/src/runtime/workspace_gc.rs) | A candidate lease is held through synchronous `remove_dir_all`; unavailable/protected roots are kept. | Cooperating lease exclusion is local evidence, not arbitrary-writer exclusion. No maintenance preservation-set registration or global producer acknowledgement is supplied. |
+| Workspace settings/images — [memory](../../crates/orkworksd/src/metadata/workspace_memory.rs), [storage](../../crates/orkworksd/src/image_context/storage.rs) | Workspace-memory `Edit` owns atomic edit admission, with read/write methods and release on Drop. Image bundle publication/cleanup/recovery uses the private bundle lock; publication ownership persists until accept/drop semantics settle. | These owners serialize their own effects, not future uploads/settings changes across the root. Recovery/open is not inert. App-global stores need explicit exclusion/classification, even where their consumers can trigger workspace effects. |
+| Branch association/capacity — [branches](../../crates/orkworksd/src/branch_documents_store.rs), [projection](../../crates/orkworksd/src/session_projection.rs) | `report(&self, &Identity, Document)` and `reconcile(&self, &Scan)` use per-identity mutex/atomic writes. Capacity projection changes inspected runtime/provider state under existing guards. | Selected-detail/read-derived routes can write associations. No root-wide admission/drain is supplied. The inspected in-memory capacity path does not establish a separate durable capacity writer; old files still require actual classification. |
+| Authenticated ingress, hooks and descendants — [HTTP](../../crates/orkworksd/src/http/session_metadata_handlers.rs), [helper](https://github.com/Rambolarsen/orkworks/blob/1ab168d35a2cfd8689d82f984b52a0fad278f765/crates/orkworksd/scripts/session-metadata.py), [spool](../../crates/orkworksd/scripts/report-harness-event.sh) | HTTP admission checks live identity/token/workspace. Current helper negotiates HTTP and fails closed. Hook spool separately publishes transient files. Individual HTTP success or spool publication only acknowledges that operation. | No shared maintenance rejection spans every relay/consumer or installed external writer. Source cannot establish installed versions, external quiescence or OS descendant termination; excluded transient bytes still have producers. Required native/external owner proof remains unavailable. |
+
+### Concrete original-job recipes
+
+**SQL mutation and publication.** Preparation reserves command capacity and
+captures cancellation/deadline; the owning async task retains the original lane
+and resources across waiter loss. Enqueue yields one execution request and one
+completion ticket. Grant admission occurs under short application currentness
+guards; `ExecutionGrant::execute` runs after those guards are released. The
+worker delivers actual completion; blocking publication retains
+`InternalCompletion` until publication has actually returned, including detached
+publication. `MutationCancellation::cancel() -> bool` can win before admission;
+false does not mean rollback. Neither dropping the waiter nor finishing the SQL
+queue acknowledges the outer publication. Required unavailable operation:
+application-owned outer-job registration/settlement, with its finite execution
+and publication continuations attached to the original root.
+
+**File removal followed by SQL progress.** `CapturedDeletion` keeps the original
+session creation, SQL deletion identity and captured cleanup owners. A consuming
+stage call starts owned blocking work, retains file capacity, acquires the
+original runtime lane and rereads the exact deletion record. Current closed
+context, organization reservation, lease and recommendation-delivery exclusion
+are checked before stage admission. File effects run outside application guards;
+only successful removal attempts the corresponding SQL progress update. Settings,
+image and recommendation ownership is retained through that progress attempt.
+The returned file result, optional progress result and detached flag must all
+survive caller loss. SQL close before this continuation can strand progress after
+real file effects; it cannot convert the job into successful settlement. The
+stage methods are real consuming local operations, but they do **not** establish
+a maintenance registry's finite, at-most-once child slots or cross-job accounting.
+Required unavailable operation: original-job settlement ownership that reserves
+and permits only its already-admitted file/progress continuations while Closing,
+records partial/unknown outcomes and keeps recovery/protection obligations.
+
+**Recommendation reopen.** The owned opening task captures current application
+reader/recommendation/workspace identities, resolves and revalidates the original
+root/lease and binds cleanup recovery. `open_leased` opens the worker under that
+lease; opening identity is checked against the expected identity. The owner
+revalidates root/binding, then under short application guards checks unchanged
+context, live waiter and no in-flight recommendation delivery. `admit_open`
+consumes private opening admission and revokes legacy recommendation authority
+without performing journal cleanup. Errors after worker open await `close`;
+failed delivery of the successful candidate also awaits `close`. Worker teardown
+drops its database and retained startup lease before publishing finished. This
+is concrete owned local reopen evidence, including waiter-loss cleanup. It does
+not perform production workspace adoption, format selection, restored-root fence
+discovery or all-module readiness. Those release-owner operations remain
+unavailable to maintenance; no proposed signature is a substitute.
+
+### State and coverage disposition
+
+| Accepted maintenance phase | Local evidence and exact missing integration |
+| --- | --- |
+| Open to Closing | Existing claims check their own currentness/cancellation. No atomic application maintenance transition rejects all ordinary jobs/schedulers and registers every captured root/module, including empty namespaces and global/external producers. |
+| Closing to Held | Local tickets, joins and cleanup results have real but different completion boundaries. No application owner retains and acknowledges the complete outer-job set and finite original continuations before SQL close. All waits must stay outside projection/workspace/session/module/registry guards. |
+| Held / live Q | Worker close can close the connection; it cannot issue complete Modules/revisions, native/root-access proof, integrity/auxiliary inventory or Q. No complete physical/resource profile exists here. |
+| First effect / Q retirement | No current cross-owner atomic operation checks capture settlement/backups, retires Q and advances the maintenance serial before effect admission. Existing local claims cannot replace this transition or its cancellation race ordering. |
+| Releasing to Open | Owned SQL recommendation reopen is available locally. Production adoption, original-store/module readiness, restore-fence discovery and explicit coordinated release are not supplied by that candidate. |
+| Blocked / startup unverified | No maintained lost-owner resolution operation reconstructs complete physical settlement/readiness after volatile state loss. Lease availability, path/digest equality and stale metadata cannot resolve it. New/restarted roots must remain unverified under the accepted design until their real owners prove readiness. |
+
+**Investigation result:** the local interfaces and missing owner operations are
+identified; actual producer qualification remains **Investigate**. There is no
+closed registration mechanism over every writer/scope, no complete finite-job
+settlement integration and no all-owner release/readiness result. Empty namespaces,
+mutating reads, callbacks, switched-away roots and unsupported direct writers
+remain required coverage, not successful empty modules. This source-only result
+supplies no runtime receipt, numerical allowance or permission to execute SQL,
+native/model probes, stop sessions, capture/restore or implement a controller.
+
+Fresh source-fidelity and independent coverage/authority reviews found no material
+findings in this supplementary investigation. They checked the actual pinned
+interfaces and the limited written-inventory completion; neither review executed
+runtime operations or qualified the remaining owner/profile inputs.
