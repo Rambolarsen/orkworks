@@ -17844,6 +17844,135 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
     }
 
     #[test]
+    fn aider_peon_fallback_survives_missing_disabled_and_enabled_integration() {
+        for enabled in [None, Some(false), Some(true)] {
+            let root = tempfile::tempdir().unwrap();
+            let state = crate::test_support::test_app_state_with_workspace(root.path());
+            let id = format!("aider-fallback-{}", uuid::Uuid::new_v4().simple());
+            let mut metadata = crate::test_support::test_session_metadata(
+                &id,
+                "Aider work",
+                &root.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            );
+            metadata.harness = "aider".into();
+            metadata.lifecycle = "alive".into();
+            metadata.lifecycle_phase = "active".into();
+            metadata.metadata_source = "peon".into();
+            let metadata_root = {
+                let workspace = state.workspace.lock().unwrap();
+                let store = &workspace.as_ref().unwrap().metadata;
+                store.write_session(&metadata);
+                store.root_path()
+            };
+            if let Some(enabled) = enabled {
+                std::fs::create_dir_all(metadata_root.join("integrations")).unwrap();
+                std::fs::write(
+                    metadata_root.join("integrations/aider.json"),
+                    serde_json::to_vec(&serde_json::json!({"version":1,
+                        "marker":"orkworks:harness-integration:v2:aider", "enabled":enabled}))
+                    .unwrap(),
+                )
+                .unwrap();
+            }
+            let registry = state.harness_catalog.read().unwrap().clone();
+            let aider = registry.get("aider").unwrap();
+            assert_eq!(
+                aider
+                    .integration_launch_enabled(Some(&metadata_root))
+                    .unwrap(),
+                enabled.unwrap_or(false)
+            );
+            let mut handle = attention_test_handle(&id, root.path());
+            handle.info.harness_id = Some("aider".into());
+            handle.info.harness = Some("aider".into());
+            handle.info.lifecycle = "alive".into();
+            handle.info.lifecycle_phase = "active".into();
+            handle.active_work_hook = aider.initial_work_hook_active();
+            assert!(!handle.active_work_hook);
+            state.sessions.lock().unwrap().insert(id.clone(), handle);
+            let app = SessionApplication::new(state.clone());
+            // Startup work, ordinary completion, then a concrete question.
+            for (status, attention, question) in [
+                ("working", "working", None),
+                ("idle", "idle", None),
+                (
+                    "waiting_for_input",
+                    "needs_you",
+                    Some("Which approach should I use?"),
+                ),
+            ] {
+                let inference = crate::peon::PeonInference {
+                    observed_status: Some(status.into()),
+                    phase: Some("review".into()),
+                    summary: Some("Independent Aider summary".into()),
+                    next_action: None,
+                    needs_user_input: Some(question.is_some()),
+                    detected_question: question.map(str::to_owned),
+                    suggested_options: None,
+                    blocker_description: None,
+                    failed_command: None,
+                    failed_test: None,
+                    capacity_hints: None,
+                    confidence: 0.8,
+                    detected_harness: None,
+                    detected_model: None,
+                    harness_session_id: None,
+                    workflow_observations: Vec::new(),
+                };
+                assert!(
+                    app.persist_peon_observation_for_test(
+                        &id,
+                        Some(&inference),
+                        None,
+                        Some("Independent Aider summary"),
+                        "later"
+                    )
+                    .inference_persisted
+                );
+                let workspace = state.workspace.lock().unwrap();
+                let stored = workspace
+                    .as_ref()
+                    .unwrap()
+                    .metadata
+                    .read_session(&id)
+                    .unwrap();
+                assert_eq!(stored.observed_status.as_deref(), Some(status));
+                assert_eq!(stored.attention.as_deref(), Some(attention));
+                assert_eq!(stored.detected_question.as_deref(), question);
+                assert_eq!(stored.summary.as_deref(), Some("Independent Aider summary"));
+                assert_eq!(stored.work_phase, "review");
+                assert!(!crate::runtime::prompt_authority::registry().is_active(&id));
+            }
+            let observation = crate::peon::PeonWorkflowObservation {
+                kind: crate::workflow_observations::ObservationKind::Obstacle,
+                description: "A retry was needed".into(),
+                evidence: "retry output".into(),
+                problem_area: None,
+                reported_impact: crate::workflow_observations::Impact::Medium,
+                confidence: 0.8,
+            };
+            assert!(
+                app.record_peon_workflow_observations_for_test(
+                    &id,
+                    Some(root.path()),
+                    &PeonObservationOutputRange {
+                        runtime_instance_id: "aider-fixture".into(),
+                        run_generation: 1,
+                        first_revision: 1,
+                        last_revision: 1
+                    },
+                    &["retry output".into()],
+                    &[observation]
+                )
+                .accepted_observation
+            );
+        }
+    }
+
+    #[test]
     fn peon_nonprompt_does_not_override_user_attention() {
         let root = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(root.path());

@@ -2,7 +2,6 @@ use std::path::Path;
 
 use serde_json::{Map, Value};
 
-use super::{reporter_invocation, ReporterPlatform};
 use crate::harness::integration::{
     ConfigFileTransaction, IntegrationActivation, IntegrationConfirmation, IntegrationContext,
     IntegrationCoverage, IntegrationDiagnostic, IntegrationError, IntegrationHandler,
@@ -21,11 +20,7 @@ impl IntegrationHandler for AiderHandler {
     }
 
     fn install(&self, ctx: &IntegrationContext<'_>) -> Result<IntegrationStatus, IntegrationError> {
-        let reporter = ctx
-            .reporter_assets
-            .reconcile(ReporterPlatform::current().asset_name())?;
         write_preference(ctx, true)?;
-        let _ = reporter;
         Ok(status(ctx))
     }
 
@@ -37,38 +32,8 @@ impl IntegrationHandler for AiderHandler {
         Ok(status(ctx))
     }
 
-    fn augment_launch(
-        &self,
-        command: &mut crate::harness::CommandSpec,
-        enabled: bool,
-        reporter: Option<&Path>,
-    ) -> Result<(), IntegrationError> {
-        if !enabled {
-            return Ok(());
-        }
-        let Some(reporter) = reporter else {
-            return Ok(());
-        };
-        let expected = reporter_invocation(reporter, MARKER).shell_command;
-        if command
-            .args
-            .windows(2)
-            .any(|pair| pair[0] == "--notifications-command" && pair[1] == expected)
-        {
-            return Ok(());
-        }
-        if command
-            .args
-            .windows(2)
-            .any(|pair| pair[0] == "--notifications-command")
-        {
-            return Err(IntegrationError::LaunchConflict);
-        }
-        command.args.push("--notifications-command".into());
-        command.args.push(expected);
-        Ok(())
-    }
-
+    // Aider's completion notification cannot establish prompt authority. Use
+    // the default no-op launch augmentation so Aider retains its own command.
     fn launch_enabled(&self, metadata_root: Option<&Path>) -> Result<bool, IntegrationError> {
         metadata_root.map_or(Ok(false), launch_enabled)
     }
@@ -126,7 +91,7 @@ fn status(ctx: &IntegrationContext<'_>) -> IntegrationStatus {
         IntegrationConfirmation::new(
             "Aider",
             ctx.workspace,
-            "Limited attention notifications",
+            "Peon attention fallback",
             &[],
             false,
         )
@@ -145,7 +110,7 @@ fn status(ctx: &IntegrationContext<'_>) -> IntegrationStatus {
             let mut diagnostics = diagnostics;
             diagnostics.push(IntegrationDiagnostic {
                 code: "no_native_session_id".into(),
-                message: "Aider notifications report attention only; Aider has no native session ID contract.".into(),
+                message: "Aider completion notifications do not identify prompts. Peon and terminal input provide attention fallback; Aider keeps its own notifications. No native session ID is available.".into(),
                 action: None,
             });
             diagnostics
