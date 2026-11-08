@@ -175,12 +175,20 @@ runtime operations or product tests were executed and no execution budget was
 created. The accepted maintenance design and its approval remain unchanged.
 
 
-## Registration and settlement proposal — 2026-11-08
+## Registration and settlement acceptance — 2026-11-08
 
 [#1547](https://github.com/Rambolarsen/orkworks/issues/1547) supplies the
-[proposed integration design](../specs/2026-11-08-maintenance-registration-settlement-design.md)
+[accepted integration design](../specs/2026-11-08-maintenance-registration-settlement-design.md)
 for fixed actual-producer coverage, root registrations, independently retained job
-obligations, finite continuation slots and coordinated closure/readiness. Its new
-choices remain proposed for owner review. Existing maintenance choices stay accepted.
+obligations, finite continuation slots and coordinated closure/readiness. After
+#1549, the owner answered “go ahead” to the explicit four-choice approval request;
+[#1552](https://github.com/Rambolarsen/orkworks/issues/1552) records acceptance for
+further qualification. Existing maintenance choices stay accepted.
 No remaining checkbox is completed by specifying an unavailable operation; real
 owner integration and step 2 evidence still gate the bounded implementation handoff.
+
+The next bounded prerequisite is to close actual owner integration inputs and
+finite resource contracts against this accepted design, starting with exact
+constructor/ingress coverage and retained SQL publication/cleanup completion
+owners. This plan supplies no new execution allowance. Missing actual operations
+remain unavailable; acceptance does not make a hypothetical catalog executable.

@@ -180,6 +180,24 @@ SQL closure/reopen, native/root/external quiescence, durable restore routing and
 finite resource/time enforcement remain qualification gates. No controller code,
 live session stop/capture/restore, new probe budget or rollout permission follows.
 
+### Maintenance registration and settlement acceptance — 2026-11-08
+
+After #1549, the owner answered “go ahead” to the explicit four-choice request.
+[#1552](https://github.com/Rambolarsen/orkworks/issues/1552) records acceptance of
+the unchanged [registration/settlement design](../superpowers/specs/2026-11-08-maintenance-registration-settlement-design.md)
+for further qualification: a fixed private producer catalog with root-specific
+registrations; completion obligations retained independently of caller/execution
+capability; finite original-job continuations; and generation-bound coordinated
+closure/readiness. Prepared/reopened handles remain owned and gated after partial
+readiness failure until actual safe teardown or qualified resolution.
+
+Reuse this approval and existing maintenance/backup/adoption/v1 authority. Actual
+owner integration, complete producer coverage, native/external/physical/resource
+evidence, inert validators and restore-fence/startup readiness remain unqualified
+under the [qualification plan](../superpowers/plans/2026-11-08-backup-maintenance-qualification.md).
+No runtime implementation, live stop/capture/restore, native/SQL/model execution,
+new numeric allowance or rollout/dependency bypass follows.
+
 ## Clarification — 2026-11-07: SQL-bound recommendation recovery
 
 After reviewing the complete [recovery protocol](../superpowers/specs/2026-11-07-sql-recommendation-journal-recovery.md)

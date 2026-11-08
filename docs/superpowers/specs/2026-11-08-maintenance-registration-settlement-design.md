@@ -1,10 +1,10 @@
 ---
 type: Design Contract
 title: Complete maintenance registration and original-job settlement
-description: Proposed private application owner for complete root and producer coverage and retained finite physical completion obligations.
+description: Accepted conditional private application owner for complete root and producer coverage and retained finite physical completion obligations.
 tags: [orkworks, sessions, backup, maintenance, ownership]
-status: draft
-workflow_status: proposed-owner-review
+status: stable
+workflow_status: accepted-for-qualification
 ---
 
 # Complete maintenance registration and original-job settlement
@@ -18,16 +18,18 @@ The accepted [backup/restore](2026-11-07-session-backup-restore-contract.md),
 [bundle/evidence v1](2026-11-08-backup-bundle-evidence-v1.md) and
 [adoption recovery](2026-11-07-legacy-adoption-publication-recovery.md) remain authoritative.
 
-**Status:** proposed integration contracts, not available runtime operations.
-No producer is qualified by this document. Existing approvals stand; the new
-choices below require owner approval before dependent implementation. No code,
+**Status:** accepted integration contracts for further qualification, not available
+runtime operations. After #1549, the owner answered “go ahead” to the explicit
+four-choice approval request. [#1552](https://github.com/Rambolarsen/orkworks/issues/1552)
+records acceptance of the unchanged design on 2026-11-08. No producer is qualified
+by this document. Reuse this approval with existing accepted choices. No code,
 SQL/native/model execution, live inspection/stop/capture/restore or numerical
 budget is supplied. Source context is `692821e6` for the documentation base;
 the actual-interface investigation retains its explicit `1ab168d3` source pin.
-This proposal consumes those inspected local interfaces without claiming later
+This design consumes those inspected local interfaces without claiming later
 uninspected code implements them.
 
-## Proposed choices
+## Accepted choices for further qualification
 
 1. Use an application-private, fixed producer catalog and root-specific owner
    registrations. Actual constructors establish the complete scope; callers
@@ -42,7 +44,7 @@ uninspected code implements them.
    owner, with one coordinated Open transition. Missing coverage/acknowledgement
    blocks; the catalog or an empty ledger cannot fabricate physical proof.
 
-These are design recommendations, not claims of user acceptance. The aim is a
+These unchanged choices are accepted for further qualification. The aim is a
 small private interface with ownership enforced once, rather than public tokens,
 per-handler maintenance booleans or a second storage authority.
 
@@ -239,8 +241,8 @@ conditional verification oracles, not executed tests or a new probe allowance.
 
 ## Handoff and approval boundary
 
-Approval would accept these four integration choices for further qualification.
-It would not close the [qualification plan](../plans/2026-11-08-backup-maintenance-qualification.md)
+Acceptance covers these four integration choices for further qualification.
+It does not close the [qualification plan](../plans/2026-11-08-backup-maintenance-qualification.md)
 registration/recipe/readiness boxes: actual owner operations and complete physical,
 native/external, inert-validator, resource and restore-fence evidence remain
 required. A later bounded implementation plan must identify real constructors,
