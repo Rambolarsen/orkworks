@@ -306,8 +306,11 @@ async fn sql_cleanup_progress_failure_then_owner_worker_and_lease_reopen_stays_s
     *state.workspace.lock().unwrap() = Some(WorkspaceState {
         path: workspace_path,
         metadata: metadata::MetadataStore::new(&adopted_root),
+        // This recommendation-only adoption fixture has no Workflow stage.
+        // Keep its unqualified observation slot separate; never reopen a SQL
+        // artifact root through the observation legacy constructor.
         workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
-            adopted_root,
+            _dir.path().join("unqualified-observation-slot"),
         )
         .unwrap(),
         recommendation_store: opened.recommendations.clone(),

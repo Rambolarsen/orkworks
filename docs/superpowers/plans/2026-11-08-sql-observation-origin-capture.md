@@ -68,7 +68,7 @@ from these source-level ratings.
   delivering or launching a replacement scan. No production
   origin constructor or producer routing in this first independently reviewable
   deliverable. Existing legacy storage tests retain their assertions.
-- [ ] Deliver the canonical shared owner and original final-scan claim in
+- [x] Deliver the canonical shared owner and original final-scan claim in
   `workflow_observations`, `session_store` typed reads and
   `session_application/sql_writes/lifecycle/history`. Add no public SQL interface.
   Distinguish newly captured before-inference origins from parsed data; original
@@ -185,3 +185,54 @@ native CLI-probe fixtures returned cleanup-related failures on macOS. The
 18 focused tests pass; remaining repository checks and current-head CI evidence
 are recorded in the PR. Source-currentness, original claims, shared admission,
 legacy refusal, producer/deletion races and activation remain unqualified.
+
+
+## Shared owner and original-capture qualification
+
+The next branch qualifies canonical shared admission and the sealed original
+final-scan claim. It retains the worker's checked startup epoch and native root
+identity rather than adopting a later header/path. SQL source checks use one
+bounded read transaction; source data alone grants no file access.
+
+The legacy refusal preflight is separate from strict SQL inventory admission.
+It streams at most 65,537 entries, 65,536 inspected lines and 64 MiB, with a
+64 KiB line limit and an original 2-second deadline. This preserves the existing
+10,001-segment legacy count fixture; it does not increase the strict SQL reader's
+4,097-entry/4,096-segment limits. Workflow-directory links now refuse before
+repair because a non-following preflight cannot safely inspect through them.
+The original-root link behavior and non-target bytes remain covered separately.
+
+Read settlement releases its session lane and file-operation exclusivity when
+actual I/O ends. Returned immutable data retains its existing file-job capacity
+and original owner/lease/worker. Source capture itself reserves a full existing
+file-job slot, and late root checks retain that slot and lease until settlement.
+Producer persistence, captured Workflow deletion and assessment composition are
+not implemented by this prerequisite.
+
+
+Current-code medium review is APPROVE across both independent read-only scopes,
+including one bounded correction follow-up. Review found deadline gaps before
+initial workspace capture, during candidate-held application checks and while
+preflighting ignored directory entries. All three behavioral regressions were
+red. Application checks now use nonblocking try-locks under the original
+pending/cancellation/deadline state; expiry releases the candidate and lane even
+while application locks remain held. Preflight checks its original deadline at
+entry, around enumeration/native operations and before every successful return.
+The corrected runs pass 15 deadline tests and 205 observation-related tests.
+
+The first full Rust run found six old fixtures attempting legacy observation
+opening on SQL artifact roots. Replacement fixtures now use independent
+unqualified stores; the admitted-caller-loss fixture copies its ordinary legacy
+bytes to preserve the cached-count assertions. The recommendation-only reopen
+fixture uses an explicit unqualified observation slot and makes no Workflow or
+whole-workspace adoption claim. Every original assertion remains. The affected
+original-owner (59), Workflow-cleanup (7) and recommendation-reopen (1) runs pass.
+The fresh complete verifier and exact-head CI evidence are recorded in the PR;
+producer persistence and deletion/assessment composition remain pending.
+
+
+The corrected complete local repository verifier passes: 3,308 Rust unit tests
+(18 existing ignored), all Rust integration targets, reporter tests, desktop
+native ABI/type checks/tests/build and documentation checks/build. The current
+20 reviewed Rust file hashes match the verified source. Required CI and the PR
+lifecycle remain recorded with the concrete PR, not inferred from this local run.

@@ -212,7 +212,7 @@ async fn evidence_original_owner_replacements_cannot_capture_or_publish() {
                 let ws = ws.as_mut().unwrap();
                 ws.workflow_observations =
                     crate::workflow_observations::WorkflowObservationStore::open(
-                        ws.metadata.root_path(),
+                        dir.path().join("replacement-workflow"),
                     )
                     .unwrap();
             }
@@ -735,9 +735,10 @@ async fn evidence_composition_cannot_adopt_store_replaced_since_original_capture
     {
         let mut ws = state.workspace.lock().unwrap();
         let ws = ws.as_mut().unwrap();
-        ws.workflow_observations =
-            crate::workflow_observations::WorkflowObservationStore::open(ws.metadata.root_path())
-                .unwrap();
+        ws.workflow_observations = crate::workflow_observations::WorkflowObservationStore::open(
+            _dir.path().join("replacement-workflow"),
+        )
+        .unwrap();
     }
     assert!(matches!(
         captured.with_workflow_evidence().await,

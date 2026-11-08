@@ -296,3 +296,15 @@ production origin constructor, producer routing or legacy opener changes; then
 qualify the captured producer/deletion owner separately. Recommendation/readiness
 origins, assessment publication, complete startup, backup/migration, native/
 hierarchy and activation remain gated. Production stays JSON.
+
+
+### Source qualification progress — 2026-11-08
+
+After the strict data prerequisite in #1565, the next private slice retains the
+worker's original checked opening identity and implements the captured final-scan
+source/read admission plus canonical shared observation mode and legacy refusal.
+A distinct checked existing-SQL read opener supports owner-loss qualification
+without legacy repair or AppState adoption. This follows the accepted decision;
+it does not add a production format route, persist new tagged observations,
+compose Workflow deletion or construct assessment inputs. Those integrations and
+physical/rollout gates remain unchanged.

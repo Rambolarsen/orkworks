@@ -1741,5 +1741,64 @@ with returned snapshots, verifies QueueFull, then proves drop and expired-reques
 settlement release capacity. The data reader changes no global budget limits.
 Parsed/expected scope is data only: these tests do not check current SQL rows,
 authenticate an origin, serialize producer/deletion races or qualify whole-workspace
-physical consistency. No production constructor, writer, shared SQL admission,
-legacy refusal integration, inference, publication or activation is enabled.
+physical consistency. The separate source/owner prerequisite below does not
+turn parsed records into qualified assessment inputs.
+
+
+## Original observation source and shared read owner
+
+The next accepted prerequisite adds a private sealed claim from `CapturedEnding`
+before inference and a distinct existing-SQL workspace read opener. Worker
+startup retains its checked epoch and native root identity. Original and pre-file
+source reads check exact scope/creation/deleted state and live-row/job consistency
+in bounded SQL transactions; current IDs never refresh a captured claim.
+
+Real SQL/application tests cover equal-ID/creation epoch replacement, reused or
+missing/tombstoned rows, closed/archived eligibility, foreign scope, Busy, corrupt
+and unavailable storage, bounded read slots and queued expiry. Deterministic
+admission waits cover epoch/creation/job, native root/lease/workflow directory,
+application workflow/lease/workspace, runtime and worker replacement, with no
+sequence change or premature mode transition.
+
+Canonical aliases, independent legacy opens and clones share weak admission.
+Legacy operations keep their existing serialization; checked SQL admission is
+nonblocking Busy during legacy work and permanently revokes legacy while the
+original owner lives. Legacy constructors refuse format/database artifacts and
+reserved SQL tags, including damaged prefixes/partial tails, before repair.
+The separate legacy preflight inspection budget is 65,537 entries, 65,536 lines,
+64 MiB and 64 KiB per line with a 2-second deadline; strict SQL inventory bounds
+remain unchanged. A workflow-directory link refuses visibly and preserves its
+target; the existing 10,001-segment legacy count assertion remains covered.
+
+An isolated child proves all 32 full file-job slots are enforced at origin
+capture. Another fills the remaining slots and stalls root checks, pre-admission
+or admitted read work: cancellation/expiry retains capacity through actual
+settlement and returns no late data. A real following lifecycle mutation proves
+a completed snapshot no longer holds the session lane. Delayed polling after
+native completion still returns Expired. Owner-loss coverage closes the worker,
+drops original owners, reacquires the lease and opens through the checked SQL
+path, without legacy recovery, AppState adoption or a new sequence file.
+
+The corrected 205 observation-related tests and 15 deadline-focused tests pass;
+both independent medium code-review scopes are APPROVE after bounded fixes. These are source/temporary-fixture results, not physical memory,
+power-loss, installed-profile or history-performance qualification. New tagged
+producer persistence, Workflow deletion ordering and assessment input/publication
+composition remain pending. Production stays JSON.
+
+
+The deadline qualification additionally holds the opener's initial workspace
+mutex past expiry and holds the projection mutex after candidate acquisition.
+The original timer starts before either wait, and candidate/lane resources are
+released while the mutex remains held. An ignored non-record entry delayed past
+the preflight deadline also refuses without creating sequence or changing bytes.
+The six existing fixture setup changes preserve all original assertions and use
+independent unqualified replacement stores rather than bypassing the new legacy
+refusal floor. The recommendation-only owner-loss fixture's observation slot is
+unqualified; it establishes no whole-workspace startup or Workflow integration.
+
+
+The complete corrected local verifier passes with 3,308 Rust unit tests and no
+failures (18 existing ignored), all integration targets, 31 reporter tests,
+desktop type/native ABI checks, 1,709 desktop passes (3 existing skipped), and
+1,202 documentation checks plus both builds. The 20-source-file review manifest
+matches the verified code. Required CI is qualified on the concrete PR head.

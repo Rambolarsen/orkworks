@@ -139,6 +139,39 @@ impl SessionWrites {
             }
         }
     }
+    /// Observation admission never waits for an application mutex while retaining
+    /// file-operation/lane authority. Busy is retried only under the original deadline.
+    fn observation_try_current<T>(
+        &self,
+        id: &str,
+        runtime: &RuntimeIdentity,
+        snapshot: Option<&Snapshot>,
+        apply: impl FnOnce(&WorkspaceState, &mut crate::SessionHandle) -> T,
+    ) -> Result<Option<T>, StoreError> {
+        use super::observation_opening::try_observation_lock;
+        let _projection = try_observation_lock(&self.state.projection_lock)?;
+        let _transition =
+            try_observation_lock(crate::runtime::prompt_authority::transition_lock())?;
+        let workspace = try_observation_lock(&self.state.workspace)?;
+        let Some(ws) = workspace.as_ref() else {
+            return Ok(None);
+        };
+        if !self.workspace.matches(ws) || !Arc::ptr_eq(&self.reader, &ws.metadata.session_reader())
+        {
+            return Ok(None);
+        }
+        let mut sessions = try_observation_lock(&self.state.sessions)?;
+        let Some(h) = sessions.get_mut(id) else {
+            return Ok(None);
+        };
+        if h.info.id != id
+            || *runtime != h.runtime.identity()
+            || snapshot.is_some_and(|s| !s.matches(h))
+        {
+            return Ok(None);
+        }
+        Ok(Some(apply(ws, h)))
+    }
     fn lifecycle_current<T>(
         &self,
         id: &str,
@@ -332,3 +365,6 @@ pub(crate) use history::{
     CapturedEnding, CapturedEndingEvidence, EvidenceWrite, Finalization, MetadataResult,
     ProviderWrite,
 };
+
+#[cfg(test)]
+pub(crate) use history::{hold_observation, ObservationStage};

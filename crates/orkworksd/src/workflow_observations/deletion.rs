@@ -9,6 +9,43 @@ pub(super) struct Anchor {
 }
 #[cfg(unix)]
 impl Anchor {
+    pub(super) fn checked_directory(
+        &self,
+        lease: &crate::workspace_runtime::WorkspaceLease,
+    ) -> std::io::Result<std::fs::File> {
+        use std::os::{
+            fd::{AsRawFd, FromRawFd},
+            unix::fs::MetadataExt,
+        };
+        lease.validate_directory(&self.root)?;
+        let name = std::ffi::CString::new("workflow-observations").unwrap();
+        // SAFETY: retained root FD, fixed NUL-terminated component, newly owned result.
+        let fd = unsafe {
+            libc::openat(
+                self.root.as_raw_fd(),
+                name.as_ptr(),
+                libc::O_RDONLY
+                    | libc::O_DIRECTORY
+                    | libc::O_NOFOLLOW
+                    | libc::O_NONBLOCK
+                    | libc::O_CLOEXEC,
+            )
+        };
+        if fd < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        // SAFETY: successful openat returned a fresh descriptor owned exactly once.
+        let current = unsafe { std::fs::File::from_raw_fd(fd) };
+        let original = self.directory.metadata()?;
+        let selected = current.metadata()?;
+        if original.dev() != selected.dev() || original.ino() != selected.ino() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "original workflow directory replaced",
+            ));
+        }
+        self.directory.try_clone()
+    }
     // Retain original directories for the shared store lifetime, even if their
     // paths are renamed/replaced. An error disables only this new durable path.
     pub(super) fn open(root: &std::path::Path) -> std::io::Result<Self> {
@@ -58,6 +95,7 @@ impl WorkflowObservationStore {
         sync: impl Fn(&std::fs::File) -> std::io::Result<()>,
     ) -> std::io::Result<()> {
         use std::os::fd::AsRawFd;
+        let _operation = self.owner.legacy()?;
         if id.is_empty()
             || id.len() > 256
             || !id
@@ -197,7 +235,7 @@ mod tests {
         assert_eq!(store.session_observation_count("s").unwrap(), 1);
     }
     #[test]
-    fn durable_delete_without_original_anchor_preserves_legacy_open_and_fails_closed() {
+    fn legacy_directory_link_refuses_and_original_root_anchor_stays_nonfollowing() {
         for root_link in [true, false] {
             let outer = tempfile::tempdir().unwrap();
             let actual = outer.path().join("actual");
@@ -208,6 +246,14 @@ mod tests {
             } else {
                 fs::create_dir(&root).unwrap();
                 std::os::unix::fs::symlink(&actual, root.join("workflow-observations")).unwrap();
+            }
+            if !root_link {
+                // The accepted SQL-tag refusal floor cannot inspect through a
+                // workflow-directory link. It refuses before any legacy effect.
+                fs::write(actual.join("s.ndjson"), b"keep").unwrap();
+                assert!(WorkflowObservationStore::open(root).is_err());
+                assert_eq!(fs::read(actual.join("s.ndjson")).unwrap(), b"keep");
+                continue;
             }
             let store = WorkflowObservationStore::open(root).unwrap();
             fs::write(store.segment_path("s"), b"keep").unwrap();

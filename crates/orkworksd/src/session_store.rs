@@ -84,9 +84,15 @@ pub(crate) struct OrganizationRecord {
     pub(crate) organization_revision: String,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub(crate) struct OpeningIdentity {
     epoch: String,
+}
+
+impl OpeningIdentity {
+    pub(crate) fn epoch(&self) -> &str {
+        &self.epoch
+    }
 }
 
 struct Database {
@@ -1014,3 +1020,6 @@ mod tests {
 
 #[cfg(test)]
 mod close_first_tests;
+
+mod observation_sources;
+pub(crate) use observation_sources::ObservationSource;

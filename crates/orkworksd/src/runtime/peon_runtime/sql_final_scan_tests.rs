@@ -337,7 +337,7 @@ async fn final_scan_original_capture_rejects_replacements_across_inference_wait(
                 let ws = ws.as_mut().unwrap();
                 ws.workflow_observations =
                     crate::workflow_observations::WorkflowObservationStore::open(
-                        ws.metadata.root_path(),
+                        dir.path().join("replacement-workflow"),
                     )
                     .unwrap();
             }
