@@ -77,6 +77,7 @@ $sessionStartEvent = ""
 $sessionStartObservedAt = ""
 $sessionSource = ""
 $promptNotificationType = ""
+$claudePromptEventValid = $false
 $promptObservedAt = ""
 $codexAttention = $false
 $codexCaptureOnly = $false
@@ -127,7 +128,9 @@ if ($Marker -clike "*:claude-code") {
                 $sessionStartSource = "clear"
                 $sessionStartEvent = "SessionStart"
             }
-            if ($Event -eq "Notification" -and $data.notification_type -is [string]) {
+            $claudePromptEventValid = ($data.hook_event_name -is [string] -and
+                $data.hook_event_name -ceq $Event -and $Event -cin @("Notification", "UserPromptSubmit"))
+            if ($claudePromptEventValid -and $Event -ceq "Notification" -and $data.notification_type -is [string]) {
                 $promptNotificationType = [string]$data.notification_type
             }
         }
@@ -401,8 +404,19 @@ if (-not $codexCaptureOnly -and $sessionId -and $port -and $harnessSessionId -an
 # The sidecar keeps submissions inert until prompt authority has activated.
 $promptNotificationAllowed = $false
 $promptStatus = "waiting_for_input"
-if ($sessionSource -eq "claude_hook" -and $Event -eq "Notification" -and $promptNotificationType -in @("permission_prompt", "elicitation_dialog", "elicitation_url_dialog")) {
+if ($sessionSource -eq "claude_hook" -and $claudePromptEventValid -and $Event -ceq "Notification") {
+    if ($promptNotificationType -cin @("permission_prompt", "elicitation_dialog", "elicitation_url_dialog")) {
+        $promptNotificationAllowed = $true
+    } elseif ($promptNotificationType -ceq "idle_prompt") {
+        $promptNotificationAllowed = $true
+        $promptStatus = "idle"
+    } elseif ($promptNotificationType -cin @("elicitation_response", "elicitation_complete")) {
+        $promptNotificationAllowed = $true
+        $promptStatus = "working"
+    }
+} elseif ($sessionSource -eq "claude_hook" -and $claudePromptEventValid -and $Event -ceq "UserPromptSubmit") {
     $promptNotificationAllowed = $true
+    $promptStatus = "working"
 } elseif ($sessionSource -eq "copilot_hook" -and $Event -eq "notification" -and $promptNotificationType -in @("permission_prompt", "elicitation_dialog")) {
     $promptNotificationAllowed = $true
 } elseif ($sessionSource -eq "copilot_hook" -and $Event -eq "userPromptSubmitted" -and $promptObservedAt) {

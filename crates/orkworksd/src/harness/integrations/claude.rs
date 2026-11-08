@@ -33,14 +33,11 @@ pub(crate) static HANDLER: JsonHookHandler = JsonHookHandler::new(
     reconcile_current,
 );
 
-/// The async constraint an installed hook entry must satisfy for the probe
-/// to call it byte-exact. `Notification` does not care, `PreToolUse` must be
-/// `async: true` (it runs while Claude is mid-tool-use), and `PostToolUse`
-/// must be synchronous so the path lands before the agent moves on.
+/// Current turn/path hooks must be synchronous; notification/lifecycle and
+/// legacy-entry ownership scans accept either async setting.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum AsyncSpec {
     Any,
-    AsyncMandatory,
     SyncMandatory,
 }
 
@@ -52,6 +49,8 @@ enum AsyncSpec {
 enum EventProfile {
     SessionStart,
     Notification,
+    UserPromptSubmit,
+    // Retained only to identify and remove owned legacy registration.
     PreToolUse,
     PostToolUse,
 }
@@ -61,6 +60,7 @@ impl EventProfile {
         match self {
             Self::SessionStart => "SessionStart",
             Self::Notification => "Notification",
+            Self::UserPromptSubmit => "UserPromptSubmit",
             Self::PreToolUse => "PreToolUse",
             Self::PostToolUse => "PostToolUse",
         }
@@ -68,11 +68,10 @@ impl EventProfile {
 
     fn matcher(self) -> &'static str {
         match self {
-            // Notification and PreToolUse intentionally match every matcher —
-            // they only fire once per agent turn, so the noise cost is
-            // negligible and the install cross-handler test does not have to
-            // predict Claude's tool-name vocabulary.
-            Self::SessionStart | Self::Notification | Self::PreToolUse => "*",
+            // Lifecycle and notification events match every occurrence.
+            Self::SessionStart | Self::Notification | Self::UserPromptSubmit | Self::PreToolUse => {
+                "*"
+            }
             // PostToolUse goes through every Write/Edit; restricting the
             // matcher to `Write|Edit` keeps Bash/TodoWrite/NotebookEdit from
             // triggering the path-only route on churn that cannot carry a
@@ -83,60 +82,33 @@ impl EventProfile {
 
     fn invocation(self, platform: ReporterPlatform, reporter: &Path) -> ReporterInvocation {
         match self {
-            Self::SessionStart => event_reporter_invocation_for_platform(
+            Self::PostToolUse => plan_path_invocation_for_platform(platform, reporter),
+            _ => event_reporter_invocation_for_platform(
                 platform,
                 reporter,
                 MARKER,
                 self.event_name(),
             ),
-            Self::Notification => {
-                attention_invocation_for_platform(platform, reporter, self.event_name(), None)
-            }
-            Self::PreToolUse => attention_invocation_for_platform(
-                platform,
-                reporter,
-                self.event_name(),
-                Some("working"),
-            ),
-            Self::PostToolUse => plan_path_invocation_for_platform(platform, reporter),
         }
     }
 
     fn async_spec(self) -> AsyncSpec {
         match self {
             Self::SessionStart | Self::Notification => AsyncSpec::Any,
-            Self::PreToolUse => AsyncSpec::AsyncMandatory,
-            Self::PostToolUse => AsyncSpec::SyncMandatory,
+            Self::PreToolUse => AsyncSpec::Any,
+            Self::PostToolUse | Self::UserPromptSubmit => AsyncSpec::SyncMandatory,
         }
     }
 }
 
+const LEGACY_EVENTS: [EventProfile; 1] = [EventProfile::PreToolUse];
+
 const EVENTS: [EventProfile; 4] = [
     EventProfile::SessionStart,
     EventProfile::Notification,
-    EventProfile::PreToolUse,
+    EventProfile::UserPromptSubmit,
     EventProfile::PostToolUse,
 ];
-
-/// Wraps the shared `reporter_invocation_for_platform` to add the optional
-/// `--status`/`-Status <value>` attention-mode flag. `None` produces the
-/// plain Notification shape; `Some(status)` produces the PreToolUse shape.
-fn attention_invocation_for_platform(
-    platform: ReporterPlatform,
-    reporter: &Path,
-    event: &str,
-    status: Option<&str>,
-) -> ReporterInvocation {
-    let mut invocation = event_reporter_invocation_for_platform(platform, reporter, MARKER, event);
-    if let Some(status) = status {
-        let flag = match platform {
-            ReporterPlatform::Posix => "--status",
-            ReporterPlatform::WindowsPowerShell => "-Status",
-        };
-        invocation.args.extend([flag.into(), status.into()]);
-    }
-    invocation
-}
 
 /// Builds the reporter invocation shape for the path-only PostToolUse hook:
 /// `--marker <MARKER> --report-plan-path` (POSIX) / `-Marker <MARKER>
@@ -201,9 +173,6 @@ fn marker_state(
             let exact = expected.is_some_and(|invocation| {
                 let async_ok = match async_spec {
                     AsyncSpec::Any => true,
-                    AsyncSpec::AsyncMandatory => {
-                        hook.get("async").and_then(Value::as_bool) == Some(true)
-                    }
                     // PostToolUse is intentionally synchronous: `merge`
                     // never writes the `async` field for it, and a hook
                     // edited to set `async: true` would just delay the
@@ -292,8 +261,17 @@ fn probe(
             FragmentState::Drifted => {}
         }
     }
+    let mut legacy_present = false;
+    for profile in LEGACY_EVENTS {
+        let state = event_state(document, profile, None, AsyncSpec::Any)?;
+        any_ambiguous |= state == FragmentState::Ambiguous;
+        legacy_present |= state != FragmentState::Absent;
+    }
     if any_ambiguous {
         return Ok(FragmentState::Ambiguous);
+    }
+    if legacy_present {
+        return Ok(FragmentState::Drifted);
     }
     if installed_count == EVENTS.len() {
         return Ok(FragmentState::Installed);
@@ -339,14 +317,11 @@ fn merge(document: &mut Map<String, Value>, reporter: &Path) -> Result<(), Integ
                 profile.event_name()
             ))
         })?;
-        let mut hook = json!({
+        let hook = json!({
             "type": "command",
             "command": invocation.program,
             "args": invocation.args,
         });
-        if profile == EventProfile::PreToolUse {
-            hook["async"] = json!(true);
-        }
         let matcher = profile.matcher();
         entries.push(json!({"matcher": matcher, "hooks": [hook]}));
     }
@@ -355,7 +330,7 @@ fn merge(document: &mut Map<String, Value>, reporter: &Path) -> Result<(), Integ
 
 fn remove(document: &mut Map<String, Value>) -> Result<FragmentState, IntegrationError> {
     let mut found = false;
-    for profile in EVENTS {
+    for profile in EVENTS.into_iter().chain(LEGACY_EVENTS) {
         let state = event_state(document, profile, None, AsyncSpec::Any)?;
         if state == FragmentState::Ambiguous {
             return Ok(FragmentState::Ambiguous);
@@ -369,7 +344,7 @@ fn remove(document: &mut Map<String, Value>) -> Result<FragmentState, Integratio
         .get_mut("hooks")
         .and_then(Value::as_object_mut)
         .expect("validated hooks object");
-    for profile in EVENTS {
+    for profile in EVENTS.into_iter().chain(LEGACY_EVENTS) {
         if let Some(groups) = hooks
             .get_mut(profile.event_name())
             .and_then(Value::as_array_mut)
@@ -414,12 +389,53 @@ mod tests {
             hooks["Notification"][0]["hooks"][0]["args"],
             json!(expected.args)
         );
-        let pre_tool = hooks["PreToolUse"].as_array().unwrap();
-        assert_eq!(pre_tool.len(), 1);
-        assert_eq!(pre_tool[0]["matcher"], "*");
-        assert_eq!(pre_tool[0]["hooks"][0]["async"], true);
-        let expected = EventProfile::PreToolUse.invocation(ReporterPlatform::current(), reporter);
-        assert_eq!(pre_tool[0]["hooks"][0]["args"], json!(expected.args));
+        let submitted = hooks["UserPromptSubmit"].as_array().unwrap();
+        assert_eq!(submitted.len(), 1);
+        assert!(submitted[0]["hooks"][0].get("async").is_none());
+        let expected =
+            EventProfile::UserPromptSubmit.invocation(ReporterPlatform::current(), reporter);
+        assert_eq!(submitted[0]["hooks"][0]["args"], json!(expected.args));
+    }
+
+    #[test]
+    fn merge_installs_submission_without_pre_tool_attention() {
+        let reporter = Path::new("/fixture/reporter");
+        let mut document = Map::new();
+        merge(&mut document, reporter).unwrap();
+        assert_eq!(
+            document["hooks"]["UserPromptSubmit"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(document["hooks"].get("PreToolUse").is_none());
+        assert!(document["hooks"].get("Stop").is_none());
+        assert_ne!(
+            document["hooks"]["UserPromptSubmit"][0]["hooks"][0]["async"],
+            json!(true)
+        );
+    }
+
+    #[test]
+    fn merge_removes_only_owned_legacy_pre_tool_use() {
+        let reporter = Path::new("/fixture/reporter");
+        let foreign =
+            json!({"matcher":"Bash", "hooks":[{"type":"command", "command":"foreign-command"}]});
+        let mut document = json!({"hooks":{"PreToolUse":[
+            {"matcher":"*", "hooks":[{"type":"command", "command":"old-reporter", "args":["--marker",MARKER,"--event","PreToolUse","--status","working"],"async":true}]},
+            foreign.clone()
+        ]}}).as_object().unwrap().clone();
+        assert_eq!(probe(&document, reporter).unwrap(), FragmentState::Drifted);
+        merge(&mut document, reporter).unwrap();
+        assert_eq!(document["hooks"]["PreToolUse"], json!([foreign]));
+        assert_eq!(
+            probe(&document, reporter).unwrap(),
+            FragmentState::Installed
+        );
+        remove(&mut document).unwrap();
+        assert_eq!(document["hooks"]["PreToolUse"].as_array().unwrap().len(), 1);
+        assert_eq!(probe(&document, reporter).unwrap(), FragmentState::Absent);
     }
 
     /// Merge must install a synchronous PostToolUse `Write|Edit` entry whose
@@ -467,7 +483,7 @@ mod tests {
     }
 
     /// probe() reports Installed only when all four owned events (SessionStart,
-    /// Notification, PreToolUse, PostToolUse) match the exact installed shape.
+    /// Notification, UserPromptSubmit, PostToolUse) match the exact installed shape.
     /// A missing event is Drifted — install must converge it.
     #[test]
     fn probe_marks_a_missing_post_tool_use_hook_as_drifted() {
@@ -586,15 +602,16 @@ mod tests {
     }
 
     #[test]
-    fn working_hook_uses_powershell_parameter_syntax_on_windows() {
-        let invocation = EventProfile::PreToolUse.invocation(
+    fn submission_hook_uses_powershell_event_parameter() {
+        let invocation = EventProfile::UserPromptSubmit.invocation(
             ReporterPlatform::WindowsPowerShell,
             Path::new("C:\\report-harness-event.ps1"),
         );
         assert!(invocation
             .args
             .windows(2)
-            .any(|args| args == ["-Status", "working"]));
+            .any(|args| args == ["-Event", "UserPromptSubmit"]));
+        assert!(!invocation.args.iter().any(|arg| arg == "-Status"));
     }
 
     #[test]
@@ -607,11 +624,11 @@ mod tests {
     }
 
     #[test]
-    fn probe_marks_a_synchronous_working_hook_as_drifted() {
+    fn probe_marks_an_async_submission_hook_as_drifted() {
         let reporter = Path::new("/tmp/report-harness-event.sh");
         let mut document = Map::new();
         merge(&mut document, reporter).unwrap();
-        document["hooks"]["PreToolUse"][0]["hooks"][0]["async"] = json!(false);
+        document["hooks"]["UserPromptSubmit"][0]["hooks"][0]["async"] = json!(true);
 
         assert_eq!(probe(&document, reporter).unwrap(), FragmentState::Drifted);
     }

@@ -2213,13 +2213,20 @@ impl MetadataStore {
         self.merge_prompt_authority_status_record(id, "waiting_for_input")
     }
 
-    /// The authenticated Copilot submission clears attention only. Preserve
+    /// An authenticated submission or matched elicitation clear changes attention only. Preserve
     /// user ownership and all independent work/summary/evidence fields.
     pub(crate) fn merge_prompt_authority_work_record(
         &self,
         id: &str,
     ) -> Result<Option<session_transactions::RevisionedSession>, AttentionMergeResult> {
         self.merge_prompt_authority_status_record(id, "working")
+    }
+
+    pub(crate) fn merge_prompt_authority_idle_record(
+        &self,
+        id: &str,
+    ) -> Result<Option<session_transactions::RevisionedSession>, AttentionMergeResult> {
+        self.merge_prompt_authority_status_record(id, "idle")
     }
 
     fn merge_prompt_authority_status_record(

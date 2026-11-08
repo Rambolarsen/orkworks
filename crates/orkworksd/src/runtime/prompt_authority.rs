@@ -25,6 +25,7 @@ struct ResetReservation {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct QueuedPromptWait {
     pub(crate) notification_type: String,
+    pub(crate) prompt_kind: super::session_runtime::RuntimePromptKind,
     pub(crate) observed_at: Option<chrono::DateTime<chrono::Utc>>,
     pub(crate) receipt_sequence: u64,
     pub(crate) committed_input_sequence: u64,
@@ -507,8 +508,23 @@ impl PromptAuthorityRegistry {
                 _ => return false,
             }
         }
+        let prompt_kind = super::session_runtime::RuntimePromptKind::for_notification(
+            harness_id,
+            reset
+                .queued_prompt_wait
+                .as_ref()
+                .filter(|previous| {
+                    !previous.superseded_by_committed_input(
+                        committed_input_sequence,
+                        reset.reset_submission_input_sequence,
+                    )
+                })
+                .map(|previous| previous.prompt_kind),
+            notification_type,
+        );
         reset.queued_prompt_wait = Some(QueuedPromptWait {
             notification_type: notification_type.to_string(),
+            prompt_kind,
             observed_at,
             receipt_sequence,
             committed_input_sequence,
@@ -960,6 +976,7 @@ mod tests {
     fn queued_prompt_wait_detects_user_input_after_receipt() {
         let queued = super::QueuedPromptWait {
             notification_type: "permission_prompt".into(),
+            prompt_kind: super::super::session_runtime::RuntimePromptKind::Permission,
             observed_at: None,
             receipt_sequence: 1,
             committed_input_sequence: 4,
@@ -1007,5 +1024,109 @@ mod snapshot_tests {
         writer.join().unwrap();
         assert!(!crossed, "raw removal crossed the snapshot callback");
         registry.with_snapshot("session", |snapshot| assert!(snapshot.is_none()));
+    }
+    #[test]
+    fn queued_claude_parallel_elicitations_preserve_ambiguity_after_reset() {
+        use crate::runtime::session_runtime::{ClaudeElicitation, RuntimePromptKind};
+        for (first, second) in [
+            ("elicitation_dialog", "elicitation_dialog"),
+            ("elicitation_dialog", "elicitation_url_dialog"),
+            ("permission_prompt", "elicitation_dialog"),
+            ("elicitation_dialog", "permission_prompt"),
+        ] {
+            let registry = PromptAuthorityRegistry::default();
+            registry.issue_with_native_id("s", "claude-code", "g", Some("old"));
+            assert!(registry.reserve_reset("s", "claude-code", "/clear"));
+            assert_eq!(
+                registry.register_native_id("s", "claude-code", "g", "new", true, None),
+                BindResult::Held
+            );
+            assert!(registry.queue_prompt_wait(
+                "s",
+                "claude-code",
+                "g",
+                "new",
+                first,
+                None,
+                1,
+                0,
+                None
+            ));
+            assert!(registry.queue_prompt_wait(
+                "s",
+                "claude-code",
+                "g",
+                "new",
+                second,
+                None,
+                2,
+                0,
+                None
+            ));
+            registry.acknowledge_reset("s").unwrap();
+            let queued = registry
+                .complete_reset("s")
+                .unwrap()
+                .queued_prompt_wait
+                .unwrap();
+            assert_eq!(
+                queued.prompt_kind,
+                RuntimePromptKind::ClaudeElicitation(ClaudeElicitation::Ambiguous),
+                "{first}/{second}"
+            );
+        }
+    }
+    #[test]
+    fn queued_claude_new_prompt_discards_only_superseded_ambiguity() {
+        use crate::runtime::session_runtime::{ClaudeElicitation, RuntimePromptKind};
+        for (input_sequence, reset_input_sequence, expected) in [
+            (1, None, ClaudeElicitation::Dialog),
+            (1, Some(1), ClaudeElicitation::Ambiguous),
+            (2, Some(1), ClaudeElicitation::Dialog),
+        ] {
+            let registry = PromptAuthorityRegistry::default();
+            registry.issue_with_native_id("s", "claude-code", "g", Some("old"));
+            assert!(registry.reserve_reset("s", "claude-code", "/clear"));
+            assert_eq!(
+                registry.register_native_id("s", "claude-code", "g", "new", true, None),
+                BindResult::Held
+            );
+            assert!(registry.queue_prompt_wait(
+                "s",
+                "claude-code",
+                "g",
+                "new",
+                "elicitation_dialog",
+                None,
+                1,
+                0,
+                None
+            ));
+            if let Some(sequence) = reset_input_sequence {
+                registry.note_reset_submission_input_sequence("s", sequence);
+            }
+            assert!(registry.queue_prompt_wait(
+                "s",
+                "claude-code",
+                "g",
+                "new",
+                "elicitation_dialog",
+                None,
+                2,
+                input_sequence,
+                None
+            ));
+            registry.acknowledge_reset("s").unwrap();
+            let queued = registry
+                .complete_reset("s")
+                .unwrap()
+                .queued_prompt_wait
+                .unwrap();
+            assert_eq!(
+                queued.prompt_kind,
+                RuntimePromptKind::ClaudeElicitation(expected),
+                "input={input_sequence}, reset={reset_input_sequence:?}"
+            );
+        }
     }
 }

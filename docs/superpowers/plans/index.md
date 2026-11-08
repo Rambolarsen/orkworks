@@ -5,6 +5,7 @@ Dated implementation plans; consult authoritative specs and issues for current s
 ## Documents
 
 - [SQL recommendation producer revocation](2026-11-08-sql-recommendation-producer-revocation.md) — Proposed bounded source-only owner/admission/delivery tests and implementation handoff; owner decision pending.
+- [Claude prompt and turn mapping](2026-11-08-claude-attention-mapping.md) — Accepted #682 event mapping and conservative elicitation clears.
 
 - [Owned short probe implementation](2026-11-07-probe-process-ownership.md) — Approved #694 shared runner, caller migration and fixture delivery.
 
