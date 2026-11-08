@@ -209,3 +209,14 @@ No remaining checkbox is completed: these exact insertion/transfer inputs do not
 implement the actual complete registration or finite-job settlement operations.
 Disposition remains Investigate for dependent implementation; unchanged accepted
 choices are reused. No runtime execution or new numerical allowance was supplied.
+
+
+## Binding and delivery bounds proposal — 2026-11-08
+
+[#1558](https://github.com/Rambolarsen/orkworks/issues/1558) provides the
+[proposed finite-job refinement](../specs/2026-11-08-maintenance-settlement-bounds-design.md)
+for complete retained reservation/result ownership, one absolute deadline and a
+fixed store-attempt/notification/recheck graph without input resend. These new
+policy choices remain proposed. Actual numeric profiles, delivery-outcome evidence,
+compatible domain owner operations and physical/resource enforcement remain
+unavailable; no qualification checkbox or implementation gate is completed.
