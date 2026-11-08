@@ -192,3 +192,12 @@ Accepted owner decision — 2026-11-08: use this monotonic process-local legacy-
 revocation and checked permit handoff as a private prerequisite. This accepts
 neither live SQL selection nor a new SQL producer, finalizer, startup recovery,
 backup/migration or activation. Production continues using JSON.
+
+
+## Follow-up representation proposal — 2026-11-08
+
+The [assessment source-provenance proposal](2026-11-08-sql-assessment-source-provenance.md)
+traces input dependencies even when the derived card has empty session arrays.
+It proposes format4 and a bounded original-creation envelope with fail-closed
+legacy handling. Owner decision is pending; this link changes no accepted
+producer/publication permission or source-origin qualification.
