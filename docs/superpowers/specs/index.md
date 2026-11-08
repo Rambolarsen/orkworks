@@ -287,3 +287,5 @@ Dated design records; these do not establish current product behavior.
 - [Backup maintenance admission and physical settlement](2026-11-08-backup-maintenance-admission-design.md) — Accepted per-root job ownership, closure/drain/Q and explicit validated release for further qualification; actual module/native/resource gates remain.
 
 - [Complete maintenance registration and original-job settlement](2026-11-08-maintenance-registration-settlement-design.md) — Accepted-for-qualification private producer catalog, root registrations and retained finite completion ownership; actual integration and physical qualification remain gated.
+
+- [SQL workflow observation origin capture](2026-11-08-sql-observation-origin-capture.md) — Proposed original final-scan capture, strict tagged records and SQL owner refusal; producer and activation gates remain.

@@ -225,3 +225,12 @@ capture/validation/reopen evidence only. Origin-producing inputs and actual SQL
 assessment publication/recovery stay disabled pending their separate qualification.
 This costs availability for unproven old inputs and never discards them. No
 runtime, race, durability or performance result is claimed by these written docs.
+
+
+## Proposed first origin owner
+
+The [observation origin proposal](2026-11-08-sql-observation-origin-capture.md)
+selects a possible first final-scan owner, durable tagged records and private SQL
+admission boundary. It is owner-decision-pending and changes no acceptance here.
+Recommendation/readiness origins, full assessment input capture and publication
+remain gated. #1551's fixture constructor is not upgraded by that proposal.
