@@ -335,3 +335,89 @@ mapping. Source-fidelity review identified wording that could imply global SQL
 close ordering already exists; it now distinguishes the per-stage progress wait
 from the required, unavailable outer-job/close integration. Neither review supplies
 physical/native evidence or changes accepted authority.
+
+
+## Delivery outcome and enforced-limit evidence — 2026-11-08
+
+Tracking: [#1566](https://github.com/Rambolarsen/orkworks/issues/1566).
+Source pin: `26e4e2a15146344bf2d4a4495b7d35c75e1248f1`.
+Consumes accepted [bounded settlement](../superpowers/specs/2026-11-08-maintenance-settlement-bounds-design.md)
+and earlier constructor/completion evidence above. Historical pins stand.
+This is source evidence, not an executed qualification/profile or a new policy.
+No product tests, native/SQL/model probes or live state were inspected/executed.
+
+**Result:** the actual terminal writer acknowledges physical byte-write progress
+more narrowly than application delivery success, but the current result loses
+important distinctions. Existing input/file/SQL limits have concrete enforcement;
+they do not supply the complete application-wide resource/deadline profile required
+by accepted maintenance. Missing values remain unavailable, not chosen by analogy.
+
+### Actual acknowledgement chain
+
+| Actual source / phase | What it proves and what it does not |
+| --- | --- |
+| [terminal_runtime.rs](../../crates/orkworksd/src/runtime/terminal_runtime.rs), `submit_input_with_admission`, 730–755 | Checks exact runtime/channel, tries a per-runtime input slot, then owned async work waits for input gate and channel capacity. Pre-enqueue identity/slot/channel failures can be known no input effect at their local branch. These stages do not supply a maintenance-wide absolute deadline or byte reservation. |
+| Same file, 756–789 | Blocking preparation owns the channel permit and `effect: Some((permit, Input))`; admission consumes it exactly once to enqueue. If it remains Some, no command was sent through that closure. Callback error after consumption does not prove rejection. Preparation panic may occur after enqueue, so the caller still waits for writer acknowledgement. Pending-input bookkeeping can itself have effects before terminal input; no input effect is not a no-workspace-effects receipt. |
+| [session_runtime.rs](../../crates/orkworksd/src/runtime/session_runtime.rs), `RuntimeCommand::Input`, `reject_runtime_command`, 333–363; startup buffering, 1280–1351 | Input acknowledgement is `oneshot::Sender<Result<(), ()>>`. Explicit queue/startup rejection sends `Err(())` without starting the PTY write for that command. The result does not encode this provenance, so callers cannot distinguish it from later write failure by value alone. |
+| Same file, `PendingPtyWrite::start`, 373–412 | A blocking task owns writer/data/ack. Before each write it checks stop/cancellation; write may consume a prefix before a later stop, zero return or error yields `Err(())`. Interrupted errors retry within that write loop. No byte-count/partial/no-effect distinction is returned. Async abort or timeout is not native-operation cancellation. |
+| Same file, 399–410 | After all bytes, flush is attempted. Flush failure is logged and the acknowledgement is still `Ok(())`: the full prompt including Enter may already execute. This proves the byte-write loop finished, not command interpretation, model acceptance, task completion, durable graph/event persistence or a successful flush. Never reinterpret flush failure as resend permission. |
+| Same file, `PendingPtyWrite::drop`, 420–424; driver join, 2885–2890 | Drop sets cooperative cancellation; it does not join the blocking task. Ack is sent before the task returns its writer; the driver separately awaits that return before reusing it. Ack receipt alone is not an all-owner teardown/settlement acknowledgement. No physical deadline for a blocked write/flush is established. |
+| [terminal_runtime.rs](../../crates/orkworksd/src/runtime/terminal_runtime.rs), 784–811 | Lost acknowledgement maps to `Err(())`; a failed owner join maps to rejected. Normal completion also waits for a blocking bookkeeping callback. Bookkeeping failure logs without reversing confirmed input. The approved-input wrapper returns `Result<(), ()>` and cannot retain the full provenance needed by maintenance. |
+| [session_application.rs](../../crates/orkworksd/src/session_application.rs), `deliver_recommendation_input`; [recommendation_delivery.rs](../../crates/orkworksd/src/session_application/recommendation_delivery.rs) | Current recommendation flow uses coarse delivery success/error to select graph completion/cancellation and has separate delivery event/bookkeeping. This source behavior is not the accepted future known/partial/unknown contract; mapping every error to known no effect would be unsound for maintenance qualification. The source inspection changes no production behavior. |
+
+The existing terminal owner is the place with direct evidence of whether enqueue
+occurred and whether any/all bytes were written. The application cannot reconstruct
+that evidence from a failed HTTP request, channel closure, elapsed deadline or
+recommendation status. A native write error can have an uncertain effect even
+without a reported positive byte count; missing evidence must stay unknown.
+The later actual-owner contract must preserve original runtime/root/job/slot
+identity, local rejection provenance, writer result/progress uncertainty and
+physical completion separately from bookkeeping/graph/event outcomes. No receipt
+or proposed enum is supplied here as an already implemented capability.
+
+### Enforced numeric limits and their exact scope
+
+| Actual owner / source | Enforced value | Scope and qualification limit |
+| --- | --- | --- |
+| [SessionRuntime](../../crates/orkworksd/src/runtime/session_runtime.rs), 647–675, 709–734; approved-input helper above | Input semaphore capacity 2; `try_acquire_owned` rejects excess helper admissions. | Per runtime/helper path, retained by the owned input task. It does not bound all direct command senders, total application jobs, retained prompt bytes, blocking tasks or switched-away obligations. |
+| Same runtime, constants 30–38 and channel constructor | Control channel capacity 64 commands. | Count bound for that channel, not byte size of each `Input.data`, total queued copies or the complete continuation footprint. |
+| Same runtime, `capture_startup_runtime_state`, 1280–1351 | Startup pending input at most 64 KiB, with checked sum and pending-command cap 64 during this collection. | Startup collection policy only. It cannot be applied as a general recommendation-prompt byte limit or a runtime/global input-memory profile. Initial resize grace is 150 ms, not a physical writer deadline. |
+| [file_budget.rs](../../crates/orkworksd/src/session_application/sql_writes/file_budget.rs), `reserve`, `intent_bytes` | 1 MiB encoded intent per job, 32 jobs, at most 32 MiB encoded intent across the application-wide reservation owner. | Includes switched-away file jobs while reserved. It counts encoded intent, not every retained Rust allocation, handle, binding/result or recovery record. Two-second cleanup-binding await does not stop blocking binding or qualify full job duration. |
+| [session_store.rs](../../crates/orkworksd/src/session_store.rs), `MAX_RECORD`; [worker.rs](../../crates/orkworksd/src/session_store/worker.rs), `prepare`, 773–836 | 1 MiB command intent; checked intent plus declared result bound and retained queue bytes at most 32 MiB; pending reads at most 8 and pending mutations at most 32. | Per worker shared queue. `Reservation::executing` removes the pending count while byte reservation continues to actual delivery/retained completion ownership. Pending limits are not a cap on all outer publication/file jobs or complete memory. SQL remains private/source-only. |
+| Same worker, preparation/ticket deadline | Two seconds from original preparation for its ticket admission/queued handling. | This deadline is not a bound on admitted SQL/native execution, outer file progress/publication or the application maintenance attempt. It cannot become the accepted full-job deadline without actual owner/profile qualification. |
+| [recommendation delivery](../../crates/orkworksd/src/session_application/recommendation_delivery.rs) and [operation owner](../../crates/orkworksd/src/taskmaster/store/operation.rs) | Actual BUSY availability/retry has no finite maintenance attempt/deadline enforcement. | Accepted initial-claim/one-notification/final-claim policy is not implemented by the looping helper. No numeric time allowance or aggregate delivery reservation is established here. |
+
+These values were read, not measured or executed. Buffer counts and serialized
+bounds do not prove allocation/handle peaks or full physical fit. Existing
+request/body limits elsewhere cannot be reused as the exact original-job budget
+without tracing every producer, transformation/copy and retained result. No new
+numeric profile value is selected by this inventory.
+
+### Actual-owner handoff and remaining blockers
+
+- Terminal runtime owns enqueue/write acknowledgement provenance and actual blocking
+  writer return. It must expose truthful no-input-effect versus known full-write
+  versus partial/unknown evidence and retain it through owner/waiter loss before
+  recommendation maintenance settlement can consume that distinction. Existing
+  coarse result/error translation is insufficient; no delivery guarantee is inferred.
+- Application delivery owns original target/guard, durable execution reservation,
+  graph/event/bookkeeping outcomes and the retained settlement record. It needs
+  strong original-root/resource ownership and compatible domain currentness; a
+  weak target lease or new selected workspace cannot supply it.
+- The resource owner still needs real finite limits/enforcement for aggregate jobs,
+  prompts/copies, allocations/handles, continuations/notifications, detached results,
+  unresolved protection and teardown/recovery scratch. Actual deadline values and
+  compatible single-notification admission remain unavailable. Code constants for
+  narrower owners cannot close these inputs.
+
+**Disposition:** source-qualified local evidence and precise missing inputs only.
+The qualification plan's actual producer/resource/readiness boxes remain open.
+Actual outcome transport, reservation enforcement and physical/native evidence
+must close before the dependent bounded implementation handoff. The accepted
+policy stays accepted without repeat review; this result grants no execution
+budget, runtime change, process stop or backup/restore readiness.
+
+Fresh source-fidelity and independent authority/completeness reviews found no
+material findings in the pinned acknowledgement chain, no-input versus workspace
+effect distinction, physical completion boundaries or numeric limit scopes.
+These reviews did not execute runtime operations or qualify the missing profile.
