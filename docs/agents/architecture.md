@@ -1856,6 +1856,23 @@ SQL-aware producers/provenance, pre-legacy workspace routing, other external
 recovery owners, finalization and backup/migration remain activation gates.
 Production remains JSON; no physical power-loss or live startup claim follows.
 
+The accepted [assessment source format](../superpowers/specs/2026-11-08-sql-assessment-source-provenance.md)
+now has private format4 data and typed worker validation. Immutable provenance
+binds canonical original-input dependencies, original database/workspace scope,
+assessment identity and exact source creation pairs. Parsed provenance is data;
+there is no production constructor for original-input claims. Capture compares
+that original scope with the current header in a bounded read transaction, then
+checks live exact creations. It does not refresh identity from current IDs.
+
+Format4 records retain the same provenance in pending recommendation metadata.
+Legacy assessment loading/publication/recovery refuses format4, and formats1–3
+refuse reserved SQL source fields even when null or hidden by duplicate parents.
+The SQL data reader preserves bytes and rejects redacted context. Source and
+record limits remain independently bounded. Copied-fixture close/reopen coverage
+establishes only data preservation and point-in-time validation; source-origin
+producers, publication/deletion ordering, provenance-aware cleanup, action and
+startup routing remain unqualified. Production remains JSON.
+
 ## Recommendation cleanup preflight
 
 The source-only `RecommendationStore::capture_cleanup` copies memory only.

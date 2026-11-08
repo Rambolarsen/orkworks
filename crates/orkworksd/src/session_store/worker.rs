@@ -4,6 +4,9 @@ use super::*;
 use crate::metadata::{
     internal_mutations::InternalMutation, session_transactions::MetadataRevision,
 };
+use crate::taskmaster::assessment_sources::{
+    OriginalInputs, SqlAssessmentSources, MAX_SOURCE_BYTES,
+};
 use serde::Serialize;
 use std::{
     collections::VecDeque,
@@ -28,6 +31,12 @@ enum Command {
     },
     Get(String),
     OpeningIdentity,
+    CaptureAssessmentSources(OriginalInputs),
+    ValidateAssessmentSources {
+        sources: SqlAssessmentSources,
+        assessment_id: String,
+        input_digest: String,
+    },
     OrganizationState(String),
     PendingDeletions(Option<DeletionCursor>, usize),
     DeletionRecord(String, String),
@@ -90,6 +99,8 @@ impl Command {
     fn is_read(&self) -> bool {
         match self {
             Self::OpeningIdentity
+            | Self::CaptureAssessmentSources(_)
+            | Self::ValidateAssessmentSources { .. }
             | Self::Get(_)
             | Self::OrganizationState(_)
             | Self::PendingDeletions(..)
@@ -105,6 +116,22 @@ impl Command {
         }
     }
     fn size(&self) -> Result<usize> {
+        match self {
+            Self::CaptureAssessmentSources(original) => original.sources().validate()?,
+            Self::ValidateAssessmentSources {
+                sources,
+                assessment_id,
+                input_digest,
+            } => {
+                sources.validate()?;
+                if sources.assessment_id() != assessment_id
+                    || sources.input_digest() != input_digest
+                {
+                    return Err(StoreError::Conflict);
+                }
+            }
+            _ => {}
+        }
         #[cfg(test)]
         match self {
             Self::Pause(..) => return Ok(0),
@@ -122,6 +149,7 @@ impl Command {
             Self::Get(_) | Self::Patch { .. } => MAX_RECORD,
             Self::OrganizationState(_) | Self::DeletionRecord(..) => MAX_RECORD + 4096,
             Self::OpeningIdentity => 64,
+            Self::CaptureAssessmentSources(_) => MAX_SOURCE_BYTES,
             Self::PendingDeletions(..) => 256 * 1024,
             // Canonical record plus JSON-escaped creation/session proof and decision.
             Self::Internal { .. } | Self::OwnedAttention { .. } => MAX_RECORD + 4096,
@@ -157,6 +185,17 @@ impl Command {
             }
             Self::Get(id) => Ok(Reply::Detail(db.get(&id)?)),
             Self::OpeningIdentity => Ok(Reply::OpeningIdentity(db.opening_identity()?)),
+            Self::CaptureAssessmentSources(original) => Ok(Reply::AssessmentSources(
+                db.capture_assessment_sources(original)?,
+            )),
+            Self::ValidateAssessmentSources {
+                sources,
+                assessment_id,
+                input_digest,
+            } => {
+                db.validate_assessment_sources(&sources, &assessment_id, &input_digest)?;
+                Ok(Reply::Unit)
+            }
             Self::OrganizationState(id) => {
                 Ok(Reply::OrganizationState(db.organization_state(&id)?))
             }
@@ -227,6 +266,7 @@ impl Command {
 enum Reply {
     Unit,
     OpeningIdentity(OpeningIdentity),
+    AssessmentSources(SqlAssessmentSources),
     Internal(InternalMutationResult),
     OwnedAttention(Option<(serde_json::Value, super::AttentionProof)>),
     Detail(Option<serde_json::Value>),
@@ -1034,6 +1074,36 @@ impl SessionStore {
                 created,
                 revision,
                 organization_revision,
+            })
+            .await?
+        {
+            Reply::Unit => Ok(()),
+            _ => Err(StoreError::Unavailable),
+        }
+    }
+    pub(crate) async fn capture_assessment_sources(
+        &self,
+        original: OriginalInputs,
+    ) -> Result<SqlAssessmentSources> {
+        match self
+            .request(Command::CaptureAssessmentSources(original))
+            .await?
+        {
+            Reply::AssessmentSources(sources) => Ok(sources),
+            _ => Err(StoreError::Unavailable),
+        }
+    }
+    pub(crate) async fn validate_assessment_sources(
+        &self,
+        sources: SqlAssessmentSources,
+        assessment_id: String,
+        input_digest: String,
+    ) -> Result<()> {
+        match self
+            .request(Command::ValidateAssessmentSources {
+                sources,
+                assessment_id,
+                input_digest,
             })
             .await?
         {
@@ -2221,5 +2291,116 @@ mod tests {
             .jobs
             .is_empty());
         store.close().await.unwrap();
+    }
+    #[tokio::test]
+    async fn assessment_commands_keep_read_budget_result_reservation_and_queued_deadline() {
+        use crate::taskmaster::assessment_sources::tests::original;
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::initialize(dir.path().into(), "/workspace".into())
+            .await
+            .unwrap();
+        let epoch = store.opening_identity().await.unwrap().epoch;
+        let make = || original(&epoch, "/workspace", &[]);
+        let packet = make().into_sources();
+        let mut held = Vec::new();
+        let mut bytes = 0;
+        for n in 0..8 {
+            let command = if n % 2 == 0 {
+                Command::CaptureAssessmentSources(make())
+            } else {
+                Command::ValidateAssessmentSources {
+                    sources: packet.clone(),
+                    assessment_id: packet.assessment_id().into(),
+                    input_digest: packet.input_digest().into(),
+                }
+            };
+            assert!(command.is_read());
+            assert_eq!(
+                command.result_bound(),
+                if n % 2 == 0 { MAX_SOURCE_BYTES } else { 0 }
+            );
+            bytes += command.size().unwrap() + command.result_bound();
+            held.push(store.prepare(command).unwrap());
+        }
+        assert_eq!(store.shared.queue.lock().unwrap().bytes, bytes);
+        assert!(matches!(
+            store.prepare(Command::CaptureAssessmentSources(make())),
+            Err(StoreError::QueueFull)
+        ));
+        assert!(matches!(
+            store.prepare(Command::ValidateAssessmentSources {
+                sources: packet.clone(),
+                assessment_id: "wrong".into(),
+                input_digest: packet.input_digest().into()
+            }),
+            Err(StoreError::Conflict)
+        ));
+        drop(
+            store
+                .prepare(Command::Create(document("independent")))
+                .unwrap(),
+        );
+        drop(held);
+        assert_eq!(store.shared.queue.lock().unwrap().bytes, 0);
+        let paused = testing::pause(&store);
+        let queued = store
+            .submit(Command::CaptureAssessmentSources(make()))
+            .unwrap();
+        assert!(matches!(receive(queued).await, Err(StoreError::Expired)));
+        // Only the pause owns a read slot after expiry, even before execution resumes.
+        assert_eq!(store.shared.queue.lock().unwrap().bytes, 0);
+        drop(paused);
+        assert_eq!(
+            store.capture_assessment_sources(make()).await.unwrap(),
+            packet
+        );
+        store.close().await.unwrap();
+        assert!(matches!(
+            store.capture_assessment_sources(make()).await,
+            Err(StoreError::Unavailable)
+        ));
+    }
+    #[tokio::test]
+    async fn assessment_source_busy_and_corrupt_failures_do_not_change_saved_data() {
+        use crate::taskmaster::assessment_sources::tests::original;
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::initialize(dir.path().into(), "/workspace".into())
+            .await
+            .unwrap();
+        let epoch = store.opening_identity().await.unwrap().epoch;
+        let make = || original(&epoch, "/workspace", &[]);
+        let packet = make().into_sources();
+        let before = serde_json::to_vec(&packet).unwrap();
+        let path = dir.path().join("session-store/v1.sqlite");
+        let other = Connection::open(&path).unwrap();
+        other.execute_batch("BEGIN EXCLUSIVE").unwrap();
+        assert!(matches!(
+            store.capture_assessment_sources(make()).await,
+            Err(StoreError::Busy)
+        ));
+        assert!(matches!(
+            store
+                .validate_assessment_sources(
+                    packet.clone(),
+                    packet.assessment_id().into(),
+                    packet.input_digest().into()
+                )
+                .await,
+            Err(StoreError::Busy)
+        ));
+        other.execute_batch("ROLLBACK").unwrap();
+        drop(other);
+        assert_eq!(
+            store.capture_assessment_sources(make()).await.unwrap(),
+            packet
+        );
+        store.close().await.unwrap();
+        std::fs::write(&path, b"not sqlite").unwrap();
+        assert!(matches!(
+            SessionStore::open(dir.path().into(), "/workspace".into()).await,
+            Err(StoreError::Corrupt)
+        ));
+        assert_eq!(serde_json::to_vec(&packet).unwrap(), before);
+        assert!(!dir.path().join("recommendations").exists());
     }
 }

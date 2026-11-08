@@ -162,6 +162,7 @@ fn selected_provider_quality_matrix() {
                 .metadata
                 .root_path();
             let record = AssessmentRecord {
+                sql_sources: None,
                 readiness_reference: None,
                 format_version: 2,
                 input_manifest: None,

@@ -265,6 +265,7 @@ print(json.dumps({'type':'turn.completed'}))
             "2026-10-17T00:00:00Z",
         );
         AssessmentRecord {
+            sql_sources: None,
             readiness_reference: None,
             format_version: 2,
             input_manifest: Some(snapshot.repository.manifest()),
@@ -889,6 +890,7 @@ fn recovery_under_another_instances_lease_preserves_queued_and_running_records()
             .root_path();
         let store = AssessmentStore::new(&root);
         let record = AssessmentRecord {
+            sql_sources: None,
             readiness_reference: None,
             format_version: 1,
             input_manifest: None,

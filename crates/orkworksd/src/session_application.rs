@@ -16668,6 +16668,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                 .unwrap();
             let mut recommendation = store.get(&recommendation_id).unwrap().unwrap();
             recommendation.assessment = Some(crate::taskmaster::AssessmentProvenance {
+                sql_sources: None,
                 readiness_reference: None,
                 access_redacted: false,
                 id: "assessment-redacted-later".into(),

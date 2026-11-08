@@ -50,6 +50,8 @@ pub(crate) struct AssessmentReport {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct AssessmentRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sql_sources: Option<super::assessment_sources::SqlAssessmentSources>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub readiness_reference: Option<super::readiness_focus::ReadinessReference>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_manifest: Option<super::assessment_context::InputManifest>,
@@ -77,13 +79,59 @@ pub(crate) enum AssessmentPhase {
 impl AssessmentRecord {
     pub(crate) fn validate_format(&self) -> Result<(), String> {
         match (&self.readiness_reference, self.format_version) {
-            (Some(reference), 3) => reference.validate()?,
-            (None, 1 | 2) => {}
+            (Some(reference), 3 | 4) => reference.validate()?,
+            (None, 1 | 2 | 4) => {}
             _ => return Err("Assessment readiness reference is invalid".into()),
+        }
+        if self.format_version == 4 {
+            let sources = self
+                .sql_sources
+                .as_ref()
+                .ok_or("SQL assessment sources are missing")?;
+            sources.validate().map_err(|e| e.to_string())?;
+            if sources.assessment_id() != self.id
+                || self.report.as_ref().is_some_and(|r| r.id != self.id)
+            {
+                return Err("SQL assessment source identity is inconsistent".into());
+            }
+            if let Some(pending) = &self.pending_recommendation {
+                let provenance = pending
+                    .assessment
+                    .as_ref()
+                    .ok_or("SQL assessment provenance is missing")?;
+                let report = self
+                    .report
+                    .as_ref()
+                    .ok_or("SQL assessment report is missing")?;
+                if self.state != AssessmentState::PendingRecommendation
+                    || provenance.id != self.id
+                    || provenance.sql_sources.as_ref() != Some(sources)
+                    || provenance.readiness_reference.as_ref().map(|r| &r.source)
+                        != self.readiness_reference.as_ref()
+                    || provenance
+                        .readiness_reference
+                        .as_ref()
+                        .is_some_and(|r| r.validate().is_err())
+                    || provenance.input_fingerprint != report.input_fingerprint
+                    || provenance.context_level != report.context_level
+                    || provenance.excluded_paths != report.excluded_paths
+                    || report.recommendation_id.as_deref() != Some(pending.id.as_str())
+                {
+                    return Err("SQL pending assessment sources are inconsistent".into());
+                }
+            }
+        } else if self.sql_sources.is_some()
+            || self
+                .pending_recommendation
+                .as_ref()
+                .and_then(|r| r.assessment.as_ref())
+                .is_some_and(|p| p.sql_sources.is_some())
+        {
+            return Err("Legacy assessment contains SQL source fields".into());
         }
         match self.format_version {
             1 if self.input_manifest.is_none() && self.phase.is_none() => Ok(()),
-            2 | 3 => {
+            2 | 3 | 4 => {
                 match self.state {
                     AssessmentState::Succeeded
                         if self.report.is_none() || self.pending_recommendation.is_some() =>
@@ -131,6 +179,27 @@ impl AssessmentRecord {
             _ => Err("Assessment record version is invalid".into()),
         }
     }
+    #[cfg_attr(not(test), allow(dead_code))] // Source-only until a qualified SQL producer exists.
+    pub(crate) fn sources_for_sql_validation(
+        &self,
+    ) -> Result<&super::assessment_sources::SqlAssessmentSources, String> {
+        self.validate_format()?;
+        if self.format_version != 4 {
+            return Err("Assessment has no qualified SQL source representation".into());
+        }
+        if self.input_manifest.as_ref().is_some_and(|m| m.redacted)
+            || self
+                .pending_recommendation
+                .as_ref()
+                .and_then(|r| r.assessment.as_ref())
+                .is_some_and(|p| p.access_redacted)
+        {
+            return Err("Assessment source context is redacted".into());
+        }
+        self.sql_sources
+            .as_ref()
+            .ok_or_else(|| "SQL assessment sources are missing".into())
+    }
 }
 
 /// Stages the complete capped report before the recommendation, then commits it.
@@ -140,6 +209,9 @@ pub(crate) fn publish_with(
     mut save: impl FnMut(&AssessmentRecord) -> Result<(), String>,
     upsert: impl FnMut(&Recommendation) -> Result<(), String>,
 ) -> Result<(), String> {
+    if record.format_version == 4 {
+        return Err("SQL assessment publication requires a qualified owner".into());
+    }
     validate_publication(record)?;
     if record.pending_recommendation.is_some() {
         let mut pending = record.clone();
@@ -162,6 +234,9 @@ pub(crate) fn recover_with(
     mut save: impl FnMut(&AssessmentRecord) -> Result<(), String>,
     mut upsert: impl FnMut(&Recommendation) -> Result<(), String>,
 ) -> Result<(), String> {
+    if record.format_version == 4 {
+        return Err("SQL assessment recovery requires a qualified owner".into());
+    }
     if record.state != AssessmentState::PendingRecommendation {
         if record.pending_recommendation.is_some() {
             return Err("Assessment publication state is invalid".into());
@@ -240,6 +315,7 @@ pub(super) mod tests {
     pub(crate) fn proposal() -> (AssessmentRecord, Recommendation) {
         let mut recommendation = Recommendation {
             assessment: Some(AssessmentProvenance {
+                sql_sources: None,
                 readiness_reference: None,
                 access_redacted: false,
                 id: "assessment-1".into(),
@@ -298,6 +374,7 @@ pub(super) mod tests {
             observed_at: "now".into(),
         });
         let record = AssessmentRecord {
+            sql_sources: None,
             readiness_reference: None,
             format_version: 1,
             input_manifest: None,
