@@ -4,7 +4,7 @@ title: Scope continuous-parent event and resume checks
 description: Three finite functional checks for the accepted preparation lifecycle, with model-free preparation and no authorized live calls.
 tags: [orchestration, continuation, resume, capabilities]
 status: stable
-workflow_status: ready-for-offline-preparation
+workflow_status: offline-fixture-implemented
 ---
 
 # Scope continuous-parent event and resume checks
@@ -136,3 +136,14 @@ frozen docs build/metadata/index/links/component tests, source comparison,
 diff/doc/worktree checks and applicable PR CI. Local plan review found no material
 scope/coverage gap; each of the three accepted functional requirements has an
 observable oracle, denial cases and a bounded next action.
+
+
+## Offline fixture implementation — 2026-11-08
+
+The owner authorized #1564's direct-call fixture unit after this handoff merged.
+The [evidence note](../../validation/parent-continuation-fixture.md) records the
+synthetic peer/client, eighteen tests, independent transcript and code/config
+hash pins. The existing docs test runner now executes the standalone Python suite
+through docs:check/CI. No production module or native transport was introduced.
+All three native capabilities remain unverified; the next step is the one-route
+native packet review above, with live budget still zero until separately approved.
