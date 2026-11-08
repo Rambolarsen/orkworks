@@ -3,8 +3,8 @@ type: Implementation Plan
 title: Validate supplied role retirement artifacts
 description: Plan one dormant snapshot codec using the accepted role and skill retirement digest contract.
 tags: [plans, roles, retirement, validation]
-status: draft
-workflow_status: awaiting-owner-approval
+status: stable
+workflow_status: implemented
 ---
 
 # Validate supplied role retirement artifacts
@@ -15,7 +15,7 @@ its typed lookup key. Pass condition: independent golden bytes/digests/keys and
 bounded denial tests pass with no production caller or side effect.
 Tracking: [#1548](https://github.com/Rambolarsen/orkworks/issues/1548), under
 [#741](https://github.com/Rambolarsen/orkworks/issues/741) / [#738](https://github.com/Rambolarsen/orkworks/issues/738).
-This plan proposes an execution boundary; product code awaits owner approval.
+Owner approved this exact reviewed unit for inline execution on 2026-11-08.
 
 ## Basis and nonduplicate scope
 
@@ -105,23 +105,23 @@ retains all edits. No implementation worker or coding harness is launched.
 | `crates/orkworksd/tests/fixtures/role-retirement/` | Synthetic canonical role/skill/resource payloads with independent expected digests and typed keys. |
 | `crates/orkworksd/src/taskmaster/mod.rs` | Module declarations only; no production caller. |
 
-- [ ] Pin independent role-template, plain skill and resource-bearing skill
+- [x] Pin independent role-template, plain skill and resource-bearing skill
   goldens using an independently written Python/Node calculation from literal
   catalog data. Include non-ASCII content, JSON escaping, LF/CRLF and provenance.
-- [ ] Observe focused tests fail before implementation. Cover strict/unknown
+- [x] Observe focused tests fail before implementation. Cover strict/unknown
   fields, wrong version types, bad nested digests, duplicate keys/IDs, closure
   ownership, unsorted sets, invalid provenance and wrong hash domains.
-- [ ] Implement the supported codec without I/O or consumers. Assert derived
+- [x] Implement the supported codec without I/O or consumers. Assert derived
   keys: same key/different provenance payload yields different snapshot digest;
   a different catalog source yields a different key. Do not implement the later
   stored retry/retirement decision.
-- [ ] Verify exact/over-limit byte and numeric bounds, empty role resources and
+- [x] Verify exact/over-limit byte and numeric bounds, empty role resources and
   exclusion of assignment annotations. Re-run existing role instruction, root
   bootstrap and child-source goldens unchanged.
-- [ ] Run Rust fmt/build/tests and `bash scripts/verify-repo.sh` under pinned
+- [x] Run Rust fmt/build/tests and `bash scripts/verify-repo.sh` under pinned
   Node 22 with frozen desktop/docs dependencies and host fs-ext ABI before Rust.
   Run `bash scripts/doc-check.sh` and `bash .claude/hooks/worktree-check.sh`.
-  Required CI and the exact-code manual review must pass; retain any failed run.
+  Exact-code manual review passed; required CI remains the PR merge gate.
 
 ## Investigated uncertainty and review
 
@@ -148,5 +148,26 @@ claiming the later authority/transaction behavior.
 Total: 8/25. Rollback is local removal/revert of the dormant module, with existing
 consumers and wire formats unchanged. Plan disposition: **Ready for owner review**, following one focused read-only
 Luna review with no material findings. The optional role-tag spelling clarification
-was applied. Owner approval of this concrete unit remains required before code. That approval does not
+was applied. Owner approval was recorded on #1548 before implementation. That approval does not
 supply storage, retirement authority, an eligible role or a new probe budget.
+
+## Implementation evidence — 2026-11-08
+
+Owner approval preceded code and is recorded on #1548. The dormant codec and
+three independent synthetic Python goldens are implemented; the first valid-input
+test failed against a rejecting stub before implementation, then all nine focused
+tests passed. Existing instruction/root/child suites passed unchanged (18/18/12).
+The full repository verifier passed under Node 22 with frozen dependencies and
+host fs-ext ABI: 3,265 Rust tests (18 ignored), all integration tests, 31 reporter
+tests, 1,709 desktop tests (3 skipped), 1,202 docs tests, formatting, builds and
+currency checks. Doc-check's broad user-doc/architecture warnings need no edit:
+there is no user behavior, endpoint, dependency or runtime flow change.
+
+Fresh `/code-review medium` on the implementation tree
+`f1c02b297548c2964550099b507f916139228407` found no findings or declined judgments.
+Medium effort follows the 500-line threshold. The review inspected tests but did
+not run them; the executor supplied the test evidence above. Required CI and PR
+feedback disposition remain merge gates, tracked by #1548's implementation PR.
+Encoded native path records and nonempty content reuse the selected source
+validator contract; other path shapes and empty content remain unsupported.
+No consumer, retirement authority or new model/native probe was introduced.

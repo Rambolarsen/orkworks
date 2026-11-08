@@ -39,6 +39,9 @@ pub(crate) mod readiness_suggestions;
 mod role_instructions;
 #[cfg(test)]
 mod role_instructions_tests;
+mod role_retirement;
+#[cfg(test)]
+mod role_retirement_tests;
 pub(crate) mod rollup;
 mod root_bootstrap;
 #[cfg(test)]
