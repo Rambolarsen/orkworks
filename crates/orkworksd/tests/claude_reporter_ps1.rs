@@ -87,16 +87,18 @@ fn claude_reporter_powershell_maps_only_valid_prompt_and_turn_payloads() {
     std::fs::write(&cases_path, serde_json::to_vec(&cases).unwrap()).unwrap();
     std::fs::write(&wrapper, r#"
 if (-not [string]::Equals($HOME, $env:ORKWORKS_FIXTURE_HOME, [StringComparison]::OrdinalIgnoreCase)) { throw 'fixture home not isolated' }
+# The reporter runs in a child script scope. Keep stub state in this isolated
+# PowerShell process so nested calls see the case index and rejection flag.
 function Invoke-RestMethod {
     param($Method, $Uri, $Headers, $ContentType, $Body, $TimeoutSec)
-    $record = @{ index=$script:caseIndex; uri=$Uri; body=($Body | ConvertFrom-Json) }
+    $record = @{ index=$global:orkworksFixtureCaseIndex; uri=$Uri; body=($Body | ConvertFrom-Json) }
     [IO.File]::AppendAllText($env:ORKWORKS_REQUEST_CAPTURE, (($record | ConvertTo-Json -Depth 10 -Compress) + "`n"))
-    if ($script:failRegistration -and $Uri.EndsWith('/harness-session')) { throw 'fixture registration denied' }
+    if ($global:orkworksFixtureFailRegistration -and $Uri.EndsWith('/harness-session')) { throw 'fixture registration denied' }
 }
 $cases = Get-Content -LiteralPath $env:ORKWORKS_CASES -Raw | ConvertFrom-Json
 for ($i=0; $i -lt $cases.Count; $i++) {
-    $script:caseIndex=$i
-    $script:failRegistration=$cases[$i].fail
+    $global:orkworksFixtureCaseIndex=$i
+    $global:orkworksFixtureFailRegistration=$cases[$i].fail
     $payload=$cases[$i].payload | ConvertTo-Json -Depth 10 -Compress
     [Console]::SetIn((New-Object IO.StringReader $payload))
     & $env:ORKWORKS_REPORTER -Marker 'orkworks:harness-integration:v2:claude-code' -Event $cases[$i].event

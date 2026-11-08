@@ -125,3 +125,19 @@ above; final reviewer checks only this implementation against the accepted scope
   Claude submission/clarification behavior and explicit Settings reconciliation,
   with limited-coverage/source-versus-installer bounds. The homepage's general
   onboarding and release claims remain unchanged and accurate.
+
+- Final serial full verifier passed: 3217 Rust unit tests plus integration tests,
+  desktop type-check, 1709 desktop tests (3 skipped), desktop build, 1202 docs
+  tests/build, formatting, diff, documentation and worktree checks. Hosted Rust,
+  desktop, macOS proof and CodeQL passed at f8c967b9.
+- Hosted Windows execution found a fixture scope defect: the fake HTTP function's
+  `$script:` case index and rejection flag resolved against the nested reporter
+  script, so captured requests had no case index. A portable PowerShell 7 run
+  reproduced the exact case-0 failure; namespaced globals in the disposable
+  PowerShell process fixed the complete fixture, including denied registration.
+  This changes only test state, with no product reporter/runtime edit. Scoped
+  manual `/code-review low` approved the delta with no required findings. Native
+  Windows PowerShell validation remains required in the next CI run.
+- Updated code fingerprint after the fixture fix: `39104b943e88cb70392e70958c85df5ef5624b6a6c886421ff4da48ea52120d7`.
+  Same 14-path framing and base as above; the earlier fingerprint records the
+  implementation before this test-only fix.
