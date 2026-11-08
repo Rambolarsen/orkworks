@@ -325,7 +325,7 @@ async fn final_scan_original_capture_rejects_replacements_across_inference_wait(
         });
         at_inference.await.unwrap();
         match change {
-            "workspace" => crate::test_support::swap_workspace(&state, dir.path()),
+            "workspace" => crate::test_support::replace_sql_workspace_context(&state, dir.path()),
             "reader" => {
                 let mut ws = state.workspace.lock().unwrap();
                 let ws = ws.as_mut().unwrap();

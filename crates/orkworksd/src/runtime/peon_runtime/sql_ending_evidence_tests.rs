@@ -200,7 +200,7 @@ async fn evidence_original_owner_replacements_cannot_capture_or_publish() {
         let captured = capture(&writes, &state).await;
         let old = evidence(&state);
         match change {
-            "workspace" => crate::test_support::swap_workspace(&state, dir.path()),
+            "workspace" => crate::test_support::replace_sql_workspace_context(&state, dir.path()),
             "reader" => {
                 let mut ws = state.workspace.lock().unwrap();
                 let ws = ws.as_mut().unwrap();

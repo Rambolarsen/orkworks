@@ -196,3 +196,19 @@ cleanup remains blocked until qualified startup/reopen handles pending-job
 ownership. Complete SQL producers, durable source provenance, safe finalizer,
 backup/migration and activation remain separate gates. No live change or executed
 qualification is established by this acceptance.
+
+
+## Clarification — 2026-11-08: recommendation ownership on reopen
+
+The owner accepted the [reopen design](../superpowers/specs/2026-11-08-sql-recommendation-reopen.md)
+and [qualification plan](../superpowers/plans/2026-11-08-sql-recommendation-reopen.md)
+after #1537, replying “keep going” to the explicit implementation request.
+Legacy recommendation constructors refuse retained `format.json` or
+`session-store` entries before effects. A distinct checked private SQL opener
+retains original root/lease/store identity and revokes legacy recommendation
+I/O before adoption regardless of pending-job count. Existing exact-job cleanup
+admission remains separate. No new marker/schema, public/HTTP opener or live
+activation is accepted. #1244 still owns complete evidence resolution, qualified
+format-2 validation and pre-legacy production startup routing; SQL-aware
+producers, all external recovery owners, finalization and backup/migration gates
+remain. Production stays JSON.

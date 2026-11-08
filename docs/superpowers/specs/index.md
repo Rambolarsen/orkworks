@@ -4,7 +4,7 @@ Dated design records; these do not establish current product behavior.
 
 ## Documents
 
-- [SQL recommendation ownership on reopen](2026-11-08-sql-recommendation-reopen.md) — Proposed durable-evidence refusal and private SQL owner opening; owner decision pending.
+- [SQL recommendation ownership on reopen](2026-11-08-sql-recommendation-reopen.md) — Accepted two-name evidence refusal and private SQL owner opening; implementation qualification underway.
 
 - [SQL recommendation producer revocation](2026-11-08-sql-recommendation-producer-revocation.md) — Accepted owner-lifetime revocation and retained SQL grant; source implementation underway, startup/reopen qualification remains gated.
 

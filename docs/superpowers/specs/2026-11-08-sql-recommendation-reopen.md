@@ -1,10 +1,10 @@
 ---
 type: Design
 title: SQL recommendation ownership on reopen
-description: Proposed cutover-evidence refusal and private SQL-owned recommendation opening across owner loss.
+description: Accepted cutover-evidence refusal and private SQL-owned recommendation opening across owner loss.
 tags: [orkworks, sqlite, recommendations, startup, recovery]
-status: draft
-workflow_status: proposed
+status: stable
+workflow_status: accepted
 ---
 
 # SQL recommendation ownership on reopen
@@ -12,8 +12,9 @@ workflow_status: proposed
 Tracking: [#1243](https://github.com/Rambolarsen/orkworks/issues/1243), with
 production startup/migration owned by [#1244](https://github.com/Rambolarsen/orkworks/issues/1244).
 Inspection base: `4e5215db38a3bb7085dc4fa3ce4ca2f1ed4604fe` (#1534).
-Owner decision pending. This proposal selects the next private prerequisite;
-it does not authorize production SQL selection, migration or live recovery.
+Owner accepted this concrete design on 2026-11-08 by answering “keep going”
+to the explicit implementation approval request after #1537. This accepts the
+private prerequisite, not production SQL selection, migration or live recovery.
 
 ## Outcome
 
@@ -163,17 +164,17 @@ while worker/binding is stalled. Preserve existing journal caps and supported
 platform refusals. Use raw-file evidence for intentionally unavailable legacy
 reads, not a test-only production bypass.
 
-No runtime evidence is claimed by this proposal. Even after implementation this
+Implementation evidence is recorded in the linked plan and implementation PR. This
 closes only the recommendation constructor/owner-loss prerequisite for retained
 known SQL artifacts and the private opening route. Activation still requires
 complete workspace evidence resolution, pre-legacy routing, SQL-aware producers/
 assessment provenance, safe finalization, all external recovery owners, complete
 backup/migration, platform durability and existing native/hierarchy gates.
 
-## Decision for the owner
+## Accepted decision — 2026-11-08
 
 Accept the two-name legacy refusal floor and separate checked SQL-owned private
 opener for source-only implementation/qualification. Keep production startup and
 activation blocked until #1244 consumes the complete accepted format contract.
-The proposed cost is deliberate unavailability of legacy recommendation tools
+The accepted cost is deliberate unavailability of legacy recommendation tools
 beside SQL or ambiguous cutover evidence; no automatic repair or fallback.

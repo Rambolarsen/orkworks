@@ -199,7 +199,7 @@ async fn ending_provider_original_capture_rejects_changed_owners_before_claim() 
         let captured = capture(&writes, &state).await;
         let before = store.get(ID.into()).await.unwrap().unwrap();
         match change {
-            "workspace" => crate::test_support::swap_workspace(&state, dir.path()),
+            "workspace" => crate::test_support::replace_sql_workspace_context(&state, dir.path()),
             "reader" => {
                 let mut ws = state.workspace.lock().unwrap();
                 let ws = ws.as_mut().unwrap();

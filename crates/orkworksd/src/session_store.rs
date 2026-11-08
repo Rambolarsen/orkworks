@@ -83,6 +83,11 @@ pub(crate) struct OrganizationRecord {
     pub(crate) organization_revision: String,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct OpeningIdentity {
+    epoch: String,
+}
+
 struct Database {
     conn: Connection,
     workspace: String,
@@ -148,6 +153,31 @@ impl Database {
             attention_owners: Default::default(),
         })
     }
+    fn opening_identity(&self) -> Result<OpeningIdentity> {
+        let (schema, workspace, epoch, generation): (i64, String, String, i64) = self
+            .conn
+            .query_row(
+            "SELECT schema_version,workspace,epoch,generation FROM store_header WHERE singleton=1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )?;
+        if schema != 1 {
+            return Err(StoreError::Unsupported);
+        }
+        if workspace != self.workspace {
+            return Err(StoreError::Conflict);
+        }
+        if generation < 0
+            || uuid::Uuid::parse_str(&epoch)
+                .map_err(|_| StoreError::Corrupt)?
+                .to_string()
+                != epoch
+        {
+            return Err(StoreError::Corrupt);
+        }
+        Ok(OpeningIdentity { epoch })
+    }
+
     fn create_session(&mut self, mut document: serde_json::Value) -> Result<()> {
         document
             .as_object_mut()

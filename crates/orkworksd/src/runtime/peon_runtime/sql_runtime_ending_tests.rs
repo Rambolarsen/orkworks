@@ -255,7 +255,9 @@ async fn runtime_ending_sql_capture_rejects_wrong_application_generation_and_pha
         .await,
         Err(StoreError::Conflict)
     ));
-    let other = crate::test_support::test_app_state_with_workspace(dir.path());
+    // Only the AppState identity is consumed from `other`; the checked owner
+    // still uses its original workspace. Do not legacy-open its SQL root.
+    let other = crate::test_support::test_app_state_with_workspace(&dir.path().join("foreign-app"));
     assert!(matches!(
         writes
             .capture_ending_history(&other, ID.into(), runtime)
@@ -289,7 +291,7 @@ async fn runtime_ending_sql_original_capture_rejects_replacements_across_wait() 
             .await
             .unwrap();
         match change {
-            "workspace" => crate::test_support::swap_workspace(&state, dir.path()),
+            "workspace" => crate::test_support::replace_sql_workspace_context(&state, dir.path()),
             "reader" => {
                 let mut ws = state.workspace.lock().unwrap();
                 let ws = ws.as_mut().unwrap();

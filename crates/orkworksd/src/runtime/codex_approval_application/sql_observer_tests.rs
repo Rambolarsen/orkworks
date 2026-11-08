@@ -161,7 +161,7 @@ async fn sql_observer_pipeline_discards_all_obsolete_rpc_contexts_before_reducti
             }
         }
         if change == "workspace" {
-            crate::test_support::swap_workspace(&state, dir.path());
+            crate::test_support::replace_sql_workspace_context(&state, dir.path());
         }
         assert!(
             matches!(

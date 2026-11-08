@@ -123,7 +123,7 @@ async fn sql_lifecycle_revalidates_original_owner_before_claim() {
             tokio::spawn(async move { writes.lifecycle(ID.into(), runtime, stop()).await });
         test_worker::wait_for_internal(&store, ID).await;
         match change {
-            "workspace" => crate::test_support::swap_workspace(&state, dir.path()),
+            "workspace" => crate::test_support::replace_sql_workspace_context(&state, dir.path()),
             "reader" => {
                 let mut ws = state.workspace.lock().unwrap();
                 let ws = ws.as_mut().unwrap();

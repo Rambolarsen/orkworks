@@ -168,7 +168,7 @@ async fn changed_workspace_or_attempt_cannot_execute_a_queued_write() {
             tokio::spawn(async move { writes.peon(context.view(), capture, intent()).await });
         test_worker::wait_for_internal(&store, ID).await;
         if swap {
-            crate::test_support::swap_workspace(&state, dir.path());
+            crate::test_support::replace_sql_workspace_context(&state, dir.path());
         } else {
             cancelled.store(true, Ordering::SeqCst);
         }
