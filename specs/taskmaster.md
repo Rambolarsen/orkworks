@@ -389,10 +389,11 @@ From the shared workflow-evidence module (`workspace_observations`), not from ra
 
 Taskmaster reads workflow observations for a different purpose than session snapshots: session snapshots (including the current-summary snapshot — `summary`/`summarySource`/`summaryConfidence`/`summaryObservedAt`, see `specs/orkworks-mvp.md`) describe current work for coordination and handoff prompts; workflow observations describe durable friction used only to propose workflow improvements. Taskmaster never parses activity-summary prose to manufacture workflow evidence, and it never mutates or amends a stored observation. See [ADR 0042](../docs/adr/0042-workflow-observations-replace-summary-checkpoints.md) for the full rationale.
 
-The [SQL observation-origin proposal](../docs/superpowers/specs/2026-11-08-sql-observation-origin-capture.md)
-is pending owner acceptance. It proposes private final-scan provenance while
-preserving the public immutable observation value and existing store authority;
-no runtime producer, observation backfill or SQL assessment activation is enabled.
+The accepted [SQL observation-origin contract](../docs/superpowers/specs/2026-11-08-sql-observation-origin-capture.md)
+keeps the public immutable observation value and existing store authority.
+Its private strict codec/data reader is implemented; original final-scan capture,
+shared SQL admission and deletion integration remain pending. No production
+producer, observation backfill or SQL assessment activation is enabled.
 
 ### User preferences
 

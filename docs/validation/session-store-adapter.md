@@ -1712,3 +1712,34 @@ recommendation metadata round-trips its complete provenance independently of the
 latest report. These are source-only data and point-in-time validation tests;
 production source-origin capture, publication/deletion ordering, source-aware
 cleanup/action checks, activation and physical recovery remain unqualified.
+
+
+## Strict observation origin data prerequisite
+
+The [accepted origin contract](../superpowers/specs/2026-11-08-sql-observation-origin-capture.md)
+has a private strict codec and macOS/Linux descriptor-relative data reader.
+An independent SHA-256 golden vector pins the complete observation value;
+unknown/duplicate/malformed fields, changed value/digest and filename mismatch
+refuse. Exact 2 KiB origin and 64 KiB raw-line boundaries and one-over refusals are
+covered. Tagged tombstones keep an exact copied origin; legacy observations
+round-trip as data with no origin claim.
+
+Real temporary-filesystem tests cover copied close/reopen bytes, malformed tails/
+interior records and counters without repair, scope mismatch, original directory
+rename, links/directories/FIFOs and expiry after a captured wait. Independent
+boundary cases exercise 4,097 entries/4,096 segments including empty segments,
+64 MiB aggregate read accounting including whitespace/sequence, 65,536 nonblank
+lines including legacy retry-only segments, existing 1,000/1,024 per-segment
+counts, 2 MiB segment and 768 KiB compact selected-record array limits. That array
+counts complete record tags and internal hashes. Every overflow refuses instead
+of trimming the selection to fit or replacing bytes. Large count/byte fixtures
+extend the deadline only inside tests to isolate those bounds; they establish
+no 64 MiB-in-two-seconds performance or physical-memory result.
+
+An isolated child unit-test process fills all 32 existing full 1 MiB file-job slots
+with returned snapshots, verifies QueueFull, then proves drop and expired-request
+settlement release capacity. The data reader changes no global budget limits.
+Parsed/expected scope is data only: these tests do not check current SQL rows,
+authenticate an origin, serialize producer/deletion races or qualify whole-workspace
+physical consistency. No production constructor, writer, shared SQL admission,
+legacy refusal integration, inference, publication or activation is enabled.

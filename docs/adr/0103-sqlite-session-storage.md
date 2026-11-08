@@ -281,3 +281,18 @@ No production origin-claim constructor, observation wire upgrade, recommendation
 I/O bypass, SQL publication/recovery route or activation is accepted. Actual
 origin producers and publication/deletion/cleanup/action integration, qualified
 startup, backup/migration and rollout remain separate gates. Production stays JSON.
+
+
+## Clarification — 2026-11-08: original SQL observation capture
+
+After #1554 the owner answered “go ahead” to the explicit request to implement
+the [observation-origin contract](../superpowers/specs/2026-11-08-sql-observation-origin-capture.md)
+and [qualification plan](../superpowers/plans/2026-11-08-sql-observation-origin-capture.md).
+This accepts private tagged observation/tombstone records, original scope before
+inference, strict bounded byte-preserving reads, canonical SQL admission/legacy
+refusal and exact-job Workflow deletion ordering. Reuse the existing assessment
+format4 acceptance. Execute the codec/reader prerequisite first, without a
+production origin constructor, producer routing or legacy opener changes; then
+qualify the captured producer/deletion owner separately. Recommendation/readiness
+origins, assessment publication, complete startup, backup/migration, native/
+hierarchy and activation remain gated. Production stays JSON.

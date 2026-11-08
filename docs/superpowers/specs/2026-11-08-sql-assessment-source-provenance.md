@@ -227,10 +227,12 @@ This costs availability for unproven old inputs and never discards them. No
 runtime, race, durability or performance result is claimed by these written docs.
 
 
-## Proposed first origin owner
+## Accepted first origin owner
 
-The [observation origin proposal](2026-11-08-sql-observation-origin-capture.md)
-selects a possible first final-scan owner, durable tagged records and private SQL
-admission boundary. It is owner-decision-pending and changes no acceptance here.
-Recommendation/readiness origins, full assessment input capture and publication
-remain gated. #1551's fixture constructor is not upgraded by that proposal.
+The owner accepted the [observation origin contract](2026-11-08-sql-observation-origin-capture.md)
+and qualification plan after #1554 for private implementation. Its strict tagged
+codec/data reader is implemented; the original final-scan owner, shared SQL
+admission and deletion integration remain separate implementation tasks. This
+changes no format4 acceptance. Recommendation/readiness origins, full assessment
+input capture and publication remain gated. #1551's fixture constructor remains
+test-only; parsed origin data does not promote itself into an original claim.

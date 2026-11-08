@@ -333,6 +333,18 @@ observation coexist rather than competing. See the "Workflow observations and th
 section of [architecture.md](architecture.md) for storage
 paths, routes, and the recording module's interface.
 
+### Private SQL observation origin data
+
+The accepted [origin contract](../superpowers/specs/2026-11-08-sql-observation-origin-capture.md)
+adds private tagged observation/tombstone data, without changing public
+WorkflowObservation fields. OriginData binds original database epoch/workspace,
+exact session creation and the canonical complete observation-value digest.
+The new strict codec and bounded descriptor reader return parsed data only;
+they do not validate current SQL rows, establish an original claim or grant I/O.
+Legacy observations remain explicit unqualified data. Original final-scan capture,
+shared SQL admission, writer/deletion integration and production routing remain
+pending. Production keeps its existing JSON authority and observation behavior.
+
 ### Recommendation origins: analysis vs observations
 
 Taskmaster produces `ImproveWorkflow` recommendations through two distinct

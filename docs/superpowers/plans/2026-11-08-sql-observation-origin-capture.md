@@ -1,22 +1,23 @@
 ---
 type: Implementation Plan
 title: SQL observation origin qualification plan
-description: Proposed strict record and captured final-scan owner qualification before SQL assessment input integration.
+description: Approved strict record and captured final-scan owner qualification before SQL assessment input integration.
 tags: [orkworks, sqlite, observations, provenance, plan]
 status: draft
-workflow_status: owner-decision-pending
+workflow_status: implementation-active
 ---
 
 # SQL observation origin qualification plan
 
 Parent: [#1243](https://github.com/Rambolarsen/orkworks/issues/1243).
-Spec: [proposed original-owner contract](../specs/2026-11-08-sql-observation-origin-capture.md).
+Spec: [accepted original-owner contract](../specs/2026-11-08-sql-observation-origin-capture.md).
 Base: `d4565340052e21d3de97128091908c513ee0d5b4`.
 Pass condition: a captured final-scan observation survives segment rewrite and
 SQL owner close/reopen with its exact original scope/value; stale/deleted/reused/
 foreign or unproven data fails without reintroduction, backfill or byte loss.
-Owner decision is pending. Root implements inline after acceptance; no source
-edits, scaffold, dependency install outside docs, or runtime qualification now.
+Owner accepted after #1554 on 2026-11-08 with “go ahead.” Root implements
+inline. The first branch delivers the strict codec/data reader only; private
+producer, shared admission and deletion composition follow as a separate task.
 
 ## Investigated uncertainty
 
@@ -46,9 +47,9 @@ from these source-level ratings.
 
 ## Deliverables after one owner acceptance
 
-- [ ] Record the owner's concrete decision and a dated ADR 0103 clarification
+- [x] Record the owner's concrete decision and a dated ADR 0103 clarification
   before dependent code. Reuse format4 acceptance; do not ask about it again.
-- [ ] Deliver the strict durable observation boundary in `workflow_observations/`.
+- [x] Deliver the strict durable observation boundary in `workflow_observations/`.
   Keep public observation values unchanged. Add private origin/tagged observation
   and tombstone codecs, canonical digest and finite bounds from the spec. Read
   copied complete segments without effects; explicit unqualified data is not a
@@ -150,3 +151,37 @@ Their final checks verified the existing encoded file-job limits and ordinary
 same-job progress semantics against source. No material issue remains in the
 reviewed proposal. Actual runtime/physical/profile behavior is unverified;
 this result authorizes neither implementation nor production activation.
+
+
+## Strict data prerequisite implementation
+
+The first independently reviewable slice implements the immutable origin/tagged
+record codec and strict descriptor-relative data reader. It changes no legacy
+opener or producer path and adds no production origin constructor. Expected
+scope comparison is data validation, not current SQL row validation or input
+admission. The reader returns no I/O grant; the original shared owner remains
+the next prerequisite under this already accepted contract.
+
+All 18 focused tests pass. An independent canonical value digest, exact origin/
+line/segment/aggregate/selected-result boundaries, copied reopen and no-repair
+failures, original deadline and retained full-slot lifetime are covered. The
+selected snapshot counts the compact JSON array of complete retained records,
+including tags/internal hashes. Large byte/count fixtures extend only a test
+request deadline to isolate counters; no throughput/physical-memory result is
+claimed. The ordinary 2-second capture/deadline path has its own queued-expiry
+regression. Other platforms return Unsupported instead of a path fallback.
+
+Fresh manual medium code reviews cover codec/data authority and native reader/
+lifetime. Review found an unterminated whitespace-tail acceptance bug; its
+behavioral regression was red, EOF now requires no partial bytes, and the fix
+was re-reviewed. A further deterministic growth regression exposed a second
+metadata sample adopting growth after the segment-size check. The reader now
+retains the original validated metadata sample; that regression is red to green.
+Both independent review scopes are APPROVE, including the bounded growth-fix
+follow-up. Final Rust formatting and normal build pass.
+
+The full repository verifier has been run but has not passed locally: existing
+native CLI-probe fixtures returned cleanup-related failures on macOS. The
+18 focused tests pass; remaining repository checks and current-head CI evidence
+are recorded in the PR. Source-currentness, original claims, shared admission,
+legacy refusal, producer/deletion races and activation remain unqualified.
