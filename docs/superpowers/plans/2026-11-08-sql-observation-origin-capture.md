@@ -1,0 +1,152 @@
+---
+type: Implementation Plan
+title: SQL observation origin qualification plan
+description: Proposed strict record and captured final-scan owner qualification before SQL assessment input integration.
+tags: [orkworks, sqlite, observations, provenance, plan]
+status: draft
+workflow_status: owner-decision-pending
+---
+
+# SQL observation origin qualification plan
+
+Parent: [#1243](https://github.com/Rambolarsen/orkworks/issues/1243).
+Spec: [proposed original-owner contract](../specs/2026-11-08-sql-observation-origin-capture.md).
+Base: `d4565340052e21d3de97128091908c513ee0d5b4`.
+Pass condition: a captured final-scan observation survives segment rewrite and
+SQL owner close/reopen with its exact original scope/value; stale/deleted/reused/
+foreign or unproven data fails without reintroduction, backfill or byte loss.
+Owner decision is pending. Root implements inline after acceptance; no source
+edits, scaffold, dependency install outside docs, or runtime qualification now.
+
+## Investigated uncertainty
+
+The creation retained by CapturedEnding disappears inside CapturedWriter and
+StoredObservation. The legacy opener also truncates tails and rewrites bounded
+segments before returning, so adding an optional Deserialize field alone cannot
+establish preserved qualified input. Current idempotency keys hash only session
+ID/key and payload, omitting original creation/epoch. A duplicate could otherwise
+silently acknowledge unknown/foreign history as qualified.
+
+Recommendation inputs are mutable and include inherited/target/completion/
+rollup dependencies; readiness projects observations before hashing. Those are
+real additional owners, not safe source-free inputs. This plan does not upgrade
+them, remove them from assessment snapshots or pretend to complete SQL admission.
+
+Alternatives investigated: current-row backfill is barred by accepted provenance;
+per-observation sidecars add file growth and ambiguous two-file commit states;
+reusing the tolerant legacy opener can remove the very bytes a strict reader
+needs. Choose one tagged line and a separate checked SQL admission/strict reader.
+
+Risk assessment: dependencies 4 (SQL, final-scan, file/deletion owners), blast
+radius 3 (private file mode and legacy refusal), state changes 3 (new tagged data,
+no existing rewrite), reversibility 3 (source-only opt-in, legacy refuses SQL),
+uncertainty 4 (owner paths traced, actual integration/physical evidence pending).
+Total 17/25. Unknown physical rollback remains a rollout gate, not a guarantee
+from these source-level ratings.
+
+## Deliverables after one owner acceptance
+
+- [ ] Record the owner's concrete decision and a dated ADR 0103 clarification
+  before dependent code. Reuse format4 acceptance; do not ask about it again.
+- [ ] Deliver the strict durable observation boundary in `workflow_observations/`.
+  Keep public observation values unchanged. Add private origin/tagged observation
+  and tombstone codecs, canonical digest and finite bounds from the spec. Read
+  copied complete segments without effects; explicit unqualified data is not a
+  qualified input. Cover golden vectors, unknown/duplicate/null/missing fields,
+  scope/value/filename mismatch, exact 2 KiB/64 KiB and existing 2 MiB accounting,
+  corrupt/interrupted/oversized input and byte-preserving refusal. Pin independent
+  strict-inventory boundaries (4,097 entries, 4,096 segments, 64 MiB aggregate reads,
+  65,536 nonblank lines) including empty/tombstone-only/legacy segments, a bounded
+  10,000-observation retained selection and the original 2-second scan deadline.
+  Pin the 768 KiB selected-snapshot limit, single 64 KiB line buffer and full 1 MiB
+  file-budget reservation without raising existing 32-job/32 MiB totals; exact
+  and one-over snapshot cases refuse rather than shrink the selected set.
+  At each boundary accept otherwise valid complete inventory; one extra entry,
+  file, byte or line refuses with zero effects/no partial snapshot. Unknown or
+  nonregular entries refuse; late scan settlement retains resources without
+  delivering or launching a replacement scan. No production
+  origin constructor or producer routing in this first independently reviewable
+  deliverable. Existing legacy storage tests retain their assertions.
+- [ ] Deliver the canonical shared owner and original final-scan claim in
+  `workflow_observations`, `session_store` typed reads and
+  `session_application/sql_writes/lifecycle/history`. Add no public SQL interface.
+  Distinguish newly captured before-inference origins from parsed data; original
+  worker opening identity, exact creation, workspace/root/lease/runtime fences
+  survive all waits. Cover header/epoch replacement with equal ID/creation,
+  workspace/store/root/lease/runtime replacement, missing/tombstoned/reused rows,
+  live-row/deletion-job Corrupt refusal and unchanged closed/archived eligibility.
+  Original and pre-file checks use one bounded SQL read transaction. Cover legacy clones/independent
+  opens, owner loss/reopen, Busy, unavailable/corrupt storage, read/byte/queue
+  deadlines and cancellation before admission. No I/O under application guards.
+- [ ] Compose origin persistence with the existing grounded at-most-five
+  final-scan candidates and the SQL Workflow deletion stage. One opaque original
+  grant covers actual file work and finite settlement, never a fresh post-wait
+  lookup. Preserve sequence/rate/grounding/source checks and idempotency behavior.
+  Cover qualified duplicate/tombstone retry, legacy collision refusal without
+  upgrade, failed append/sequence gap, trim/rewrite origin preservation,
+  source eviction with exact copied tombstone, admitted batch before delete,
+  delete before delayed batch, partial delete, source recreation, and captured Workflow deletion identity replacement (epoch,
+  creation/job identity changed or job disappeared/lost its tombstoned row after capture) refusing
+  before any removal, counter or retry-state effect; same-job progress advancing
+  remains eligible according to existing stage bits. Cover cancellation
+  after file admission and unchanged non-target evidence/progress. Keep legacy
+  methods unavailable on the admitted SQL owner; no generic bypass.
+- [ ] Compose copied close/reopen fixtures through the strict reader and existing
+  assessment source codec. A new qualified observation contributes its exact
+  original pair/value to the accepted envelope; any mixed legacy observation,
+  recommendation or readiness input refuses whole assessment admission. Do not
+  add a production OriginalInputs constructor, scheduler, model call, pending
+  publication, source-aware recommendation cleanup or startup/activation route.
+- [ ] Update canonical domain/architecture/validation claims with actual evidence;
+  run scoped regressions and `bash scripts/verify-repo.sh`, current-code manual
+  review, required/routed CI and the normal PR/owned cleanup lifecycle. Source
+  origin capture alone is not publication/deletion or installed-profile proof.
+
+The two codec and owner/producer deliverables can be rejected independently;
+execute sequentially and keep each within its own meaningful tests/review. Do
+not split setup-only commits into tasks or introduce generic storage frameworks.
+
+## Review disposition and next gate
+
+Initial self-review: Ready for independent source/authority and builder checks,
+then one owner decision. Every mandatory contract section maps to a deliverable
+above. The review asks whether original identity survives the actual owner paths
+and whether error/cleanup/retry states have an implementable refusal outcome.
+Physical behavior, complete startup and production origin coverage remain
+Unknown. Pending acceptance is a gate on implementation, not on this docs PR.
+
+
+Review routing: root is the sole writer. At most two fresh read-only
+`gpt-6-luna` reviewers at high effort, one round with bounded clarification:
+one verifies source/authority claims against the cited owners, the other asks
+which missing decisions would change implementation or qualification. Both
+consume this single draft and cited source, not each other's conclusions. Root
+reconciles their material findings before the one owner decision. No runtime
+or physical evidence is inferred from a Ready document review.
+
+
+## Independent review corrections
+
+Source/authority review required explicit live-row/deletion-job inconsistency
+refusal, in addition to original scope and creation. The contract now reuses the
+accepted full read-transaction conditions at capture and pre-file validation.
+Builder review required aggregate inventory bounds (including empty and
+retry-only segments) and a replaced captured Workflow deletion-job test. Numeric
+scan limits, no-partial-snapshot outcomes and exact-job comparison before effects
+are now stated in the contract and owning deliverables. These are proposed
+qualification choices; no existing acceptance or runtime evidence is extended.
+Bounded correction follow-up found both source/authority and builder reviews
+Ready for the owner decision. Source review also clarified that ordinary job
+progress is not identity replacement. Root inspection of file_budget.rs found
+its existing 1 MiB-per-job/32 MiB aggregate encoded allowance: the proposed scan
+now reserves a full existing slot, caps selected encoded results at 768 KiB and
+uses one 64 KiB line buffer without expanding that budget. This additional
+resource-accounting clarification is included in the bounded builder follow-up.
+
+
+Final bounded review disposition: both independent reviewers are Ready for the
+owner decision after the source-row, aggregate budget and exact-job corrections.
+Their final checks verified the existing encoded file-job limits and ordinary
+same-job progress semantics against source. No material issue remains in the
+reviewed proposal. Actual runtime/physical/profile behavior is unverified;
+this result authorizes neither implementation nor production activation.

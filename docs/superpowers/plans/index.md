@@ -342,3 +342,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Retained legacy source-adoption qualification](2026-11-07-legacy-source-adoption-qualification.md) — Contract, authority, publication and restart gates before implementing accepted additive recovery.
 
 - [Backup maintenance owner qualification](2026-11-08-backup-maintenance-qualification.md) — Actual per-writer contracts, physical/readiness evidence and bounded implementation gates for accepted maintenance admission.
+
+- [SQL observation origin qualification plan](2026-11-08-sql-observation-origin-capture.md) — Proposed sequential strict codec and private owner/producer qualification with legacy refusal and deletion-ordering checks.
