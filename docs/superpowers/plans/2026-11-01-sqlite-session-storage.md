@@ -119,6 +119,9 @@ SQL closure, inert validators and complete resource evidence remain required
 before dependent implementation. Next, audit the actual writer admission/drain
 owners and coverage against capture/restore maintenance; no production profile
 or runtime implementation is supplied by representation acceptance.
+The [pinned writer audit](../../validation/backup-maintenance-writer-audit.md)
+in #1535 maps current local controls and missing all-writer admission/settlement;
+it qualifies no maintenance profile or capture operation.
 
 Owners: a private maintenance/backup module, `workspace_runtime.rs` lease and
 format ownership, existing external evidence/image owners; synthetic/copy fixtures.

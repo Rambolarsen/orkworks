@@ -110,3 +110,5 @@ Capability research, validation results, and evidence fixtures.
 - [Pair native envelope callback and platform-input closure](pair-native-envelope-input-closure.md) — Callback/native inputs, compiler helper evidence and conditional NTFS allocation rounding; complete growth/scratch bounds remain unavailable.
 
 - [Legacy adoption evidence-owner audit](legacy-adoption-evidence-owners.md) — Pinned private primitives, scoped cleanup authority and unqualified actual receipt/backup/application guarantees.
+
+- [Backup maintenance writer admission and drain audit](backup-maintenance-writer-audit.md) — Pinned current writer families, local ownership/SQL close and missing complete capture/restore admission/settlement guarantees.
