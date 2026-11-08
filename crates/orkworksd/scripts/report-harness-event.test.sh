@@ -567,3 +567,23 @@ printf '%s' '{"session_id":"claude-startup-id"}' |
   TEST_CURL_SEQUENCE_FILE="$temp_dir/exhausted-responses" TEST_CURL_BODIES_FILE="$temp_dir/exhausted-bodies" run_reporter SessionStart claude-code
 [ "$(wc -l < "$temp_dir/exhausted-bodies" | tr -d ' ')" = 3 ]
 [ "$(wc -l < "$temp_dir/exhausted-responses" | tr -d ' ')" = 1 ]
+
+# Aider's completion callback has no structured prompt lifecycle. Even a
+# question-shaped response or a supplied status must not produce any request.
+aider_requests="$temp_dir/aider-requests"
+for aider_status in '' working waiting_for_input idle; do
+  for aider_payload in '' '{"message":"Response complete"}' '{"message":"Should I proceed?"}'; do
+    printf '%s' "$aider_payload" |
+      env PATH="$temp_dir/bin:$PATH" HOME="$temp_dir/home" \
+        REAL_PYTHON3="$real_python3" \
+        ORKWORKS_SESSION_ID='aider-fixture-session' ORKWORKS_PORT='4567' \
+        ORKWORKS_REPORT_TOKEN='aider-fixture-token' \
+        ORKWORKS_PROMPT_HOOK_GENERATION='aider-fixture-generation' \
+        TEST_CURL_BODIES_FILE="$aider_requests" \
+        bash "$reporter" --marker 'orkworks:harness-integration:v2:aider' --status "$aider_status"
+  done
+done
+if [ -e "$aider_requests" ]; then
+  echo 'Aider completion callbacks must not post attention or identity' >&2
+  exit 1
+fi

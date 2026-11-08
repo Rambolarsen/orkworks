@@ -84,6 +84,19 @@ fn claude_reporter_powershell_maps_only_valid_prompt_and_turn_payloads() {
         cases.push(json!({"event":event,"payload":payload,"fail":fail}));
         expected.push(None);
     }
+    // Aider completion has no prompt lifecycle; supplied status or question text
+    // must not promote this unrelated marker to Claude/Copilot authority.
+    for status in ["", "working", "waiting_for_input", "idle"] {
+        for payload in [
+            Value::Null,
+            json!({"message":"Response complete"}),
+            json!({"message":"private-question: Should I proceed?"}),
+        ] {
+            cases.push(json!({"marker":"orkworks:harness-integration:v2:aider",
+                "event":"", "status":status, "payload":payload, "fail":false}));
+            expected.push(None);
+        }
+    }
     std::fs::write(&cases_path, serde_json::to_vec(&cases).unwrap()).unwrap();
     std::fs::write(&wrapper, r#"
 if (-not [string]::Equals($HOME, $env:ORKWORKS_FIXTURE_HOME, [StringComparison]::OrdinalIgnoreCase)) { throw 'fixture home not isolated' }
@@ -99,9 +112,10 @@ $cases = Get-Content -LiteralPath $env:ORKWORKS_CASES -Raw | ConvertFrom-Json
 for ($i=0; $i -lt $cases.Count; $i++) {
     $global:orkworksFixtureCaseIndex=$i
     $global:orkworksFixtureFailRegistration=$cases[$i].fail
-    $payload=$cases[$i].payload | ConvertTo-Json -Depth 10 -Compress
+    $payload = if ($null -eq $cases[$i].payload) { "" } else { $cases[$i].payload | ConvertTo-Json -Depth 10 -Compress }
     [Console]::SetIn((New-Object IO.StringReader $payload))
-    & $env:ORKWORKS_REPORTER -Marker 'orkworks:harness-integration:v2:claude-code' -Event $cases[$i].event
+    $marker = if ($cases[$i].marker) { $cases[$i].marker } else { 'orkworks:harness-integration:v2:claude-code' }
+    & $env:ORKWORKS_REPORTER -Marker $marker -Event $cases[$i].event -Status $cases[$i].status
 }
 "#).unwrap();
     let mut child = Command::new("powershell.exe")
@@ -176,6 +190,9 @@ for ($i=0; $i -lt $cases.Count; $i++) {
             );
         } else {
             assert!(attention.is_empty(), "case {index}: {attention:?}");
+            if cases[index]["marker"] == "orkworks:harness-integration:v2:aider" {
+                assert!(reports.is_empty(), "Aider case {index}: {reports:?}");
+            }
         }
     }
 }
