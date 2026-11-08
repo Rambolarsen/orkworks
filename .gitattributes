@@ -47,3 +47,8 @@ docs/validation/root-preparation-effects.json text eol=lf
 
 # Preserve mixed LF/CRLF bytes in the independent instruction golden fixture.
 /crates/orkworksd/tests/fixtures/role-instructions/bundle.txt -text whitespace=cr-at-eol
+
+# Preserve pinned offline continuation source/configuration evidence on Windows.
+/crates/orkworksd/tests/fixtures/parent-continuation/peer.py text eol=lf
+/crates/orkworksd/tests/fixtures/parent-continuation/test_peer.py text eol=lf
+/crates/orkworksd/tests/fixtures/parent-continuation/evidence.json text eol=lf

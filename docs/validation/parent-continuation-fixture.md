@@ -56,7 +56,8 @@ python3 -I -B -m unittest discover -s crates/orkworksd/tests/fixtures/parent-con
 The docs test runner invokes that same isolated interpreter with a ten-second
 process timeout, following existing Python-backed component tests. `docs:check`
 and docs CI therefore run the Python suite; missing Python or a failed test fails
-the check. Python 3.9 compatibility uses deferred annotations. The peer itself
+the check. Python 3.9 compatibility uses deferred annotations. Exact source/evidence bytes
+are pinned to LF through .gitattributes, including Windows autocrlf checkouts. The peer itself
 never starts a process; only the ordinary test runner invokes Python.
 
 TDD evidence: the initial pending-wait test failed against a stub that returned
