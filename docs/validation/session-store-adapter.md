@@ -1527,7 +1527,7 @@ backup for each later sync/removal. No parent-process resource limit is changed.
 
 `session_application/sql_writes/delete_recommendation_tests.rs` exercises the
 source-only `0x10` stage through real SQL jobs, workspace leases, recommendation
-owners and temporary files. Ten tests cover complete connected rollup removal,
+owners and temporary files. The original ten tests cover complete connected rollup removal,
 exact unrelated/legacy bytes, progress preservation and reopen/no-op retry,
 recommendation Busy, SQL progress failure while retaining the graph permit,
 original shared-owner/physical-directory replacement, reused SQL creation,
@@ -1540,8 +1540,8 @@ A valid committed journal for another session is preserved without recovery or
 progress. Legacy successful graph writes leave an empty journal parent; the
 initial integration fixture reproduced its rejection before the narrow removal
 preparation/publication compatibility path was added. Strict read-only preflight
-continues rejecting that parent, and nonempty journals still require separate
-job-bound recovery authority. Existing shared admission cancellation/expiry and
+continues rejecting that parent; the captured exact-job recovery extension below
+supplies the separately admitted v3 route for nonempty journals. Existing shared admission cancellation/expiry and
 stale-view regressions remain applicable and run with the SQL application suite.
 
 Production remains JSON. These fixtures grant no authority to stale legacy
@@ -1571,8 +1571,8 @@ a writer envelope too large despite a single entry. Legacy manifest types remain
 unchanged. This is codec/SQL-read evidence, not executed filesystem crash recovery.
 
 Full repository verification and current-diff review are recorded with the PR.
-Publication/recovery, all-name legacy preflight refusal and captured integration
-remain subsequent deliverables. Producer revalidation, safe finalization, startup
+Later slices below qualify publication/recovery, all-name legacy preflight
+refusal and captured integration. Producer revalidation, safe finalization, startup
 selection and complete backup/migration gates remain before activation.
 
 ## SQL-bound recommendation journal store layer
@@ -1581,8 +1581,9 @@ The approved [recovery contract](../superpowers/specs/2026-11-07-sql-recommendat
 now has a private composite for exact expected-identity recovery, fresh bounded
 removal and v3 publication. It retains one original recommendation permit/lease
 through every result, with no intermediate release or recursive claim. Current
-application admission, SQL progress, finalization and production selection remain
-unchanged; this primitive does not turn an identity into cleanup authority.
+captured application admission and progress integration is described below;
+finalization and production selection remain gated. This primitive does not turn
+an identity into cleanup authority.
 
 Real SQL identities and filesystem fixtures cover full graph/byte preservation,
 foreign full-identity/basename and wrong-session targets, manifest-less prefixes,
@@ -1604,9 +1605,8 @@ injected-interruption and fresh-lease source checks, not hardware power-loss or
 live qualification.
 
 Final scoped/full verification and current-diff review evidence belong to this
-PR and the implementation plan. Captured SQL admission/progress, stale-producer
-revocation, safe finalizer, startup, complete backup/migration and activation
-remain open gates. Production continues to use JSON.
+PR and the implementation plan. Stale-producer revocation, safe finalizer,
+startup, complete backup/migration and activation remain open gates. Production continues to use JSON.
 
 Review regression: a committed journal with all canonical targets absent must
 still validate complete remaining backup evidence against the selected job.
@@ -1615,3 +1615,29 @@ discarding that evidence. Legitimate additional independent references still
 reach the retained fresh pass; once backup cleanup has started, missing backups
 remain idempotent when all canonical targets are absent. Repeated-recovery tests
 cover that partial-cleanup continuation.
+
+## Captured exact-job recommendation recovery
+
+The captured recommendation stage now passes its current SQL-selected identity
+to the v3 composite. The capture also retains the original identity and rejects
+a changed database epoch before admission even without pending journal bytes.
+The original exact job, workspace, reader, runtime, lease and recommendation
+owner checks remain in force. Identity supplies no independent effect authority.
+
+`delete_recommendation_tests/recovery.rs` adds real SQL/filesystem cases for
+partially completed committed recovery, durable progress across reopen, draft,
+first-manifest temp and manifest-less scaffolding, full foreign identity and
+corrupt journal refusal with unchanged evidence, and unavailable/missing/corrupt
+or changed SQL header/job refusal before file effects. Failure receipts retain
+the recommendation permit through the runner. Existing caller-loss and
+acknowledged-input tests now pause after actual committed recovery and before the
+fresh pass using a directory-scoped one-shot test observation; SQL Busy/no-op
+retry also starts with a real pending v3 journal. No input-critical application
+guard is held during recovery, and the original lane/reservation/lease survives
+admitted caller loss through progress and detached-result checks.
+
+These tests exercise process-interruption fixtures and a stalled recovery phase,
+not hardware power-loss or live latency. A successful pass preserves prior bits
+and persists `0x10`; SQL failure leaves the job pending for a fully readmitted
+retry. No row/job is finalized, and stale producer fencing, qualified startup,
+backup/migration and production activation remain separate gates under #1243.

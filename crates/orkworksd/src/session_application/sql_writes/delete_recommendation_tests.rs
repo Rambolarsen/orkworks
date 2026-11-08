@@ -204,9 +204,11 @@ async fn sql_recommendation_cleanup_holds_graph_owner_through_sql_failure_and_re
         .capture_deletion(ID.into(), CREATED.into())
         .await
         .unwrap();
+    let tx = recovery::journal(&state, &store, true).await;
     let mut gate = hold(&writes.replay_removed);
     let action = tokio::spawn(view.remove_recommendations());
     gate.entered().await;
+    assert!(!tx.exists());
     assert!(matches!(files.list(), Err(RecommendationError::Busy)));
     assert!(state.projection_lock.try_lock().is_ok());
     assert!(state.workspace.try_lock().is_ok());
@@ -498,9 +500,11 @@ async fn sql_recommendation_cleanup_admitted_caller_loss_retains_original_lease_
         .capture_deletion(ID.into(), CREATED.into())
         .await
         .unwrap();
-    let mut gate = hold(&writes.replay_removed);
+    let tx = recovery::journal(&state, &store, true).await;
+    let mut gate = recovery::pause_after_recovery(&state);
     let action = tokio::spawn(view.remove_recommendations());
     gate.entered().await;
+    assert!(!tx.exists());
     state.workspace.lock().unwrap().as_mut().unwrap().lease = None;
     assert!(weak.upgrade().is_some());
     assert!(owner.pending(ID));
@@ -542,9 +546,11 @@ async fn sql_recommendation_cleanup_stall_keeps_guards_and_acknowledged_input_fr
         .capture_deletion(ID.into(), CREATED.into())
         .await
         .unwrap();
-    let mut gate = hold(&writes.replay_removed);
+    let tx = recovery::journal(&state, &store, true).await;
+    let mut gate = recovery::pause_after_recovery(&state);
     let action = tokio::spawn(view.remove_recommendations());
     gate.entered().await;
+    assert!(!tx.exists());
     assert!(matches!(files.list(), Err(RecommendationError::Busy)));
     assert!(state.projection_lock.try_lock().is_ok());
     assert!(state.workspace.try_lock().is_ok());
@@ -606,3 +612,5 @@ fn sql_recommendation_cleanup_completes_with_one_blocking_worker() {
     runtime.shutdown_timeout(std::time::Duration::from_secs(2));
     assert!(result.is_ok_and(|r| r.is_ok_and(|receipt| matches!(receipt.progress, Some(Ok(16))))));
 }
+
+mod recovery;

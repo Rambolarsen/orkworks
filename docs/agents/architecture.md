@@ -1922,14 +1922,15 @@ close-first state, reserves the session operation, then atomically admits the
 retained worker. Same-owner comparison is memory only; the anchored file layer
 performs physical identity checks outside application guards.
 
-Removal preparation permits only the verified empty `.rollup-transactions` parent
-left by successful legacy graph writes. Publication reuses that pinned directory
-and removes it during normal cleanup; a no-op may retain the empty scaffold.
-Strict read-only `inspect` behavior stays unchanged. Any nonempty journal parent
-fails before effects: existing v2 manifests do not identify a SQL job/creation/epoch
-and this action cannot adopt another job's recovery authority. Interrupted fresh
-publication leaves a visible pending journal and no new SQL progress; qualified
-identity-bound recovery routing remains required before activation.
+Capture retains the selected immutable SQL identity. Before recommendation
+admission the under-lane exact tombstone/header reread must match that capture;
+a changed database epoch cannot authorize a fresh pass even without a journal.
+The file stage calls the SQL-bound composite below, recovering only the expected
+v3 journal and then performing a fresh bounded removal pass under one permit.
+Legacy v1/v2, foreign, mixed or invalid pending journals remain visible errors
+with no progress advance. Verified empty legacy scaffolding remains compatible.
+Interrupted publication or recovery leaves bounded evidence for the same exact
+job's next admitted attempt.
 
 The graph uses the existing exact-reference predicate and complete forward/reverse
 rollup closure. Explicit Delete's existing graph semantics remain authoritative;
@@ -1942,7 +1943,7 @@ JSON is untouched. Graph work and SQL I/O never run under input-critical guards.
 
 A progress flag records one completed pass. It does not qualify later legacy
 publishers or prevent recreation after the permit is released. Producer
-revalidation/revocation against SQL tombstones, job-bound journal recovery, other
+revalidation/revocation against SQL tombstones, qualified startup recovery, other
 required external stages and final deletion remain activation gates. Existing
 retained intent/job and graph bounds remain; no measured RSS, end-to-end latency,
 hardware power-loss or production activation claim is introduced.
@@ -1963,9 +1964,9 @@ all stored identity fields and the expected basename, rejects duplicate/unknown/
 missing fields, replacement entries, unsafe paths and invalid lowercase SHA-256
 values, and retains the 1,024-entry/1 MiB manifest caps. Legacy v1/v2 structs and
 codecs are unchanged. The pure foundation grants no journal or cleanup authority.
-The bounded store layer described below consumes it. Captured SQL cleanup still
-refuses nonempty journals until its separate admission/progress integration. Original lease/runtime/reservation/operation ownership is
-required in later integration; an identity or decoded manifest grants none.
+The bounded store layer described below consumes it through captured cleanup.
+Original lease/runtime/reservation/operation ownership remains required; an
+identity or decoded manifest grants none.
 
 Producer fencing, safe final job completion, startup routing, migration and
 activation remain gated. Production remains JSON, with no measured latency gain.
@@ -1996,9 +1997,9 @@ and every ordinary recovery call preflights them before its first effect. Reserv
 SQL entries block both startup and existing instances, including absent manifests
 and mixed parents. Memory-only captures/operation claims remain memory-only.
 
-This is a source-only store-layer primitive with no production or HTTP caller.
-An identity is identification, not admission: captured integration must reread the
-exact pending job and retain the runtime/lane/reservation/lease through file work
-and SQL progress. Existing captured cleanup and progress behavior are unchanged.
+This source-only store-layer primitive is called by captured recommendation
+cleanup, with no production or HTTP caller. An identity is identification, not
+admission: captured cleanup rereads the exact pending job and retains the
+runtime/lane/reservation/lease through file work and SQL progress.
 Producer fencing, safe finalization, qualified startup, backup/migration and SQL
 activation remain separate gates; no installed behavior or latency gain is claimed.

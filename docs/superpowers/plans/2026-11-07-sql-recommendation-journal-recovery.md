@@ -58,13 +58,13 @@ identity, retained operation/lane/lease, unchanged caps and fault qualification.
   reserved SQL journals block both startup and existing-instance operations.
   Test manifest-less and malformed SQL entries mixed with committed v1/v2 data;
   assert all bytes unchanged on refusal. Keep legacy-only regressions passing.
-- [ ] Captured integration: use selected immutable identity in
+- [x] Captured integration: use selected immutable identity in
   `session_application/sql_writes/deletion.rs`, replacing the current blanket
   pending-journal refusal with exact-job recovery. Add tests beside
   `delete_recommendation_tests.rs` for epoch/creation/owner changes, SQL failures,
   partial progress, caller loss, uninterrupted permit lifetime and real input
   acknowledgement while recovery stalls. Never finish a row/job here.
-- [ ] Update architecture/validation claims to match executed evidence. Run
+- [x] Update architecture/validation claims to match executed evidence. Run
   scoped tests, full `bash scripts/verify-repo.sh`, docs/build checks and current
   manual review. Re-review only material changed code/contracts. PR CI and the
   existing maintainer merge/owned-worktree cleanup gates remain applicable.
@@ -178,3 +178,49 @@ The earlier verifier was deliberately interrupted before the fix and is not
 passing evidence. These are injected-interruption/fresh-lease and source checks,
 not physical power-loss qualification. Captured integration/progress and all
 producer/finalization/startup/backup/migration/activation gates remain open.
+
+## Approved captured integration slice — 2026-11-08
+
+After #1521, reuse the accepted protocol in owned `sql-captured-journal`, base
+`4184eed3`. Retain the capture's immutable selected identity and compare it to the
+under-lane current tombstone/header read before recommendation admission. Count
+that retained identity in the existing intent reservation. Call `remove_for_sql`
+in the existing off-guard retained runner; retain its success/error receipt
+through SQL progress and detached-result checks. Other external stages keep
+their existing behavior. Do not finish the row/job or select SQL in production.
+
+The original two red tests reproduce valid committed recovery refusal and
+capture acceptance after a canonical epoch change without pending journals.
+Additional real fixtures cover draft/first-temp/scaffolding recovery, foreign or
+corrupt evidence preservation and missing/unavailable/changed SQL refusal.
+Extend existing caller-loss/input/SQL Busy tests to start from pending v3
+journals; pause after recovery before fresh inspection through a directory-scoped
+test-only observation. This proves the same permit survives recovery and fresh
+work outside application guards. Full verification and current-diff review
+follow scoped tests; producer fencing, safe finalization, startup qualification,
+backup/migration and activation remain separate prerequisites.
+
+Review routing: root is the sole writer. One fresh read-only review round, at
+most two lower-cost `gpt-6-luna` reviewers at high effort: identity/admission
+correctness and lifetime/failure/test completeness, respectively. Apply bounded
+material findings with regression evidence. Reuse unchanged design/plan review;
+no additional architecture or codec decision is introduced by this slice.
+
+Captured integration scoped evidence: all 15 recommendation application tests pass
+(the original ten plus five new recovery cases). The byte-layout and macOS
+`/var`/`/private/var` test-observation fixture failures were diagnosed and fixed
+without weakening production recovery validation. Current `/code-review low`
+completed through separate fresh identity/admission and lifetime/test-completeness
+passes, both clear. Frozen review artifact SHA256
+`5f1cef5f65188f2e8dacfe0f3467c51a80f25159d01e3dd409f440ecfab8cef4`;
+all six Rust source hashes match the reviewed files. These are source reviews;
+reviewers did not execute the tests. Full `bash scripts/verify-repo.sh` passed with `RUST_TEST_THREADS=1`: 3,204 Rust
+unit tests (18 existing ignored), seven integration tests, 31 reporter tests,
+one Electron ABI proof, desktop type-check/build and 1,709 tests (three existing
+skips), and 1,202 docs tests/build. Diff/doc/worktree checks passed. No extra
+filters/skips. The public-doc reminder was reviewed: this private source-only
+slice changes no installed flow or onboarding, and canonical architecture and
+validation claims are updated. The pre-commit worktree warning reflected an
+unchanged branch tip with uncommitted owned changes; cleanup follows its PR.
+Existing bundle-size warnings concern unchanged assets. Production stays JSON;
+producer/finalization/startup/backup/migration/activation gates remain.

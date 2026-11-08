@@ -42,7 +42,10 @@ impl BoundCleanup {
             let result = (|| {
                 protocol::recover_sql(&self.0, identity).map_err(StoreError::Io)?;
                 #[cfg(test)]
-                sql_tests::after_recovery();
+                {
+                    sql_tests::after_recovery();
+                    crate::taskmaster::store::sql_cleanup_test_gate::recovered(&self.0.store.dir);
+                }
                 let (records, leaves) = unix::inspect(&self.0, true)?;
                 let inventory = CleanupInventory {
                     records,
