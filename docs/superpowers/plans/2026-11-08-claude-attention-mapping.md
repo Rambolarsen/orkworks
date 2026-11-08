@@ -120,3 +120,8 @@ above; final reviewer checks only this implementation against the accepted scope
   observer case returned Conflict. It is not counted as green. Final verifier
   reruns the full repository with one Rust test thread to avoid shared SQL test
   interference. Docs build passes; native Windows execution remains a CI gate.
+
+- Documentation-currency warning reviewed: the user sessions guide now explains
+  Claude submission/clarification behavior and explicit Settings reconciliation,
+  with limited-coverage/source-versus-installer bounds. The homepage's general
+  onboarding and release claims remain unchanged and accurate.
