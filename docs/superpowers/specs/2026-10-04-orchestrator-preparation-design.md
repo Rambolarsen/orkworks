@@ -3,17 +3,65 @@ type: "Design"
 title: "Clarification and research-to-execution lifecycle"
 description: "Design history: Clarification and research-to-execution lifecycle."
 tags: ["orkworks", "design"]
+status: stable
+workflow_status: logical-core-accepted
 ---
 
 # Clarification and research-to-execution lifecycle
 
-- Status: broader lifecycle contract proposed; scoped #744 technical amendments accepted 2026-10-24, qualification/runtime gates open
+- Status: logical lifecycle and existing admission defaults accepted 2026-11-08; qualification and executable runtime handoff remain open
 - Date: 2026-10-04
 - Tracking: [#742](https://github.com/Rambolarsen/orkworks/issues/742), parent [#738](https://github.com/Rambolarsen/orkworks/issues/738)
 - Product direction: [Agent hierarchy and configuration learning](2026-10-04-agent-hierarchy-and-configuration-learning-design.md)
 - Launch baseline: [Taskmaster orchestrated child sessions](2026-09-26-taskmaster-orchestrated-child-sessions-design.md)
 - Configuration: [Role configuration](2026-10-04-agent-role-configuration-design.md)
 - Eligibility: [Capability evidence register](../../validation/agent-role-capabilities.md), [Claude Code 2.1.287 static assessment](../../validation/claude-code-role-capability-evidence.md)
+
+## Logical lifecycle acceptance — 2026-11-08
+
+The owner answered **“yes, go ahead”** to the concrete acceptance question after
+reviewing this lifecycle's three remaining choices and existing limits. Reviewed
+source: `f5013bb189bfc6bb3155ed7b2cacc447e3069813`. This records acceptance of the
+existing logical contract and its defaults; it adds no technical field, numeric
+value, digest domain, storage mechanism or native guarantee.
+
+Accepted behavior:
+
+- After approved research completes, the same live parent automatically collects
+  reports, synthesizes the bounded summary and prepares the next proposal. There
+  is no mandatory inter-stage pause. Every execution plan still needs its own
+  exact user approval; report receipt is not task success or launch permission.
+- Run planning authority survives research completion, while that research plan's
+  launch grant ends. Final completion/cancellation ends run authority. Resume
+  requires fresh generation-bound authority and the specified exact reapproval;
+  no expired bearer or grant is restored.
+- Every nonterminal child and unattached reservation across all stages counts
+  toward the run ceiling. Parent bootstrap/configuration stays immutable. Resume
+  preserves blockers, pending clarification and the separate stage-continue gate;
+  it never automatically retries an already reserved task or integrates code.
+
+The existing [bounds and exact encodings](#bounds-and-record-behavior) are included:
+1–16 live children, at most 16 plans/run and 64 revisions/plan, and 32 MiB of
+preparation/report metadata per run, with the specified record/rate/history caps.
+A lower baseline/configuration/verified adapter bound wins. These are logical
+admission defaults, not qualified native storage or tool capacity claims.
+
+This completes #742's written lifecycle acceptance and reuses the unchanged
+technical review recorded below. [#741's logical core](2026-11-02-role-configuration-component-review.md)
+is already accepted; neither component needs another general research loop.
+The [#740 research handoff](../../validation/copilot-practical-research-handoff.md)
+is closed with partial practical evidence. Ordinary role guardrails retain that
+accepted risk standard. Actual same-parent event delivery, cursor-gap recovery
+and exact resume remain feature-specific requirements, not universal containment
+requirements or reasons to reopen #740.
+
+Keep #742 open only for the separately scoped capability/executable handoff. No
+runtime implementation, launch adapter, SQLite/native qualification, authority
+ordering exception or additional probe budget is approved here. Source/custody
+and storage qualifications retain their own accepted or proposed dispositions;
+this decision does not broaden them. The next bounded preparation is a finite
+continuation/resume capability handoff, followed by a separately approved runtime
+plan only after its applicable prerequisites are met.
 
 ## Role guardrail assurance — 2026-11-02
 
@@ -1027,17 +1075,19 @@ live coding-tool probes were run while drafting this document.
 
 ## Review handoff — 2026-10-14
 
-**Disposition: ready for written owner review; runtime planning remains blocked.**
-This handoff reconciles the specification deliverable with [#742](https://github.com/Rambolarsen/orkworks/issues/742).
-It does not record owner acceptance, adapter eligibility, or implementation-plan
+**Historical handoff:** written owner acceptance is now recorded in
+[Logical lifecycle acceptance](#logical-lifecycle-acceptance--2026-11-08).
+The dated review evidence below is retained; runtime handoff remains gated.
+This dated handoff reconciled the specification deliverable with [#742](https://github.com/Rambolarsen/orkworks/issues/742).
+It did not record owner acceptance, adapter eligibility, or implementation-plan
 approval. The accepted scope/ADR alignment in PR #747 is already delivered;
 it is not a remaining prerequisite to redo.
 
 ### Acceptance coverage
 
 The following entries identify written requirements, not implemented behavior
-or exercised adapter evidence. Owner acceptance of the detailed contract remains
-pending even where the requirement is specified.
+or exercised adapter evidence. Owner acceptance was pending at this handoff;
+the subsequent logical acceptance is recorded above.
 
 | #742 requirement | Contract and acceptance evidence |
 | --- | --- |
@@ -1078,7 +1128,7 @@ orchestration, role-restriction or model-loop continuation implementations.
 
 | Gate / owner | Current disposition | Evidence required to advance |
 | --- | --- | --- |
-| Detailed contract acceptance / project owner, #742 with #741 | Written requirements mapped; owner acceptance pending | Record acceptance or concrete changes to this lifecycle and #741's immutable bootstrap/plan/input bindings, including identity, capacity, correction, recovery and numeric bounds |
+| Detailed contract acceptance / project owner, #742 with #741 | Logical contract/defaults accepted 2026-11-08; #741 core already accepted | Acceptance recorded above; do not repeat review of unchanged identity, capacity, correction, recovery or numeric-bound choices |
 | Ordinary-role evidence / #740 and parent continuation / #742 | Current role assessment is partial practical evidence; no implemented role launch adapter or continuous parent is qualified | Apply the native-guardrails amendment to role delivery/settings and bounded ordinary cases; independently establish event continuation/gap handling/exact resume only for the continuous-parent feature |
 | Scoped runtime handoff / #610 consumers | Not executable; no runtime launch plan is authorized | After contract acceptance and an eligible initial slice, prepare PR-sized plans with exact records/routes/migrations, Electron-main/preload interfaces, renderer projections and adapter fixtures; obtain approval before code |
 
@@ -1097,7 +1147,8 @@ report/event contracts for continuation, and the summary/blocker/approval
 projections for desktop. Those boundaries are not an executable implementation
 plan and do not authorize work on an otherwise gated unit.
 
-Keep #742 open for owner acceptance and the remaining scoped handoff. Updating
+Keep #742 open for the remaining capability/executable handoff; written acceptance
+is complete. Updating
 its definition checkboxes means the written requirements have evidence here;
 it must not mark capability verification, runtime implementation or execution
 approval complete. If the required practical mapping/delivery or parent feature
@@ -1130,13 +1181,14 @@ approve runtime work.
 
 ## Execution plan and implementation gate
 
-Keep #742 open: this is a concrete proposed contract, not a reviewed executable
-handoff. The [#610 alignment](2026-10-04-taskmaster-orchestration-scope-design.md)
-and authoritative spec/ADR scope routing were accepted in PR #747. Before code
-planning, finalize and review #741's run bootstrap/plan bindings;
-verify #740's parent role, skill delivery, event continuation and exact resume
-capabilities or retain explicit no-go combinations. Review the run/grant,
-identity, capacity, correction, recovery and numeric-bound contracts together.
+Keep #742 open for its capability/executable handoff. The logical lifecycle and
+existing defaults are accepted above; #741's bootstrap/plan-binding core and the
+[#610 alignment](2026-10-04-taskmaster-orchestration-scope-design.md) are already
+accepted. Do not repeat those written decisions. Before runtime launch planning,
+establish the selected role's actual mapping/required delivery and the continuous
+parent's event delivery, gap recovery and exact resume support. #740's completed
+partial research does not establish those functional capabilities or authorize
+another probe. Preserve explicit unsupported combinations until qualified.
 
 The later scoped plan must name exact Rust types/routes/store migrations,
 Electron-main approval/preload interfaces, renderer projections, adapter
