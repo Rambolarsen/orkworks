@@ -16,7 +16,10 @@ interface NewSessionDialogProps {
   onCancel: () => void;
 }
 
-function harnessLabel(name: string, state: string | undefined): string {
+function harnessLabel(name: string, state: string | undefined, resetHint: string | null | undefined): string {
+  if (state === "capped") {
+    return `${name} (capped · ${resetHint?.trim() || "reset time unknown"})`;
+  }
   if (!state || state === "healthy" || state === "unknown") return name;
   return `${name} (${state})`;
 }
@@ -294,8 +297,8 @@ export default function NewSessionDialog({ workspacePath = "", harnesses, provid
                     </option>
                   )}
                   {selectable.map((h) => {
-                    const state = providerRuntime?.providers.find((p) => p.id === h.id)?.effectiveState;
-                    return <option key={h.id} value={h.id}>{harnessLabel(h.name, state)}</option>;
+                    const provider = providerRuntime?.providers.find((p) => p.id === h.id);
+                    return <option key={h.id} value={h.id}>{harnessLabel(h.name, provider?.effectiveState, provider?.runtime.resetHint)}</option>;
                   })}
                   </>
                 )}

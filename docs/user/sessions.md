@@ -232,7 +232,10 @@ Update an existing Copilot integration through Settings to add the submission
 hook; published installers may have earlier behavior.
 
 When a coding tool hits its provider's usage limit, its session row shows
-**Capped**, and the detail panel adds any reset hint the tool printed. The
+**Capped**, and the detail panel adds any reset hint the tool printed. In current
+source builds, the **New session** coding-tool selector also shows that hint
+beside capped tools, or **reset time unknown** when no hint is available. These
+are reported hints, not a guarantee that capacity has recovered. The
 badge is framed by when the limit was detected — **Capped · detected \<time\>
 ago** — so an old latch is never presented as a current fact, even after the
 printed reset time has passed. Sessions
