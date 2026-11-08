@@ -1,0 +1,303 @@
+{
+  "kind": "static-schema-projection-not-a-runtime-receipt",
+  "source": {
+    "packageVersion": "1.0.90",
+    "member": "schemas/api.schema.json",
+    "bytes": 2064273,
+    "sha256": "749f184068021a6a05b0d8234ecb8cb4d392a5b9b044c87f619bde374eab928d"
+  },
+  "methods": [
+    {
+      "sourcePointer": "/server/sessions/open",
+      "rpcMethod": "sessions.open",
+      "stability": "experimental",
+      "params": {
+        "$ref": "#/definitions/SessionOpenParams",
+        "description": "Open a session by creating, resuming, attaching, connecting to a remote, or handing off."
+      },
+      "result": {
+        "$ref": "#/definitions/SessionOpenResult",
+        "description": "Result of opening a session."
+      }
+    },
+    {
+      "sourcePointer": "/session/tools/handlePendingToolCall",
+      "rpcMethod": "session.tools.handlePendingToolCall",
+      "stability": "experimental",
+      "params": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "description": "Target session identifier"
+          },
+          "requestId": {
+            "type": "string",
+            "description": "Request ID of the pending tool call"
+          },
+          "result": {
+            "$ref": "#/definitions/ExternalToolResult",
+            "description": "Tool call result (string or expanded result object)"
+          },
+          "error": {
+            "type": "string",
+            "description": "Error message if the tool call failed"
+          }
+        },
+        "required": [
+          "sessionId",
+          "requestId"
+        ],
+        "additionalProperties": false,
+        "description": "Pending external tool call request ID, with the tool result or an error describing why it failed.",
+        "title": "HandlePendingToolCallRequest",
+        "stability": "experimental"
+      },
+      "result": {
+        "$ref": "#/definitions/HandlePendingToolCallResult",
+        "description": "Indicates whether the external tool call result was handled successfully."
+      }
+    },
+    {
+      "sourcePointer": "/session/eventLog/read",
+      "rpcMethod": "session.eventLog.read",
+      "stability": "experimental",
+      "params": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "description": "Target session identifier"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque cursor returned by a previous read. Omit on the first call to start from the beginning of the session's persisted history."
+          },
+          "max": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 1000,
+            "description": "Maximum number of events to return in this batch (1–1000, default 200)."
+          },
+          "waitMs": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 30000,
+            "format": "duration",
+            "description": "Milliseconds to wait for new events when the cursor is at the tail of history. 0 (default) returns immediately even if no events are available. Capped at 30000ms. Ephemeral events that arrive during the wait are delivered in this batch but are NOT replayable on a subsequent read (use a non-zero waitMs in your next call to capture future ephemerals as they happen). This applies to forward reads only: a backward read always returns immediately and ignores `waitMs`, because backward paging covers persisted history only while new events append at the tail (the opposite end from a backward page), so no blocking or ephemeral delivery can occur."
+          },
+          "types": {
+            "$ref": "#/definitions/EventLogTypes",
+            "description": "Either '*' to receive all event types, or a non-empty list of event types to receive"
+          },
+          "agentScope": {
+            "$ref": "#/definitions/EventsAgentScope",
+            "description": "Agent-scope filter: 'primary' returns only main-agent events plus events whose type starts with 'subagent.' (matching the typed-subscription default behavior); 'all' returns events from all agents (matching wildcard-subscription behavior). Default is 'all' to preserve wildcard semantics for catch-up callers."
+          },
+          "agentIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "description": "Optional non-empty list of subagent identifiers. When provided, only events owned by one of these agents are returned; ownership recognizes the event envelope's agentId plus legacy data.agentId and data.parentToolCallId markers. This filter takes precedence over agentScope."
+          },
+          "direction": {
+            "$ref": "#/definitions/EventsReadDirection",
+            "description": "Direction to page through the session's persisted event history. 'forward' (default) pages from the cursor toward newer events (or from the start of history when no cursor is given). 'backward' enables tail-first reads: with no cursor it returns the NEWEST `max` events, and the returned cursor pages toward OLDER events on subsequent backward reads. Events within a returned batch are always in chronological (oldest-to-newest) order, even for a backward read. Backward reads cover PERSISTED history only; ephemeral events are never returned by a backward read. `direction` selects the INITIAL read only: the returned cursor is self-describing, so a continuation read pages in the cursor's own direction regardless of the `direction` passed alongside it — a forward cursor always pages forward and a backward cursor always pages backward. Pass the direction that matches the cursor to avoid confusion."
+          },
+          "includeEphemeral": {
+            "type": "boolean",
+            "description": "When false, skip ephemeral events entirely and return only durable (persisted) events. History-backfill callers that discard ephemerals anyway should set this so the read is bounded by the durable log length instead of racing the ephemeral ring on a busy session. Defaults to true (ephemerals are interleaved with durable events in creation order). Ignored by backward reads, which always cover persisted history only."
+          }
+        },
+        "required": [
+          "sessionId"
+        ],
+        "additionalProperties": false,
+        "description": "Cursor, batch size, and optional long-poll/filter parameters for reading session events.",
+        "title": "EventLogReadRequest",
+        "stability": "experimental"
+      },
+      "result": {
+        "$ref": "#/definitions/EventsReadResult",
+        "description": "Batch of session events returned by a read, with cursor and continuation metadata."
+      }
+    },
+    {
+      "sourcePointer": "/session/sendMessages",
+      "rpcMethod": "session.sendMessages",
+      "stability": "experimental",
+      "params": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "description": "Target session identifier"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/SendMessageItem",
+              "description": "A single user message to append to the session as part of a `session.sendMessages` turn"
+            },
+            "description": "The user messages to append to the conversation, in order, before running one agent loop. When the batch starts a run, its final message is the primary initiating message; earlier messages provide context, not separate runs or replies. May be empty, in which case a single turn runs over the existing history with no new user message or originatingMessageId."
+          },
+          "mode": {
+            "$ref": "#/definitions/SendMode",
+            "description": "How to deliver the messages. `enqueue` (default) appends to the message queue. `immediate` interjects during an in-progress turn."
+          },
+          "prepend": {
+            "type": "boolean",
+            "description": "If true, adds the messages to the front of the queue instead of the end"
+          },
+          "agentMode": {
+            "$ref": "#/definitions/SendAgentMode",
+            "description": "The UI mode the agent was in when these messages were sent. Defaults to the session's current mode."
+          },
+          "requestHeaders": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Custom HTTP headers to include in outbound model requests for this turn. Merged with session-level provider headers; per-turn headers augment and overwrite session-level headers with the same key."
+          },
+          "responseFormat": {
+            "$ref": "#/definitions/ResponseFormat",
+            "description": "Provider-native output format for the whole turn, including an empty message batch and all tool-call iterations. Not inherited by later turns or subagents. Ordinary steering inherits the active format; specifying responseFormat with mode: immediate is an error, even while idle. Returned assistant content remains text; the runtime does not parse or validate it. Unsupported models or schemas produce provider errors."
+          },
+          "traceparent": {
+            "type": "string",
+            "description": "W3C Trace Context traceparent header for distributed tracing of this agent turn"
+          },
+          "tracestate": {
+            "type": "string",
+            "description": "W3C Trace Context tracestate header for distributed tracing"
+          },
+          "wait": {
+            "type": "boolean",
+            "description": "If true, await completion of the agentic loop for this turn before returning. Defaults to false (fire-and-forget). When true, the result still contains the same `messageIds`; the caller can rely on the agent having processed the messages before the call resolves. Transport-dependent tail semantics: on a LOCAL (in-process) session the wait additionally blocks until the completed turn's event tail has been dispatched to this session's in-process subscribers, so a subsequent read of subscriber state already reflects the turn; on a REMOTE session the wait resolves once the loop completes and mirrored delivery follows over the wire. Callers that need the stronger local guarantee on remote sessions should await the event stream explicitly."
+          }
+        },
+        "required": [
+          "sessionId",
+          "messages"
+        ],
+        "additionalProperties": false,
+        "description": "Parameters for sending zero or more user messages to the session in a single turn. Remote-backed (Mission Control) sessions do not support this method and will return an error.",
+        "title": "SendMessagesRequest",
+        "stability": "experimental"
+      },
+      "result": {
+        "$ref": "#/definitions/SendMessagesResult",
+        "description": "Result of sending zero or more user messages"
+      }
+    }
+  ],
+  "definitions": {
+    "SessionsOpenResume": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "resume",
+          "description": "Resume a specific local session by ID or prefix."
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "Session ID or unique prefix to resume."
+        },
+        "options": {
+          "$ref": "#/definitions/SessionOpenOptions",
+          "description": "Session resume options."
+        },
+        "resume": {
+          "type": "boolean",
+          "description": "Whether to emit session.resume after loading. Defaults to true."
+        },
+        "suppressResumeWorkspaceMetadataWriteback": {
+          "type": "boolean",
+          "description": "Suppress workspace.yaml metadata writeback when resuming from an incidental cwd."
+        }
+      },
+      "required": [
+        "kind",
+        "sessionId"
+      ],
+      "additionalProperties": false,
+      "description": "Parameters for resuming a specific local session.",
+      "title": "SessionsOpenResume"
+    },
+    "SessionOpenResult": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/SessionsOpenStatus",
+          "description": "Outcome of the open request."
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "Opened session ID. Omitted when status is `not_found`."
+        },
+        "sessionApi": {
+          "description": "In-process SessionClientApi handle for the opened session, returned to CLI callers as a transitional shortcut. Marked internal so the public SDK surface does not expose it; SDK consumers should construct per-session clients from `sessionId` instead.",
+          "visibility": "internal",
+          "x-opaque-in-process": true
+        },
+        "startupPrompts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Startup prompts queued by user-level hook configs at session creation. Only populated when status is `created`; resumed sessions return an empty array."
+        },
+        "remoteSessionId": {
+          "type": "string",
+          "description": "Remote session ID, present when status is `connected`."
+        },
+        "metadata": {
+          "$ref": "#/definitions/RemoteSessionMetadataValue",
+          "description": "Remote session metadata, present when status is `connected`."
+        },
+        "progress": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SessionsOpenProgress",
+            "description": "`sessions.open` handoff progress update with step, status, and optional message."
+          },
+          "description": "Handoff progress steps, present when status is `handed_off`."
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "additionalProperties": false,
+      "description": "Result of opening a session.",
+      "title": "SessionOpenResult"
+    },
+    "SessionsOpenStatus": {
+      "type": "string",
+      "enum": [
+        "created",
+        "resumed",
+        "not_found",
+        "connected",
+        "handed_off"
+      ],
+      "description": "Outcome of the open request.",
+      "title": "SessionsOpenStatus",
+      "x-enumDescriptions": {
+        "created": "A new session was created.",
+        "resumed": "An existing session was loaded or reattached.",
+        "not_found": "No matching persisted session was found.",
+        "connected": "Connected to an existing remote session.",
+        "handed_off": "Remote session was handed off to a new local session."
+      }
+    }
+  },
+  "limitations": [
+    "References are not expanded; this is not a closed wire schema or executable adapter.",
+    "No CLI, RPC server, MCP server or model was started.",
+    "Native event-log cursors are not OrkWorks run-event cursors."
+  ]
+}

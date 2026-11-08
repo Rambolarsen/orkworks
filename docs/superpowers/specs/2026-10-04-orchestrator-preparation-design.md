@@ -1573,3 +1573,14 @@ synthetic byte/reference and conditional logical checks. No active grant is
 persisted, and frozen assignment identity is unchanged. Actual source/control/
 native/consumer and complete-transaction/runtime gates remain independent;
 #1183/#1176 stay open and #740 stays closed.
+
+
+## Finite continuation capability handoff — 2026-11-08
+
+The [three-check handoff](../plans/2026-11-08-parent-continuation-capability-handoff.md)
+scopes same-parent pending-tool delivery, authoritative cursor-gap recovery and
+exact native identity resume with fresh authority. Its model-free schema
+comparison is not runtime qualification; all three native checks remain
+unverified. Offline fixture preparation and a separately reviewed, finite live
+batch remain distinct tasks. No new model calls, transport integration, authority
+or retry budget is authorized, and #740 research remains closed.
