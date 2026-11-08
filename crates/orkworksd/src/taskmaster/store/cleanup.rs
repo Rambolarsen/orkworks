@@ -3,7 +3,7 @@
 mod removal;
 use super::*;
 use crate::workspace_runtime::WorkspaceLease;
-pub(crate) use removal::JournalReceipt;
+pub(crate) use removal::{JournalReceipt, SqlCleanup};
 use std::sync::Arc;
 
 // Existing anchored enumeration budget: 1,024 leaves plus one known scaffold.

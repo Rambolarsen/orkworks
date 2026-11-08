@@ -48,9 +48,7 @@ enum Files {
     Workflow(crate::workflow_observations::WorkflowObservationStore),
     Images(Arc<std::io::Result<crate::image_context::SqlImageCleanup>>),
     Settings(Arc<std::io::Result<crate::metadata::BoundSettingsCleanup>>),
-    Recommendations(
-        Arc<Result<crate::taskmaster::store::BoundCleanup, crate::taskmaster::store::StoreError>>,
-    ),
+    Recommendations(std::io::Result<crate::taskmaster::store::SqlCleanup>),
 }
 #[derive(Default)]
 struct CleanupGuards {
@@ -90,34 +88,24 @@ impl Files {
                     },
                 )
             }
-            Self::Recommendations(files) => {
-                let receipt = files
-                    .as_ref()
-                    .as_ref()
-                    .map_err(recommendation_error)
-                    .and_then(|files| {
-                        files
-                            .remove_for_sql(identity)
-                            .map_err(|e| recommendation_error(&e))
-                    });
-                match receipt {
-                    Ok(receipt) => {
-                        let result = receipt
-                            .result()
-                            .as_ref()
-                            .map(|_| ())
-                            .map_err(recommendation_error);
-                        (
-                            result,
-                            CleanupGuards {
-                                _recommendations: Some(receipt),
-                                ..Default::default()
-                            },
-                        )
-                    }
-                    Err(error) => (Err(error), CleanupGuards::default()),
+            Self::Recommendations(files) => match files {
+                Ok(grant) => {
+                    let receipt = grant.remove(identity);
+                    let result = receipt
+                        .result()
+                        .as_ref()
+                        .map(|_| ())
+                        .map_err(recommendation_error);
+                    (
+                        result,
+                        CleanupGuards {
+                            _recommendations: Some(receipt),
+                            ..Default::default()
+                        },
+                    )
                 }
-            }
+                Err(error) => (Err(error), CleanupGuards::default()),
+            },
             Self::Settings(files) => {
                 let (result, guard) = match files.as_ref().as_ref() {
                     Ok(files) => files.clear(id),
@@ -143,6 +131,16 @@ fn recommendation_error(error: &crate::taskmaster::store::StoreError) -> std::io
         _ => std::io::ErrorKind::InvalidData,
     };
     std::io::Error::new(kind, error.to_string())
+}
+
+/// One-shot proof minted only inside checked recommendation admission below.
+/// No Clone/Default/Deserialize or production constructor is exposed.
+pub(crate) struct RecommendationCleanupAdmission {
+    _private: (),
+}
+#[cfg(test)]
+pub(crate) fn trusted_cleanup_admission_fixture() -> RecommendationCleanupAdmission {
+    RecommendationCleanupAdmission { _private: () }
 }
 
 pub(crate) struct CapturedDeletion {
@@ -336,6 +334,13 @@ impl CapturedDeletion {
                         {
                             return Err(StoreError::Conflict);
                         }
+                        let delivery_in_flight = matches!(stage, Stage::Recommendations)
+                            && !crate::session_application::recommendation_deliveries_in_flight_for_workspace(
+                                &ws.path,
+                            ).is_empty();
+                        if delivery_in_flight {
+                            return Err(StoreError::Conflict);
+                        }
                         let lease = ws.lease.clone().ok_or(StoreError::Conflict)?;
                         let reservation = ws
                             .metadata
@@ -348,7 +353,24 @@ impl CapturedDeletion {
                             Stage::Images => Files::Images(self.images.clone()),
                             Stage::Settings => Files::Settings(self.settings.clone()),
                             Stage::Recommendations => {
-                                Files::Recommendations(self.recommendations.clone())
+                                let candidate = self.recommendations
+                                    .as_ref()
+                                    .as_ref()
+                                    .map_err(recommendation_error)
+                                    .and_then(|bound| {
+                                        bound.claim_sql_cleanup().map_err(|e| recommendation_error(&e))
+                                    });
+                                let admitted = match candidate {
+                                    Ok(candidate) => {
+                                        job_claim.admit()?;
+                                        Ok(candidate.admit(RecommendationCleanupAdmission { _private: () }))
+                                    }
+                                    Err(error) => {
+                                        job_claim.admit()?;
+                                        Err(error)
+                                    }
+                                };
+                                return Ok((reservation, lease, Files::Recommendations(admitted)));
                             }
                         };
                         job_claim.admit()?;

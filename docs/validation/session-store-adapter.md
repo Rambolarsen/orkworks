@@ -1641,3 +1641,31 @@ not hardware power-loss or live latency. A successful pass preserves prior bits
 and persists `0x10`; SQL failure leaves the job pending for a fully readmitted
 retry. No row/job is finalized, and stale producer fencing, qualified startup,
 backup/migration and production activation remain separate gates under #1243.
+
+## Recommendation legacy-operation revocation
+
+The owner accepted the [revocation contract](../superpowers/specs/2026-11-08-sql-recommendation-producer-revocation.md)
+after #1528. The original recommendation owner has a monotonic process-local
+SQL-cleanup mode; it provides no durable or cross-process authority. The same
+atomic state handles busy admission and mode, and original application admission
+hands its checked SQL grant through file work, progress and detached checks.
+Legacy operations remain typed failures after release, including reads and opens
+that could otherwise recover or migrate files. File errors do not restore Legacy.
+
+New store/application fixtures exercise the complete legacy I/O interface,
+original clones/aliases/independent opens, root/directory absence, admission
+cancellation, typed Busy precedence and SQL retry. Real recommendation delivery
+uses the runtime acknowledgement channel: success and failure keep transition
+blocked until original settlement, with no repeated input. The opposite ordering
+checks new delivery refusal after SQL admission while application guards are free.
+Existing graph/recovery/failure/caller-loss tests remain and use independent raw
+file assertions after intentional legacy read refusal. Executed counts and current
+review evidence belong to the implementation plan and PR.
+
+The owner-loss fixture deliberately demonstrates the missing qualification:
+file work can succeed, SQL progress fail, all owner references disappear and a
+fresh Legacy owner recreate removed bytes while the durable job remains pending.
+This is not fixed by the first process-local step. Live SQL cleanup stays blocked
+until qualified startup/reopen preserves or refuses pending-job authority; complete
+SQL-aware producers, finalization, backup/migration and activation remain gates.
+No measured latency, physical power-loss or installed behavior change is claimed.

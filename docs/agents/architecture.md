@@ -1810,11 +1810,32 @@ state; serialization alone cannot prevent a later producer recreating a deleted
 recommendation. The existing optimistic graph/hash and packet checks are not
 expanded or replaced by this prerequisite.
 
-The [producer revocation proposal](../superpowers/specs/2026-11-08-sql-recommendation-producer-revocation.md)
-describes an owner-lifetime-only first step and checked SQL permit handoff. It
-is not accepted or implemented. Complete producer qualification still requires
-SQL-aware publication and qualified startup/reopen handling of pending jobs;
-a process-local mode alone cannot enforce that boundary after owner loss.
+The accepted [producer revocation contract](../superpowers/specs/2026-11-08-sql-recommendation-producer-revocation.md)
+adds a private owner-lifetime-only barrier. Busy and the monotonic SQL-cleanup
+mode share one atomic owner state. A live operation still returns Busy; after
+release every legacy I/O claim returns typed `SqlAuthorityRequired`, including
+reads/recovery, constructor initialization, graph changes and delivery state
+mutations. Root resolution performs no mkdir before that claim. Memory-only
+captures, same-owner checks and release notifications keep their existing roles.
+There is no reset, per-session blacklist, persistent marker or strong registry.
+
+Captured recommendation admission checks the entire original workspace delivery
+registry under the same workspace exclusion used to register delivery. In-flight
+success/failure settlement blocks transition before any revocation; it can finish
+through its existing Busy notification retry without sending input again. With
+no delivery pending, the checked original admission claims once, performs its
+cancellation/deadline CAS, revokes Legacy and hands the same typed SQL grant into
+blocking recovery, fresh graph work, receipt and progress. Dropped/failed
+pre-admission claims leave mode unchanged; admitted file/progress errors and
+caller loss retain revocation. SQL retry rechecks original authority and uses
+its distinct private admission path. Legacy clones and independent canonical-root
+opens cannot bypass the retained owner's mode.
+
+Complete producer qualification still requires SQL-aware publication and qualified
+startup/reopen handling of pending jobs. After every owner reference drops, the
+weak registry can create a fresh Legacy owner, even when file work completed but
+SQL progress failed. This is an explicit negative qualification case, not restart
+safety. Live SQL cleanup and production activation remain gated.
 
 ## Recommendation cleanup preflight
 

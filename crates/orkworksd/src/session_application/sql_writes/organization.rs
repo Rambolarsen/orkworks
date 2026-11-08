@@ -493,3 +493,7 @@ impl CapturedOrganization {
 
 #[path = "deletion.rs"]
 mod deletion;
+
+#[cfg(test)]
+pub(crate) use deletion::trusted_cleanup_admission_fixture;
+pub(crate) use deletion::RecommendationCleanupAdmission;

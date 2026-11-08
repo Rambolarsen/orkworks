@@ -1,7 +1,7 @@
 mod cleanup;
 #[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
 pub(crate) mod sql_cleanup_test_gate;
-pub(crate) use cleanup::{BoundCleanup, JournalReceipt};
+pub(crate) use cleanup::{BoundCleanup, JournalReceipt, SqlCleanup};
 mod operation;
 use super::completion::CompletionMutationRequest;
 use super::rollup::stable_rollup_id;
@@ -22,6 +22,7 @@ const LEGACY_ROLLUP_TRANSACTION_VERSION: u32 = 1;
 #[derive(Debug)]
 pub(crate) enum StoreError {
     Busy,
+    SqlAuthorityRequired,
     Io(io::Error),
     Json(serde_json::Error),
     InvalidTransition,
@@ -35,6 +36,9 @@ impl std::fmt::Display for StoreError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Busy => write!(f, "recommendation store is busy"),
+            Self::SqlAuthorityRequired => {
+                write!(f, "recommendation store requires qualified SQL authority")
+            }
             Self::Io(error) => write!(f, "{error}"),
             Self::Json(error) => write!(f, "{error}"),
             Self::InvalidTransition => {
@@ -179,10 +183,15 @@ impl RecommendationStore {
     pub(crate) fn open(root: PathBuf) -> Result<Self, StoreError> {
         // Root resolution is outside the short memory-only owner registry.
         // All recommendation effects, including recovery, follow admission.
-        fs::create_dir_all(&root).map_err(StoreError::Io)?;
-        let root = fs::canonicalize(&root).map_err(StoreError::Io)?;
+        let root = root_for_open(&root).map_err(StoreError::Io)?;
         let owner = operation::for_root(&root)?;
         let _operation = owner.claim()?;
+        fs::create_dir_all(&root).map_err(StoreError::Io)?;
+        if fs::canonicalize(&root).map_err(StoreError::Io)? != root {
+            return Err(StoreError::Recovery(
+                "recommendation root changed during open".into(),
+            ));
+        }
         let dir = root.join("recommendations");
         fs::create_dir_all(&dir).map_err(StoreError::Io)?;
         let store = Self { dir, owner };
@@ -1343,6 +1352,35 @@ fn migrate_transaction_path(source: &Path, destination: &Path, id: &str) -> Resu
         )));
     }
     fs::rename(source, destination).map_err(StoreError::Io)
+}
+
+// Resolve missing suffixes without creating them: a retained SQL owner must
+// refuse even when its original directory has disappeared. Existing prefixes
+// are canonicalized before lexically applying the not-yet-existing suffix.
+fn root_for_open(root: &Path) -> io::Result<PathBuf> {
+    let mut current = std::path::absolute(root)?;
+    let mut suffix = Vec::new();
+    let mut resolved = loop {
+        match fs::canonicalize(&current) {
+            Ok(path) => break path,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                let component = current.components().next_back().ok_or(error)?;
+                suffix.push(component.as_os_str().to_owned());
+                if !current.pop() {
+                    return Err(io::ErrorKind::NotFound.into());
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    };
+    for component in suffix.into_iter().rev() {
+        if component == ".." {
+            resolved.pop();
+        } else if component != "." {
+            resolved.push(component);
+        }
+    }
+    Ok(resolved)
 }
 
 fn hash_bytes(bytes: &[u8]) -> String {
@@ -3216,3 +3254,6 @@ mod removal_tests;
 
 #[cfg(test)]
 mod journal_tests;
+
+#[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
+mod revocation_tests;

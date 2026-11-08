@@ -77,7 +77,10 @@ fn sql_bound_recovery_preserves_complete_connected_rollup_policy() {
     assert!(!store.path_for(&parent).exists());
     assert!(!store.path_for("b").exists());
     drop(receipt);
-    assert_eq!(store.list().unwrap().len(), 1);
+    assert!(matches!(
+        store.list(),
+        Err(StoreError::SqlAuthorityRequired)
+    ));
 }
 #[test]
 fn sql_bound_refuses_valid_graph_targets_from_another_session() {
@@ -354,7 +357,10 @@ fn sql_bound_refuses_legacy_recovery_even_for_a_valid_deletion_manifest() {
     assert_eq!(originals(&store), before);
     assert!(legacy.exists());
     drop(receipt);
-    assert_eq!(store.list().unwrap().len(), 1);
+    assert!(matches!(
+        store.list(),
+        Err(StoreError::SqlAuthorityRequired)
+    ));
 }
 #[test]
 fn sql_bound_maximum_inventory_uses_bounded_descriptors() {
