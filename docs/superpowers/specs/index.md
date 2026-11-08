@@ -4,6 +4,8 @@ Dated design records; these do not establish current product behavior.
 
 ## Documents
 
+- [SQL recommendation producer revocation](2026-11-08-sql-recommendation-producer-revocation.md) — Proposed owner-lifetime-only legacy-operation revocation, delivery drain and retained SQL cleanup grant; owner decision pending.
+
 - [Owned help and version probe processes](2026-11-07-probe-process-ownership-design.md) — Proposed shared native ownership, bounded cleanup and caller compatibility contract for #694.
 
 - [SQL-bound recommendation journal recovery](2026-11-07-sql-recommendation-journal-recovery.md) — Accepted exact-job v3 journal identity, legacy refusal and retained-permit recovery; source implementation underway.
