@@ -442,7 +442,7 @@ and finding required user attention quickly in restrained visual mockups.
 ## Component specification progress
 
 - [Role configuration and coding-tool permissions](2026-10-04-agent-role-configuration-design.md) — proposed immutable contract; support and written review remain gates.
-- [Clarification and preparation lifecycle](2026-10-04-orchestrator-preparation-design.md) — same live parent, automatic proposal preparation, separate exact-plan execution grants; proposed contract awaiting review.
+- [Clarification and preparation lifecycle](2026-10-04-orchestrator-preparation-design.md) — same live parent, automatic proposal preparation and separate exact-plan execution grants; logical lifecycle/defaults accepted 2026-11-08, capability/executable handoff remains gated.
 - [Coding-tool capability register](../../validation/agent-role-capabilities.md) — version-specific delivery/permission evidence; no verified launch slice is claimed.
 
 ## Evidence and unresolved implementation work

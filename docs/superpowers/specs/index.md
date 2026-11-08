@@ -164,7 +164,7 @@ Dated design records; these do not establish current product behavior.
 - [Agent hierarchy interaction and visual presentation](2026-10-04-agent-hierarchy-ui-design.md) — Design history: Agent hierarchy interaction and visual presentation.
 - [Agent role configuration and coding-tool permissions](2026-10-04-agent-role-configuration-design.md) — Design history: Agent role configuration and coding-tool permissions.
 - [Repository-scoped configuration learning and skill improvements](2026-10-04-configuration-learning-design.md) — Design history: Repository-scoped configuration learning and skill improvements.
-- [Clarification and research-to-execution lifecycle](2026-10-04-orchestrator-preparation-design.md) — Design history: Clarification and research-to-execution lifecycle.
+- [Clarification and research-to-execution lifecycle](2026-10-04-orchestrator-preparation-design.md) — Accepted logical lifecycle and existing limits; same-parent capability and executable handoff remain separate.
 - [Skill delivery and usage evidence protocol](2026-10-04-skill-usage-evidence-design.md) — Design history: Skill delivery and usage evidence protocol.
 - [Taskmaster ordinary-child orchestration scope alignment](2026-10-04-taskmaster-orchestration-scope-design.md) — Design history: Taskmaster ordinary-child orchestration scope alignment.
 - [Assignment quality and completeness evaluation](2026-10-04-assignment-evaluation-design.md) — Evidence, evaluation, correction, and retention contract for configured agent assignments.
