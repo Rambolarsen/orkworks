@@ -114,6 +114,9 @@ model. No implementation or physical qualification checkbox is completed.
 The next prerequisite is the exact purpose-bound bundle/seal and owner-body
 representation, with native, maintenance/application, SQL closure and complete
 resource evidence still required before dependent implementation.
+The [bundle/evidence v1 proposal](../specs/2026-11-08-backup-bundle-evidence-v1.md)
+in #1525 defines that next logical representation; it remains pending owner
+review and supplies no qualified profile or production implementation.
 
 Owners: a private maintenance/backup module, `workspace_runtime.rs` lease and
 format ownership, existing external evidence/image owners; synthetic/copy fixtures.
