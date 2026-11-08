@@ -36,6 +36,19 @@ if (process.versions.electron) {
         await waitFor('document.querySelector("[data-shell-selected-session]") || fixture.sessionList.length===2');
         await click('details');
         await waitFor('document.querySelector("[data-document-kind=design]")');
+        assert.equal(await evaluate('document.querySelector(".branch-documents").open'), false);
+        assert.equal(await evaluate('document.querySelector("[data-document-kind=design]").checkVisibility()'), false);
+        if (process.env.ORKWORKS_CAPTURE_BRANCH_DOCUMENTS) {
+          const {writeFileSync}=await import('node:fs');
+          writeFileSync(process.env.ORKWORKS_CAPTURE_BRANCH_DOCUMENTS.replace('.png','-collapsed.png'),(await win.webContents.capturePage()).toPNG());
+        }
+        await evaluate('document.querySelector(".branch-documents > summary").click()');
+        await waitFor('document.querySelector("[data-document-kind=design]").checkVisibility()');
+        assert.equal(await evaluate('document.querySelector(".branch-documents .session-menu-icon").getBoundingClientRect().left === document.querySelector("[data-session-activity] .session-menu-icon").getBoundingClientRect().left'), true);
+        await evaluate('document.querySelector(".branch-documents > summary").click()');
+        await waitFor('!document.querySelector("[data-document-kind=design]").checkVisibility()');
+        await evaluate('document.querySelector(".branch-documents > summary").click()');
+        await waitFor('document.querySelector("[data-document-kind=design]").checkVisibility()');
         assert.deepEqual(await evaluate('[...document.querySelectorAll(".branch-document-label")].map(el=>el.textContent)'), ['Design / specification','Implementation plan']);
         await evaluate('document.querySelector("[data-document-kind=design]").click()');
         await waitFor('document.querySelector(".review-plan-content")?.textContent.includes("Design document")');
@@ -71,12 +84,19 @@ if (process.versions.electron) {
           const {writeFileSync}=await import('node:fs');
           if (!await evaluate('!!document.querySelector("[data-document-kind=design]")')) await click('details');
           await waitFor('document.querySelector("[data-document-kind=design]")');
+          await evaluate('if(!document.querySelector(".branch-documents").open)document.querySelector(".branch-documents > summary").click()');
+          await waitFor('document.querySelector("[data-document-kind=design]").checkVisibility()');
           writeFileSync(process.env.ORKWORKS_CAPTURE_BRANCH_DOCUMENTS,(await win.webContents.capturePage()).toPNG());
           win.setSize(640,700);
           await waitFor('window.innerWidth===640 && document.querySelector(".shell-layout")?.dataset.mode==="compact"');
           if (!await evaluate('!!document.querySelector("[data-document-kind=design]")')) await click('details');
           await waitFor('document.querySelector("[data-document-kind=design]")');
+          await evaluate('if(!document.querySelector(".branch-documents").open)document.querySelector(".branch-documents > summary").click()');
+          await waitFor('document.querySelector("[data-document-kind=design]").checkVisibility()');
+          await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
           writeFileSync(process.env.ORKWORKS_CAPTURE_BRANCH_DOCUMENTS.replace('.png','-narrow.png'),(await win.webContents.capturePage()).toPNG());
+          await evaluate('document.querySelector("[data-shell-return]").click()');
+          await waitFor('document.querySelector(".review-plan-content")?.textContent.includes("Newer implementation")');
         }
         await evaluate('fixture.unreadable=true;fixture.sessionList[0]={...fixture.sessionList[0],planDocuments:{...fixture.sessionList[0].planDocuments,steps:fixture.sessionList[0].planDocuments.steps.map(step=>step.kind==="implementation"?{...step,pinned:true,available:false}:step)}}');
         await waitFor('document.body.innerText.includes("This plan is no longer available.")');

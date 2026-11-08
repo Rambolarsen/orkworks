@@ -51,10 +51,14 @@ the existing reporting transports and user-approved review authority remain.
 
 Replace the single session artifact with two independently available documents:
 **1. Design / specification**, then **2. Implementation plan**. The Details
-inspector keeps both steps visible, shows readable document titles and
-available/missing state, and offers expandable source information. Selecting a
+inspector groups both steps under a **Design & plan** disclosure, collapsed by
+default. Its icon tile, padding, typography and chevron match Changes and Activity.
+Expanding it shows both ordered steps in a compact document group, readable titles,
+one available/missing state per document, branch/sharing context and expandable
+source information. This display refinement was owner-approved on 2026-11-08
+under [#1570](https://github.com/Rambolarsen/orkworks/issues/1570). Selecting a
 step reads it in the existing single central Review surface with its existing
-Terminal/Workflow return destination. A step number indicates order, never
+Terminal/Workflow return destination. Document order indicates sequence, never
 approval, completion or permission to proceed. The underlying coding workflow
 owns all approvals and gates. Retain the explicit fixed independent-review
 action for the selected document and live session.
@@ -206,7 +210,7 @@ the original session metadata; no downgrade deletes user selections.
 
 ### Acceptance additions
 
-- [ ] Both ordered steps remain visible, including either independently missing.
+- [ ] Design & plan starts collapsed; expanding it shows both ordered steps, including either independently missing.
 - [ ] Same repository/branch sessions share documents, while equal branch names
   in different repositories and deliberate branch switches remain isolated.
 - [ ] Committed documents appear after missed reports and after restart; inherited
