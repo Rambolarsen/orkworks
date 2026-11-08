@@ -4,6 +4,8 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 ## Documents
 
+- [SQL assessment source provenance](2026-11-08-sql-assessment-source-provenance.md) — Proposed durable source-creation data and bounded SQL qualification; origin/publication routes stay gated.
+
 - [SQL recommendation ownership on reopen](2026-11-08-sql-recommendation-reopen.md) — Accepted two-name evidence refusal and private SQL owner opening; implementation qualification underway.
 
 - [SQL recommendation producer revocation](2026-11-08-sql-recommendation-producer-revocation.md) — Accepted owner-lifetime revocation and retained SQL grant; source implementation underway, startup/reopen qualification remains gated.
