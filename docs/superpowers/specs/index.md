@@ -289,3 +289,5 @@ Dated design records; these do not establish current product behavior.
 - [Complete maintenance registration and original-job settlement](2026-11-08-maintenance-registration-settlement-design.md) — Accepted-for-qualification private producer catalog, root registrations and retained finite completion ownership; actual integration and physical qualification remain gated.
 
 - [SQL workflow observation origin capture](2026-11-08-sql-observation-origin-capture.md) — Proposed original final-scan capture, strict tagged records and SQL owner refusal; producer and activation gates remain.
+
+- [Bounded cleanup binding and recommendation settlement](2026-11-08-maintenance-settlement-bounds-design.md) — Proposed retained resource/result accounting, absolute deadline and fixed contention-settlement graph; numeric and physical qualification remain gated.
