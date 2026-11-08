@@ -4091,7 +4091,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_peon_inference_writes_metadata() {
+    async fn aider_peon_inference_writes_metadata_and_diagnostics() {
         let _lease_guard = diagnostic_test_guard();
         let dir = tempfile::tempdir().unwrap();
         let orkworks = dir.path().join(".orkworks");
@@ -4178,6 +4178,8 @@ mod tests {
             let (kill_tx, _) = tokio::sync::watch::channel(false);
             let mut handle = crate::SessionHandle {
                 info: crate::session_types::SessionInfo {
+                    harness: Some("aider".into()),
+                    harness_id: Some("aider".into()),
                     metadata_source: Some("process".into()),
                     metadata_confidence: Some(1.0),
                     ..test_session_info(
@@ -4222,7 +4224,7 @@ mod tests {
                     label_context_refined: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
-                    harness: "".into(),
+                    harness: "aider".into(),
                     model: "".into(),
                     cwd: dir.path().display().to_string(),
                     status: "running".into(),

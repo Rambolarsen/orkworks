@@ -259,6 +259,13 @@ Use a signal such as waiting for input as a reason to inspect the session.
 An inferred summary can be wrong; it is not proof that tests passed or work
 is complete. Integration coverage varies by coding tool.
 
+In current source builds, Aider keeps its own completion notifications and any
+custom notification command. OrkWorks uses Peon and terminal input for Aider's
+attention state, so completing a response alone does not assert **Needs You**.
+Relaunch an existing Aider session after updating to receive the notification
+change. Coverage remains limited; the live Aider integration check is still
+outstanding, and older installers may retain the previous launch behavior.
+
 The session details keep its working directory and Git context near the
 conversation. OrkWorks shows context; your existing tools still create
 branches, manage worktrees, and merge changes.

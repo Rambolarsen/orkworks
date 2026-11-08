@@ -2662,7 +2662,7 @@ function Invoke-RestMethod {
     }
 
     #[test]
-    fn aider_launch_persists_workspace_owned_enablement_and_augments_once() {
+    fn aider_launch_persists_enablement_without_replacing_native_notifications() {
         let workspace = tempfile::tempdir().unwrap();
         let metadata = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(metadata.path());
@@ -2712,6 +2712,7 @@ function Invoke-RestMethod {
             .stable_path(ReporterPlatform::current().asset_name())
             .unwrap();
         let mut command = aider.build_launch("/workspace", None);
+        let original_args = command.args.clone();
         aider
             .augment_launch_for_integration(&mut command, true, Some(&path))
             .unwrap();
@@ -2719,12 +2720,8 @@ function Invoke-RestMethod {
             .augment_launch_for_integration(&mut command, true, Some(&path))
             .unwrap();
         assert_eq!(
-            command
-                .args
-                .windows(2)
-                .filter(|pair| pair[0] == "--notifications-command")
-                .count(),
-            1
+            command.args, original_args,
+            "Aider owns its notification defaults"
         );
         assert_eq!(
             handler(&IntegrationBinding::Aider)
@@ -2852,7 +2849,7 @@ function Invoke-RestMethod {
     }
 
     #[test]
-    fn aider_does_not_enable_launch_augmentation_when_reporter_reconciliation_fails() {
+    fn aider_fallback_preference_does_not_require_an_unused_reporter() {
         let workspace = tempfile::tempdir().unwrap();
         let metadata = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(metadata.path());
@@ -2875,10 +2872,15 @@ function Invoke-RestMethod {
             detected_tool: None,
             reporter_assets: &reporter,
         };
-        assert!(handler(&IntegrationBinding::Aider)
-            .install(&context)
-            .is_err());
-        assert!(!metadata.path().join("integrations/aider.json").exists());
+        assert_eq!(
+            handler(&IntegrationBinding::Aider)
+                .install(&context)
+                .unwrap()
+                .registration,
+            IntegrationRegistration::Installed
+        );
+        assert!(metadata.path().join("integrations/aider.json").exists());
+        assert!(!stable.path().join("hook-scripts").exists());
     }
 
     #[test]
@@ -2925,7 +2927,7 @@ function Invoke-RestMethod {
     }
 
     #[test]
-    fn aider_launch_preserves_an_unrelated_notification_command_as_a_conflict() {
+    fn aider_launch_preserves_user_notification_command_without_conflict() {
         let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
         let registry =
             crate::harness::registry::resolve_document(&builtins, &Default::default()).unwrap();
@@ -2934,14 +2936,15 @@ function Invoke-RestMethod {
         command
             .args
             .extend(["--notifications-command".into(), "user-command".into()]);
-        let error = aider
+        let original_args = command.args.clone();
+        aider
             .augment_launch_for_integration(
                 &mut command,
                 true,
                 Some(Path::new("/stable/report-harness-event.sh")),
             )
-            .unwrap_err();
-        assert_eq!(error.code(), "launch_conflict");
+            .unwrap();
+        assert_eq!(command.args, original_args);
         assert_eq!(
             command
                 .args
