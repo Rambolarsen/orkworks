@@ -228,3 +228,19 @@ inputs remain missing. The next qualification inputs are the real delivery owner
 known/partial/unknown outcome evidence and actual reservation/deadline values with
 enforcement and retained-result ownership. No value or executed fit follows from
 acceptance; no remaining checkbox is completed.
+
+
+## Delivery-outcome and limit evidence — 2026-11-08
+
+[#1566](https://github.com/Rambolarsen/orkworks/issues/1566) records
+[actual acknowledgement and enforced-limit evidence](../../validation/backup-maintenance-writer-audit.md#delivery-outcome-and-enforced-limit-evidence--2026-11-08)
+at `26e4e2a15146344bf2d4a4495b7d35c75e1248f1`. Terminal input errors conflate
+pre-write rejection with partial/unknown effects; all-byte success survives a
+flush error and is distinct from blocking writer return and later bookkeeping.
+Current numeric input/channel/startup/file/SQL controls have narrow owners, not
+complete application-wide reservation/deadline semantics. No new values were chosen.
+
+Actual truthful outcome transport, retained result/root ownership, full finite
+resource enforcement and compatible deadline/notification operations remain
+unavailable. No remaining qualification checkbox is completed, no physical fit
+is claimed, and no runtime execution or implementation allowance follows.
