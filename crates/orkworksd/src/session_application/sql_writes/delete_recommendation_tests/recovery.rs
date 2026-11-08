@@ -209,6 +209,11 @@ async fn captured_sql_foreign_or_corrupt_journals_keep_all_evidence_and_progress
         let receipt = action.await.unwrap().unwrap();
         assert!(receipt.files.is_err(), "{field}");
         assert!(receipt.progress.is_none());
+        drop(receipt);
+        assert!(
+            matches!(files.list(), Err(RecommendationError::SqlAuthorityRequired)),
+            "admitted {field} failure must keep revocation"
+        );
         assert_eq!(progress(&store).await, 0);
         assert_eq!(
             snapshot(&root(&state).join("recommendations")),

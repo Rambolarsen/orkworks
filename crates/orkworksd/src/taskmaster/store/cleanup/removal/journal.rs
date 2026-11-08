@@ -27,48 +27,86 @@ impl PreparedRemoval {
         }
     }
 }
-impl BoundCleanup {
-    /// Blocking source-only composite. The caller supplies current SQL/runtime
-    /// admission; an identity alone never grants cleanup authority.
-    pub(crate) fn remove_for_sql(
-        &self,
+/// Unadmitted memory-only claim. Dropping it does not change owner mode.
+pub(crate) struct SqlCleanupClaim {
+    operation: Arc<operation::Operation>,
+    binding: BoundCleanup,
+}
+/// Admitted SQL work; not constructible from an identity or journal bytes.
+pub(crate) struct SqlCleanup(SqlCleanupClaim);
+impl SqlCleanupClaim {
+    /// Consume the opaque proof minted by checked application admission; callers
+    /// cannot replace workspace/lease/delivery/cancellation checks with a callback.
+    pub(crate) fn admit(
+        self,
+        _admission: crate::session_application::sql_writes::RecommendationCleanupAdmission,
+    ) -> SqlCleanup {
+        self.operation.revoke_legacy();
+        SqlCleanup(self)
+    }
+}
+impl SqlCleanup {
+    pub(crate) fn remove(
+        self,
         identity: &crate::session_store::SqlDeletionIdentity,
-    ) -> Result<JournalReceipt, StoreError> {
+    ) -> JournalReceipt {
+        let SqlCleanupClaim { operation, binding } = self.0;
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        let result = (|| {
+            protocol::recover_sql(&binding.0, identity).map_err(StoreError::Io)?;
+            #[cfg(test)]
+            {
+                sql_tests::after_recovery();
+                crate::taskmaster::store::sql_cleanup_test_gate::recovered(&binding.0.store.dir);
+            }
+            let (records, leaves) = unix::inspect(&binding.0, true)?;
+            let inventory = CleanupInventory {
+                records,
+                leaves,
+                _operation: operation.clone(),
+                _binding: binding.clone(),
+            };
+            let mut removal = inventory.prepare_session_removal(identity.session_id())?;
+            removal.uncommitted = sql_codec::encode(identity, &removal.entries, false)?;
+            removal.committed = sql_codec::encode(identity, &removal.entries, true)?;
+            protocol::publish_sql(&removal, identity).map_err(StoreError::Io)
+        })();
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        let result = {
+            let _ = identity;
+            Err(unsupported())
+        };
+        JournalReceipt {
+            result,
+            _operation: operation,
+            _binding: binding,
+        }
+    }
+}
+impl BoundCleanup {
+    /// Memory-only, nonblocking. Current application authority must be checked
+    /// before admit; no recovery/inspection occurs while holding app guards.
+    pub(crate) fn claim_sql_cleanup(&self) -> Result<SqlCleanupClaim, StoreError> {
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         {
-            // This one permit spans recovery, fresh inspection/preparation,
-            // publication and even errors before a PreparedRemoval is built.
-            let operation = Arc::new(self.0.store.try_operation()?);
-            let result = (|| {
-                protocol::recover_sql(&self.0, identity).map_err(StoreError::Io)?;
-                #[cfg(test)]
-                {
-                    sql_tests::after_recovery();
-                    crate::taskmaster::store::sql_cleanup_test_gate::recovered(&self.0.store.dir);
-                }
-                let (records, leaves) = unix::inspect(&self.0, true)?;
-                let inventory = CleanupInventory {
-                    records,
-                    leaves,
-                    _operation: operation.clone(),
-                    _binding: self.clone(),
-                };
-                let mut removal = inventory.prepare_session_removal(identity.session_id())?;
-                removal.uncommitted = sql_codec::encode(identity, &removal.entries, false)?;
-                removal.committed = sql_codec::encode(identity, &removal.entries, true)?;
-                protocol::publish_sql(&removal, identity).map_err(StoreError::Io)
-            })();
-            Ok(JournalReceipt {
-                result,
-                _operation: operation,
-                _binding: self.clone(),
+            Ok(SqlCleanupClaim {
+                operation: Arc::new(self.0.store.owner.claim_sql()?),
+                binding: self.clone(),
             })
         }
         #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-        {
-            let _ = identity;
-            Err(unsupported())
-        }
+        Err(unsupported())
+    }
+    // Trusted store-layer fixture only; production must hand off checked admission.
+    #[cfg(test)]
+    fn remove_for_sql(
+        &self,
+        identity: &crate::session_store::SqlDeletionIdentity,
+    ) -> Result<JournalReceipt, StoreError> {
+        let claim = self.claim_sql_cleanup()?;
+        let admitted = claim
+            .admit(crate::session_application::sql_writes::trusted_cleanup_admission_fixture());
+        Ok(admitted.remove(identity))
     }
     pub(crate) fn recover_removals(&self) -> Result<JournalReceipt, StoreError> {
         #[cfg(any(target_os = "macos", target_os = "linux"))]

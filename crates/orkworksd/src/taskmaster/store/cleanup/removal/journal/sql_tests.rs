@@ -122,7 +122,10 @@ fn sql_bound_removal_retains_original_permit_and_lease_through_receipt() {
     drop(lease);
     assert!(WorkspaceLease::acquire(root.path()).is_err());
     drop(receipt);
-    assert_eq!(store.list().unwrap().len(), 1);
+    assert!(matches!(
+        store.list(),
+        Err(StoreError::SqlAuthorityRequired)
+    ));
     assert!(WorkspaceLease::acquire(root.path()).is_ok());
 }
 #[test]

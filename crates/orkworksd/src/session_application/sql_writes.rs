@@ -412,3 +412,7 @@ mod delete_settings_tests;
 
 #[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
 mod delete_recommendation_tests;
+
+#[cfg(test)]
+pub(crate) use organization::trusted_cleanup_admission_fixture;
+pub(crate) use organization::RecommendationCleanupAdmission;

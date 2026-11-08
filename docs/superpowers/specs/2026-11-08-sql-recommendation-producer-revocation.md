@@ -1,17 +1,19 @@
 ---
 type: Design
 title: SQL recommendation producer revocation
-description: Proposed fail-closed legacy operation revocation before exact-job SQL recommendation cleanup.
+description: Accepted fail-closed legacy operation revocation before exact-job SQL recommendation cleanup.
 tags: [orkworks, sqlite, recommendations, deletion, authority]
-status: draft
-workflow_status: proposed
+status: stable
+workflow_status: accepted
 ---
 
 # SQL recommendation producer revocation
 
 Parent: [#1243](https://github.com/Rambolarsen/orkworks/issues/1243).
 Inspection base: `02431980407875d6d55f7cd5844f84adeaf8510a` (#1524).
-This is a proposed policy, not accepted architecture or implemented behavior.
+The owner accepted this concrete policy after #1528 by answering “go ahead”
+to the explicit implementation request on 2026-11-08. Source implementation
+remains dormant; no production or restart qualification is implied.
 The accepted [storage design](2026-11-01-sqlite-session-storage-design.md#external-payloads-events-backup-and-deletion)
 and [recovery contract](2026-11-07-sql-recommendation-journal-recovery.md#restart-and-progress)
 require stale producer fencing; they do not select this revocation mechanism.
@@ -186,7 +188,7 @@ and the explicitly non-durable owner-loss boundary, including progress failure
 followed by owner loss/reopen as an unqualified counterexample. Preserve existing caps and
 platform support; run full verification and current manual/CI reviews.
 
-Owner decision requested: accept this monotonic process-local legacy-operation
+Accepted owner decision — 2026-11-08: use this monotonic process-local legacy-operation
 revocation and checked permit handoff as a private prerequisite. This accepts
 neither live SQL selection nor a new SQL producer, finalizer, startup recovery,
 backup/migration or activation. Production continues using JSON.

@@ -178,3 +178,21 @@ The [delivery plan](../superpowers/plans/2026-11-07-sql-recommendation-journal-r
 keeps producer revocation, final job completion, qualified startup routing,
 backup/migration and activation gates. Approval permits source-only implementation;
 it claims no executed recovery, live change or performance qualification.
+
+## Clarification — 2026-11-08: recommendation producer revocation
+
+After #1528, the owner approved the concrete [revocation design](../superpowers/specs/2026-11-08-sql-recommendation-producer-revocation.md)
+and [plan](../superpowers/plans/2026-11-08-sql-recommendation-producer-revocation.md)
+with “go ahead” in response to the explicit implementation request. The private
+first step revokes legacy recommendation I/O monotonically for the original
+shared owner lifetime when SQL cleanup is admitted, refuses transition while
+workspace delivery is in flight, and hands the same checked permit through
+file work and progress. It adds no SQL schema, marker, producer bypass or reset.
+
+This operationalizes stale-producer fencing within the existing storage decision.
+Owner loss/reopen is explicitly not fenced: successful file work followed by
+failed progress and final-owner drop can admit a new Legacy owner. Live SQL
+cleanup remains blocked until qualified startup/reopen handles pending-job
+ownership. Complete SQL producers, durable source provenance, safe finalizer,
+backup/migration and activation remain separate gates. No live change or executed
+qualification is established by this acceptance.

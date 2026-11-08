@@ -150,15 +150,7 @@ async fn sql_recommendation_cleanup_removes_full_graph_and_reopens_progress_with
     assert!(receipt.files.is_ok(), "{:?}", receipt.files);
     assert!(matches!(receipt.progress, Some(Ok(31))));
     assert!(!receipt.detached);
-    assert_eq!(
-        files
-            .list()
-            .unwrap()
-            .iter()
-            .map(|r| r.id.as_str())
-            .collect::<Vec<_>>(),
-        vec!["keep"]
-    );
+    assert_eq!(remaining_ids(&state), vec!["keep"]);
     assert_eq!(
         std::fs::read(root(&state).join("recommendations/keep.json")).unwrap(),
         keep
@@ -222,15 +214,7 @@ async fn sql_recommendation_cleanup_holds_graph_owner_through_sql_failure_and_re
     assert!(matches!(receipt.progress, Some(Err(StoreError::Busy))));
     blocker.execute_batch("ROLLBACK").unwrap();
     assert_eq!(progress(&store).await, 0);
-    assert_eq!(
-        files
-            .list()
-            .unwrap()
-            .iter()
-            .map(|r| r.id.as_str())
-            .collect::<Vec<_>>(),
-        vec!["b", "keep"]
-    );
+    assert_eq!(remaining_ids(&state), vec!["b", "keep"]);
     let receipt = writes
         .capture_deletion(ID.into(), CREATED.into())
         .await
@@ -521,15 +505,7 @@ async fn sql_recommendation_cleanup_admitted_caller_loss_retains_original_lease_
     .await
     .unwrap();
     assert_eq!(progress(&store).await, 16);
-    assert_eq!(
-        files
-            .list()
-            .unwrap()
-            .iter()
-            .map(|r| r.id.as_str())
-            .collect::<Vec<_>>(),
-        vec!["b", "keep"]
-    );
+    assert_eq!(remaining_ids(&state), vec!["b", "keep"]);
     assert_eq!(
         store.pending_deletions(None, 100).await.unwrap().jobs.len(),
         1
@@ -614,3 +590,23 @@ fn sql_recommendation_cleanup_completes_with_one_blocking_worker() {
 }
 
 mod recovery;
+
+mod revocation;
+
+fn remaining_ids(state: &Arc<AppState>) -> Vec<String> {
+    let mut ids = std::fs::read_dir(root(state).join("recommendations"))
+        .unwrap()
+        .map(Result::unwrap)
+        .filter(|entry| {
+            entry.file_type().unwrap().is_file()
+                && entry.path().extension().is_some_and(|e| e == "json")
+        })
+        .map(|entry| {
+            serde_json::from_slice::<Recommendation>(&std::fs::read(entry.path()).unwrap())
+                .unwrap()
+                .id
+        })
+        .collect::<Vec<_>>();
+    ids.sort();
+    ids
+}
