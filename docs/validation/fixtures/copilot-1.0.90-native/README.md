@@ -92,3 +92,14 @@ afterward all artifact hashes/sizes match the staged bytes. The initial
 help/discovery packet has the same protection, and the transport packet already
 protects all of its hashed TXT/JSON outputs. This is checkout byte preservation,
 not a Windows runtime capability result.
+
+
+## Later continuation scope selection — 2026-11-08
+
+The [continuation API projection](continuation-api-selection.json) reselects four
+methods and exact-resume/result definitions from the same hashed 1.0.90 API schema.
+It was produced by model-free local file reads for the
+[#742 handoff](../../../superpowers/plans/2026-11-08-parent-continuation-capability-handoff.md).
+References remain unexpanded; it is not a closed wire schema, part of the original
+manifest, a current loaded-runtime attestation or evidence of a native model wake,
+event-gap recovery or exact resume. No native process or model call was started.
