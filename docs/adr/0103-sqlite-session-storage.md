@@ -146,6 +146,22 @@ complete physical accounting remain prerequisites. This acceptance supplies no
 runtime implementation, executed recovery, native/model probe budget or rollout
 permission. #1250/#1244 and their dependency/qualification gates remain open.
 
+### Backup representation acceptance — 2026-11-08
+
+After #1527, the owner answered “go ahead” to the explicit approval request for
+[bundle/evidence v1](../superpowers/specs/2026-11-08-backup-bundle-evidence-v1.md)
+for further qualification. #1531 records acceptance of the unchanged private
+layout, canonical stream/owner-record bytes, purpose bindings, complete owner
+coverage and acyclic Intent/Content/Manifest/Seal representation. The three
+written byte/hash fragments remain ineligible components, not valid backups.
+
+This does not register a producer/native profile, validate opaque access proofs,
+implement an encoder/parser, establish resource fit or grant restore authority.
+All-writer maintenance, inert validation, SQL closure/auxiliary handling, actual
+native/access/fence operations and complete physical accounting remain gates.
+The next source qualification audits actual writer admission/drain ownership;
+no new native/model execution budget or live recovery permission follows.
+
 ## Clarification — 2026-11-07: SQL-bound recommendation recovery
 
 After reviewing the complete [recovery protocol](../superpowers/specs/2026-11-07-sql-recommendation-journal-recovery.md)

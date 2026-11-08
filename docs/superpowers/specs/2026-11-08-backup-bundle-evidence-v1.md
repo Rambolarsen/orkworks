@@ -1,10 +1,10 @@
 ---
-type: Contract Proposal
+type: Contract Specification
 title: Backup bundle and owner evidence v1
 description: Exact logical bundle bytes, acyclic seals and purpose-bound owner records for conditional complete backup qualification.
 tags: [orkworks, sessions, backup, codec, ownership]
-status: draft
-workflow_status: representation-proposed
+status: stable
+workflow_status: representation-accepted-qualification-required
 ---
 
 # Backup bundle and owner evidence v1
@@ -14,7 +14,11 @@ Tracking: [#1525](https://github.com/Rambolarsen/orkworks/issues/1525),
 Consumes the accepted [backup/restore contract](2026-11-07-session-backup-restore-contract.md),
 [storage requirements](../../../specs/session-storage.md) and unchanged
 [adoption inventory v1](2026-11-07-legacy-adoption-inventory-approval.md).
-This **proposed logical representation** does not qualify a native profile,
+After #1527, the owner answered “go ahead” to the explicit representation
+approval request. [#1531](https://github.com/Rambolarsen/orkworks/issues/1531)
+records acceptance on 2026-11-08 of these unchanged logical bytes and owner-record
+bindings for further qualification. Reuse that approval within scope.
+This **accepted logical representation** does not qualify a native profile,
 backup producer, validator, resource fit, restore protocol or product feature.
 No serializer/parser, SQL/native/model execution or live capture is supplied.
 
@@ -421,8 +425,8 @@ also semantically impossible for a valid Manifest; exact syntax/hash does not
 make it eligible. Deleting the final stream LF changes both byte count and
 digest and must reject even if a line-oriented parser still reads its rows.
 
-Before dependent code, obtain owner acceptance of this representation, qualified
-native/access proof encodings and constructor/current validators, complete scope/
+Before dependent code, obtain qualified native/access proof encodings and
+constructor/current validators, complete scope/
 association/history/protection validators, inert SQL closure/integrity validation,
 maintenance/application confirmation and resource enforcement with finite limits.
 Actual native execution and copied/synthetic recovery tests require their own
