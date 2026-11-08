@@ -391,9 +391,12 @@ Taskmaster reads workflow observations for a different purpose than session snap
 
 The accepted [SQL observation-origin contract](../docs/superpowers/specs/2026-11-08-sql-observation-origin-capture.md)
 keeps the public immutable observation value and existing store authority.
-Its private strict codec/data reader is implemented; original final-scan capture,
-shared SQL admission and deletion integration remain pending. No production
-producer, observation backfill or SQL assessment activation is enabled.
+Its private strict codec/data reader, sealed original final-scan claim and shared
+SQL read admission are implemented. SQL opening/legacy refusal is qualified
+separately from producer persistence and Workflow deletion integration, which
+remain pending. Parsed records and checked data reads do not mint assessment
+input authority. No production producer, observation backfill or SQL assessment
+activation is enabled.
 
 ### User preferences
 

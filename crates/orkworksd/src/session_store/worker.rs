@@ -31,6 +31,8 @@ enum Command {
     },
     Get(String),
     OpeningIdentity,
+    ValidateObservationSource(ObservationSource),
+    ValidateObservationOpening(OpeningIdentity),
     CaptureAssessmentSources(OriginalInputs),
     ValidateAssessmentSources {
         sources: SqlAssessmentSources,
@@ -99,6 +101,8 @@ impl Command {
     fn is_read(&self) -> bool {
         match self {
             Self::OpeningIdentity
+            | Self::ValidateObservationSource(_)
+            | Self::ValidateObservationOpening(_)
             | Self::CaptureAssessmentSources(_)
             | Self::ValidateAssessmentSources { .. }
             | Self::Get(_)
@@ -117,6 +121,7 @@ impl Command {
     }
     fn size(&self) -> Result<usize> {
         match self {
+            Self::ValidateObservationSource(source) => source.validate()?,
             Self::CaptureAssessmentSources(original) => original.sources().validate()?,
             Self::ValidateAssessmentSources {
                 sources,
@@ -148,7 +153,9 @@ impl Command {
         match self {
             Self::Get(_) | Self::Patch { .. } => MAX_RECORD,
             Self::OrganizationState(_) | Self::DeletionRecord(..) => MAX_RECORD + 4096,
-            Self::OpeningIdentity => 64,
+            Self::OpeningIdentity
+            | Self::ValidateObservationSource(_)
+            | Self::ValidateObservationOpening(_) => 64,
             Self::CaptureAssessmentSources(_) => MAX_SOURCE_BYTES,
             Self::PendingDeletions(..) => 256 * 1024,
             // Canonical record plus JSON-escaped creation/session proof and decision.
@@ -185,6 +192,14 @@ impl Command {
             }
             Self::Get(id) => Ok(Reply::Detail(db.get(&id)?)),
             Self::OpeningIdentity => Ok(Reply::OpeningIdentity(db.opening_identity()?)),
+            Self::ValidateObservationSource(source) => {
+                db.validate_observation_source(&source)?;
+                Ok(Reply::Unit)
+            }
+            Self::ValidateObservationOpening(original) => {
+                db.validate_observation_opening(&original)?;
+                Ok(Reply::Unit)
+            }
             Self::CaptureAssessmentSources(original) => Ok(Reply::AssessmentSources(
                 db.capture_assessment_sources(original)?,
             )),
@@ -472,6 +487,8 @@ struct Queue {
     closed: bool,
 }
 struct Shared {
+    opening: std::sync::OnceLock<OpeningIdentity>,
+    root_identity: std::sync::OnceLock<Arc<crate::workspace_runtime::WorkspaceIdentity>>,
     queue: Mutex<Queue>,
     ready: Condvar,
     lanes: Mutex<std::collections::HashMap<String, std::sync::Weak<tokio::sync::Mutex<()>>>>,
@@ -728,6 +745,8 @@ impl SessionStore {
         lease: Option<Arc<crate::workspace_runtime::WorkspaceLease>>,
     ) -> Result<Startup> {
         let shared = Arc::new(Shared {
+            opening: std::sync::OnceLock::new(),
+            root_identity: std::sync::OnceLock::new(),
             queue: Mutex::new(Queue::default()),
             ready: Condvar::new(),
             lanes: Mutex::new(Default::default()),
@@ -743,13 +762,28 @@ impl SessionStore {
             .name("session-store".into())
             .spawn(move || {
                 let path = root.join("session-store").join("v1.sqlite");
-                let db = if create {
-                    std::fs::create_dir_all(root.join("session-store"))
-                        .map_err(StoreError::from)
-                        .and_then(|_| Database::create(&path, &workspace))
-                } else {
-                    Database::open(&path, &workspace)
-                };
+                let db = (|| {
+                    if create {
+                        std::fs::create_dir_all(root.join("session-store"))?;
+                    }
+                    let identity =
+                        Arc::new(crate::workspace_runtime::WorkspaceIdentity::resolve(&root)?);
+                    let db = if create {
+                        Database::create(&path, &workspace)
+                    } else {
+                        Database::open(&path, &workspace)
+                    }?;
+                    identity.revalidate()?;
+                    worker
+                        .root_identity
+                        .set(identity)
+                        .map_err(|_| StoreError::Unavailable)?;
+                    worker
+                        .opening
+                        .set(db.opening_identity()?)
+                        .map_err(|_| StoreError::Unavailable)?;
+                    Ok::<_, StoreError>(db)
+                })();
                 match db {
                     Ok(mut db) => {
                         if ready_tx.send(Ok(())).is_ok() {
@@ -1105,6 +1139,57 @@ impl SessionStore {
                 assessment_id,
                 input_digest,
             })
+            .await?
+        {
+            Reply::Unit => Ok(()),
+            _ => Err(StoreError::Unavailable),
+        }
+    }
+    pub(crate) async fn validate_observation_opening(&self) -> Result<OpeningIdentity> {
+        let original = self
+            .shared
+            .opening
+            .get()
+            .cloned()
+            .ok_or(StoreError::Unavailable)?;
+        match self
+            .request(Command::ValidateObservationOpening(original.clone()))
+            .await?
+        {
+            Reply::Unit => Ok(original),
+            _ => Err(StoreError::Unavailable),
+        }
+    }
+    pub(crate) fn observation_root_identity(
+        &self,
+    ) -> Result<Arc<crate::workspace_runtime::WorkspaceIdentity>> {
+        self.shared
+            .root_identity
+            .get()
+            .cloned()
+            .ok_or(StoreError::Unavailable)
+    }
+    /// Original worker opening identity is retained at startup, never adopted from a later header.
+    pub(crate) async fn capture_observation_source(
+        &self,
+        id: String,
+        created: String,
+    ) -> Result<ObservationSource> {
+        let original = ObservationSource::captured(
+            self.shared.opening.get().ok_or(StoreError::Unavailable)?,
+            &self.workspace,
+            id,
+            created,
+        )?;
+        self.validate_observation_source(original.clone()).await?;
+        Ok(original)
+    }
+    pub(crate) async fn validate_observation_source(
+        &self,
+        source: ObservationSource,
+    ) -> Result<()> {
+        match self
+            .request(Command::ValidateObservationSource(source))
             .await?
         {
             Reply::Unit => Ok(()),
@@ -2402,5 +2487,57 @@ mod tests {
         ));
         assert_eq!(serde_json::to_vec(&packet).unwrap(), before);
         assert!(!dir.path().join("recommendations").exists());
+    }
+    #[tokio::test]
+    async fn observation_commands_use_bounded_read_slots_and_retire_on_queue_expiry() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::initialize(dir.path().into(), "/workspace".into())
+            .await
+            .unwrap();
+        store
+            .create(super::super::tests::closed_document("s"))
+            .await
+            .unwrap();
+        let source = store
+            .capture_observation_source("s".into(), "2026-01-01T00:00:00Z".into())
+            .await
+            .unwrap();
+        let mut held = Vec::new();
+        for _ in 0..8 {
+            held.push(
+                store
+                    .prepare(Command::ValidateObservationSource(source.clone()))
+                    .unwrap(),
+            );
+        }
+        assert!(matches!(
+            store.prepare(Command::ValidateObservationSource(source.clone())),
+            Err(StoreError::QueueFull)
+        ));
+        assert!(matches!(
+            store.prepare(Command::ValidateObservationOpening(
+                store.shared.opening.get().unwrap().clone()
+            )),
+            Err(StoreError::QueueFull)
+        ));
+        assert!(matches!(
+            store
+                .capture_observation_source("bad/id".into(), "created".into())
+                .await,
+            Err(StoreError::Invalid(_))
+        ));
+        assert!(store
+            .prepare(Command::Create(document("independent")))
+            .is_ok());
+        drop(held);
+        let paused = testing::pause(&store);
+        let queued = store
+            .submit(Command::ValidateObservationSource(source.clone()))
+            .unwrap();
+        assert!(matches!(receive(queued).await, Err(StoreError::Expired)));
+        assert_eq!(store.shared.queue.lock().unwrap().bytes, 0);
+        drop(paused);
+        store.validate_observation_source(source).await.unwrap();
+        store.close().await.unwrap();
     }
 }

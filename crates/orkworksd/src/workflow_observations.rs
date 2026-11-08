@@ -396,6 +396,7 @@ static NEXT_STORE_INSTANCE: AtomicU64 = AtomicU64::new(1);
 #[derive(Clone)]
 pub(crate) struct WorkflowObservationStore {
     instance_id: u64,
+    owner: Arc<operation::Owner>,
     dir: Arc<PathBuf>,
     #[cfg(unix)]
     cleanup_anchor: Arc<std::io::Result<deletion::Anchor>>,
@@ -410,6 +411,9 @@ impl WorkflowObservationStore {
     /// the given workspace metadata root, rebuilding idempotency state and
     /// the sequence counter from whatever is durably retained on disk.
     pub(crate) fn open(root: PathBuf) -> Result<Self, StoreError> {
+        let owner = operation::for_root(&operation::root_key(&root)?)?;
+        let _operation = owner.legacy()?;
+        operation::legacy_preflight(&root)?;
         let dir = root.join("workflow-observations");
         fs::create_dir_all(&dir)?;
         #[cfg(unix)]
@@ -514,6 +518,7 @@ impl WorkflowObservationStore {
 
         Ok(Self {
             instance_id: NEXT_STORE_INSTANCE.fetch_add(1, Ordering::Relaxed),
+            owner,
             dir: Arc::new(dir),
             #[cfg(unix)]
             cleanup_anchor,
@@ -542,6 +547,10 @@ impl WorkflowObservationStore {
         idempotency_key: &str,
         candidate: ObservationCandidate,
     ) -> Result<RecordOutcome, RecordError> {
+        let _operation = self
+            .owner
+            .legacy()
+            .map_err(|_| RecordError::PersistFailed)?;
         let mut inner = self.inner.lock().unwrap();
         self.record_locked(&mut inner, session_id, origin, idempotency_key, candidate)
     }
@@ -670,6 +679,7 @@ impl WorkflowObservationStore {
     /// `MAX_WORKSPACE_OBSERVATIONS` only, ordered by `sequence`. Never
     /// returns internal tombstones.
     pub(crate) fn workspace_observations(&self) -> Result<Vec<WorkflowObservation>, StoreError> {
+        let _operation = self.owner.legacy()?;
         let inner = self.inner.lock().unwrap();
         let mut all: Vec<WorkflowObservation> = inner
             .session_cache
@@ -687,6 +697,7 @@ impl WorkflowObservationStore {
     /// Returns the number of retained accepted observations for one session.
     /// Tombstones and duplicate reports are intentionally excluded.
     pub(crate) fn session_observation_count(&self, session_id: &str) -> Result<usize, StoreError> {
+        let _operation = self.owner.legacy()?;
         let inner = self.inner.lock().unwrap();
         Ok(inner
             .session_cache
@@ -701,6 +712,7 @@ impl WorkflowObservationStore {
         &self,
         session_id: &str,
     ) -> Result<Vec<WorkflowObservation>, StoreError> {
+        let _operation = self.owner.legacy()?;
         let inner = self.inner.lock().unwrap();
         Ok(inner
             .session_cache
@@ -715,6 +727,7 @@ impl WorkflowObservationStore {
     }
 
     pub(crate) fn delete_session_observations(&self, session_id: &str) -> Result<(), StoreError> {
+        let _operation = self.owner.legacy()?;
         let mut inner = self.inner.lock().unwrap();
         revoke_session(&mut inner, session_id);
         let path = self.segment_path(session_id);
@@ -751,6 +764,7 @@ impl WorkflowObservationStore {
         now: DateTime<Utc>,
         protected_ids: &HashSet<String>,
     ) -> Result<Vec<String>, StoreError> {
+        let _operation = self.owner.legacy()?;
         let plans = self.plan_redundant_trims(now, protected_ids)?;
         let mut removed: Vec<String> = Vec::new();
         for plan in plans {
@@ -792,6 +806,7 @@ impl WorkflowObservationStore {
         _now: DateTime<Utc>,
         protected_ids: &HashSet<String>,
     ) -> Result<Vec<RedundantTrimPlan>, StoreError> {
+        let _operation = self.owner.legacy()?;
         let inner = self.inner.lock().unwrap();
         if inner.degraded {
             return Ok(Vec::new());
@@ -836,6 +851,7 @@ impl WorkflowObservationStore {
         protected_ids: &HashSet<String>,
         now: DateTime<Utc>,
     ) -> Result<Vec<String>, StoreError> {
+        let _operation = self.owner.legacy()?;
         let mut inner = self.inner.lock().unwrap();
         if inner.degraded {
             return Ok(Vec::new());
@@ -3378,3 +3394,9 @@ fn forget_session(inner: &mut StoreInner, session_id: &str) {
 
 // Data-only until the separately qualified SQL observation owner is integrated.
 pub(crate) mod sql_origin;
+
+#[cfg(test)]
+mod owner_tests;
+
+mod operation;
+pub(crate) use operation::{SqlCandidate, SqlOwner};

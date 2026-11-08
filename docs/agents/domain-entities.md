@@ -341,9 +341,21 @@ WorkflowObservation fields. OriginData binds original database epoch/workspace,
 exact session creation and the canonical complete observation-value digest.
 The new strict codec and bounded descriptor reader return parsed data only;
 they do not validate current SQL rows, establish an original claim or grant I/O.
-Legacy observations remain explicit unqualified data. Original final-scan capture,
-shared SQL admission, writer/deletion integration and production routing remain
-pending. Production keeps its existing JSON authority and observation behavior.
+Legacy observations remain explicit unqualified data.
+
+`ObservationSource` is immutable, non-deserializable checked SQL data for one
+original creation and workspace/epoch. `CapturedSqlObservation` additionally
+retains the actual `CapturedEnding`, worker, root and lease, and can obtain only
+its checked read admission. The captured constructor runs before inference;
+parsed records, model values and caller-selected current IDs cannot mint it.
+`SqlObservationRead` retains a bounded snapshot and original owner after actual
+read settlement releases the session lane and file-operation exclusivity.
+`SqlObservationWorkspace` is a checked read-only opening candidate; it changes
+no AppState and supplies no producer, deletion or assessment authority.
+
+Canonical shared admission and legacy SQL-evidence refusal are implemented.
+Writer/deletion composition and production routing remain pending. Production
+keeps its existing JSON authority.
 
 ### Recommendation origins: analysis vs observations
 

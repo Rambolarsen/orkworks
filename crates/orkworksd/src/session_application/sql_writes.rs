@@ -14,12 +14,22 @@ pub(crate) enum Outcome {
     CommittedDetached,
 }
 
+pub(crate) struct ObservationOpenAdmission {
+    _private: (),
+}
+
 pub(crate) struct SessionWrites {
     state: Arc<AppState>,
     store: Arc<SessionStore>,
     workspace: RecommendationDeliveryWorkspace,
     hook_observations: Arc<metadata::hook_observation::Store>,
     reader: Arc<metadata::session_reader::SessionReader>,
+    #[cfg(test)]
+    observation_root: ReplayGate,
+    #[cfg(test)]
+    observation_before_admit: ReplayGate,
+    #[cfg(test)]
+    observation_admitted: ReplayGate,
     #[cfg(test)]
     before_callback: std::sync::Mutex<Option<oneshot::Sender<()>>>,
     #[cfg(test)]
@@ -79,6 +89,12 @@ impl SessionWrites {
             workspace,
             hook_observations,
             reader,
+            #[cfg(test)]
+            observation_root: std::sync::Mutex::new(None),
+            #[cfg(test)]
+            observation_before_admit: std::sync::Mutex::new(None),
+            #[cfg(test)]
+            observation_admitted: std::sync::Mutex::new(None),
             #[cfg(test)]
             before_callback: std::sync::Mutex::new(None),
             #[cfg(test)]
@@ -429,3 +445,5 @@ pub(crate) fn reserve_observation_read() -> Result<ObservationReadCapacity, Stor
         _reservation: file_budget::reserve(file_budget::MAX_BYTES)?,
     })
 }
+
+pub(crate) mod observation_opening;

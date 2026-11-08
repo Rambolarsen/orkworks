@@ -106,7 +106,8 @@ async fn sql_evidence_cleanup_rejects_replaced_owner_before_revocation() {
         .unwrap()
         .as_mut()
         .unwrap()
-        .workflow_observations = WorkflowObservationStore::open(root(&state)).unwrap();
+        .workflow_observations =
+        WorkflowObservationStore::open(_dir.path().join("replacement-workflow")).unwrap();
     assert!(matches!(
         view.remove_workflow_evidence().await,
         Err(StoreError::Conflict)
@@ -247,7 +248,16 @@ async fn sql_evidence_cleanup_admitted_caller_loss_finishes_on_original_owner() 
         let mut gate = hold(&writes.replay_admitted);
         let action = tokio::spawn(view.remove_workflow_evidence());
         gate.entered().await;
-        let replacement = WorkflowObservationStore::open(root(&state)).unwrap();
+        // Snapshot this ordinary legacy fixture into an independent root. SQL
+        // artifact roots can no longer be reopened through the legacy constructor.
+        let replacement_root = _dir.path().join("replacement-workflow");
+        let replacement_dir = replacement_root.join("workflow-observations");
+        std::fs::create_dir_all(&replacement_dir).unwrap();
+        for entry in std::fs::read_dir(root(&state).join("workflow-observations")).unwrap() {
+            let entry = entry.unwrap();
+            std::fs::copy(entry.path(), replacement_dir.join(entry.file_name())).unwrap();
+        }
+        let replacement = WorkflowObservationStore::open(replacement_root).unwrap();
         state
             .workspace
             .lock()

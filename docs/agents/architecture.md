@@ -1885,10 +1885,34 @@ Expected scope is supplied data, not SQL currentness or publication authority.
 A captured read request keeps its original deadline and reserves a full existing
 file-job slot. Returned data retains that reservation until dropped. Inventory,
 line, segment, aggregate byte and compact result caps are independent; refusals
-return no partial snapshot. The source-only reader still requires the separately
-qualified original owner/operation grant before actual SQL input use. No
-production claim constructor, shared-mode/legacy opener change, final-scan
-producer, Workflow deletion integration or assessment activation is present.
+return no partial snapshot. Parsed records still cannot mint original claims or
+qualify an assessment input.
+
+A private `CapturedEnding` constructor now captures a sealed original final-scan
+source before inference. The worker retains its checked startup epoch and native
+root identity; bounded source reads compare that original scope and exact live
+creation in one transaction and reject live-row/deletion-job inconsistency.
+Original runtime, application, workflow instance, root and lease checks surround
+waits. The final source transaction and physical rechecks follow admission waits
+under the original session lane, outside application guards.
+
+Canonical-root weak observation owners count active legacy operations without
+changing their existing serialization. Checked SQL opening returns Busy while
+legacy work is active, and admission monotonically revokes legacy operations
+across clones and independent opens. Failed pre-admission checks leave legacy
+available; failure after admission retains revocation. Legacy constructors refuse
+SQL artifacts and bounded non-following SQL-tag evidence before mkdir/repair/trim.
+The refusal floor does not implement complete startup format resolution.
+
+The distinct private SQL workspace opener reads only an existing worker/store,
+validates original opening/root/lease and unchanged application context, and
+strictly reads data without legacy recovery or AppState adoption. Owner-loss
+reopening uses that checked path. File operation exclusivity and the session
+lane end at definitive read settlement; immutable data retains its full file-job
+reservation and original owner. Cancellation, original deadline expiry and late
+polling never deliver a replacement or partial snapshot. Captured writer
+persistence, Workflow deletion composition, assessment input construction and
+production routing remain pending. Production stays JSON.
 
 ## Recommendation cleanup preflight
 

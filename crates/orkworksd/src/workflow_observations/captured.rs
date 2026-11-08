@@ -47,7 +47,18 @@ impl FileClaim {
             .compare_exchange(PENDING, state, Ordering::SeqCst, Ordering::SeqCst)
             .is_ok()
     }
-    fn admit(&self) -> Result<(), AdmissionError> {
+    /// Read-only pending check; only `admit` can grant actual file work.
+    pub(crate) fn pending(&self) -> Result<(), AdmissionError> {
+        if Instant::now() >= self.deadline {
+            self.expire();
+        }
+        match self.state.load(Ordering::SeqCst) {
+            PENDING => Ok(()),
+            EXPIRED => Err(AdmissionError::Expired),
+            _ => Err(AdmissionError::Cancelled),
+        }
+    }
+    pub(super) fn admit(&self) -> Result<(), AdmissionError> {
         if Instant::now() >= self.deadline {
             self.expire();
         }
@@ -74,6 +85,13 @@ impl WorkflowObservationStore {
         if let Some(attempt) = self.registration_attempt.lock().unwrap().take() {
             let _ = attempt.send(());
         }
+        let Ok(_operation) = self.owner.legacy() else {
+            return CapturedWriter {
+                store: self.clone(),
+                id,
+                valid: Arc::new(AtomicBool::new(false)),
+            };
+        };
         let mut inner = self.inner.lock().unwrap();
         inner.permits.retain(|_, permit| permit.strong_count() > 0);
         let permit = inner.permits.entry((id.clone(), created)).or_default();
@@ -99,6 +117,11 @@ impl CapturedWriter {
         generation: u64,
         candidates: Vec<(usize, ObservationCandidate)>,
     ) -> Result<Vec<(usize, Result<RecordOutcome, RecordError>)>, AdmissionError> {
+        let _operation = self
+            .store
+            .owner
+            .legacy()
+            .map_err(|_| AdmissionError::Conflict)?;
         if candidates.len() > 5 {
             return Err(AdmissionError::TooLarge);
         }
