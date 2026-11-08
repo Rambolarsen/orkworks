@@ -1,0 +1,354 @@
+"""All clients/processes in this suite are synthetic; no Copilot executable is invoked."""
+from __future__ import annotations
+import copy
+import json
+import os
+from pathlib import Path
+import sys
+import tempfile
+import time
+import unittest
+from unittest.mock import patch
+from mcp_server import Protocol, digest
+import observer
+
+PROPOSAL = json.loads(Path(__file__).with_name("proposal.json").read_text())
+
+
+def ready(phase=1, rows=None):
+    p = Protocol(phase=phase, record=(rows.append if rows is not None else None))
+    p.handle({"jsonrpc": "2.0", "id": 0, "method": "initialize",
+              "params": {"protocolVersion": "2025-06-18"}})
+    p.handle({"jsonrpc": "2.0", "method": "notifications/initialized"})
+    return p
+
+
+def call(p, name, arguments):
+    r = p.handle({"jsonrpc": "2.0", "id": len(p.ids) + 1, "method": "tools/call",
+                  "params": {"name": name, "arguments": arguments}})
+    if "error" in r:
+        raise ValueError("fixture rejected test request")
+    return r["result"]["structuredContent"]
+
+
+def sequence(phase=1):
+    rows, calls = [], []
+    p = ready(phase, rows)
+    def invoke(name, args):
+        calls.append((name, copy.deepcopy(args)))
+        return call(p, name, args)
+    state = invoke("read_run_state", {"bootstrap": True})
+    if phase == 1:
+        for stage in range(7):
+            hint = invoke("wait_for_run_event", {"cursor": state["cursor"]})
+            state = invoke("read_run_state", {"resultNonce": hint["resultNonce"]})
+            if hint["status"] != "refresh_required":
+                invoke("acknowledge", {"snapshotId": state["snapshotId"], "actionId": state["nextAction"]})
+    else:
+        invoke("acknowledge", {"snapshotId": state["snapshotId"], "actionId": state["nextAction"]})
+    return p, rows, calls
+
+
+def event(kind, **data):
+    return json.dumps({"type": kind, "data": data})
+
+
+def native_trace(phase, calls, trace=None):
+    trace = trace or observer.Trace(PROPOSAL)
+    if phase == 1:
+        trace.ingest(event("session.start", sessionId=PROPOSAL["nativeSessionId"], copilotVersion="1.0.90"), phase)
+    else:
+        trace.ingest(event("session.resume", eventCount=trace.count), phase)
+    for n, (name, args) in enumerate(calls):
+        trace.ingest(event("tool.execution_start", toolCallId=f"c{phase}-{n}", turnId=f"t{phase}-{n}",
+                           toolName="native-alias", model="gpt-6-luna", mcpConfigServerName="ork742",
+                           mcpToolName=name, mcpTransport="stdio", arguments=args), phase)
+        trace.ingest(event("tool.execution_complete", toolCallId=f"c{phase}-{n}", turnId=f"t{phase}-{n}",
+                           success=True, result={"content": "PRIVATE_OUTPUT"}), phase)
+    return trace
+
+
+class PacketTests(unittest.TestCase):
+    def test_missing_or_changed_approval_cannot_authorize_any_native_launch(self):
+        expected = {"decision": "approve-one-batch", "proposalSha256": observer.sha(b"p"),
+                    "manifestSha256": observer.sha(b"m"), "maxNativePrompts": 2}
+        self.assertTrue(observer.require_authorization(expected, b"p", b"m"))
+        for value in (None, {}, {**expected, "maxNativePrompts": 3}, {**expected, "extra": True}):
+            with self.assertRaises(ValueError):
+                observer.require_authorization(value, b"p", b"m")
+        with self.assertRaises(ValueError):
+            observer.require_authorization(expected, b"changed", b"m")
+
+    def test_tools_require_initialization(self):
+        response = Protocol().handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+        self.assertEqual(response.get("error", {}).get("code"), -32002)
+
+    def test_complete_sequence_has_duplicate_gap_and_retained_resume(self):
+        p, rows, calls = sequence()
+        resumed, other, resume_calls = sequence(2)
+        self.assertTrue(p.done and resumed.done)
+        self.assertEqual(len(calls) + len(resume_calls), 23)
+        acks = [r for r in rows if r["kind"] == "ack"]
+        self.assertEqual([r["effects"] for r in acks], [1, 2, 3, 4, 4, 5])
+        self.assertEqual([r["status"] for r in rows if r["kind"] == "delivered"],
+                         ["events"] * 5 + ["refresh_required", "events"])
+        last = [r for r in rows if r["kind"] == "state"][-1]
+        first = [r for r in other if r["kind"] == "state"][0]
+        self.assertEqual(last["stateHash"], first["stateHash"])
+        self.assertNotEqual(last["snapshotHash"], first["snapshotHash"])
+        trace = native_trace(2, resume_calls, native_trace(1, calls))
+        self.assertTrue(observer.join_receipts(trace, {1: rows, 2: other})["retainedStateMatches"])
+
+    def test_wrong_nonce_handle_cursor_and_phase_are_rejected(self):
+        for name, args in (("read_run_state", {"resultNonce": "0" * 64}),
+                           ("acknowledge", {"snapshotId": "0" * 64, "actionId": "event-4"}),
+                           ("wait_for_run_event", {"cursor": -1}), ("shell", {})):
+            p = ready()
+            with self.assertRaises(ValueError):
+                call(p, name, args)
+        p = ready(2)
+        call(p, "read_run_state", {"bootstrap": True})
+        with self.assertRaises(ValueError):
+            call(p, "wait_for_run_event", {"cursor": p.peer.cursor})
+
+    def test_closed_lifecycle_and_duplicate_ids(self):
+        p = ready()
+        r = p.handle({"jsonrpc": "2.0", "id": 3, "method": "tools/list"})
+        self.assertEqual([t["name"] for t in r["result"]["tools"]], [t["name"] for t in PROPOSAL["tools"]])
+        for message in ([], {"jsonrpc": "2.0", "id": 3, "method": "ping"},
+                        {"jsonrpc": "2.0", "id": 4, "method": "resources/list"}):
+            self.assertIn("error", p.handle(message))
+
+    def test_projection_never_decodes_private_values(self):
+        line = event("tool.execution_complete", toolCallId="a", success=True,
+                     result={"content": "PRIVATE_OUTPUT"}, reasoning="PRIVATE_REASONING",
+                     content="PRIVATE_ASSISTANT")
+        loads = json.loads
+        def checked(value, *args, **kwargs):
+            self.assertNotIn("PRIVATE_", value)
+            return loads(value, *args, **kwargs)
+        with patch.object(observer.json, "loads", side_effect=checked):
+            row = observer.project_native(line)
+        self.assertEqual(row["data"]["toolCallId"], "a")
+        self.assertNotIn("result", row["data"])
+        for bad in ('{"type":"x","type":"y"}', '{"type":"x",}', '[1]', '{"type":"x"}junk'):
+            with self.assertRaises(ValueError):
+                observer.project_native(bad)
+
+    def test_native_identity_tool_and_resume_denials(self):
+        for data in ({"sessionId": "wrong", "copilotVersion": "1.0.90"},
+                     {"sessionId": PROPOSAL["nativeSessionId"], "copilotVersion": "other"}):
+            with self.assertRaises(ValueError):
+                observer.Trace(PROPOSAL).ingest(event("session.start", **data), 1)
+        _, _, calls = sequence()
+        t = native_trace(1, calls)
+        for kind, data in (("session.start", {"sessionId": PROPOSAL["nativeSessionId"]}),
+                           ("session.resume", {"eventCount": 0}),
+                           ("session.resume", {"eventCount": t.count + 1}),
+                           ("session.resume", {"eventCount": t.count, "continuePendingWork": True})):
+            with self.assertRaises(ValueError):
+                copy.deepcopy(t).ingest(event(kind, **data), 2)
+        with self.assertRaises(ValueError):
+            observer.Trace(PROPOSAL).ingest(event("permission.requested"), 1)
+        for change in ({"mcpToolName": "shell"}, {"model": "other"}, {"agentId": "child"},
+                       {"arguments": {"unknown": "PRIVATE_UNEXPECTED"}}, {"mcpTransport": "http"}):
+            t = observer.Trace(PROPOSAL)
+            t.ingest(event("session.start", sessionId=PROPOSAL["nativeSessionId"], copilotVersion="1.0.90"), 1)
+            data = dict(toolCallId="a", turnId="t", toolName="alias", model="gpt-6-luna",
+                        mcpConfigServerName="ork742", mcpToolName="read_run_state", mcpTransport="stdio",
+                        arguments={"bootstrap": True})
+            data.update(change)
+            with self.assertRaises(ValueError):
+                t.ingest(event("tool.execution_start", **data), 1)
+
+    def test_join_rejects_missing_completion_and_changed_arguments(self):
+        _, rows, calls = sequence()
+        _, other, more = sequence(2)
+        t = native_trace(2, more, native_trace(1, calls))
+        broken = copy.deepcopy(t)
+        broken.completed.pop()
+        with self.assertRaises(ValueError):
+            observer.join_receipts(broken, {1: rows, 2: other})
+        broken = copy.deepcopy(rows)
+        [r for r in broken if r["kind"] == "call"][0]["argumentsHash"] = "0" * 64
+        with self.assertRaises(ValueError):
+            observer.join_receipts(t, {1: broken, 2: other})
+
+    def test_template_and_manifest_drift_stop_before_launch(self):
+        directory = Path(__file__).parent
+        with tempfile.TemporaryDirectory() as root:
+            case = Path(root).resolve()/"case"
+            pins = observer.prepare_case(case, PROPOSAL, directory)
+            self.assertEqual(json.loads((case/"settings/settings.json").read_text()), PROPOSAL["settings"])
+            config = json.loads((case/"mcp.json").read_text())["mcpServers"]["ork742"]
+            self.assertEqual(config["command"], "/usr/bin/env")
+            self.assertEqual(config["args"][0], "-i")
+            observer.check_pins(pins)
+            (case/"repo/AGENTS.md").write_text("changed")
+            with self.assertRaises(ValueError):
+                observer.check_pins(pins)
+        with patch.object(observer, "supervise") as spawn:
+            with self.assertRaises(ValueError):
+                observer.run_native(None, Path("unused"))
+            spawn.assert_not_called()
+
+    def test_history_rejects_changed_prefix_extra_session_and_partial_tail(self):
+        with tempfile.TemporaryDirectory() as root:
+            case = Path(root).resolve()
+            folder = case/"settings/session-state"/PROPOSAL["nativeSessionId"]
+            folder.mkdir(parents=True)
+            history = folder/"events.jsonl"
+            start = event("session.start", sessionId=PROPOSAL["nativeSessionId"], copilotVersion="1.0.90") + "\n"
+            history.write_text(start)
+            trace = observer.Trace(PROPOSAL)
+            reader = observer.History(case, trace)
+            reader.scan(1, final=True)
+            history.write_text(start + event("session.resume", eventCount=1) + "\n")
+            reader.scan(2, final=True)
+            history.write_text(start.replace("1.0.90", "1.0.91"))
+            with self.assertRaises(ValueError):
+                reader.scan(2, final=True)
+        with tempfile.TemporaryDirectory() as root:
+            case = Path(root).resolve()
+            folder = case/"settings/session-state"/"another-session"
+            folder.mkdir(parents=True)
+            with self.assertRaises(ValueError):
+                observer.History(case, observer.Trace(PROPOSAL)).scan(1)
+
+    def test_observed_turn_and_usage_caps(self):
+        for kind, limit in (("assistant.turn_start", "maxTurnEvents"), ("assistant.usage", "maxUsageEvents")):
+            t = observer.Trace(PROPOSAL)
+            for _ in range(PROPOSAL["limits"][limit]):
+                t.ingest(event(kind), 1)
+            with self.assertRaises(ValueError):
+                t.ingest(event(kind), 1)
+
+    @unittest.skipUnless(os.name == "posix", "Owned process-group canary targets POSIX only")
+    def test_expired_and_just_exceeded_deadlines_cannot_launch_or_succeed(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root).resolve()
+            with patch("subprocess.Popen") as launch, patch("os.killpg", create=True):
+                with self.assertRaises(ValueError):
+                    observer.supervise(["never"], root, {}, root, 0, 1024, 8192, lambda: None)
+                launch.assert_not_called()
+            from unittest.mock import Mock
+            fake = Mock(pid=123456, returncode=0)
+            fake.poll.return_value = 0
+            with patch("subprocess.Popen", return_value=fake), patch("os.killpg", create=True), \
+                    patch("time.monotonic", side_effect=[0, 2]):
+                with self.assertRaises(ValueError):
+                    observer.supervise(["never"], root, {}, root, 1, 1024, 8192, lambda: None)
+
+    def test_failed_second_discovery_is_counted(self):
+        with tempfile.TemporaryDirectory() as root:
+            case = Path(root).resolve()
+            attempts = []
+            def fake(*args, **kwargs):
+                if len(attempts) == 2:
+                    raise ValueError("synthetic second discovery failure")
+                (case/"stdout.raw").write_text(json.dumps([{"sourcePath": "AGENTS.md", "location": "repository"}]))
+                (case/"stderr.raw").write_bytes(b"")
+            with patch.object(observer, "supervise", side_effect=fake):
+                with self.assertRaises(ValueError):
+                    observer.discovery(PROPOSAL, case, {}, time.monotonic()+30, lambda: attempts.append(True))
+            self.assertEqual(len(attempts), 2)
+
+    def test_frames_reject_duplicates_oversize_and_invalid_json(self):
+        from mcp_server import parse_frame
+        for line in (b'{"id":1,"id":2}', b'[]', b'{' + b' ' * 16384, b'{"x":NaN}', b'\xff'):
+            with self.assertRaises(ValueError):
+                parse_frame(line)
+
+    def test_manifest_is_closed_and_pinned(self):
+        directory = Path(__file__).parent
+        manifest = json.loads((directory/"manifest.json").read_text())
+        observer.verify_manifest(directory, manifest)
+        manifest["files"]["observer.py"] = "0" * 64
+        with self.assertRaises(ValueError):
+            observer.verify_manifest(directory, manifest)
+
+    @unittest.skipUnless(os.name == "posix", "Owned process-group canary targets POSIX only")
+    def test_real_stdio_fixture_with_owned_fake_client_and_fresh_resume(self):
+        # Only this test's Python client is launched; it starts the owned fixture,
+        # never a coding harness or a network/authentication process.
+        client = r"""
+import json,os,subprocess,sys
+from pathlib import Path
+case=Path(sys.argv[1]); phase=int(sys.argv[2]); proposal=json.loads((case/'packet/proposal.json').read_text())
+folder=case/'settings/session-state'/proposal['nativeSessionId']; folder.mkdir(parents=True,exist_ok=True)
+history=folder/'events.jsonl'
+f=history.open('a')
+def event(kind,**data):
+    f.write(json.dumps({'type':kind,'data':data})+'\n'); f.flush()
+if phase==1: event('session.start',sessionId=proposal['nativeSessionId'],copilotVersion='1.0.90')
+else: event('session.resume',eventCount=len(history.read_text().splitlines()))
+config=json.loads((case/'mcp.json').read_text())['mcpServers']['ork742']
+p=subprocess.Popen([config['command'],*config['args']],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env={})
+i=0
+def request(method,params):
+    global i
+    i+=1; p.stdin.write((json.dumps({'jsonrpc':'2.0','id':i,'method':method,'params':params})+'\n').encode());p.stdin.flush()
+    value=json.loads(p.stdout.readline()); assert 'error' not in value,value
+    return value['result']
+request('initialize',{'protocolVersion':'2025-06-18'})
+p.stdin.write(b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n');p.stdin.flush()
+assert len(request('tools/list',{})['tools'])==3
+n=0
+def tool(name,args):
+    global n
+    n+=1; cid=f'c{phase}-{n}';turn=f't{phase}-{n}'
+    event('tool.execution_start',toolCallId=cid,turnId=turn,toolName='alias',model='gpt-6-luna',mcpConfigServerName='ork742',mcpToolName=name,mcpTransport='stdio',arguments=args)
+    result=request('tools/call',{'name':name,'arguments':args})['structuredContent']
+    event('tool.execution_complete',toolCallId=cid,turnId=turn,success=True,result={'content':'PRIVATE_OUTPUT'})
+    return result
+state=tool('read_run_state',{'bootstrap':True})
+if phase==1:
+    for _ in range(7):
+        hint=tool('wait_for_run_event',{'cursor':state['cursor']})
+        state=tool('read_run_state',{'resultNonce':hint['resultNonce']})
+        if hint['status']!='refresh_required': receipt=tool('acknowledge',{'snapshotId':state['snapshotId'],'actionId':state['nextAction']})
+else: receipt=tool('acknowledge',{'snapshotId':state['snapshotId'],'actionId':state['nextAction']})
+assert receipt['done']
+p.stdin.close(); assert p.wait(timeout=2)==0
+assert not p.stderr.read();f.close()
+"""
+        with tempfile.TemporaryDirectory() as root:
+            case = Path(root).resolve()/"case"
+            fake_proposal = copy.deepcopy(PROPOSAL)
+            fake_proposal["python"]["path"] = str(Path(sys.executable).resolve())
+            observer.prepare_case(case, fake_proposal, Path(__file__).parent)
+            trace = observer.Trace(PROPOSAL)
+            reader = observer.History(case, trace)
+            logs, pids = {}, []
+            for phase in (1, 2):
+                def bind(pid):
+                    pids.append(pid)
+                    (case/"control/context.json").write_text(json.dumps({"phase": phase, "generation": str(phase)*64, "nativePid": pid}))
+                try:
+                    observer.supervise([sys.executable, "-I", "-B", "-c", client, str(case), str(phase)],
+                                        case/"repo", {}, case, 15, 1048576, 8388608,
+                                        lambda: reader.scan(phase), bind)
+                except ValueError:
+                    self.fail((case/"stderr.raw").read_text())
+                reader.scan(phase, final=True)
+                logs[phase] = [json.loads(line) for line in (case/f"control/mcp-{phase}.jsonl").read_text().splitlines()]
+                self.assertEqual(logs[phase][0]["nativePid"], pids[-1])
+                self.assertEqual(logs[phase][0]["environmentNames"], sorted(PROPOSAL["mcpEnvironmentNames"]))
+            self.assertNotEqual(pids[0], pids[1])
+            self.assertTrue(observer.join_receipts(trace, logs)["allCallsCorrelated"])
+
+    @unittest.skipUnless(os.name == "posix", "Owned process-group canary targets POSIX only")
+    def test_owned_fake_process_timeout_output_cap_and_clean_exit(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root).resolve()
+            for code, seconds, cap in (("import time; time.sleep(20)", .15, 1024),
+                                       ("print('x'*4096)", 2, 100)):
+                with self.assertRaises(ValueError):
+                    observer.supervise([sys.executable, "-I", "-B", "-c", code], root, {}, root,
+                                        seconds, cap, 8192, lambda: None)
+            self.assertEqual(observer.supervise([sys.executable, "-I", "-B", "-c", "pass"], root, {}, root,
+                                                2, 1024, 8192, lambda: None), 0)
+
+
+if __name__ == "__main__":
+    unittest.main()

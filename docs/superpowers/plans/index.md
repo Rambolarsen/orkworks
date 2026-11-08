@@ -346,3 +346,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [SQL observation origin qualification plan](2026-11-08-sql-observation-origin-capture.md) — Approved sequential strict codec and private owner/producer qualification with legacy refusal and deletion-ordering checks.
 
 - [Continuous-parent capability handoff](2026-11-08-parent-continuation-capability-handoff.md) — Three event/gap/resume oracles, model-free preparation and explicit zero-call live gate.
+
+- [Native continuation packet preparation](2026-11-08-parent-native-packet.md) — One stdio route, model-free setup and a proposed two-phase budget requiring exact-packet owner approval.

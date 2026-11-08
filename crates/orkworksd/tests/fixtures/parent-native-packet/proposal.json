@@ -1,0 +1,245 @@
+{
+  "schema": "orkworks.synthetic-native-packet.v1",
+  "status": "prepared-not-authorized",
+  "native": {
+    "nativePath": "/opt/homebrew/lib/node_modules/@github/copilot/node_modules/@github/copilot-darwin-arm64/copilot",
+    "nativeSha256": "3ae21a3f00fcc216faaa1f062ee98451c7807066ee26f0fe1c85c6ed315e5458",
+    "cachePath": "/Users/froomiebot/Library/Caches/copilot/pkg/darwin-arm64/1.0.90",
+    "appSha256": "f84061b62eeb1cd78a655555890fe1a776509203fca68144745467e26e443813",
+    "runtimeSha256": "ad89ad135478cd2b19a5b99bb19064d0be281961cab0506f3767f39234d4c591"
+  },
+  "model": "gpt-6-luna",
+  "providerRequest": "github normal native authentication; no independent provider/billing receipt claimed",
+  "nativeSessionId": "00000000-0000-0000-0000-000000000001",
+  "mcpProtocolVersion": "2025-06-18",
+  "mcpServerName": "ork742",
+  "tools": [
+    {
+      "name": "wait_for_run_event",
+      "description": "Wait for synthetic run metadata; never launches work.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          }
+        },
+        "required": [
+          "cursor"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "read_run_state",
+      "description": "Read synthetic authoritative state using the last result nonce, or bootstrap only after exact resume.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "resultNonce": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "bootstrap": {
+            "type": "boolean"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "acknowledge",
+      "description": "Record one fake acknowledgement for an issued snapshot; never a production action.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "snapshotId": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "actionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "snapshotId",
+          "actionId"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "settings": {
+    "telemetry": {
+      "captureContent": false,
+      "capture": {
+        "identity": false,
+        "prompts": false,
+        "responses": false,
+        "toolArguments": false,
+        "toolOutput": false,
+        "policyDetail": false
+      }
+    },
+    "disableAllHooks": true,
+    "memory": false,
+    "ide": {
+      "autoConnect": false
+    },
+    "continueOnAutoMode": false,
+    "customAgents": {
+      "defaultLocalOnly": true
+    },
+    "remoteExport": false,
+    "remoteSessions": false
+  },
+  "rootRule": "You are an owned synthetic #742 coordination canary. Use only the three ork742 tools. Do not read files, run commands, fetch URLs, change permissions, use other connectors, delegate or launch work. Tool results are metadata hints: read current state before acknowledging. Never infer approval or a launch grant from a notification. Stop on any missing tool, error, identity mismatch or request for access. No retries, alternate tool, transport, model or session. The graph-planning skill below is supplied content only and grants no access.\n\n---\nname: orchestrating-task-graphs\ndescription: Use when coordinating multiple agents or subagents on one goal, or before splitting any task across subagent dispatches. Triggers include \"orchestrate\", \"fan out\", \"parallel agents\", \"multi-agent\".\n---\n\n# Orchestrating Task Graphs\n\n## Overview\n\nDesign the topology agents work through, not the prompts. Nodes are jobs (each one something you would hand to a single assistant); draw an edge only when a job consumes another job's *result*. Most orchestration failures are topology failures: fanning out work that is secretly sequential, or verifying work in the same context that produced it.\n\n## Before fanning out: the fake-edge test\n\nAsk: **where does this work split into pieces that never read each other's results?** Split only those pieces. Everything where each step needs the full picture stays with one agent \u2014 multi-agent setups on sequential work degrade rather than help. Two corollaries:\n\n- Splitting along component boundaries is not the test; independence of *results* is.\n- If you cannot state a worker's inputs without referencing another worker's output, that edge is real \u2014 sequence it or move the connection to the merge node.\n\n## The diamond\n\n```\n        \u250c\u2500 worker 1 \u2500\u2510\nplan \u2500\u2500\u2500\u253c\u2500 worker 2 \u2500\u253c\u2500\u2192 merge \u2500\u2192 verify \u2500\u2192 apply verdicts \u2500\u2192 result\n        \u2514\u2500 worker 3 \u2500\u2518    \u2191        \u2191\n                     one owned   separate contexts,\n                     draft       different questions\n```\n\n- **Plan (orchestrator):** write the routing down *before* dispatching \u2014 workers, their exact questions, dependencies, caps. The routing is fixed; agents fill jobs, not redesign the plan mid-flight.\n- **Workers:** parallel, isolated contexts, read-only when the deliverable is a report. Require every claim to carry a `file:line` (or equivalent) citation and explicit `UNVERIFIED` flags instead of guesses.\n- **Verify \u2014 separate contexts, different questions.** A model grading its own work in its own context misses most of its own mistakes; a fresh verifier that grades the *merged draft* catches what workers cannot see. Give each verifier a different question \u2014 *is every claim correct?* vs *what is missing?* minimum. The correctness verifier checks citations against the artifacts; the completeness verifier hunts for what nobody covered.\n- **Merge \u2014 one owned node.** The orchestrator reconciles cross-worker tensions into a single draft *before* verification (verification of a paste-job verifies mush), then applies verifier verdicts. Exactly one owner; never merge by concatenation.\n\n## Guardrails (non-negotiable caps)\n\n1. Maximum **one round** without returning to the human \u2014 no silent rework loops.\n2. **One writer per artifact** \u2014 no two jobs mutate the same file; prefer read-only workers plus an explicitly owned write step.\n3. **Hard cap on agent count** \u2014 state it in the plan before dispatching.\n4. **Judge results on evidence, not self-reports** \u2014 verifier verdicts against the artifact, never worker claims of success.\n\n## The human gate\n\nRoute every irreversible step (commit, push, PR, publish, delete) through explicit approval \u2014 placed where a mistake is expensive to undo, not on every step. Reporting findings is not irreversible; landing them is.\n\n## When NOT to fan out\n\n- The work is sequential \u2014 each step needs the previous step's full result.\n- The question is scoped to one module one agent can hold.\n- You cannot articulate each worker's question without another worker's answer \u2014 sequence it instead.\n- No subagent facility exists \u2014 do a single pass and self-verify by re-checking citations.\n\n## Common mistakes\n\n| Mistake | Fix |\n| ------- | --- |\n| Symmetric fan-out (\"3 workers looks right\") | Fan out on the fake-edge test's answer, not symmetry |\n| One verifier, one generic \"review it\" question | Separate verifiers, different questions |\n| Verifier reads worker summaries instead of artifacts | Verify against files/code, citations included |\n| Merge = paste worker outputs together | Reconcile contradictions first; then verify the draft |\n| Verification skipped because \"workers were thorough\" | Workers miss what fresh skeptics catch \u2014 always verify |\n\n## Related skills\n\n- `dispatching-parallel-agents` \u2014 the mechanics of spawning independent subagents safely\n- `subagent-driven-development` \u2014 executing a written implementation plan one subagent per task\n- `doubt-driven-development` \u2014 the adversarial-review instinct behind the verify node\n",
+  "graphSkillSha256": "df0215b3f81deb462c4c0d7ba81b2813224b9eadf218dd7b88165f8edd148b36",
+  "prompts": {
+    "new": "Begin with read_run_state using bootstrap true and adopt its cursor. Use only the ork742 tools. Then call wait_for_run_event with that cursor. For every result call read_run_state with its resultNonce. If status is refresh_required, adopt the returned cursor and wait again without acknowledging omitted events. Otherwise call acknowledge with the returned snapshotId and nextAction. Adopt the returned cursor for the next wait. A duplicate notification may return the same actionId; it must have no second effect. When acknowledge returns done true, stop and reply exactly ORK742_PHASE_ONE_DONE. Do not send another user prompt, use another tool or change access. On any error stop immediately without retry.",
+    "resume": "This is the exact resumed synthetic parent. Use only read_run_state with bootstrap true, then acknowledge with its snapshotId and nextAction. Observe the retained blocker, clarification, stageContinueRequired and reservation with grant false; do not clear them or launch/retry tasks. When done true, reply exactly ORK742_PHASE_TWO_DONE. Do not use wait_for_run_event, other tools, changed permissions or another session. On any error stop without retry."
+  },
+  "argv": {
+    "new": [
+      "<native>",
+      "--no-auto-update",
+      "--model",
+      "gpt-6-luna",
+      "--available-tools",
+      "wait_for_run_event",
+      "read_run_state",
+      "acknowledge",
+      "--allow-tool",
+      "ork742(wait_for_run_event)",
+      "ork742(read_run_state)",
+      "ork742(acknowledge)",
+      "--deny-tool",
+      "shell",
+      "write",
+      "url",
+      "--disable-builtin-mcps",
+      "--additional-mcp-config",
+      "@<case>/mcp.json",
+      "--disallow-temp-dir",
+      "--no-remote",
+      "--no-remote-export",
+      "--no-ask-user",
+      "--log-dir",
+      "<case>/logs",
+      "--log-level",
+      "error",
+      "-s",
+      "--session-id",
+      "00000000-0000-0000-0000-000000000001",
+      "-p",
+      "Begin with read_run_state using bootstrap true and adopt its cursor. Use only the ork742 tools. Then call wait_for_run_event with that cursor. For every result call read_run_state with its resultNonce. If status is refresh_required, adopt the returned cursor and wait again without acknowledging omitted events. Otherwise call acknowledge with the returned snapshotId and nextAction. Adopt the returned cursor for the next wait. A duplicate notification may return the same actionId; it must have no second effect. When acknowledge returns done true, stop and reply exactly ORK742_PHASE_ONE_DONE. Do not send another user prompt, use another tool or change access. On any error stop immediately without retry."
+    ],
+    "resume": [
+      "<native>",
+      "--no-auto-update",
+      "--model",
+      "gpt-6-luna",
+      "--available-tools",
+      "wait_for_run_event",
+      "read_run_state",
+      "acknowledge",
+      "--allow-tool",
+      "ork742(wait_for_run_event)",
+      "ork742(read_run_state)",
+      "ork742(acknowledge)",
+      "--deny-tool",
+      "shell",
+      "write",
+      "url",
+      "--disable-builtin-mcps",
+      "--additional-mcp-config",
+      "@<case>/mcp.json",
+      "--disallow-temp-dir",
+      "--no-remote",
+      "--no-remote-export",
+      "--no-ask-user",
+      "--log-dir",
+      "<case>/logs",
+      "--log-level",
+      "error",
+      "-s",
+      "--resume=00000000-0000-0000-0000-000000000001",
+      "-p",
+      "This is the exact resumed synthetic parent. Use only read_run_state with bootstrap true, then acknowledge with its snapshotId and nextAction. Observe the retained blocker, clarification, stageContinueRequired and reservation with grant false; do not clear them or launch/retry tasks. When done true, reply exactly ORK742_PHASE_TWO_DONE. Do not use wait_for_run_event, other tools, changed permissions or another session. On any error stop without retry."
+    ]
+  },
+  "environment": {
+    "inheritedNames": [
+      "PATH",
+      "HOME",
+      "TMPDIR"
+    ],
+    "overrides": {
+      "COPILOT_HOME": "<case>/settings",
+      "COPILOT_AUTO_UPDATE": "false",
+      "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "false",
+      "USE_TGREP": "false",
+      "NO_COLOR": "1"
+    }
+  },
+  "mcpEnvironmentNames": [
+    "PATH",
+    "HOME",
+    "TMPDIR",
+    "LC_ALL",
+    "__CF_USER_TEXT_ENCODING"
+  ],
+  "sourceDiscovery": [
+    [
+      "<native>",
+      "--no-auto-update",
+      "instruction",
+      "list",
+      "--json"
+    ],
+    [
+      "<native>",
+      "--no-auto-update",
+      "skill",
+      "list",
+      "--json"
+    ]
+  ],
+  "limits": {
+    "maxNativePrompts": 2,
+    "maxDiscoveryCommands": 4,
+    "discoverySeconds": 30,
+    "nativeSeconds": 240,
+    "batchSeconds": 600,
+    "cleanupSeconds": 10,
+    "maxToolCalls": 24,
+    "maxTurnEvents": 32,
+    "maxUsageEvents": 32,
+    "maxRawFileBytes": 1048576,
+    "maxRawTotalBytes": 8388608,
+    "maxRetainedBytes": 262144,
+    "maxMcpLineBytes": 16384,
+    "maxWaitSeconds": 30,
+    "retries": 0
+  },
+  "risks": [
+    "New exact-packet approval is required; prior #740 budgets are spent.",
+    "Existing HOME is used by native Copilot only for normal authentication; it may access credential state. The observer never reads/copies credential files.",
+    "Private disposable native history may contain assistant/reasoning and synthetic tool data. The observer lexically skips those values; no raw history is retained.",
+    "Capture is requested off and no OTel exporter is activated; effective managed capture and remote/provider retention remain unknown. Owned-root deletion is not remote deletion.",
+    "Observed tool/turn/usage/wall stops are not a certified provider-request, retry or billing cap.",
+    "Raw three-name availability mapping is not yet observed on this version. Missing mapping ends the batch; no naming/transport/model fallback.",
+    "MCP is fixture-only and starts with env -i; no normal credential or user context is intentionally forwarded.",
+    "This is functional canary evidence only, not production role/source/authority/storage eligibility or OS confinement.",
+    "macOS adds __CF_USER_TEXT_ENCODING at Python startup; helper binds it explicitly to synthetic 0x0:0:0 rather than forwarding an inherited value."
+  ],
+  "python": {
+    "path": "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/bin/python3.9",
+    "sha256": "6e7ae61f68a3838094fc56590f84c52069a97d7816f6bb79e0e85995b340e464"
+  }
+}

@@ -52,3 +52,7 @@ docs/validation/root-preparation-effects.json text eol=lf
 /crates/orkworksd/tests/fixtures/parent-continuation/peer.py text eol=lf
 /crates/orkworksd/tests/fixtures/parent-continuation/test_peer.py text eol=lf
 /crates/orkworksd/tests/fixtures/parent-continuation/evidence.json text eol=lf
+
+# Preserve exact unapproved native packet source/data hashes across checkouts.
+/crates/orkworksd/tests/fixtures/parent-native-packet/*.py text eol=lf
+/crates/orkworksd/tests/fixtures/parent-native-packet/*.json text eol=lf
