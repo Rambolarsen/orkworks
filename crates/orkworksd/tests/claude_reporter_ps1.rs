@@ -99,6 +99,7 @@ fn claude_reporter_powershell_maps_only_valid_prompt_and_turn_payloads() {
     }
     std::fs::write(&cases_path, serde_json::to_vec(&cases).unwrap()).unwrap();
     std::fs::write(&wrapper, r#"
+$ErrorActionPreference = 'Stop'
 if (-not [string]::Equals($HOME, $env:ORKWORKS_FIXTURE_HOME, [StringComparison]::OrdinalIgnoreCase)) { throw 'fixture home not isolated' }
 # The reporter runs in a child script scope. Keep stub state in this isolated
 # PowerShell process so nested calls see the case index and rejection flag.
