@@ -336,3 +336,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Owned recommendation removal batches](2026-11-07-recommendation-removal-batches.md) — Lossless original leaf proofs and complete graph deletion manifests.
 
 - [Retained legacy source-adoption qualification](2026-11-07-legacy-source-adoption-qualification.md) — Contract, authority, publication and restart gates before implementing accepted additive recovery.
+
+- [Backup maintenance owner qualification](2026-11-08-backup-maintenance-qualification.md) — Actual per-writer contracts, physical/readiness evidence and bounded implementation gates for accepted maintenance admission.

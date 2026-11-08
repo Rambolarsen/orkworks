@@ -1,0 +1,156 @@
+---
+type: Qualification Plan
+title: Backup maintenance owner qualification
+description: Bounded actual-owner contract and evidence closure before implementing accepted maintenance admission and settlement.
+tags: [orkworks, sessions, backup, maintenance, qualification]
+status: stable
+workflow_status: qualification-required
+---
+
+# Backup maintenance owner qualification
+
+Tracking: [#1541](https://github.com/Rambolarsen/orkworks/issues/1541), parent
+[#1250](https://github.com/Rambolarsen/orkworks/issues/1250).
+Goal: turn the accepted maintenance design into **actual owner contracts and
+qualified evidence**, then a bounded implementation task only when its inputs
+are available. Pass means no unowned writer, fabricated drained module, unknown
+physical completion or hidden recovery/resource assumption remains.
+
+Spec: [accepted maintenance admission](../specs/2026-11-08-backup-maintenance-admission-design.md),
+[accepted backup/restore](../specs/2026-11-07-session-backup-restore-contract.md),
+[bundle/evidence v1](../specs/2026-11-08-backup-bundle-evidence-v1.md).
+Reuse their owner approvals, the [pinned writer audit](../../validation/backup-maintenance-writer-audit.md)
+and its source evidence. Do not rediscover unchanged policy, rewrite accepted
+bytes or treat the audit as a registered closed Modules list.
+
+This plan is qualification work, not permission to implement the controller,
+activate SQL, stop another session or run live backup/restore. No native/SQL/model
+execution or new numeric allowance is supplied. Source-only contract inspection
+is the ready first gate; conditional later steps cannot execute through Unknown.
+
+## Ownership and boundaries
+
+The private application maintenance owner owns admission state, original-root job
+obligations and explicit release. Existing module owners retain their data,
+operation/lane/native/lease/resource handles and physical-effect semantics.
+#1242 owns producer qualification, #1243 the store, #1248 historical semantics,
+#1250 backup/restore machinery and #1244 cutover/startup integration. Consume
+those owners' actual contracts and evidence; do not duplicate their implementations.
+
+Canonical affected source: SessionApplication and its sql_writes modules;
+session_store worker; metadata/session_reader/workspace_memory; session runtime,
+Peon and terminal persistence; Taskmaster evaluator/store/operation; observations,
+retention/GC, image storage, branch associations and authenticated ingress/helper
+owners named in the audit. This list routes investigation, not a new facade or
+file-splitting refactor. Actual implementation files/interfaces are selected in
+the later bounded plan after these contracts close.
+
+## 1. Close actual per-writer interfaces and coverage
+
+**Owner:** #1250 application maintenance contract, with each existing data/module
+owner. Written evidence belongs beside the canonical maintenance contract/audit,
+not a second independent status ledger.
+
+- [ ] For every audit family, pin the current source and exact existing admission,
+  captured root/incarnation, retained handles, completion path and readiness path.
+  Name missing operations as required unavailable interfaces; do not substitute
+  a proposed signature, counter or test fixture for a known runtime capability.
+- [ ] Specify the closed module/scope registration and its actual producing owner:
+  empty namespaces, mutating reads, external ingress/relays, switched-away roots,
+  global producers that can affect captured roots and unsupported direct writers.
+  A caller-selected subset or sample of visible sessions cannot pass coverage.
+- [ ] Close each original-job recipe: exact finite child/continuation slots,
+  at-most-once admission, cancellation versus effect ordering, retained resources,
+  physical acknowledgement and partial/unknown recovery/protection obligation.
+  Include file removal followed by SQL progress and detached publication.
+- [ ] Map each interface to Closing/Held/Releasing/Blocked, startup unverified,
+  Q retirement and explicit release rules. Reuse existing lock order and identify
+  how all waits occur outside projection/workspace/session/module/registry guards.
+
+**Check/pass:** a fresh reviewer can trace every writer and continuation from
+admission through physical settlement/readiness, or identify a precise missing
+owner that blocks the next dependent step. A source-backed inventory with named
+missing interfaces is a valid investigation result, **not** closed producer
+qualification. Actual contract closure needs real owner operations; no mock
+“drained” result may advance the implementation gate.
+
+## 2. Obtain physical, format and readiness evidence
+
+**Consumes:** step 1's closed actual interfaces and #1242/#1243/#1248/#1250
+capabilities. Unknown on an input blocks its dependent work; source inspection
+may still identify the missing evidence without executing it.
+
+- [ ] Obtain actual root/lease/native identity, external quiescence and complete
+  namespace/exclusion evidence for source/global/restore roots and disjoint
+  output parents. Do not infer installed-helper state, OS descendant termination
+  or supported platforms from source. Unclean-stop owner resolution remains.
+- [ ] Obtain actual outer-job settlement acknowledgement before SQL close;
+  closed-image/auxiliary/inert integrity evidence; original store reopen and
+  module-readiness under the retained lease. Preserve legacy no-worker and
+  preservation-only damaged-state handling without claiming recoverability.
+- [ ] Close complete resource/time enforcement for job/continuation/root/module
+  registration, outstanding/detached obligations, capture/preservation/staging,
+  full inventories/control files, SQL auxiliary and callback/recovery scratch.
+  Keep existing owners' allowances separate; choose no numbers by analogy.
+- [ ] Obtain actual restore-fence discovery/settlement and startup routing from
+  their existing owners. A process-local admission registry cannot replace the
+  durable restore protocol or recover lost adoption approval.
+
+**Check/pass:** each required guarantee has a real closed owner/profile and
+corresponding source/execution evidence; every native execution request states
+its platform, exact commands/fixtures, finite allowance, stop conditions and
+expected result **before authorization**. This plan grants no such request.
+No known receipt, fit or startup/restore support is claimed while evidence is
+missing. Record unavailable results instead of adding success shims or silently
+borrowing another session's budget.
+
+## 3. Gate the bounded implementation handoff
+
+Only after steps 1–2 and existing dependencies supply the required guarantees:
+
+- [ ] Map the accepted admission/state/race oracles to exact module owners,
+  interfaces, delivery boundaries and regression checks. Preserve original-root
+  ownership across switches, finite settlement after cancellation, atomic Q
+  retirement and explicit readiness before ordinary admission opens.
+- [ ] Write/review a bounded implementation plan with actual affected files,
+  meaningful failing tests and concrete completion results, using existing
+  dependencies and owners. No unrelated refactor, public controller API,
+  automatic session stop, new storage schema or probe budget enters the slice.
+- [ ] For later authorized code, use TDD, scoped/full repository verification,
+  current-diff review and required CI. Native/platform qualification and rollout
+  stay separately controlled; no product readiness follows from source-only tests.
+
+**Check/pass:** each conditional failure/ordering oracle in the accepted design
+has an owning interface and verification route. Caller loss, late callback,
+workspace switch, pending SQL progress, unknown owner, stale root and reopen/
+fence failure cannot disappear behind a zero counter or matching digest.
+Implementation remains blocked where a required actual producer/evidence input
+is missing, even if a smaller pure model could pass synthetic tests.
+
+## Review focus and risk disposition
+
+Reuse the audit and resolved design review as the blind-spot investigation:
+blocking callbacks after async abort, physical cleanup before SQL progress,
+mutating reads, lost volatile state, first-mutation Q retirement and release
+readiness are explicit acceptance checks above, not deferred edge cases.
+
+Risk assesses eventual controller/capture work, not the reversible documentation
+commit. Missing rollback or execution evidence remains Unknown.
+
+| Dimension | Rating | Evidence and treatment |
+| --- | --- | --- |
+| Dependencies | 5 | Multiple real writer owners and open #1242/#1243/#1248/#1250 plus #1244 startup; steps 1–2 close actual contracts/evidence. |
+| Blast radius | 4 | Shared workspace admission across lifecycle/metadata/background consumers; keep per-root ownership and reject unqualified coverage. |
+| State changes | 4 | Future closure, physical maintenance effects and reopening affect authority/availability; retain exact existing owners and marker/fence rules. |
+| Reversibility | Unknown | Actual restore/fence/readiness and physical settlement are not qualified; no cancellation rollback or automatic reopen claim. |
+| Uncertainty | 5 | Source has local primitives but no complete known module/native/resource profile; qualification precedes dependent code. |
+
+Total: incomplete. **Disposition: Ready for step 1's bounded written owner-contract
+investigation; Investigate for physical/runtime implementation.** Existing approval
+covers the unchanged maintenance design for further qualification, not a new
+execution budget or proof that the steps are complete.
+
+Fresh plan review and changed-scope acceptance/authority review found no material
+findings. The Ready disposition is limited to step 1's written investigation;
+no unknown owner/native/resource/rollback input was promoted to qualified, and
+unchanged accepted design reviews were reused.

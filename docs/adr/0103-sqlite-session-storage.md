@@ -162,6 +162,24 @@ native/access/fence operations and complete physical accounting remain gates.
 The next source qualification audits actual writer admission/drain ownership;
 no new native/model execution budget or live recovery permission follows.
 
+### Maintenance admission acceptance — 2026-11-08
+
+After #1540, the owner answered “go ahead” to the explicit request to approve
+four [maintenance choices](../superpowers/specs/2026-11-08-backup-maintenance-admission-design.md)
+for further qualification: original-root work tracking including detached jobs;
+quiescent runtimes without automatic stopping; outer physical settlement before
+SQL close/Q; and explicit validated release/readiness, including blocked/unverified
+startup rather than treating a lost volatile ledger as empty. #1541 records
+acceptance of the unchanged conditional design and its
+[qualification plan](../superpowers/plans/2026-11-08-backup-maintenance-qualification.md).
+
+Atomic Q retirement, original-job continuations and serialized cancellation remain
+as reviewed. The existing marker, bundle purposes and restore-first policy stand.
+Actual module interfaces/registration, physical completion, inert validators,
+SQL closure/reopen, native/root/external quiescence, durable restore routing and
+finite resource/time enforcement remain qualification gates. No controller code,
+live session stop/capture/restore, new probe budget or rollout permission follows.
+
 ## Clarification — 2026-11-07: SQL-bound recommendation recovery
 
 After reviewing the complete [recovery protocol](../superpowers/specs/2026-11-07-sql-recommendation-journal-recovery.md)

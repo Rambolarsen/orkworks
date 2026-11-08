@@ -122,9 +122,11 @@ or runtime implementation is supplied by representation acceptance.
 The [pinned writer audit](../../validation/backup-maintenance-writer-audit.md)
 in #1535 maps current local controls and missing all-writer admission/settlement;
 it qualifies no maintenance profile or capture operation.
-The [maintenance admission proposal](../specs/2026-11-08-backup-maintenance-admission-design.md)
-in #1539 defines the next conditional interface/state contract; new choices are
-pending owner review and actual producer qualification remains required.
+The [maintenance admission contract](../specs/2026-11-08-backup-maintenance-admission-design.md)
+from #1539/#1540 was accepted unchanged for further qualification; #1541 records
+the owner's approval and [bounded qualification plan](2026-11-08-backup-maintenance-qualification.md).
+Actual producer/native/resource/restore inputs remain required; implementation
+checkboxes stay open.
 
 Owners: a private maintenance/backup module, `workspace_runtime.rs` lease and
 format ownership, existing external evidence/image owners; synthetic/copy fixtures.
