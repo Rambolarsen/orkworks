@@ -198,6 +198,24 @@ under the [qualification plan](../superpowers/plans/2026-11-08-backup-maintenanc
 No runtime implementation, live stop/capture/restore, native/SQL/model execution,
 new numeric allowance or rollout/dependency bypass follows.
 
+### Bounded binding and delivery settlement acceptance — 2026-11-08
+
+After #1560, the owner answered “go ahead” to the explicit three-choice request.
+[#1561](https://github.com/Rambolarsen/orkworks/issues/1561) records acceptance of
+the unchanged [bounded-settlement design](../superpowers/specs/2026-11-08-maintenance-settlement-bounds-design.md)
+for further qualification: complete retained resource/result ownership through
+physical settlement; one absolute attempt deadline without renewal; and one
+initial store claim, one availability wait and one final claim, with no input
+resend. Unresolved work stays blocked for exact owner resolution. Late binding
+results remain owned through safe disposal; timeout is not physical completion.
+
+Existing accepted maintenance/registration/backup/adoption/v1 rules stand. Actual
+numeric profiles/enforcement, delivery-outcome evidence, compatible owner
+operations and complete physical/native/external/restore readiness remain gates
+under the [qualification plan](../superpowers/plans/2026-11-08-backup-maintenance-qualification.md).
+No runtime implementation, live operation, native/SQL/model execution, numerical
+execution allowance or rollout/dependency bypass follows.
+
 ## Clarification — 2026-11-07: SQL-bound recommendation recovery
 
 After reviewing the complete [recovery protocol](../superpowers/specs/2026-11-07-sql-recommendation-journal-recovery.md)

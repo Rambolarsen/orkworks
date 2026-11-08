@@ -211,12 +211,20 @@ Disposition remains Investigate for dependent implementation; unchanged accepted
 choices are reused. No runtime execution or new numerical allowance was supplied.
 
 
-## Binding and delivery bounds proposal — 2026-11-08
+## Binding and delivery bounds acceptance — 2026-11-08
 
 [#1558](https://github.com/Rambolarsen/orkworks/issues/1558) provides the
-[proposed finite-job refinement](../specs/2026-11-08-maintenance-settlement-bounds-design.md)
+[accepted finite-job refinement](../specs/2026-11-08-maintenance-settlement-bounds-design.md)
 for complete retained reservation/result ownership, one absolute deadline and a
-fixed store-attempt/notification/recheck graph without input resend. These new
-policy choices remain proposed. Actual numeric profiles, delivery-outcome evidence,
+fixed store-attempt/notification/recheck graph without input resend. After #1560,
+the owner answered “go ahead” to the explicit three-choice approval request;
+[#1561](https://github.com/Rambolarsen/orkworks/issues/1561) records acceptance for
+further qualification. Actual numeric profiles, delivery-outcome evidence,
 compatible domain owner operations and physical/resource enforcement remain
 unavailable; no qualification checkbox or implementation gate is completed.
+
+Reuse the unchanged accepted policy; do not request repeat approval because actual
+inputs remain missing. The next qualification inputs are the real delivery owner's
+known/partial/unknown outcome evidence and actual reservation/deadline values with
+enforcement and retained-result ownership. No value or executed fit follows from
+acceptance; no remaining checkbox is completed.
