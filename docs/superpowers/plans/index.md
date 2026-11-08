@@ -4,6 +4,8 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 ## Documents
 
+- [SQL recommendation producer revocation](2026-11-08-sql-recommendation-producer-revocation.md) — Proposed bounded source-only owner/admission/delivery tests and implementation handoff; owner decision pending.
+
 - [Owned short probe implementation](2026-11-07-probe-process-ownership.md) — Approved #694 shared runner, caller migration and fixture delivery.
 
 - [SQL-bound recommendation journal recovery](2026-11-07-sql-recommendation-journal-recovery.md) — Approved bounded delivery and fault qualification for SQL-bound recommendation recovery; identity/codec slice underway.

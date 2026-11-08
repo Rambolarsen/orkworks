@@ -1810,6 +1810,12 @@ state; serialization alone cannot prevent a later producer recreating a deleted
 recommendation. The existing optimistic graph/hash and packet checks are not
 expanded or replaced by this prerequisite.
 
+The [producer revocation proposal](../superpowers/specs/2026-11-08-sql-recommendation-producer-revocation.md)
+describes an owner-lifetime-only first step and checked SQL permit handoff. It
+is not accepted or implemented. Complete producer qualification still requires
+SQL-aware publication and qualified startup/reopen handling of pending jobs;
+a process-local mode alone cannot enforce that boundary after owner loss.
+
 ## Recommendation cleanup preflight
 
 The source-only `RecommendationStore::capture_cleanup` copies memory only.
