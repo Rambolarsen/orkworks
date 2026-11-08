@@ -1,10 +1,10 @@
 ---
-type: Design Proposal
+type: Design Contract
 title: Backup maintenance admission and physical settlement
 description: Proposed live per-root ownership, complete writer closure and explicit release before backup or restore can claim quiescence.
 tags: [orkworks, sessions, backup, maintenance, ownership]
-status: draft
-workflow_status: maintenance-admission-proposed
+status: stable
+workflow_status: accepted-for-qualification
 ---
 
 # Backup maintenance admission and physical settlement
@@ -16,10 +16,13 @@ Consumes accepted [backup/restore](2026-11-07-session-backup-restore-contract.md
 [adoption publication/recovery](2026-11-07-legacy-adoption-publication-recovery.md)
 and the [pinned writer audit](../../validation/backup-maintenance-writer-audit.md).
 The accepted storage policy, v1 bytes, purpose rights and marker authority stand.
-This is a **conditional proposal**, not an implementation plan, registered writer
-profile, product endpoint or executed quiescence/native result.
+After #1540, the owner answered “go ahead” to the explicit four-choice approval
+request. [#1541](https://github.com/Rambolarsen/orkworks/issues/1541) records
+acceptance on 2026-11-08 of this unchanged conditional design for further
+qualification. It is not an implementation plan, registered writer profile,
+product endpoint or executed quiescence/native result.
 
-## Proposed choices for owner review
+## Accepted choices for further qualification
 
 1. **Per-root owned work, including detached work.** One private application
    maintenance owner tracks every admitted job against its original captured
@@ -39,10 +42,11 @@ profile, product endpoint or executed quiescence/native result.
    ledger is not a clean-state proof. Safe cancellation can return through the
    same explicit release checks; ambiguous state stays blocked for recovery.
 
-These are new maintenance-interface choices, proposed for further qualification.
-Reuse accepted backup/adoption decisions; obtain approval of this concrete design
-before dependent implementation. Actual owner/profile/native/resource inputs
-below remain unavailable until qualified; no success adapter is assumed.
+These maintenance-interface choices are accepted for further qualification.
+Reuse this approval and accepted backup/adoption decisions within scope. Actual
+owner/profile/native/resource inputs below remain unavailable until qualified;
+no success adapter is assumed. The [qualification plan](../plans/2026-11-08-backup-maintenance-qualification.md)
+closes those inputs before a bounded dependent implementation plan.
 
 ## Ownership and scope
 
@@ -167,7 +171,7 @@ cancellation per root set. Generations/serials are checked counters with fresh
 owner-instance/attempt nonces; overflow blocks before admission and never resets
 an existing live claim. Stored counters/nonces are data, not restored authority.
 Finite counts/bytes, per-job recipes, wait bounds and resource retention must be
-qualified before the controller is implemented; this proposal assigns no budget.
+qualified before the controller is implemented; this contract assigns no budget.
 No unbounded busy polling, force-stop-on-timeout or borrowed deletion allowance.
 
 Closing establishes Q in this order:
@@ -349,14 +353,14 @@ unsupported, not controlled by this process-local gate.
 
 ## Qualification and handoff
 
-Before code, approve these new maintenance choices and close each actual module's
+Before code, close each actual module's
 registration, no-new-work transition, finite original-job continuation contract,
 physical completion and readiness interface. Map every audit family and excluded
 producer which can affect captured roots; validate empty namespaces too. Establish
 native/root/external-quiescence proof, inert store/record validators, all SQL
 auxiliary/closure/reopen semantics, trusted local confirmation, restore-fence
 startup routing and finite resource/time bounds. No mocked “drained” owner can
-replace a missing path. The proposal registers no production Profile.
+replace a missing path. This contract registers no production Profile.
 
 Later copied/synthetic verification must exercise every race above with actual
 owners, including switched-away jobs, late callback admission, SQL-progress after
@@ -375,4 +379,4 @@ three concurrency ambiguities. Clarified atomic Q retirement with first data
 admission and racing capture rejection; actual-owner resolution of blocked
 obligations with startup blocked/unverified rather than a fabricated empty ledger;
 and cancellation linearization with independently owned settlement coordination.
-These are proposed interface rules, not executed races or qualified profiles.
+These are reviewed interface rules, not executed races or qualified profiles.
