@@ -24,4 +24,4 @@ pub(crate) mod worktree_instructions;
 
 // Submission accounting stays unwired; fixed fact enums are shared by the writer.
 #[allow(dead_code)]
-mod input_submission;
+pub(crate) mod input_submission;

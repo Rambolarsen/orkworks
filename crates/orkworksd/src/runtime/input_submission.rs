@@ -1,6 +1,9 @@
 //! Production starts remain unreported; a private optional writer bridge shares
-//! fixed facts and unique reporters. Owner has no production caller, input capability,
-//! payload/native handle, physical-completion proof or production resource profile.
+//! fixed facts and unique reporters. Optional scope retains the original lease and
+//! runtime/channel intent. Owner has no production caller, input capability, payload/
+//! PTY ownership, physical-completion proof or production resource profile.
+pub(crate) mod scope;
+
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
@@ -81,6 +84,7 @@ struct Entry {
     phases: [PhaseState; 4],
     protected: bool,
     live_reporters: usize,
+    _scope: Option<scope::OriginalInputScope>,
 }
 impl Entry {
     fn input_fact(&self) -> InputFact {
@@ -142,6 +146,11 @@ struct Key {
 pub(super) struct Owner {
     core: Arc<Core>,
 }
+pub(super) struct BoundRefusal {
+    pub reason: Error,
+    pub scope: scope::OriginalInputScope,
+}
+
 pub(super) struct Submission {
     /// Preparation, writer, physical return, bookkeeping: fixed original roles.
     pub reporters: [Reporter; 4],
@@ -205,6 +214,33 @@ impl Owner {
         deadline: Instant,
         now: Instant,
     ) -> Result<Submission, Error> {
+        self.admit_record(context, input_bytes, deadline, now, &mut None)
+    }
+
+    pub(super) fn admit_bound(
+        &self,
+        context: Context,
+        input_bytes: usize,
+        deadline: Instant,
+        now: Instant,
+        scope: scope::OriginalInputScope,
+    ) -> Result<Submission, BoundRefusal> {
+        let mut scope = Some(scope);
+        self.admit_record(context, input_bytes, deadline, now, &mut scope)
+            .map_err(|reason| BoundRefusal {
+                reason,
+                scope: scope.take().expect("unadmitted scope retained"),
+            })
+    }
+
+    fn admit_record(
+        &self,
+        context: Context,
+        input_bytes: usize,
+        deadline: Instant,
+        now: Instant,
+        scope: &mut Option<scope::OriginalInputScope>,
+    ) -> Result<Submission, Error> {
         if now >= deadline {
             return Err(Error::Expired);
         }
@@ -246,6 +282,7 @@ impl Owner {
             phases: [PhaseState::Pending; 4],
             protected: false,
             live_reporters: 4,
+            _scope: scope.take(),
         });
         let key = Key { index, serial };
         Ok(Submission {
@@ -294,7 +331,7 @@ impl Owner {
         if !Arc::ptr_eq(&self.core, &observer.core) {
             return Err(Error::Stale);
         }
-        let result = {
+        let (result, retired) = {
             let mut state = self.core.lock()?;
             let entry = Core::entry(&mut state, observer.key)?;
             let snapshot = entry.snapshot(Instant::now());
@@ -312,9 +349,11 @@ impl Owner {
             {
                 return Err(Error::Pending);
             }
-            state.slots[observer.key.index] = None;
-            Ok(snapshot)
+            let retired = state.slots[observer.key.index].take();
+            (Ok(snapshot), retired)
         };
+        // Scope resources and their reservation must drop outside this lock.
+        drop(retired);
         // Never run Observer::drop while holding the shared transition lock.
         drop(observer);
         result

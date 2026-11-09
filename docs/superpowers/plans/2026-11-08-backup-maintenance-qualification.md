@@ -392,3 +392,21 @@ complete native RootKey/registration, resource/deadline profile, physical/
 maintenance or restore qualification. All broad boxes above remain unchanged;
 this proposal is not implementation approval. No separate acceptance-only task
 is needed after the owner approves the concrete scope.
+
+
+## Original input scope accepted — 2026-11-09
+
+After #1629 the owner answered “go” to the explicit typed-capture/finite-record-
+attachment/offline-test question. [#1630](https://github.com/Rambolarsen/orkworks/issues/1630)
+records approval, the [bounded plan](2026-11-09-input-scope-retention.md) and actual
+private capture/Entry retention together. Reuse the existing reporter/worker/join
+bridge and accepted input/registration/bounds semantics. The original scope
+retains the actual lease and runtime/channel intent; finite reservations include
+rejected captures, with unused ownership returned intact.
+
+Production callers/construction, preparation/bookkeeping/graph consumption, full
+native RootKey/module registration and complete physical/resource/deadline fit
+remain gated. A retained lease/sender is not PTY ownership, receiver liveness or
+whole-job completion; last Core destruction releases objects without certifying
+teardown. No broad box above closes or maintenance/readiness/restore is activated.
+Verification and current-code review evidence belong in the bounded plan/PR.

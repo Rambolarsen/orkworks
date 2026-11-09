@@ -3,8 +3,8 @@ type: Design Contract
 title: Original input scope and application retention
 description: Proposed strong original workspace and runtime scope on the existing submission record, with an offline implementation boundary before production integration.
 tags: [orkworks, terminal, ownership, qualification]
-status: draft
-workflow_status: proposed
+status: stable
+workflow_status: accepted-bounded-implementation
 ---
 
 # Original input scope and application retention
@@ -16,8 +16,10 @@ in #1620/#1625. Source pin: `0cad04787b6fb9800fd4ffd222f35285335ce228`.
 Reuse accepted [input ownership and truth](2026-11-08-terminal-input-outcome-interface-design.md),
 [registration/settlement](2026-11-08-maintenance-registration-settlement-design.md)
 and [finite bounds/deadlines](2026-11-08-maintenance-settlement-bounds-design.md).
-Those approvals remain valid; this new concrete attachment and preparatory
-implementation scope require owner approval before code.
+Those approvals remain valid. After #1629 the owner answered “go” to the
+explicit typed-capture/finite-attachment/offline-test question. [#1630](https://github.com/Rambolarsen/orkworks/issues/1630)
+records approval and implementation under the [bounded plan](../plans/2026-11-09-input-scope-retention.md).
+Only this scope is accepted; production and broader qualification remain gated.
 
 ## Problem and evidence
 
@@ -45,7 +47,7 @@ The optional writer bridge already has the required unique reporter pairing and
 actual join operation. Keep that implementation. Do not add another outcome
 cache, path-keyed map, joiner task or producer audit to solve retention.
 
-## Proposed decisions
+## Accepted bounded decisions
 
 1. Attach one private, immutable strong original scope to an admitted record in
    the existing Core. Scope owns the original workspace lease and exact captured
@@ -60,7 +62,7 @@ cache, path-keyed map, joiner task or producer audit to solve retention.
    result consumption and complete maintenance/resource qualification remain a
    later gated integration. Approval records and code belong in one task.
 
-These are proposed engineering choices, not already approved behavior.
+These three choices are accepted for the bounded implementation below.
 
 ## Exact scope and capture
 

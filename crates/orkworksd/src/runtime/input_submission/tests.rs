@@ -628,3 +628,56 @@ fn a_checkpoint_without_terminal_input_cannot_retire_the_record() {
         Err(Error::Capacity)
     ));
 }
+
+#[test]
+fn bound_record_keeps_original_lease_until_actual_safe_retirement() {
+    let root = tempfile::tempdir().unwrap();
+    let scope = scope::tests::capture(root.path());
+    let owner = Owner::new(limits(1, 3)).unwrap();
+    let now = Instant::now();
+    let Submission {
+        observer,
+        reporters,
+    } = owner
+        .admit_bound(context(1), 4, now + Duration::from_secs(60), now, scope)
+        .unwrap_or_else(|e| panic!("{:?}", e.reason));
+    drop(observer); // caller loss does not erase Entry.
+    assert!(crate::workspace_runtime::WorkspaceLease::acquire(root.path()).is_err());
+    let another = owner.observe(context(1)).unwrap();
+    assert_eq!(owner.retire(another), Err(Error::Protected));
+    reporters[1]
+        .record_input(InputFact::FullWrite {
+            flush: Flush::Succeeded,
+        })
+        .unwrap();
+    finish(&reporters);
+    assert_eq!(
+        owner.retire(owner.observe(context(1)).unwrap()),
+        Err(Error::Pending)
+    );
+    drop(reporters);
+    owner.retire(owner.observe(context(1)).unwrap()).unwrap();
+    assert!(crate::workspace_runtime::WorkspaceLease::acquire(root.path()).is_ok());
+}
+
+#[test]
+fn bound_admission_refusal_returns_original_scope_and_reservation() {
+    let root = tempfile::tempdir().unwrap();
+    let owner = Owner::new(limits(1, 2)).unwrap();
+    let _existing = submit(&owner, 1);
+    let now = Instant::now();
+    let refusal = match owner.admit_bound(
+        context(1),
+        4,
+        now + Duration::from_secs(60),
+        now,
+        scope::tests::capture(root.path()),
+    ) {
+        Err(e) => e,
+        Ok(_) => panic!("duplicate replaced binding"),
+    };
+    assert_eq!(refusal.reason, Error::Duplicate);
+    assert!(crate::workspace_runtime::WorkspaceLease::acquire(root.path()).is_err());
+    drop(refusal.scope);
+    assert!(crate::workspace_runtime::WorkspaceLease::acquire(root.path()).is_ok());
+}

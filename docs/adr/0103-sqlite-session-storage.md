@@ -368,3 +368,21 @@ root/input authority, force resolution, physical/maintenance/restore qualificati
 or live/native/model/resource experiment is accepted. Existing outcome/no-resend/
 protection semantics stand; the newest native-return-to-checkpoint count can
 still be lost on panic, and real original-resource ownership remains gated.
+
+
+## Amendment — 2026-11-09: original input scope retention
+
+After #1629 the owner answered “go” to the explicit [typed original scope](../superpowers/specs/2026-11-09-original-input-scope-design.md)
+implementation question. #1630 records approval, the concise reviewed plan and
+bounded private code together. A finite reserved capture owns the existing strong
+workspace lease and exact session/runtime/channel intent; the same scope moves
+into the existing submission Entry/Core and follows its reporters, with resource
+release outside the record mutex. Offline checks exercise actual advisory leases
+and the optional writer/join, without a second result registry or production
+construction/callers. Existing currentness and no-resend/unknown protection stand.
+
+This accepts the preparatory capture/attachment only. Production coordination,
+command/preparation/bookkeeping/graph routing, actual native RootKey and module
+registration, complete resource/deadline/native/physical fit, maintenance/readiness,
+backup and restore remain gated; no shipping profile/default or live experiment
+is authorized. Last-reference destruction is not physical completion evidence.

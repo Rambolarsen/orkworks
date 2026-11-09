@@ -1327,6 +1327,19 @@ factory, application result reader, original root/resource/profile integration
 or maintenance activation. The newest native-return-to-checkpoint count and
 actual physical-resource ownership can still be unknown.
 
+A private [original-scope attachment](../superpowers/specs/2026-11-09-original-input-scope-design.md)
+now captures the actual strong workspace lease and exact session/runtime/channel
+intent through an application adapter. Explicit finite reservations follow
+capture, rejected owned inputs and the existing Entry/Core. Existing reporters
+retain that same Core through the optional writer/join; known-safe retirement
+removes the Entry before dropping scope resources outside the accounting mutex.
+Capture validates the original target under existing projection/workspace/session
+fences and refuses missing leases or stale identities. The adapter has no
+production callers. This is offline lease/handle lifetime evidence, not a complete
+native RootKey, application coordinator/phase/graph integration, physical/resource
+profile, maintenance or restore result. Last-reference destruction is not proof
+of physical completion.
+
 
 The shared provider process runner owns a Windows Job object per invocation
 (`process_job.rs`, re-exported by `providers/windows_process.rs`). It assigns the suspended child before resuming
