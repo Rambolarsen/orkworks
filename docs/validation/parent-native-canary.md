@@ -1,7 +1,7 @@
 ---
 type: Native Canary Evidence
 title: Parent continuation canary stopped unverified
-description: Five separately approved batches stopped unverified; the corrected startup packet observed the expected entry with additional listing entries.
+description: Six separately approved batches stopped unverified; the operation-lock-compatible packet observed a first-prompt process exit of one.
 tags: [orchestration, copilot, continuation, qualification]
 status: stable
 workflow_status: attempted-unverified
@@ -372,3 +372,62 @@ pinned native layout/creation evidence and the actual exact-session identity
 contract. The additional entries are not automatically evidence of a foreign
 session, and are not automatically safe bookkeeping. Do not weaken a guard or
 spend further usage based on either assumption. No further execution is authorized.
+
+
+## Operation-lock-compatible packet attempt — 2026-11-09
+
+[#1651](https://github.com/Rambolarsen/orkworks/issues/1651) executes one fresh
+exact owner decision after [#1647](https://github.com/Rambolarsen/orkworks/pull/1647).
+The owner approved the post-hash batch question with the unchanged limits,
+existing authentication and acknowledged provider billing/retention uncertainties.
+Packet bytes matched merge 4cb91396e608ca7dac3b379687540c010b0bbca1 before
+launch; the isolated worktree started at f9608963769535afc8b5364771f16d873ab4a7a8.
+No packet source changed. The bookkeeping compatibility choice and its static
+limits are recorded [separately](native-history-operation-locks.md).
+
+The [sanitized receipt](parent-native-canary-operation-lock-summary.json) has
+SHA-256 2eebfe7b01814bdcd9a8acb7718646142b3c47f616770d1a25f03631c280e043.
+
+| Field | Operation-lock-compatible observation |
+| --- | --- |
+| Outcome | unverified |
+| Discovery command attempts | 2 |
+| Native prompt invocation attempts | 1 |
+| Elapsed batch seconds | 9.376 |
+| Failure phase / stage / category | 1 / native-prompt / check-failed |
+| OS error | null |
+| Owned process started / observed exit code | true / 1 |
+| Termination steps completed / raw roots removed | true / true |
+| Provider request count / remote retention | unknown / unknown |
+
+No second prompt or resume ran. There is no successful checks block, retained
+history-check code or layout flags. The native process started and an exit code
+of one was observed; the fixed diagnostic does not identify the failed prompt
+supervision condition or the process's exit cause. Do not infer authentication,
+model availability, MCP naming/permissions, successful tool delivery, another
+session, acceptance of the bookkeeping namespace or native capability support.
+Periodic history scans do not record progress in this receipt, so absence of a
+history failure is not proof of history consumption or a particular entry shape.
+No raw stdout/stderr/history was inspected after cleanup. No extra native
+command, diagnostic, retry or model/tool/transport fallback ran.
+
+Exact approved commitments:
+
+- Proposal SHA-256: 39bea8c908bb15f3d53ed8a8cd6fdbc38db341f0f30b53f0617b47929fdd027b.
+- Manifest SHA-256: 1c07a44951b076dacadbd2a35611ef1cf3077d56dec37294eeae92b3cdff1d22.
+
+The pinned observer Python used -E -s -B; the helper retained -I -B. The observer
+confirmed owned raw-root deletion; disposable approval/output controls were
+removed after copying only this sanitized summary. The one-shot launcher was
+removed at close-out. Termination steps are not universal descendant-liveness
+or OS-containment proof, and owned-root deletion is not remote deletion.
+All five earlier receipt files remain byte-identical.
+
+Bounds were two sequential gpt-6-luna prompt invocations, four discovery commands,
+240 seconds per prompt and 600 seconds total, 24 observed tool calls and 32
+observed turn/usage events, no retry/fallback. This sixth approval is spent,
+including unused phase-two allowance. Ongoing live budget is zero. #742 remains
+open, #740 closed and all three native capabilities and production eligibility
+remain unverified. Future native execution requires another exact owner decision.
+The next useful investigation is offline inspection of the fixed prompt
+supervision diagnostics and pinned startup assumptions before proposing more usage.
