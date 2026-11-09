@@ -410,7 +410,7 @@ class HistoryStartupTests(unittest.TestCase):
                 with self.assertRaises(ValueError) as caught:
                     observer.History(case, observer.Trace(PROPOSAL)).scan(1, final=condition == "empty")
                 details = observer.failure_details({"stage": "native-history"}, caught.exception)
-                self.assertEqual(details.get("layout"), expected)
+                self.assertEqual(details.get("sessionLayout"), expected)
                 self.assertNotIn("PRIVATE", json.dumps(details))
 
     @unittest.skipUnless(os.name == "posix", "Owned symlink fixtures target POSIX")
@@ -425,7 +425,7 @@ class HistoryStartupTests(unittest.TestCase):
             with self.assertRaises(ValueError) as caught:
                 observer.History(case, observer.Trace(PROPOSAL)).scan(1)
             details = observer.failure_details({"stage": "native-history"}, caught.exception)
-            self.assertEqual(details.get("layout"), {"empty": False, "expectedPresent": True,
+            self.assertEqual(details.get("sessionLayout"), {"empty": False, "expectedPresent": True,
                                                     "exclusiveExpected": True, "expectedSymlink": True})
             self.assertNotIn("PRIVATE", json.dumps(details))
 
@@ -439,10 +439,111 @@ class HistoryStartupTests(unittest.TestCase):
                  (valid, "native-history", "history-prefix", None)]
         for layout, stage, code, expected in cases:
             error = ValueError("PRIVATE_MESSAGE")
-            error.history_check_code, error.history_layout = code, layout
+            error.history_check_code, error.history_session_layout = code, layout
             details = observer.failure_details({"stage": stage}, error)
-            self.assertEqual(details.get("layout"), expected)
+            self.assertEqual(details.get("sessionLayout"), expected)
             self.assertNotIn("PRIVATE", json.dumps(details))
+
+
+class HistoryOperationLockTests(unittest.TestCase):
+    def test_lock_namespace_preserves_selected_identity_prefix_and_resume(self):
+        with tempfile.TemporaryDirectory() as root:
+            case = Path(root).resolve()
+            folder = case/"settings/session-state"/PROPOSAL["nativeSessionId"]
+            folder.mkdir(parents=True)
+            locks = folder.parent/".session-operation-locks"
+            locks.mkdir()
+            (locks/"PRIVATE_ENTRY").write_bytes(b"PRIVATE_CONTENT\xff")
+            history = folder/"events.jsonl"
+            start = (event("session.start", sessionId=PROPOSAL["nativeSessionId"], copilotVersion="1.0.90")+"\n").encode()
+            history.write_bytes(start)
+            trace = observer.Trace(PROPOSAL)
+            reader = observer.History(case, trace)
+            read = observer.read_bounded
+            def selected_only(path, *args, **kwargs):
+                if Path(path) != history:
+                    raise AssertionError("Only selected event history may be read")
+                return read(path, *args, **kwargs)
+            with patch.object(observer, "read_bounded", side_effect=selected_only):
+                try:
+                    reader.scan(1, final=True)
+                except ValueError:
+                    self.fail("Native lock namespace must not be classified as another session")
+                self.assertTrue(trace.started)
+                history.write_bytes(start+(event("session.resume", eventCount=1)+"\n").encode())
+                reader.scan(2, final=True)
+            self.assertTrue(trace.resumed)
+            self.assertEqual(trace.count, 2)
+
+    def test_lock_namespace_alone_waits_only_at_pristine_startup(self):
+        with tempfile.TemporaryDirectory() as root:
+            case = Path(root).resolve()
+            (case/"settings/session-state/.session-operation-locks").mkdir(parents=True)
+            trace = observer.Trace(PROPOSAL)
+            reader = observer.History(case, trace)
+            try:
+                reader.scan(1)
+            except ValueError:
+                self.fail("Lock metadata alone must remain pending at initial startup")
+            self.assertEqual((trace.count, reader.offset, trace.started), (0, 0, False))
+            for phase, final in [(1, True), (2, False)]:
+                with self.assertRaises(ValueError) as caught:
+                    reader.scan(phase, final=final)
+                details = observer.failure_details({"stage": "native-history"}, caught.exception)
+                self.assertEqual(details.get("sessionLayout"), {"empty": True, "expectedPresent": False,
+                                                               "exclusiveExpected": False, "expectedSymlink": None})
+
+    def test_lock_namespace_does_not_hide_unknown_entries_or_wrong_event_identity(self):
+        for condition in ("foreign-directory", "unknown-file", "wrong-event-id"):
+            with self.subTest(condition=condition), tempfile.TemporaryDirectory() as root:
+                case = Path(root).resolve()
+                folder = case/"settings/session-state"/PROPOSAL["nativeSessionId"]
+                folder.mkdir(parents=True)
+                (folder.parent/".session-operation-locks").mkdir()
+                if condition == "foreign-directory":
+                    (folder.parent/"00000000-0000-4000-8000-000000000002").mkdir()
+                elif condition == "unknown-file":
+                    (folder.parent/"PRIVATE_UNKNOWN").write_text("PRIVATE_CONTENT")
+                (folder/"events.jsonl").write_bytes((event("session.start", sessionId="wrong",
+                                                        copilotVersion="1.0.90")+"\n").encode())
+                with self.assertRaises(ValueError) as caught:
+                    observer.History(case, observer.Trace(PROPOSAL)).scan(1, final=True)
+                details = observer.failure_details({"stage": "native-history"}, caught.exception)
+                self.assertEqual(details.get("checkCode"), "history-event-contract" if condition == "wrong-event-id"
+                                 else "history-session-layout")
+                self.assertNotIn("PRIVATE", json.dumps(details))
+
+    def test_operation_lock_regular_file_is_not_exempted(self):
+        with tempfile.TemporaryDirectory() as root:
+            case = Path(root).resolve()
+            folder = case/"settings/session-state"/PROPOSAL["nativeSessionId"]
+            folder.mkdir(parents=True)
+            (folder.parent/".session-operation-locks").write_text("PRIVATE_CONTENT")
+            with self.assertRaises(ValueError) as caught:
+                observer.History(case, observer.Trace(PROPOSAL)).scan(1)
+            details = observer.failure_details({"stage": "native-history"}, caught.exception)
+            self.assertEqual(details.get("checkCode"), "history-operation-lock-layout")
+            self.assertNotIn("PRIVATE", json.dumps(details))
+
+    @unittest.skipUnless(os.name == "posix", "Owned symlink fixtures target POSIX")
+    def test_bookkeeping_exception_cannot_hide_a_namespace_or_selected_session_link(self):
+        for linked in ("namespace", "selected"):
+            with self.subTest(linked=linked), tempfile.TemporaryDirectory() as root:
+                case = Path(root).resolve()
+                root_dir = case/"settings/session-state"
+                root_dir.mkdir(parents=True)
+                target = case/"PRIVATE_TARGET"
+                target.mkdir()
+                folder = root_dir/PROPOSAL["nativeSessionId"]
+                locks = root_dir/".session-operation-locks"
+                (locks if linked == "namespace" else folder).symlink_to(target, target_is_directory=True)
+                (folder if linked == "namespace" else locks).mkdir()
+                with self.assertRaises(ValueError) as caught:
+                    observer.History(case, observer.Trace(PROPOSAL)).scan(1)
+                details = observer.failure_details({"stage": "native-history"}, caught.exception)
+                self.assertEqual(details.get("checkCode"), "history-operation-lock-layout" if linked == "namespace"
+                                 else "history-session-layout")
+                self.assertNotIn("PRIVATE", json.dumps(details))
 
 
 class NativeIdentityTests(unittest.TestCase):

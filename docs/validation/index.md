@@ -8,6 +8,8 @@ Capability research, validation results, and evidence fixtures.
 
 ## Documents
 
+- [Native operation-lock namespace](native-history-operation-locks.md) — Narrow synthetic history compatibility correction, static source limits and unchanged native qualification gates.
+
 - [Partial legacy workspace-copy recovery](legacy-migration-recovery-review.md) — Source-derived retry, overwrite and resurrection risks with a proposed maintenance-owner handoff.
 
 - [Pair native envelope first source derivation](pair-native-envelope-derivation.md) — Conditional super-journal arithmetic, exact source role caveat and missing complete growth/scratch inputs.

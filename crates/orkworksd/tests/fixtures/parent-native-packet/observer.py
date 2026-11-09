@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import stat
 
 
 def require(value, reason):
@@ -49,16 +50,17 @@ def failure_details(diagnostic, error):
     code = getattr(error, "history_check_code", None)
     if stage == "native-history" and type(code) is str and code in {
             "history-root-missing", "history-root-layout", "history-session-layout",
+            "history-operation-lock-layout",
             "history-events-missing", "history-events-read", "history-prefix", "history-tail",
             "history-event-cap", "history-event-contract"}:
         details["checkCode"] = code
         if code == "history-session-layout":
-            layout = getattr(error, "history_layout", None)
+            layout = getattr(error, "history_session_layout", None)
             keys = ("empty", "expectedPresent", "exclusiveExpected", "expectedSymlink")
             if (type(layout) is dict and set(layout) == set(keys)
                     and all(type(layout[k]) is bool for k in keys[:3])
                     and (layout["expectedSymlink"] is None or type(layout["expectedSymlink"]) is bool)):
-                details["layout"] = {k: layout[k] for k in keys}
+                details["sessionLayout"] = {k: layout[k] for k in keys}
     return details
 
 
@@ -394,6 +396,11 @@ class History:
             code = "history-root-layout"
             require(not root.is_symlink(), "Unexpected history link")
             entries = list(root.iterdir())
+            operation_locks = root/".session-operation-locks"
+            if operation_locks in entries:
+                code = "history-operation-lock-layout"
+                require(stat.S_ISDIR(operation_locks.lstat().st_mode), "Unexpected operation lock entry")
+                entries.remove(operation_locks)
             expected = root/self.trace.proposal["nativeSessionId"]
             code = "history-session-layout"
             if not entries and not final and phase == 1 and self.offset == 0 and self.trace.count == 0:
@@ -402,7 +409,7 @@ class History:
             symlink = expected.is_symlink() if exclusive else None
             if not exclusive or symlink:
                 error = ValueError("Unexpected native session")
-                error.history_layout = {"empty": not entries, "expectedPresent": expected in entries,
+                error.history_session_layout = {"empty": not entries, "expectedPresent": expected in entries,
                                         "exclusiveExpected": exclusive, "expectedSymlink": symlink}
                 raise error
             path = expected/"events.jsonl"
