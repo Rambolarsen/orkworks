@@ -56,7 +56,14 @@ async fn read_admission_cannot_be_upgraded_to_writer_even_with_a_new_claim() {
         .unwrap();
     let claim = FileClaim::new();
     assert!(matches!(
-        candidate.admit_write(ObservationWriteAdmission { source }, &claim),
+        candidate.admit_write(
+            ObservationWriteAdmission {
+                revocation: workflow
+                    .capture_sql_revocation(source.session_id().into(), source.created_at().into()),
+                source
+            },
+            &claim
+        ),
         Err(StoreError::Conflict)
     ));
     assert!(claim.pending().is_ok());
@@ -70,7 +77,14 @@ async fn cancelled_write_claim_makes_no_transition_or_file_effect() {
     let claim = FileClaim::new();
     assert!(claim.cancel());
     assert!(matches!(
-        candidate.admit_write(ObservationWriteAdmission { source }, &claim),
+        candidate.admit_write(
+            ObservationWriteAdmission {
+                revocation: workflow
+                    .capture_sql_revocation(source.session_id().into(), source.created_at().into()),
+                source
+            },
+            &claim
+        ),
         Err(StoreError::Cancelled)
     ));
     assert!(workflow.workspace_observations().is_ok());
@@ -83,7 +97,14 @@ async fn admitted_write_grant_owns_exclusivity_and_retains_sql_floor_on_payload_
     let writer = workflow
         .sql_candidate(&lease)
         .unwrap()
-        .admit_write(ObservationWriteAdmission { source }, &FileClaim::new())
+        .admit_write(
+            ObservationWriteAdmission {
+                revocation: workflow
+                    .capture_sql_revocation(source.session_id().into(), source.created_at().into()),
+                source,
+            },
+            &FileClaim::new(),
+        )
         .unwrap();
     assert!(matches!(
         SqlCandidate::bind(root.path(), &lease),
@@ -112,7 +133,14 @@ async fn admitted_writer_cannot_extend_original_claim_deadline_with_a_new_scan_r
     let writer = workflow
         .sql_candidate(&lease)
         .unwrap()
-        .admit_write(ObservationWriteAdmission { source }, &claim)
+        .admit_write(
+            ObservationWriteAdmission {
+                revocation: workflow
+                    .capture_sql_revocation(source.session_id().into(), source.created_at().into()),
+                source,
+            },
+            &claim,
+        )
         .unwrap();
     let scan = ScanRequest::capture(Instant::now() + Duration::from_secs(2)).unwrap();
     tokio::time::sleep(Duration::from_millis(230)).await;
@@ -138,6 +166,8 @@ async fn admitted_effect_keeps_exclusivity_past_expiry_and_returns_its_definitiv
         .unwrap()
         .admit_write(
             ObservationWriteAdmission {
+                revocation: workflow
+                    .capture_sql_revocation(source.session_id().into(), source.created_at().into()),
                 source: source.clone(),
             },
             &claim,
@@ -180,7 +210,14 @@ async fn admitted_effect_keeps_exclusivity_past_expiry_and_returns_its_definitiv
     let retry = workflow
         .sql_candidate(&lease)
         .unwrap()
-        .admit_write(ObservationWriteAdmission { source }, &FileClaim::new())
+        .admit_write(
+            ObservationWriteAdmission {
+                revocation: workflow
+                    .capture_sql_revocation(source.session_id().into(), source.created_at().into()),
+                source,
+            },
+            &FileClaim::new(),
+        )
         .unwrap()
         .persist(
             ScanRequest::capture(Instant::now() + Duration::from_secs(2)).unwrap(),
@@ -196,6 +233,86 @@ async fn admitted_effect_keeps_exclusivity_past_expiry_and_returns_its_definitiv
         std::fs::read(root.path().join("workflow-observations/s.ndjson")).unwrap(),
         before
     );
+    assert_eq!(
+        std::fs::read(root.path().join("workflow-observations/sequence")).unwrap(),
+        b"1"
+    );
+    store.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn revoked_or_foreign_revocation_never_consumes_the_pending_claim() {
+    for foreign in [false, true] {
+        let (root, lease, workflow, store, source) = fixture().await;
+        let other = tempfile::tempdir().unwrap();
+        let other_workflow = WorkflowObservationStore::open(other.path().into()).unwrap();
+        let revocation = if foreign {
+            other_workflow
+                .capture_sql_revocation(source.session_id().into(), source.created_at().into())
+        } else {
+            let token = workflow
+                .capture_sql_revocation(source.session_id().into(), source.created_at().into());
+            workflow.delete_session_observations("s").unwrap();
+            token
+        };
+        let claim = FileClaim::new();
+        assert!(matches!(
+            workflow
+                .sql_candidate(&lease)
+                .unwrap()
+                .admit_write(ObservationWriteAdmission { source, revocation }, &claim),
+            Err(StoreError::Conflict)
+        ));
+        assert!(claim.pending().is_ok());
+        assert!(!root.path().join("workflow-observations/sequence").exists());
+        assert!(workflow.workspace_observations().is_ok());
+        store.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn retained_batch_writer_cannot_reuse_the_admitted_grant() {
+    let (root, lease, workflow, store, source) = fixture().await;
+    let mut writer = workflow
+        .sql_candidate(&lease)
+        .unwrap()
+        .admit_write(
+            ObservationWriteAdmission {
+                revocation: workflow
+                    .capture_sql_revocation(source.session_id().into(), source.created_at().into()),
+                source,
+            },
+            &FileClaim::new(),
+        )
+        .unwrap();
+    let first = writer
+        .persist_batch(
+            ScanRequest::capture(Instant::now() + Duration::from_secs(2)).unwrap(),
+            7,
+            vec![(0, value())],
+        )
+        .unwrap();
+    assert!(matches!(
+        &first[0].1,
+        Ok(crate::workflow_observations::RecordOutcome::Accepted(_))
+    ));
+    assert!(matches!(
+        writer.persist_batch(
+            ScanRequest::capture(Instant::now() + Duration::from_secs(2)).unwrap(),
+            8,
+            vec![(0, value())]
+        ),
+        Err(WriteError::Storage(StoreError::Conflict))
+    ));
+    assert!(matches!(
+        writer.persist(
+            ScanRequest::capture(Instant::now() + Duration::from_secs(2)).unwrap(),
+            ObservationOrigin::Peon,
+            "other",
+            value()
+        ),
+        Err(WriteError::Storage(StoreError::Conflict))
+    ));
     assert_eq!(
         std::fs::read(root.path().join("workflow-observations/sequence")).unwrap(),
         b"1"

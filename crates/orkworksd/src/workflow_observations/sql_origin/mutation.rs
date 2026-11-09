@@ -57,7 +57,19 @@ pub(super) fn retry_for_source(
     payload: &str,
     now: DateTime<Utc>,
 ) -> Result<Option<RecordOutcome>> {
-    matching_retry(record, key, payload, now, |origin| {
+    if !matches_source(record, source, key, payload, now)? {
+        return Ok(None);
+    }
+    Ok(Some(receipt(record)))
+}
+pub(super) fn matches_source(
+    record: &RecordData,
+    source: &crate::session_store::ObservationSource,
+    key: &str,
+    payload: &str,
+    now: DateTime<Utc>,
+) -> Result<bool> {
+    matches_retry(record, key, payload, now, |origin| {
         origin.database_epoch() == source.database_epoch()
             && origin.workspace_sha256() == source.workspace_sha256()
             && origin.session_id() == source.session_id()
@@ -66,14 +78,30 @@ pub(super) fn retry_for_source(
 }
 fn matching_retry(
     record: &RecordData,
+    key: &str,
+    payload: &str,
+    now: DateTime<Utc>,
+    same_scope: impl FnOnce(&OriginData) -> bool,
+) -> Result<Option<RecordOutcome>> {
+    Ok(matches_retry(record, key, payload, now, same_scope)?.then(|| receipt(record)))
+}
+fn receipt(record: &RecordData) -> RecordOutcome {
+    RecordOutcome::Duplicate {
+        observation_id: record.identity().0.into(),
+        sequence: record.sequence(),
+        accepted_at: retry_fields(record).2.into(),
+    }
+}
+fn matches_retry(
+    record: &RecordData,
     expected_key: &str,
     expected_payload: &str,
     now: DateTime<Utc>,
     same_scope: impl FnOnce(&OriginData) -> bool,
-) -> Result<Option<RecordOutcome>> {
+) -> Result<bool> {
     let (key, payload, accepted) = retry_fields(record);
     if key != expected_key || !within_window(now, accepted) {
-        return Ok(None);
+        return Ok(false);
     }
     let Some(origin) = record.origin() else {
         return Err(StoreError::Conflict);
@@ -81,12 +109,9 @@ fn matching_retry(
     if !same_scope(origin) || payload != expected_payload {
         return Err(StoreError::Conflict);
     }
-    Ok(Some(RecordOutcome::Duplicate {
-        observation_id: record.identity().0.into(),
-        sequence: record.sequence(),
-        accepted_at: accepted.into(),
-    }))
+    Ok(true)
 }
+
 fn same_scope(a: &OriginData, b: &OriginData) -> bool {
     a.database_epoch() == b.database_epoch()
         && a.workspace_sha256() == b.workspace_sha256()

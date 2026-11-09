@@ -296,6 +296,7 @@ pub(crate) use evidence::CandidateResult;
 pub(crate) use evidence::{CapturedEndingEvidence, EvidenceWrite};
 
 mod sql_origin;
+pub(crate) use sql_origin::{CapturedSqlObservation, SqlCandidateResult, SqlEvidenceWrite};
 
 #[cfg(test)]
 pub(crate) use sql_origin::{hold_observation, ObservationStage};

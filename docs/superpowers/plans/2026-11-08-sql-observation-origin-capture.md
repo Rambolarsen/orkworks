@@ -256,3 +256,17 @@ The corrected complete local repository verifier passes: 3,308 Rust unit tests
 native ABI/type checks/tests/build and documentation checks/build. The current
 20 reviewed Rust file hashes match the verified source. Required CI and the PR
 lifecycle remain recorded with the concrete PR, not inferred from this local run.
+
+
+## Captured producer integration
+
+The private final-scan runner now uses its original pre-inference
+`CapturedSqlObservation` for grounded indexed batch persistence. One retained
+write grant, full file-job slot, initial inventory and aggregate read allowance
+span the finite batch. Source/ending checks and memory-only shared revocation
+precede admission; admitted settlement preserves partial receipts and stops
+remaining I/O after uncertain mutation. The production runner remains JSON and
+its evaluation behavior is unchanged; the private SQL producer schedules none.
+The combined producer/deletion checkbox above remains open: exact-job Workflow
+deletion composition is the next distinct gate. Current branch verification and
+review evidence are recorded on its PR rather than inferred from earlier slices.

@@ -345,8 +345,9 @@ Legacy observations remain explicit unqualified data.
 
 `ObservationSource` is immutable, non-deserializable checked SQL data for one
 original creation and workspace/epoch. `CapturedSqlObservation` additionally
-retains the actual `CapturedEnding`, worker, root and lease, and can obtain only
-its checked read admission. The captured constructor runs before inference;
+retains the actual `CapturedEnding`, worker, root, lease and memory-only
+revocation permit. It can obtain checked read admission or compose the private
+grounded final-scan batch producer. The captured constructor runs before inference;
 parsed records, model values and caller-selected current IDs cannot mint it.
 `SqlObservationRead` retains a bounded snapshot and original owner after actual
 read settlement releases the session lane and file-operation exclusivity.
@@ -361,9 +362,12 @@ evictions remain unqualified. These data transformations establish no write gran
 the canonical candidate/descriptor, original source and claim deadline until its
 physical persistence operation settles. Read admission cannot mint it. Its
 sealed write-token type is private to the checked application subtree and has
-no production minting path. The file layer persists only through this separate
-boundary; source-currentness checks, grounded batch composition and Workflow
-deletion ordering remain pending. Production keeps its existing JSON authority.
+a minting path only through the private original captured producer.
+`SqlEvidenceWrite` reports detached/current settlement and indexed
+`SqlCandidateResult` values (ungrounded, receipt or candidate/storage error),
+without scheduling evaluation. The file layer persists only through this separate
+boundary; exact-job Workflow deletion ordering and assessment composition remain
+pending. Production keeps its existing JSON authority.
 
 ### Recommendation origins: analysis vs observations
 

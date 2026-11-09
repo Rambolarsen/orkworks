@@ -19,11 +19,15 @@ pub(crate) struct ObservationOpenAdmission {
 }
 
 /// Distinct write proof; only the checked application owner may construct it.
-/// Producer minting and retained batch composition remain separately gated.
+/// Minted only for the original captured producer after its final checked fences.
 pub(crate) struct ObservationWriteAdmission {
     source: crate::session_store::ObservationSource,
+    revocation: crate::workflow_observations::SqlRevocation,
 }
 impl ObservationWriteAdmission {
+    pub(crate) fn revocation(&self) -> &crate::workflow_observations::SqlRevocation {
+        &self.revocation
+    }
     pub(crate) fn source(&self) -> &crate::session_store::ObservationSource {
         &self.source
     }
@@ -41,6 +45,8 @@ pub(crate) struct SessionWrites {
     observation_before_admit: ReplayGate,
     #[cfg(test)]
     observation_admitted: ReplayGate,
+    #[cfg(test)]
+    observation_after_counter: ReplayGate,
     #[cfg(test)]
     before_callback: std::sync::Mutex<Option<oneshot::Sender<()>>>,
     #[cfg(test)]
@@ -106,6 +112,8 @@ impl SessionWrites {
             observation_before_admit: std::sync::Mutex::new(None),
             #[cfg(test)]
             observation_admitted: std::sync::Mutex::new(None),
+            #[cfg(test)]
+            observation_after_counter: std::sync::Mutex::new(None),
             #[cfg(test)]
             before_callback: std::sync::Mutex::new(None),
             #[cfg(test)]

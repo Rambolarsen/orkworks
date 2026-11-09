@@ -22,6 +22,7 @@ pub(crate) struct SqlWriter {
     candidate: SqlCandidate,
     admission: crate::session_application::sql_writes::ObservationWriteAdmission,
     deadline: std::time::Instant,
+    used: bool,
 }
 impl SqlWriter {
     /// Blocking-only, outside application guards. Actual effects retain the owner.
@@ -32,6 +33,9 @@ impl SqlWriter {
         key: &str,
         candidate: ObservationCandidate,
     ) -> std::result::Result<RecordOutcome, sql_origin::WriteError> {
+        if self.used {
+            return Err(crate::session_store::StoreError::Conflict.into());
+        }
         sql_origin::persist(
             &self.candidate.directory,
             self.admission,
@@ -39,6 +43,32 @@ impl SqlWriter {
             origin,
             key,
             candidate,
+        )
+    }
+    pub(crate) fn persist_batch(
+        &mut self,
+        request: sql_origin::ScanRequest,
+        generation: u64,
+        candidates: Vec<(usize, ObservationCandidate)>,
+    ) -> std::result::Result<
+        Vec<(
+            usize,
+            std::result::Result<RecordOutcome, sql_origin::WriteError>,
+        )>,
+        sql_origin::WriteError,
+    > {
+        if self.used {
+            return Err(crate::session_store::StoreError::Conflict.into());
+        }
+        // Retain physical exclusivity through settlement, without retaining a
+        // reusable permission for another inventory/batch under this claim.
+        self.used = true;
+        sql_origin::persist_batch(
+            &self.candidate.directory,
+            &self.admission,
+            request.limit_deadline(self.deadline),
+            generation,
+            candidates,
         )
     }
 }
@@ -178,11 +208,18 @@ impl SqlCandidate {
         admission: crate::session_application::sql_writes::ObservationWriteAdmission,
         claim: &FileClaim,
     ) -> SqlResult<SqlWriter> {
+        if !admission
+            .revocation()
+            .valid_for(&self.owner, admission.source())
+        {
+            return Err(crate::session_store::StoreError::Conflict);
+        }
         self.admit_file(claim)?;
         Ok(SqlWriter {
             candidate: self,
             admission,
             deadline: claim.deadline,
+            used: false,
         })
     }
     pub(crate) fn read_scope(

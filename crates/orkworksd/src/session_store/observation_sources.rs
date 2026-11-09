@@ -65,6 +65,20 @@ impl Database {
     }
 
     pub(super) fn validate_observation_source(&self, source: &ObservationSource) -> Result<()> {
+        self.validate_observation(source, None)
+    }
+    pub(super) fn validate_observation_ending(
+        &self,
+        source: &ObservationSource,
+        harness: Option<&str>,
+    ) -> Result<()> {
+        self.validate_observation(source, Some(harness))
+    }
+    fn validate_observation(
+        &self,
+        source: &ObservationSource,
+        ending: Option<Option<&str>>,
+    ) -> Result<()> {
         source.validate()?;
         let _budget = queries::ReadBudget::new(&self.conn);
         let tx = self.conn.unchecked_transaction()?;
@@ -78,6 +92,14 @@ impl Database {
             Some((_, 0, true)) => return Err(StoreError::Corrupt),
             Some((created, 0, false)) if created == source.created_at => {}
             _ => return Err(StoreError::Conflict),
+        }
+        if let Some(expected_harness) = ending {
+            let eligible:bool=tx.query_row(
+                "SELECT coalesce(json_extract(metadata,'$.lifecyclePhase')='ending',0) AND (?2 IS NULL OR (harness=?2 AND coalesce(json_extract(metadata,'$.harnessId'),json_extract(metadata,'$.harness'))=?2)) FROM sessions WHERE id=?1",
+                rusqlite::params![&source.session_id,expected_harness],|r|r.get(0))?;
+            if !eligible {
+                return Err(StoreError::Conflict);
+            }
         }
         tx.commit()?;
         Ok(())

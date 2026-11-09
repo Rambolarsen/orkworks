@@ -5,7 +5,7 @@ use super::*;
 use crate::providers::ProviderRunResult;
 use crate::session_application::ending_completion::Completion;
 use crate::session_application::sql_writes::{
-    lifecycle::{CapturedEndingEvidence, EvidenceWrite, Finalization, ProviderWrite},
+    lifecycle::{CapturedSqlObservation, Finalization, ProviderWrite, SqlEvidenceWrite},
     SessionWrites,
 };
 use crate::session_store::StoreError;
@@ -17,13 +17,13 @@ pub(crate) enum FinalScanPersistence {
         id: String,
         generation: u64,
     },
-    Sql(CapturedEndingEvidence),
+    Sql(CapturedSqlObservation),
 }
 #[derive(Debug)]
 #[must_use]
 pub(crate) struct SqlScanCompletion {
     pub(crate) provider: Option<Result<ProviderWrite, StoreError>>,
-    pub(crate) evidence: Option<Result<EvidenceWrite, StoreError>>,
+    pub(crate) evidence: Option<Result<SqlEvidenceWrite, StoreError>>,
     pub(crate) history: Result<Finalization, StoreError>,
 }
 #[derive(Debug)]
@@ -78,7 +78,7 @@ impl FinalScanPersistence {
         else {
             unreachable!("explicit SQL history constructor changed backend")
         };
-        Ok(Self::Sql(captured.with_workflow_evidence().await?))
+        Ok(Self::Sql(captured.capture_sql_observation_origin().await?))
     }
     async fn output(&self) -> Result<Vec<String>, StoreError> {
         match self {

@@ -32,6 +32,10 @@ enum Command {
     Get(String),
     OpeningIdentity,
     ValidateObservationSource(ObservationSource),
+    ValidateObservationEnding {
+        source: ObservationSource,
+        harness: Option<String>,
+    },
     ValidateObservationOpening(OpeningIdentity),
     CaptureAssessmentSources(OriginalInputs),
     ValidateAssessmentSources {
@@ -102,6 +106,7 @@ impl Command {
         match self {
             Self::OpeningIdentity
             | Self::ValidateObservationSource(_)
+            | Self::ValidateObservationEnding { .. }
             | Self::ValidateObservationOpening(_)
             | Self::CaptureAssessmentSources(_)
             | Self::ValidateAssessmentSources { .. }
@@ -122,6 +127,12 @@ impl Command {
     fn size(&self) -> Result<usize> {
         match self {
             Self::ValidateObservationSource(source) => source.validate()?,
+            Self::ValidateObservationEnding { source, harness } => {
+                source.validate()?;
+                if harness.as_ref().is_some_and(|h| h.len() > 256) {
+                    return Err(StoreError::TooLarge);
+                }
+            }
             Self::CaptureAssessmentSources(original) => original.sources().validate()?,
             Self::ValidateAssessmentSources {
                 sources,
@@ -155,6 +166,7 @@ impl Command {
             Self::OrganizationState(_) | Self::DeletionRecord(..) => MAX_RECORD + 4096,
             Self::OpeningIdentity
             | Self::ValidateObservationSource(_)
+            | Self::ValidateObservationEnding { .. }
             | Self::ValidateObservationOpening(_) => 64,
             Self::CaptureAssessmentSources(_) => MAX_SOURCE_BYTES,
             Self::PendingDeletions(..) => 256 * 1024,
@@ -194,6 +206,10 @@ impl Command {
             Self::OpeningIdentity => Ok(Reply::OpeningIdentity(db.opening_identity()?)),
             Self::ValidateObservationSource(source) => {
                 db.validate_observation_source(&source)?;
+                Ok(Reply::Unit)
+            }
+            Self::ValidateObservationEnding { source, harness } => {
+                db.validate_observation_ending(&source, harness.as_deref())?;
                 Ok(Reply::Unit)
             }
             Self::ValidateObservationOpening(original) => {
@@ -1190,6 +1206,19 @@ impl SessionStore {
     ) -> Result<()> {
         match self
             .request(Command::ValidateObservationSource(source))
+            .await?
+        {
+            Reply::Unit => Ok(()),
+            _ => Err(StoreError::Unavailable),
+        }
+    }
+    pub(crate) async fn validate_observation_ending(
+        &self,
+        source: ObservationSource,
+        harness: Option<String>,
+    ) -> Result<()> {
+        match self
+            .request(Command::ValidateObservationEnding { source, harness })
             .await?
         {
             Reply::Unit => Ok(()),

@@ -179,9 +179,9 @@ pub(super) fn counter(directory: &File, pin: &Pin, value: u64) -> Result<Pin> {
     temp.file.write_all(value.to_string().as_bytes())?;
     temp.publish(pin)
 }
-pub(super) fn append(directory: &File, pin: &Pin, line: &[u8]) -> Result<()> {
+pub(super) fn append(directory: &File, pin: &Pin, line: &[u8]) -> Result<Pin> {
     pin.verify(directory)?;
-    let flags = libc::O_WRONLY
+    let flags = libc::O_RDWR
         | libc::O_APPEND
         | if pin.original.is_none() {
             libc::O_CREAT | libc::O_EXCL
@@ -212,7 +212,7 @@ pub(super) fn append(directory: &File, pin: &Pin, line: &[u8]) -> Result<()> {
     };
     written.verify(directory)?;
     directory.sync_all()?;
-    Ok(())
+    Ok(written)
 }
 pub(super) fn rewrite(
     directory: &File,
@@ -222,7 +222,7 @@ pub(super) fn rewrite(
     session: &str,
     now: DateTime<Utc>,
     budget: &mut ReadBudget,
-) -> Result<()> {
+) -> Result<Pin> {
     let mut temp = Temporary::create(directory)?;
     for tombstones in [true, false] {
         for index in indices {
@@ -244,8 +244,7 @@ pub(super) fn rewrite(
     temp.file.write_all(b"\n")?;
     #[cfg(test)]
     fail(Fault::BeforeRename)?;
-    temp.publish(pin)?;
-    Ok(())
+    temp.publish(pin)
 }
 #[cfg(test)]
 #[derive(Clone, Copy, PartialEq)]

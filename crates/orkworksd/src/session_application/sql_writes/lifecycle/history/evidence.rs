@@ -83,7 +83,9 @@ impl CapturedEnding {
     async fn validate_evidence_record(&self) -> Result<(), StoreError> {
         self.read_evidence_record().await.map(|_| ())
     }
-    async fn read_evidence_record(&self) -> Result<metadata::SessionMetadata, StoreError> {
+    pub(super) async fn read_evidence_record(
+        &self,
+    ) -> Result<metadata::SessionMetadata, StoreError> {
         let record = self
             .owner
             .store
@@ -132,29 +134,8 @@ impl CapturedEndingEvidence {
         }
         Ok(metadata)
     }
-    /// Capture bounded physical output under original memory fences; rejoin off-guard.
     pub(crate) async fn final_scan_output(&self) -> Result<Vec<String>, StoreError> {
-        let instance = self.writer.instance_id();
-        let (output, cols) = self
-            .ending
-            .owner
-            .lifecycle_access(
-                self.ending.id.clone(),
-                self.ending.runtime.clone(),
-                Some(self.ending.snapshot.clone()),
-                None,
-                Access::Async,
-                move |ws, h| {
-                    (ws.workflow_observations.instance_id() == instance)
-                        .then(|| (h.output_buffer.snapshot(), h.runtime.last_cols))
-                },
-            )
-            .await?
-            .flatten()
-            .ok_or(StoreError::Conflict)?;
-        tokio::task::spawn_blocking(move || peon::rejoin_hard_wrapped_lines(&output, cols))
-            .await
-            .map_err(|_| StoreError::Unavailable)
+        self.ending.final_scan_output().await
     }
     pub(crate) async fn persist_provider_context(
         &self,
@@ -324,5 +305,31 @@ impl CapturedEndingEvidence {
                 if claim.expire() { Err(StoreError::Expired) } else { received.await.map_err(|_|StoreError::Unavailable)? }
             }
         }
+    }
+}
+
+impl CapturedEnding {
+    /// Capture bounded physical output under original memory fences; rejoin off-guard.
+    pub(super) async fn final_scan_output(&self) -> Result<Vec<String>, StoreError> {
+        let instance = self.workflow.instance_id();
+        let (output, cols) = self
+            .owner
+            .lifecycle_access(
+                self.id.clone(),
+                self.runtime.clone(),
+                Some(self.snapshot.clone()),
+                None,
+                Access::Async,
+                move |ws, h| {
+                    (ws.workflow_observations.instance_id() == instance)
+                        .then(|| (h.output_buffer.snapshot(), h.runtime.last_cols))
+                },
+            )
+            .await?
+            .flatten()
+            .ok_or(StoreError::Conflict)?;
+        tokio::task::spawn_blocking(move || peon::rejoin_hard_wrapped_lines(&output, cols))
+            .await
+            .map_err(|_| StoreError::Unavailable)
     }
 }

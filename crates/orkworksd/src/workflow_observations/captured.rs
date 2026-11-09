@@ -72,6 +72,48 @@ impl FileClaim {
         }
     }
 }
+/// Memory-only revocation. This value alone grants neither SQL nor file access.
+#[derive(Clone)]
+pub(crate) struct SqlRevocation {
+    owner: Arc<operation::Owner>,
+    id: String,
+    created: String,
+    valid: Arc<AtomicBool>,
+}
+impl SqlRevocation {
+    pub(super) fn valid_for(
+        &self,
+        owner: &Arc<operation::Owner>,
+        source: &crate::session_store::ObservationSource,
+    ) -> bool {
+        Arc::ptr_eq(&self.owner, owner)
+            && self.id == source.session_id()
+            && self.created == source.created_at()
+            && self.valid.load(Ordering::SeqCst)
+    }
+}
+impl WorkflowObservationStore {
+    /// Blocking-only registration; the original SQL source is checked afterwards.
+    pub(crate) fn capture_sql_revocation(&self, id: String, created: String) -> SqlRevocation {
+        let mut inner = self.inner.lock().unwrap();
+        inner.permits.retain(|_, permit| permit.strong_count() > 0);
+        let permit = inner
+            .permits
+            .entry((id.clone(), created.clone()))
+            .or_default();
+        let valid = permit.upgrade().unwrap_or_else(|| {
+            let valid = Arc::new(AtomicBool::new(true));
+            *permit = Arc::downgrade(&valid);
+            valid
+        });
+        SqlRevocation {
+            owner: self.owner.clone(),
+            id,
+            created,
+            valid,
+        }
+    }
+}
 #[derive(Clone)]
 pub(crate) struct CapturedWriter {
     store: WorkflowObservationStore,
