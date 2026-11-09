@@ -270,3 +270,5 @@ fn canonical(value: serde_json::Value) -> serde_json::Value {
 }
 #[cfg(test)]
 pub(crate) mod tests;
+
+pub(crate) mod classification;

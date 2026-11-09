@@ -1,10 +1,10 @@
 ---
 type: Design Contract
 title: SQL assessment input classification
-description: Proposed typed unknown-versus-qualified source classification before the existing assessment provenance codec, with a private policy-only first deliverable.
+description: Accepted typed unknown-versus-qualified source classification before the existing assessment provenance codec, with a private policy-only first deliverable.
 tags: [orkworks, sqlite, assessments, provenance, admission]
-status: draft
-workflow_status: proposed
+status: stable
+workflow_status: accepted
 ---
 
 # SQL assessment input classification
@@ -13,8 +13,9 @@ Tracking: [#1243](https://github.com/Rambolarsen/orkworks/issues/1243).
 Source pin: `5bc01fb75a6ae6f1d4a1362d280a035617448fe8` (#1635).
 Reuse the accepted [source provenance](2026-11-08-sql-assessment-source-provenance.md)
 and [observation origin](2026-11-08-sql-observation-origin-capture.md) contracts.
-This proposal selects a private semantic policy boundary and its first delivery;
-it requires owner acceptance before dependent code. It changes neither accepted
+The owner accepted this private semantic policy boundary and first delivery
+after #1642 on 2026-11-09 by answering “keep going” to the explicit classifier,
+tests and 1 MiB envelope-cap approval question. Reuse that acceptance. It changes neither accepted
 format4 nor the production JSON selector.
 
 ## Outcome and source evidence
@@ -53,8 +54,8 @@ Rejected alternatives:
 - Upgrade every producer in this first slice: recommendation mutation, inherited
   dependencies and readiness context require distinct concrete owner contracts.
 
-The new choices here are my proposed implementation decisions, not prior owner
-approvals. The accepted refusal policy and durable source format are reused.
+These implementation choices were proposed explicitly and accepted in the
+owner decision below. The earlier refusal policy and durable format are reused.
 
 ## Typed states and value binding
 
@@ -97,9 +98,10 @@ the first deliverable below.
 
 The classifier runs before the existing source-data codec:
 
-1. Check the owned set's original scope and complete encoded input bound.
+1. Check the owned set's original selected scope.
 2. Refuse any Unknown member, without replacing it with an empty closure.
-3. Check every qualified claim's scope and closure; union exact original pairs.
+3. For an all-Qualified set, check its complete encoded bound before value
+   cloning/conversion, then check claim scopes/closures and union exact pairs.
 4. Preserve the complete ordered values/pairs in the accepted envelope and use
    the existing canonical digest/source-data rules.
 5. Return immutable classified source data or a typed failure, never a partial
@@ -112,8 +114,8 @@ existing typed SQL check. SQL row validation grants no file publication or
 serialization with deletion, as the accepted contract already states.
 
 Keep 128 distinct sources, 16 KiB compact source-packet and 64 KiB assessment-
-record limits. Propose an additional 1 MiB compact canonical origin-envelope
-limit, including all values, claims and JSON structure. It is independent of
+record limits. An additional accepted 1 MiB compact canonical origin-envelope
+limit applies, including all values, claims and JSON structure. It is independent of
 and does not enlarge the observation reader's 768 KiB selected snapshot or the
 128 KiB prompt limit. Refuse the complete set rather than trimming it to fit.
 Count with a bounded writer before an additional full encoding/clone; hash
@@ -128,7 +130,7 @@ SQL, file, model, scheduler, publication or cleanup effects.
 
 ## First deliverable and later owner gates
 
-After acceptance, implement only the private typed policy in the existing
+The accepted first deliverable implements only the private typed policy in the existing
 assessment-source module and meaningful direct tests. Qualified claims and a
 qualified empty-set scope may be minted only by explicit trusted `cfg(test)`
 factories in this first slice. Production has no Qualified minting path and no
@@ -183,7 +185,7 @@ binding parity. Update canonical claims with actual evidence, run focused tests
 and the full repository verifier, complete current-code manual review and the
 normal PR/CI/owned-worktree lifecycle. After owner acceptance, prepare the concise
 reviewed implementation plan and follow the ADR 0103 lifecycle before dependent
-code. No implementation starts from this draft.
+code. Dependent implementation follows the recorded acceptance and plan.
 
 ## Review and owner decision
 
@@ -193,8 +195,8 @@ source/authority claims, the other checks whether the policy-only first slice
 is concrete and testable without inventing a production grant. Root reconciles
 findings in this document. No reviewer edits or implements code.
 
-Accept or revise the typed Unknown/Qualified distinction, value-bound private
-claims, data-only policy result and the additional 1 MiB envelope bound for this
+The owner decision below accepts the typed Unknown/Qualified distinction,
+value-bound private claims, data-only result and 1 MiB envelope bound for this
 first private policy/test deliverable. This does not approve producer minting,
 production OriginalInputs construction or runtime routing. Existing approvals
 remain valid within their original scope.
@@ -202,5 +204,13 @@ remain valid within their original scope.
 Independent review disposition: the builder found no important unanswered
 question for this first slice. Source/authority review found no scope or authority
 blocker; its wording correction about the existing derived-recommendation
-exclusion is applied above. The proposal is Ready for the owner decision, not
-accepted for implementation. No runtime or physical qualification follows.
+exclusion is applied above. Those reviews were Ready for the owner decision; acceptance is recorded below.
+No runtime or physical qualification follows from document review.
+
+## Owner acceptance — 2026-11-09
+
+The owner accepted the first private classifier/test slice, including the 1 MiB
+canonical envelope bound, after the proposal merged in #1642. The accepted
+artifact was `e1230b2770694aa001eb8ff0c24184dba66b1e19`; its reviewed contract was
+unchanged by the index-only merge. This acceptance does not extend the later
+producer minting, production OriginalInputs, SQL routing or publication gates.

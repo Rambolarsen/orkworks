@@ -2046,6 +2046,15 @@ remains unqualified until an original-input owner exists. Parsed data still
 grants no original-input authority; complete production input construction,
 selection and measured performance remain separate gates.
 
+The private assessment-source classifier now distinguishes typed Unknown from
+opaque value/scope/closure-bound Qualified inputs. Any Unknown member refuses
+the complete owned set; qualified zero-pair values retain original scope. A
+borrowed accepted-envelope view enforces the independent 1 MiB encoded cap before
+full value conversion/encoding, then reuses existing source union/digest rules.
+Its result is immutable source data, not OriginalInputs or operation authority.
+Qualified claims/scopes have only trusted test construction in this first slice;
+no production capture, SQL/file effects, scheduler or selector calls this policy.
+
 ## Recommendation cleanup preflight
 
 The source-only `RecommendationStore::capture_cleanup` copies memory only.

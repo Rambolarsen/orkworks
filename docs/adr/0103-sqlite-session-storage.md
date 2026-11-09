@@ -386,3 +386,16 @@ command/preparation/bookkeeping/graph routing, actual native RootKey and module
 registration, complete resource/deadline/native/physical fit, maintenance/readiness,
 backup and restore remain gated; no shipping profile/default or live experiment
 is authorized. Last-reference destruction is not physical completion evidence.
+
+
+## Clarification — 2026-11-09: private assessment input classification
+
+After #1642 the owner accepted the [typed classification contract](../superpowers/specs/2026-11-09-sql-assessment-input-classification.md),
+including its additional 1 MiB canonical origin-envelope bound, by answering
+“keep going” to the explicit private classifier/test approval question. Unknown
+input refuses the complete set; qualified zero-pair input retains explicit
+original scope. Opaque claims bind exact values and full original source sets.
+The first implementation is pure policy returning source data, with Qualified
+claim/scope factories limited to trusted tests. It creates no production
+OriginalInputs, producer origin authority, SQL/file/model call or routing. The
+existing source/record/reader/prompt limits and later qualification gates remain.
