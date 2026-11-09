@@ -517,22 +517,19 @@ function lineAndColumn(text: string, offset: number): { line: number; column: nu
   return { line: before.split("\n").length, column: before.length - before.lastIndexOf("\n") };
 }
 
+// JSON.parse has already validated the document. This walk finds duplicate keys
+// that parsing loses, retaining the second key's source location.
 function findDuplicateJsonKey(text: string): { key: string; offset: number } | null {
   let cursor = 0;
   const whitespace = () => { while (/\s/.test(text[cursor] ?? "")) cursor += 1; };
   const stringEnd = (): number => {
-    if (text[cursor] !== '"') return -1;
     cursor += 1;
     while (cursor < text.length) {
       const code = text.charCodeAt(cursor);
       if (code === 34) return ++cursor;
-      if (code === 92) cursor += 2;
-      else {
-        if (code < 32) return -1;
-        cursor += 1;
-      }
+      cursor += code === 92 ? 2 : 1;
     }
-    return -1;
+    return cursor;
   };
   const value = (): { key: string; offset: number } | null => {
     whitespace();
@@ -545,18 +542,16 @@ function findDuplicateJsonKey(text: string): { key: string; offset: number } | n
         whitespace();
         const offset = cursor;
         const end = stringEnd();
-        if (end < 0) return null;
-        let key: string;
-        try { key = JSON.parse(text.slice(offset, end)); } catch { return null; }
+        const key: string = JSON.parse(text.slice(offset, end));
         if (keys.has(key)) return { key, offset };
         keys.add(key);
         whitespace();
-        if (text[cursor++] !== ":") return null;
+        cursor += 1;
         const nested = value();
         if (nested) return nested;
         whitespace();
         if (text[cursor] === "}") { cursor += 1; return null; }
-        if (text[cursor++] !== ",") return null;
+        cursor += 1;
       }
       return null;
     }
@@ -569,7 +564,7 @@ function findDuplicateJsonKey(text: string): { key: string; offset: number } | n
         if (nested) return nested;
         whitespace();
         if (text[cursor] === "]") { cursor += 1; return null; }
-        if (text[cursor++] !== ",") return null;
+        cursor += 1;
       }
       return null;
     }
