@@ -1,10 +1,10 @@
 ---
 type: Qualification Packet
 title: Prepared parent native continuation canary
-description: Stdio MCP canary inputs, one historical unverified native attempt and an unapproved model-free reporting revision.
+description: Stdio MCP canary inputs, fixed stop reporting and two separately approved native attempts that remain unverified.
 tags: [orchestration, copilot, continuation, qualification]
 status: draft
-workflow_status: reporting-revised-not-authorized
+workflow_status: revised-attempt-unverified
 ---
 
 # Prepared parent native continuation canary
@@ -146,6 +146,9 @@ and synthetic errors, including private sentinels and a serialized summary.
 
 Current revised manifest SHA-256: 787dc852dc9e64d5333112fc175f96cf7e992c1b86dbbfdc38fb4cda643bdfdd.
 Proposal SHA-256 remains e84b24ab002afc8fe45ecca2a2be6976ad8d1a5fc1f53aa1e5663fe31ec4f297.
-The prior approval does not match the revised manifest and grants no new native
-attempt. This revision is **not authorized for live execution**. No Copilot,
-native discovery or model call ran for this reporting change.
+The initial approval did not match the revised manifest. A later exact owner
+decision covered one revised batch; its [receipt](parent-native-canary.md#revised-packet-attempt--2026-11-09)
+is also unverified, with an observed native-process exit code of 1 in phase 1.
+That separate attempt is spent and there is **no ongoing live authorization**.
+The reporting code change itself was model-free; its later native execution is
+recorded separately and does not identify the initial attempt's cause.
