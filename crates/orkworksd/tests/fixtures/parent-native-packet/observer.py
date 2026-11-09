@@ -61,6 +61,11 @@ def failure_details(diagnostic, error):
                     and all(type(layout[k]) is bool for k in keys[:3])
                     and (layout["expectedSymlink"] is None or type(layout["expectedSymlink"]) is bool)):
                 details["sessionLayout"] = {k: layout[k] for k in keys}
+    code = getattr(error, "supervisor_check_code", None)
+    if stage in ("instruction-discovery", "skill-discovery", "native-prompt") and type(code) is str and code in {
+            "supervisor-deadline", "supervisor-raw-layout", "supervisor-file-cap",
+            "supervisor-total-cap", "supervisor-exit"}:
+        details["supervisorCheckCode"] = code
     return details
 
 
@@ -273,19 +278,24 @@ def supervise(argv, cwd, env, root, seconds, file_cap, total_cap, tick, on_start
     if receipt is None:
         receipt = {}
     receipt.update(started=False, exitCode=None, terminationStepsCompleted=False)
-    require(seconds > 0, "Owned process deadline already expired")
+    def checked(value, code, reason):
+        if not value:
+            error = ValueError(reason)
+            error.supervisor_check_code = code
+            raise error
+    checked(seconds > 0, "supervisor-deadline", "Owned process deadline already expired")
     started = time.monotonic()
     root = Path(root)
     proc = None
     def bounds():
         total = 0
         for path in root.rglob("*"):
-            require(not path.is_symlink(), "Unexpected raw symlink")
+            checked(not path.is_symlink(), "supervisor-raw-layout", "Unexpected raw symlink")
             if path.is_file():
                 size = path.stat().st_size
-                require(size <= file_cap, "Raw file cap")
+                checked(size <= file_cap, "supervisor-file-cap", "Raw file cap")
                 total += size
-        require(total <= total_cap, "Raw total cap")
+        checked(total <= total_cap, "supervisor-total-cap", "Raw total cap")
     try:
         with (root/"stdout.raw").open("wb") as out, (root/"stderr.raw").open("wb") as err:
             proc = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
@@ -293,11 +303,11 @@ def supervise(argv, cwd, env, root, seconds, file_cap, total_cap, tick, on_start
             receipt["started"] = True
             if on_start: on_start(proc.pid)
             while proc.poll() is None:
-                require(time.monotonic()-started < seconds, "Owned process deadline")
+                checked(time.monotonic()-started < seconds, "supervisor-deadline", "Owned process deadline")
                 bounds(); tick(); time.sleep(.05)
             bounds(); tick()
-            require(time.monotonic()-started < seconds, "Owned process deadline")
-            require(proc.returncode == 0, "Owned process failed")
+            checked(time.monotonic()-started < seconds, "supervisor-deadline", "Owned process deadline")
+            checked(proc.returncode == 0, "supervisor-exit", "Owned process failed")
             return proc.returncode
     finally:
         if proc:

@@ -8,6 +8,8 @@ Capability research, validation results, and evidence fixtures.
 
 ## Documents
 
+- [Fixed native supervisor check reporting](native-supervisor-checks.md) — Synthetic host-check diagnostics and static startup-inspection limits without native execution.
+
 - [Native operation-lock namespace](native-history-operation-locks.md) — Narrow synthetic history compatibility correction, static source limits and unchanged native qualification gates.
 
 - [Partial legacy workspace-copy recovery](legacy-migration-recovery-review.md) — Source-derived retry, overwrite and resurrection risks with a proposed maintenance-owner handoff.
