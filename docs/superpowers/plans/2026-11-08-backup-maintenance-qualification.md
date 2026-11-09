@@ -297,3 +297,20 @@ resource evidence. No production constructor or input/SQL/file/model effect was
 added. Remaining full-catalog, real writer/physical completion, resource-profile,
 native/external and restore gates stay open; no existing checkbox is promoted
 to complete on the strength of candidate counters or synthetic reporting roles.
+
+
+## First direct writer result proposal — 2026-11-09
+
+After the actual candidate in #1593, [#1604](https://github.com/Rambolarsen/orkworks/issues/1604)
+proposes the [existing writer/driver result slice](../specs/2026-11-09-terminal-writer-outcomes-design.md).
+The actual loop would return checked byte/flush facts beside its writer through
+the existing task join, while preserving the old acknowledgement projection.
+This is proposed producer evidence, not another standalone accounting owner.
+
+Owner approval of that concrete bounded source change is pending. The previous
+one-module exception does not authorize it. Even after that preparatory slice,
+production submission-owner construction, gap-free original root/resource/report
+ownership, full phase integration, numeric/deadline/native/physical/restore
+qualification remain open. No checkbox above closes on the strength of the
+proposal or offline writer fixtures; a flush panic can still lose local facts
+until the actual retained reporting path exists.
