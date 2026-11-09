@@ -1,6 +1,7 @@
 pub(crate) mod ending_completion;
 pub(crate) mod hook_observation;
 pub(crate) mod identity_completion;
+mod input_submission_scope;
 mod recommendation_delivery;
 
 #[cfg(test)]

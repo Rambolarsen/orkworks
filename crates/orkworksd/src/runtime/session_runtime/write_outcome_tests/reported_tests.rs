@@ -444,3 +444,57 @@ async fn normal_no_effect_and_partial_failure_publish_distinct_writer_results() 
         pending_application_phases(&snapshot);
     }
 }
+
+#[tokio::test]
+async fn bound_original_lease_survives_coordinator_and_waiter_loss_during_flush() {
+    let root = tempfile::tempdir().unwrap();
+    let scope = input_submission::scope::tests::capture(root.path());
+    let owner = Owner::new(Limits {
+        records: 1,
+        observers: 1,
+        input_bytes: 16,
+        backing_bytes: 65536,
+    })
+    .unwrap();
+    let now = Instant::now();
+    let Submission {
+        reporters: [preparation, writer, returned, bookkeeping],
+        observer,
+    } = owner
+        .admit_bound(
+            Context {
+                root: 1,
+                session: 2,
+                incarnation: 3,
+                slot: 1,
+            },
+            3,
+            now + Duration::from_secs(60),
+            now,
+            scope,
+        )
+        .unwrap_or_else(|e| panic!("{:?}", e.reason));
+    let (hold, observing, release) = gate();
+    let mut native = BlockingWriter::plain();
+    native.flush = Some(hold);
+    let pending = start(input(Box::new(native), (writer, returned)));
+    entered(observing).await;
+    assert_eq!(
+        observer.snapshot(Instant::now()).unwrap().fact,
+        InputFact::FullWrite {
+            flush: Flush::Unknown
+        }
+    );
+    drop((owner, observer, preparation, bookkeeping));
+    assert!(crate::workspace_runtime::WorkspaceLease::acquire(root.path()).is_err());
+    drop(release);
+    let (_, outcome) = joined(pending).await.unwrap();
+    assert_eq!(
+        outcome.fact,
+        InputFact::FullWrite {
+            flush: Flush::Succeeded
+        }
+    );
+    // Last Core destruction releases the lease, not a claim of whole-job completion.
+    assert!(crate::workspace_runtime::WorkspaceLease::acquire(root.path()).is_ok());
+}
