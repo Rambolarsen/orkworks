@@ -46,6 +46,7 @@ pub(in crate::runtime) enum GraphAction {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::runtime) struct RecipeSnapshot {
     pub slots: [SlotState; SLOTS],
+    pub admitted: [bool; SLOTS],
     pub job_live: bool,
     pub tickets: usize,
 }
@@ -53,6 +54,7 @@ pub(in crate::runtime) struct Recipe {
     pub route: RouteKey,
     pub charge: Charges,
     slots: [SlotState; SLOTS],
+    admitted: [bool; SLOTS],
     job_live: bool,
     tickets: usize,
     conflict: bool,
@@ -63,6 +65,7 @@ impl Recipe {
             route,
             charge,
             slots: [SlotState::Pending; SLOTS],
+            admitted: [false; SLOTS],
             job_live: true,
             tickets: 0,
             conflict: false,
@@ -71,6 +74,7 @@ impl Recipe {
     pub(in crate::runtime) fn snapshot(&self) -> RecipeSnapshot {
         RecipeSnapshot {
             slots: self.slots,
+            admitted: self.admitted,
             job_live: self.job_live,
             tickets: self.tickets,
         }
@@ -89,6 +93,22 @@ impl Recipe {
                 )
             })
     }
+    pub(super) fn validate_writer_admission(&self) -> Result<(), Error> {
+        let dispatch = self.slots[Slot::Dispatch as usize];
+        // Persist admission separately from loss: an already enqueued original
+        // operation may start/finish after expiry or coordinator/ticket loss.
+        if self.admitted[Slot::Dispatch as usize]
+            && dispatch != SlotState::Returned(Outcome::NoEffect)
+        {
+            return Ok(());
+        }
+        Err(if dispatch == SlotState::Pending {
+            Error::Pending
+        } else {
+            Error::Protected
+        })
+    }
+
     fn done(&self, slot: Slot) -> bool {
         matches!(
             self.slots[slot as usize],
@@ -227,6 +247,7 @@ impl Job {
         let recipe = entry.recipe.as_mut().unwrap();
         let tickets = recipe.tickets.checked_add(1).ok_or(Error::Capacity)?;
         recipe.slots[slot as usize] = SlotState::InFlight;
+        recipe.admitted[slot as usize] = true;
         recipe.tickets = tickets;
         Ok(Ticket {
             core: self.core.clone(),

@@ -428,6 +428,9 @@ impl Reporter {
         if entry.protected {
             return Err(Error::Protected);
         }
+        if let Some(recipe) = &entry.recipe {
+            recipe.validate_writer_admission()?;
+        }
         if entry.phases[..3].contains(&PhaseState::Settled(PhaseResult::NoEffect)) {
             return Err(Error::Conflict);
         }

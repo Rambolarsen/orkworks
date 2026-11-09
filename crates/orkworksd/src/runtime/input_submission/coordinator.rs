@@ -327,7 +327,7 @@ impl Coordinator {
         })
     }
     #[cfg(test)]
-    fn fixture_expire(&self, context: Context) {
+    pub(in crate::runtime) fn fixture_expire(&self, context: Context) {
         self.owner
             .core
             .lock()

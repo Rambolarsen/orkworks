@@ -1344,7 +1344,10 @@ A private [finite input coordinator](../superpowers/plans/2026-11-09-private-inp
 now retains routes, declared job charges and fixed continuation state in that
 same Core/Entry. Job admission and Closing share the transition mutex. Unique job
 and slot handles enforce at-most-once local admission and the original deadline;
-claim/notification/final-claim slots are distinct. Lost/failed/unknown work and an
+claim/notification/final-claim slots are distinct. Retained admission bits let the
+optional writer reject an unadmitted/no-effect dispatch while allowing the same
+already admitted operation to report after deadline or job/ticket loss.
+Lost/failed/unknown work and an
 unfulfilled committed graph reservation retain protection and capacity. Removed
 route handles remain charged until Drop, with scope resources released outside
 the mutex. Actual optional writer/join checks keep real preparation/bookkeeping

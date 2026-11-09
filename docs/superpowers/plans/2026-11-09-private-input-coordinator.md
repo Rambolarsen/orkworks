@@ -144,3 +144,26 @@ commit; the uncommitted owned implementation is not merged and will be retained
 until its actual PR terminates. Existing Rust and VitePress/NO_COLOR/chunk warnings
 are unrelated to the diff. Current-code manual review passed; required CI, final
 comment inventory, Taskmaster tie-off if applicable and cleanup still gate merge.
+
+
+Before merge a self-found integration regression proved that a coordinated pair
+could reach the actual optional writer before Dispatch was admitted. The new
+actual-start test failed on that native-loop dispatch before the fix. Recipe
+snapshots now retain fixed per-slot admission bits separately from loss state;
+reported writer pairing requires original dispatch admission and rejects known
+no-effect. A positive actual-writer test requires an already admitted original
+operation to survive deadline/job/ticket loss, without settling prep/bookkeeping.
+Both new cases passed (32-case dispatch filter green). This is an in-scope
+self-correction, not reviewer feedback or a new execution allowance. The earlier
+64-case/full-check results describe the prior code; refreshed full verification
+and current-code manual/automated review are required for the new head.
+
+
+Refreshed /code-review medium APPROVE verified the new six-file manifest with
+no findings, including the actual startup guard and admitted-but-lost positive
+case. Final full `RUST_TEST_THREADS=4 bash scripts/verify-repo.sh` passed on this
+corrected code: 3,461 Rust unit tests (18 existing ignored), all integrations
+(1, 1, 4, 1), 31 OpenCode tests, desktop type-check/Electron ABI/build, 1,721 desktop
+tests (three existing skips), all 1,204 docs tests/OKF/index/site build and close-out.
+All 66 related cases passed (16 new). Old-head reviews/CI are explicitly superseded
+for merge; refreshed automated review and CI must identify the corrected head.
