@@ -126,7 +126,9 @@ and results only, not prompt payloads, native handles or production profiles.
 Fresh whole-code `/code-review medium` completed with no material findings. Medium
 was selected for concurrent lifetime rules and roughly 750 code/test lines in
 one inseparable candidate (three code files), not for production integration.
-The reviewer independently ran all 12 fast module tests. Exact reviewed file
+The reviewer independently ran all 12 initial fast module tests and all 13
+after the admission-clock regression fix. The refreshed review approved the
+current code without material findings. Exact reviewed file
 SHA-256 values are retained in the PR evidence and checked against final code
 before commit; documentation updates do not alter that reviewed code diff.
 No production callers or effectful imports were found.
@@ -134,7 +136,7 @@ No production callers or effectful imports were found.
 
 ## Final verification and limits
 
-`scripts/verify-repo.sh` passed: formatting/build; Rust unit tests 3,333 passed,
+`scripts/verify-repo.sh` passed: formatting/build; Rust unit tests 3,334 passed,
 18 ignored, zero failures, plus all integration test binaries; OpenCode reporter
 31 passed; desktop type-check; Electron ABI check; desktop tests 1,709 passed,
 3 skipped, zero failures; desktop build; all 1,204 docs tests and metadata/index/
@@ -150,3 +152,15 @@ production behavior; the candidate is deliberately declared with dead-code scope
 Disposition: verified local candidate. No production construction, writer reports,
 native/root/input authority, complete resource profile, Q/readiness or restore
 qualification follows. Real producer integration is a separate bounded task.
+
+
+## Admission clock regression
+
+Final owner inspection found that a supplied timestamp could predate transition
+lock acquisition. A new actual-past-deadline/stale-caller-time assertion failed
+before an actual `Instant::now()` check was added under the lock immediately
+before reservation. All 13 fast candidate tests then passed. No effect or scope
+was added. Refreshed current-diff review approved the exact code manifest, and
+the complete repository verification rerun passed with 3,334 Rust unit tests.
+The final verification above describes this corrected code; the earlier full
+run remains historical to the preceding head.

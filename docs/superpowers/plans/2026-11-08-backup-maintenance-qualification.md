@@ -288,7 +288,7 @@ never production producer/physical qualification or complete resource fit.
 Actual candidate handles enforce a fixed record pool, finite explicit limits,
 four unique reporters, bounded observers and checked serial reuse. Input facts
 remain distinct from phase completion; loss/conflict/partial/unknown is retained
-as protection and cannot be force-retired. Twelve offline candidate tests and
+as protection and cannot be force-retired. Thirteen offline candidate tests and
 full repository verification passed; fresh current-diff medium review found no
 material findings.
 

@@ -360,3 +360,16 @@ fn empty_input_is_byte_truth_only_and_does_not_settle_other_phases() {
         }
     );
 }
+
+#[test]
+fn stale_caller_time_cannot_admit_after_the_actual_deadline() {
+    let owner = Owner::new(limits(1, 1)).unwrap();
+    let actual = Instant::now();
+    let deadline = actual - Duration::from_secs(1);
+    let stale = deadline - Duration::from_secs(1);
+    assert!(matches!(
+        owner.admit(context(1), 4, deadline, stale),
+        Err(Error::Expired)
+    ));
+    assert!(submit(&owner, 1).observer.snapshot(actual).is_ok());
+}

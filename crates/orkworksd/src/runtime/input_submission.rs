@@ -219,6 +219,11 @@ impl Owner {
             .iter()
             .position(Option::is_none)
             .ok_or(Error::Capacity)?;
+        // Caller time may predate lock contention or a scheduler pause. Recheck
+        // at the actual transition before reserving a record or handles.
+        if Instant::now() >= deadline {
+            return Err(Error::Expired);
+        }
         let serial = state.serial.checked_add(1).ok_or(Error::Capacity)?;
         state.serial = serial;
         state.observers += 1;
