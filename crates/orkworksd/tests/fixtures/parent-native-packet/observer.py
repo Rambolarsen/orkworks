@@ -52,6 +52,13 @@ def failure_details(diagnostic, error):
             "history-events-missing", "history-events-read", "history-prefix", "history-tail",
             "history-event-cap", "history-event-contract"}:
         details["checkCode"] = code
+        if code == "history-session-layout":
+            layout = getattr(error, "history_layout", None)
+            keys = ("empty", "expectedPresent", "exclusiveExpected", "expectedSymlink")
+            if (type(layout) is dict and set(layout) == set(keys)
+                    and all(type(layout[k]) is bool for k in keys[:3])
+                    and (layout["expectedSymlink"] is None or type(layout["expectedSymlink"]) is bool)):
+                details["layout"] = {k: layout[k] for k in keys}
     return details
 
 
@@ -389,7 +396,15 @@ class History:
             entries = list(root.iterdir())
             expected = root/self.trace.proposal["nativeSessionId"]
             code = "history-session-layout"
-            require(entries == [expected] and not expected.is_symlink(), "Unexpected native session")
+            if not entries and not final and phase == 1 and self.offset == 0 and self.trace.count == 0:
+                return
+            exclusive = entries == [expected]
+            symlink = expected.is_symlink() if exclusive else None
+            if not exclusive or symlink:
+                error = ValueError("Unexpected native session")
+                error.history_layout = {"empty": not entries, "expectedPresent": expected in entries,
+                                        "exclusiveExpected": exclusive, "expectedSymlink": symlink}
+                raise error
             path = expected/"events.jsonl"
             code = "history-events-missing"
             if not path.exists():

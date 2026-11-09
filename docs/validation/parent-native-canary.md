@@ -297,3 +297,9 @@ and layout assumptions, including transient empty-root handling. If static evide
 cannot resolve the entry shape, prepare only fixed counts/booleans distinguishing
 layout conditions for a separately approved packet. Do not weaken exclusivity or
 invent an actual native layout from this receipt. No further execution is authorized.
+
+
+The later [offline startup/layout correction](native-history-startup.md) reproduces
+an initial empty-root rejection using synthetic directories and adds fixed layout
+flags for future failures. It does not recover this attempt's entry shape, identify
+its cause, change any historical receipt or authorize another native run.

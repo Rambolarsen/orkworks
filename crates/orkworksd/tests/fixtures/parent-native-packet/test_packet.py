@@ -352,6 +352,99 @@ assert not p.stderr.read();f.close()
 
 
 
+class HistoryStartupTests(unittest.TestCase):
+    def test_initial_empty_root_can_progress_to_exact_complete_history(self):
+        with tempfile.TemporaryDirectory() as root:
+            case = Path(root).resolve()
+            trace = observer.Trace(PROPOSAL)
+            reader = observer.History(case, trace)
+            reader.scan(1)
+            folder = case/"settings/session-state"/PROPOSAL["nativeSessionId"]
+            folder.parent.mkdir(parents=True)
+            try:
+                reader.scan(1)
+            except ValueError:
+                self.fail("Initial empty history root must remain pending")
+            self.assertEqual((reader.offset, trace.count, trace.started), (0, 0, False))
+            folder.mkdir()
+            reader.scan(1)
+            start = event("session.start", sessionId=PROPOSAL["nativeSessionId"], copilotVersion="1.0.90")+"\n"
+            (folder/"events.jsonl").write_bytes(start.encode())
+            reader.scan(1, final=True)
+            self.assertEqual((reader.offset, trace.count, trace.started), (len(start.encode()), 1, True))
+
+    def test_empty_root_is_rejected_at_final_resume_and_after_consumption(self):
+        for condition in ("final", "resume", "consumed"):
+            with self.subTest(condition=condition), tempfile.TemporaryDirectory() as root:
+                case = Path(root).resolve()
+                folder = case/"settings/session-state"/PROPOSAL["nativeSessionId"]
+                folder.parent.mkdir(parents=True)
+                trace = observer.Trace(PROPOSAL)
+                reader = observer.History(case, trace)
+                if condition == "consumed":
+                    folder.mkdir()
+                    history = folder/"events.jsonl"
+                    history.write_bytes((event("session.start", sessionId=PROPOSAL["nativeSessionId"],
+                                              copilotVersion="1.0.90")+"\n").encode())
+                    reader.scan(1)
+                    history.unlink()
+                    folder.rmdir()
+                with self.assertRaises(ValueError) as caught:
+                    reader.scan(2 if condition == "resume" else 1, final=condition == "final")
+                self.assertEqual(observer.failure_details({"stage": "native-history"}, caught.exception)
+                                 .get("checkCode"), "history-session-layout")
+
+    def test_layout_flags_distinguish_empty_wrong_and_extra_entries(self):
+        cases = [("empty", {"empty": True, "expectedPresent": False, "exclusiveExpected": False, "expectedSymlink": None}),
+                 ("wrong", {"empty": False, "expectedPresent": False, "exclusiveExpected": False, "expectedSymlink": None}),
+                 ("extra", {"empty": False, "expectedPresent": True, "exclusiveExpected": False, "expectedSymlink": None})]
+        for condition, expected in cases:
+            with self.subTest(condition=condition), tempfile.TemporaryDirectory() as root:
+                case = Path(root).resolve()
+                folder = case/"settings/session-state"/PROPOSAL["nativeSessionId"]
+                folder.parent.mkdir(parents=True)
+                if condition != "empty":
+                    (folder.parent/"PRIVATE_ENTRY").mkdir()
+                if condition == "extra":
+                    folder.mkdir()
+                with self.assertRaises(ValueError) as caught:
+                    observer.History(case, observer.Trace(PROPOSAL)).scan(1, final=condition == "empty")
+                details = observer.failure_details({"stage": "native-history"}, caught.exception)
+                self.assertEqual(details.get("layout"), expected)
+                self.assertNotIn("PRIVATE", json.dumps(details))
+
+    @unittest.skipUnless(os.name == "posix", "Owned symlink fixtures target POSIX")
+    def test_expected_symlink_is_rejected_and_reported_without_target(self):
+        with tempfile.TemporaryDirectory() as root:
+            case = Path(root).resolve()
+            folder = case/"settings/session-state"/PROPOSAL["nativeSessionId"]
+            folder.parent.mkdir(parents=True)
+            target = case/"PRIVATE_TARGET"
+            target.mkdir()
+            folder.symlink_to(target, target_is_directory=True)
+            with self.assertRaises(ValueError) as caught:
+                observer.History(case, observer.Trace(PROPOSAL)).scan(1)
+            details = observer.failure_details({"stage": "native-history"}, caught.exception)
+            self.assertEqual(details.get("layout"), {"empty": False, "expectedPresent": True,
+                                                    "exclusiveExpected": True, "expectedSymlink": True})
+            self.assertNotIn("PRIVATE", json.dumps(details))
+
+    def test_layout_projection_rejects_extra_fields_values_and_wrong_context(self):
+        valid = {"empty": True, "expectedPresent": False, "exclusiveExpected": False, "expectedSymlink": None}
+        cases = [(valid, "native-history", "history-session-layout", valid),
+                 ({**valid, "PRIVATE_FIELD": "PRIVATE_VALUE"}, "native-history", "history-session-layout", None),
+                 ({**valid, "empty": 1}, "native-history", "history-session-layout", None),
+                 ({**valid, "expectedSymlink": "PRIVATE_VALUE"}, "native-history", "history-session-layout", None),
+                 (valid, "native-prompt", "history-session-layout", None),
+                 (valid, "native-history", "history-prefix", None)]
+        for layout, stage, code, expected in cases:
+            error = ValueError("PRIVATE_MESSAGE")
+            error.history_check_code, error.history_layout = code, layout
+            details = observer.failure_details({"stage": stage}, error)
+            self.assertEqual(details.get("layout"), expected)
+            self.assertNotIn("PRIVATE", json.dumps(details))
+
+
 class NativeIdentityTests(unittest.TestCase):
     def test_invalid_native_uuid_cannot_reach_a_fresh_session(self):
         for value in ("00000000-0000-0000-0000-000000000001",

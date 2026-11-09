@@ -4,7 +4,7 @@ title: Prepared parent native continuation canary
 description: Stdio MCP canary inputs, four unverified attempts, including the diagnostic packet that identified the session-layout guard.
 tags: [orchestration, copilot, continuation, qualification]
 status: draft
-workflow_status: history-diagnostic-attempt-spent
+workflow_status: startup-layout-corrected-not-authorized
 ---
 
 # Prepared parent native continuation canary
@@ -84,7 +84,7 @@ Cleanup failure makes the batch incomplete. Raw data caps are 1 MiB per file and
 python3 -I -B -m unittest discover -s crates/orkworksd/tests/fixtures/parent-native-packet -p test_packet.py -v
 ```
 
-The focused suite now has 30 tests, including real newline stdio exchange with an
+The focused suite now has 35 tests, including real newline stdio exchange with an
 owned Python fake client, a second fresh fake process, nonce/tool/turn joins,
 retained state, source drift, missing approval, identity/resume denials, private
 payload decode sentinels, observed caps and owned process cleanup. POSIX process
@@ -208,3 +208,18 @@ identifies the exact-session entry/symlink check but not its actual inputs or wh
 scan failed. Raw roots and disposable controls were removed. No resume/retry ran.
 All four batch approvals are now spent; ongoing live budget is zero. The exact
 packet remains unqualified for the three native capabilities.
+
+
+## Offline startup/layout correction — 2026-11-09
+
+The [startup correction](native-history-startup.md) reproduces premature rejection
+of a synthetic empty root between root creation and exact-session creation. It
+waits only during pristine phase1 nonfinal scanning, while retaining final/resume,
+post-history, wrong/extra-entry and symlink rejection. This is not proof that the
+historical native stop was a race. Layout failures may retain only four fixed
+boolean/null flags; no names or paths. All35 fake-only packet tests pass.
+
+Current manifest SHA-256: e89cd3cf0ba4c9b91f7a752edecd6a59f815d02d087503a4ac577959f90f7c9a.
+Proposal remains 39bea8c908bb15f3d53ed8a8cd6fdbc38db341f0f30b53f0617b47929fdd027b.
+The earlier reporting manifest above is historical. No native execution ran for
+this correction; all four prior approvals remain spent, with ongoing budget zero.
