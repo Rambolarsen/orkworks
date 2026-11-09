@@ -1307,6 +1307,15 @@ approval or terminal attachment cannot apply input effects to a replacement
 runtime. Existing delayed reset retries likewise offload and revalidate the
 captured runtime before metadata effects. See [ADR 0075](../adr/0075-responsive-pty-input-delivery.md).
 
+The blocking input writer now produces a fixed-size direct byte/flush outcome
+and returns it beside its original writer through the existing task join. The
+coarse acknowledgement is projected from that outcome: a full write remains Ok
+even if flush fails; no-effect/partial/unknown remains Err. The driver observes
+return separately and currently discards the direct outcome. Submission accounting
+remains unwired; panic or driver loss can still lose local facts. This is no
+application-retained completion, native-profile or maintenance proof. See the
+[accepted writer slice](../superpowers/specs/2026-11-09-terminal-writer-outcomes-design.md).
+
 The shared provider process runner owns a Windows Job object per invocation
 (`process_job.rs`, re-exported by `providers/windows_process.rs`). It assigns the suspended child before resuming
 execution, preventing descendants from escaping timeout cleanup. Termination

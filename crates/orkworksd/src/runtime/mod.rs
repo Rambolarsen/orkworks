@@ -22,6 +22,6 @@ pub(crate) mod codex_terminal_status;
 
 pub(crate) mod worktree_instructions;
 
-// Source-only candidate; no production construction or input authority.
+// Submission accounting stays unwired; fixed fact enums are shared by the writer.
 #[allow(dead_code)]
 mod input_submission;

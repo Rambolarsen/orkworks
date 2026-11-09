@@ -350,3 +350,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Native continuation packet preparation](2026-11-08-parent-native-packet.md) — One stdio route, model-free setup and a proposed two-phase budget requiring exact-packet owner approval.
 
 - [Source-only input submission owner candidate](2026-11-09-input-submission-owner-candidate.md) — Bounded implementation of one unwired private ownership/accounting module with offline behavioral verification.
+
+- [Direct terminal writer outcomes implementation](2026-11-09-terminal-write-outcomes.md) — Accepted bounded actual writer/driver refactor and offline tests; application owner activation remains gated.
