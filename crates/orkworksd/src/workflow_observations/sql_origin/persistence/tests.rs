@@ -596,3 +596,155 @@ async fn raw_intent_budget_precedes_normalization_and_candidate_validation() {
     );
     store.close().await.unwrap();
 }
+
+fn numeric_write(
+    directory: &File,
+    source: &SqlSource,
+    key: &str,
+) -> std::result::Result<RecordOutcome, WriteError> {
+    persist_files(
+        directory,
+        ScanRequest::capture(Instant::now() + Duration::from_secs(2))
+            .unwrap()
+            .for_numeric_test(),
+        source,
+        ObservationOrigin::Peon,
+        key,
+        candidate(),
+        now(),
+    )
+}
+fn fill_blank_inventory(root: &Path, mut bytes: usize, target: bool) {
+    let dir = root.join("workflow-observations");
+    let mut index = 0;
+    while bytes > 0 {
+        let n = bytes.min(MAX_SEGMENT_BYTES as usize);
+        let mut data = vec![b' '; n];
+        for end in (64 * 1024 - 1..n).step_by(64 * 1024) {
+            data[end] = b'\n';
+        }
+        *data.last_mut().unwrap() = b'\n';
+        let name = if target && bytes == n {
+            "s".to_owned()
+        } else {
+            format!("other-{index}")
+        };
+        fs::write(dir.join(format!("{name}.ndjson")), data).unwrap();
+        bytes -= n;
+        index += 1;
+    }
+    fs::write(dir.join("sequence"), b"0").unwrap();
+}
+#[tokio::test]
+async fn projected_workspace_bytes_accept_exact_limit_then_refuse_overflow_before_counter() {
+    let (root, store, source, directory) = fixture().await;
+    write(&directory, &source, "sizing").unwrap();
+    let dir = root.path().join("workflow-observations");
+    let line_len = fs::read(dir.join("s.ndjson")).unwrap().len();
+    fs::remove_file(dir.join("s.ndjson")).unwrap();
+    fill_blank_inventory(root.path(), reader::MAX_TOTAL_BYTES - line_len - 1, false);
+    assert!(matches!(
+        numeric_write(&directory, &source, "key"),
+        Ok(RecordOutcome::Accepted(_))
+    ));
+    assert_eq!(
+        fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().metadata().unwrap().len())
+            .sum::<u64>(),
+        reader::MAX_TOTAL_BYTES as u64
+    );
+    let before = fs::read(dir.join("s.ndjson")).unwrap();
+    assert!(matches!(
+        numeric_write(&directory, &source, "other"),
+        Err(WriteError::Storage(StoreError::TooLarge))
+    ));
+    assert_eq!(fs::read(dir.join("sequence")).unwrap(), b"1");
+    assert_eq!(fs::read(dir.join("s.ndjson")).unwrap(), before);
+    store.close().await.unwrap();
+}
+#[tokio::test]
+async fn projected_workspace_bytes_subtract_replaced_segment_before_accepting_rewrite() {
+    for counter in [0, 9] {
+        let (root, store, source, directory) = fixture().await;
+        fill_blank_inventory(root.path(), reader::MAX_TOTAL_BYTES - 1, true);
+        let dir = root.path().join("workflow-observations");
+        fs::write(dir.join("sequence"), counter.to_string()).unwrap();
+        let result = numeric_write(&directory, &source, "key");
+        if counter == 0 {
+            assert!(matches!(result, Ok(RecordOutcome::Accepted(_))));
+            assert!(
+                fs::read_dir(&dir)
+                    .unwrap()
+                    .map(|e| e.unwrap().metadata().unwrap().len())
+                    .sum::<u64>()
+                    < reader::MAX_TOTAL_BYTES as u64
+            );
+            assert_eq!(fs::read(dir.join("sequence")).unwrap(), b"1");
+        } else {
+            // Counter9->10 alone must not overflow the global read allowance,
+            // even though the eventual segment rewrite would reclaim room.
+            assert!(matches!(
+                result,
+                Err(WriteError::Storage(StoreError::TooLarge))
+            ));
+            assert_eq!(fs::read(dir.join("sequence")).unwrap(), b"9");
+            assert_eq!(
+                fs::read_dir(&dir)
+                    .unwrap()
+                    .map(|e| e.unwrap().metadata().unwrap().len())
+                    .sum::<u64>(),
+                reader::MAX_TOTAL_BYTES as u64
+            );
+        }
+        store.close().await.unwrap();
+    }
+}
+fn fill_line_inventory(root: &Path, target: bool) {
+    let dir = root.join("workflow-observations");
+    let mut sequence = 1u64;
+    if target {
+        fs::write(dir.join("s.ndjson"), legacy_line(sequence)).unwrap();
+        sequence += 1;
+    }
+    let mut file = 0;
+    while sequence <= 65536 {
+        let mut bytes = Vec::new();
+        for _ in 0..MAX_TOMBSTONES {
+            if sequence > 65536 {
+                break;
+            }
+            bytes.extend(legacy_line(sequence));
+            sequence += 1;
+        }
+        fs::write(dir.join(format!("other-{file}.ndjson")), bytes).unwrap();
+        file += 1;
+    }
+    fs::write(dir.join("sequence"), b"65536").unwrap();
+}
+fn legacy_line(sequence: u64) -> Vec<u8> {
+    let mut bytes=serde_json::to_vec(&serde_json::json!({"record":"tombstone","idempotencyKeyHash":"f".repeat(64),"payloadHash":"f".repeat(64),"observationId":uuid::Uuid::from_u128(sequence as u128).to_string(),"sequence":sequence,"acceptedAt":"2026-11-08T00:00:00Z"})).unwrap();
+    bytes.push(b'\n');
+    bytes
+}
+#[tokio::test]
+async fn projected_workspace_lines_refuse_append_but_allow_rewrite_reclaiming_a_record() {
+    for reclaim in [false, true] {
+        let (root, store, source, directory) = fixture().await;
+        fill_line_inventory(root.path(), reclaim);
+        let dir = root.path().join("workflow-observations");
+        let result = numeric_write(&directory, &source, "key");
+        if reclaim {
+            assert!(matches!(result,Ok(RecordOutcome::Accepted(v)) if v.sequence==65537));
+            assert_eq!(fs::read(dir.join("sequence")).unwrap(), b"65537");
+        } else {
+            assert!(matches!(
+                result,
+                Err(WriteError::Storage(StoreError::TooLarge))
+            ));
+            assert!(!dir.join("s.ndjson").exists());
+            assert_eq!(fs::read(dir.join("sequence")).unwrap(), b"65536");
+        }
+        store.close().await.unwrap();
+    }
+}

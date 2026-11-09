@@ -273,6 +273,43 @@ fn persist_files(
             .sum();
         budget.check(future_reads)?;
     }
+    let old_segment_bytes = usize::try_from(segment.original.map_or(0, |stamp| stamp.2))
+        .map_err(|_| StoreError::TooLarge)?;
+    let old_counter_bytes = usize::try_from(counter.original.map_or(0, |stamp| stamp.2))
+        .map_err(|_| StoreError::TooLarge)?;
+    let new_counter_bytes = sequence.to_string().len();
+    let new_segment_bytes = if rewrite {
+        usize::try_from(bytes).map_err(|_| StoreError::TooLarge)?
+    } else {
+        old_segment_bytes
+            .checked_add(line.len() + 1)
+            .ok_or(StoreError::TooLarge)?
+    };
+    let new_segment_lines = indices
+        .iter()
+        .filter(|index| index.mode != Mode::Drop)
+        .count()
+        + 1;
+    check_projected(
+        inventory.lines,
+        indices.len(),
+        new_segment_lines,
+        reader::MAX_LINES,
+    )?;
+    // The counter can survive a failed append. Its intermediate durable state
+    // must remain readable even when a later rewrite would reclaim bytes.
+    check_projected(
+        inventory.bytes,
+        old_counter_bytes,
+        new_counter_bytes,
+        reader::MAX_TOTAL_BYTES,
+    )?;
+    check_projected(
+        inventory.bytes,
+        old_segment_bytes + old_counter_bytes,
+        new_segment_bytes + new_counter_bytes,
+        reader::MAX_TOTAL_BYTES,
+    )?;
     check_deadline(deadline)?;
     segment.verify(directory)?;
     counter.verify(directory)?;
@@ -351,6 +388,14 @@ impl ReadBudget {
         self.used += n;
         Ok(())
     }
+}
+fn check_projected(total: usize, removed: usize, added: usize, limit: usize) -> Result<()> {
+    let retained = total.checked_sub(removed).ok_or(StoreError::Corrupt)?;
+    retained
+        .checked_add(added)
+        .filter(|projected| *projected <= limit)
+        .map(|_| ())
+        .ok_or(StoreError::TooLarge)
 }
 fn check_deadline(deadline: Instant) -> Result<()> {
     if Instant::now() >= deadline {

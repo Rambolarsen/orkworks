@@ -93,7 +93,8 @@ from these source-level ratings.
   inventory and bounded rewrites without a retained full-segment payload.
   Preserve retry/tombstone, candidate, rate and sequence behavior; count origin,
   tag, whitespace and LF bytes. Preflight intent/index/read allowances before
-  counter effects. Exercise counter gaps, partial tails, atomic rewrite failure,
+  counter effects, including projected workspace line/byte totals and the
+  counter-only intermediate state. Exercise counter gaps, partial tails, atomic rewrite failure,
   source eviction and exact copied origins, replacement/link/legacy refusals,
   exact intent/segment bounds, shared admission and original deadline retention.
   This file boundary has no production write-token minting path and does not

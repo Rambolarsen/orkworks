@@ -1939,7 +1939,10 @@ are preflighted against the same 64 MiB aggregate read allowance. These are
 encoded accounting bounds, not measured heap or native-resource qualification.
 
 The file layer validates complete inventory and retry/rate/bound conditions
-before counter effects. A durable counter replacement precedes append or a
+before counter effects. Projected workspace line/byte totals account for the
+replaced segment and counter; the counter-only intermediate state must also stay
+within the aggregate read allowance if a later append fails. A durable counter
+replacement precedes append or a
 streamed atomic segment rewrite. Surviving records retain their origins;
 evictions copy exact origins into their own retry tombstones. Failed appends
 may leave counter gaps or preserved partial tails; strict reads never repair

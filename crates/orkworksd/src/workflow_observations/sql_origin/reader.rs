@@ -8,7 +8,7 @@ use std::{
 const MAX_ENTRIES: usize = 4097;
 const MAX_SEGMENTS: usize = 4096;
 pub(super) const MAX_TOTAL_BYTES: usize = 64 * 1024 * 1024;
-const MAX_LINES: usize = 65536;
+pub(super) const MAX_LINES: usize = 65536;
 const MAX_SELECTED_BYTES: usize = 768 * 1024;
 
 pub(super) type Stamp = (u64, u64, u64, i64, i64, i64, i64);
@@ -16,6 +16,7 @@ pub(super) struct Inventory {
     pub(super) sequence: Option<u64>,
     pub(super) bytes: usize,
     pub(super) segments: usize,
+    pub(super) lines: usize,
     _capacity: ObservationReadCapacity,
 }
 struct Scanned {
@@ -23,6 +24,7 @@ struct Scanned {
     sequence: Option<u64>,
     bytes: usize,
     segments: usize,
+    lines: usize,
 }
 pub(crate) struct ScanRequest {
     deadline: Instant,
@@ -42,6 +44,13 @@ impl Snapshot {
     }
 }
 impl ScanRequest {
+    /// Numeric inventory fixtures exercise independent count/byte limits without
+    /// conflating them with scheduling speed. Production capture still caps at2s.
+    #[cfg(test)]
+    pub(super) fn for_numeric_test(mut self) -> Self {
+        self.deadline = Instant::now() + Duration::from_secs(120);
+        self
+    }
     pub(in crate::workflow_observations) fn limit_deadline(mut self, original: Instant) -> Self {
         self.deadline = self.deadline.min(original);
         self
@@ -63,6 +72,7 @@ impl ScanRequest {
             sequence: scanned.sequence,
             bytes: scanned.bytes,
             segments: scanned.segments,
+            lines: scanned.lines,
             _capacity: self.capacity,
         })
     }
@@ -450,6 +460,7 @@ mod native {
             sequence: counter,
             bytes: counts.bytes,
             segments: counts.segments,
+            lines: counts.lines,
         })
     }
 }
