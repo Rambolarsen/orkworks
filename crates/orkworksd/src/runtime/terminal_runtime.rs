@@ -4589,6 +4589,175 @@ mod tests {
         assert_eq!(ws.metadata.read_terminal_size(&id), Some((120, 40)));
     }
 
+    fn terminal_size_regression_state(
+        id: &str,
+        recorded: Option<(u16, u16)>,
+    ) -> (Arc<AppState>, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let mut meta = test_session_metadata(
+            id,
+            "Sized regression",
+            dir.path().display().to_string(),
+            "running",
+            "2026-01-01T00:00:00Z",
+            "2026-01-01T00:00:00Z",
+        );
+        meta.lifecycle_phase = "active".into();
+        meta.lifecycle = "alive".into();
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let ws = workspace.as_ref().unwrap();
+            ws.metadata.write_session(&meta);
+            if let Some((cols, rows)) = recorded {
+                ws.metadata.write_terminal_size(id, cols, rows);
+            }
+        }
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        state.sessions.lock().unwrap().insert(
+            id.into(),
+            crate::SessionHandle {
+                info: test_session_info(
+                    id,
+                    "Sized regression",
+                    dir.path().display().to_string(),
+                    "running",
+                    "2026-01-01T00:00:00Z",
+                ),
+                kill_tx,
+                output_buffer: crate::peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(40, 120),
+                terminal_attached: false,
+                resume_in_progress: false,
+                capacity: crate::capacity_state::CapacityState::default(),
+                active_work_hook: false,
+            },
+        );
+        (state, dir)
+    }
+
+    fn assert_recorded_terminal_size(state: &AppState, id: &str, expected: Option<(u16, u16)>) {
+        let workspace = state.workspace.lock().unwrap();
+        let ws = workspace.as_ref().unwrap();
+        assert_eq!(ws.metadata.read_terminal_size(id), expected);
+        if expected.is_none() {
+            assert!(!ws
+                .metadata
+                .root_path()
+                .join("events")
+                .join(format!("{id}.terminal-size"))
+                .exists());
+        }
+    }
+
+    #[tokio::test]
+    async fn nonterminal_status_transitions_preserve_terminal_size() {
+        for recorded in [None, Some((150, 50))] {
+            let id = "nonterminal-size-regression";
+            let (state, _dir) = terminal_size_regression_state(id, recorded);
+            let generation = state.sessions.lock().unwrap()[id].runtime.run_generation();
+            for status in ["creating", "running"] {
+                assert!(set_session_status_for_generation(&state, id, generation, status).await);
+                assert_eq!(state.sessions.lock().unwrap()[id].info.status, status);
+                assert_recorded_terminal_size(&state, id, recorded);
+            }
+        }
+    }
+
+    #[test]
+    fn persist_terminal_size_without_live_handle_preserves_unknown_or_recorded_grid() {
+        for recorded in [None, Some((150, 50))] {
+            let id = "missing-handle-size-regression";
+            let (state, _dir) = terminal_size_regression_state(id, recorded);
+            state.sessions.lock().unwrap().remove(id).unwrap();
+            let application = crate::session_application::SessionApplication::new(state.clone());
+            for authoritative in [false, true] {
+                assert_eq!(
+                    application.persist_terminal_size_with_snapshot(id, authoritative),
+                    None,
+                );
+                assert_recorded_terminal_size(&state, id, recorded);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn terminal_status_without_live_handle_preserves_terminal_size() {
+        for recorded in [None, Some((150, 50))] {
+            let id = "metadata-only-size-regression";
+            let (state, _dir) = terminal_size_regression_state(id, recorded);
+            state.sessions.lock().unwrap().remove(id).unwrap();
+            assert!(set_session_status(&state, id, "ended").await);
+            assert!(state.sessions.lock().unwrap().is_empty());
+            assert_recorded_terminal_size(&state, id, recorded);
+        }
+    }
+
+    #[tokio::test]
+    async fn repeated_finalized_status_preserves_terminal_size() {
+        let id = "finalized-size-regression";
+        let (state, _dir) = terminal_size_regression_state(id, None);
+        let generation = state.sessions.lock().unwrap()[id].runtime.run_generation();
+        assert!(set_session_status_for_generation(&state, id, generation, "ended").await);
+        assert!(
+            crate::session_application::SessionApplication::new(state.clone())
+                .complete_session_ending(
+                    id,
+                    generation,
+                    metadata::ObservedStatusSnapshotMetadata {
+                        attention_origin: None,
+                        value: Some("done".into()),
+                        source: "peon".into(),
+                        confidence: Some(1.0),
+                        observed_at: Some("2026-01-01T00:00:01Z".into()),
+                    },
+                    "ended",
+                )
+        );
+        assert_eq!(
+            state.sessions.lock().unwrap()[id].info.lifecycle_phase,
+            "ended"
+        );
+        assert_recorded_terminal_size(&state, id, Some((120, 40)));
+        // A resample would now be observable. Rejected terminal signals must
+        // retain the finalized grid rather than read this cached value again.
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let runtime = &mut sessions.get_mut(id).unwrap().runtime;
+            runtime.last_cols = 210;
+            runtime.last_rows = 55;
+        }
+        for status in ["ended", "killed", "error"] {
+            assert!(!set_session_status_for_generation(&state, id, generation, status).await);
+            assert_recorded_terminal_size(&state, id, Some((120, 40)));
+        }
+    }
+
+    #[test]
+    fn new_runtime_can_record_terminal_size_after_explicit_clear() {
+        let id = "fresh-runtime-size-regression";
+        let (state, _dir) = terminal_size_regression_state(id, Some((120, 40)));
+        let previous = state.sessions.lock().unwrap()[id].runtime.run_generation();
+        {
+            let workspace = state.workspace.lock().unwrap();
+            workspace.as_ref().unwrap().metadata.clear_terminal_size(id);
+        }
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(id).unwrap();
+            handle.runtime = crate::runtime::session_runtime::SessionRuntime::detached(55, 155);
+            assert_ne!(handle.runtime.run_generation(), previous);
+        }
+        assert_eq!(
+            crate::session_application::SessionApplication::new(state.clone())
+                .persist_terminal_size_with_snapshot(id, false),
+            Some((155, 55)),
+        );
+        assert_recorded_terminal_size(&state, id, Some((155, 55)));
+    }
+
     #[tokio::test]
     async fn set_session_status_seeds_peon_last_output_when_session_enters_running() {
         let state = Arc::new(crate::AppState {
