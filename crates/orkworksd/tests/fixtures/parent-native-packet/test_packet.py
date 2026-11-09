@@ -388,6 +388,88 @@ class NativeIdentityTests(unittest.TestCase):
 
 
 class StopReportingTests(unittest.TestCase):
+    def test_history_failures_keep_distinct_fixed_codes_without_payloads(self):
+        cases = [("missing-root", "history-root-missing"),
+                 ("extra-session", "history-session-layout"),
+                 ("missing-events", "history-events-missing"),
+                 ("events-directory", "history-events-read"),
+                 ("changed-prefix", "history-prefix"),
+                 ("partial-tail", "history-tail"),
+                 ("event-cap", "history-event-cap"),
+                 ("bad-event", "history-event-contract")]
+        for case_name, code in cases:
+            with self.subTest(case=case_name), tempfile.TemporaryDirectory() as root:
+                case = Path(root).resolve()
+                folder = case/"settings/session-state"/PROPOSAL["nativeSessionId"]
+                trace = observer.Trace(PROPOSAL)
+                reader = observer.History(case, trace)
+                if case_name != "missing-root":
+                    folder.mkdir(parents=True)
+                history = folder/"events.jsonl"
+                if case_name == "extra-session":
+                    (folder.parent/"PRIVATE_SESSION").mkdir()
+                elif case_name == "events-directory":
+                    history.mkdir()
+                elif case_name == "changed-prefix":
+                    history.write_text(event("session.start", sessionId=PROPOSAL["nativeSessionId"],
+                                             copilotVersion="1.0.90")+"\n")
+                    reader.scan(1)
+                    history.write_text("{}\n")
+                elif case_name == "partial-tail":
+                    history.write_text('{"PRIVATE_PAYLOAD":')
+                elif case_name in ("event-cap", "bad-event"):
+                    history.write_text('{"PRIVATE_PAYLOAD":"PRIVATE_VALUE"}\n')
+                    if case_name == "event-cap":
+                        trace.count = 4096
+                with self.assertRaises((ValueError, OSError)) as caught:
+                    reader.scan(1, final=True)
+                details = observer.failure_details({"phase": 1, "stage": "native-history"}, caught.exception)
+                self.assertEqual(details.get("checkCode"), code)
+                if case_name == "events-directory":
+                    self.assertIn(details["category"], ("check-failed", "os-error"))
+                else:
+                    self.assertEqual(details["category"], "check-failed")
+                self.assertNotIn("PRIVATE", json.dumps(details))
+
+    def test_history_read_code_preserves_numeric_os_error(self):
+        with tempfile.TemporaryDirectory() as root:
+            case = Path(root).resolve()
+            folder = case/"settings/session-state"/PROPOSAL["nativeSessionId"]
+            folder.mkdir(parents=True)
+            (folder/"events.jsonl").write_text("")
+            with patch("os.open", side_effect=PermissionError(13, "PRIVATE_MESSAGE", "/PRIVATE_PATH")):
+                with self.assertRaises(PermissionError) as caught:
+                    observer.History(case, observer.Trace(PROPOSAL)).scan(1, final=True)
+            details = observer.failure_details({"stage": "native-history"}, caught.exception)
+            self.assertEqual(details.get("checkCode"), "history-events-read")
+            self.assertEqual((details["category"], details["osError"]), ("os-error", 13))
+            self.assertNotIn("PRIVATE", json.dumps(details))
+
+    @unittest.skipUnless(os.name == "posix", "Owned symlink fixtures target POSIX")
+    def test_history_link_guard_has_a_fixed_layout_code(self):
+        with tempfile.TemporaryDirectory() as root:
+            case = Path(root).resolve()
+            (case/"settings").mkdir()
+            target = case/"PRIVATE_TARGET"
+            target.mkdir()
+            (case/"settings/session-state").symlink_to(target, target_is_directory=True)
+            with self.assertRaises(ValueError) as caught:
+                observer.History(case, observer.Trace(PROPOSAL)).scan(1, final=True)
+            details = observer.failure_details({"stage": "native-history"}, caught.exception)
+            self.assertEqual(details.get("checkCode"), "history-root-layout")
+            self.assertNotIn("PRIVATE", json.dumps(details))
+
+    def test_history_code_projection_rejects_unknown_values_and_wrong_stages(self):
+        error = ValueError("PRIVATE_MESSAGE")
+        for code, stage, expected in [("history-prefix", "native-history", "history-prefix"),
+                                      ("PRIVATE_PATH", "native-history", None),
+                                      (["history-prefix"], "native-history", None),
+                                      ("history-prefix", "native-prompt", None)]:
+            error.history_check_code = code
+            details = observer.failure_details({"stage": stage}, error)
+            self.assertEqual(details.get("checkCode"), expected)
+            self.assertNotIn("PRIVATE", json.dumps(details))
+
     def test_failure_projection_keeps_only_fixed_metadata(self):
         diagnostic = {"phase": 1, "stage": "native-prompt", "process": {
             "started": True, "exitCode": 17, "terminationStepsCompleted": False,

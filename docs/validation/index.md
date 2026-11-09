@@ -120,3 +120,5 @@ Capability research, validation results, and evidence fixtures.
 - [Parent continuation canary stopped unverified](parent-native-canary.md) — Three separately approved attempts, sanitized stop receipts and unchanged native capability gates.
 
 - [Native canary UUID compatibility correction](parent-native-canary-offline-audit.md) — Pinned source rejection, corrected synthetic identity and offline guard/input evidence.
+
+- [Native history assumptions and fixed check reporting](native-history-source-audit.md) — Static bridges, unresolved runtime assumptions and fixed nonsecret history-check codes.

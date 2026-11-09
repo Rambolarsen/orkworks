@@ -41,11 +41,18 @@ def failure_details(diagnostic, error):
         number = None
     phase = diagnostic.get("phase")
     stage = diagnostic.get("stage")
-    return {"phase": phase if type(phase) is int and phase in (0, 1, 2) else 0,
+    details = {"phase": phase if type(phase) is int and phase in (0, 1, 2) else 0,
             "stage": stage if isinstance(stage, str) and stage in stages else "unknown",
             "category": category, "osError": number,
             "process": {"started": started, "exitCode": exit_code,
                         "terminationStepsCompleted": process.get("terminationStepsCompleted") is True}}
+    code = getattr(error, "history_check_code", None)
+    if stage == "native-history" and type(code) is str and code in {
+            "history-root-missing", "history-root-layout", "history-session-layout",
+            "history-events-missing", "history-events-read", "history-prefix", "history-tail",
+            "history-event-cap", "history-event-contract"}:
+        details["checkCode"] = code
+    return details
 
 
 def validate_native_id(value):
@@ -371,28 +378,41 @@ class History:
         self.offset, self.prefix = 0, sha(b"")
 
     def scan(self, phase, final=False):
-        root = self.case/"settings/session-state"
-        if not root.exists():
-            require(not final, "Missing native history")
-            return
-        require(not root.is_symlink(), "Unexpected history link")
-        entries = list(root.iterdir())
-        expected = root/self.trace.proposal["nativeSessionId"]
-        require(entries == [expected] and not expected.is_symlink(), "Unexpected native session")
-        path = expected/"events.jsonl"
-        if not path.exists():
-            require(not final, "Missing native history")
-            return
-        raw = read_bounded(path)
-        require(len(raw) >= self.offset and sha(raw[:self.offset]) == self.prefix, "Native history prefix changed")
-        tail = raw[self.offset:]
-        require(not final or not tail or tail.endswith(b"\n"), "Incomplete history tail")
-        for line in tail.splitlines(keepends=True):
-            if not line.endswith(b"\n"): break
-            require(self.trace.count < 4096, "Native event cap")
-            self.trace.ingest(line.decode("utf-8"), phase)
-            self.offset += len(line)
-        self.prefix = sha(raw[:self.offset])
+        code = "history-root-missing"
+        try:
+            root = self.case/"settings/session-state"
+            if not root.exists():
+                require(not final, "Missing native history")
+                return
+            code = "history-root-layout"
+            require(not root.is_symlink(), "Unexpected history link")
+            entries = list(root.iterdir())
+            expected = root/self.trace.proposal["nativeSessionId"]
+            code = "history-session-layout"
+            require(entries == [expected] and not expected.is_symlink(), "Unexpected native session")
+            path = expected/"events.jsonl"
+            code = "history-events-missing"
+            if not path.exists():
+                require(not final, "Missing native history")
+                return
+            code = "history-events-read"
+            raw = read_bounded(path)
+            code = "history-prefix"
+            require(len(raw) >= self.offset and sha(raw[:self.offset]) == self.prefix, "Native history prefix changed")
+            tail = raw[self.offset:]
+            code = "history-tail"
+            require(not final or not tail or tail.endswith(b"\n"), "Incomplete history tail")
+            for line in tail.splitlines(keepends=True):
+                if not line.endswith(b"\n"): break
+                code = "history-event-cap"
+                require(self.trace.count < 4096, "Native event cap")
+                code = "history-event-contract"
+                self.trace.ingest(line.decode("utf-8"), phase)
+                self.offset += len(line)
+            self.prefix = sha(raw[:self.offset])
+        except (ValueError, OSError) as error:
+            error.history_check_code = code
+            raise
 
 
 def check_native_sources(proposal):

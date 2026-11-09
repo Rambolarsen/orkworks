@@ -84,7 +84,7 @@ Cleanup failure makes the batch incomplete. Raw data caps are 1 MiB per file and
 python3 -I -B -m unittest discover -s crates/orkworksd/tests/fixtures/parent-native-packet -p test_packet.py -v
 ```
 
-The focused suite now has 26 tests, including real newline stdio exchange with an
+The focused suite now has 30 tests, including real newline stdio exchange with an
 owned Python fake client, a second fresh fake process, nonce/tool/turn joins,
 retained state, source drift, missing approval, identity/resume denials, private
 payload decode sentinels, observed caps and owned process cleanup. POSIX process
@@ -180,3 +180,18 @@ observed process exit zero. Its [retained receipt and limits](parent-native-cana
 establish raw-root deletion, not a successful capability check or exact failure
 cause. No resume or retry ran. That new approval is now spent; ongoing live budget
 is zero and source/model/transport changes or another attempt need a new decision.
+
+
+## Offline history-check reporting — 2026-11-09
+
+The [offline history audit](native-history-source-audit.md) found no proven static
+path/event mismatch and did not identify the historical stop. It adds optional,
+allowlisted checkCode only for native-history failures so a later approved batch
+can distinguish the failed check group. All guards, parser rules, model, tools,
+limits, supervision and retention behavior are unchanged. Thirty fake-only packet
+tests pass; no Copilot command or vendor module ran for this correction.
+
+Current reporting manifest SHA-256: 809bcb6f61df6803e6fe4d080072d45b1d739a1d8a69ec4e41d9ecc3d2e0d7a2.
+Proposal remains 39bea8c908bb15f3d53ed8a8cd6fdbc38db341f0f30b53f0617b47929fdd027b.
+The earlier corrected manifest above is historical. All three batch approvals
+remain spent; the new manifest is not authorized for native execution.

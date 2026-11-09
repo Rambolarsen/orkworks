@@ -65,3 +65,5 @@ docs/validation/root-preparation-effects.json text eol=lf
 /docs/validation/parent-native-canary-offline-audit.json text eol=lf
 
 /docs/validation/parent-native-canary-corrected-summary.json text eol=lf
+
+/docs/validation/native-history-source-audit.json text eol=lf

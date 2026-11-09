@@ -1,0 +1,194 @@
+{
+  "kind": "offline-history-source-audit-not-runtime-evidence",
+  "sources": [
+    {
+      "member": "app.js",
+      "bytes": 7577057,
+      "sha256": "f84061b62eeb1cd78a655555890fe1a776509203fca68144745467e26e443813"
+    },
+    {
+      "member": "schemas/session-events.schema.json",
+      "bytes": 911334,
+      "sha256": "c1b43f27c015b87bbb74072c6591227e860d6b1862aed9edecfe5aacd29a16c3"
+    },
+    {
+      "member": "prebuilds/darwin-arm64/runtime.node",
+      "sha256": "ad89ad135478cd2b19a5b99bb19064d0be281961cab0506f3767f39234d4c591",
+      "loadedOrExecuted": false
+    }
+  ],
+  "anchors": {
+    "settingsPrecedence": {
+      "byteOffset": 139454,
+      "anchor": "function WW(e)"
+    },
+    "sessionsHomeBridge": {
+      "byteOffset": 139191,
+      "anchor": "function Tf(e)"
+    },
+    "sessionStateBridge": {
+      "byteOffset": 139250,
+      "anchor": "function Gp(e,t)"
+    },
+    "eventsPathBridge": {
+      "byteOffset": 139317,
+      "anchor": "function Eg(e,t)"
+    },
+    "nativeEmissionBridge": {
+      "byteOffset": 1502660,
+      "anchor": "emitInternal(t,n,r=!1,o,s=!1)"
+    },
+    "nativeEventStream": {
+      "byteOffset": 1369900,
+      "anchor": "function JCt(e,t)"
+    },
+    "nativeResumeMetadata": {
+      "byteOffset": 1611318,
+      "anchor": "sessionPlanLocalSessionResumeEventDataJson"
+    },
+    "nativeHistoryLoad": {
+      "byteOffset": 1616511,
+      "anchor": "async loadSessionFsEvents(t)"
+    }
+  },
+  "schemaProjections": {
+    "StartData": {
+      "required": [
+        "sessionId",
+        "version",
+        "producer",
+        "copilotVersion",
+        "startTime"
+      ],
+      "properties": [
+        "sessionId",
+        "version",
+        "producer",
+        "copilotVersion",
+        "startTime",
+        "selectedModel",
+        "reasoningEffort",
+        "reasoningSummary",
+        "verbosity",
+        "contextTier",
+        "autoTier",
+        "sessionLimits",
+        "context",
+        "githubMcpToolConfig",
+        "alreadyInUse",
+        "remoteSteerable",
+        "detachedFromSpawningParentSessionId"
+      ]
+    },
+    "ResumeData": {
+      "required": [
+        "resumeTime",
+        "eventCount"
+      ],
+      "properties": [
+        "resumeTime",
+        "eventCount",
+        "eventsFileSizeBytes",
+        "selectedModel",
+        "reasoningEffort",
+        "reasoningSummary",
+        "verbosity",
+        "contextTier",
+        "autoTier",
+        "sessionLimits",
+        "context",
+        "alreadyInUse",
+        "sessionWasActive",
+        "remoteSteerable",
+        "continuePendingWork"
+      ]
+    },
+    "ToolExecutionStartData": {
+      "required": [
+        "toolCallId",
+        "toolName"
+      ],
+      "properties": [
+        "toolCallId",
+        "toolName",
+        "toolTitle",
+        "arguments",
+        "shellToolInfo",
+        "model",
+        "rte",
+        "mcpServerName",
+        "mcpConfigServerName",
+        "mcpToolName",
+        "mcpTransport",
+        "mcpConfigSource",
+        "turnId",
+        "displayVerbatim",
+        "toolDescription",
+        "parentToolCallId",
+        "fusion"
+      ]
+    },
+    "ToolExecutionCompleteData": {
+      "required": [
+        "toolCallId",
+        "success"
+      ],
+      "properties": [
+        "toolCallId",
+        "success",
+        "model",
+        "mcpMeta",
+        "interactionId",
+        "rte",
+        "isUserRequested",
+        "result",
+        "error",
+        "toolTelemetry",
+        "turnId",
+        "toolDescription",
+        "sandboxed",
+        "shellExecution",
+        "parentToolCallId",
+        "fusion"
+      ]
+    }
+  },
+  "mcpTransportEnum": [
+    "stdio",
+    "http",
+    "sse",
+    "memory"
+  ],
+  "findings": [
+    "ConfigDir, COPILOT_HOME and OS home enter native path resolvers; concrete path computation is delegated.",
+    "Event emission, stream and filesystem loading use native runtime bridges; absent JS field literals do not prove runtime omission.",
+    "Selected identity/model/MCP/turn fields exist in schema; several correlation fields are schema-optional and actual availability is unverified.",
+    "No static path/event incompatibility or historical failed check is proven.",
+    "Independent synthetic History failures reproduce the missing retained check distinction before this correction."
+  ],
+  "reporting": {
+    "optionalField": "checkCode",
+    "stage": "native-history",
+    "allowlist": [
+      "history-root-missing",
+      "history-root-layout",
+      "history-session-layout",
+      "history-events-missing",
+      "history-events-read",
+      "history-prefix",
+      "history-tail",
+      "history-event-cap",
+      "history-event-contract"
+    ],
+    "proposalSha256": "39bea8c908bb15f3d53ed8a8cd6fdbc38db341f0f30b53f0617b47929fdd027b",
+    "manifestSha256": "809bcb6f61df6803e6fe4d080072d45b1d739a1d8a69ec4e41d9ecc3d2e0d7a2",
+    "guardBehaviorUnchanged": true,
+    "liveBudget": 0
+  },
+  "boundaries": [
+    "No Copilot/native discovery/model command, vendor import/addon load or native event replay.",
+    "No credentials, personal/native raw history or deleted outputs inspected.",
+    "Synthetic temporary files and project Python parser only; historical receipts unchanged.",
+    "No native capability, provider/billing, managed capture or remote-retention qualification."
+  ]
+}
