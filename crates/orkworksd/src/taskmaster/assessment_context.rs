@@ -257,7 +257,7 @@ impl RepositoryContext {
         if root.to_str().is_none() || workspace.to_str().is_none() {
             return Err("Assessment workspace path is not valid UTF-8".into());
         }
-        let repository = git2::Repository::discover(&root).ok();
+        let repository = discover_repository(&root);
         let mut paths = Vec::new();
         let mut remaining = 2000;
         let mut complete = true;
@@ -312,18 +312,24 @@ impl RepositoryContext {
                 // Readiness catalog discovery exposes paths only. Inspect safe
                 // regular-file metadata here; omitted preferences must never
                 // cause unselected content to be read during catalog creation.
-                open_evidence_file(&root, &relative, level, excluded)
-                    .and_then(|file| {
-                        file.metadata()
-                            .map_err(|_| "Evidence metadata unavailable".into())
-                    })
-                    .and_then(|metadata| {
-                        if metadata.is_file() {
-                            Ok(())
-                        } else {
-                            Err("Evidence is not a regular file".into())
-                        }
-                    })
+                open_evidence_file_in_repository(
+                    &root,
+                    &relative,
+                    level,
+                    excluded,
+                    repository.as_ref(),
+                )
+                .and_then(|file| {
+                    file.metadata()
+                        .map_err(|_| "Evidence metadata unavailable".into())
+                })
+                .and_then(|metadata| {
+                    if metadata.is_file() {
+                        Ok(())
+                    } else {
+                        Err("Evidence is not a regular file".into())
+                    }
+                })
             } else {
                 read_prefix(&root, &relative, level, excluded).map(|_| ())
             };
@@ -839,7 +845,14 @@ fn canonical_relative_path(path: &Path) -> Option<String> {
 }
 #[cfg(test)]
 thread_local! {
+    static REPOSITORY_DISCOVERIES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     static OBSERVED_PREFIX_READS: std::cell::RefCell<Option<Vec<String>>> = const { std::cell::RefCell::new(None) };
+}
+
+fn discover_repository(root: &Path) -> Option<git2::Repository> {
+    #[cfg(test)]
+    REPOSITORY_DISCOVERIES.with(|count| count.set(count.get() + 1));
+    git2::Repository::discover(root).ok()
 }
 
 fn open_evidence_file(
@@ -851,9 +864,24 @@ fn open_evidence_file(
     if !context::fact_is_permitted(relative, level, excluded) {
         return Err("Assessment evidence access denied".into());
     }
+    let repository = discover_repository(root);
+    open_evidence_file_in_repository(root, relative, level, excluded, repository.as_ref())
+}
+
+// Metadata-only catalog admission reuses the traversal's repository. Content
+// reads still discover afresh so later ignore changes are revalidated.
+fn open_evidence_file_in_repository(
+    root: &Path,
+    relative: &str,
+    level: ContextLevel,
+    excluded: &[String],
+    repository: Option<&git2::Repository>,
+) -> Result<std::fs::File, String> {
+    if !context::fact_is_permitted(relative, level, excluded) {
+        return Err("Assessment evidence access denied".into());
+    }
     let path = root.join(relative);
-    let repository = git2::Repository::discover(root).ok();
-    if repository.as_ref().is_some_and(|repo| {
+    if repository.is_some_and(|repo| {
         repo.workdir()
             .and_then(|p| p.canonicalize().ok())
             .and_then(|p| path.strip_prefix(p).ok().map(Path::to_path_buf))
@@ -905,6 +933,55 @@ mod tests {
     use super::*;
     use crate::taskmaster::runtime::ContextLevel;
     use std::fs;
+
+    #[test]
+    fn readiness_catalog_does_not_reopen_git_for_every_candidate() {
+        let dir = tempfile::tempdir().unwrap();
+        git2::Repository::init(dir.path()).unwrap();
+        fs::create_dir(dir.path().join("src")).unwrap();
+        for n in 0..128 {
+            fs::write(
+                dir.path().join(format!("src/file-{n}.rs")),
+                "fn main() {}\n",
+            )
+            .unwrap();
+        }
+        fs::write(dir.path().join(".gitignore"), "src/ignored.rs\n").unwrap();
+        fs::write(dir.path().join("src/ignored.rs"), "ignored").unwrap();
+        fs::write(dir.path().join("src/excluded.rs"), "excluded").unwrap();
+        REPOSITORY_DISCOVERIES.with(|count| count.set(0));
+        let context = RepositoryContext::collect_for_readiness(
+            dir.path(),
+            ContextLevel::SourceCode,
+            &["src/excluded.rs".into()],
+            "now",
+        )
+        .unwrap();
+        assert_eq!(
+            context
+                .catalog
+                .iter()
+                .filter(|path| path.starts_with("src/file-"))
+                .count(),
+            128
+        );
+        assert!(!context
+            .catalog
+            .iter()
+            .any(|path| path == "src/ignored.rs" || path == "src/excluded.rs"));
+        let opens = REPOSITORY_DISCOVERIES.with(|count| count.get());
+        // Catalog metadata checks share one discovery; bounded seed reads may
+        // discover independently so they retain fresh ignore validation.
+        assert!(opens <= 17, "catalog reopened Git {opens} times");
+        fs::write(dir.path().join(".gitignore"), "src/file-0.rs\n").unwrap();
+        assert!(read_prefix(
+            &context.root,
+            "src/file-0.rs",
+            ContextLevel::SourceCode,
+            &[]
+        )
+        .is_err());
+    }
 
     #[test]
     fn readiness_admission_respects_exact_byte_and_file_boundaries() {
