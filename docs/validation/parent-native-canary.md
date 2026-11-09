@@ -1,7 +1,7 @@
 ---
 type: Native Canary Evidence
 title: Parent continuation canary stopped unverified
-description: One approved native attempt stopped after source checks and one prompt attempt, without correlated capability evidence; raw-root deletion was confirmed.
+description: Two separately approved native batches stopped unverified; retained receipts distinguish the initial generic stop from the revised host-stage and exit observations.
 tags: [orchestration, copilot, continuation, qualification]
 status: stable
 workflow_status: attempted-unverified
@@ -79,8 +79,8 @@ The attempt is complete; all three native capability checks remain **unverified*
 [#742](https://github.com/Rambolarsen/orkworks/issues/742) remains open, and #740
 stays closed. No production role eligibility, authority, persistence or runtime
 implementation is established. This approval is spent and no ongoing live budget
-remains. A model-free improvement to sanitized failure classification is a
-possible separate follow-up; it does not authorize a new native run.
+remains. The later model-free reporting improvement did not itself authorize
+a new native run; the revised attempt below received a separate owner decision.
 
 ## Documentation verification
 
@@ -93,5 +93,67 @@ The full docs build rerun passed all 1,204 tests and rendered the documentation
 with link checks. The first nonzero result remains recorded.
 
 The later [model-free reporting revision](parent-native-packet.md#model-free-stop-reporting-revision--2026-11-09)
-retains fixed stop categories and process status for a possible future attempt.
-It does not modify this receipt, identify this failure or authorize another run.
+added fixed stop categories and process status. It does not modify the first
+receipt or identify that failure. Its separately approved attempt is recorded below.
+
+
+## Revised packet attempt — 2026-11-09
+
+[#1594](https://github.com/Rambolarsen/orkworks/issues/1594) executes one new owner
+decision after [#1590](https://github.com/Rambolarsen/orkworks/pull/1590). The owner
+answered “go ahead” to the exact revised packet and unchanged budget/risk statement.
+Proposal e84b24ab002afc8fe45ecca2a2be6976ad8d1a5fc1f53aa1e5663fe31ec4f297
+and manifest 787dc852dc9e64d5333112fc175f96cf7e992c1b86dbbfdc38fb4cda643bdfdd
+matched before launch. The runner/fixture files are unchanged from reporting
+revision 594e1cff4600364d4cb7a574c9f665195fbde5ed, executed from worktree base
+bdd7d10a. This was a distinct one-batch approval, not a retry under the first budget.
+
+The unchanged [revised sanitized receipt](parent-native-canary-revised-summary.json)
+has SHA-256 eeb61a24efd3d56a33ec825421897c31819a4756396c3e1d5ef5916eb599ad20.
+
+| Field | Revised observation |
+| --- | --- |
+| Outcome | unverified |
+| Discovery command attempts | 2 |
+| Native prompt invocation attempts | 1 |
+| Elapsed batch seconds | 4.057 |
+| Failure phase / enclosing stage | 1 / native-prompt |
+| Failure category | check-failed |
+| OS error | null |
+| Owned process started | true |
+| Observed exit code | 1 |
+| Termination steps completed | true |
+| Raw roots removed | true |
+| Provider request count / remote retention | unknown / unknown |
+
+This establishes that the owned native process was started and its observed exit
+code was 1. A host check failed within the native-prompt operation. It does not
+identify the particular check: the supervisor checks bounds as well as process
+completion, and its cleanup can affect the eventual exit code. Do not conclude
+that a CLI option, model, authentication or MCP mapping was specifically rejected.
+A native turn/inference, successful tool delivery and billable request count are
+not established. There is no successful capability-check block and no second
+prompt/resume attempt.
+
+The terminationStepsCompleted field describes the existing TERM/wait/KILL/wait sequence
+returning; it is not an OS-confinement or universal descendant-liveness proof.
+Raw-root deletion was confirmed by the runner. The temporary approval/output
+control root was removed after copying this receipt. No raw history or native
+output was inspected afterward, and no retry/fallback/native diagnostic chain ran.
+
+A read-only check of the [retained 1.0.90 CLI help](https://github.com/Rambolarsen/orkworks/blob/594e1cff4600364d4cb7a574c9f665195fbde5ed/docs/validation/fixtures/copilot-1.0.90/help.txt) found the configured option names;
+it does not establish MCP availability-name mapping or explain the observed stop.
+No installed CLI was launched for that static check.
+
+All three native capability checks remain **unverified**. #742 stays open and
+#740 closed. No production eligibility/authority/storage claim follows. This new
+one-attempt budget is spent, including its unused phase-two allowance; no further
+native run is authorized. A model-free audit of the fixed argv against retained
+CLI/source evidence is a possible separate next step before spending more usage.
+
+
+Evidence validation initially had the same unchanged fake-process output-cap test
+fail with os.killpg PermissionError; 1,203 other docs tests passed. Its isolated
+rerun passed, followed by the complete docs build with all 1,204 tests and link
+checks passing. The transient test cause remains unknown and is not attributed
+to this native stop. No runner or fixture code was changed to obtain a green run.
