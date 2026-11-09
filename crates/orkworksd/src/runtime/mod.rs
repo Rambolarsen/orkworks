@@ -21,3 +21,7 @@ pub(crate) mod workspace_gc;
 pub(crate) mod codex_terminal_status;
 
 pub(crate) mod worktree_instructions;
+
+// Source-only candidate; no production construction or input authority.
+#[allow(dead_code)]
+mod input_submission;

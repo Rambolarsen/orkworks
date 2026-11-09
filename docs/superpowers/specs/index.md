@@ -294,4 +294,4 @@ Dated design records; these do not establish current product behavior.
 
 - [Private terminal input truth and completion interface](2026-11-08-terminal-input-outcome-interface-design.md) — Accepted-for-qualification original submission record separating byte-effect truth, physical completion and application settlement; actual operations and numeric/physical qualification remain gated.
 
-- [Source-only submission owner before physical qualification](2026-11-09-submission-owner-qualification-sequencing.md) — Proposed one-candidate sequencing exception for offline ownership/accounting implementation; production wiring and physical qualification remain gated.
+- [Source-only submission owner before physical qualification](2026-11-09-submission-owner-qualification-sequencing.md) — Accepted one-candidate sequencing exception for offline ownership/accounting implementation; production wiring and physical qualification remain gated.

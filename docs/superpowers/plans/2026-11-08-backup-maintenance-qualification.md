@@ -266,16 +266,34 @@ enforcement and physical/native evidence still need closure before a bounded
 implementation handoff; an accepted paper record is not runtime capability.
 
 
-## Proposed source-only owner sequencing exception — 2026-11-09
+## Accepted source-only owner sequencing exception — 2026-11-09
 
 [#1584](https://github.com/Rambolarsen/orkworks/issues/1584) records a concrete
-[sequencing amendment proposal](../specs/2026-11-09-submission-owner-qualification-sequencing.md).
+[accepted sequencing amendment](../specs/2026-11-09-submission-owner-qualification-sequencing.md).
 Under a literal all-code reading, the current general handoff requires actual
-owner operations before their first candidate implementation can be planned. The proposal would allow exactly one unwired,
-source-only submission-record/accounting candidate and offline component checks
-after explicit owner approval and a bounded reviewed implementation plan.
+owner operations before their first candidate implementation can be planned. After #1587, the owner approved exactly one unwired source-only submission-record/
+accounting candidate and offline component checks; [#1589](https://github.com/Rambolarsen/orkworks/issues/1589)
+records acceptance and the [bounded implementation plan](2026-11-09-input-submission-owner-candidate.md).
 
-This exception remains proposed, not executable. It closes no remaining checkbox
+The approved exception covers that candidate only. It closes no remaining checkbox
 and changes no production/controller, native/SQL/model, resource-profile, Q or
 restore gate. Candidate evidence would establish only its actual local behavior,
 never production producer/physical qualification or complete resource fit.
+
+
+## Source-only candidate result — 2026-11-09
+
+[#1589](https://github.com/Rambolarsen/orkworks/issues/1589) implements the approved
+[single private owner candidate](2026-11-09-input-submission-owner-candidate.md).
+Actual candidate handles enforce a fixed record pool, finite explicit limits,
+four unique reporters, bounded observers and checked serial reuse. Input facts
+remain distinct from phase completion; loss/conflict/partial/unknown is retained
+as protection and cannot be force-retired. Twelve offline candidate tests and
+full repository verification passed; fresh current-diff medium review found no
+material findings.
+
+This is actual local bookkeeping evidence, not producer/native/whole-application
+resource evidence. No production constructor or input/SQL/file/model effect was
+added. Remaining full-catalog, real writer/physical completion, resource-profile,
+native/external and restore gates stay open; no existing checkbox is promoted
+to complete on the strength of candidate counters or synthetic reporting roles.

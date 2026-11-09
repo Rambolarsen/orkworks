@@ -235,6 +235,18 @@ under the [qualification plan](../superpowers/plans/2026-11-08-backup-maintenanc
 No runtime implementation, live operation, native/SQL/model execution, numerical
 execution allowance or rollout/dependency bypass follows.
 
+### Single source-only submission owner — 2026-11-09
+
+After #1587, the owner approved a reviewed implementation plan followed by one
+unwired submission-owner module with offline tests. [#1589](https://github.com/Rambolarsen/orkworks/issues/1589)
+records the [accepted narrow sequencing exception](../superpowers/specs/2026-11-09-submission-owner-qualification-sequencing.md)
+and its [bounded plan](../superpowers/plans/2026-11-09-input-submission-owner-candidate.md).
+Candidate handles/counters establish only local record/accounting behavior. They
+carry no native RootKey, input or maintenance authority; synthetic fixture limits
+are not production values or measured physical fit. Actual producer wiring and
+complete native/resource/backup/restore qualification remain gated. No terminal,
+SQL/file/model effect, live operation or production activation follows.
+
 ## Clarification — 2026-11-07: SQL-bound recommendation recovery
 
 After reviewing the complete [recovery protocol](../superpowers/specs/2026-11-07-sql-recommendation-journal-recovery.md)
