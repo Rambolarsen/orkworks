@@ -362,8 +362,8 @@ mod history;
 #[cfg(test)]
 pub(crate) use history::CandidateResult;
 pub(crate) use history::{
-    CapturedEnding, CapturedEndingEvidence, EvidenceWrite, Finalization, MetadataResult,
-    ProviderWrite,
+    CapturedEnding, CapturedEndingEvidence, CapturedSqlObservation, EvidenceWrite, Finalization,
+    MetadataResult, ProviderWrite, SqlCandidateResult, SqlEvidenceWrite,
 };
 
 #[cfg(test)]

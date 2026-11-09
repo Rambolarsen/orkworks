@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-async fn fixture() -> (tempfile::TempDir, SessionStore, SqlSource, File) {
+pub(super) async fn fixture() -> (tempfile::TempDir, SessionStore, SqlSource, File) {
     let root = tempfile::tempdir().unwrap();
     let store = SessionStore::initialize(root.path().into(), "/workspace".into())
         .await
@@ -30,7 +30,7 @@ async fn fixture() -> (tempfile::TempDir, SessionStore, SqlSource, File) {
     let directory = File::open(root.path().join("workflow-observations")).unwrap();
     (root, store, source, directory)
 }
-fn candidate() -> ObservationCandidate {
+pub(super) fn candidate() -> ObservationCandidate {
     ObservationCandidate {
         kind: ObservationKind::Obstacle,
         description: "blocked".into(),
@@ -40,7 +40,7 @@ fn candidate() -> ObservationCandidate {
         confidence: Some(0.8),
     }
 }
-fn now() -> DateTime<Utc> {
+pub(super) fn now() -> DateTime<Utc> {
     parse_time("2026-11-09T00:00:00Z").unwrap()
 }
 fn write(
@@ -133,7 +133,7 @@ async fn failed_append_keeps_a_gap_and_partial_append_is_preserved() {
         store.close().await.unwrap();
     }
 }
-fn seed(source: &SqlSource, sequence: u64, key: &str, recent: bool) -> RecordData {
+pub(super) fn seed(source: &SqlSource, sequence: u64, key: &str, recent: bool) -> RecordData {
     let mut value = super::super::tests::line();
     value["observation"]["id"] =
         serde_json::json!(uuid::Uuid::from_u128(sequence as u128).to_string());
@@ -153,7 +153,7 @@ fn seed(source: &SqlSource, sequence: u64, key: &str, recent: bool) -> RecordDat
     value["idempotencyKeyHash"] = serde_json::json!(hash_key("s", key));
     decode_line(&serde_json::to_vec(&value).unwrap(), "s").unwrap()
 }
-fn seed_file(root: &Path, records: &[RecordData], counter: u64) {
+pub(super) fn seed_file(root: &Path, records: &[RecordData], counter: u64) {
     let dir = root.join("workflow-observations");
     let mut bytes = Vec::new();
     for r in records {
@@ -614,7 +614,7 @@ fn numeric_write(
         now(),
     )
 }
-fn fill_blank_inventory(root: &Path, mut bytes: usize, target: bool) {
+pub(super) fn fill_blank_inventory(root: &Path, mut bytes: usize, target: bool) {
     let dir = root.join("workflow-observations");
     let mut index = 0;
     while bytes > 0 {

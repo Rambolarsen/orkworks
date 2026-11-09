@@ -3,6 +3,7 @@ use super::*;
 use crate::session_application::sql_writes::lifecycle::LifecycleWrite;
 const ID: &str = "sql-runtime";
 #[tokio::test]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 async fn sql_runtime_final_scan_persists_provider_and_evidence_before_history() {
     let _guard = diagnostic_test_guard();
     let (_dir, state, store, writes, _, _, _, _commands) = fixture().await;
@@ -43,18 +44,8 @@ async fn sql_runtime_final_scan_persists_provider_and_evidence_before_history() 
         record["modelProviderId"], "final-provider",
         "runtime history completion has no final-scan provider stage"
     );
-    assert_eq!(
-        state
-            .workspace
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .workflow_observations
-            .session_observation_count(ID)
-            .unwrap(),
-        1
-    );
+    assert_eq!(qualified_count(&state), 1);
+    assert_eq!(observations(&state).evaluation_generation(), 0);
     store.close().await.unwrap();
 }
 
@@ -121,10 +112,30 @@ fn observations(state: &Arc<AppState>) -> crate::workflow_observations::Workflow
         .workflow_observations
         .clone()
 }
+fn qualified_count(state: &Arc<AppState>) -> usize {
+    let path = files(state)
+        .root_path()
+        .join(format!("workflow-observations/{ID}.ndjson"));
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return 0,
+        Err(e) => panic!("{e}"),
+    };
+    bytes
+        .split(|b| *b == b'\n')
+        .filter(|line| !line.is_empty())
+        .map(|line| {
+            let record = crate::workflow_observations::sql_origin::decode_line(line, ID).unwrap();
+            assert!(record.origin().is_some());
+            usize::from(record.observation().is_some())
+        })
+        .sum()
+}
 async fn stored(store: &crate::session_store::SessionStore) -> crate::metadata::SessionMetadata {
     serde_json::from_value(store.get(ID.into()).await.unwrap().unwrap()).unwrap()
 }
 #[tokio::test]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 async fn final_scan_partial_stages_preserve_history_progress_without_retry() {
     let _guard = diagnostic_test_guard();
     for fault in ["provider", "evidence", "grid", "event"] {
@@ -176,25 +187,16 @@ async fn final_scan_partial_stages_preserve_history_progress_without_retry() {
             ));
         }
         if fault == "evidence" {
-            let receipt = stages.evidence.unwrap().unwrap();
-            assert!(matches!(
-                receipt.candidates[0],
-                crate::session_application::sql_writes::lifecycle::CandidateResult::Recorded(Err(
-                    crate::workflow_observations::RecordError::PersistFailed
-                ))
-            ));
-            assert!(!receipt.evaluation_scheduled);
-            assert_eq!(
-                std::fs::read_to_string(files.root_path().join("workflow-observations/sequence"))
-                    .unwrap()
-                    .trim(),
-                "1"
+            assert!(matches!(stages.evidence, Some(Err(_))));
+            assert!(
+                !files
+                    .root_path()
+                    .join("workflow-observations/sequence")
+                    .exists(),
+                "strict preflight refuses a nonregular segment before the counter"
             );
         } else {
-            assert_eq!(
-                observations(&state).session_observation_count(ID).unwrap(),
-                1
-            );
+            assert_eq!(qualified_count(&state), 1);
         }
         let history = stages.history.unwrap();
         if fault == "grid" {
@@ -218,6 +220,7 @@ async fn final_scan_partial_stages_preserve_history_progress_without_retry() {
     }
 }
 #[tokio::test]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 async fn final_scan_fallback_uses_sql_ending_snapshot_and_skips_empty_inference() {
     let _guard = diagnostic_test_guard();
     for mode in ["empty", "timeout", "no-inference", "no-status"] {
@@ -290,6 +293,7 @@ async fn final_scan_fallback_uses_sql_ending_snapshot_and_skips_empty_inference(
     }
 }
 #[tokio::test]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 async fn final_scan_original_capture_rejects_replacements_across_inference_wait() {
     let _guard = diagnostic_test_guard();
     for change in [
@@ -376,6 +380,7 @@ async fn final_scan_original_capture_rejects_replacements_across_inference_wait(
     }
 }
 #[tokio::test]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 async fn final_scan_missing_ended_or_unavailable_sql_never_uses_valid_json() {
     let _guard = diagnostic_test_guard();
     for fault in ["missing", "ended", "unavailable"] {
@@ -438,10 +443,7 @@ async fn final_scan_missing_ended_or_unavailable_sql_never_uses_valid_json() {
         assert_eq!(std::fs::read(legacy).unwrap(), before);
         assert!(files.read_events(ID).is_empty());
         assert!(files.read_terminal_size(ID).is_none());
-        assert_eq!(
-            observations(&state).session_observation_count(ID).unwrap(),
-            0
-        );
+        assert_eq!(qualified_count(&state), 0);
         if fault != "unavailable" {
             store.close().await.unwrap();
         }
@@ -514,29 +516,35 @@ async fn final_scan_json_missing_metadata_completes_live_handle_with_null_recove
 }
 
 #[tokio::test]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 async fn final_scan_duplicate_evidence_keeps_original_identity_without_rescheduling() {
     let _guard = diagnostic_test_guard();
     let (_dir, state, store, writes, _, _, _, _) = fixture().await;
     let generation = ending(&state, &writes, true).await;
     let evidence = observations(&state);
-    let accepted = evidence
-        .record_observation(
-            ID,
-            crate::workflow_observations::ObservationOrigin::Peon,
-            &format!("final-scan:{generation}:0"),
-            crate::workflow_observations::ObservationCandidate {
-                kind: crate::workflow_observations::ObservationKind::Obstacle,
-                description: "blocked".into(),
-                evidence: "failure".into(),
-                problem_area: None,
-                reported_impact: crate::workflow_observations::Impact::Low,
-                confidence: Some(0.8),
-            },
-        )
+    let runtime = state.sessions.lock().unwrap()[ID].runtime.identity();
+    let captured = writes
+        .capture_ending_history(&state, ID.into(), runtime)
+        .await
+        .unwrap()
+        .capture_sql_observation_origin()
+        .await
         .unwrap();
-    let crate::workflow_observations::RecordOutcome::Accepted(original) = accepted else {
+    let receipt = captured
+        .persist_workflow_observations(
+            generation,
+            scan().inference.unwrap().workflow_observations,
+            vec!["failure".into()],
+        )
+        .await
+        .unwrap();
+    let crate::session_application::sql_writes::lifecycle::SqlCandidateResult::Recorded(Ok(
+        crate::workflow_observations::RecordOutcome::Accepted(original),
+    )) = receipt.candidates.into_iter().next().unwrap()
+    else {
         panic!("fixture not accepted")
     };
+    drop(captured);
     let owner = FinalScanPersistence::sql(state.clone(), writes, ID.into(), generation)
         .await
         .unwrap();
@@ -546,15 +554,15 @@ async fn final_scan_duplicate_evidence_keeps_original_identity_without_reschedul
         panic!("duplicate failed")
     };
     let evidence_result = stages.evidence.unwrap().unwrap();
-    assert!(!evidence_result.evaluation_scheduled);
     assert!(
-        matches!(&evidence_result.candidates[0],crate::session_application::sql_writes::lifecycle::CandidateResult::Recorded(Ok(crate::workflow_observations::RecordOutcome::Duplicate{observation_id,sequence,..})) if observation_id==&original.id && sequence==&original.sequence)
+        matches!(&evidence_result.candidates[0],crate::session_application::sql_writes::lifecycle::SqlCandidateResult::Recorded(Ok(crate::workflow_observations::RecordOutcome::Duplicate{observation_id,sequence,..})) if observation_id==&original.id && sequence==&original.sequence)
     );
     assert_eq!(evidence.evaluation_generation(), 0);
-    assert_eq!(evidence.session_observation_count(ID).unwrap(), 1);
+    assert_eq!(qualified_count(&state), 1);
     store.close().await.unwrap();
 }
 #[tokio::test]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 async fn final_scan_stage_order_is_visible_before_history_admission() {
     use crate::session_application::ending_completion::testing::{hold, Stage};
     let _guard = diagnostic_test_guard();
@@ -573,11 +581,8 @@ async fn final_scan_stage_order_is_visible_before_history_admission() {
     let metadata = stored(&store).await;
     assert_eq!(metadata.provider_id.as_deref(), Some("final-provider"));
     assert_eq!(metadata.lifecycle_phase, "ending");
-    assert_eq!(
-        observations(&state).session_observation_count(ID).unwrap(),
-        1
-    );
-    assert_eq!(observations(&state).evaluation_generation(), 1);
+    assert_eq!(qualified_count(&state), 1);
+    assert_eq!(observations(&state).evaluation_generation(), 0);
     assert!(files.read_terminal_size(ID).is_none());
     assert!(files.read_events(ID).is_empty());
     drop(pause);
@@ -597,6 +602,7 @@ async fn final_scan_stage_order_is_visible_before_history_admission() {
     store.close().await.unwrap();
 }
 #[tokio::test]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 async fn final_scan_cancelled_inference_releases_capture_without_persistence() {
     let _guard = diagnostic_test_guard();
     let (_dir, state, store, writes, _, _, _, _) = fixture().await;
@@ -629,15 +635,13 @@ async fn final_scan_cancelled_inference_releases_capture_without_persistence() {
     let _ = job.await;
     assert!(lease.upgrade().is_none());
     assert_eq!(store.get(ID.into()).await.unwrap(), before);
-    assert_eq!(
-        observations(&state).session_observation_count(ID).unwrap(),
-        0
-    );
+    assert_eq!(qualified_count(&state), 0);
     assert!(files.read_events(ID).is_empty());
     assert!(files.read_terminal_size(ID).is_none());
     store.close().await.unwrap();
 }
 #[tokio::test]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 async fn final_scan_cancelled_admitted_provider_keeps_definitive_stage_without_later_effects() {
     let _guard = diagnostic_test_guard();
     let (_dir, state, store, writes, _, _, _, _) = fixture().await;
@@ -676,15 +680,13 @@ async fn final_scan_cancelled_admitted_provider_keeps_definitive_stage_without_l
     let metadata = stored(&store).await;
     assert_eq!(metadata.provider_id.as_deref(), Some("final-provider"));
     assert_eq!(metadata.lifecycle_phase, "ending");
-    assert_eq!(
-        observations(&state).session_observation_count(ID).unwrap(),
-        0
-    );
+    assert_eq!(qualified_count(&state), 0);
     assert!(files.read_events(ID).is_empty());
     assert!(files.read_terminal_size(ID).is_none());
     store.close().await.unwrap();
 }
 #[tokio::test]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 async fn final_scan_explicit_sql_runtime_entry_finishes_empty_output_without_provider_dispatch() {
     let _guard = diagnostic_test_guard();
     let (_dir, state, store, writes, _, _, _, _) = fixture().await;
@@ -709,6 +711,7 @@ async fn final_scan_explicit_sql_runtime_entry_finishes_empty_output_without_pro
 }
 
 #[tokio::test(flavor = "current_thread")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 async fn final_scan_full_pipeline_stall_leaves_other_runtime_input_and_guards_available() {
     use crate::runtime::session_runtime::RuntimeCommand;
     let _guard = diagnostic_test_guard();
@@ -821,14 +824,12 @@ async fn final_scan_full_pipeline_stall_leaves_other_runtime_input_and_guards_av
         panic!("pipeline failed")
     };
     assert!(stages.history.is_ok());
-    assert_eq!(
-        observations(&state).session_observation_count(ID).unwrap(),
-        1
-    );
+    assert_eq!(qualified_count(&state), 1);
     assert_eq!(stored(&store).await.lifecycle_phase, "ended");
     store.close().await.unwrap();
 }
 #[test]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn final_scan_pipeline_finishes_with_only_one_blocking_worker() {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -879,6 +880,7 @@ async fn final_scan_production_entry_stays_json_without_activating_sql() {
 }
 
 #[tokio::test]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 async fn final_scan_stale_output_capture_never_dispatches_inference() {
     let _guard = diagnostic_test_guard();
     let (_dir, state, store, writes, _, _, _, _) = fixture().await;
@@ -905,5 +907,71 @@ async fn final_scan_stale_output_capture_never_dispatches_inference() {
     ));
     assert_eq!(stored(&store).await.lifecycle_phase, "ending");
     assert!(stored(&store).await.provider_id.is_none());
+    store.close().await.unwrap();
+}
+
+#[tokio::test]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+async fn final_scan_legacy_retry_collision_refuses_without_upgrade_or_evaluation() {
+    let _guard = diagnostic_test_guard();
+    let (_dir, state, store, writes, _, _, _, _) = fixture().await;
+    let generation = ending(&state, &writes, true).await;
+    let workflow = observations(&state);
+    let candidate = scan().inference.unwrap().workflow_observations.remove(0);
+    workflow
+        .record_observation(
+            ID,
+            crate::workflow_observations::ObservationOrigin::Peon,
+            &format!("final-scan:{generation}:0"),
+            crate::workflow_observations::ObservationCandidate {
+                kind: candidate.kind,
+                description: candidate.description,
+                evidence: candidate.evidence,
+                problem_area: candidate.problem_area,
+                reported_impact: candidate.reported_impact,
+                confidence: Some(candidate.confidence),
+            },
+        )
+        .unwrap();
+    let path = files(&state)
+        .root_path()
+        .join(format!("workflow-observations/{ID}.ndjson"));
+    let before = std::fs::read(&path).unwrap();
+    let owner = FinalScanPersistence::sql(state.clone(), writes, ID.into(), generation)
+        .await
+        .unwrap();
+    let FinalScanCompletion::Sql(Ok(stages)) =
+        owner.run("ended".into(), |_| async { Some(scan()) }).await
+    else {
+        panic!("missing stages")
+    };
+    assert!(matches!(
+        &stages.evidence.unwrap().unwrap().candidates[0],
+        crate::session_application::sql_writes::lifecycle::SqlCandidateResult::Recorded(Err(
+            crate::workflow_observations::sql_origin::WriteError::Storage(StoreError::Conflict)
+        ))
+    ));
+    assert_eq!(std::fs::read(path).unwrap(), before);
+    assert_eq!(workflow.evaluation_generation(), 0);
+    assert!(stages.history.is_ok());
+    store.close().await.unwrap();
+}
+
+#[tokio::test]
+#[cfg(not(unix))]
+async fn private_sql_final_scan_refuses_unsupported_root_backend() {
+    let _guard = diagnostic_test_guard();
+    let (_dir, state, store, writes, _, _, _, _) = fixture().await;
+    let generation = ending(&state, &writes, true).await;
+    let before = store.get(ID.into()).await.unwrap();
+    assert!(matches!(
+        FinalScanPersistence::sql(state.clone(), writes, ID.into(), generation).await,
+        Err(StoreError::Unsupported)
+    ));
+    assert_eq!(store.get(ID.into()).await.unwrap(), before);
+    assert!(!files(&state)
+        .root_path()
+        .join("workflow-observations/sequence")
+        .exists());
     store.close().await.unwrap();
 }

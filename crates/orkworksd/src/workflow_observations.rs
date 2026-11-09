@@ -3364,7 +3364,7 @@ mod captured_owner_tests {
 mod captured;
 #[cfg(test)]
 pub(crate) use captured::testing as captured_testing;
-pub(crate) use captured::{CapturedWriter, FileClaim};
+pub(crate) use captured::{CapturedWriter, FileClaim, SqlRevocation};
 impl ObservationCandidate {
     pub(crate) fn validate_peon(&self) -> Result<(), RecordError> {
         validate_candidate(ObservationOrigin::Peon, self).map(|_| ())

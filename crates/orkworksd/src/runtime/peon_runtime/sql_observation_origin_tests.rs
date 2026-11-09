@@ -7,7 +7,7 @@ use crate::session_application::sql_writes::{
 use crate::session_store::StoreError;
 use std::time::Duration;
 const ID: &str = "sql-runtime";
-async fn ending(state: &Arc<AppState>, writes: &Arc<SessionWrites>) -> CapturedEnding {
+pub(super) async fn ending(state: &Arc<AppState>, writes: &Arc<SessionWrites>) -> CapturedEnding {
     let runtime = state.sessions.lock().unwrap()[ID].runtime.identity();
     writes
         .lifecycle(

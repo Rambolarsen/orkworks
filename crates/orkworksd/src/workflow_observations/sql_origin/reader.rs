@@ -11,13 +11,16 @@ pub(super) const MAX_TOTAL_BYTES: usize = 64 * 1024 * 1024;
 pub(super) const MAX_LINES: usize = 65536;
 const MAX_SELECTED_BYTES: usize = 768 * 1024;
 
+#[cfg(test)]
+thread_local! {pub(super) static INVENTORY_SCANS:std::cell::Cell<usize>=const{std::cell::Cell::new(0)};}
+
 pub(super) type Stamp = (u64, u64, u64, i64, i64, i64, i64);
 pub(super) struct Inventory {
     pub(super) sequence: Option<u64>,
     pub(super) bytes: usize,
     pub(super) segments: usize,
     pub(super) lines: usize,
-    _capacity: ObservationReadCapacity,
+    _capacity: std::sync::Arc<ObservationReadCapacity>,
 }
 struct Scanned {
     records: Vec<RecordData>,
@@ -28,12 +31,12 @@ struct Scanned {
 }
 pub(crate) struct ScanRequest {
     deadline: Instant,
-    capacity: ObservationReadCapacity,
+    capacity: std::sync::Arc<ObservationReadCapacity>,
 }
 pub(crate) struct Snapshot {
     records: Vec<RecordData>,
     sequence: Option<u64>,
-    _capacity: ObservationReadCapacity,
+    _capacity: std::sync::Arc<ObservationReadCapacity>,
 }
 impl Snapshot {
     pub(crate) fn records(&self) -> &[RecordData] {
@@ -44,6 +47,9 @@ impl Snapshot {
     }
 }
 impl ScanRequest {
+    pub(crate) fn hold_capacity(&self) -> std::sync::Arc<ObservationReadCapacity> {
+        self.capacity.clone()
+    }
     /// Numeric inventory fixtures exercise independent count/byte limits without
     /// conflating them with scheduling speed. Production capture still caps at2s.
     #[cfg(test)]
@@ -66,6 +72,8 @@ impl ScanRequest {
         visit: impl FnMut(&str, &RecordData, u64, usize, Stamp) -> Result<()>,
     ) -> Result<Inventory> {
         validate_scope(self.deadline, epoch, workspace)?;
+        #[cfg(test)]
+        INVENTORY_SCANS.with(|n| n.set(n.get() + 1));
         let scanned = native::scan(directory, self.deadline, epoch, workspace, false, visit)?;
         check(self.deadline)?;
         Ok(Inventory {
@@ -80,7 +88,7 @@ impl ScanRequest {
     pub(crate) fn capture(original_deadline: Instant) -> Result<Self> {
         let deadline = original_deadline.min(Instant::now() + Duration::from_secs(2));
         check(deadline)?;
-        let capacity = reserve_observation_read()?;
+        let capacity = std::sync::Arc::new(reserve_observation_read()?);
         check(deadline)?;
         Ok(Self { deadline, capacity })
     }

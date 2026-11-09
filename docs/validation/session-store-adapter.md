@@ -1802,3 +1802,45 @@ failures (18 existing ignored), all integration targets, 31 reporter tests,
 desktop type/native ABI checks, 1,709 desktop passes (3 existing skipped), and
 1,202 documentation checks plus both builds. The 20-source-file review manifest
 matches the verified code. Required CI is qualified on the concrete PR head.
+
+
+## Captured SQL observation batches
+
+The explicit private SQL final-scan constructor now captures
+`CapturedSqlObservation` before inference and uses its grounded at-most-five
+batch producer. Production still selects JSON. Original worker epoch, workspace,
+exact creation, runtime/control snapshot, workflow instance, root and lease are
+retained across waits. Memory-only revocation registration shares the existing
+session/creation permit map, without granting file access by itself. Foreign or
+revoked permits refuse before consuming a pending file claim.
+
+One bounded SQL read transaction validates original source, live-row/deletion-job
+consistency, ending phase and the captured optional harness before write
+admission. Its result is a boolean rather than a copied metadata payload.
+Application try-lock checks and the claim CAS perform no file/SQL I/O. One full
+existing 1 MiB job slot is retained through grounding, file work and settlement;
+its 64 KiB aggregate file intent is checked before normalization. Compact target
+indices, including parsed acceptance times, are bounded at 128 KiB. These are
+encoded accounting limits, not measured RSS or installed-profile performance.
+
+The file engine reuses one complete inventory and one 64 MiB actual-read budget
+for the whole batch. It materializes retry receipts after global duplicate
+inventory is released, updates only its own pinned descriptors/offsets after
+success, and preserves independent indexed errors and earlier receipts. Counter
+gaps/partial tails remain visible; an uncertain mutation stops later I/O.
+The original pre-effect deadline is never reset. Once effects start, at most five
+admitted records finish under the retained grant, lane, worker, lease and slot.
+Caller loss logs definitive original receipts without replay or evaluation.
+
+Focused behavioral regressions cover five records with one scan, exact retry
+identities/bytes, mixed indexed candidate/conflict results, a failed second
+counter with a preserved first receipt/gap, successive rewrites with copied
+origins, expiry after first effects, invalid batch indices/count, changed SQL
+scope/ending/harness, pending cancellation, admitted caller loss and late receipt
+delivery. An isolated process fills the other 31 file-job slots and proves the
+last slot remains held until actual batch settlement. The private final-scan
+fixtures cover qualified duplicate receipts, byte-preserving legacy collision
+refusal, partial-stage history progress, and unchanged production JSON routing
+and evaluation. Full verifier/current-code review and CI results belong to the
+concrete PR; these checks do not qualify exact-job Workflow deletion, assessment
+input construction, production activation or migration.

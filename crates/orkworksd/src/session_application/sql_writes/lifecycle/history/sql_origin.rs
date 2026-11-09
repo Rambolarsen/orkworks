@@ -12,6 +12,7 @@ pub(crate) struct CapturedSqlObservation {
     ending: CapturedEnding,
     source: ObservationSource,
     root_identity: Arc<WorkspaceIdentity>,
+    revocation: crate::workflow_observations::SqlRevocation,
 }
 /// Keeps original admission, worker, lane, lease and scan capacity until the result is dropped.
 #[must_use]
@@ -74,6 +75,31 @@ impl CapturedEnding {
         )
         .await
         .map_err(|_| StoreError::Expired)??;
+        let workflow = self.workflow.clone();
+        let id = self.id.clone();
+        let created = self.snapshot.created.clone();
+        let retained_capacity = capacity.clone();
+        let owner = self.owner.clone();
+        let lease = self.lease.clone();
+        let revocation = tokio::time::timeout_at(
+            deadline.into(),
+            tokio::task::spawn_blocking(move || {
+                let _capacity = retained_capacity;
+                let _owner = owner;
+                let _lease = lease;
+                workflow.capture_sql_revocation(id, created)
+            }),
+        )
+        .await
+        .map_err(|_| StoreError::Expired)?
+        .map_err(|_| StoreError::Unavailable)?;
+        // Registration is memory-only. Recheck the same SQL source afterwards.
+        tokio::time::timeout_at(
+            deadline.into(),
+            self.owner.store.validate_observation_source(source.clone()),
+        )
+        .await
+        .map_err(|_| StoreError::Expired)??;
         check_root(&self, root_identity.clone(), capacity, deadline).await?;
         tokio::time::timeout_at(deadline.into(), self.observation_current(deadline))
             .await
@@ -85,6 +111,7 @@ impl CapturedEnding {
             ending: self,
             source,
             root_identity,
+            revocation,
         })
     }
 }
@@ -94,6 +121,42 @@ impl SqlObservationRead {
     }
 }
 impl CapturedSqlObservation {
+    pub(crate) fn run_generation(&self) -> u64 {
+        self.ending.runtime.run_generation
+    }
+    pub(crate) async fn final_scan_output(&self) -> Result<Vec<String>, StoreError> {
+        self.ending.final_scan_output().await
+    }
+    pub(crate) async fn ending_metadata(&self) -> Result<metadata::SessionMetadata, StoreError> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        self.ending.observation_current(deadline).await?;
+        self.ending
+            .owner
+            .store
+            .validate_observation_ending(self.source.clone(), self.ending.snapshot.harness.clone())
+            .await?;
+        let metadata = self.ending.read_evidence_record().await?;
+        self.ending
+            .owner
+            .store
+            .validate_observation_ending(self.source.clone(), self.ending.snapshot.harness.clone())
+            .await?;
+        self.ending.observation_current(deadline).await?;
+        Ok(metadata)
+    }
+    pub(crate) async fn persist_provider_context(
+        &self,
+        provider: crate::providers::ProviderObservation,
+    ) -> Result<ProviderWrite, StoreError> {
+        self.ending.persist_provider_context(provider).await
+    }
+    pub(crate) async fn complete(
+        self,
+        snapshot: metadata::ObservedStatusSnapshotMetadata,
+        fallback: String,
+    ) -> Result<Finalization, StoreError> {
+        self.ending.complete(snapshot, fallback).await
+    }
     pub(crate) fn source(&self) -> &ObservationSource {
         &self.source
     }
@@ -219,6 +282,7 @@ pub(crate) enum ObservationStage {
     Root,
     BeforeAdmit,
     Admitted,
+    AfterCounter,
 }
 #[cfg(test)]
 pub(crate) fn hold_observation(
@@ -231,7 +295,11 @@ pub(crate) fn hold_observation(
         ObservationStage::Root => &writes.observation_root,
         ObservationStage::BeforeAdmit => &writes.observation_before_admit,
         ObservationStage::Admitted => &writes.observation_admitted,
+        ObservationStage::AfterCounter => &writes.observation_after_counter,
     };
     *slot.lock().unwrap() = Some((entered, rx));
     (reached, release)
 }
+
+mod batch;
+pub(crate) use batch::{SqlCandidateResult, SqlEvidenceWrite};

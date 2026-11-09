@@ -310,10 +310,10 @@ pub(crate) fn value_digest(observation: &WorkflowObservation) -> Result<String> 
 }
 mod mutation;
 mod persistence;
-pub(super) use persistence::persist;
 #[cfg(test)]
 pub(crate) use persistence::test_after_counter;
 pub(crate) use persistence::WriteError;
+pub(super) use persistence::{persist, persist_batch};
 mod reader;
 #[allow(unused_imports)] // Staged reader API until the checked SQL owner is integrated.
 pub(crate) use reader::{ScanRequest, Snapshot};

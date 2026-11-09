@@ -6483,4 +6483,6 @@ mod sql_ending_evidence_tests;
 mod sql_final_scan_tests;
 
 #[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
+mod sql_observation_batch_tests;
+#[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
 mod sql_observation_origin_tests;

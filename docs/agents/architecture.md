@@ -1517,8 +1517,9 @@ This changes evidence selection, not privacy permissions or collector bounds.
 
 ## Captured workflow evidence files
 
-The source-only SQL ending boundary composes `with_workflow_evidence` before
-inference. It retains the exact shared workflow store and a session/creation
+The older source-only ending evidence helper composes `with_workflow_evidence`
+before inference; the explicit SQL final-scan runner now uses the qualified
+original capture described below. It retains the exact shared workflow store and a session/creation
 permit, registering outside application guards and revalidating original
 SQLite/runtime ownership. Evidence batches use the existing session lane and
 a separate bounded application-wide file-job budget shared with captured replay
@@ -1914,9 +1915,8 @@ strictly reads data without legacy recovery or AppState adoption. Owner-loss
 reopening uses that checked path. File operation exclusivity and the session
 lane end at definitive read settlement; immutable data retains its full file-job
 reservation and original owner. Cancellation, original deadline expiry and late
-polling never deliver a replacement or partial snapshot. Captured writer
-persistence, Workflow deletion composition, assessment input construction and
-production routing remain pending. Production stays JSON.
+polling never deliver a replacement or partial snapshot. Workflow deletion composition, assessment input construction and production
+routing remain pending. Production stays JSON.
 
 Private pure retry/eviction rules now operate on complete session records,
 including tombstones. A qualified retry requires the same original scope and
@@ -1931,14 +1931,16 @@ A private `SqlWriter` now owns a purpose-specific admitted candidate, original
 source and claim deadline through descriptor-based file effects. Admission is a
 memory-only operation intended for the short checked application callback;
 subsequent persistence runs outside application guards. Read admission cannot
-be upgraded into this grant. Its sealed write token has no production minting
-path yet, and the file layer does not independently establish source currentness.
+be upgraded into this grant. Its sealed write token is minted only by the
+private captured producer after original-source/currentness checks; the file layer does not independently
+establish source currentness. Production has no SQL selection path.
 
 Writer inventory retains compact UUID/sequence and target-offset indices,
 including tombstones, rather than selected observation payloads. Existing strict
 inventory limits and the full 1 MiB reservation remain; the reader's separate
 768 KiB snapshot cap is unchanged. Writer intent, including escaped source/key
-bytes, is capped at 64 KiB, target indices at 64 KiB, and later rewrite reads
+bytes, is capped at 64 KiB across the batch, target indices at 128 KiB
+(including parsed acceptance times), and later rewrite reads
 are preflighted against the same 64 MiB aggregate read allowance. These are
 encoded accounting bounds, not measured heap or native-resource qualification.
 
@@ -1956,10 +1958,28 @@ serializes cooperating file operations; arbitrary concurrent namespace writers
 that ignore the owner/workspace lease are not qualified by these checks.
 Admitted file effects return a definitive receipt to the original outer job even
 when settlement crosses its deadline. Caller/detached publication remains with
-that owner, rather than concealing a completed write as Expired. Original
-producer/runtime/root/lease checks,
-grounded batch settlement and exact-job Workflow deletion composition remain
-pending; this private file boundary adds no production routing.
+that owner, rather than concealing a completed write as Expired.
+
+The private `CapturedSqlObservation` producer now retains its pre-inference
+source, root, runtime, lease and memory-only revocation permit. The final SQL
+read transaction checks exact original scope/creation, live-row/deletion-job
+consistency, ending phase and the captured optional harness. Its memory-only
+application callback admits one write grant after physical root/lease checks.
+
+At most five grounded candidates share one complete inventory, one actual-read
+budget and one full existing file-job slot. Each candidate retains its original
+index and independent receipt/error. Successful writes update only their own
+pinned descriptors and compact offsets; no rescan or refreshed source is used.
+After effects begin, the admitted finite batch settles under the original grant,
+even after cancellation/deadline; an ambiguous mutation stops remaining I/O.
+The original lane, lease, worker, file grant and capacity span result delivery or
+detached logging. No evaluator is scheduled from this private SQL path while
+assessment/recommendation inputs remain unqualified. The existing production
+JSON runner keeps its recording and evaluation behavior.
+
+Exact-job Workflow deletion ordering remains the next separate gate; these
+producer checks do not qualify deletion on the SQL owner, assessment construction,
+production selection or measured performance.
 
 ## Recommendation cleanup preflight
 
