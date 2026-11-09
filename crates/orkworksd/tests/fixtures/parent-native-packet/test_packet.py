@@ -350,5 +350,119 @@ assert not p.stderr.read();f.close()
                                                 2, 1024, 8192, lambda: None), 0)
 
 
+
+class StopReportingTests(unittest.TestCase):
+    def test_failure_projection_keeps_only_fixed_metadata(self):
+        diagnostic = {"phase": 1, "stage": "native-prompt", "process": {
+            "started": True, "exitCode": 17, "terminationStepsCompleted": False,
+            "stderr": "PRIVATE_OUTPUT", "arguments": "PRIVATE_ARGUMENTS"}}
+        error = PermissionError(1, "PRIVATE_MESSAGE", "/PRIVATE_PATH")
+        value = observer.failure_details(diagnostic, error)
+        self.assertEqual(value, {"phase": 1, "stage": "native-prompt", "category": "os-error",
+                                "osError": 1, "process": {"started": True, "exitCode": 17,
+                                                       "terminationStepsCompleted": False}})
+        self.assertNotIn("PRIVATE", json.dumps(value))
+        value = observer.failure_details({"phase": "PRIVATE", "stage": "/PRIVATE_PATH",
+                                          "process": {"exitCode": "PRIVATE"}}, RuntimeError("PRIVATE"))
+        self.assertEqual(value, {"phase": 0, "stage": "unknown", "category": "unexpected-error",
+                                "osError": None, "process": {"started": False, "exitCode": None,
+                                                           "terminationStepsCompleted": False}})
+
+    def test_failure_categories_do_not_serialize_exception_text(self):
+        import subprocess
+        cases = [(ValueError("PRIVATE"), "check-failed"),
+                 (json.JSONDecodeError("PRIVATE", "PRIVATE", 0), "invalid-json"),
+                 (subprocess.TimeoutExpired(["PRIVATE"], 1), "process-timeout"),
+                 (subprocess.SubprocessError("PRIVATE"), "process-error"),
+                 (RuntimeError("PRIVATE"), "unexpected-error")]
+        for error, category in cases:
+            with self.subTest(category=category):
+                value = observer.failure_details({"phase": 2, "stage": "receipt-join"}, error)
+                self.assertEqual(value.get("category"), category)
+                self.assertNotIn("PRIVATE", json.dumps(value))
+
+    @unittest.skipUnless(os.name == "posix", "Owned process groups target POSIX")
+    def test_failed_fake_process_retains_exit_even_when_termination_raises(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root).resolve()
+            receipt = {}
+            with patch("os.killpg", side_effect=PermissionError(1, "PRIVATE_MESSAGE")):
+                with self.assertRaises(PermissionError) as stopped:
+                    observer.supervise([sys.executable, "-I", "-B", "-c", "raise SystemExit(17)"],
+                                        root, {}, root, 2, 1024, 8192, lambda: None, receipt=receipt)
+            value = observer.failure_details({"phase": 1, "stage": "native-prompt", "process": receipt},
+                                            stopped.exception)
+            self.assertEqual(value.get("process", {}).get("exitCode"), 17)
+            self.assertEqual(value.get("process", {}).get("started"), True)
+            self.assertEqual(value.get("process", {}).get("terminationStepsCompleted"), False)
+            self.assertNotIn("PRIVATE", json.dumps(value))
+
+    def _failed_run(self, fail_cleanup=False):
+        import shutil
+        directory = Path(__file__).parent
+        pb, mb = (directory/"proposal.json").read_bytes(), (directory/"manifest.json").read_bytes()
+        approval = {"decision": "approve-one-batch", "proposalSha256": observer.sha(pb),
+                    "manifestSha256": observer.sha(mb), "maxNativePrompts": 2}
+        def fail_discovery(*args, **kwargs):
+            diagnostic = kwargs.get("diagnostic")
+            if diagnostic is not None:
+                diagnostic["stage"] = "instruction-discovery"
+            raise ValueError("PRIVATE_DISCOVERY_PAYLOAD")
+        leftover = []
+        def local_only(argv, **kwargs):
+            if argv[0] == "/usr/bin/git":
+                return
+            if "import shutil,sys; shutil.rmtree(sys.argv[1])" in argv:
+                target = Path(argv[-1])
+                if not target.name.startswith("ork742-native-"):
+                    raise AssertionError("Unexpected synthetic cleanup root")
+                if fail_cleanup:
+                    leftover.append(target)
+                    raise PermissionError(13, "PRIVATE_CLEANUP_MESSAGE", "/PRIVATE_PATH")
+                shutil.rmtree(target)
+                return
+            raise AssertionError("Only synthetic filesystem setup/cleanup is allowed")
+        with tempfile.TemporaryDirectory() as root:
+            output = Path(root).resolve()/"result"
+            with patch("platform.system", return_value="Darwin"), patch("platform.machine", return_value="arm64"), \
+                    patch.object(observer, "check_native_sources"), \
+                    patch.object(observer, "discovery", side_effect=fail_discovery), \
+                    patch("subprocess.run", side_effect=local_only), \
+                    patch("subprocess.Popen", side_effect=AssertionError("Native launch forbidden")):
+                try:
+                    result = observer.run_native(approval, output)
+                    retained = (output/"summary.json").read_text()
+                finally:
+                    for target in leftover:
+                        shutil.rmtree(target)
+            return result, retained
+
+    def test_run_summary_retains_failure_location_without_payload(self):
+        result, retained = self._failed_run()
+        self.assertTrue(result["rawRootsRemoved"])
+        self.assertEqual(result["nativePromptInvocations"], 0)
+        self.assertEqual(result.get("failure", {}).get("stage"), "instruction-discovery")
+        self.assertEqual(result.get("failure", {}).get("category"), "check-failed")
+        self.assertNotIn("PRIVATE", retained)
+
+    def test_raw_cleanup_failure_does_not_erase_primary_failure(self):
+        result, retained = self._failed_run(fail_cleanup=True)
+        self.assertEqual(result["outcome"], "incomplete-cleanup")
+        self.assertEqual(result.get("failure", {}).get("stage"), "instruction-discovery")
+        self.assertEqual(result.get("cleanupFailure", {}).get("stage"), "raw-cleanup")
+        self.assertEqual(result.get("cleanupFailure", {}).get("osError"), 13)
+        self.assertNotIn("PRIVATE", retained)
+
+    def test_called_process_exit_retained_without_command_or_output(self):
+        import subprocess
+        error = subprocess.CalledProcessError(23, ["PRIVATE_COMMAND"],
+                                             output="PRIVATE_STDOUT", stderr="PRIVATE_STDERR")
+        value = observer.failure_details({"phase": 0, "stage": "git-init"}, error)
+        self.assertEqual(value.get("category"), "process-error")
+        self.assertEqual(value.get("process", {}).get("exitCode"), 23)
+        self.assertEqual(value.get("process", {}).get("started"), True)
+        self.assertNotIn("PRIVATE", json.dumps(value))
+
+
 if __name__ == "__main__":
     unittest.main()

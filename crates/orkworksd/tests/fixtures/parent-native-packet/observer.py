@@ -14,6 +14,40 @@ def sha(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def failure_details(diagnostic, error):
+    """Project fixed host metadata only; never stringify a caught exception."""
+    import subprocess
+    stages = {"prepare", "git-init", "source-check", "input-check", "instruction-discovery",
+              "skill-discovery", "native-prompt", "native-history", "runtime-bind",
+              "helper-receipt", "receipt-join", "runtime-check", "raw-cleanup"}
+    category = "unexpected-error"
+    for kind, label in ((json.JSONDecodeError, "invalid-json"), (OSError, "os-error"),
+                        (subprocess.TimeoutExpired, "process-timeout"),
+                        (subprocess.SubprocessError, "process-error"), (ValueError, "check-failed")):
+        if isinstance(error, kind):
+            category = label
+            break
+    process = diagnostic.get("process", {})
+    if not isinstance(process, dict):
+        process = {}
+    exit_code = process.get("exitCode")
+    started = process.get("started") is True
+    if isinstance(error, subprocess.CalledProcessError):
+        exit_code, started = error.returncode, True
+    if type(exit_code) is not int or not -2147483648 <= exit_code <= 2147483647:
+        exit_code = None
+    number = error.errno if isinstance(error, OSError) else None
+    if type(number) is not int or not 0 <= number <= 4095:
+        number = None
+    phase = diagnostic.get("phase")
+    stage = diagnostic.get("stage")
+    return {"phase": phase if type(phase) is int and phase in (0, 1, 2) else 0,
+            "stage": stage if isinstance(stage, str) and stage in stages else "unknown",
+            "category": category, "osError": number,
+            "process": {"started": started, "exitCode": exit_code,
+                        "terminationStepsCompleted": process.get("terminationStepsCompleted") is True}}
+
+
 def require_authorization(approval, proposal_bytes, manifest_bytes):
     expected = {"decision": "approve-one-batch", "proposalSha256": sha(proposal_bytes),
                 "manifestSha256": sha(manifest_bytes), "maxNativePrompts": 2}
@@ -201,13 +235,16 @@ def join_receipts(trace, logs, final=True):
             "duplicateIdempotent": True, "gapCursorAdopted": True, "retainedStateMatches": final}
 
 
-def supervise(argv, cwd, env, root, seconds, file_cap, total_cap, tick, on_start=None):
+def supervise(argv, cwd, env, root, seconds, file_cap, total_cap, tick, on_start=None, receipt=None):
     """Run one owned process group. Tests pass only Python fake-client argv."""
     import os
     from pathlib import Path
     import signal
     import subprocess
     import time
+    if receipt is None:
+        receipt = {}
+    receipt.update(started=False, exitCode=None, terminationStepsCompleted=False)
     require(seconds > 0, "Owned process deadline already expired")
     started = time.monotonic()
     root = Path(root)
@@ -225,6 +262,7 @@ def supervise(argv, cwd, env, root, seconds, file_cap, total_cap, tick, on_start
         with (root/"stdout.raw").open("wb") as out, (root/"stderr.raw").open("wb") as err:
             proc = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
                                     stdout=out, stderr=err, start_new_session=True)
+            receipt["started"] = True
             if on_start: on_start(proc.pid)
             while proc.poll() is None:
                 require(time.monotonic()-started < seconds, "Owned process deadline")
@@ -235,15 +273,20 @@ def supervise(argv, cwd, env, root, seconds, file_cap, total_cap, tick, on_start
             return proc.returncode
     finally:
         if proc:
-            # A clean foreground exit can leave a child in the owned group.
-            try: os.killpg(proc.pid, signal.SIGTERM)
-            except ProcessLookupError: pass
-            try: proc.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                pass
-            try: os.killpg(proc.pid, signal.SIGKILL)
-            except ProcessLookupError: pass
-            proc.wait(timeout=2)
+            try:
+                # A clean foreground exit can leave a child in the owned group.
+                try: os.killpg(proc.pid, signal.SIGTERM)
+                except ProcessLookupError: pass
+                try: proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    pass
+                try: os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError: pass
+                proc.wait(timeout=2)
+                receipt["terminationStepsCompleted"] = True
+            finally:
+                # Preserve an observed exit even when termination itself raises.
+                receipt["exitCode"] = proc.poll()
 
 
 
@@ -352,15 +395,20 @@ def check_native_sources(proposal):
         require(sha(path.read_bytes()) == expected, "Installed native/Python source drift")
 
 
-def discovery(proposal, case, env, deadline, record_attempt):
+def discovery(proposal, case, env, deadline, record_attempt, diagnostic=None):
     from pathlib import Path
     import time
     receipts = []
+    if diagnostic is None:
+        diagnostic = {}
     for template in proposal["sourceDiscovery"]:
+        diagnostic["stage"] = "instruction-discovery" if "instruction" in template else "skill-discovery"
+        diagnostic["process"] = {}
         require(time.monotonic() < deadline, "Batch deadline")
         argv = [x.replace("<native>", proposal["native"]["nativePath"]) for x in template]
         record_attempt()
-        supervise(argv, case/"repo", env, case, min(30, deadline-time.monotonic()), 1048576, 8388608, lambda: None)
+        supervise(argv, case/"repo", env, case, min(30, deadline-time.monotonic()), 1048576, 8388608, lambda: None,
+                  receipt=diagnostic["process"])
         raw = read_bounded(case/"stdout.raw", 131072)
         require(not read_bounded(case/"stderr.raw"), "Source discovery stderr")
         rows = json.loads(raw)
@@ -405,6 +453,7 @@ def run_native(approval, output):
                "outcome": "unverified", "nativePromptInvocations": 0, "discoveryCommands": 0,
                "providerRequestCount": "unknown", "remoteRetention": "unknown", "rawRootsRemoved": False}
     started = time.monotonic()
+    diagnostic = {"phase": 0, "stage": "prepare", "process": {}}
     try:
         case = batch/"case"
         pins = prepare_case(case, proposal, directory)
@@ -413,6 +462,7 @@ def run_native(approval, output):
         env = {**inherited, **{k: v.replace("<case>", str(case)) for k, v in proposal["environment"]["overrides"].items()}}
         summary["nativeEnvironmentNames"] = sorted(env)
         # Empty template, no global/system Git configuration; this is an owned empty repo.
+        diagnostic["stage"] = "git-init"
         subprocess.run(["/usr/bin/git", "init", "-q", "--template="+str(case/"empty-template"), str(case/"repo")],
                        env={"PATH": "/usr/bin:/bin", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"},
                        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=10)
@@ -421,44 +471,60 @@ def run_native(approval, output):
         logs, bindings = {}, []
         deadline = started + proposal["limits"]["batchSeconds"]
         for phase, key in ((1, "new"), (2, "resume")):
+            diagnostic.update(phase=phase, stage="source-check", process={})
             check_native_sources(proposal)
             verify_manifest(directory, manifest)
+            diagnostic["stage"] = "input-check"
             check_pins(pins)
             require(not (case/"settings/config.json").exists(), "Unexpected native configuration")
             def record_discovery_attempt():
                 summary["discoveryCommands"] += 1
-            discovery(proposal, case, env, deadline, record_discovery_attempt)
+            discovery(proposal, case, env, deadline, record_discovery_attempt, diagnostic=diagnostic)
+            diagnostic["stage"] = "input-check"
             check_pins(pins)
             generation = secrets.token_hex(32)
             def bind(pid):
+                diagnostic["stage"] = "runtime-bind"
                 context = {"phase": phase, "generation": generation, "nativePid": pid}
                 tmp = case/"control/context.tmp"
                 tmp.write_text(json.dumps(context))
                 tmp.replace(case/"control/context.json")
                 bindings.append(context)
+                diagnostic["stage"] = "native-prompt"
+            def observe_history():
+                diagnostic["stage"] = "native-history"
+                history.scan(phase)
+                diagnostic["stage"] = "native-prompt"
             argv = [x.replace("<native>", proposal["native"]["nativePath"]).replace("<case>", str(case))
                     for x in proposal["argv"][key]]
             summary["nativePromptInvocations"] += 1
+            diagnostic.update(stage="native-prompt", process={})
             supervise(argv, case/"repo", env, case, min(proposal["limits"]["nativeSeconds"], deadline-time.monotonic()),
                       proposal["limits"]["maxRawFileBytes"], proposal["limits"]["maxRawTotalBytes"],
-                      lambda: history.scan(phase), bind)
+                      observe_history, bind, receipt=diagnostic["process"])
+            diagnostic["stage"] = "native-history"
             history.scan(phase, final=True)
+            diagnostic["stage"] = "input-check"
             check_pins(pins)
+            diagnostic["stage"] = "helper-receipt"
             rows = [json.loads(line) for line in read_bounded(case/f"control/mcp-{phase}.jsonl", 131072).splitlines()]
             require(rows and sum(r["kind"] == "startup" for r in rows) == 1
                     and rows[0]["kind"] == "startup" and rows[0]["environmentNames"] == sorted(proposal["mcpEnvironmentNames"])
                     and all(r.get("phase") == phase and r.get("generation") == generation
                             and r.get("nativePid") == bindings[-1]["nativePid"] for r in rows), "Helper runtime binding failed")
             logs[phase] = rows
+            diagnostic["stage"] = "receipt-join"
             summary["checks"] = join_receipts(trace, logs, final=phase == 2)
+        diagnostic["stage"] = "runtime-check"
         require(bindings[0]["nativePid"] != bindings[1]["nativePid"]
                 and bindings[0]["generation"] != bindings[1]["generation"], "Fresh runtime not observed")
         summary.update(outcome="functional-canary-observed", originalIdentityJoined=True, historyPrefixUnchanged=True,
                        freshRuntimeObserved=True, observedTurns=trace.turns, observedUsageEvents=trace.usages)
-    except Exception:
+    except Exception as error:
         # Do not reflect native arguments, paths, payloads or exception text.
         summary["outcome"] = "unverified"
         summary["stopReason"] = "Packet check failed; no retry or fallback"
+        summary["failure"] = failure_details(diagnostic, error)
     finally:
         try:
             subprocess.run([proposal["python"]["path"], "-I", "-B", "-c",
@@ -466,8 +532,9 @@ def run_native(approval, output):
                            env={}, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                            stderr=subprocess.DEVNULL, check=True, timeout=proposal["limits"]["cleanupSeconds"])
             summary["rawRootsRemoved"] = not batch.exists()
-        except (OSError, subprocess.SubprocessError):
-            pass
+        except (OSError, subprocess.SubprocessError) as error:
+            summary["cleanupFailure"] = failure_details(
+                {"phase": diagnostic["phase"], "stage": "raw-cleanup"}, error)
         if not summary["rawRootsRemoved"]: summary["outcome"] = "incomplete-cleanup"
         summary["elapsedSeconds"] = round(time.monotonic()-started, 3)
         data = (json.dumps(summary, sort_keys=True, indent=2)+"\n").encode()

@@ -91,3 +91,7 @@ cause remains unverified. This is separate from the native receipt and cannot
 explain its generic stop. No native batch was rerun to investigate the test.
 The full docs build rerun passed all 1,204 tests and rendered the documentation
 with link checks. The first nonzero result remains recorded.
+
+The later [model-free reporting revision](parent-native-packet.md#model-free-stop-reporting-revision--2026-11-09)
+retains fixed stop categories and process status for a possible future attempt.
+It does not modify this receipt, identify this failure or authorize another run.

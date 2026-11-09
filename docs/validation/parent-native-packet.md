@@ -1,10 +1,10 @@
 ---
 type: Qualification Packet
 title: Prepared parent native continuation canary
-description: One stdio MCP packet with exact proposed inputs and synthetic process tests, followed by one approved but unverified native attempt.
+description: Stdio MCP canary inputs, one historical unverified native attempt and an unapproved model-free reporting revision.
 tags: [orchestration, copilot, continuation, qualification]
 status: draft
-workflow_status: attempted-unverified
+workflow_status: reporting-revised-not-authorized
 ---
 
 # Prepared parent native continuation canary
@@ -84,7 +84,7 @@ Cleanup failure makes the batch incomplete. Raw data caps are 1 MiB per file and
 python3 -I -B -m unittest discover -s crates/orkworksd/tests/fixtures/parent-native-packet -p test_packet.py -v
 ```
 
-The focused suite has 17 tests, including real newline stdio exchange with an
+The focused suite now has 23 tests, including real newline stdio exchange with an
 owned Python fake client, a second fresh fake process, nonce/tool/turn joins,
 retained state, source drift, missing approval, identity/resume denials, private
 payload decode sentinels, observed caps and owned process cleanup. POSIX process
@@ -93,7 +93,7 @@ The docs test runner invokes this suite with a 30-second timeout. LF attributes
 preserve pinned bytes under autocrlf. No native success is inferred from these
 synthetic checks or from eventual model statements alone.
 
-Packet identities for the later owner decision:
+Historical attempted packet identities, from source db4d33412e31ffaaecc0b7462fd5fcd7e761f22b:
 
 - Proposal SHA-256: e84b24ab002afc8fe45ecca2a2be6976ad8d1a5fc1f53aa1e5663fe31ec4f297.
 - Manifest SHA-256: 1d850a7a88a8bc098e4726c66eab1d95746331df7668c0cc3a8b812e0a2da3e8.
@@ -115,3 +115,37 @@ Existing Rust unused-code and bundle/circular-chunk warnings concern unchanged
 surfaces and do not require packet edits. Passing current-head CI is required
 before merge. Fresh medium code review approved the corrected code and final
 POSIX test guard; neither the preparation writer nor reviewer ran a Copilot command.
+
+## Model-free stop reporting revision — 2026-11-09
+
+[#1586](https://github.com/Rambolarsen/orkworks/issues/1586) fixes the reporting gap
+exposed by the [stopped attempt](parent-native-canary.md). The old receipt and its
+SHA-256 stay unchanged. Nothing in this revision identifies its failure cause.
+
+The revised observer adds optional failure and cleanupFailure objects to its
+version-1 summary. They contain only a fixed phase (0 before phases, 1 new, 2
+resume), an allowlisted enclosing operation stage, a fixed failure category and
+a numeric OS error when available. Categories are check-failed, invalid-json,
+os-error, process-timeout, process-error and unexpected-error. Unknown stages
+become unknown; exception messages, class names, paths, argv, IDs and process
+output are never copied into these fields.
+
+The process projection contains started, a signed 32-bit exitCode or null, and
+terminationStepsCompleted. An exit observed before termination raises is retained.
+Completion means the existing TERM/wait/KILL/wait steps returned; it is not a
+proof of OS confinement or absence of every descendant. A subprocess exception
+can supply its numeric return code without retaining its command or output.
+The stage describes the enclosing operation: an error during a native prompt
+can still concern host cleanup rather than model/provider behavior.
+
+If raw-root cleanup raises, cleanupFailure describes that separate failure and
+the original failure remains intact; outcome still becomes incomplete-cleanup.
+Execution limits, tool/model/source inputs, approval checks, no-retry policy and
+termination/deletion behavior are unchanged. Tests use only Python fake processes
+and synthetic errors, including private sentinels and a serialized summary.
+
+Current revised manifest SHA-256: 787dc852dc9e64d5333112fc175f96cf7e992c1b86dbbfdc38fb4cda643bdfdd.
+Proposal SHA-256 remains e84b24ab002afc8fe45ecca2a2be6976ad8d1a5fc1f53aa1e5663fe31ec4f297.
+The prior approval does not match the revised manifest and grants no new native
+attempt. This revision is **not authorized for live execution**. No Copilot,
+native discovery or model call ran for this reporting change.
