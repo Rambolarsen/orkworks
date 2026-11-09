@@ -5,16 +5,16 @@
     "ringSize": 256,
     "maxWaitSeconds": 30,
     "instanceId": "fixture-synthetic",
-    "nativeId": "00000000-0000-0000-0000-000000000001",
+    "nativeId": "00000000-0000-4000-8000-000000000001",
     "workspace": "workspace-synthetic",
     "tasks": [
       "task-a",
       "task-b"
     ]
   },
-  "configurationDigest": "82463244e864a6566109453f67f041cc1227eab09b679eff429145235b453028",
+  "configurationDigest": "538db3fc348f76c26a32f82f159770acd1e16e97b0a2fe80a2c7520283a04e33",
   "codeSha256": {
-    "peer.py": "7c43aeb8e250109437a8c43c2ffb493af4e4774e126027d1cec14a8ba60aa5aa",
+    "peer.py": "c7e328f9139e6937344bfbb1e64adf9852146fb393e377549c4f8cebf936ed03",
     "test_peer.py": "899d2d3605132d0075efd5b4279ae9ff4491090a6c80bab841abf8e521ff34de"
   },
   "nativeCapabilities": {
@@ -34,9 +34,9 @@
         "requestId": "wait-1",
         "binding": {
           "instance_id": "fixture-synthetic",
-          "native_id": "00000000-0000-0000-0000-000000000001",
+          "native_id": "00000000-0000-4000-8000-000000000001",
           "workspace": "workspace-synthetic",
-          "configuration_digest": "82463244e864a6566109453f67f041cc1227eab09b679eff429145235b453028",
+          "configuration_digest": "538db3fc348f76c26a32f82f159770acd1e16e97b0a2fe80a2c7520283a04e33",
           "generation": "0000000000000000000000000000000000000000000000000000000000000001",
           "bearer": "FAKE-bearer-1"
         },
@@ -62,9 +62,9 @@
         "requestId": "wait-2",
         "binding": {
           "instance_id": "fixture-synthetic",
-          "native_id": "00000000-0000-0000-0000-000000000001",
+          "native_id": "00000000-0000-4000-8000-000000000001",
           "workspace": "workspace-synthetic",
-          "configuration_digest": "82463244e864a6566109453f67f041cc1227eab09b679eff429145235b453028",
+          "configuration_digest": "538db3fc348f76c26a32f82f159770acd1e16e97b0a2fe80a2c7520283a04e33",
           "generation": "0000000000000000000000000000000000000000000000000000000000000001",
           "bearer": "FAKE-bearer-1"
         },
@@ -80,9 +80,9 @@
         "requestId": "wait-3",
         "binding": {
           "instance_id": "fixture-synthetic",
-          "native_id": "00000000-0000-0000-0000-000000000001",
+          "native_id": "00000000-0000-4000-8000-000000000001",
           "workspace": "workspace-synthetic",
-          "configuration_digest": "82463244e864a6566109453f67f041cc1227eab09b679eff429145235b453028",
+          "configuration_digest": "538db3fc348f76c26a32f82f159770acd1e16e97b0a2fe80a2c7520283a04e33",
           "generation": "0000000000000000000000000000000000000000000000000000000000000001",
           "bearer": "FAKE-bearer-1"
         }
@@ -93,9 +93,9 @@
       "snapshot": {
         "binding": {
           "instance_id": "fixture-synthetic",
-          "native_id": "00000000-0000-0000-0000-000000000001",
+          "native_id": "00000000-0000-4000-8000-000000000001",
           "workspace": "workspace-synthetic",
-          "configuration_digest": "82463244e864a6566109453f67f041cc1227eab09b679eff429145235b453028",
+          "configuration_digest": "538db3fc348f76c26a32f82f159770acd1e16e97b0a2fe80a2c7520283a04e33",
           "generation": "0000000000000000000000000000000000000000000000000000000000000002",
           "bearer": "FAKE-bearer-2"
         },
@@ -121,9 +121,9 @@
         "requestId": "wait-4",
         "binding": {
           "instance_id": "fixture-synthetic",
-          "native_id": "00000000-0000-0000-0000-000000000001",
+          "native_id": "00000000-0000-4000-8000-000000000001",
           "workspace": "workspace-synthetic",
-          "configuration_digest": "82463244e864a6566109453f67f041cc1227eab09b679eff429145235b453028",
+          "configuration_digest": "538db3fc348f76c26a32f82f159770acd1e16e97b0a2fe80a2c7520283a04e33",
           "generation": "0000000000000000000000000000000000000000000000000000000000000002",
           "bearer": "FAKE-bearer-2"
         }

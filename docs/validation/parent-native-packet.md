@@ -1,10 +1,10 @@
 ---
 type: Qualification Packet
 title: Prepared parent native continuation canary
-description: Stdio MCP canary inputs, fixed stop reporting and two separately approved native attempts that remain unverified.
+description: Stdio MCP canary inputs, two historical unverified attempts and an offline UUID compatibility correction awaiting new live approval.
 tags: [orchestration, copilot, continuation, qualification]
 status: draft
-workflow_status: revised-attempt-unverified
+workflow_status: uuid-corrected-not-authorized
 ---
 
 # Prepared parent native continuation canary
@@ -84,7 +84,7 @@ Cleanup failure makes the batch incomplete. Raw data caps are 1 MiB per file and
 python3 -I -B -m unittest discover -s crates/orkworksd/tests/fixtures/parent-native-packet -p test_packet.py -v
 ```
 
-The focused suite now has 23 tests, including real newline stdio exchange with an
+The focused suite now has 26 tests, including real newline stdio exchange with an
 owned Python fake client, a second fresh fake process, nonce/tool/turn joins,
 retained state, source drift, missing approval, identity/resume denials, private
 payload decode sentinels, observed caps and owned process cleanup. POSIX process
@@ -144,7 +144,7 @@ Execution limits, tool/model/source inputs, approval checks, no-retry policy and
 termination/deletion behavior are unchanged. Tests use only Python fake processes
 and synthetic errors, including private sentinels and a serialized summary.
 
-Current revised manifest SHA-256: 787dc852dc9e64d5333112fc175f96cf7e992c1b86dbbfdc38fb4cda643bdfdd.
+Historical reporting-revision manifest SHA-256: 787dc852dc9e64d5333112fc175f96cf7e992c1b86dbbfdc38fb4cda643bdfdd.
 Proposal SHA-256 remains e84b24ab002afc8fe45ecca2a2be6976ad8d1a5fc1f53aa1e5663fe31ec4f297.
 The initial approval did not match the revised manifest. A later exact owner
 decision covered one revised batch; its [receipt](parent-native-canary.md#revised-packet-attempt--2026-11-09)
@@ -152,3 +152,19 @@ is also unverified, with an observed native-process exit code of 1 in phase 1.
 That separate attempt is spent and there is **no ongoing live authorization**.
 The reporting code change itself was model-free; its later native execution is
 recorded separately and does not identify the initial attempt's cause.
+
+
+## Offline UUID correction — 2026-11-09
+
+The [source audit and correction](parent-native-canary-offline-audit.md) found
+that the old fake-peer ID is rejected by the pinned CLI's new-session UUID check.
+The current peer/packet/argv consistently use
+00000000-0000-4000-8000-000000000001, with a pure early compatibility guard.
+This does not identify either historical stop or qualify native behavior.
+
+Current corrected proposal SHA-256: 39bea8c908bb15f3d53ed8a8cd6fdbc38db341f0f30b53f0617b47929fdd027b.
+Current corrected manifest SHA-256: e2cb9c9c41d2b0137aad51bd25fa12f367426fe2dcc9bdb075fc7a5ec95471ec.
+Model, tools, permissions, source/retention policy, limits and no-retry behavior
+are unchanged. Historical receipts and their source commitments remain unchanged.
+Both old approvals are spent and do not match these corrected bytes. **No native
+run is authorized** until a new exact owner decision.

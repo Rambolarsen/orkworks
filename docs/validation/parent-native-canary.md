@@ -157,3 +157,9 @@ fail with os.killpg PermissionError; 1,203 other docs tests passed. Its isolated
 rerun passed, followed by the complete docs build with all 1,204 tests and link
 checks passing. The transient test cause remains unknown and is not attributed
 to this native stop. No runner or fixture code was changed to obtain a green run.
+
+
+The later [offline UUID audit](parent-native-canary-offline-audit.md) found and
+corrected an invalid ID in the future packet. Its source-level rejection path is
+consistent with exit 1 but cannot be retroactively identified as either run's
+particular cause. Both receipts and their hashes remain unchanged.

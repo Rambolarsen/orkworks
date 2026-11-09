@@ -118,3 +118,5 @@ Capability research, validation results, and evidence fixtures.
 - [Prepared parent native continuation canary](parent-native-packet.md) — Exact stdio packet, synthetic checks, an unverified attempt and an unapproved reporting revision.
 
 - [Parent continuation canary stopped unverified](parent-native-canary.md) — Two separately approved attempts, sanitized stop receipts and unchanged native capability gates.
+
+- [Native canary UUID compatibility correction](parent-native-canary-offline-audit.md) — Pinned source rejection, corrected synthetic identity and offline guard/input evidence.

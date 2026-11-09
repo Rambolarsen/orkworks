@@ -13,7 +13,7 @@ import json
 import re
 
 CONFIG = {"fixtureOnly": True, "ringSize": 256, "maxWaitSeconds": 30,
-          "instanceId": "fixture-synthetic", "nativeId": "00000000-0000-0000-0000-000000000001",
+          "instanceId": "fixture-synthetic", "nativeId": "00000000-0000-4000-8000-000000000001",
           "workspace": "workspace-synthetic", "tasks": ["task-a", "task-b"]}
 CONFIG_DIGEST = hashlib.sha256(json.dumps(CONFIG, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
