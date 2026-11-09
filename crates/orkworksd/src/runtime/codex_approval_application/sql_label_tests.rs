@@ -391,6 +391,15 @@ async fn sql_label_scheduler_reads_real_exact_native_name_and_persists_through_s
 
 #[tokio::test]
 async fn sql_label_accepts_native_display_bound_at_a_word_boundary() {
+    // Label admission must be uncontended before checking the display boundary.
+    let module = module_path!().split_once("::").unwrap().1;
+    if super::super::sql_tests::isolated_test(format!(
+        "{module}::sql_label_accepts_native_display_bound_at_a_word_boundary"
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (dir, state, store, writes, _commands) = fixture(Some("root-one")).await;
     automatic(&store).await;
