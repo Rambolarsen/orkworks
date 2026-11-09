@@ -1,10 +1,10 @@
 ---
 type: Design Proposal
 title: Headless replay fixture container
-description: Proposed isolated image and bounded host runner for the existing rendered replay scenario.
+description: Approved isolated image and bounded host runner contract for the existing rendered replay scenario.
 tags: [orkworks, testing, containers, electron]
 status: draft
-workflow_status: proposed
+workflow_status: accepted-for-implementation
 ---
 
 # Headless replay fixture container
@@ -17,13 +17,11 @@ running test-owned container. Success means the recorded-grid, resize and
 hidden-recovery assertions pass in the selected qualified runtime, with useful
 failure/timeout evidence and unchanged host source ownership.
 
-This is a proposal for [#95](https://github.com/Rambolarsen/orkworks/issues/95),
-not implemented or approved runtime behavior. The user authorized this design
-phase. The image/security/execution decisions below are the author's proposal;
-owner approval is required before dependent implementation. Merging this
-proposal alone does not grant that approval. One approval of this concrete
-contract is sufficient; do not request a second plan approval for unchanged
-scope.
+This is the approved design for [#95](https://github.com/Rambolarsen/orkworks/issues/95),
+approved by the owner in chat on 2026-11-09 ("go ahead") after the concrete
+security approval request. Implementation and per-profile runtime qualification are tracked in #95.
+The acceptance does not claim an engine profile is supported before its checks.
+No second approval is needed within this unchanged contract.
 
 ## Existing contracts and evidence
 
@@ -228,14 +226,14 @@ proof blocks the corresponding support claim; it is not a reason to weaken the
 contract. Rollback must retain exported failure evidence and never remove
 pre-existing containers, volumes or host directories.
 
-Plan review: **Ready for owner decision; implementation remains gated.** Scope,
+Plan review: **Ready for approved implementation.** Scope,
 interfaces, acceptance and recovery were checked against #95 and the current
 fixture. Fresh builder-check routing: one read-only reviewer, one bounded round,
 questions about missing consequential decisions only; root is the sole writer.
 Builder check completed: **no consequential unanswered questions**. The reviewer
 checked exact-CID lifecycle, stopped-container artifact persistence, no-mount UID
 behavior, support gates and bounded export. No owner decision was silently
-inferred; this remains a proposal awaiting approval.
+inferred during drafting; the owner subsequently approved this contract.
 
 Blind-spot planning checkpoint:
 

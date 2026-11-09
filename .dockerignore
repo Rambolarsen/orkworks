@@ -1,5 +1,5 @@
-# The Containerfile copies no source, so the build context only needs to be
-# small — keep host caches and platform-specific artifacts out of it.
+# The dev target copies no source. Keep host caches/platform artifacts out
+# of normal contexts; headless-replay uses a separate allowlisted private context.
 # Honored by both `docker build`/`docker compose` and Podman (which falls back
 # to .dockerignore when no .containerignore is present).
 .git

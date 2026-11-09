@@ -151,3 +151,5 @@ Decision records and their original rationale and consequences.
 - [Original pair native owner](0111-original-pair-native-owner.md) — Accepted retained slot/core lifetime; stock/no-custom-VFS candidate selection partially superseded by ADR 0112; execution remains gated.
 
 - [Pair native enforcement](0112-pair-native-enforcement.md) — Accepted Windows VFS/router direction for further envelope qualification; implementation and execution remain gated.
+
+- [Isolated headless replay fixture](0113-headless-replay-fixture-isolation.md) — Accepted test-only offline container boundary for #95.

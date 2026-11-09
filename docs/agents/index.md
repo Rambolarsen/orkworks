@@ -53,3 +53,5 @@ needed. This index is a routing map; do not load the entire bundle for every tas
 - [Serena MCP startup troubleshooting](serena-mcp-startup-troubleshooting.md) —
   Diagnosing MCP startup failures caused by Serena and restoring a healthy
   `.serena/project.yml`.
+
+- [Isolated headless replay](headless-replay.md) — Fixed container fixture, qualification, ownership and cleanup evidence.

@@ -183,7 +183,9 @@ an alternative to the native pnpm workflow described in
 [`apps/desktop/AGENTS.md`](https://github.com/Rambolarsen/orkworks/blob/main/apps/desktop/AGENTS.md), not a replacement;
 the native host workflow and release pipeline remain unchanged. Toolchain
 versions are pinned in `rust-toolchain.toml`, `.nvmrc`, and `packageManager`.
-GUI runs remain on the native flow (issue #80 Tier 2).
+The explicit [headless replay fixture](headless-replay.md) has a separate snapshot
+image and bounded no-mount runner. It qualifies only its documented engine/profile
+checks; native app development and release acceptance remain on the native flow.
 
 Substitute `docker compose` for `podman compose` when using Docker.
 

@@ -158,3 +158,5 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 - [Original pair native owner](0111-original-pair-native-owner.md) — Accepted retained slot/core lifetime; stock/no-custom-VFS candidate selection partially superseded by ADR 0112; execution remains gated.
 
 - [Pair native enforcement](0112-pair-native-enforcement.md) — Accepted Windows public VFS, early pair allocator router and conservative availability restrictions for further envelope qualification; implementation and execution remain gated.
+
+- [Isolated headless replay fixture](0113-headless-replay-fixture-isolation.md) — Accepted test-only offline container boundary for #95.

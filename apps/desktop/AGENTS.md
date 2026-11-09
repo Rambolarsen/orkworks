@@ -67,6 +67,14 @@ startup failure may leave only its log. Linux without DISPLAY uses the runner's
 existing Xvfb path and test-only `--no-sandbox`; this command does not establish
 a supported container image or change the production sandbox policy.
 
+For the separate no-host-display container snapshot, use
+`bash scripts/headless-replay.sh --engine podman` from the repository root.
+It requires host Bash/Python 3.9+/Git and an already reachable engine, not host
+Node/Electron. Read the [headless fixture guide](../../docs/agents/headless-replay.md)
+for supported-profile evidence, frozen image preparation, artifacts, resource
+limits, caller ownership and exact-CID cleanup. This does not qualify the
+ordinary dev Compose bind mounts or production sidecar/PTY flows.
+
 ## Isolated workflow preview
 
 Run `pnpm --dir apps/desktop preview:workflow` from the repository root to inspect
