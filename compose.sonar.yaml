@@ -43,6 +43,7 @@ services:
       target: sonar
     working_dir: /workspace
     environment:
+      CI: "true"
       SONAR_HOST_URL: http://sonarqube:9000
       SONAR_TOKEN: ${SONAR_TOKEN:-}
     volumes:
