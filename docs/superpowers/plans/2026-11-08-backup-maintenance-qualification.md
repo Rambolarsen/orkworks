@@ -333,3 +333,20 @@ remains unwired. Panic after full write/flush and driver loss can still lose
 local evidence. Original root/resource/report transfer, retained publication,
 all physical phase ownership, complete numeric/deadline/native/resource fit,
 maintenance and restore remain open; no broad qualification box closes.
+
+
+## Retained writer transfer proposal — 2026-11-09
+
+[#1614](https://github.com/Rambolarsen/orkworks/issues/1614) proposes the
+[checkpoint and reporter transfer](../specs/2026-11-09-retained-writer-transfer-design.md)
+after #1611. One fixed byte checkpoint preserves known prefixes/full bytes before
+flush, independently of immutable terminal facts. Unique writer/return reporters
+would flow through the actual worker and join in a private optional path tested
+with actual candidate handles; production constructors remain unreported.
+
+The new bounded bridge/owner refinement requires one explicit decision before
+implementation. Neither previous approval supplies that decision. It would
+advance local retention/transfer evidence only, with no production Owner factory,
+real root/resource/profile/admission/phase integration, force resolution, native/
+physical qualification, Q/readiness or restore result. Native-return-to-checkpoint
+panic and driver/resource loss remain honestly unknown; no broad box above closes.
