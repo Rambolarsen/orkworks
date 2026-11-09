@@ -162,7 +162,21 @@ impl ScopeReservation {
         })
     }
 }
+impl ScopeBudget {
+    pub(super) fn owns(&self, scope: &OriginalInputScope) -> bool {
+        Arc::ptr_eq(&self.slots, scope._reservation._permit.semaphore())
+    }
+}
 impl OriginalInputScope {
+    pub(super) fn same_binding(&self, other: &Self) -> bool {
+        self.matches(
+            &other.path,
+            &other.lease,
+            &other.session,
+            &other.identity,
+            &other.control,
+        )
+    }
     pub(crate) fn matches(
         &self,
         path: &Path,

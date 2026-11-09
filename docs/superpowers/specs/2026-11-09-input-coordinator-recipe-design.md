@@ -3,8 +3,8 @@ type: Design Contract
 title: Complete original input coordinator and admission recipe
 description: Proposed application coordinator, closed input recipe and qualification gates covering preparation, physical delivery, bookkeeping and recommendation settlement.
 tags: [orkworks, terminal, ownership, maintenance, qualification]
-status: draft
-workflow_status: proposed
+status: stable
+workflow_status: accepted-bounded-implementation
 ---
 
 # Complete original input coordinator and admission recipe
@@ -17,10 +17,13 @@ and [writer reporting](../plans/2026-11-09-writer-reporting-bridge.md).
 Reuse accepted [input truth](2026-11-08-terminal-input-outcome-interface-design.md),
 [registration](2026-11-08-maintenance-registration-settlement-design.md) and
 [bounds/settlement](2026-11-08-maintenance-settlement-bounds-design.md).
-Their existing approvals stand. This proposal fixes the next coordinator/recipe
-architecture; it does not supply production values or activation approval.
+Their existing approvals stand. After #1641 the owner answered “keep going” to
+the explicit design/private implementation question. [#1644](https://github.com/Rambolarsen/orkworks/issues/1644)
+records acceptance, [reviewed bounded plan](../plans/2026-11-09-private-input-coordinator.md)
+and code together. The three choices below are accepted for that exact scope;
+no production values, activation or broader qualification approval follows.
 
-## Outcome and proposed choices
+## Outcome and accepted bounded choices
 
 One application coordinator retains the original submission and all its declared
 continuations until actual physical and application obligations settle. It uses
@@ -301,7 +304,7 @@ qualification step must address actual missing preparation/bookkeeping/reset/
 label/graph owner operations and numeric/physical inputs, rather than repeating
 this recipe or opening admission with Unknown. No separate acceptance-only PR.
 
-## Review disposition
+## Proposal review disposition before acceptance
 
 Fresh builder review identified one material boundary: successful fixture
 transition coverage versus unavailable actual adapters. Resolved here as an

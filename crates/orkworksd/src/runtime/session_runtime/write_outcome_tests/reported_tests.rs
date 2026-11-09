@@ -498,3 +498,147 @@ async fn bound_original_lease_survives_coordinator_and_waiter_loss_during_flush(
     // Last Core destruction releases the lease, not a claim of whole-job completion.
     assert!(crate::workspace_runtime::WorkspaceLease::acquire(root.path()).is_ok());
 }
+
+#[tokio::test]
+async fn coordinator_loss_during_actual_flush_retains_recipe_scope_and_late_facts() {
+    use input_submission::coordinator::tests::{local_dispatch, setup, submit};
+    use input_submission::recipe::{Slot, SlotState};
+    let root = tempfile::tempdir().unwrap();
+    let (coordinator, route, source) = setup(root.path());
+    let mut admitted = submit(&coordinator, &route, &source, 1);
+    local_dispatch(&mut admitted.job); // Local recipe inputs, not physical prep.
+    let Submission {
+        reporters: [preparation, writer, returned, bookkeeping],
+        observer,
+    } = admitted.submission;
+    let (hold, observing, release) = gate();
+    let mut native = BlockingWriter::plain();
+    native.flush = Some(hold);
+    let pending = start(input(Box::new(native), (writer, returned)));
+    entered(observing).await;
+    drop((admitted.job, coordinator, route, source));
+    assert!(crate::workspace_runtime::WorkspaceLease::acquire(root.path()).is_err());
+    let snapshot = observer.snapshot(Instant::now()).unwrap();
+    assert_eq!(
+        snapshot.fact,
+        InputFact::FullWrite {
+            flush: Flush::Unknown
+        }
+    );
+    assert_eq!(
+        snapshot.recipe.unwrap().slots[Slot::Bookkeeping as usize],
+        SlotState::Lost
+    );
+    pending_application_phases(&snapshot);
+    drop(release);
+    let (_, outcome) = joined(pending).await.unwrap();
+    assert_eq!(
+        outcome.fact,
+        InputFact::FullWrite {
+            flush: Flush::Succeeded
+        }
+    );
+    let snapshot = observer.snapshot(Instant::now()).unwrap();
+    assert!(snapshot.protected);
+    pending_application_phases(&snapshot);
+    drop((observer, preparation, bookkeeping));
+    assert!(crate::workspace_runtime::WorkspaceLease::acquire(root.path()).is_ok());
+}
+
+#[tokio::test]
+async fn coordinated_writer_cannot_bypass_unadmitted_dispatch_or_known_no_effect() {
+    use input_submission::coordinator::tests::{local_finish, setup, submit};
+    use input_submission::recipe::{Outcome, Slot};
+    for mode in ["pending", "rejected", "lost", "no-effect"] {
+        let root = tempfile::tempdir().unwrap();
+        let (coordinator, route, source) = setup(root.path());
+        let mut admitted = submit(&coordinator, &route, &source, 1);
+        match mode {
+            "rejected" => admitted.job.reject(Slot::Dispatch).unwrap(),
+            "no-effect" => {
+                for slot in [Slot::Lookup, Slot::Reserve, Slot::Prepare] {
+                    local_finish(&mut admitted.job, slot, Outcome::Done);
+                }
+                local_finish(&mut admitted.job, Slot::Dispatch, Outcome::NoEffect);
+            }
+            _ => {}
+        }
+        if mode == "lost" {
+            drop(admitted.job);
+        }
+        let Submission {
+            reporters: [_preparation, writer, returned, _bookkeeping],
+            observer: _observer,
+        } = admitted.submission;
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let flushes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let request = input(
+            Box::new(CountedWriter {
+                hold: None,
+                count: 3,
+                calls: calls.clone(),
+                flushes: flushes.clone(),
+            }),
+            (writer, returned),
+        );
+        let refused = match PendingPtyWrite::start_reported(request) {
+            Err(e) => e,
+            Ok(pending) => {
+                let _ = joined(pending).await;
+                panic!("{mode}: unadmitted coordinated dispatch reached writer");
+            }
+        };
+        assert_eq!(
+            refused.reason,
+            if mode == "pending" {
+                ReportError::Pending
+            } else {
+                ReportError::Protected
+            }
+        );
+        assert_eq!(refused.input.data, "abc");
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert_eq!(flushes.load(Ordering::SeqCst), 0);
+    }
+}
+
+#[tokio::test]
+async fn original_admitted_dispatch_survives_expiry_and_lost_job_ticket() {
+    use input_submission::coordinator::tests::{local_finish, setup, submit};
+    use input_submission::recipe::{Outcome, Slot, SlotState};
+    let root = tempfile::tempdir().unwrap();
+    let (coordinator, route, source) = setup(root.path());
+    let mut admitted = submit(&coordinator, &route, &source, 1);
+    for slot in [Slot::Lookup, Slot::Reserve, Slot::Prepare] {
+        local_finish(&mut admitted.job, slot, Outcome::Done);
+    }
+    let dispatch = admitted
+        .job
+        .claim(Slot::Dispatch)
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    coordinator.fixture_expire(input_submission::coordinator::tests::context(1));
+    drop((dispatch, admitted.job));
+    let Submission {
+        reporters: [_preparation, writer, returned, _bookkeeping],
+        observer,
+    } = admitted.submission;
+    let (_, outcome) = joined(start(input(
+        Box::new(BlockingWriter::plain()),
+        (writer, returned),
+    )))
+    .await
+    .unwrap();
+    assert_eq!(
+        outcome.fact,
+        InputFact::FullWrite {
+            flush: Flush::Succeeded
+        }
+    );
+    let snapshot = observer.snapshot(Instant::now()).unwrap();
+    assert!(snapshot.expired && snapshot.protected);
+    assert_eq!(
+        snapshot.recipe.unwrap().slots[Slot::Dispatch as usize],
+        SlotState::Lost
+    );
+    pending_application_phases(&snapshot);
+}

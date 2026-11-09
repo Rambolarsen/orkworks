@@ -10,7 +10,7 @@ Dated design records; these do not establish current product behavior.
 
 - [SQL assessment input classification](2026-11-09-sql-assessment-input-classification.md) — Accepted typed unknown/qualified policy and bounded private test deliverable; production input authority remains gated.
 
-- [Complete original input coordinator and admission recipe](2026-11-09-input-coordinator-recipe-design.md) — Proposed application retention, closed continuation recipe and explicit production qualification/refusal gates.
+- [Complete original input coordinator and admission recipe](2026-11-09-input-coordinator-recipe-design.md) — Accepted bounded private coordinator and closed recipe; production registration and qualification stay gated.
 
 - [Original input scope and application retention](2026-11-09-original-input-scope-design.md) — Proposed strong workspace/runtime attachment and bounded offline retention handoff; production coordinator and root qualification stay gated.
 

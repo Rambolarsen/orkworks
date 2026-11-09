@@ -431,3 +431,25 @@ new proposed scope requiring explicit owner approval, not inferred permission
 from the completed preparatory slices. Production construction/activation and
 full module/root/resource/deadline/physical/readiness/restore qualification remain
 gated. No broad checkbox above closes and no new execution allowance is supplied.
+
+
+## Private input coordinator scope accepted — 2026-11-09
+
+After #1641 the owner answered “keep going” to the explicit design/private-code
+question. [#1644](https://github.com/Rambolarsen/orkworks/issues/1644) records
+acceptance, the [bounded plan](2026-11-09-private-input-coordinator.md) and code
+together. Routes, declared aggregate/per-job charges and fixed recipe state share
+the actual Core/Entry; there is no second input-result ledger. Root Closing and
+job admission are atomic; unique job/slot handles cannot repeat/renew a slot.
+Original scope pool ownership and route serials are exact. Lost/protected work
+retains charges; even removed route references remain bounded until Drop.
+
+Production registration/Open, actual missing preparation/bookkeeping/reset/label/
+graph adapters and physical/root/profile qualification stay unavailable. Test-only
+transition inputs prove local rules; they cannot complete real producer phases or
+certify whole-job/readiness. Actual writer/join checks preserve pending application
+phases and late original facts. No production constructor/caller, new native/SQL/
+model/resource experiment, shipping profile, maintenance/restore activation or
+broad qualification box follows. Validation/review evidence is in the bounded plan
+and PR; the next qualification must obtain actual missing owner operations and
+profile inputs rather than repeat this local recipe.

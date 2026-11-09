@@ -2,6 +2,8 @@
 //! fixed facts and unique reporters. Optional scope retains the original lease and
 //! runtime/channel intent. Owner has no production caller, input capability, payload/
 //! PTY ownership, physical-completion proof or production resource profile.
+pub(super) mod coordinator;
+pub(super) mod recipe;
 pub(crate) mod scope;
 
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -63,6 +65,8 @@ pub(super) enum Error {
     Protected,
     Pending,
     Unavailable,
+    Unsupported,
+    Closing,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Snapshot {
@@ -72,6 +76,7 @@ pub(super) struct Snapshot {
     pub phases: [PhaseState; 4],
     pub protected: bool,
     pub expired: bool,
+    pub recipe: Option<recipe::RecipeSnapshot>,
 }
 
 struct Entry {
@@ -85,6 +90,7 @@ struct Entry {
     protected: bool,
     live_reporters: usize,
     _scope: Option<scope::OriginalInputScope>,
+    recipe: Option<recipe::Recipe>,
 }
 impl Entry {
     fn input_fact(&self) -> InputFact {
@@ -103,6 +109,7 @@ impl Entry {
             fact: self.input_fact(),
             phases: self.phases,
             protected: self.protected
+                || self.recipe.as_ref().is_some_and(recipe::Recipe::protected)
                 || self.input == Some(InputFact::Unresolved)
                 || matches!(self.input_fact(), InputFact::PartialOrUnknown { .. })
                 || self.phases.iter().any(|phase| {
@@ -112,6 +119,7 @@ impl Entry {
                     )
                 }),
             expired: now >= self.deadline,
+            recipe: self.recipe.as_ref().map(recipe::Recipe::snapshot),
         }
     }
 }
@@ -119,6 +127,7 @@ struct State {
     slots: Vec<Option<Entry>>,
     serial: u64,
     observers: usize,
+    coordinator: Option<coordinator::Registry>,
 }
 struct Core {
     limits: Limits,
@@ -202,6 +211,7 @@ impl Owner {
                     slots,
                     serial: 0,
                     observers: 0,
+                    coordinator: None,
                 }),
             }),
         })
@@ -241,13 +251,28 @@ impl Owner {
         now: Instant,
         scope: &mut Option<scope::OriginalInputScope>,
     ) -> Result<Submission, Error> {
+        let mut state = self.core.lock()?;
+        if state.coordinator.is_some() {
+            return Err(Error::Unsupported);
+        }
+        self.admit_locked(&mut state, context, input_bytes, deadline, now, scope)
+    }
+
+    fn admit_locked(
+        &self,
+        state: &mut State,
+        context: Context,
+        input_bytes: usize,
+        deadline: Instant,
+        now: Instant,
+        scope: &mut Option<scope::OriginalInputScope>,
+    ) -> Result<Submission, Error> {
         if now >= deadline {
             return Err(Error::Expired);
         }
         if input_bytes > self.core.limits.input_bytes {
             return Err(Error::TooLarge);
         }
-        let mut state = self.core.lock()?;
         if state
             .slots
             .iter()
@@ -283,6 +308,7 @@ impl Owner {
             protected: false,
             live_reporters: 4,
             _scope: scope.take(),
+            recipe: None,
         });
         let key = Key { index, serial };
         Ok(Submission {
@@ -349,7 +375,19 @@ impl Owner {
             {
                 return Err(Error::Pending);
             }
+            if let Some(recipe) = &entry.recipe {
+                if !recipe.retirable() {
+                    return Err(Error::Pending);
+                }
+            }
             let retired = state.slots[observer.key.index].take();
+            if let Some(recipe) = retired.as_ref().and_then(|entry| entry.recipe.as_ref()) {
+                state
+                    .coordinator
+                    .as_mut()
+                    .expect("coordinated entry owns registry")
+                    .release(recipe);
+            }
             (Ok(snapshot), retired)
         };
         // Scope resources and their reservation must drop outside this lock.
@@ -389,6 +427,9 @@ impl Reporter {
         }
         if entry.protected {
             return Err(Error::Protected);
+        }
+        if let Some(recipe) = &entry.recipe {
+            recipe.validate_writer_admission()?;
         }
         if entry.phases[..3].contains(&PhaseState::Settled(PhaseResult::NoEffect)) {
             return Err(Error::Conflict);
