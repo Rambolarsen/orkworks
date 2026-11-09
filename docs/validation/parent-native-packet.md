@@ -1,10 +1,10 @@
 ---
 type: Qualification Packet
 title: Prepared parent native continuation canary
-description: Stdio MCP canary inputs, four unverified attempts, including the diagnostic packet that identified the session-layout guard.
+description: Stdio MCP canary inputs, five unverified attempts, most recently the expected session entry with additional listing entries.
 tags: [orchestration, copilot, continuation, qualification]
 status: draft
-workflow_status: startup-layout-corrected-not-authorized
+workflow_status: corrected-startup-attempt-spent
 ---
 
 # Prepared parent native continuation canary
@@ -15,7 +15,7 @@ The [plan](../superpowers/plans/2026-11-08-parent-native-packet.md) reuses the
 [offline peer](parent-continuation-fixture.md) without changing it. Preparation
 uses only Python fake clients and the fixture stdio server. No Copilot process,
 discovery command, SDK/ACP server, model or credential discovery has run for this
-packet during preparation. Four separately owner-approved batches later stopped
+packet during preparation. Five separately owner-approved batches later stopped
 [unverified](parent-native-canary.md) on 2026-11-09, each with raw-root deletion confirmed.
 #740 stays closed; all three native checks remain **unverified**.
 
@@ -223,3 +223,16 @@ Current manifest SHA-256: e89cd3cf0ba4c9b91f7a752edecd6a59f815d02d087503a4ac5779
 Proposal remains 39bea8c908bb15f3d53ed8a8cd6fdbc38db341f0f30b53f0617b47929fdd027b.
 The earlier reporting manifest above is historical. No native execution ran for
 this correction; all four prior approvals remain spent, with ongoing budget zero.
+
+
+## Corrected startup batch spent — 2026-11-09
+
+A new exact owner decision authorized [#1637](https://github.com/Rambolarsen/orkworks/issues/1637)
+with the startup-corrected manifest above. The unchanged packet attempted two
+discoveries and one prompt, then stopped at history-session-layout with observed
+exit zero. Its [receipt](parent-native-canary.md#corrected-startup-packet-attempt--2026-11-09)
+records expectedPresent true, exclusiveExpected false and empty false; additional
+entry names/types and scan timing are unknown. expectedSymlink null means not checked in that failed scan.
+Raw roots and disposable controls were removed. No resume/retry ran. All five
+approvals are spent; ongoing live budget is zero and native capabilities remain
+unverified. This does not retroactively identify any earlier failure.

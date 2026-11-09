@@ -71,3 +71,5 @@ docs/validation/root-preparation-effects.json text eol=lf
 /docs/validation/parent-native-canary-diagnostic-summary.json text eol=lf
 
 /docs/validation/native-history-startup.json text eol=lf
+
+/docs/validation/parent-native-canary-startup-summary.json text eol=lf
