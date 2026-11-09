@@ -352,6 +352,96 @@ assert not p.stderr.read();f.close()
 
 
 
+class SupervisorCheckTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "posix", "Owned process groups require POSIX")
+    def test_nonzero_exit_has_fixed_code_and_preserves_process_metadata(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root).resolve()
+            receipt = {}
+            with self.assertRaises(ValueError) as caught:
+                observer.supervise([sys.executable, "-I", "-B", "-c", "raise SystemExit(17)"],
+                                    root, {}, root, 2, 1024, 8192, lambda: None, receipt=receipt)
+            details = observer.failure_details({"stage": "native-prompt", "process": receipt}, caught.exception)
+            self.assertEqual(details.get("supervisorCheckCode"), "supervisor-exit")
+            self.assertEqual(details["category"], "check-failed")
+            self.assertEqual(details["process"], {"started": True, "exitCode": 17,
+                                                 "terminationStepsCompleted": True})
+
+    @unittest.skipUnless(os.name == "posix", "Owned process groups require POSIX")
+    def test_deadline_and_independent_raw_caps_have_distinct_codes(self):
+        cases = [("import time; time.sleep(20)", .15, 1024, 8192, "supervisor-deadline"),
+                 ("print('x'*4096)", 2, 1024, 8192, "supervisor-file-cap"),
+                 ("print('x'*512)", 2, 1024, 100, "supervisor-total-cap")]
+        for client, seconds, file_cap, total_cap, code in cases:
+            with self.subTest(code=code), tempfile.TemporaryDirectory() as root:
+                root = Path(root).resolve()
+                receipt = {}
+                with self.assertRaises(ValueError) as caught:
+                    observer.supervise([sys.executable, "-I", "-B", "-c", client], root, {}, root,
+                                        seconds, file_cap, total_cap, lambda: None, receipt=receipt)
+                details = observer.failure_details({"stage": "native-prompt", "process": receipt}, caught.exception)
+                self.assertEqual(details.get("supervisorCheckCode"), code)
+                self.assertTrue(details["process"]["terminationStepsCompleted"])
+
+    @unittest.skipUnless(os.name == "posix", "Owned symlink fixture requires POSIX")
+    def test_raw_symlink_code_does_not_retain_path_or_target(self):
+        with tempfile.TemporaryDirectory() as base:
+            base = Path(base).resolve()
+            root = base/"raw"
+            root.mkdir()
+            target = base/"PRIVATE_TARGET"
+            target.write_text("PRIVATE_CONTENT")
+            (root/"PRIVATE_LINK").symlink_to(target)
+            with self.assertRaises(ValueError) as caught:
+                observer.supervise([sys.executable, "-I", "-B", "-c", "pass"], root, {}, root,
+                                    2, 1024, 8192, lambda: None)
+            details = observer.failure_details({"stage": "native-prompt"}, caught.exception)
+            self.assertEqual(details.get("supervisorCheckCode"), "supervisor-raw-layout")
+            self.assertNotIn("PRIVATE", json.dumps(details))
+
+    def test_expired_budget_reports_deadline_before_any_process(self):
+        with tempfile.TemporaryDirectory() as root, patch("subprocess.Popen") as spawn:
+            receipt = {}
+            with self.assertRaises(ValueError) as caught:
+                observer.supervise(["never"], root, {}, root, 0, 1024, 8192, lambda: None, receipt=receipt)
+            spawn.assert_not_called()
+            details = observer.failure_details({"stage": "instruction-discovery", "process": receipt}, caught.exception)
+            self.assertEqual(details.get("supervisorCheckCode"), "supervisor-deadline")
+            self.assertFalse(details["process"]["started"])
+
+    @unittest.skipUnless(os.name == "posix", "Owned process groups require POSIX")
+    def test_bind_and_history_errors_are_not_misattributed(self):
+        for callback in ("bind", "history"):
+            with self.subTest(callback=callback), tempfile.TemporaryDirectory() as root:
+                root = Path(root).resolve()
+                def fail(*args):
+                    error = ValueError("PRIVATE_MESSAGE")
+                    if callback == "history": error.history_check_code = "history-prefix"
+                    raise error
+                with self.assertRaises(ValueError) as caught:
+                    observer.supervise([sys.executable, "-I", "-B", "-c", "import time; time.sleep(20)"],
+                                        root, {}, root, 2, 1024, 8192,
+                                        fail if callback == "history" else lambda: None,
+                                        on_start=fail if callback == "bind" else None)
+                details = observer.failure_details({"stage": "native-history" if callback == "history" else "runtime-bind"},
+                                                   caught.exception)
+                self.assertNotIn("supervisorCheckCode", details)
+                if callback == "history": self.assertEqual(details.get("checkCode"), "history-prefix")
+                self.assertNotIn("PRIVATE", json.dumps(details))
+
+    def test_projection_rejects_unknown_codes_types_and_wrong_stages(self):
+        for stage in ("native-prompt", "instruction-discovery", "skill-discovery", "native-history", "runtime-bind", "PRIVATE"):
+            for code in ("supervisor-exit", "PRIVATE_PATH", ["supervisor-exit"], None):
+                with self.subTest(stage=stage, code=code):
+                    error = ValueError("PRIVATE_MESSAGE")
+                    error.supervisor_check_code = code
+                    details = observer.failure_details({"stage": stage}, error)
+                    expected = "supervisor-exit" if code == "supervisor-exit" and stage in (
+                        "native-prompt", "instruction-discovery", "skill-discovery") else None
+                    self.assertEqual(details.get("supervisorCheckCode"), expected)
+                    self.assertNotIn("PRIVATE", json.dumps(details))
+
+
 class HistoryStartupTests(unittest.TestCase):
     def test_initial_empty_root_can_progress_to_exact_complete_history(self):
         with tempfile.TemporaryDirectory() as root:
