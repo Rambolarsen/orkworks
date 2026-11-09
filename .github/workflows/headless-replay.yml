@@ -1,0 +1,74 @@
+name: Headless replay qualification
+
+"on":
+  pull_request:
+    branches: [main]
+    paths:
+      - Containerfile
+      - scripts/headless-replay.sh
+      - scripts/headless_replay*.py
+      - apps/desktop/src/**
+      - apps/desktop/patches/**
+      - apps/desktop/package.json
+      - apps/desktop/pnpm-lock.yaml
+      - apps/desktop/pnpm-workspace.yaml
+      - apps/desktop/tsconfig.json
+      - apps/desktop/scripts/setup-electron.mjs
+      - apps/desktop/tests/applicationShell.test.mjs
+      - .github/workflows/headless-replay.yml
+  push:
+    branches: [main]
+    paths:
+      - Containerfile
+      - scripts/headless-replay.sh
+      - scripts/headless_replay*.py
+      - apps/desktop/src/**
+      - apps/desktop/patches/**
+      - apps/desktop/package.json
+      - apps/desktop/pnpm-lock.yaml
+      - apps/desktop/pnpm-workspace.yaml
+      - apps/desktop/tsconfig.json
+      - apps/desktop/scripts/setup-electron.mjs
+      - apps/desktop/tests/applicationShell.test.mjs
+      - .github/workflows/headless-replay.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: headless-replay-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  docker-linux:
+    name: Headless replay (Linux Docker)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prepare private evidence parent
+        run: mkdir -m 700 "$RUNNER_TEMP/headless-replay"
+      - name: Test bounded runner behavior
+        env:
+          TMPDIR: ${{ runner.temp }}/headless-replay
+        run: python3 scripts/headless_replay_test.py
+      - name: Qualify offline replay and lifecycle against rootful Docker
+        env:
+          TMPDIR: ${{ runner.temp }}/headless-replay
+          ORKWORKS_REAL_REPLAY_ENGINE: docker
+        run: python3 scripts/headless_replay_qualification_test.py
+      - name: Verify checkout unchanged
+        if: always()
+        run: git diff --exit-code
+      - name: Preserve qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: headless-replay-linux-docker
+          path: ${{ runner.temp }}/headless-replay/
+          if-no-files-found: error
+          retention-days: 7

@@ -1,8 +1,8 @@
 # OrkWorks toolchain dev container — Tier 1 of issue #80.
 #
 # Podman-first (OCI); builds and runs identically under `docker compose`.
-# This is a TOOLCHAIN-ONLY image: it copies no source. The repo is bind-mounted
-# at /workspace by compose.yaml, so editing source never triggers a rebuild.
+# The dev target copies no source; compose.yaml bind-mounts /workspace.
+# The explicit headless-replay target snapshots only its allowlisted fixture.
 #
 # Matches release.yml: Node 22, pnpm 11 (corepack), Rust stable.
 
@@ -47,6 +47,29 @@ WORKDIR /workspace
 
 # Keep the service alive for `compose exec`; `compose run --rm` overrides this.
 CMD ["sleep", "infinity"]
+
+# Explicit trusted-source fixture snapshot; no host mounts or runtime downloads.
+FROM dev AS headless-replay
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      xvfb xauth libgtk-3-0 libnss3 libasound2 libgbm1 fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /opt/replay
+COPY apps/desktop/package.json apps/desktop/pnpm-lock.yaml apps/desktop/pnpm-workspace.yaml ./
+COPY apps/desktop/patches ./patches
+COPY apps/desktop/scripts/setup-electron.mjs ./scripts/setup-electron.mjs
+RUN pnpm install --frozen-lockfile && pnpm exec install-electron \
+    && ldd node_modules/electron/dist/electron > /tmp/electron-ldd \
+    && ( ! grep -q 'not found' /tmp/electron-ldd || { cat /tmp/electron-ldd; exit 1; } )
+COPY apps/desktop/tsconfig.json ./tsconfig.json
+COPY apps/desktop/src ./src
+COPY apps/desktop/tests/applicationShell.test.mjs ./tests/applicationShell.test.mjs
+RUN chmod -R go-w /opt/replay && mkdir -p /artifacts/replay \
+    && chown 1000:1000 /artifacts/replay
+ENV HOME=/tmp/orkworks-home \
+    TMPDIR=/tmp \
+    ORKWORKS_REPLAY_ARTIFACT_DIR=/artifacts/replay
+USER 1000:1000
+CMD ["node", "--experimental-strip-types", "--test", "--test-name-pattern=fixed shell: app-review-replay$", "tests/applicationShell.test.mjs"]
 
 # Optional local analysis stage; the normal compose service targets dev.
 FROM dev AS sonar

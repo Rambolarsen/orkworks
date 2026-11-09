@@ -7,6 +7,12 @@ if (process.versions.electron) {
   app.disableHardwareAcceleration();
   app.whenReady().then(async () => {
     const win = new BrowserWindow({ show: false, width: 1280, height: 700 });
+    win.webContents.on('console-message', event => {
+      console.error('Renderer console:', event.message);
+    });
+    win.webContents.on('render-process-gone', (_event, details) => {
+      console.error('Renderer process gone:', details.reason, details.exitCode);
+    });
     const evaluate = async (source) => {
       // Sanitize results so DOM nodes never cross the executeJavaScript
       // serialization bridge: Electron 45 (Chromium 156) serializes expando
@@ -23,7 +29,7 @@ if (process.versions.electron) {
         if (await evaluate(source)) return;
         await new Promise(resolve => setTimeout(resolve, 10));
       }
-      throw new Error(`Timed out: ${source}\n${await evaluate("document.body.innerText")}\n${JSON.stringify(await evaluate("fixture.errors"))}`);
+      throw new Error(`Timed out: ${source}\n${await evaluate("document.body.innerText")}\n${JSON.stringify(await evaluate("window.fixture?.errors ?? []"))}`);
     };
     const fresh = async () => {
       await win.loadFile(process.env.ORKWORKS_SHELL_FIXTURE);
@@ -39,7 +45,7 @@ if (process.versions.electron) {
       writeFileSync(join(directory, label + '.png'), (await win.webContents.capturePage()).toPNG());
       writeFileSync(join(directory, label + '.json'), JSON.stringify(await evaluate(`({
         text: document.body.innerText,
-        errors: fixture.errors,
+        errors: window.fixture?.errors ?? [],
         rows: [...document.querySelectorAll('.terminal-container .xterm-rows > div')].map(row=>row.textContent),
         elements: [...document.querySelectorAll('.terminal-shell, .terminal-container, .xterm, .xterm-screen')].map(el=>({
           className: el.className, rect: el.getBoundingClientRect().toJSON(), style: el.getAttribute('style'),
