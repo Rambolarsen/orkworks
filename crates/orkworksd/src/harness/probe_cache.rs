@@ -260,42 +260,60 @@ mod tests {
     async fn starts_negative_ttl_after_the_probe_completes() {
         let cache = VersionProbeCache::new();
         let calls = Arc::new(AtomicUsize::new(0));
+        let started_at = Instant::now();
+        let positive_ttl = Duration::from_secs(30);
+        let negative_ttl = Duration::from_millis(10);
+        let mut probe_completed_at = None;
 
         let first = cache
-            .probe_or_get(
-                key(),
-                Instant::now(),
-                Duration::from_secs(30),
-                Duration::from_millis(10),
-                {
-                    let calls = calls.clone();
-                    move || async move {
-                        calls.fetch_add(1, Ordering::SeqCst);
-                        tokio::time::sleep(Duration::from_millis(20)).await;
-                        None
-                    }
-                },
-            )
+            .probe_or_get(key(), started_at, positive_ttl, negative_ttl, {
+                let calls = calls.clone();
+                let probe_completed_at = &mut probe_completed_at;
+                move || async move {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                    *probe_completed_at = Some(Instant::now());
+                    None
+                }
+            })
             .await;
+        let returned_at = Instant::now();
+        // Sample the hit inside the completion-relative TTL, independently of
+        // how long this test is descheduled after the first call returns.
+        let lookup_at = probe_completed_at.unwrap() + negative_ttl / 2;
         let second = cache
-            .probe_or_get(
-                key(),
-                Instant::now(),
-                Duration::from_secs(30),
-                Duration::from_millis(10),
-                {
-                    let calls = calls.clone();
-                    move || async move {
-                        calls.fetch_add(1, Ordering::SeqCst);
-                        Some("ignored".into())
-                    }
-                },
-            )
+            .probe_or_get(key(), lookup_at, positive_ttl, negative_ttl, {
+                let calls = calls.clone();
+                move || async move {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    Some("ignored".into())
+                }
+            })
             .await;
 
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         assert_eq!(first, None);
         assert_eq!(second, None);
+
+        // Cache insertion precedes the first call returning, so its negative
+        // entry must have expired by this supplied lookup time.
+        let third = cache
+            .probe_or_get(
+                key(),
+                returned_at + negative_ttl,
+                positive_ttl,
+                negative_ttl,
+                {
+                    let calls = calls.clone();
+                    move || async move {
+                        calls.fetch_add(1, Ordering::SeqCst);
+                        Some("copilot-cli 1.2.3".into())
+                    }
+                },
+            )
+            .await;
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert_eq!(third.as_deref(), Some("copilot-cli 1.2.3"));
     }
 
     #[tokio::test]
