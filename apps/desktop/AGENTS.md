@@ -45,6 +45,28 @@ Run these commands from `apps/desktop/`. Linux desktop tests require Xvfb
 (`xvfb-run`) when no display is available; the Electron layout test starts its
 own virtual display. GitHub-hosted Ubuntu runners include Xvfb.
 
+## Rendered historical replay fixture
+
+From the repository root, run the existing Electron runner's replay scenario:
+
+```bash
+pnpm --dir apps/desktop exec node --experimental-strip-types --test --test-name-pattern='fixed shell: app-review-replay$' tests/applicationShell.test.mjs
+```
+
+It exercises the real App, HistoricalTerminal, xterm DOM rendering and resize
+observers with synthetic ended-session output (120 × 40), backend/bridge and
+WebSocket responses. It checks recorded rows and wrapping, content-box bounds
+when resized, and recovery after an initially hidden mount. This does not run
+a sidecar/PTY or qualify packaged/native-platform behavior.
+
+The runner uses a temporary Electron profile and removes its fixture directory.
+Replay PNG/JSON snapshots and the subprocess log remain in the printed temporary
+artifact directory; set `ORKWORKS_REPLAY_ARTIFACT_DIR` to choose another location.
+An assertion failure also attempts a `failure` snapshot. A subprocess timeout or
+startup failure may leave only its log. Linux without DISPLAY uses the runner's
+existing Xvfb path and test-only `--no-sandbox`; this command does not establish
+a supported container image or change the production sandbox policy.
+
 ## Isolated workflow preview
 
 Run `pnpm --dir apps/desktop preview:workflow` from the repository root to inspect
