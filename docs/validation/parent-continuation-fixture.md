@@ -73,3 +73,14 @@ reservation methods are synthetic setup actions; they are not real UI grants.
 Full native source/tool/graph-skill/configuration mapping, transport correlation,
 retention and a finite reviewed live budget remain with the later native packet.
 All three native checks remain **unverified**, with no new live budget or retry.
+
+
+## UUID compatibility correction — 2026-11-09
+
+The [offline native audit](parent-native-canary-offline-audit.md) found that the
+original fake-only identity could not be used as an ordinary native UUID. The
+current fixture uses 00000000-0000-4000-8000-000000000001 consistently with the
+native packet. Only binding identity/configuration-digest references and reviewed
+source pins changed; numerical/state/event/effect oracles are unchanged. This is
+a fixture configuration re-key, not a production identity/storage migration or
+native capability result. Historical packet/receipt commitments remain intact.

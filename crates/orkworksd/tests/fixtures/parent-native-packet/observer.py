@@ -48,6 +48,18 @@ def failure_details(diagnostic, error):
                         "terminationStepsCompleted": process.get("terminationStepsCompleted") is True}}
 
 
+def validate_native_id(value):
+    """Require an ordinary canonical UUID accepted by the pinned CLI profile."""
+    import uuid
+    try:
+        parsed = uuid.UUID(value)
+    except (ValueError, TypeError, AttributeError):
+        raise ValueError("Invalid native canary UUID") from None
+    require(type(value) is str and str(parsed) == value
+            and parsed.variant == uuid.RFC_4122 and parsed.version in range(1, 9),
+            "Native canary UUID must have valid version and variant bits")
+
+
 def require_authorization(approval, proposal_bytes, manifest_bytes):
     expected = {"decision": "approve-one-batch", "proposalSha256": sha(proposal_bytes),
                 "manifestSha256": sha(manifest_bytes), "maxNativePrompts": 2}
@@ -443,6 +455,7 @@ def run_native(approval, output):
     require_authorization(approval, pb, mb)  # Before any subprocess, including discovery/git.
     proposal, manifest = json.loads(pb), json.loads(mb)
     verify_manifest(directory, manifest)
+    validate_native_id(proposal["nativeSessionId"])
     require(platform.system() == "Darwin" and platform.machine() == "arm64", "Pinned platform required")
     output = Path(output)
     require(not output.exists(), "Fresh retained output required")

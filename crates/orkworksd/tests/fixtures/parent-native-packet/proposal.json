@@ -10,7 +10,7 @@
   },
   "model": "gpt-6-luna",
   "providerRequest": "github normal native authentication; no independent provider/billing receipt claimed",
-  "nativeSessionId": "00000000-0000-0000-0000-000000000001",
+  "nativeSessionId": "00000000-0000-4000-8000-000000000001",
   "mcpProtocolVersion": "2025-06-18",
   "mcpServerName": "ork742",
   "tools": [
@@ -135,7 +135,7 @@
       "error",
       "-s",
       "--session-id",
-      "00000000-0000-0000-0000-000000000001",
+      "00000000-0000-4000-8000-000000000001",
       "-p",
       "Begin with read_run_state using bootstrap true and adopt its cursor. Use only the ork742 tools. Then call wait_for_run_event with that cursor. For every result call read_run_state with its resultNonce. If status is refresh_required, adopt the returned cursor and wait again without acknowledging omitted events. Otherwise call acknowledge with the returned snapshotId and nextAction. Adopt the returned cursor for the next wait. A duplicate notification may return the same actionId; it must have no second effect. When acknowledge returns done true, stop and reply exactly ORK742_PHASE_ONE_DONE. Do not send another user prompt, use another tool or change access. On any error stop immediately without retry."
     ],
@@ -168,7 +168,7 @@
       "--log-level",
       "error",
       "-s",
-      "--resume=00000000-0000-0000-0000-000000000001",
+      "--resume=00000000-0000-4000-8000-000000000001",
       "-p",
       "This is the exact resumed synthetic parent. Use only read_run_state with bootstrap true, then acknowledge with its snapshotId and nextAction. Observe the retained blocker, clarification, stageContinueRequired and reservation with grant false; do not clear them or launch/retry tasks. When done true, reply exactly ORK742_PHASE_TWO_DONE. Do not use wait_for_run_event, other tools, changed permissions or another session. On any error stop without retry."
     ]

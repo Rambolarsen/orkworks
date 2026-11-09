@@ -1,0 +1,108 @@
+{
+  "kind": "offline-source-audit-not-native-runtime-evidence",
+  "source": {
+    "version": "1.0.90",
+    "member": "app.js",
+    "bytes": 7577057,
+    "sha256": "f84061b62eeb1cd78a655555890fe1a776509203fca68144745467e26e443813",
+    "anchors": {
+      "uuidPattern": {
+        "byteOffset": 20888,
+        "anchor": "aet=/"
+      },
+      "uuidHelper": {
+        "byteOffset": 21049,
+        "anchor": "function gPn(e)"
+      },
+      "uuidAlias": {
+        "byteOffset": 21129,
+        "anchor": "IT=gPn"
+      },
+      "freshSessionGuard": {
+        "byteOffset": 7548668,
+        "anchor": "IT(no)||ki("
+      },
+      "fatalHelper": {
+        "byteOffset": 7574962,
+        "anchor": "function ki(e,t)"
+      },
+      "exitHelper": {
+        "byteOffset": 5165286,
+        "anchor": "function nZ("
+      },
+      "filterNormalizer": {
+        "byteOffset": 4025448,
+        "anchor": "zw=e=>"
+      },
+      "cliParserBridge": {
+        "byteOffset": 7394212,
+        "anchor": "yr.cliParse(e)"
+      },
+      "promptArrayPassThrough": {
+        "byteOffset": 4961085,
+        "anchor": "availableTools:Array.isArray(d)?d:void 0"
+      }
+    }
+  },
+  "cliParserAddon": {
+    "member": "prebuilds/darwin-arm64/cli-native.node",
+    "bytes": 5151344,
+    "sha256": "e3d5cce8ee565c66726d1dda462ea5b6b335d46394e293c0e64d555244563176",
+    "loadedOrExecuted": false,
+    "historicalLoadNotProven": true
+  },
+  "uuid": {
+    "pattern": "^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|f0e9073c-4ac6-5039-b224-3879e1660bb0|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+    "flags": "i",
+    "vectors": [
+      {
+        "value": "00000000-0000-0000-0000-000000000001",
+        "expected": false
+      },
+      {
+        "value": "00000000-0000-4000-8000-000000000001",
+        "expected": true
+      },
+      {
+        "value": "0cb916db-26aa-40f2-86b5-1ba81b225fd2",
+        "expected": true
+      }
+    ],
+    "freshNoMatchBranchExitCode": 1,
+    "historicalCause": "unconfirmed; deleted output and actual branch not retained"
+  },
+  "hostGuardAudit": {
+    "explicitRemainingChecks": [
+      "unexpected-raw-symlink",
+      "raw-file-cap",
+      "raw-total-cap",
+      "nonzero-exit"
+    ],
+    "deadlineSeconds": 240,
+    "batchLimitSeconds": 600,
+    "reportedBatchElapsedSeconds": 4.057,
+    "deadlineCompatibleUnderMonotonicSourceLogic": false,
+    "guardCodeNotRetained": true
+  },
+  "preparedInputMeasurement": {
+    "sourceCommit": "594e1cff4600364d4cb7a574c9f665195fbde5ed",
+    "scope": "synthetic prepared inputs plus empty Git setup only; excludes native-created files",
+    "fileCount": 10,
+    "largestFileBytes": 30007,
+    "totalBytes": 97913,
+    "symlinkCount": 0,
+    "fileLimitBytes": 1048576,
+    "totalLimitBytes": 8388608
+  },
+  "correctedPacket": {
+    "proposalSha256": "39bea8c908bb15f3d53ed8a8cd6fdbc38db341f0f30b53f0617b47929fdd027b",
+    "manifestSha256": "e2cb9c9c41d2b0137aad51bd25fa12f367426fe2dcc9bdb075fc7a5ec95471ec"
+  },
+  "boundaries": [
+    "No vendor JS/native addon or Copilot executable was loaded/executed.",
+    "Project prepare_case and empty Git initialization ran only on owned synthetic files.",
+    "No credentials, deleted history or native outputs were read.",
+    "Tool alias mapping, actual past cause, model/provider behavior and native capabilities remain unverified.",
+    "No new live approval or retry budget."
+  ]
+}

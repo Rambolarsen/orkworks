@@ -351,6 +351,42 @@ assert not p.stderr.read();f.close()
 
 
 
+
+class NativeIdentityTests(unittest.TestCase):
+    def test_invalid_native_uuid_cannot_reach_a_fresh_session(self):
+        for value in ("00000000-0000-0000-0000-000000000001",
+                      "00000000-0000-9000-8000-000000000001",
+                      "00000000-0000-4000-0000-000000000001", "not-an-id", None):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    observer.validate_native_id(value)
+
+    def test_packet_and_peer_use_one_compatible_identity(self):
+        observer.validate_native_id(PROPOSAL["nativeSessionId"])
+        self.assertEqual(Protocol().peer.binding.native_id, PROPOSAL["nativeSessionId"])
+        new = PROPOSAL["argv"]["new"]
+        self.assertEqual(new[new.index("--session-id")+1], PROPOSAL["nativeSessionId"])
+        self.assertIn("--resume="+PROPOSAL["nativeSessionId"], PROPOSAL["argv"]["resume"])
+
+
+    def test_uuid_guard_precedes_platform_setup_and_subprocesses(self):
+        directory = Path(__file__).parent
+        pb, mb = (directory/"proposal.json").read_bytes(), (directory/"manifest.json").read_bytes()
+        approval = {"decision": "approve-one-batch", "proposalSha256": observer.sha(pb),
+                    "manifestSha256": observer.sha(mb), "maxNativePrompts": 2}
+        with tempfile.TemporaryDirectory() as root:
+            output = Path(root).resolve()/"result"
+            observed = None
+            with patch.object(observer, "validate_native_id", side_effect=ValueError("Synthetic UUID rejection")), \
+                    patch("platform.system", side_effect=AssertionError("Platform read before UUID guard")):
+                try:
+                    observer.run_native(approval, output)
+                except Exception as error:
+                    observed = error
+            self.assertIsInstance(observed, ValueError)
+            self.assertFalse(output.exists())
+
+
 class StopReportingTests(unittest.TestCase):
     def test_failure_projection_keeps_only_fixed_metadata(self):
         diagnostic = {"phase": 1, "stage": "native-prompt", "process": {
