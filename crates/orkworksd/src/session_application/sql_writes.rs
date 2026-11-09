@@ -18,6 +18,17 @@ pub(crate) struct ObservationOpenAdmission {
     _private: (),
 }
 
+/// Distinct write proof; only the checked application owner may construct it.
+/// Producer minting and retained batch composition remain separately gated.
+pub(crate) struct ObservationWriteAdmission {
+    source: crate::session_store::ObservationSource,
+}
+impl ObservationWriteAdmission {
+    pub(crate) fn source(&self) -> &crate::session_store::ObservationSource {
+        &self.source
+    }
+}
+
 pub(crate) struct SessionWrites {
     state: Arc<AppState>,
     store: Arc<SessionStore>,
@@ -447,3 +458,6 @@ pub(crate) fn reserve_observation_read() -> Result<ObservationReadCapacity, Stor
 }
 
 pub(crate) mod observation_opening;
+
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+mod observation_files_tests;

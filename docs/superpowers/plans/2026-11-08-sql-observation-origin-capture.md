@@ -88,6 +88,17 @@ from these source-level ratings.
   This is a data-only prerequisite: no original-origin constructor, counter/file
   effects, retained write grant or batch routing. Selected read snapshots omit
   tombstones; the future writer must supply complete bounded inventory.
+- [x] Deliver private descriptor-relative file persistence behind a distinct
+  admitted write grant before producer/deletion composition. Stream complete
+  inventory and bounded rewrites without a retained full-segment payload.
+  Preserve retry/tombstone, candidate, rate and sequence behavior; count origin,
+  tag, whitespace and LF bytes. Preflight intent/index/read allowances before
+  counter effects, including projected workspace line/byte totals and the
+  counter-only intermediate state. Exercise counter gaps, partial tails, atomic rewrite failure,
+  source eviction and exact copied origins, replacement/link/legacy refusals,
+  exact intent/segment bounds, shared admission and original deadline retention.
+  This file boundary has no production write-token minting path and does not
+  establish producer currentness, complete batch settlement or deletion ordering.
 - [ ] Compose origin persistence with the existing grounded at-most-five
   final-scan candidates and the SQL Workflow deletion stage. One opaque original
   grant covers actual file work and finite settlement, never a fresh post-wait

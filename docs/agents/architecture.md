@@ -1923,6 +1923,40 @@ no file authority, allocate no sequence and perform no rewrite. The eventual
 writer must supply complete bounded inventory and retained admission; a selected
 read snapshot omits retry tombstones and cannot substitute for that inventory.
 
+A private `SqlWriter` now owns a purpose-specific admitted candidate, original
+source and claim deadline through descriptor-based file effects. Admission is a
+memory-only operation intended for the short checked application callback;
+subsequent persistence runs outside application guards. Read admission cannot
+be upgraded into this grant. Its sealed write token has no production minting
+path yet, and the file layer does not independently establish source currentness.
+
+Writer inventory retains compact UUID/sequence and target-offset indices,
+including tombstones, rather than selected observation payloads. Existing strict
+inventory limits and the full 1 MiB reservation remain; the reader's separate
+768 KiB snapshot cap is unchanged. Writer intent, including escaped source/key
+bytes, is capped at 64 KiB, target indices at 64 KiB, and later rewrite reads
+are preflighted against the same 64 MiB aggregate read allowance. These are
+encoded accounting bounds, not measured heap or native-resource qualification.
+
+The file layer validates complete inventory and retry/rate/bound conditions
+before counter effects. Projected workspace line/byte totals account for the
+replaced segment and counter; the counter-only intermediate state must also stay
+within the aggregate read allowance if a later append fails. A durable counter
+replacement precedes append or a
+streamed atomic segment rewrite. Surviving records retain their origins;
+evictions copy exact origins into their own retry tombstones. Failed appends
+may leave counter gaps or preserved partial tails; strict reads never repair
+those tails. Preflight checks refuse observed link/identity changes, and effects
+stay relative to the retained directory descriptor. The canonical owner
+serializes cooperating file operations; arbitrary concurrent namespace writers
+that ignore the owner/workspace lease are not qualified by these checks.
+Admitted file effects return a definitive receipt to the original outer job even
+when settlement crosses its deadline. Caller/detached publication remains with
+that owner, rather than concealing a completed write as Expired. Original
+producer/runtime/root/lease checks,
+grounded batch settlement and exact-job Workflow deletion composition remain
+pending; this private file boundary adds no production routing.
+
 ## Recommendation cleanup preflight
 
 The source-only `RecommendationStore::capture_cleanup` copies memory only.
