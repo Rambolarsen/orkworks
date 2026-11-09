@@ -79,6 +79,15 @@ from these source-level ratings.
   Original and pre-file checks use one bounded SQL read transaction. Cover legacy clones/independent
   opens, owner loss/reopen, Busy, unavailable/corrupt storage, read/byte/queue
   deadlines and cancellation before admission. No I/O under application guards.
+- [x] Deliver private pure retry/eviction rules for complete record data before
+  composing file writes. Qualified retries match original scope/key/payload and
+  return the original receipt; legacy/foreign collisions refuse. Eviction copies
+  the exact origin/digest of its own value and preserves legacy representation.
+  Cover inclusive retry expiry, unchanged inputs, ambiguous duplicate receipts,
+  existing confidence/payload semantics, and exact segment count/byte bounds.
+  This is a data-only prerequisite: no original-origin constructor, counter/file
+  effects, retained write grant or batch routing. Selected read snapshots omit
+  tombstones; the future writer must supply complete bounded inventory.
 - [ ] Compose origin persistence with the existing grounded at-most-five
   final-scan candidates and the SQL Workflow deletion stage. One opaque original
   grant covers actual file work and finite settlement, never a fresh post-wait

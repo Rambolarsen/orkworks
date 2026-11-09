@@ -308,6 +308,7 @@ pub(crate) fn value_digest(observation: &WorkflowObservation) -> Result<String> 
     )?))?);
     Ok(hex::encode(hash.finalize()))
 }
+mod mutation;
 mod reader;
 #[allow(unused_imports)] // Staged reader API until the checked SQL owner is integrated.
 pub(crate) use reader::{ScanRequest, Snapshot};
