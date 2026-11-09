@@ -1276,6 +1276,9 @@ mod tests {
 
     #[tokio::test]
     async fn reordered_boundary_fences_old_permission_without_replaying_over_newer_attention() {
+        // Fingerprint construction and validation both resolve process-wide HOME.
+        let home = tempfile::tempdir().unwrap();
+        let _home = crate::test_support::FakeHome::set(home.path());
         for correlation in ["PreToolUse", "PostToolUse"] {
             for boundary in ["Stop", "UserPromptSubmit"] {
                 for private_first in [false, true] {
