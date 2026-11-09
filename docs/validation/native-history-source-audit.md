@@ -103,3 +103,9 @@ Only its observer pin changes. All three historical batch approvals are spent
 and none matches this manifest. No live budget is created. #742 remains open and
 #740 closed. A future exact owner-approved batch could identify the failed check
 group; there is no automatic retry or native support claim.
+
+
+The later [approved diagnostic attempt](parent-native-canary.md#history-diagnostic-packet-attempt--2026-11-09)
+used this exact manifest and reported history-session-layout. It does not recover
+the entry shape or the earlier failure cause. That fourth approval is spent;
+no further live budget remains.
