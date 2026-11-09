@@ -56,3 +56,6 @@ docs/validation/root-preparation-effects.json text eol=lf
 # Preserve exact unapproved native packet source/data hashes across checkouts.
 /crates/orkworksd/tests/fixtures/parent-native-packet/*.py text eol=lf
 /crates/orkworksd/tests/fixtures/parent-native-packet/*.json text eol=lf
+
+# Preserve the retained native canary receipt byte-for-byte.
+/docs/validation/parent-native-canary-summary.json text eol=lf

@@ -115,4 +115,6 @@ Capability research, validation results, and evidence fixtures.
 
 - [Model-free parent continuation oracles](parent-continuation-fixture.md) — Synthetic direct-call event/gap/revocation/resume tests and pinned receipt evidence; no native qualification.
 
-- [Prepared parent native continuation canary](parent-native-packet.md) — Exact unapproved stdio packet, synthetic process checks and finite proposed live budget.
+- [Prepared parent native continuation canary](parent-native-packet.md) — Exact stdio packet, synthetic process checks and finite proposed live budget.
+
+- [Parent continuation canary stopped unverified](parent-native-canary.md) — One approved attempt, sanitized stop receipt and unchanged native capability gates.
