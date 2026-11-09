@@ -216,6 +216,25 @@ under the [qualification plan](../superpowers/plans/2026-11-08-backup-maintenanc
 No runtime implementation, live operation, native/SQL/model execution, numerical
 execution allowance or rollout/dependency bypass follows.
 
+### Private terminal input outcome acceptance — 2026-11-09
+
+After #1571, the owner answered “go ahead” to the explicit three-choice request.
+[#1576](https://github.com/Rambolarsen/orkworks/issues/1576) records acceptance of
+the unchanged [private input-outcome interface](../superpowers/specs/2026-11-08-terminal-input-outcome-interface-design.md)
+for further qualification: one original submission record independent of callers;
+distinct input-effect truth, physical completion and application settlement; and
+rich recommendation consumption preserving partial/unknown protection without
+resend. Known full byte write is not command execution, and known no input effect
+is not absence of workspace effects. Panic/owner loss can drop local handles;
+unknown completion/ownership remains blocked for actual resolution.
+
+Reuse this approval with accepted maintenance/registration/bounded-settlement/
+backup/adoption/v1 rules. Actual owner operations, complete numeric reservation/
+deadline enforcement and physical/native/external/restore readiness remain gates
+under the [qualification plan](../superpowers/plans/2026-11-08-backup-maintenance-qualification.md).
+No runtime implementation, live operation, native/SQL/model execution, numerical
+execution allowance or rollout/dependency bypass follows.
+
 ## Clarification — 2026-11-07: SQL-bound recommendation recovery
 
 After reviewing the complete [recovery protocol](../superpowers/specs/2026-11-07-sql-recommendation-journal-recovery.md)

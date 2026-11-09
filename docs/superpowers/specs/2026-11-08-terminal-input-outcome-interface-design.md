@@ -1,10 +1,10 @@
 ---
 type: Design Contract
 title: Private terminal input truth and completion interface
-description: Proposed original-submission outcome ownership separating input byte effects, physical completion and application settlement.
+description: Accepted conditional original-submission outcome ownership separating input byte effects, physical completion and application settlement.
 tags: [orkworks, sessions, terminal, maintenance, ownership]
-status: draft
-workflow_status: proposed-owner-review
+status: stable
+workflow_status: accepted-for-qualification
 ---
 
 # Private terminal input truth and completion interface
@@ -26,7 +26,7 @@ evidence is reused; this document specifies a missing interface, not available
 runtime support. No code, product test, live operation or SQL/native/model probe
 was executed; no numeric execution allowance is supplied.
 
-## Proposed choices
+## Accepted choices for further qualification
 
 1. One application-owned original submission record, registered and reserved
    before delivery effects, retains direct terminal-writer facts independently
@@ -40,9 +40,11 @@ was executed; no numeric execution allowance is supplied.
    relevant completion, and partial/unknown remains protected for explicit owner
    resolution. No outcome, retry or compatibility wrapper resends input.
 
-These choices are proposed for owner approval. They refine the accepted policy;
-they do not implement the producer protocol, choose resource values or qualify a
-native profile. No new HTTP/event/storage codec, public capability or durable
+After #1571, the owner answered “go ahead” to the explicit three-choice approval
+request. [#1576](https://github.com/Rambolarsen/orkworks/issues/1576) records
+acceptance of these unchanged choices for further qualification on 2026-11-09.
+Reuse this approval with the existing accepted policy. Acceptance does not
+implement the producer protocol, choose resource values or qualify a native profile. No new HTTP/event/storage codec, public capability or durable
 idempotency service is introduced.
 
 ## Private seam and original ownership
@@ -195,14 +197,14 @@ These checks were not run and supply no probe allowance.
 
 ## Handoff and approval boundary
 
-Approval would accept the three interface choices for further qualification.
+Acceptance covers the three unchanged interface choices for further qualification.
 The [qualification plan](../plans/2026-11-08-backup-maintenance-qualification.md)
 remains Investigate until actual owner operations, numeric/enforcement and complete
 physical/native/external/restore inputs close. Existing accepted design reviews
 and approvals are reused. A later bounded implementation plan must name the real
 resource owners and regression checks before code; a mock outcome record cannot
 be presented as production delivery evidence. No implementation, live operation,
-SQL/native/model execution or new numerical allowance follows from this proposal.
+SQL/native/model execution or new numerical allowance follows from this accepted conditional design.
 
 
 ## Review disposition

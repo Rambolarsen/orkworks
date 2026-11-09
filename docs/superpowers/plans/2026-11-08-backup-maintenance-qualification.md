@@ -246,13 +246,21 @@ unavailable. No remaining qualification checkbox is completed, no physical fit
 is claimed, and no runtime execution or implementation allowance follows.
 
 
-## Terminal/application outcome interface proposal — 2026-11-08
+## Terminal/application outcome interface acceptance — 2026-11-09
 
 [#1569](https://github.com/Rambolarsen/orkworks/issues/1569) provides the
-[private outcome interface proposal](../specs/2026-11-08-terminal-input-outcome-interface-design.md)
+[accepted private outcome interface](../specs/2026-11-08-terminal-input-outcome-interface-design.md)
 for an original submission record retaining direct writer facts, distinct input
 truth/physical/application settlement, and rich recommendation consumption without
-resend. Its three choices remain proposed for owner review. Accepted no-resend,
+resend. After #1571, the owner answered “go ahead” to the explicit three-choice
+approval request; [#1576](https://github.com/Rambolarsen/orkworks/issues/1576) records
+acceptance for further qualification. Accepted no-resend,
 retained ownership and finite deadline/settlement policy stand. No actual outcome
 transport, numeric reservation/enforcement or physical readiness is qualified by
-the proposed record; all remaining qualification boxes and execution gates stand.
+the accepted conditional record; all remaining qualification boxes and execution
+gates stand.
+
+Reuse the accepted interface without repeat approval of unchanged choices. Actual
+submission/phase/result owner operations, complete numeric reservation/deadline
+enforcement and physical/native evidence still need closure before a bounded
+implementation handoff; an accepted paper record is not runtime capability.
