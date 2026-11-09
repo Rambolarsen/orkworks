@@ -1,0 +1,35 @@
+{
+  "discoveryCommands": 2,
+  "elapsedSeconds": 4.711,
+  "failure": {
+    "category": "check-failed",
+    "checkCode": "history-session-layout",
+    "osError": null,
+    "phase": 1,
+    "process": {
+      "exitCode": 0,
+      "started": true,
+      "terminationStepsCompleted": true
+    },
+    "stage": "native-history"
+  },
+  "manifestSha256": "809bcb6f61df6803e6fe4d080072d45b1d739a1d8a69ec4e41d9ecc3d2e0d7a2",
+  "nativeEnvironmentNames": [
+    "COPILOT_AUTO_UPDATE",
+    "COPILOT_HOME",
+    "HOME",
+    "NO_COLOR",
+    "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT",
+    "PATH",
+    "TMPDIR",
+    "USE_TGREP"
+  ],
+  "nativePromptInvocations": 1,
+  "outcome": "unverified",
+  "proposalSha256": "39bea8c908bb15f3d53ed8a8cd6fdbc38db341f0f30b53f0617b47929fdd027b",
+  "providerRequestCount": "unknown",
+  "rawRootsRemoved": true,
+  "remoteRetention": "unknown",
+  "schema": "orkworks.native-packet-summary.v1",
+  "stopReason": "Packet check failed; no retry or fallback"
+}

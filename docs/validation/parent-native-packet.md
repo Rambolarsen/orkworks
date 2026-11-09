@@ -1,10 +1,10 @@
 ---
 type: Qualification Packet
 title: Prepared parent native continuation canary
-description: Stdio MCP canary inputs, three unverified attempts, including the owner-approved UUID-corrected packet that stopped during native-history checks.
+description: Stdio MCP canary inputs, four unverified attempts, including the diagnostic packet that identified the session-layout guard.
 tags: [orchestration, copilot, continuation, qualification]
 status: draft
-workflow_status: uuid-corrected-attempt-spent
+workflow_status: history-diagnostic-attempt-spent
 ---
 
 # Prepared parent native continuation canary
@@ -15,7 +15,7 @@ The [plan](../superpowers/plans/2026-11-08-parent-native-packet.md) reuses the
 [offline peer](parent-continuation-fixture.md) without changing it. Preparation
 uses only Python fake clients and the fixture stdio server. No Copilot process,
 discovery command, SDK/ACP server, model or credential discovery has run for this
-packet during preparation. Three separately owner-approved batches later stopped
+packet during preparation. Four separately owner-approved batches later stopped
 [unverified](parent-native-canary.md) on 2026-11-09, each with raw-root deletion confirmed.
 #740 stays closed; all three native checks remain **unverified**.
 
@@ -193,5 +193,18 @@ tests pass; no Copilot command or vendor module ran for this correction.
 
 Current reporting manifest SHA-256: 809bcb6f61df6803e6fe4d080072d45b1d739a1d8a69ec4e41d9ecc3d2e0d7a2.
 Proposal remains 39bea8c908bb15f3d53ed8a8cd6fdbc38db341f0f30b53f0617b47929fdd027b.
-The earlier corrected manifest above is historical. All three batch approvals
-remain spent; the new manifest is not authorized for native execution.
+At reporting-correction time, all three earlier batch approvals were spent and
+the new manifest required a new exact decision. The subsequent diagnostic
+decision and spent attempt are recorded below.
+
+
+## Diagnostic batch spent — 2026-11-09
+
+A new exact owner decision authorized [#1626](https://github.com/Rambolarsen/orkworks/issues/1626)
+using the reporting manifest above. The unchanged packet attempted two discoveries
+and one prompt, then stopped at native-history/history-session-layout with observed
+exit zero. The [diagnostic receipt](parent-native-canary.md#history-diagnostic-packet-attempt--2026-11-09)
+identifies the exact-session entry/symlink check but not its actual inputs or which
+scan failed. Raw roots and disposable controls were removed. No resume/retry ran.
+All four batch approvals are now spent; ongoing live budget is zero. The exact
+packet remains unqualified for the three native capabilities.

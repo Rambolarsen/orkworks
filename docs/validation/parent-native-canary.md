@@ -1,7 +1,7 @@
 ---
 type: Native Canary Evidence
 title: Parent continuation canary stopped unverified
-description: Three separately approved native batches stopped unverified; the corrected UUID packet reached a native-history stop with observed process exit zero.
+description: Four separately approved batches stopped unverified; the diagnostic packet identified the session-layout guard with observed process exit zero.
 tags: [orchestration, copilot, continuation, qualification]
 status: stable
 workflow_status: attempted-unverified
@@ -232,3 +232,68 @@ new execution authority or permission to inspect deleted raw data.
 The later [offline history audit and reporting correction](native-history-source-audit.md)
 adds fixed check codes to future summaries without identifying the historical
 failure, changing these receipts or authorizing another batch.
+
+
+## History-diagnostic packet attempt — 2026-11-09
+
+[#1626](https://github.com/Rambolarsen/orkworks/issues/1626) executes the exact new
+owner decision after [#1621](https://github.com/Rambolarsen/orkworks/pull/1621).
+The owner answered “go ahead” to the diagnostic batch with existing authentication,
+unknown provider billing/retention and unchanged limits. The proposal, manifest
+and executable fixture bytes matched d913e501229c7b6ff907af4e87ddcd01371c48bd;
+the isolated execution worktree started at 0cad04787b6fb9800fd4ffd222f35285335ce228.
+No runner or packet input was edited for this attempt.
+
+The unchanged [diagnostic sanitized receipt](parent-native-canary-diagnostic-summary.json)
+has SHA-256 62759301bec8cc6ef60f703714c52e24f45db610edfea39bccafea0e5090793b.
+
+| Field | Diagnostic observation |
+| --- | --- |
+| Outcome | unverified |
+| Discovery command attempts | 2 |
+| Native prompt invocation attempts | 1 |
+| Elapsed batch seconds | 4.711 |
+| Failure phase / stage / category | 1 / native-history / check-failed |
+| Fixed check code | history-session-layout |
+| OS error | null |
+| Owned process started / observed exit code | true / 0 |
+| Termination steps completed | true |
+| Raw roots removed | true |
+| Provider request count / remote retention | unknown / unknown |
+
+This code narrows the failed condition to History.scan's exact-session entry
+check: the enumerated root entries must equal the single expected UUID path, and
+that expected entry must not be a symlink. The receipt does not retain the entry
+count, names, types or which side of that condition failed. An empty/transient
+root, another entry, a different session entry or the expected symlink cannot be
+distinguished. These are possible guard inputs, not findings about the deleted
+native files. Periodic and final scans use the same check; the receipt does not
+identify which scan failed. Earlier receipts receive no retrospective cause.
+
+The stage/code and observed exit zero do not establish a model turn, successful
+tool delivery or provider billing count. There is no successful checks block and
+no second prompt/resume. All three native capabilities remain unverified. The
+recorded termination sequence is not a universal descendant-liveness proof.
+
+The observer confirmed deletion of owned raw roots. The disposable approval/output
+control root was removed after copying only this summary. No raw output/history
+was inspected afterward, and no extra native diagnostic, retry, alternate tool
+name/model/transport or fallback ran. The first three receipts are unchanged.
+
+Exact approved commitments:
+
+- Proposal SHA-256: 39bea8c908bb15f3d53ed8a8cd6fdbc38db341f0f30b53f0617b47929fdd027b.
+- Manifest SHA-256: 809bcb6f61df6803e6fe4d080072d45b1d739a1d8a69ec4e41d9ecc3d2e0d7a2.
+
+The pinned observer Python used -E -s -B; the helper kept its approved -I -B flags.
+Bounds were two sequential gpt-6-luna prompts, four discovery commands,240 seconds
+per prompt/600 total,24 observed tools and32 observed turn/usage events, no retry.
+This exact approval is spent, including unused phase-two allowance. Ongoing live
+budget is zero. #742 stays open and #740 closed; no production eligibility,
+authority, storage or implementation claim follows.
+
+The next useful bounded task is offline investigation of session-directory creation
+and layout assumptions, including transient empty-root handling. If static evidence
+cannot resolve the entry shape, prepare only fixed counts/booleans distinguishing
+layout conditions for a separately approved packet. Do not weaken exclusivity or
+invent an actual native layout from this receipt. No further execution is authorized.
