@@ -1,11 +1,16 @@
 use super::*;
 
+#[cfg(target_os = "macos")]
+pub(super) type BeforeGroupKill = Box<dyn FnOnce(&Owner) + Send>;
+
 #[derive(Default)]
 pub(super) struct Faults {
     pub(super) pipe_setup: AtomicBool,
     pub(super) close_after_register: AtomicBool,
     pub(super) cleanup: AtomicBool,
     pub(super) reap: AtomicBool,
+    #[cfg(target_os = "macos")]
+    pub(super) before_group_kill: Mutex<Option<BeforeGroupKill>>,
 }
 
 #[tokio::test]
@@ -80,6 +85,62 @@ mod unix {
                 .parse()
                 .unwrap(),
         )
+    }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn cleanup_handles_leader_exit_between_status_and_group_signal() {
+        for (script, only_leader) in [
+            ("exec 2>/dev/null; printf v; while [ ! -f release ]; do :; done", true),
+            ("sleep 30 >/dev/null 2>&1 & exec 2>/dev/null; printf v; while [ ! -f release ]; do :; done", false),
+        ] {
+            let service = ProbeService::new().unwrap();
+            let dir = tempfile::tempdir().unwrap();
+            let release = dir.path().join("release");
+            let observed = Arc::new(Mutex::new(None));
+            let observation = observed.clone();
+            *service.shared.faults.before_group_kill.lock().unwrap() =
+                Some(Box::new(move |owner| {
+                    let was_running = matches!(owner.peek_exit(), Ok(None));
+                    let live_rejected = !only_exited_leader(owner);
+                    if std::fs::write(release, b"exit").is_err() {
+                        return;
+                    }
+                    let deadline = Instant::now() + Duration::from_secs(1);
+                    while Instant::now() < deadline {
+                        if matches!(owner.peek_exit(), Ok(Some(_))) {
+                            *observation.lock().unwrap() = Some((
+                                was_running,
+                                live_rejected,
+                                only_exited_leader(owner),
+                            ));
+                            return;
+                        }
+                        std::thread::sleep(Duration::from_millis(1));
+                    }
+                }));
+            // Both streams finish before the leader exits: one stdout byte is
+            // enough for version capture, and the shell closes its stderr pipe.
+            let result = service
+                .run(
+                    &mut shell(script, dir.path()),
+                    ProbePolicy {
+                        max_bytes: 1,
+                        reject_overflow: false,
+                        require_success: false,
+                    },
+                    Duration::from_secs(3),
+                )
+                .await;
+            service.shutdown().await;
+            assert_eq!(
+                *observed.lock().unwrap(),
+                Some((true, true, only_leader)),
+                "fixture must observe the same unreaped leader exit and distinguish a remaining member"
+            );
+            assert_eq!(result.unwrap().stdout, b"v");
+            assert_eq!(service.shared.permits.available_permits(), OWNER_LIMIT);
+        }
     }
 
     #[tokio::test]
@@ -313,7 +374,7 @@ mod unix {
         })
         .await
         .unwrap();
-        assert!(!only_exited_leader(owner.child.id()));
+        assert!(!only_exited_leader(&owner));
         assert!(owner.terminate());
         owner.child.wait().unwrap();
     }
