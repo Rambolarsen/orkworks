@@ -1914,6 +1914,15 @@ polling never deliver a replacement or partial snapshot. Captured writer
 persistence, Workflow deletion composition, assessment input construction and
 production routing remain pending. Production stays JSON.
 
+Private pure retry/eviction rules now operate on complete session records,
+including tombstones. A qualified retry requires the same original scope and
+payload; legacy or foreign-scope collisions refuse. A valid duplicate returns
+its original receipt as data. Eviction copies the exact qualified origin into
+its own tombstone and leaves legacy records unqualified. These functions grant
+no file authority, allocate no sequence and perform no rewrite. The eventual
+writer must supply complete bounded inventory and retained admission; a selected
+read snapshot omits retry tombstones and cannot substitute for that inventory.
+
 ## Recommendation cleanup preflight
 
 The source-only `RecommendationStore::capture_cleanup` copies memory only.

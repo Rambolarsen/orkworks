@@ -354,6 +354,9 @@ read settlement releases the session lane and file-operation exclusivity.
 no AppState and supplies no producer, deletion or assessment authority.
 
 Canonical shared admission and legacy SQL-evidence refusal are implemented.
+Pure retry resolution and eviction now preserve qualified scope and original
+receipts across observation/tombstone data. Legacy collisions refuse and legacy
+evictions remain unqualified. These data transformations establish no write grant.
 Writer/deletion composition and production routing remain pending. Production
 keeps its existing JSON authority.
 
