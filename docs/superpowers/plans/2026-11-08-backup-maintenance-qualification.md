@@ -410,3 +410,24 @@ remain gated. A retained lease/sender is not PTY ownership, receiver liveness or
 whole-job completion; last Core destruction releases objects without certifying
 teardown. No broad box above closes or maintenance/readiness/restore is activated.
 Verification and current-code review evidence belong in the bounded plan/PR.
+
+
+## Complete input coordinator/recipe proposal — 2026-11-09
+
+[#1638](https://github.com/Rambolarsen/orkworks/issues/1638) proposes the
+[application coordinator and closed original input recipe](../specs/2026-11-09-input-coordinator-recipe-design.md)
+after #1636. It reuses actual Entry/Core/scope/writer ownership and addresses
+application-lifetime root retention, full reservation before effects, exact
+continuation slots and rich graph/event settlement under one original deadline.
+Current two runtime slots and 64-entry channel are source controls only, not a
+complete memory/native/resource profile. Accumulated parser/hint state, reset
+retry loops and downstream Peon/graph owners remain actual missing inputs.
+
+The proposed next bounded private implementation would enforce the fixed recipe
+with explicit fixture parameters and existing actual capture/writer/join checks.
+Unsupported producer/multi-root/native/profile operations stay closed; local
+state fixtures cannot certify their completion or qualify production. This is a
+new proposed scope requiring explicit owner approval, not inferred permission
+from the completed preparatory slices. Production construction/activation and
+full module/root/resource/deadline/physical/readiness/restore qualification remain
+gated. No broad checkbox above closes and no new execution allowance is supplied.
