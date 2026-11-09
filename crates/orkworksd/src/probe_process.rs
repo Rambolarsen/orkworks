@@ -97,21 +97,25 @@ impl Owner {
             // remembered numeric PGID after that loss, or after reaping.
             match self.peek_exit() {
                 Err(_) => false,
-                Ok(exited) => {
+                Ok(_) => {
+                    #[cfg(all(test, target_os = "macos"))]
+                    if let Some(before_kill) = self.faults.before_group_kill.lock().unwrap().take()
+                    {
+                        before_kill(self);
+                    }
                     let result =
                         unsafe { libc::kill(-(self.child.id() as libc::pid_t), libc::SIGKILL) };
                     let error = io::Error::last_os_error().raw_os_error();
                     let mut accepted = result == 0 || error == Some(libc::ESRCH);
                     #[cfg(target_os = "macos")]
-                    if !accepted && error == Some(libc::EPERM) && exited.is_some() {
+                    if !accepted && error == Some(libc::EPERM) {
                         // Darwin returns EPERM for a group containing only an
                         // unreaped zombie leader. Do not generalize EPERM into
                         // success: query this still-anchored group and reject
                         // any other member or uncertain/truncated native result.
-                        accepted = only_exited_leader(self.child.id());
+                        // The leader may have exited after the pre-signal check.
+                        accepted = only_exited_leader(self);
                     }
-                    #[cfg(not(target_os = "macos"))]
-                    let _ = exited;
                     accepted
                 }
             }
@@ -154,7 +158,11 @@ impl Owner {
 }
 
 #[cfg(target_os = "macos")]
-fn only_exited_leader(leader: u32) -> bool {
+fn only_exited_leader(owner: &Owner) -> bool {
+    if !matches!(owner.peek_exit(), Ok(Some(_))) {
+        return false;
+    }
+    let leader = owner.child.id();
     const PROC_PGRP_ONLY: u32 = 2; // SDK sys/proc_info.h
     let mut members = [0i32; 2];
     // Identity is supplied by the unreaped original child, not this query.
