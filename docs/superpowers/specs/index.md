@@ -4,6 +4,8 @@ Dated design records; these do not establish current product behavior.
 
 ## Documents
 
+- [Headless replay fixture container](2026-11-09-headless-replay-container-design.md) — Proposed isolated image, non-root offline execution, caller-owned artifacts and exact-container cleanup for #95.
+
 - [SQL assessment input classification](2026-11-09-sql-assessment-input-classification.md) — Proposed typed unknown/qualified policy and bounded private test deliverable; production input authority remains gated.
 
 - [Complete original input coordinator and admission recipe](2026-11-09-input-coordinator-recipe-design.md) — Proposed application retention, closed continuation recipe and explicit production qualification/refusal gates.
