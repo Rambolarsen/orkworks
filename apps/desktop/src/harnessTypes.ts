@@ -533,39 +533,28 @@ function findDuplicateJsonKey(text: string): { key: string; offset: number } | n
   };
   const value = (): { key: string; offset: number } | null => {
     whitespace();
-    if (text[cursor] === "{") {
+    if (text[cursor] === "{" || text[cursor] === "[") {
+      const keys = text[cursor] === "{" ? new Set<string>() : null;
+      const closing = keys ? "}" : "]";
       cursor += 1;
-      const keys = new Set<string>();
       whitespace();
-      if (text[cursor] === "}") { cursor += 1; return null; }
-      while (cursor < text.length) {
-        whitespace();
-        const offset = cursor;
-        const end = stringEnd();
-        const key: string = JSON.parse(text.slice(offset, end));
-        if (keys.has(key)) return { key, offset };
-        keys.add(key);
-        whitespace();
-        cursor += 1;
+      while (cursor < text.length && text[cursor] !== closing) {
+        if (keys) {
+          const offset = cursor;
+          const end = stringEnd();
+          const key: string = JSON.parse(text.slice(offset, end));
+          if (keys.has(key)) return { key, offset };
+          keys.add(key);
+          whitespace();
+          cursor += 1;
+        }
         const nested = value();
         if (nested) return nested;
         whitespace();
-        if (text[cursor] === "}") { cursor += 1; return null; }
-        cursor += 1;
-      }
-      return null;
-    }
-    if (text[cursor] === "[") {
-      cursor += 1;
-      whitespace();
-      if (text[cursor] === "]") { cursor += 1; return null; }
-      while (cursor < text.length) {
-        const nested = value();
-        if (nested) return nested;
+        if (text[cursor] === ",") cursor += 1;
         whitespace();
-        if (text[cursor] === "]") { cursor += 1; return null; }
-        cursor += 1;
       }
+      cursor += 1;
       return null;
     }
     if (text[cursor] === '"') { stringEnd(); return null; }
