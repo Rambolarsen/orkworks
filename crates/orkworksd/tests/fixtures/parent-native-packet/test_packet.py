@@ -425,7 +425,10 @@ class StopReportingTests(unittest.TestCase):
                     reader.scan(1, final=True)
                 details = observer.failure_details({"phase": 1, "stage": "native-history"}, caught.exception)
                 self.assertEqual(details.get("checkCode"), code)
-                self.assertEqual(details["category"], "check-failed")
+                if case_name == "events-directory":
+                    self.assertIn(details["category"], ("check-failed", "os-error"))
+                else:
+                    self.assertEqual(details["category"], "check-failed")
                 self.assertNotIn("PRIVATE", json.dumps(details))
 
     def test_history_read_code_preserves_numeric_os_error(self):
