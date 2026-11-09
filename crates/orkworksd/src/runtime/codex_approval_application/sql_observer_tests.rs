@@ -188,6 +188,15 @@ async fn sql_observer_pipeline_discards_all_obsolete_rpc_contexts_before_reducti
 
 #[tokio::test]
 async fn sql_observer_pipeline_snapshot_cannot_move_to_a_rebound_application_owner() {
+    // Exact owner checks require an uncontended transition, as in the other SQL cases.
+    let module = module_path!().split_once("::").unwrap().1;
+    if super::sql_tests::isolated_test(format!(
+        "{module}::sql_observer_pipeline_snapshot_cannot_move_to_a_rebound_application_owner"
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (_dir, state, store, writes, _effect, _commands) = fixture_with_root("root").await;
     let generation = state.sessions.lock().unwrap()[ID].runtime.run_generation();
@@ -439,6 +448,15 @@ async fn sql_observer_pipeline_rejects_a_response_requested_before_its_snapshot(
 
 #[tokio::test]
 async fn sql_observer_pipeline_retains_post_rpc_metadata_read_deadline_errors() {
+    // Exact deadline checks require an uncontended transition, as in the other SQL cases.
+    let module = module_path!().split_once("::").unwrap().1;
+    if super::sql_tests::isolated_test(format!(
+        "{module}::sql_observer_pipeline_retains_post_rpc_metadata_read_deadline_errors"
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (_dir, state, store, writes, _effect, _commands) = fixture_with_root("root").await;
     let generation = state.sessions.lock().unwrap()[ID].runtime.run_generation();
