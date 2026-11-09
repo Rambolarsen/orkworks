@@ -2020,9 +2020,18 @@ assessment/recommendation inputs remain unqualified. The existing production
 JSON runner keeps its recording and evaluation behavior.
 
 Exact-job Workflow deletion is composed through the separate captured owner
-[described above](#captured-sql-workflow-evidence-cleanup). Copied close/reopen
-assessment-codec composition, complete input construction, production selection
-and measured performance remain separate gates.
+[described above](#captured-sql-workflow-evidence-cleanup). Copied-fixture tests
+now compose actual captured producer output, a closed database/evidence copy,
+the checked strict reopen path and the existing assessment source codec. The
+exact original pair and complete observation value survive; changed SQL sources
+refuse without evidence writes. A mixed legacy observation remains in the strict
+inventory with no origin; it is not silently filtered. The source-codec fixture
+uses only the existing test-only trusted claim constructor. That constructor
+validates envelope shape, not whether an input owner knew its
+closure. Semantic refusal of unknown observation/recommendation/readiness inputs
+remains unqualified until an original-input owner exists. Parsed data still
+grants no original-input authority; complete production input construction,
+selection and measured performance remain separate gates.
 
 ## Recommendation cleanup preflight
 
