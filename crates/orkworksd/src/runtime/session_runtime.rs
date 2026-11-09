@@ -1,4 +1,4 @@
-use super::input_submission::{Flush, InputFact};
+use super::input_submission::{Error as ReportError, Flush, InputFact, PhaseResult, Reporter};
 use crate::runtime::observed_status::ProcessTransition;
 #[cfg(windows)]
 use crate::runtime::terminal_runtime::resolve_windows_program;
@@ -369,6 +369,7 @@ fn reject_runtime_command(command: RuntimeCommand) {
 struct PtyWriteOutcome {
     input_bytes: usize,
     fact: InputFact,
+    reporting_error: Option<ReportError>,
 }
 impl PtyWriteOutcome {
     fn legacy_result(self) -> Result<(), ()> {
@@ -383,12 +384,24 @@ fn write_pty_input(
     writer: &mut dyn Write,
     data: &[u8],
     mut stopped: impl FnMut() -> bool,
+    reporter: Option<&Reporter>,
 ) -> PtyWriteOutcome {
     let mut reported = 0usize;
     let mut invoked = false;
+    let mut reporting_error = None;
     let fact = loop {
         let remaining = &data[reported..];
         if remaining.is_empty() {
+            if data.is_empty() {
+                if let Some(reporter) = reporter {
+                    if let Err(error) = reporter.checkpoint(0) {
+                        reporting_error = Some(error);
+                        break InputFact::FullWrite {
+                            flush: Flush::Unknown,
+                        };
+                    }
+                }
+            }
             // Final bytes can already be executing; stop/flush cannot undo them.
             let flush = match writer.flush() {
                 Ok(()) => Flush::Succeeded,
@@ -413,6 +426,18 @@ fn write_pty_input(
                     break InputFact::PartialOrUnknown { reported };
                 };
                 reported = next;
+                if let Some(reporter) = reporter {
+                    if let Err(error) = reporter.checkpoint(reported) {
+                        reporting_error = Some(error);
+                        break if reported == data.len() {
+                            InputFact::FullWrite {
+                                flush: Flush::Unknown,
+                            }
+                        } else {
+                            InputFact::PartialOrUnknown { reported }
+                        };
+                    }
+                }
             }
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
             _ => break InputFact::PartialOrUnknown { reported },
@@ -421,7 +446,26 @@ fn write_pty_input(
     PtyWriteOutcome {
         input_bytes: data.len(),
         fact,
+        reporting_error,
     }
+}
+
+// Optional reporting is constructed only by offline fixtures until production
+// original-input ownership/admission has its qualified integration.
+#[allow(dead_code)]
+struct ReportedPtyInput {
+    writer: Box<dyn Write + Send>,
+    data: String,
+    accepted: Option<tokio::sync::oneshot::Sender<Result<(), ()>>>,
+    stop_rx: tokio::sync::watch::Receiver<bool>,
+    reports: (Reporter, Reporter),
+    #[cfg(test)]
+    after_ack: Option<Box<dyn FnOnce() + Send>>,
+}
+#[allow(dead_code)]
+struct RejectedPtyInput {
+    reason: ReportError,
+    input: ReportedPtyInput,
 }
 
 // A blocking write owns its acknowledgement until the native operation has
@@ -429,6 +473,7 @@ fn write_pty_input(
 struct PendingPtyWrite {
     task: tokio::task::JoinHandle<(Box<dyn Write + Send>, PtyWriteOutcome)>,
     cancelled: Arc<AtomicBool>,
+    returned: Option<Reporter>,
 }
 
 impl PendingPtyWrite {
@@ -443,9 +488,39 @@ impl PendingPtyWrite {
             data,
             accepted,
             stop_rx,
+            None,
             #[cfg(test)]
             None,
         )
+    }
+
+    #[allow(dead_code)]
+    fn start_reported(input: ReportedPtyInput) -> Result<Self, RejectedPtyInput> {
+        if let Err(reason) = input
+            .reports
+            .0
+            .validate_pair(&input.reports.1, input.data.len())
+        {
+            return Err(RejectedPtyInput { reason, input });
+        }
+        let ReportedPtyInput {
+            writer,
+            data,
+            accepted,
+            stop_rx,
+            reports,
+            #[cfg(test)]
+            after_ack,
+        } = input;
+        Ok(Self::start_inner(
+            writer,
+            data,
+            accepted,
+            stop_rx,
+            Some(reports),
+            #[cfg(test)]
+            after_ack,
+        ))
     }
 
     fn start_inner(
@@ -453,15 +528,44 @@ impl PendingPtyWrite {
         data: String,
         accepted: Option<tokio::sync::oneshot::Sender<Result<(), ()>>>,
         stop_rx: tokio::sync::watch::Receiver<bool>,
+        reports: Option<(Reporter, Reporter)>,
         #[cfg(test)] after_ack: Option<Box<dyn FnOnce() + Send>>,
     ) -> Self {
         let cancelled = Arc::new(AtomicBool::new(false));
         let write_cancelled = cancelled.clone();
+        let (writer_reporter, returned) = match reports {
+            Some((writer, returned)) => (Some(writer), Some(returned)),
+            None => (None, None),
+        };
         let task = tokio::task::spawn_blocking(move || {
-            let outcome = write_pty_input(writer.as_mut(), data.as_bytes(), || {
-                // Release the watch read lock before entering native I/O.
-                *stop_rx.borrow() || write_cancelled.load(Ordering::Acquire)
-            });
+            let mut outcome = write_pty_input(
+                writer.as_mut(),
+                data.as_bytes(),
+                || {
+                    // Release the watch read lock before entering native I/O.
+                    *stop_rx.borrow() || write_cancelled.load(Ordering::Acquire)
+                },
+                writer_reporter.as_ref(),
+            );
+            if let Some(reporter) = writer_reporter.as_ref() {
+                if let Err(error) = reporter.record_input(outcome.fact) {
+                    outcome.reporting_error.get_or_insert(error);
+                }
+                let phase = if outcome.reporting_error.is_some() {
+                    PhaseResult::Failed
+                } else {
+                    match outcome.fact {
+                        InputFact::NoInputEffect => PhaseResult::NoEffect,
+                        InputFact::FullWrite {
+                            flush: Flush::Succeeded,
+                        } => PhaseResult::Completed,
+                        _ => PhaseResult::Failed,
+                    }
+                };
+                if let Err(error) = reporter.finish(phase) {
+                    outcome.reporting_error.get_or_insert(error);
+                }
+            }
             if let Some(accepted) = accepted {
                 let _ = accepted.send(outcome.legacy_result());
             }
@@ -472,7 +576,33 @@ impl PendingPtyWrite {
             }
             (writer, outcome)
         });
-        Self { task, cancelled }
+        Self {
+            task,
+            cancelled,
+            returned,
+        }
+    }
+
+    async fn finish_join(
+        &mut self,
+    ) -> Result<(Box<dyn Write + Send>, PtyWriteOutcome), tokio::task::JoinError> {
+        let mut result = (&mut self.task).await;
+        if let Some(reporter) = self.returned.take() {
+            let phase = if result.is_ok() {
+                PhaseResult::Completed
+            } else {
+                PhaseResult::Failed
+            };
+            if let Err(error) = reporter.finish(phase) {
+                match &mut result {
+                    Ok((_, outcome)) => {
+                        outcome.reporting_error.get_or_insert(error);
+                    }
+                    Err(_) => tracing::warn!(?error, "PTY return reporting failed"),
+                }
+            }
+        }
+        result
     }
 
     fn cancel(&self) {
@@ -2945,7 +3075,7 @@ async fn run_session_runtime(
                     revocation.close();
                 let _ = driver_killer.lock().unwrap().kill();
                 }
-                result = async { (&mut pending_write.as_mut().expect("pending write").task).await }, if pending_write.is_some() => {
+                result = async { pending_write.as_mut().expect("pending write").finish_join().await }, if pending_write.is_some() => {
                     pending_write = None;
                     match result {
                         Ok((returned_writer, _outcome)) => {

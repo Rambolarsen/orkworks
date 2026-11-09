@@ -352,3 +352,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Source-only input submission owner candidate](2026-11-09-input-submission-owner-candidate.md) — Bounded implementation of one unwired private ownership/accounting module with offline behavioral verification.
 
 - [Direct terminal writer outcomes implementation](2026-11-09-terminal-write-outcomes.md) — Accepted bounded actual writer/driver refactor and offline tests; application owner activation remains gated.
+
+- [Retained writer reporting bridge implementation](2026-11-09-writer-reporting-bridge.md) — Accepted checkpoint and optional reporter transfer task with production reporting absent and physical qualification gated.

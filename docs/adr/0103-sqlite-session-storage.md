@@ -353,3 +353,18 @@ queue/payload copy, application graph policy, native/model experiment, numeric
 profile, Q/readiness or restore qualification is accepted by this slice. The
 previous candidate exception remains specific to #1593; this is the separately
 approved preparatory producer change.
+
+
+## Amendment — 2026-11-09: optional retained writer reporting
+
+After #1616 the owner answered “keep going” to the exact implementation question
+for [checkpoints and reporter transfer](../superpowers/specs/2026-11-09-retained-writer-transfer-design.md).
+This accepts fixed monotonic byte checkpoints separate from immutable terminal
+facts and an optional private writer/return bridge through the existing worker
+and join, with actual offline Owner/producer checks. #1620 records approval,
+plan and code together. All production starts remain unreported; no production
+Owner factory, command/application routing, new job/channel/profile/default,
+root/input authority, force resolution, physical/maintenance/restore qualification
+or live/native/model/resource experiment is accepted. Existing outcome/no-resend/
+protection semantics stand; the newest native-return-to-checkpoint count can
+still be lost on panic, and real original-resource ownership remains gated.

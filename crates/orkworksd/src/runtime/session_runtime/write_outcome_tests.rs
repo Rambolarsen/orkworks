@@ -30,7 +30,7 @@ impl ScriptedWriter {
     }
     fn run(&mut self) -> PtyWriteOutcome {
         let stopped = self.stopped.clone();
-        write_pty_input(self, b"abc", || stopped.load(Ordering::Acquire))
+        write_pty_input(self, b"abc", || stopped.load(Ordering::Acquire), None)
     }
 }
 impl Write for ScriptedWriter {
@@ -191,7 +191,7 @@ fn empty_input_has_zero_byte_truth_and_actual_flush_disposition() {
     for (fail, flush) in [(false, Flush::Succeeded), (true, Flush::Failed)] {
         let mut writer = ScriptedWriter::new([]);
         writer.fail_flush = fail;
-        let outcome = write_pty_input(&mut writer, b"", || true);
+        let outcome = write_pty_input(&mut writer, b"", || true, None);
         assert_eq!(outcome.input_bytes, 0);
         assert_eq!(outcome.fact, InputFact::FullWrite { flush });
         assert_eq!(outcome.legacy_result(), Ok(()));
@@ -298,6 +298,7 @@ async fn acknowledgement_does_not_certify_held_blocking_closure_return() {
         "abc".into(),
         Some(accepted),
         tokio::sync::watch::channel(false).1,
+        None,
         Some(Box::new(move || hold.wait())),
     );
     entered(observing).await;
@@ -376,3 +377,6 @@ async fn writer_and_flush_panics_remain_join_errors_without_fabricated_facts() {
         assert!(matches!(result, Err(error) if error.is_panic()));
     }
 }
+
+#[path = "write_outcome_tests/reported_tests.rs"]
+mod reported_tests;
