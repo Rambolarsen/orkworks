@@ -371,8 +371,20 @@ owner: it retains its original canonical candidate/store and captured
 `SqlDeletionIdentity` through file removal, identity-checked progress and result
 delivery. Read grants cannot mint it. Progress advancement alone is not a new
 job identity, and Workflow completion sets only `0x02` without finalizing the
-row/job. Assessment composition remains pending. Production keeps its existing
-JSON authority.
+row/job. Runtime assessment composition remains pending. Production keeps its
+existing JSON authority.
+
+### Private assessment input classification
+
+`CapturedInputSet` owns complete ordered input membership and an original
+selected scope. Its value/origin/scope fields are private and non-deserializable;
+only trusted test utilities construct Qualified claims in the current slice.
+Unknown is distinct from a Qualified zero-pair input. The pure classifier refuses
+any Unknown member, checks original scope/creation consistency and independent
+1 MiB envelope, 128-source and 16 KiB packet bounds, then returns existing
+SqlAssessmentSources data. This is neither OriginalInputs nor an operation grant.
+The additional encoded cap leaves the observation reader, prompt and assessment
+record limits unchanged. No production capture owner or routing calls it.
 
 ### Recommendation origins: analysis vs observations
 

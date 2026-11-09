@@ -1908,3 +1908,28 @@ original-input authority, assessment publication, recommendation cleanup,
 startup/migration, physical durability or performance. Production remains JSON.
 The concrete PR records current-source verification/review evidence and any
 unrelated suite limitations rather than extending earlier results by inference.
+
+
+## Private typed assessment classification
+
+Seven direct policy tests were behavioral RED against the API skeleton and GREEN
+after implementation. Actual Unknown states in each complete input position
+refuse despite valid-shaped underlying JSON with empty source arrays; identical
+values explicitly Qualified with zero pairs succeed. An empty set requires its
+qualified original scope, and serialized source data remains an Unknown value.
+
+Exact value/order and source union match the existing codec; changing value or
+order changes the dependency digest. Foreign scope, conflicting creation, invalid
+identity and duplicate/noncanonical pairs refuse. Independent fixtures cover
+128 versus 129 aggregate sources, exact/one-over 16 KiB source packets and 1 MiB
+accepted envelopes, including escaped strings and a late extra member. The
+borrowed byte preflight precedes full value copying and codec conversion. The
+existing canonical codec's later encoding is bounded by that preflight; this
+is encoded accounting, not a physical memory or throughput result.
+
+All opaque membership/value/scope fields are private and non-deserializable;
+qualified construction exists only in trusted test utilities. The pure policy
+returns SqlAssessmentSources data only and changes no worker error mapping,
+OriginalInputs construction, model/scheduler/publication, startup or production
+JSON routing. Real producer/admission ownership and publication remain gated.
+The concrete PR records full verification and current-code review evidence.

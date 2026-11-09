@@ -4,6 +4,8 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 ## Documents
 
+- [Private SQL assessment input classification](2026-11-09-sql-assessment-input-classification.md) — Approved bounded pure policy/test slice; production claim minting and routing stay gated.
+
 - [Original input scope retention](2026-11-09-input-scope-retention.md) — Approved bounded capture/attachment and actual offline lease/worker retention implementation.
 
 - [Role retirement artifact validation](2026-11-08-role-retirement-artifacts.md) — Proposed dormant snapshot codec and typed key/digest checks for #1548.
