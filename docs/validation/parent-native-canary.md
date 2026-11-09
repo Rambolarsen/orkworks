@@ -227,3 +227,8 @@ Before another live proposal, the useful bounded follow-up is a model-free audit
 of the pinned native-history layout/event contract against the observer, with a
 minimal fixed failure-code projection only if needed. This is a suggestion, not
 new execution authority or permission to inspect deleted raw data.
+
+
+The later [offline history audit and reporting correction](native-history-source-audit.md)
+adds fixed check codes to future summaries without identifying the historical
+failure, changing these receipts or authorizing another batch.
