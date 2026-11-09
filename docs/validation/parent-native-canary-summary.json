@@ -1,0 +1,23 @@
+{
+  "discoveryCommands": 2,
+  "elapsedSeconds": 3.357,
+  "manifestSha256": "1d850a7a88a8bc098e4726c66eab1d95746331df7668c0cc3a8b812e0a2da3e8",
+  "nativeEnvironmentNames": [
+    "COPILOT_AUTO_UPDATE",
+    "COPILOT_HOME",
+    "HOME",
+    "NO_COLOR",
+    "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT",
+    "PATH",
+    "TMPDIR",
+    "USE_TGREP"
+  ],
+  "nativePromptInvocations": 1,
+  "outcome": "unverified",
+  "proposalSha256": "e84b24ab002afc8fe45ecca2a2be6976ad8d1a5fc1f53aa1e5663fe31ec4f297",
+  "providerRequestCount": "unknown",
+  "rawRootsRemoved": true,
+  "remoteRetention": "unknown",
+  "schema": "orkworks.native-packet-summary.v1",
+  "stopReason": "Packet check failed; no retry or fallback"
+}

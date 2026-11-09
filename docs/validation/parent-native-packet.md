@@ -1,10 +1,10 @@
 ---
 type: Qualification Packet
 title: Prepared parent native continuation canary
-description: One unapproved stdio MCP packet with synthetic process tests and exact proposed inputs; no Copilot capability result.
+description: One stdio MCP packet with exact proposed inputs and synthetic process tests, followed by one approved but unverified native attempt.
 tags: [orchestration, copilot, continuation, qualification]
 status: draft
-workflow_status: prepared-not-authorized
+workflow_status: attempted-unverified
 ---
 
 # Prepared parent native continuation canary
@@ -15,7 +15,9 @@ The [plan](../superpowers/plans/2026-11-08-parent-native-packet.md) reuses the
 [offline peer](parent-continuation-fixture.md) without changing it. Preparation
 uses only Python fake clients and the fixture stdio server. No Copilot process,
 discovery command, SDK/ACP server, model or credential discovery has run for this
-packet. #740 stays closed; all three native checks remain **unverified**.
+packet during preparation. One later owner-approved native batch stopped
+[unverified](parent-native-canary.md) on 2026-11-09, with raw-root deletion confirmed.
+#740 stays closed; all three native checks remain **unverified**.
 
 ## Exact packet
 
@@ -46,11 +48,13 @@ with an unchanged prefix. ResumeData itself contains no native session ID.
 
 ## Proposed live budget and remaining decision
 
-The current authorized live budget is **zero**. A later owner decision must bind
-the SHA-256 of the exact proposal and manifest, decision approve-one-batch and
-maxNativePrompts 2. Missing, changed or extra authorization fields stop before any
-subprocess. This procedural research guard is not a product credential boundary.
-Do not create an approved file from historical #740 decisions.
+The owner approved the exact proposal/manifest for one batch on 2026-11-09.
+Its [receipt](parent-native-canary.md) is unverified; that one attempt is spent.
+The current authorized live budget is **zero**. Another attempt needs a new exact
+owner decision. The guard binds the SHA-256 of the proposal and manifest,
+decision approve-one-batch and maxNativePrompts 2; missing, changed or extra fields
+stop before any subprocess. This procedural research guard is not a product
+credential boundary. Historical #740 decisions grant no new attempt.
 
 The proposal allows two sequential native prompt invocations, each at most 240
 seconds, four source-discovery commands at most 30 seconds each (two per phase),
@@ -110,4 +114,4 @@ nonzero result is retained rather than described as an entirely green run.
 Existing Rust unused-code and bundle/circular-chunk warnings concern unchanged
 surfaces and do not require packet edits. Passing current-head CI is required
 before merge. Fresh medium code review approved the corrected code and final
-POSIX test guard; no Copilot command was run by either writer or reviewer.
+POSIX test guard; neither the preparation writer nor reviewer ran a Copilot command.
