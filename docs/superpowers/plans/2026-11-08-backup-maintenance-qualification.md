@@ -371,3 +371,24 @@ root/resource/profile/application integration. The bridge never completes
 preparation/bookkeeping, grants input authority or qualifies native/physical
 teardown, Q/readiness, backup or restore. Required current-head CI/PR evidence
 still gates merge; no broad qualification box closes here.
+
+
+## Original input scope proposal — 2026-11-09
+
+[#1627](https://github.com/Rambolarsen/orkworks/issues/1627) proposes the
+[concrete original-scope attachment](../specs/2026-11-09-original-input-scope-design.md)
+after #1625. Existing recommendation delivery captures only a weak workspace
+lease; keeping AppState alive cannot retain a workspace removed from it. The
+proposed immutable Entry attachment owns the actual original strong lease and
+captured runtime/channel intent, sharing lifetime through existing Core/reporters
+rather than a second registry. Application coordination must eventually retain
+the Owner independently of callers and current workspace selection.
+
+Fresh builder and independent source/authority reviews found no material issues.
+The new bounded handoff would implement actual typed capture/finite attachment
+and offline lease/worker lifetime tests, after explicit approval. It introduces
+no production capture/Owner factory, command routing, phase or graph consumer,
+complete native RootKey/registration, resource/deadline profile, physical/
+maintenance or restore qualification. All broad boxes above remain unchanged;
+this proposal is not implementation approval. No separate acceptance-only task
+is needed after the owner approves the concrete scope.
