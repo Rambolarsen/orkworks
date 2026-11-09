@@ -147,14 +147,14 @@ export function parseHarnessDraft(text: string, mode: HarnessEditorMode): Harnes
       }],
     };
   }
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
+  if (!isRecord(value)) {
     return {
       value: null,
       diagnostics: [{ code: "invalid_schema", message: "Configuration must be a JSON object.", path: "$" }],
     };
   }
 
-  const object = value as Record<string, unknown>;
+  const object = value;
   const diagnostics: HarnessValidationDiagnostic[] = [];
   const duplicate = findDuplicateJsonKey(text);
   if (duplicate) {
@@ -169,20 +169,18 @@ export function parseHarnessDraft(text: string, mode: HarnessEditorMode): Harnes
   }
   const allowedFields = mode === "override" ? PATCH_FIELDS : COMPLETE_FIELDS;
   for (const field of Object.keys(object)) {
-    if (field in object) {
-      if (DERIVED_HARNESS_FIELDS.has(field)) {
-        diagnostics.push({
-          code: "custom_authority_binding",
-          message: `${field} is derived by OrkWorks and cannot be edited here.`,
-          path: `$.${field}`,
-        });
-      } else if (!allowedFields.has(field)) {
-        diagnostics.push({
-          code: "unknown_field",
-          message: `Unknown ${mode === "override" ? "override" : "custom definition"} field ${field}.`,
-          path: `$.${field}`,
-        });
-      }
+    if (DERIVED_HARNESS_FIELDS.has(field)) {
+      diagnostics.push({
+        code: "custom_authority_binding",
+        message: `${field} is derived by OrkWorks and cannot be edited here.`,
+        path: `$.${field}`,
+      });
+    } else if (!allowedFields.has(field)) {
+      diagnostics.push({
+        code: "unknown_field",
+        message: `Unknown ${mode === "override" ? "override" : "custom definition"} field ${field}.`,
+        path: `$.${field}`,
+      });
     }
   }
 
