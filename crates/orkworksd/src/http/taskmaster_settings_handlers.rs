@@ -484,6 +484,12 @@ mod tests {
         let _token = crate::test_support::open_plan_token::set("taskmaster-test-token").await;
         use crate::taskmaster::runtime::{TaskmasterRunOutcomeState, TaskmasterRunTrigger};
         use std::sync::atomic::{AtomicUsize, Ordering};
+        let _diagnostics = tracing::subscriber::set_default(
+            tracing_subscriber::fmt()
+                .with_ansi(false)
+                .with_test_writer()
+                .finish(),
+        );
         for running in [false, true] {
             let directory = tempfile::tempdir().unwrap();
             let mut state = test_app_state_with_workspace(directory.path());
@@ -504,6 +510,10 @@ mod tests {
             );
             runtime.replace_settings(settings).unwrap();
             let mut other_instance_lease = Some(runtime.try_analysis_lease().unwrap().unwrap());
+            // A concurrent Unix fork can temporarily retain this open file description.
+            // Keep a duplicate alive to exercise that case deterministically.
+            #[cfg(unix)]
+            let _inherited_descriptor = other_instance_lease.as_ref().unwrap().try_clone().unwrap();
             let id = runtime
                 .queue_run(
                     directory.path(),
@@ -519,6 +529,8 @@ mod tests {
             }
             for lease_available in [false, true] {
                 if lease_available {
+                    // Closing one handle is insufficient while a fork retains a descriptor.
+                    fs2::FileExt::unlock(other_instance_lease.as_ref().unwrap()).unwrap();
                     drop(other_instance_lease.take());
                 }
                 let response = super::super::taskmaster_handlers::analyze_taskmaster(
@@ -538,7 +550,10 @@ mod tests {
                     .contains("verified reference knowledge"));
                 let status = runtime.run_status(Some(directory.path())).unwrap();
                 if lease_available {
-                    assert!(status.active_attempt.is_none());
+                    assert!(
+                        status.active_attempt.is_none(),
+                        "running={running}, lease_available={lease_available}, status={status:?}"
+                    );
                     if running {
                         assert_eq!(
                             status.latest_outcome.unwrap().state,
