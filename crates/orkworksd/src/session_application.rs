@@ -931,20 +931,15 @@ impl SessionApplication {
             return false;
         };
 
-        let mut projected = current
+        let mut current = current
             .into_iter()
             .map(|item| (item.id.clone(), item))
             .collect::<BTreeMap<_, _>>();
         for update in legacy_updates {
-            projected.insert(update.id.clone(), update.clone());
+            current.insert(update.id.clone(), update.clone());
         }
-        let current = projected.into_values().collect::<Vec<_>>();
         let now = chrono::Utc::now().to_rfc3339();
-        let mut working = current
-            .iter()
-            .cloned()
-            .map(|recommendation| (recommendation.id.clone(), recommendation))
-            .collect::<BTreeMap<_, _>>();
+        let mut working = current.clone();
         let assigned_member_ids = clusters
             .iter()
             .flat_map(|cluster| cluster.member_recommendation_ids.iter().cloned())
@@ -976,19 +971,16 @@ impl SessionApplication {
                 .iter()
                 .cloned()
                 .collect::<BTreeSet<_>>();
-            let Some(first_member) = member_ids
+            let Some(members) = member_ids
                 .iter()
-                .find_map(|id| current.iter().find(|item| item.id == *id))
+                .map(|id| current.get(id).cloned())
+                .collect::<Option<Vec<_>>>()
+                .filter(|members| !members.is_empty())
             else {
                 return false;
             };
-            let members = member_ids
-                .iter()
-                .filter_map(|id| current.iter().find(|item| item.id == *id).cloned())
-                .collect::<Vec<_>>();
-            if members.len() != member_ids.len() {
-                return false;
-            }
+            // The nonempty, complete set is in deterministic member-ID order.
+            let first_member = &members[0];
             let parent_id = stable_rollup_id(&cluster.member_recommendation_ids);
             if members.iter().any(|member| {
                 member.status == RecommendationStatus::RolledUp
@@ -1000,7 +992,7 @@ impl SessionApplication {
             }) {
                 return false;
             }
-            let existing_parent = current.iter().find(|item| item.id == parent_id);
+            let existing_parent = current.get(&parent_id);
             if existing_parent.is_some_and(|parent| {
                 parent.rollup_member_ids.is_empty()
                     || !matches!(
@@ -1022,7 +1014,7 @@ impl SessionApplication {
                 return false;
             }
             let superseded_parents = current
-                .iter()
+                .values()
                 .filter(|item| {
                     matches!(item.status, RecommendationStatus::Proposed)
                         && !item.rollup_member_ids.is_empty()
@@ -1135,7 +1127,7 @@ impl SessionApplication {
         }
         // A valid clustering result is authoritative for the complete active
         // groups supplied to it, including groups omitted from an empty result.
-        for old_parent in current.iter().filter(|parent| {
+        for old_parent in current.values().filter(|parent| {
             supplied_parent_ids.contains(&parent.id) && !retained_parent_ids.contains(&parent.id)
         }) {
             if old_parent.status != RecommendationStatus::Proposed
@@ -1151,11 +1143,12 @@ impl SessionApplication {
             superseded.updated_at = now.clone();
             add_expected(&superseded.id, &mut expected);
             working.insert(superseded.id.clone(), superseded);
-            for old_member_id in &old_parent.rollup_member_ids {
-                if assigned_member_ids.contains(old_member_id) {
-                    continue;
-                }
-                let Some(old_member) = current.iter().find(|item| item.id == *old_member_id) else {
+            for old_member_id in old_parent
+                .rollup_member_ids
+                .iter()
+                .filter(|id| !assigned_member_ids.contains(*id))
+            {
+                let Some(old_member) = current.get(old_member_id) else {
                     return false;
                 };
                 if old_member.rolled_up_by.as_deref() == Some(old_parent.id.as_str()) {
